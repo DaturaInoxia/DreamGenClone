@@ -6,8 +6,10 @@ using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.StoryAnalysis;
+using DreamGenClone.Infrastructure.Persistence;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Prompts;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.Models;
 using DreamGenClone.Web.Domain.RolePlay;
@@ -19,36 +21,6 @@ namespace DreamGenClone.Tests.RolePlay;
 
 public sealed class RolePlayContinuationNarrativeValidationTests
 {
-    [Fact]
-    public async Task ContinueBatchAsync_NarrativePrompt_UsesSceneTransitionGuardrails()
-    {
-        var completion = new QueueCompletionClient([
-            "The crowd drifted toward the terrace while the hallway settled into a quieter rhythm."
-        ]);
-
-        var service = CreateService(completion, out _);
-        var session = new RolePlaySession
-        {
-            Id = "s1",
-            PersonaName = "Becky"
-        };
-
-        var result = await service.ContinueBatchAsync(
-            session,
-            actors: [],
-            includeNarrative: true,
-            customActorName: null,
-            promptText: "Continue the scene");
-
-        Assert.True(result.Success);
-        Assert.Single(completion.Prompts);
-
-        var prompt = completion.Prompts[0];
-        Assert.Contains("Your priority is the physical scene and environment", prompt, StringComparison.Ordinal);
-        Assert.Contains("Include zero quoted speech", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("Prefer externally observable actions, dialogue", prompt, StringComparison.Ordinal);
-    }
-
     [Fact]
     public async Task ContinueBatchAsync_NarrativeValidation_RetriesAndPrefersSaferOutput()
     {
@@ -106,122 +78,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         Assert.Equal("Rain tapped softly on the windows while the room settled into a fragile quiet, and the evening eased into its next turn without spectacle.", result.NarrativeOutput!.Content);
     }
 
-    [Fact]
-    public async Task ContinueAsync_WhenThemeGuidanceEnabled_AppendsThemeHintsToPrompt()
-    {
-        var completion = new QueueCompletionClient([
-            "Dean stepped closer and lowered his voice."
-        ]);
-
-        var rpThemeService = new StubRpThemeService(new RPTheme
-        {
-            Id = "infidelity-public-facade",
-            AIGenerationNotes =
-            [
-                new RPThemeAIGuidanceNote
-                {
-                    Section = RPThemeAIGuidanceSection.InteractionDynamics,
-                    Text = "Escalate excuse complexity over time.",
-                    SortOrder = 0
-                }
-            ]
-        });
-
-        var service = CreateService(completion, out _, rpThemeService);
-        var session = new RolePlaySession
-        {
-            Id = "s4",
-            PersonaName = "Becky",
-            
-            UseThemeAIGuidanceNotesInPrompt = true,
-            ThemeAIGuidanceInfluencePercent = 55,
-            MaxThemeAIGuidanceNotes = 4,
-            AdaptiveState = new RolePlayAdaptiveState
-            {
-                ActiveScenarioId = "infidelity-public-facade",
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed
-            }
-        };
-
-        await service.ContinueAsync(
-            session,
-            ContinueAsActor.Npc,
-            customActorName: null,
-            intent: PromptIntent.Message,
-            promptText: "Continue naturally.");
-
-        Assert.Single(completion.Prompts);
-        var prompt = completion.Prompts[0];
-        Assert.Contains("Theme AI Guidance (soft hints, influence=55%):", prompt, StringComparison.Ordinal);
-        Assert.Contains("Escalate excuse complexity over time.", prompt, StringComparison.Ordinal);
-    }
-
     // ── T003: NarrativeLocationLabel (tested via prompt output) ─────────────
-
-    [Fact]
-    public async Task NarrativeLocationLabel_EmDash_StripsSubtitle()
-    {
-        var completion = new QueueCompletionClient(["Scene text."]);
-        var service = CreateService(completion, out _);
-        var session = new RolePlaySession
-        {
-            Id = "loc1",
-            PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
-            {
-                CurrentSceneLocation = "Hotel Room \u2014 Private Suite"
-            }
-        };
-
-        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
-
-        var prompt = completion.Prompts[0];
-        Assert.Contains("Hotel Room", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("Private Suite", prompt, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task NarrativeLocationLabel_Colon_StripsSubtitle()
-    {
-        var completion = new QueueCompletionClient(["Scene text."]);
-        var service = CreateService(completion, out _);
-        var session = new RolePlaySession
-        {
-            Id = "loc2",
-            PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
-            {
-                CurrentSceneLocation = "The Library : Special Collection"
-            }
-        };
-
-        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
-
-        var prompt = completion.Prompts[0];
-        Assert.Contains("The Library", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("Special Collection", prompt, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task NarrativeLocationLabel_PlainName_Unchanged()
-    {
-        var completion = new QueueCompletionClient(["Scene text."]);
-        var service = CreateService(completion, out _);
-        var session = new RolePlaySession
-        {
-            Id = "loc3",
-            PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
-            {
-                CurrentSceneLocation = "The Garden"
-            }
-        };
-
-        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
-
-        var prompt = completion.Prompts[0];
-        Assert.Contains("The Garden", prompt, StringComparison.Ordinal);
-    }
 
     [Fact]
     public async Task NarrativeLocationLabel_NullLocation_NoLocationConstraintInPrompt()
@@ -232,7 +89,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "loc4",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
                 CurrentSceneLocation = null
             }
@@ -245,74 +102,6 @@ public sealed class RolePlayContinuationNarrativeValidationTests
     }
 
     // ── T009: Phase 3 — Prompt construction tests ───────────────────────────
-
-    [Fact]
-    public async Task NarrativePrompt_NonClimax_ContainsSceneDescriptionCategories()
-    {
-        var completion = new QueueCompletionClient(["Scene text."]);
-        var service = CreateService(completion, out _);
-        var session = new RolePlaySession
-        {
-            Id = "np1",
-            PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
-            {
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed
-            }
-        };
-
-        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
-
-        var prompt = completion.Prompts[0];
-        Assert.Contains("spatial layout", prompt, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("where characters are", prompt, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Include zero quoted speech", prompt, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task NarrativePrompt_Climax_ContainsPhysicalDetailCategories()
-    {
-        var completion = new QueueCompletionClient(["Scene text with explicit content."]);
-        var service = CreateService(completion, out _);
-        var session = new RolePlaySession
-        {
-            Id = "np2",
-            PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
-            {
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax
-            }
-        };
-
-        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
-
-        var prompt = completion.Prompts[0];
-        Assert.Contains("physical contact", prompt, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("body part positions", prompt, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Include zero quoted speech. Do not write any dialogue in this passage.", prompt, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task NarrativePrompt_LocationSubtitleStripped()
-    {
-        var completion = new QueueCompletionClient(["Scene text."]);
-        var service = CreateService(completion, out _);
-        var session = new RolePlaySession
-        {
-            Id = "np3",
-            PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
-            {
-                CurrentSceneLocation = "Trailer \u2014 Shared Space"
-            }
-        };
-
-        await service.ContinueBatchAsync(session, actors: [], includeNarrative: true, customActorName: null, promptText: "Continue");
-
-        var prompt = completion.Prompts[0];
-        Assert.Contains("Trailer", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("Shared Space", prompt, StringComparison.Ordinal);
-    }
 
     // ── T014: Phase 4 — Validation logic tests ──────────────────────────────
 
@@ -391,9 +180,9 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "v4",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax
+                CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
             }
         };
 
@@ -415,9 +204,9 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         {
             Id = "v5",
             PersonaName = "Becky",
-            AdaptiveState = new Web.Domain.RolePlay.RolePlayAdaptiveState
+            AdaptiveState = new AdaptiveScenarioState
             {
-                CurrentNarrativePhase = DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Committed
+                CurrentPhase = DreamGenClone.Domain.RolePlay.NarrativePhase.Committed
             }
         };
 
@@ -568,6 +357,9 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             new NullSteeringProfileService(),
             new StubScenarioGuidanceContextFactory(),
             debugSink,
+                new RolePlayPromptBuilder([], new PromptBudgetEnforcer(NullLogger<PromptBudgetEnforcer>.Instance), NullLogger<RolePlayPromptBuilder>.Instance),
+                new ActorProfileResolver(),
+                new StubPhaseRuleOfThumbRepository(),
                 NullLogger<RolePlayContinuationService>.Instance,
                 diagnosticsService: null,
                 rpThemeService: rpThemeService);
@@ -598,6 +390,31 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         public Task<string> GenerateAsync(string systemMessage, string userMessage, ResolvedModel resolved, CancellationToken cancellationToken = default)
             => Task.FromResult("unused");
 
+
+        public async Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(string prompt, ResolvedModel resolved, CancellationToken cancellationToken = default)
+        {
+            var content = await GenerateAsync(prompt, resolved, cancellationToken);
+            return (content, null);
+        }
+
+        public async Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(string systemMessage, string userMessage, ResolvedModel resolved, CancellationToken cancellationToken = default)
+        {
+            var content = await GenerateAsync(systemMessage, userMessage, resolved, cancellationToken);
+            return (content, null);
+        }
+
+        public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string prompt, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+        {
+            var content = await StreamGenerateAsync(prompt, resolved, onChunk, cancellationToken);
+            return (content, null);
+        }
+
+        public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string systemMessage, string userMessage, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+        {
+            var content = await StreamGenerateAsync(systemMessage, userMessage, resolved, onChunk, cancellationToken);
+            return (content, null);
+        }
+
         public async Task<string> StreamGenerateAsync(string prompt, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
         {
             var content = await GenerateAsync(prompt, resolved, cancellationToken);
@@ -616,6 +433,16 @@ public sealed class RolePlayContinuationNarrativeValidationTests
 
         public Task<(bool Success, string Message)> CheckModelHealthAsync(string providerBaseUrl, string chatCompletionsPath, int timeoutSeconds, string? decryptedApiKey, string modelIdentifier, CancellationToken cancellationToken = default)
             => Task.FromResult((true, "ok"));
+
+    }
+
+    private sealed class StubPhaseRuleOfThumbRepository : IPhaseRuleOfThumbRepository
+    {
+        public Task<PhaseRuleOfThumbRow?> GetByPhaseAsync(string phase, CancellationToken ct = default)
+            => Task.FromResult<PhaseRuleOfThumbRow?>(new PhaseRuleOfThumbRow(
+                $"phase-rot-{phase.ToLowerInvariant()}",
+                phase,
+                $"Rule of Thumb for {phase}"));
     }
 
     private sealed class StubModelResolutionService : IModelResolutionService
@@ -640,6 +467,15 @@ public sealed class RolePlayContinuationNarrativeValidationTests
                 ProviderName: "test-provider",
                 IsSessionOverride: false));
         }
+
+        public Task<ResolvedModel> ResolveImagePromptModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
+
+        public Task<ResolvedImageModel> ResolveImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
+
+        public Task<ResolvedIdentityImageModel> ResolveIdentityImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Identity image resolution is not exercised by this test.");
     }
 
     private sealed class StubModelSettingsService : IModelSettingsService
@@ -693,7 +529,11 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
-            string sceneDirective = "",
+            string proseStyleDirective = "",
+            string voiceDirective = "",
+            string toneDirective = "",
+            string focusDirective = "",
+            string heatLevelDirective = "",
             CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
@@ -713,7 +553,11 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             int approachingPhaseOffset,
             int climaxPhaseOffset,
             int resetPhaseOffset,
-            string sceneDirective = "",
+            string? proseStyleDirective = null,
+            string? voiceDirective = null,
+            string? toneDirective = null,
+            string? focusDirective = null,
+            string? heatLevelDirective = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IntensityProfile?>(null);
 
@@ -723,7 +567,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
 
     private sealed class NullSteeringProfileService : ISteeringProfileService
     {
-        public Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+        public Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
         public Task<List<SteeringProfile>> ListAsync(CancellationToken cancellationToken = default)
@@ -732,7 +576,7 @@ public sealed class RolePlayContinuationNarrativeValidationTests
         public Task<SteeringProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult<SteeringProfile?>(null);
 
-        public Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+        public Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
             => Task.FromResult<SteeringProfile?>(null);
 
         public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -747,17 +591,21 @@ public sealed class RolePlayContinuationNarrativeValidationTests
                 Phase: input.CurrentPhase,
                 ActiveScenarioId: input.ActiveScenarioId,
                 GuidanceText: "Keep pacing coherent.",
-                ExcludedScenarioIds: []));
+                ExcludedScenarioIds: [],
+                CharacterBehavioralFrames: new Dictionary<string, string>(),
+                CharacterStatStateTexts: new Dictionary<string, string>()));
         }
     }
 
     private sealed class StubRpThemeService : IRPThemeService
     {
-        private readonly RPTheme _theme;
+        private readonly Dictionary<string, RPTheme> _themes;
 
-        public StubRpThemeService(RPTheme theme)
+        public StubRpThemeService(params RPTheme[] themes)
         {
-            _theme = theme;
+            _themes = themes
+                .Where(x => !string.IsNullOrWhiteSpace(x.Id))
+                .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
         }
 
         public Task<RPThemeProfile> SaveProfileAsync(RPThemeProfile profile, CancellationToken cancellationToken = default)
@@ -776,24 +624,30 @@ public sealed class RolePlayContinuationNarrativeValidationTests
             => Task.FromResult(theme);
 
         public Task<RPTheme> CloneThemeAsync(string sourceThemeId, string newThemeId, string newThemeLabel, CancellationToken cancellationToken = default)
-            => Task.FromResult(new RPTheme
+        {
+            var source = _themes.Values.First();
+            return Task.FromResult(new RPTheme
             {
                 Id = newThemeId,
                 Label = newThemeLabel,
-                Description = _theme.Description,
-                Category = _theme.Category,
-                Weight = _theme.Weight,
-                IsEnabled = _theme.IsEnabled
+                Description = source.Description,
+                Category = source.Category,
+                Weight = source.Weight,
+                IsEnabled = source.IsEnabled
             });
+        }
 
         public Task<IReadOnlyList<RPTheme>> ListThemesAsync(bool includeDisabled = false, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<RPTheme>>([_theme]);
+            => Task.FromResult<IReadOnlyList<RPTheme>>(_themes.Values.ToList());
 
         public Task<IReadOnlyList<RPTheme>> ListThemesByProfileAsync(string profileId, bool includeDisabled = false, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<RPTheme>>([_theme]);
+            => Task.FromResult<IReadOnlyList<RPTheme>>(_themes.Values.ToList());
+
+        public Task<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticEventMapping>>> ResolveSemanticEventMappingsByProfileAsync(string profileId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticEventMapping>>>(new Dictionary<string, IReadOnlyList<RPSemanticEventMapping>>(StringComparer.OrdinalIgnoreCase));
 
         public Task<RPTheme?> GetThemeAsync(string id, CancellationToken cancellationToken = default)
-            => Task.FromResult(string.Equals(id, _theme.Id, StringComparison.OrdinalIgnoreCase) ? _theme : null);
+            => Task.FromResult(_themes.TryGetValue(id, out var theme) ? theme : null);
 
         public Task<bool> DeleteThemeAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult(false);

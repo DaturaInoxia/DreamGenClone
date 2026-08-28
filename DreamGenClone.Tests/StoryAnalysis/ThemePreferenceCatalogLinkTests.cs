@@ -65,6 +65,11 @@ public sealed class ThemePreferenceCatalogLinkTests
         public Task<StatWillingnessProfile?> LoadDefaultStatWillingnessProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<List<StatWillingnessProfile>> LoadAllStatWillingnessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveStatResistanceProfileAsync(StatResistanceProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<StatResistanceProfile?> LoadStatResistanceProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<StatResistanceProfile?> LoadDefaultStatResistanceProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<StatResistanceProfile>> LoadAllStatResistanceProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteStatResistanceProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<NarrativeGateProfile?> LoadNarrativeGateProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<NarrativeGateProfile?> LoadDefaultNarrativeGateProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
@@ -148,6 +153,14 @@ public sealed class ThemePreferenceCatalogLinkTests
         public Task<UserStoryRating?> LoadUserStoryRatingAsync(string parsedStoryId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteUserStoryRatingAsync(string parsedStoryId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<Dictionary<string, UserStoryRating>> LoadUserStoryRatingsBatchAsync(IEnumerable<string> parsedStoryIds, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveCharacterProfileAsync(CharacterProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<CharacterProfile?> LoadCharacterProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<CharacterProfile>> LoadAllCharacterProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<CharacterProfile>> LoadCharacterProfilesByRoleAsync(string targetRole, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteCharacterProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveSteeringGenerationRecordAsync(SteeringGenerationRecord record, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<SteeringGenerationRecord?> LoadSteeringGenerationRecordAsync(string id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<SteeringGenerationRecord?> GetLatestSteeringGenerationRecordAsync(string sessionId) => Task.FromResult<SteeringGenerationRecord?>(null);
     }
 
     [Fact]

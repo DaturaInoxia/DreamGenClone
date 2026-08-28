@@ -27,14 +27,16 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO FunctionModelDefaults (Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc)
-            VALUES ($id, $funcName, $modelId, $temp, $topP, $maxTokens, $updated)
+            INSERT INTO FunctionModelDefaults (Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, MaxConcurrentJobs, UpdatedUtc)
+            VALUES ($id, $funcName, $modelId, $temp, $topP, $maxTokens, $thinkingMode, $maxConcurrentJobs, $updated)
             ON CONFLICT(Id) DO UPDATE SET
                 FunctionName = $funcName,
                 ModelId = $modelId,
                 Temperature = $temp,
                 TopP = $topP,
                 MaxTokens = $maxTokens,
+                ThinkingMode = $thinkingMode,
+                MaxConcurrentJobs = $maxConcurrentJobs,
                 UpdatedUtc = $updated
             """;
 
@@ -44,6 +46,8 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         command.Parameters.AddWithValue("$temp", functionDefault.Temperature);
         command.Parameters.AddWithValue("$topP", functionDefault.TopP);
         command.Parameters.AddWithValue("$maxTokens", functionDefault.MaxTokens);
+        command.Parameters.AddWithValue("$thinkingMode", (int)functionDefault.ThinkingMode);
+        command.Parameters.AddWithValue("$maxConcurrentJobs", (object?)functionDefault.MaxConcurrentJobs ?? DBNull.Value);
         command.Parameters.AddWithValue("$updated", functionDefault.UpdatedUtc);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -57,7 +61,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc FROM FunctionModelDefaults WHERE FunctionName = $funcName";
+        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, UpdatedUtc, MaxConcurrentJobs FROM FunctionModelDefaults WHERE FunctionName = $funcName";
         command.Parameters.AddWithValue("$funcName", function.ToString());
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -75,7 +79,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc FROM FunctionModelDefaults ORDER BY FunctionName";
+        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, UpdatedUtc, MaxConcurrentJobs FROM FunctionModelDefaults ORDER BY FunctionName";
 
         var defaults = new List<FunctionModelDefault>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -93,7 +97,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, UpdatedUtc FROM FunctionModelDefaults WHERE ModelId = $modelId ORDER BY FunctionName";
+        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, UpdatedUtc, MaxConcurrentJobs FROM FunctionModelDefaults WHERE ModelId = $modelId ORDER BY FunctionName";
         command.Parameters.AddWithValue("$modelId", modelId);
 
         var defaults = new List<FunctionModelDefault>();
@@ -120,14 +124,25 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         return rowsAffected > 0;
     }
 
-    private static FunctionModelDefault ReadFunctionDefault(SqliteDataReader reader) => new()
+    private static FunctionModelDefault ReadFunctionDefault(SqliteDataReader reader)
     {
-        Id = reader.GetString(0),
-        FunctionName = reader.GetString(1),
-        ModelId = reader.GetString(2),
-        Temperature = reader.GetDouble(3),
-        TopP = reader.GetDouble(4),
-        MaxTokens = reader.GetInt32(5),
-        UpdatedUtc = reader.GetString(6)
-    };
+        var thinkingModeValue = reader.GetInt32(6);
+        if (!Enum.IsDefined(typeof(ThinkingMode), thinkingModeValue))
+        {
+            throw new InvalidDataException($"Function model default contains invalid ThinkingMode value '{thinkingModeValue}'.");
+        }
+
+        return new FunctionModelDefault
+        {
+            Id = reader.GetString(0),
+            FunctionName = reader.GetString(1),
+            ModelId = reader.GetString(2),
+            Temperature = reader.GetDouble(3),
+            TopP = reader.GetDouble(4),
+            MaxTokens = reader.GetInt32(5),
+            ThinkingMode = (ThinkingMode)thinkingModeValue,
+            UpdatedUtc = reader.GetString(7),
+            MaxConcurrentJobs = reader.IsDBNull(8) ? null : reader.GetInt32(8)
+        };
+    }
 }

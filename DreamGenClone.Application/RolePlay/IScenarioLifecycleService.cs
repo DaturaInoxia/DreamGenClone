@@ -11,5 +11,6 @@ public interface IScenarioLifecycleService
 		DreamGenClone.Domain.RolePlay.AdaptiveScenarioState state,
 		ResetReason reason,
 		IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>? perCharacterBaselineOverrides = null,
+		IReadOnlyDictionary<string, decimal>? statDecayScaleOverrides = null,
 		CancellationToken cancellationToken = default);
 }

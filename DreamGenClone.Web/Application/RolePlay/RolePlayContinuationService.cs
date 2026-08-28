@@ -12,11 +12,14 @@ using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.Logging;
+using DreamGenClone.Infrastructure.Persistence;
 using DreamGenClone.Web.Application.Models;
+using DreamGenClone.Web.Application.RolePlay.Prompts;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NarrativePhase = DreamGenClone.Domain.RolePlay.NarrativePhase;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -47,6 +50,12 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
     private readonly IClimaxBeatRepository? _climaxBeatRepository;
     private readonly IHusbandAwarenessProfileService? _husbandAwarenessProfileService;
     private readonly bool _enableLocationServices;
+    private readonly bool _includeCandidateMenuWhileObserving;
+    private readonly IOptions<RolePlayMemoryOptions>? _memoryOptions;
+    private readonly RolePlayPromptBuilder _promptBuilder;
+    private readonly ActorProfileResolver _actorProfileResolver;
+    private readonly IPhaseRuleOfThumbRepository _phaseRuleOfThumbRepository;
+    private readonly IScenarioEngineSettingsRepository? _engineSettingsRepository;
     private readonly ILogger<RolePlayContinuationService> _logger;
 
     public RolePlayContinuationService(
@@ -60,12 +69,18 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         ISteeringProfileService styleProfileService,
         IScenarioGuidanceContextFactory scenarioGuidanceContextFactory,
         IRolePlayDebugEventSink debugEventSink,
+        RolePlayPromptBuilder promptBuilder,
+        ActorProfileResolver actorProfileResolver,
+        IPhaseRuleOfThumbRepository phaseRuleOfThumbRepository,
         ILogger<RolePlayContinuationService> logger,
         IRolePlayDiagnosticsService? diagnosticsService = null,
         IRPThemeService? rpThemeService = null,
         IClimaxBeatRepository? climaxBeatRepository = null,
         IHusbandAwarenessProfileService? husbandAwarenessProfileService = null,
-        IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null)
+        IOptions<RolePlayDecisionOptions>? rolePlayDecisionOptions = null,
+        IOptions<RolePlayFeatureFlagsOptions>? rolePlayFeatureFlagsOptions = null,
+        IOptions<RolePlayMemoryOptions>? memoryOptions = null,
+        IScenarioEngineSettingsRepository? engineSettingsRepository = null)
     {
         _completionClient = completionClient;
         _modelResolver = modelResolver;
@@ -77,11 +92,17 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         _steeringProfileService = styleProfileService;
         _scenarioGuidanceContextFactory = scenarioGuidanceContextFactory;
         _debugEventSink = debugEventSink;
+        _promptBuilder = promptBuilder;
+        _actorProfileResolver = actorProfileResolver;
+        _phaseRuleOfThumbRepository = phaseRuleOfThumbRepository;
         _rpThemeService = rpThemeService;
         _diagnosticsService = diagnosticsService;
         _climaxBeatRepository = climaxBeatRepository;
         _husbandAwarenessProfileService = husbandAwarenessProfileService;
+        _engineSettingsRepository = engineSettingsRepository;
         _enableLocationServices = rolePlayDecisionOptions?.Value.EnableLocationServices ?? true;
+        _includeCandidateMenuWhileObserving = rolePlayFeatureFlagsOptions?.Value.IncludeCandidateMenuWhileObserving ?? true;
+        _memoryOptions = memoryOptions;
         _logger = logger;
     }
 
@@ -92,7 +113,10 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         PromptIntent intent,
         string promptText,
         Func<string, Task>? onChunk = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? turnIndex = null,
+        int? positionInTurn = null,
+        int? turnActorCount = null)
     {
         await ValidateDirectiveTextAsync(session, promptText, cancellationToken);
 
@@ -102,10 +126,27 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             ? null
             : await _diagnosticsService.GetSnapshotAsync(session.Id, correlationId, cancellationToken);
 
-        var prompt = await BuildPromptAsync(session, actor, customActorName, intent, promptText, cancellationToken);
+        var prompt = await BuildPromptViaBuilderAsync(session, actor, customActorName, intent, promptText, cancellationToken,
+            turnIndex, positionInTurn, turnActorCount);
+        
+        // Capture prompt text for storage (best-effort, truncated to reduce size)
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+            if (capturedPromptText != null)
+            {
+                _logger.LogInformation("Successfully captured prompt text for interaction in session {SessionId}, length: {Length}", 
+                    session.Id, capturedPromptText.Length);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for interaction in session {SessionId}", session.Id);
+        }
+        
         if (diagnostics is not null)
         {
-            prompt = $"[V2 Diagnostics: candidates={diagnostics.CandidateEvaluations.Count}, transitions={diagnostics.TransitionEvents.Count}, decisions={diagnostics.DecisionPoints.Count}]\n{prompt}";
             _logger.LogInformation(
                 RolePlayV2LogEvents.DiagnosticsSnapshotPublished,
                 diagnostics.SessionId,
@@ -166,11 +207,21 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         var stopwatch = Stopwatch.StartNew();
         string output;
+        string? reasoningContent = null;
         try
         {
-            output = onChunk is null
-                ? await _completionClient.GenerateAsync(prompt, resolved, cancellationToken)
-                : await _completionClient.StreamGenerateAsync(prompt, resolved, onChunk, cancellationToken);
+            if (onChunk is null)
+            {
+                var (content, reasoning) = await _completionClient.GenerateWithReasoningAsync(prompt, resolved, cancellationToken);
+                output = content;
+                reasoningContent = reasoning;
+            }
+            else
+            {
+                var (content, reasoning) = await _completionClient.StreamGenerateWithReasoningAsync(prompt, resolved, onChunk, cancellationToken);
+                output = content;
+                reasoningContent = reasoning;
+            }
         }
         catch (Exception ex)
         {
@@ -210,6 +261,8 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             {
                 output,
                 outputLength = output.Length,
+                reasoningContent,
+                reasoningLength = reasoningContent?.Length ?? 0,
                 durationMs = stopwatch.ElapsedMilliseconds
             })
         }, cancellationToken);
@@ -227,7 +280,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 ? customActorName.Trim()
                 : actor switch
                 {
-                    ContinueAsActor.You => "You",
+                    ContinueAsActor.You => string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName.Trim(),
                     ContinueAsActor.Npc => "NPC",
                     _ => "Custom"
                 },
@@ -235,10 +288,15 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedByModelId = resolved.ModelIdentifier,
             GeneratedByModelName = resolved.ModelIdentifier,
             GeneratedByCommand = "Continue",
+            GeneratedVariant = PromptVariant.Character,
             GeneratedByProvider = resolved.ProviderName,
             GeneratedTemperature = resolved.Temperature,
             GeneratedTopP = resolved.TopP,
-            GeneratedMaxTokens = resolved.MaxTokens
+            GeneratedMaxTokens = resolved.MaxTokens,
+            ReasoningContent = reasoningContent,
+            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase,
+            PromptText = capturedPromptText,
+            RawResponseText = output.Trim()
         };
 
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
@@ -269,21 +327,54 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         RolePlaySession session,
         string actorName,
         string promptText,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? turnIndex = null,
+        int? turnActorCount = null)
     {
         var narrativePrompt = string.IsNullOrWhiteSpace(promptText)
-            ? "Move the role-play story forward with scene description and tone."
+            ? "Synthesize the scene with vivid narrative description."
             : promptText;
 
         await ValidateDirectiveTextAsync(session, narrativePrompt, cancellationToken);
 
-        var prompt = await BuildPromptAsync(
+        var prompt = await BuildPromptViaBuilderAsync(
             session,
             ContinueAsActor.Npc,
             actorName,
             PromptIntent.Narrative,
             narrativePrompt,
-            cancellationToken);
+            cancellationToken,
+            turnIndex,
+            positionInTurn: null,
+            turnActorCount);
+
+        // Capture prompt text for storage (best-effort, truncated to reduce size)
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for narrative interaction in session {SessionId}", session.Id);
+        }
+
+        // Log the narrative prompt for debugging (same as character prompts).
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            EventKind = "PromptBuilt",
+            Severity = "Info",
+            ActorName = string.IsNullOrWhiteSpace(actorName) ? "Narrative" : actorName,
+            Summary = $"Prompt prepared for Narrative ({PromptIntent.Narrative})",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                actor = actorName,
+                intent = PromptIntent.Narrative.ToString(),
+                prompt,
+                promptLength = prompt.Length
+            })
+        }, cancellationToken);
 
         var settings = _modelSettingsService.GetSettings(session.Id);
         var resolved = await _modelResolver.ResolveAsync(
@@ -304,10 +395,89 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             GeneratedByModelId = resolved.ModelIdentifier,
             GeneratedByModelName = resolved.ModelIdentifier,
             GeneratedByCommand = "Narrative",
+            GeneratedVariant = PromptVariant.Narrative,
             GeneratedByProvider = resolved.ProviderName,
             GeneratedTemperature = resolved.Temperature,
             GeneratedTopP = resolved.TopP,
-            GeneratedMaxTokens = resolved.MaxTokens
+            GeneratedMaxTokens = resolved.MaxTokens,
+            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase,
+            PromptText = capturedPromptText
+        };
+    }
+
+    /// <summary>
+    /// B-088: Generates a narrative-variant interaction for a retry/rewrite, using the
+    /// narrative prompt builder (PromptIntent.Narrative) and the narrative validation
+    /// pipeline, without committing it to the session. The caller (InteractionRetryService)
+    /// wraps the returned interaction into an alternative linked to the original.
+    /// </summary>
+    public async Task<RolePlayInteraction> ContinueNarrativeAsAlternativeAsync(
+        RolePlaySession session,
+        string actorName,
+        string promptText,
+        ResolvedModel resolved,
+        string command,
+        CancellationToken cancellationToken = default)
+    {
+        var narrativePrompt = string.IsNullOrWhiteSpace(promptText)
+            ? "Synthesize the scene with vivid narrative description."
+            : promptText;
+
+        await ValidateDirectiveTextAsync(session, narrativePrompt, cancellationToken);
+
+        var prompt = await BuildPromptViaBuilderAsync(
+            session,
+            ContinueAsActor.Npc,
+            actorName,
+            PromptIntent.Narrative,
+            narrativePrompt,
+            cancellationToken);
+
+        string? capturedPromptText = null;
+        try
+        {
+            capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture prompt text for narrative retry in session {SessionId}", session.Id);
+        }
+
+        await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
+        {
+            SessionId = session.Id,
+            EventKind = "PromptBuilt",
+            Severity = "Info",
+            ActorName = string.IsNullOrWhiteSpace(actorName) ? "Narrative" : actorName,
+            Summary = $"Prompt prepared for Narrative retry ({command})",
+            MetadataJson = JsonSerializer.Serialize(new
+            {
+                actor = actorName,
+                intent = PromptIntent.Narrative.ToString(),
+                command,
+                prompt,
+                promptLength = prompt.Length
+            })
+        }, cancellationToken);
+
+        var output = await GenerateNarrativeWithValidationAsync(session, prompt, resolved, cancellationToken);
+
+        return new RolePlayInteraction
+        {
+            InteractionType = InteractionType.System,
+            ActorName = string.IsNullOrWhiteSpace(actorName) ? "Narrative" : actorName,
+            Content = string.IsNullOrWhiteSpace(output) ? "(No output generated)" : output.Trim(),
+            GeneratedByModelId = resolved.ModelIdentifier,
+            GeneratedByModelName = resolved.ModelIdentifier,
+            GeneratedByCommand = command,
+            GeneratedVariant = PromptVariant.Narrative,
+            GeneratedByProvider = resolved.ProviderName,
+            GeneratedTemperature = resolved.Temperature,
+            GeneratedTopP = resolved.TopP,
+            GeneratedMaxTokens = resolved.MaxTokens,
+            NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase,
+            PromptText = capturedPromptText,
+            RawResponseText = output.Trim()
         };
     }
 
@@ -336,18 +506,30 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         if (includeNarrative)
         {
             var narrativePrompt = string.IsNullOrWhiteSpace(promptText)
-                ? "Move the role-play story forward with scene description and tone."
+                ? "Synthesize the scene with vivid narrative description."
                 : promptText;
 
             await ValidateDirectiveTextAsync(session, narrativePrompt, cancellationToken);
 
-            var prompt = await BuildPromptAsync(
+            var prompt = await BuildPromptViaBuilderAsync(
                 session,
                 ContinueAsActor.Npc,
                 null,
                 PromptIntent.Narrative,
                 narrativePrompt,
                 cancellationToken);
+
+            // Capture prompt text for storage (best-effort, truncated to reduce size)
+            string? capturedPromptText = null;
+            try
+            {
+                capturedPromptText = PromptTextTruncation.TrimInteractionHistoryBlock(prompt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to capture prompt text for batch narrative interaction in session {SessionId}", session.Id);
+            }
+
             var narrativeSettings = _modelSettingsService.GetSettings(session.Id);
             var narrativeResolved = await _modelResolver.ResolveAsync(
                 AppFunction.RolePlayGeneration,
@@ -365,10 +547,13 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
                 GeneratedByModelId = narrativeResolved.ModelIdentifier,
                 GeneratedByModelName = narrativeResolved.ModelIdentifier,
                 GeneratedByCommand = "Narrative",
+                GeneratedVariant = PromptVariant.Narrative,
                 GeneratedByProvider = narrativeResolved.ProviderName,
                 GeneratedTemperature = narrativeResolved.Temperature,
                 GeneratedTopP = narrativeResolved.TopP,
-                GeneratedMaxTokens = narrativeResolved.MaxTokens
+                GeneratedMaxTokens = narrativeResolved.MaxTokens,
+                NarrativePhaseAtCreation = session.AdaptiveState.CurrentPhase,
+                PromptText = capturedPromptText
             };
         }
 
@@ -390,820 +575,875 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         }
     }
 
-    private async Task<string> BuildPromptAsync(
+    private async Task<string> BuildPromptViaBuilderAsync(
         RolePlaySession session,
         ContinueAsActor actor,
         string? customActorName,
         PromptIntent intent,
         string promptText,
+        CancellationToken cancellationToken,
+        int? turnIndex = null,
+        int? positionInTurn = null,
+        int? turnActorCount = null)
+    {
+        // ── Resolve variant from intent ──
+        var variant = intent == PromptIntent.Narrative
+            ? PromptVariant.Narrative
+            : PromptVariant.Character;
+
+        // ── Fetch scenario once (used for actor profile, character data, and opening couple filter) ──
+        var scenario = !string.IsNullOrWhiteSpace(session.ScenarioId)
+            ? await _scenarioService.GetScenarioAsync(session.ScenarioId)
+            : null;
+
+        // ── Resolve actor profile (uses all characters — filtering happens later for context) ──
+        var allScenarioCharacters = scenario?.Characters
+            .Select(c => new ScenarioCharacter(
+                c.Id,
+                c.Name ?? string.Empty,
+                c.Role,
+                c.SeductionArchetypes))
+            .ToList() ?? [];
+
+        var actorProfile = _actorProfileResolver.Resolve(actor, customActorName, intent, session, allScenarioCharacters);
+
+        // ── Resolve PerspectiveMode from the scenario character roster (FR-011) ──
+        // The ActorProfileResolver uses minimal ScenarioCharacter records without PerspectiveMode.
+        // We resolve it here from the full domain Character objects.
+        if (actorProfile.Kind != ActorProfileKind.Narrative && scenario?.Characters is not null)
+        {
+            var matchedChar = FindCharacterForProfile(actorProfile, scenario.Characters);
+            if (matchedChar is not null)
+            {
+                actorProfile = actorProfile with { PerspectiveMode = matchedChar.PerspectiveMode };
+            }
+        }
+
+        // ── Resolve phase ──
+        var phase = session.AdaptiveState.CurrentPhase.ToString();
+
+        // ── Opening phase: resolve couple IDs for character filtering ──
+        // The opening scene is exclusively about the couple (user + spouse).
+        // Other characters are not introduced yet — the prompt must not know they exist.
+        HashSet<string>? openingCoupleIds = null;
+        if (phase == nameof(NarrativePhase.Opening) && scenario is not null)
+        {
+            openingCoupleIds = ResolveOpeningCoupleIds(session, scenario);
+        }
+
+        // ── Filter scenario characters for the prompt context ──
+        // During opening, only the couple characters are visible to all slots.
+        var scenarioCharacters = openingCoupleIds is not null
+            ? allScenarioCharacters.Where(c => openingCoupleIds.Contains(c.Id)).ToList()
+            : allScenarioCharacters;
+
+        // ── Filter characters excluded from current scene location by affinity ──
+        // Characters with an Excluded affinity for the current location must not
+        // appear in character data, behavioral frames, or any prompt content.
+        // This prevents the AI from writing excluded characters into the scene,
+        // which would then cause location detection to incorrectly place them there.
+        var currentLocation = session.AdaptiveState.CurrentSceneLocation;
+        if (!string.IsNullOrWhiteSpace(currentLocation) && scenario is not null)
+        {
+            var excludedIds = scenario.Characters
+                .Where(c => c.LocationAffinities.Any(a =>
+                    a.AffinityType == DreamGenClone.Web.Domain.Scenarios.AffinityType.Excluded &&
+                    string.Equals(a.LocationName, currentLocation, StringComparison.OrdinalIgnoreCase)))
+                .Select(c => c.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (excludedIds.Count > 0)
+            {
+                scenarioCharacters = scenarioCharacters
+                    .Where(c => !excludedIds.Contains(c.Id))
+                    .ToList();
+            }
+        }
+
+        // ── Resolve MaxPromptChars (fail-fast if missing) ──
+        var maxPromptChars = session.MaxPromptChars ?? 35000;
+
+        // ── Build character details for CharacterDataSlot ──
+        IReadOnlyDictionary<string, ResolvedCharacterDetail>? charDetails = null;
+        if (scenario is not null && scenario.Characters.Count > 0)
+        {
+            var dict = new Dictionary<string, ResolvedCharacterDetail>(StringComparer.OrdinalIgnoreCase);
+            foreach (var ch in scenario.Characters)
+            {
+                // During opening, only include the couple characters
+                if (openingCoupleIds is not null && !openingCoupleIds.Contains(ch.Id)) continue;
+                if (string.IsNullOrWhiteSpace(ch.Id)) continue;
+                var appearance = PhysicalAttributesFormatter.FormatBlock(ch.PhysicalAttributes, ch.Gender);
+                dict[ch.Id] = new ResolvedCharacterDetail
+                {
+                    Description = ch.Description,
+                    AppearanceText = appearance,
+                    ComparisonText = null,
+                    Gender = ch.Gender,
+                };
+            }
+            charDetails = dict;
+        }
+
+        // ── Resolve phase Rule-of-Thumb from DB (fail-fast if missing per FR-014) ──
+        var phaseRoTRow = await _phaseRuleOfThumbRepository.GetByPhaseAsync(phase, cancellationToken);
+        if (phaseRoTRow is null || string.IsNullOrWhiteSpace(phaseRoTRow.RuleOfThumbText))
+        {
+            throw new InvalidOperationException(
+                $"MissingPromptConfig: WritingStyle.PhaseRuleOfThumb is missing or empty. " +
+                $"Session phase: '{phase}'. FR-014 requires a PhaseRuleOfThumb row for every phase.");
+        }
+
+        // ── Resolve scenario guidance context (behavioral frames + stat state texts) ──
+        IReadOnlyDictionary<string, string>? characterBehavioralFrames = null;
+        IReadOnlyDictionary<string, string>? characterStatStateTexts = null;
+        string? scenarioGuidanceText = null;
+        if (scenario is not null)
+        {
+            var runtimeStats = session.AdaptiveState.CharacterSnapshots
+                .Where(s => !string.IsNullOrWhiteSpace(s.CharacterId))
+                .ToDictionary(s => s.CharacterId!, StringComparer.OrdinalIgnoreCase);
+
+            var snapshots = runtimeStats.Values.ToList();
+            var avgDesire = snapshots.Count > 0 ? snapshots.Average(s => s.Desire) : 50.0;
+            var avgRestraint = snapshots.Count > 0 ? snapshots.Average(s => s.Restraint) : 50.0;
+            var avgDominance = snapshots.Count > 0 ? snapshots.Average(s => s.Dominance) : 50.0;
+            var avgLoyalty = snapshots.Count > 0 ? snapshots.Average(s => s.Loyalty) : 50.0;
+
+            // Filter encounter profile IDs to match the affinity-filtered scenarioCharacters.
+            // Prevents excluded characters from appearing in behavioral frames as raw GUIDs.
+            var scenarioCharacterIds = scenarioCharacters
+                .Select(c => c.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var filteredEncounterProfileIds = session.AdaptiveState.CharacterEncounterProfileIds
+                .Where(kvp => scenarioCharacterIds.Contains(kvp.Key))
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+
+            var guidanceInput = new ScenarioGuidanceInput(
+                SessionId: session.Id,
+                CurrentPhase: phase,
+                ActiveScenarioId: session.ScenarioId,
+                VariantId: null,
+                AverageDesire: avgDesire,
+                AverageRestraint: avgRestraint,
+                AverageDominance: avgDominance,
+                AverageLoyalty: avgLoyalty,
+                SelectedWillingnessProfileId: session.AdaptiveState.SelectedWillingnessProfileId,
+                CharacterEncounterProfileIds: filteredEncounterProfileIds,
+                Characters: scenarioCharacters,
+                SuppressedScenarioIds: [],
+                CharacterRuntimeStats: runtimeStats,
+                SelectedResistanceProfileId: session.AdaptiveState.SelectedResistanceProfileId);
+
+            var guidance = await _scenarioGuidanceContextFactory.CreateAsync(guidanceInput, cancellationToken);
+            characterBehavioralFrames = guidance.CharacterBehavioralFrames;
+            characterStatStateTexts = guidance.CharacterStatStateTexts;
+            scenarioGuidanceText = guidance.GuidanceText;
+
+            // B-034: persist the unified Wife Willingness to Cheat score on the adaptive state
+            // so the panel and history reflect the same number the engine uses.
+            session.AdaptiveState.WillingnessToCheat = await ResolveWillingnessToCheatAsync(
+                runtimeStats, cancellationToken);
+        }
+
+        // ── Resolve theme + intensity (needed for word target marker) ──
+        var resolvedTheme = await ResolveThemeAsync(session, phase, cancellationToken);
+        var resolvedIntensity = await ResolveIntensityAsync(session, phase, cancellationToken);
+
+        // ── Apply sticky continuation-settings override (B-082) ──
+        var continuationOverride = session.ContinuationOverride;
+        resolvedIntensity = ContinuationOverrideResolver.ApplySceneDirection(resolvedIntensity, continuationOverride);
+        var writingStyle = ContinuationOverrideResolver.ApplyWordCount(
+            await ResolveWritingStyleAsync(session, phaseRoTRow,
+                RolePlayAssistantPrompts.GetWordTargetMarker(resolvedTheme.ActiveTheme, phase),
+                cancellationToken),
+            continuationOverride);
+
+        // ── Build context for builder ──
+        var defaultStartingLocationName = await ResolveDefaultStartingLocationAsync(
+            session.ScenarioId, session.AdaptiveState.CurrentSceneLocation, cancellationToken);
+        var context = new PromptBuildContext
+        {
+            Session = session,
+            ActorProfile = actorProfile,
+            Variant = variant,
+            Phase = phase,
+            TurnIndex = turnIndex,
+            PositionInTurn = positionInTurn,
+            TurnActorCount = turnActorCount,
+            PromptText = promptText,
+            MaxPromptChars = maxPromptChars,
+            WorldState = null,
+            Scenario = new ResolvedScenarioData
+            {
+                ScenarioId = session.ScenarioId,
+                Name = scenario?.Name ?? string.Empty,
+                Description = scenario?.Description ?? string.Empty,
+                PlotDescription = scenario?.Plot?.Description ?? string.Empty,
+                WorldDescription = scenario?.Setting?.WorldDescription ?? string.Empty,
+                TimeFrame = scenario?.Setting?.TimeFrame,
+                Goals = scenario?.Plot?.Goals ?? [],
+                Conflicts = scenario?.Plot?.Conflicts ?? [],
+                WorldRules = scenario?.Setting?.WorldRules ?? [],
+                EnvironmentalDetails = scenario?.Setting?.EnvironmentalDetails ?? [],
+                NarrativeGuidelines = scenario?.Narrative?.NarrativeGuidelines ?? [],
+                Characters = scenarioCharacters,
+                Locations = scenario?.Locations
+                    .Where(l => !string.IsNullOrWhiteSpace(l.Name))
+                    .Select(l => new ResolvedLocationData(l.Name!.Trim(), l.Description?.Trim()))
+                    .ToList() ?? [],
+                DefaultSteeringProfileId = null,
+                DefaultIntensityProfileId = null,
+                DefaultStartingLocationName = defaultStartingLocationName,
+                OpeningGuidanceText = scenario?.OpeningGuidanceText,
+            },
+            Theme = resolvedTheme,
+            Intensity = resolvedIntensity,
+            WritingStyle = writingStyle,
+            NarrativeTone = ResolveNarrativeTone(scenario),
+            EncounterSummaries = session.AdaptiveState.EncounterSummaries,
+            RecentInteractions = session.Interactions
+                .Where(i => !i.IsExcluded)
+                .TakeLast(session.ContextWindowSize > 0 ? session.ContextWindowSize : 12)
+                .ToList(),
+            PinnedInteractions = session.Interactions
+                .Where(i => i.IsPinned && !i.IsExcluded)
+                .OrderBy(i => i.SessionInteractionIndex)
+                .ToList(),
+            StagedInteractions = session.Interactions
+                .Where(i => i.IsStagedDirection && !i.IsExcluded)
+                .OrderBy(i => i.SessionInteractionIndex)
+                .ToList(),
+            Override = continuationOverride,
+            CharacterDetails = charDetails,
+            CharacterBehavioralFrames = characterBehavioralFrames,
+            CharacterStatStateTexts = characterStatStateTexts,
+            ScenarioGuidanceText = scenarioGuidanceText,
+            ActorRoleMap = BuildActorRoleMap(scenarioCharacters),
+            RecentInteractionEntries = null,
+        };
+
+        // ── Compute turn metadata for interaction history ──
+        context = context with
+        {
+            RecentInteractionEntries = ComputeRecentInteractionEntries(context.RecentInteractions, turnIndex),
+        };
+
+        // ── Delegate to builder ──
+        return await _promptBuilder.BuildAsync(context, cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds a name→role lookup from scenario characters for interaction history enrichment.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string>? BuildActorRoleMap(
+        IReadOnlyList<ScenarioCharacter> scenarioCharacters)
+    {
+        if (scenarioCharacters.Count == 0) return null;
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in scenarioCharacters)
+        {
+            if (!string.IsNullOrWhiteSpace(c.Name) && !string.IsNullOrWhiteSpace(c.Role))
+                map[c.Name.Trim()] = c.Role.Trim();
+        }
+        return map.Count > 0 ? map : null;
+    }
+
+    /// <summary>
+    /// Groups recent interactions into turns and computes per-interaction turn metadata.
+    /// A new turn starts when an actor who already appeared in the current turn appears again.
+    /// </summary>
+    private static IReadOnlyList<RecentInteractionEntry> ComputeRecentInteractionEntries(
+        IReadOnlyList<RolePlayInteraction> interactions,
+        int? currentTurnIndex)
+    {
+        if (interactions.Count == 0) return [];
+
+        var entries = new List<RecentInteractionEntry>();
+        var turns = new List<List<int>>(); // turn index → list of interaction indices
+        var currentTurnActorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var currentTurnIndices = new List<int>();
+
+        for (int i = 0; i < interactions.Count; i++)
+        {
+            var actorName = interactions[i].ActorName?.Trim() ?? "";
+
+            // New turn boundary: actor already appeared in this turn
+            if (currentTurnActorNames.Contains(actorName) && currentTurnIndices.Count > 0)
+            {
+                turns.Add(currentTurnIndices);
+                currentTurnActorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                currentTurnIndices = new List<int>();
+            }
+
+            currentTurnActorNames.Add(actorName);
+            currentTurnIndices.Add(i);
+        }
+
+        // Final turn
+        if (currentTurnIndices.Count > 0)
+            turns.Add(currentTurnIndices);
+
+        // Compute absolute turn numbers: last turn = currentTurnIndex, previous turns decrement
+        var lastTurnIndex = currentTurnIndex ?? turns.Count;
+        var startTurnIndex = lastTurnIndex - turns.Count + 1;
+
+        // Build entries with turn metadata
+        for (int turnIdx = 0; turnIdx < turns.Count; turnIdx++)
+        {
+            var turnIndices = turns[turnIdx];
+            var turnNumber = startTurnIndex + turnIdx;
+            var actorCount = turnIndices.Count;
+
+            for (int pos = 0; pos < turnIndices.Count; pos++)
+            {
+                var interactionIdx = turnIndices[pos];
+                entries.Add(new RecentInteractionEntry
+                {
+                    Interaction = interactions[interactionIdx],
+                    TurnNumber = turnNumber,
+                    PositionInTurn = pos + 1,
+                    TurnActorCount = actorCount,
+                });
+            }
+        }
+
+        return entries;
+    }
+
+    /// <summary>
+    /// Matches an actor profile to a scenario character by name for PerspectiveMode resolution (FR-011).
+    /// </summary>
+    private static DreamGenClone.Web.Domain.Scenarios.Character? FindCharacterForProfile(
+        ActorProfile profile,
+        IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character> characters)
+    {
+        // Try exact name match first (actor name is in "Name (Role)" format from resolver)
+        var actorName = profile.ActorName;
+        foreach (var c in characters)
+        {
+            if (c.Name is not null && actorName.Contains(c.Name, StringComparison.OrdinalIgnoreCase))
+                return c;
+        }
+
+        // Fallback: match by role
+        foreach (var c in characters)
+        {
+            if (string.Equals(c.Role, profile.ActorRole, StringComparison.OrdinalIgnoreCase))
+                return c;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves the character IDs that form the opening couple (user + spouse).
+    /// During the Opening phase, only these characters are visible to the prompt —
+    /// other characters are not introduced yet.
+    /// Uses <see cref="RolePlaySession.PersonaCharacterId"/> to identify the persona
+    /// and matches <see cref="Character.RelationTargetId"/> (which stores character IDs, not names).
+    /// </summary>
+    private static HashSet<string> ResolveOpeningCoupleIds(
+        RolePlaySession session,
+        DreamGenClone.Web.Domain.Scenarios.Scenario scenario)
+    {
+        var coupleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Find the persona character by its session-tracked character ID.
+        // IsPersona flag may not be set on scenario characters — the authoritative
+        // persona identity is session.PersonaCharacterId.
+        var personaId = session.PersonaCharacterId;
+        if (!string.IsNullOrWhiteSpace(personaId))
+        {
+            coupleIds.Add(personaId);
+
+            // Find the spouse: NPC whose RelationTargetId points to the persona's character ID.
+            // RelationTargetId stores character IDs (GUIDs), not names.
+            var spouseChar = scenario.Characters.FirstOrDefault(c =>
+                !string.IsNullOrWhiteSpace(c.RelationTargetId) &&
+                string.Equals(c.RelationTargetId.Trim(), personaId, StringComparison.OrdinalIgnoreCase));
+            if (spouseChar is not null)
+                coupleIds.Add(spouseChar.Id);
+        }
+
+        return coupleIds;
+    }
+
+    private async Task<string?> ResolveDefaultStartingLocationAsync(
+        string? scenarioId, string? currentSceneLocation, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(currentSceneLocation))
+            return null;
+        if (string.IsNullOrWhiteSpace(scenarioId))
+            return null;
+
+        var scenario = await _scenarioService.GetScenarioAsync(scenarioId);
+        if (scenario is null || string.IsNullOrWhiteSpace(scenario.DefaultStartingLocationId))
+            return null;
+
+        var location = scenario.Locations.FirstOrDefault(
+            l => string.Equals(l.Id, scenario.DefaultStartingLocationId, StringComparison.OrdinalIgnoreCase));
+        return location?.Name;
+    }
+
+    /// <summary>
+    /// Mapping from [targetwords:*] marker to word count range.
+    /// Default [small] is used when no marker is present.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, (int Min, int Max)> WordTargetMarkerRanges =
+        new Dictionary<string, (int, int)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["small"] = (200, 400),
+            ["medium"] = (300, 700),
+            ["large"] = (500, 1000),
+        };
+
+    private async Task<ResolvedWritingStyleData> ResolveWritingStyleAsync(
+        RolePlaySession session,
+        PhaseRuleOfThumbRow phaseRoT,
+        string? wordTargetMarker,
         CancellationToken cancellationToken)
     {
-        // Resolve husband awareness frame early — must appear at top of prompt so the model
-        // sees it before the ~50K of interaction history that would otherwise bury it.
-        var earlyAwarenessFrame = string.Empty;
-        if (_husbandAwarenessProfileService is not null
-            && !string.IsNullOrWhiteSpace(session.AdaptiveState.HusbandAwarenessProfileId))
+        var example = string.Empty;
+        var styleHint = string.Empty;
+        var immersionDirective = string.Empty;
+        var actionDirective = string.Empty;
+        var wordTargetMin = 0;
+        var wordTargetMax = 0;
+        var narrativeWordTargetMin = 0;
+        var narrativeWordTargetMax = 0;
+
+        var selectedStyleProfileId = session.SelectedSteeringProfileId;
+        SteeringProfile? styleProfile = null;
+        if (!string.IsNullOrWhiteSpace(selectedStyleProfileId))
         {
-            var awarenessProfile = await _husbandAwarenessProfileService.GetAsync(
-                session.AdaptiveState.HusbandAwarenessProfileId, cancellationToken);
-            if (awarenessProfile is not null)
+            styleProfile = await _steeringProfileService.GetAsync(selectedStyleProfileId, cancellationToken);
+            if (styleProfile is not null)
             {
-                earlyAwarenessFrame = string.IsNullOrWhiteSpace(awarenessProfile.Notes)
-                    ? string.Empty
-                    : awarenessProfile.Notes.Trim();
+                example = styleProfile.Example ?? string.Empty;
+                immersionDirective = styleProfile.ImmersionDirective ?? string.Empty;
+                actionDirective = styleProfile.ActionDirective ?? string.Empty;
+                wordTargetMin = styleProfile.WordTargetMin;
+                wordTargetMax = styleProfile.WordTargetMax;
+                narrativeWordTargetMin = styleProfile.NarrativeWordTargetMin;
+                narrativeWordTargetMax = styleProfile.NarrativeWordTargetMax;
             }
         }
 
-        var sb = new StringBuilder();
-        sb.AppendLine("You are continuing an interactive role-play scene.");
-        sb.AppendLine($"Behavior mode: {session.BehaviorMode}");
-
-        // Include POV persona
-        if (!string.IsNullOrWhiteSpace(session.PersonaDescription))
-        {
-            sb.AppendLine($"POV Persona ({session.PersonaName}):");
-            sb.AppendLine(session.PersonaDescription.Trim());
-            var personaAppearance = PhysicalAttributesFormatter.FormatBlock(session.PersonaPhysicalAttributes);
-            if (!string.IsNullOrEmpty(personaAppearance))
-            {
-                sb.AppendLine(personaAppearance);
-            }
-        }
-        else if (session.PersonaName != "You")
-        {
-            sb.AppendLine($"POV Persona: {session.PersonaName}");
-        }
-
-        // Inject partner behavior constraint at the top of the prompt — before all scenario
-        // and interaction history — so the model cannot miss it regardless of context length.
-        if (!string.IsNullOrWhiteSpace(earlyAwarenessFrame))
-        {
-            sb.AppendLine($"HARD CONSTRAINT — Partner/Husband Behavior (applies to every line of output; overrides all other instructions): {earlyAwarenessFrame}");
-        }
-
-        // Inject scene location lock at the top — before scenario and interaction history —
-        // so the model cannot teleport characters to a new location without a written transition.
-        if (_enableLocationServices && !string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentSceneLocation))
-        {
-            sb.AppendLine($"HARD CONSTRAINT — Scene Location: The current scene is at \"{NarrativeLocationLabel(session.AdaptiveState.CurrentSceneLocation)}\". Do not move any character to a different location without writing an explicit transition in the narration. Do not jump to a new place between responses.");
-        }
-
-        string scenarioStyle = string.Empty;
-        IntensityLevel? baseIntensityLevel = null;
-        IntensityLevel? adaptiveIntensityLevel = null;
-        string? selectedIntensityDescription = null;
-        string? adaptiveIntensityDescription = null;
-        string? scenarioSteeringProfileId = null;
-        List<string> scenarioGoals = [];
-        List<string> scenarioConflicts = [];
-        List<string> scenarioNarrativeGuidelines = [];
-
+        // Resolve scenario style for hint
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
             var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
             if (scenario is not null)
             {
-                var personaRelation = RolePlayRelationFormatter.DescribePersonaRelation(session, scenario.Characters);
-                var personaRole = CharacterRoleCatalog.Normalize(session.PersonaRole);
-                if (!string.Equals(personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
-                    || !string.IsNullOrWhiteSpace(personaRelation))
-                {
-                    if (!string.Equals(personaRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase))
-                    {
-                        sb.AppendLine($"- Persona Role: {personaRole}");
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(personaRelation))
-                    {
-                        sb.AppendLine($"- Persona Relation: {personaRelation}");
-                    }
-                }
-
-                sb.AppendLine("Scenario:");
-                sb.AppendLine($"- Name: {scenario.Name}");
-                sb.AppendLine($"- Description: {scenario.Description}");
-                sb.AppendLine($"- Plot: {scenario.Plot.Description}");
-                sb.AppendLine($"- Setting: {scenario.Setting.WorldDescription}");
-                if (!string.IsNullOrWhiteSpace(scenario.Setting.TimeFrame))
-                {
-                    sb.AppendLine($"- Time Frame: {scenario.Setting.TimeFrame.Trim()}");
-                    sb.AppendLine("- Time Span Reminder: This entire story takes place within the time frame above. Scenes may skip forward in time; a new response does not have to be the immediate continuation of the last moment.");
-                }
-                scenarioStyle = string.Join(" / ", new[]
+                styleHint = string.Join(" / ", new[]
                 {
                     scenario.Narrative.ProseStyle,
                     scenario.Narrative.NarrativeTone
                 }.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
-                scenarioSteeringProfileId = scenario.DefaultSteeringProfileId;
-                if (!string.IsNullOrWhiteSpace(scenarioStyle))
-                {
-                    sb.AppendLine($"- Narrative: {scenarioStyle}");
-                }
-
-                if (!string.IsNullOrWhiteSpace(scenario.Narrative.PointOfView))
-                {
-                    sb.AppendLine($"- Preferred POV: {scenario.Narrative.PointOfView}");
-                }
-
-                if (scenario.Plot.Goals.Count > 0)
-                {
-                    scenarioGoals = scenario.Plot.Goals
-                        .Where(x => !string.IsNullOrWhiteSpace(x))
-                        .Select(x => x.Trim())
-                        .ToList();
-
-                    sb.AppendLine("- Plot Goals:");
-                    foreach (var goal in scenarioGoals)
-                    {
-                        sb.AppendLine($"  - {goal}");
-                    }
-                }
-
-                if (scenario.Plot.Conflicts.Count > 0)
-                {
-                    scenarioConflicts = scenario.Plot.Conflicts
-                        .Where(x => !string.IsNullOrWhiteSpace(x))
-                        .Select(x => x.Trim())
-                        .ToList();
-
-                    sb.AppendLine("- Plot Conflicts:");
-                    foreach (var conflict in scenarioConflicts)
-                    {
-                        sb.AppendLine($"  - {conflict}");
-                    }
-                }
-
-                if (scenario.Setting.WorldRules.Count > 0)
-                {
-                    sb.AppendLine("- World Rules:");
-                    foreach (var rule in scenario.Setting.WorldRules.Where(x => !string.IsNullOrWhiteSpace(x)))
-                    {
-                        sb.AppendLine($"  - {rule.Trim()}");
-                    }
-                }
-
-                if (scenario.Setting.EnvironmentalDetails.Count > 0)
-                {
-                    sb.AppendLine("- Environmental Details:");
-                    foreach (var detail in scenario.Setting.EnvironmentalDetails.Where(x => !string.IsNullOrWhiteSpace(x)))
-                    {
-                        sb.AppendLine($"  - {detail.Trim()}");
-                    }
-                }
-
-                if (scenario.Narrative.NarrativeGuidelines.Count > 0)
-                {
-                    scenarioNarrativeGuidelines = scenario.Narrative.NarrativeGuidelines
-                        .Where(x => !string.IsNullOrWhiteSpace(x))
-                        .Select(x => x.Trim())
-                        .ToList();
-
-                    sb.AppendLine("- Narrative Guidelines:");
-                    foreach (var guideline in scenarioNarrativeGuidelines)
-                    {
-                        sb.AppendLine($"  - {guideline}");
-                    }
-                }
-
-                sb.AppendLine("Follow scenario goals, rules, and narrative guidelines unless they conflict with hard safety constraints.");
-                if (!string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId) || !string.IsNullOrWhiteSpace(scenario.DefaultIntensityProfileId))
-                {
-                    var intensityProfileId = session.SelectedIntensityProfileId ?? scenario.DefaultIntensityProfileId;
-                    sb.AppendLine($"- Intensity Profile: {intensityProfileId}");
-                    if (!string.IsNullOrWhiteSpace(intensityProfileId))
-                    {
-                        var toneProfile = await _intensityProfileService.GetAsync(intensityProfileId, cancellationToken);
-                        if (toneProfile is not null)
-                        {
-                            baseIntensityLevel = toneProfile.Intensity;
-                            selectedIntensityDescription = string.IsNullOrWhiteSpace(toneProfile.Description)
-                                ? null
-                                : toneProfile.Description.Trim();
-                        }
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(session.AdaptiveIntensityProfileId))
-                {
-                    var adaptiveProfile = await _intensityProfileService.GetAsync(session.AdaptiveIntensityProfileId, cancellationToken);
-                    if (adaptiveProfile is not null)
-                    {
-                        adaptiveIntensityLevel = adaptiveProfile.Intensity;
-                        adaptiveIntensityDescription = string.IsNullOrWhiteSpace(adaptiveProfile.Description)
-                            ? null
-                            : adaptiveProfile.Description.Trim();
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(session.IntensityFloorOverride) || !string.IsNullOrWhiteSpace(session.IntensityCeilingOverride))
-                {
-                    sb.AppendLine($"- Intensity Bounds: floor={session.IntensityFloorOverride ?? "(none)"}, ceiling={session.IntensityCeilingOverride ?? "(none)"}");
-                }
-
-                // Include all character details so the AI can portray them accurately.
-                if (scenario.Characters.Count > 0)
-                {
-                    sb.AppendLine("Characters in this scene:");
-                    foreach (var character in scenario.Characters)
-                    {
-                        if (!string.IsNullOrWhiteSpace(character.Name))
-                        {
-                            var roleText = string.IsNullOrWhiteSpace(character.Role)
-                                ? string.Empty
-                                : $" [Role: {character.Role.Trim()}]";
-                            var relationText = RolePlayRelationFormatter.DescribeCharacterRelation(character, session, scenario.Characters);
-                            var relationSuffix = string.IsNullOrWhiteSpace(relationText)
-                                ? string.Empty
-                                : $" [Relation: {relationText}]";
-                            sb.AppendLine($"  {character.Name}{roleText}{relationSuffix}: {character.Description?.Trim() ?? "(no description)"}");
-                            var charAppearance = PhysicalAttributesFormatter.FormatBlock(character.PhysicalAttributes);
-                            if (!string.IsNullOrEmpty(charAppearance))
-                            {
-                                sb.AppendLine($"    {charAppearance}");
-                            }
-                        }
-                    }
-                }
-
-                if (scenario.Locations.Count > 0)
-                {
-                    sb.AppendLine("Locations:");
-                    foreach (var location in scenario.Locations
-                        .Where(x => !string.IsNullOrWhiteSpace(x.Name))
-                        .Take(8))
-                    {
-                        var description = string.IsNullOrWhiteSpace(location.Description)
-                            ? "(no description)"
-                            : location.Description.Trim();
-                        sb.AppendLine($"  {location.Name.Trim()}: {description}");
-                    }
-                }
-
-                if (scenario.Objects.Count > 0)
-                {
-                    sb.AppendLine("Objects/Items:");
-                    foreach (var item in scenario.Objects
-                        .Where(x => !string.IsNullOrWhiteSpace(x.Name))
-                        .Take(8))
-                    {
-                        var description = string.IsNullOrWhiteSpace(item.Description)
-                            ? "(no description)"
-                            : item.Description.Trim();
-                        sb.AppendLine($"  {item.Name.Trim()}: {description}");
-                    }
-                }
             }
         }
 
-        var selectedStyleProfileId = session.SelectedSteeringProfileId ?? scenarioSteeringProfileId;
-        if (!string.IsNullOrWhiteSpace(selectedStyleProfileId))
+        // Fail-fast on missing new SteeringProfile fields (FR-006)
+        if (styleProfile is not null)
         {
-            sb.AppendLine($"Writing Style Profile: {selectedStyleProfileId}");
-            var styleProfile = await _steeringProfileService.GetAsync(selectedStyleProfileId, cancellationToken);
-            if (styleProfile is not null)
-            {
-                if (!string.IsNullOrWhiteSpace(styleProfile.Description))
-                {
-                    sb.AppendLine($"- Writing Style Description: {styleProfile.Description}");
-                }
+            if (string.IsNullOrWhiteSpace(styleProfile.ImmersionDirective))
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) is missing required field 'ImmersionDirective'. FR-006 requires this field to be populated. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
 
-                if (!string.IsNullOrWhiteSpace(styleProfile.Example))
-                {
-                    sb.AppendLine($"- Writing Style Example: {styleProfile.Example}");
-                }
+            if (string.IsNullOrWhiteSpace(styleProfile.ActionDirective))
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) is missing required field 'ActionDirective'. FR-006 requires this field to be populated. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
 
-                if (!string.IsNullOrWhiteSpace(styleProfile.RuleOfThumb))
-                {
-                    sb.AppendLine($"- Writing Style Rule of Thumb: {styleProfile.RuleOfThumb}");
-                }
-            }
+            if (styleProfile.WordTargetMin <= 0 || styleProfile.WordTargetMax <= 0 || styleProfile.WordTargetMin >= styleProfile.WordTargetMax)
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) has invalid WordTarget range (Min={styleProfile.WordTargetMin}, Max={styleProfile.WordTargetMax}). FR-006 requires a valid range. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
+
+            if (styleProfile.NarrativeWordTargetMin <= 0 || styleProfile.NarrativeWordTargetMax <= 0 || styleProfile.NarrativeWordTargetMin >= styleProfile.NarrativeWordTargetMax)
+                throw new InvalidOperationException(
+                    $"MissingPromptConfig: SteeringProfile '{styleProfile.Name}' (Id={styleProfile.Id}) has invalid NarrativeWordTarget range (Min={styleProfile.NarrativeWordTargetMin}, Max={styleProfile.NarrativeWordTargetMax}). FR-006 requires a valid range. No hardcoded fallback is permitted. Populate the field via the Style Profile management UI or a DB update.");
         }
 
-        sb.AppendLine("Recent interaction history:");
-        var contextView = session.GetContextView();
-        var windowSize = Math.Max(12, session.ContextWindowSize);
-        foreach (var interaction in contextView.TakeLast(windowSize))
+        // Apply word target marker override: when a marker is present, use the mapped range.
+        // When absent, use SteeringProfile values as-is (backward compat).
+        var resolvedMarker = wordTargetMarker ?? "small";
+        if (WordTargetMarkerRanges.TryGetValue(resolvedMarker, out var markerRange))
         {
-            sb.AppendLine($"[{interaction.InteractionType}] {interaction.ActorName}: {interaction.Content}");
+            wordTargetMin = markerRange.Min;
+            wordTargetMax = markerRange.Max;
         }
 
-        if (_enableLocationServices
-            && (!string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentSceneLocation)
-            || session.AdaptiveState.CharacterLocations.Count > 0)
-           )
+        return new ResolvedWritingStyleData
         {
-            sb.AppendLine("Scene Continuity Anchor:");
-            sb.AppendLine($"- Current Scene Location: {NarrativeLocationLabel(session.AdaptiveState.CurrentSceneLocation) ?? "(unknown)"}");
+            Example = example,
+            PhaseRuleOfThumb = phaseRoT.RuleOfThumbText,
+            StyleHint = styleHint,
+            ImmersionDirective = immersionDirective,
+            ActionDirective = actionDirective,
+            WordTargetMin = wordTargetMin,
+            WordTargetMax = wordTargetMax,
+            NarrativeWordTargetMin = narrativeWordTargetMin,
+            NarrativeWordTargetMax = narrativeWordTargetMax,
+            WordTargetMarker = resolvedMarker,
+        };
+    }
 
-            if (session.AdaptiveState.CharacterLocations.Count > 0)
+    /// <summary>
+    /// B-034: resolves the unified "Wife Willingness to Cheat" score (Option A) from the
+    /// session character snapshots, using the persisted engine settings (coefficients).
+    /// Falls back to neutral (50) on missing data or settings-load failure.
+    /// </summary>
+    private async Task<int> ResolveWillingnessToCheatAsync(
+        IReadOnlyDictionary<string, CharacterStatProfileV2>? runtimeStats,
+        CancellationToken cancellationToken)
+    {
+        DreamGenClone.Domain.RolePlay.ScenarioEngineSettings settings = new();
+        if (_engineSettingsRepository is not null)
+        {
+            try
             {
-                sb.AppendLine("- Character Locations (truth state):");
-                foreach (var truth in session.AdaptiveState.CharacterLocations
-                    .Where(x => !string.IsNullOrWhiteSpace(x.CharacterId))
-                    .OrderBy(x => x.CharacterId, StringComparer.OrdinalIgnoreCase)
-                    .Take(8))
+                settings = await _engineSettingsRepository.LoadAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ResolveWillingnessToCheat: could not load engine settings; using defaults.");
+            }
+        }
+
+        return WifeWillingnessCalculator.ComputeWillingnessToCheat(
+            runtimeStats,
+            settings.WillingnessDesireLoyaltyWeight,
+            settings.WillingnessBehaviorWeight,
+            settings.WillingnessMaritalDeficitWeight);
+    }
+
+    /// <summary>
+    /// Resolves narrative tone data using 3-tier logic (FR-008):
+    /// new Tone → legacy NarrativeTone → null (silent omit).
+    /// </summary>
+    private static ResolvedNarrativeToneData ResolveNarrativeTone(
+        DreamGenClone.Web.Domain.Scenarios.Scenario? scenario)
+    {
+        if (scenario?.Narrative is null)
+            return new ResolvedNarrativeToneData();
+
+        var narrative = scenario.Narrative;
+
+        // Tier 1: new decomposed fields
+        if (!string.IsNullOrWhiteSpace(narrative.Tone))
+        {
+            return new ResolvedNarrativeToneData
+            {
+                Tone = narrative.Tone.Trim(),
+                Register = narrative.Register?.Trim(),
+                Focus = narrative.Focus?.Trim(),
+            };
+        }
+
+        // Tier 2: fall back to legacy NarrativeTone
+        if (!string.IsNullOrWhiteSpace(narrative.NarrativeTone))
+        {
+            return new ResolvedNarrativeToneData
+            {
+                Tone = narrative.NarrativeTone.Trim(),
+                Register = null,
+                Focus = null,
+            };
+        }
+
+        // Tier 3: silent omit
+        return new ResolvedNarrativeToneData();
+    }
+
+    private async Task<ResolvedIntensityData> ResolveIntensityAsync(
+        RolePlaySession session, string phase, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId))
+            return CreateEmptyResolvedIntensity();
+
+        var profile = await _intensityProfileService.GetAsync(session.SelectedIntensityProfileId, cancellationToken);
+        if (profile is null)
+            return CreateEmptyResolvedIntensity();
+
+        // Compute phase-adjusted intensity level
+        var phaseEnum = global::DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Opening;
+        Enum.TryParse<global::DreamGenClone.Domain.StoryAnalysis.NarrativePhase>(phase, out phaseEnum);
+        var offset = profile.GetPhaseOffset(phaseEnum);
+        var levelCount = Enum.GetValues<IntensityLevel>().Length;
+        var adjustedValue = Math.Clamp((int)profile.Intensity + offset, 0, levelCount - 1);
+        var resolvedLabel = ((IntensityLevel)adjustedValue).ToString();
+
+        _logger.LogDebug(
+            "ResolveIntensity: SessionId={SessionId} Phase={Phase} Base={Base} Offset={Offset} Resolved={Resolved}",
+            session.Id, phase, profile.Intensity, offset, resolvedLabel);
+
+        // Start with the selected profile's values
+        var description = profile.Description;
+        var proseStyle = profile.ProseStyleDirective;
+        var voice = profile.VoiceDirective;
+        var tone = profile.ToneDirective;
+        var focus = profile.FocusDirective;
+        var heatLevel = profile.HeatLevelDirective;
+        var resolvedLevel = (IntensityLevel)adjustedValue;
+
+        // When the phase offset changes the effective level, swap ALL directives to the
+        // matching profile — not just Description. Otherwise the model gets mismatched
+        // Prose Style from one level and Heat Level from another.
+        if (resolvedLevel != profile.Intensity)
+        {
+            var allProfiles = await _intensityProfileService.ListAsync(cancellationToken);
+            var matchingProfile = allProfiles.FirstOrDefault(p => p.Intensity == resolvedLevel);
+            if (matchingProfile is not null)
+            {
+                description = matchingProfile.Description;
+                proseStyle = matchingProfile.ProseStyleDirective;
+                voice = matchingProfile.VoiceDirective;
+                tone = matchingProfile.ToneDirective;
+                focus = matchingProfile.FocusDirective;
+                heatLevel = matchingProfile.HeatLevelDirective;
+                _logger.LogDebug(
+                    "ResolveIntensity: contract text swapped from {SelectedName} to {MatchedName} for phase {Phase}",
+                    profile.Name, matchingProfile.Name, phase);
+            }
+        }
+
+        // Resolve scene direction from phase + active theme
+        var activeTheme = session.AdaptiveState.PrimaryThemeId is not null
+            ? await _rpThemeService?.GetThemeAsync(session.AdaptiveState.PrimaryThemeId, cancellationToken)
+            : null;
+        var sceneDirection = SceneDirectionResolver.Resolve(phase, activeTheme, ClimaxSubPhase.None, PromptIntent.Message);
+
+        return new ResolvedIntensityData
+        {
+            BaseLevel = profile.Intensity,
+            Description = description,
+            AdaptiveLevel = (IntensityLevel)adjustedValue,
+            ResolvedLabel = resolvedLabel,
+            SceneDirection = sceneDirection,
+            ProseStyleDirective = proseStyle,
+            VoiceDirective = voice,
+            ToneDirective = tone,
+            FocusDirective = focus,
+            HeatLevelDirective = heatLevel,
+        };
+    }
+
+    private static ResolvedIntensityData CreateEmptyResolvedIntensity()
+    {
+        return new ResolvedIntensityData
+        {
+            ProseStyleDirective = string.Empty,
+            VoiceDirective = string.Empty,
+            ToneDirective = string.Empty,
+            FocusDirective = string.Empty,
+            HeatLevelDirective = string.Empty,
+        };
+    }
+
+    private async Task<ResolvedThemeData> ResolveThemeAsync(
+        RolePlaySession session, string phase, CancellationToken cancellationToken)
+    {
+        if (_rpThemeService is null)
+            return new ResolvedThemeData();
+
+        var themeId = session.AdaptiveState.PrimaryThemeId;
+
+        // Fallback: if PrimaryThemeId isn't synced from the V2 tracker yet,
+        // use the first active theme from ThemeScores (set by theme machine).
+        // During Opening phase, themes are not selected yet — skip fallback.
+        if (string.IsNullOrWhiteSpace(themeId)
+            && !string.Equals(phase, nameof(NarrativePhase.Opening), StringComparison.OrdinalIgnoreCase)
+            && session.AdaptiveState.ThemeScores is { Count: > 0 })
+        {
+            themeId = session.AdaptiveState.ThemeScores.Keys.First();
+        }
+
+        if (string.IsNullOrWhiteSpace(themeId))
+        {
+            // During Opening, populate potential arcs from the session's theme selections
+            // so the model knows what narrative directions are available.
+            if (string.Equals(phase, nameof(NarrativePhase.Opening), StringComparison.OrdinalIgnoreCase)
+                && session.SessionThemeSelections is { Count: > 0 })
+            {
+                var themes = new List<RPTheme>(session.SessionThemeSelections.Count);
+                foreach (var s in session.SessionThemeSelections)
                 {
-                    var label = ResolvePromptActorLabel(session, truth.CharacterId);
-                    var location = string.IsNullOrWhiteSpace(truth.TrueLocation) ? "(unknown)" : truth.TrueLocation;
-                    var hidden = truth.IsHidden ? " [hidden]" : string.Empty;
-                    sb.AppendLine($"  - {label}: {location}{hidden}");
+                    var t = await _rpThemeService.GetThemeAsync(s.ThemeId, cancellationToken);
+                    if (t is not null) themes.Add(t);
+                }
+
+                if (themes.Count > 0)
+                {
+                    return new ResolvedThemeData
+                    {
+                        AvailableArcLabels = themes
+                            .Where(t => !string.IsNullOrWhiteSpace(t.Label))
+                            .Select(t => (t.Label.Trim(), t.Description?.Trim() ?? string.Empty))
+                            .ToList(),
+                    };
                 }
             }
 
-            if (session.AdaptiveState.CharacterLocationPerceptions.Count > 0)
-            {
-                sb.AppendLine("- Key Location Perceptions:");
-                foreach (var perception in session.AdaptiveState.CharacterLocationPerceptions
-                    .Where(x => !string.IsNullOrWhiteSpace(x.ObserverCharacterId) && !string.IsNullOrWhiteSpace(x.TargetCharacterId))
-                    .OrderByDescending(x => x.Confidence)
-                    .Take(6))
-                {
-                    var observer = ResolvePromptActorLabel(session, perception.ObserverCharacterId);
-                    var target = ResolvePromptActorLabel(session, perception.TargetCharacterId);
-                    var where = string.IsNullOrWhiteSpace(perception.PerceivedLocation) ? "(unknown)" : perception.PerceivedLocation;
-                    sb.AppendLine($"  - {observer} perceives {target} at {where} (confidence={perception.Confidence}, LOS={(perception.HasLineOfSight ? "Y" : "N")}, Near={(perception.IsInProximity ? "Y" : "N")})");
-                }
-            }
-
-            sb.AppendLine("- Keep continuity with this location state. Do not teleport characters or jump to a new place without an explicit transition in the narration.");
+            return new ResolvedThemeData();
         }
 
-        if (session.AdaptiveState.CharacterStats.Count > 0)
-        {
-            sb.AppendLine("Adaptive Character Stats:");
-            foreach (var kvp in session.AdaptiveState.CharacterStats.OrderBy(x => x.Key).Take(8))
-            {
-                var summary = string.Join(", ", kvp.Value.Stats.OrderBy(x => x.Key).Select(x => $"{x.Key}={x.Value}"));
-                sb.AppendLine($"- {kvp.Key}: {summary}");
-            }
-        }
+        var theme = await _rpThemeService.GetThemeAsync(themeId, cancellationToken);
+        if (theme is null)
+            return new ResolvedThemeData();
 
-        if (session.AdaptiveState.ThemeTracker.Themes.Count > 0)
-        {
-            sb.AppendLine("Active Theme Tracker:");
-            var tracker = session.AdaptiveState.ThemeTracker;
-            sb.AppendLine($"- Selection Rule: {tracker.ThemeSelectionRule}");
-
-            var selectedThemes = new List<ThemeTrackerItem>();
-            if (!string.IsNullOrWhiteSpace(tracker.PrimaryThemeId)
-                && tracker.Themes.TryGetValue(tracker.PrimaryThemeId, out var primaryTheme))
-            {
-                selectedThemes.Add(primaryTheme);
-            }
-
-            if (!string.IsNullOrWhiteSpace(tracker.SecondaryThemeId)
-                && tracker.Themes.TryGetValue(tracker.SecondaryThemeId, out var secondaryTheme)
-                && !string.Equals(secondaryTheme.ThemeId, tracker.PrimaryThemeId, StringComparison.OrdinalIgnoreCase))
-            {
-                selectedThemes.Add(secondaryTheme);
-            }
-
-            foreach (var item in selectedThemes)
-            {
-                sb.AppendLine($"- {item.ThemeName}: intensity={item.Intensity}, score={item.Score:F1}");
-            }
-
-            var latestEvidence = session.AdaptiveState.ThemeTracker.RecentEvidence.TakeLast(3).ToList();
-            if (latestEvidence.Count > 0)
-            {
-                sb.AppendLine("Recent Theme Evidence:");
-                foreach (var evidence in latestEvidence)
-                {
-                    sb.AppendLine($"- theme={evidence.ThemeId}, delta={evidence.Delta:F1}, confidence={evidence.Confidence:F2}, why={evidence.Rationale}");
-                }
-            }
-        }
-
-        var currentPhase = session.AdaptiveState.CurrentNarrativePhase.ToString();
-        var activeScenarioId = session.AdaptiveState.ActiveScenarioId;
-        var suppressedScenarioIds = session.AdaptiveState.ThemeTracker.Themes.Values
-            .Where(x => !string.Equals(x.ThemeId, activeScenarioId, StringComparison.OrdinalIgnoreCase)
-                && (x.SuppressedHitCount > 0 || x.IsScenarioCandidate))
-            .Select(x => x.ThemeId)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(6)
+        // Filter phase guidance for the current narrative phase
+        var phaseEnum = Enum.TryParse<NarrativePhase>(phase, out var p) ? p : NarrativePhase.Opening;
+        var phaseGuidance = theme.PhaseGuidance
+            .Where(g => g.Phase == phaseEnum)
             .ToList();
 
-        var guidanceContext = await _scenarioGuidanceContextFactory.CreateAsync(
-            new ScenarioGuidanceInput(
-                SessionId: session.Id,
-                CurrentPhase: currentPhase,
-                ActiveScenarioId: activeScenarioId,
-                VariantId: session.AdaptiveState.ActiveVariantId,
-                AverageDesire: session.AdaptiveState.CharacterStats.Count == 0
-                    ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Desire", out var v) ? v : 50),
-                AverageRestraint: session.AdaptiveState.CharacterStats.Count == 0
-                    ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Restraint", out var v) ? v : 50),
-                AverageTension: session.AdaptiveState.CharacterStats.Count == 0
-                    ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Tension", out var v) ? v : 50),
-                AverageConnection: session.AdaptiveState.CharacterStats.Count == 0
-                    ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Connection", out var v) ? v : 50),
-                AverageDominance: session.AdaptiveState.CharacterStats.Count == 0
-                    ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Dominance", out var v) ? v : 50),
-                AverageLoyalty: session.AdaptiveState.CharacterStats.Count == 0
-                    ? 50
-                    : session.AdaptiveState.CharacterStats.Values.Average(x => x.Stats.TryGetValue("Loyalty", out var v) ? v : 50),
-                SelectedWillingnessProfileId: session.AdaptiveState.SelectedWillingnessProfileId,
-                HusbandAwarenessProfileId: session.AdaptiveState.HusbandAwarenessProfileId,
-                SuppressedScenarioIds: suppressedScenarioIds),
-            cancellationToken);
+        return new ResolvedThemeData
+        {
+            ActiveTheme = theme,
+            PhaseGuidanceLines = phaseGuidance
+                .Select(g => g.GuidanceText)
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Select(t => RolePlayAssistantPrompts.StripPhaseGuidanceMarkers(t!.Trim()))
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .ToList(),
+            PhaseDirectiveLines = phaseGuidance
+                .Select(g => g.DirectiveText)
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Select(t => RolePlayAssistantPrompts.StripPhaseGuidanceMarkers(t!.Trim()))
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .ToList(),
+            AiGuidanceNotes = theme.AIGenerationNotes
+                .Where(n => !string.IsNullOrWhiteSpace(n.Text))
+                .ToList(),
+        };
+    }
 
-        var framingGuards = RolePlayAssistantPrompts.BuildFramingGuards(currentPhase, activeScenarioId);
-        RolePlayAssistantPrompts.AppendScenarioGuidance(sb, guidanceContext, framingGuards);
+    private async Task AppendObservingCandidateMenuAsync(
+        StringBuilder sb,
+        RolePlaySession session,
+        string currentPhase,
+        CancellationToken cancellationToken)
+    {
+        if (_rpThemeService is null)
+        {
+            return;
+        }
 
-        RPTheme? activeTheme = null;
+        var themeIds = (session.SessionThemeSelections ?? [])
+            .Select(x => x.ThemeId)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        if (_rpThemeService is not null
-            && !string.IsNullOrWhiteSpace(activeScenarioId))
+        if (themeIds.Count < 2)
+        {
+            // Need at least two candidates for the menu to be meaningful as an option space.
+            return;
+        }
+
+        var candidateLabels = new List<string>(themeIds.Count);
+        foreach (var themeId in themeIds)
         {
             try
             {
-                activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
+                var theme = await _rpThemeService.GetThemeAsync(themeId, cancellationToken);
+                if (theme is null)
+                {
+                    continue;
+                }
+                var label = string.IsNullOrWhiteSpace(theme.Label) ? theme.Id : theme.Label;
+                candidateLabels.Add(label);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Unable to load RP theme AI guidance notes for active scenario/theme {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
-            }
-
-            AppendActiveThemeContract(sb, activeTheme, currentPhase);
-
-            if (session.UseThemeAIGuidanceNotesInPrompt)
-            {
-                RolePlayAssistantPrompts.AppendThemeAIGuidance(
-                    sb,
-                    activeTheme,
-                    currentPhase,
-                    session.ThemeAIGuidanceInfluencePercent,
-                    session.MaxThemeAIGuidanceNotes);
+                _logger.LogDebug(
+                    ex,
+                    "Unable to resolve candidate theme label for {ThemeId} in session {SessionId} (observing menu).",
+                    themeId,
+                    session.Id);
             }
         }
 
-        // Steer guidance should still be phase/theme grounded whenever we have an active scenario
-        // that maps to an RP theme, even if the RP theme subsystem flag is disabled.
-        if (activeTheme is null
-            && _rpThemeService is not null
-            && !string.IsNullOrWhiteSpace(activeScenarioId))
+        if (candidateLabels.Count < 2)
         {
-            try
-            {
-                activeTheme = await _rpThemeService.GetThemeAsync(activeScenarioId, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Unable to load RP theme for steer grounding {ThemeId} in session {SessionId}.", activeScenarioId, session.Id);
-            }
+            return;
         }
 
-        var steerDirective = ResolveSteerDirective(session, promptText, intent);
-        if (!string.IsNullOrWhiteSpace(steerDirective))
+        sb.AppendLine("Theme Observation (no theme committed yet):");
+        sb.AppendLine($"- Current narrative phase: {currentPhase}");
+        sb.AppendLine($"- Candidates: {string.Join(", ", candidateLabels)}");
+        sb.AppendLine("- Let natural events emerge from the persona, characters and recent context. Do not steer the scene toward any single candidate; treat this list only as awareness of the option space.");
+    }
+
+    private static void InjectSessionMemoryBlock(
+        StringBuilder sb,
+        List<DreamGenClone.Domain.RolePlay.EncounterSummaryRecord> summaries,
+        int effectiveMilestones,
+        int effectiveArcCompletions,
+        int effectiveEncounterCompletions,
+        int currentCycleIndex)
+    {
+        // Arc completions: take most recent N (DESC by OccurredUtc, then reverse to chronological)
+        var arcCompletions = summaries
+            .Where(s => s.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.ArcCompletion)
+            .OrderByDescending(s => s.OccurredUtc)
+            .Take(effectiveArcCompletions)
+            .OrderBy(s => s.OccurredUtc)
+            .ToList();
+
+        // Encounter completions: only current arc, take most recent N (DESC, then reverse to chronological)
+        var encounterCompletions = summaries
+            .Where(s => s.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.EncounterCompletion && s.CycleIndex == currentCycleIndex)
+            .OrderByDescending(s => s.OccurredUtc)
+            .Take(effectiveEncounterCompletions)
+            .OrderBy(s => s.OccurredUtc)
+            .ToList();
+
+        // Phase milestones: only current arc, take most recent N (DESC, then reverse)
+        var milestones = summaries
+            .Where(s => s.SummaryType == DreamGenClone.Domain.RolePlay.EncounterSummaryType.PhaseMilestone && s.CycleIndex == currentCycleIndex)
+            .OrderByDescending(s => s.OccurredUtc)
+            .Take(effectiveMilestones)
+            .OrderBy(s => s.OccurredUtc)
+            .ToList();
+
+        if (arcCompletions.Count == 0 && encounterCompletions.Count == 0 && milestones.Count == 0)
         {
-            AppendSteerGuidance(
-                sb,
-                session,
-                currentPhase,
-                activeTheme,
-                steerDirective,
-                session.UseThemeAIGuidanceNotesInPrompt,
-                session.MaxThemeAIGuidanceNotes,
-                _enableLocationServices);
+            return;
         }
 
-        var timeSkipLabel = ResolveTimeSkipDirective(session, promptText, intent);
-        if (!string.IsNullOrWhiteSpace(timeSkipLabel))
+        sb.AppendLine("Session Memory:");
+
+        // Render order: arc completions → encounter completions → phase milestones
+        foreach (var record in arcCompletions)
         {
-            AppendTimeSkipGuidance(sb, timeSkipLabel, currentPhase);
+            sb.AppendLine($"[Arc {record.CycleIndex + 1} Complete — {record.CharacterId}]");
+            if (!string.IsNullOrWhiteSpace(record.ActiveSummary))
+            {
+                sb.AppendLine(record.ActiveSummary);
+            }
         }
 
-        _logger.LogInformation(
-            "Guidance context generated for session {SessionId}: phase={Phase}, activeScenarioId={ActiveScenarioId}, excludedCount={ExcludedCount}",
-            session.Id,
-            currentPhase,
-            activeScenarioId,
-            guidanceContext.ExcludedScenarioIds.Count);
-
-        var actorName = !string.IsNullOrWhiteSpace(customActorName)
-            ? customActorName.Trim()
-            : actor switch
-            {
-                ContinueAsActor.You => string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName,
-                ContinueAsActor.Npc => "NPC",
-                _ => "Custom"
-            };
-
-        sb.AppendLine($"Continue as: {actorName}");
-
-        AppendScenarioPriorities(sb, scenarioGoals, scenarioConflicts, scenarioNarrativeGuidelines);
-
-        if (!string.IsNullOrWhiteSpace(session.SelectedThemeProfileId))
+        foreach (var record in encounterCompletions)
         {
-            sb.AppendLine($"Hard safety constraints for this session derive from theme profile '{session.SelectedThemeProfileId}'.");
-            var profileThemes = await _themePreferenceService.ListByProfileAsync(session.SelectedThemeProfileId, cancellationToken);
-
-            if (profileThemes.Count > 0)
+            // Per-character encounter memory — number as "N/M" where M is the total encounters
+            // in the arc (we don't know M cheaply, so we render the encounter number alone with
+            // the arc index for context; the LLM prose already says "encounter N of arc").
+            sb.AppendLine($"[Encounter {record.EncounterNumber} — {record.CharacterId}]");
+            if (!string.IsNullOrWhiteSpace(record.ActiveSummary))
             {
-                sb.AppendLine("Active ranking profile themes (apply all):");
-                foreach (var theme in profileThemes
-                    .OrderBy(x => x.Tier)
-                    .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    var description = string.IsNullOrWhiteSpace(theme.Description)
-                        ? "(no description)"
-                        : theme.Description.Trim();
-                    sb.AppendLine($"- [{theme.Tier}] {theme.Name}: {description}");
-                }
-            }
-
-            var mustHave = profileThemes
-                .Where(x => x.Tier == ThemeTier.MustHave)
-                .Select(x => x.Name)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var stronglyPrefer = profileThemes
-                .Where(x => x.Tier == ThemeTier.StronglyPrefer)
-                .Select(x => x.Name)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var niceToHave = profileThemes
-                .Where(x => x.Tier == ThemeTier.NiceToHave)
-                .Select(x => x.Name)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var dislikes = profileThemes
-                .Where(x => x.Tier == ThemeTier.Dislike)
-                .Select(x => x.Name)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var neutral = profileThemes
-                .Where(x => x.Tier == ThemeTier.Neutral)
-                .Select(x => x.Name)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (mustHave.Count > 0)
-            {
-                sb.AppendLine($"Must-have themes to actively include when possible: {string.Join(", ", mustHave)}.");
-            }
-
-            if (stronglyPrefer.Count > 0)
-            {
-                sb.AppendLine($"Strongly-preferred themes to bias toward: {string.Join(", ", stronglyPrefer)}.");
-            }
-
-            if (niceToHave.Count > 0)
-            {
-                sb.AppendLine($"Nice-to-have themes to optionally weave in: {string.Join(", ", niceToHave)}.");
-            }
-
-            if (dislikes.Count > 0)
-            {
-                sb.AppendLine($"Disliked themes to minimize or avoid unless absolutely required by continuity: {string.Join(", ", dislikes)}.");
-            }
-
-            if (neutral.Count > 0)
-            {
-                sb.AppendLine($"Neutral themes (no explicit preference): {string.Join(", ", neutral)}.");
-            }
-
-            if (mustHave.Count > 0 || stronglyPrefer.Count > 0)
-            {
-                sb.AppendLine("When multiple directions are possible, prefer outputs that satisfy must-have and strongly-preferred themes.");
-            }
-
-            var hardDealbreakers = profileThemes
-                .Where(x => x.Tier == ThemeTier.HardDealBreaker)
-                .Select(x => x.Name)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (hardDealbreakers.Count > 0)
-            {
-                sb.AppendLine($"Hard dealbreakers: {string.Join(", ", hardDealbreakers)}.");
-                sb.AppendLine("Do not generate, imply, or pivot into any hard dealbreaker themes.");
-            }
-            else
-            {
-                sb.AppendLine("Do not generate content that violates hard dealbreaker themes for the active profile.");
+                sb.AppendLine(record.ActiveSummary);
             }
         }
 
-        // Three distinct interaction types with different POV rules:
-        // Narrative = 3rd person omniscient storyteller setting scenes
-        // Persona   = 1st person POV ("I felt...", "I watched...")
-        // NPC       = 3rd person external (dialogue + observable behavior only)
-        var personaName = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName;
-        var (effectiveStyleLabel, effectiveStyleReason) = RolePlayStyleResolver.ResolveEffectiveStyle(session, baseIntensityLevel, adaptiveIntensityLevel);
-        // Capture the real resolved scale before Narrative forces it to Atmospheric — used for Scene Presence Contract threshold check.
-        var scenePresenceScale = RolePlayStyleResolver.ParseBoundScale(effectiveStyleLabel);
-        if (intent == PromptIntent.Narrative)
+        foreach (var record in milestones)
         {
-            effectiveStyleLabel = IntensityLadder.GetLabel(IntensityLevel.Intro);
-            effectiveStyleReason = string.IsNullOrWhiteSpace(effectiveStyleReason)
-                ? "narrative-forced-atmospheric"
-                : $"{effectiveStyleReason}, narrative-forced-atmospheric";
-        }
-
-        var resolvedIntensityDescription = string.Empty;
-        IntensityProfile? resolvedProfile = null;
-        var resolvedScale = RolePlayStyleResolver.ParseBoundScale(effectiveStyleLabel);
-        if (resolvedScale.HasValue)
-        {
-            var intensityProfiles = await _intensityProfileService.ListAsync(cancellationToken);
-            resolvedProfile = intensityProfiles.FirstOrDefault(x => (int)x.Intensity == resolvedScale.Value && !string.IsNullOrWhiteSpace(x.Description))
-                ?? intensityProfiles.FirstOrDefault(x => (int)x.Intensity == resolvedScale.Value);
-
-            resolvedIntensityDescription = !string.IsNullOrWhiteSpace(resolvedProfile?.Description)
-                ? resolvedProfile.Description.Trim()
-                : IntensityLadder.GetDefaultDescription((IntensityLevel)resolvedScale.Value);
-        }
-
-        sb.AppendLine($"Resolved Intensity: {effectiveStyleLabel}");
-        sb.AppendLine($"Resolution Reason: {effectiveStyleReason}");
-        if (!string.IsNullOrWhiteSpace(resolvedIntensityDescription))
-        {
-            sb.AppendLine($"Resolved Intensity Description: {resolvedIntensityDescription}");
-        }
-        sb.AppendLine("Intensity Writing Contract:");
-        sb.AppendLine("- Treat the resolved intensity description above as a required style contract for this turn.");
-        sb.AppendLine("- This contract governs WRITING STYLE and EXPLICITNESS LEVEL only — it does not override active Phase Guidance.");
-        sb.AppendLine("- Phase Guidance specifies WHAT scene actions and beats must occur; the intensity contract specifies HOW they are written.");
-        sb.AppendLine("- Do not de-escalate below the resolved intensity level unless safety constraints require it.");
-        sb.AppendLine($"Manual Intensity Pin: {(session.IsIntensityManuallyPinned ? "ON (resolved follows selected)" : "OFF (adaptive mode)")}");
-        AppendEscalationGuidance(sb, session, actorName, currentPhase, intent);
-        await AppendPositionListAsync(sb, session, currentPhase, intent, cancellationToken);
-
-        // Scene Presence Contract — fires at Emotional+ in all non-BuildUp phases.
-        // Uses scenePresenceScale (pre-Narrative-override) so Narrative also receives this contract
-        // even though its effectiveStyleLabel is forced to Atmospheric.
-        // PURPOSE: intimate scenes (any level — kissing, touching, sexual) must be written in full;
-        // the model must NOT fade to black or use time-skip transitions past them.
-        var presenceCheckScale = scenePresenceScale ?? resolvedScale;
-        if (presenceCheckScale.HasValue && presenceCheckScale.Value >= (int)IntensityLevel.Emotional && currentPhase != "BuildUp" && intent != PromptIntent.Instruction)
-        {
-            sb.AppendLine("Scene Presence Contract:");
-            sb.AppendLine("- Any intimate physical encounter — kissing, touching, caressing, or sexual activity — occurring in the current moment must be described in full in this response. Do not fade to black. Do not summarize what happened with a single sentence.");
-            sb.AppendLine("- Do not write time-skip transitions that bypass an intimate scene in progress: e.g. 'the door closed behind her', 'an hour later', 'when it was over'. Stay present inside the encounter.");
-            sb.AppendLine("- ONE RESPONSE = ONE SCENE MOMENT. Do not write the intimate encounter AND the return-to-public-space (e.g. returning to the husband, re-entering the room, the couple scene after) within the same response. Write through the encounter and stop. The return belongs in a subsequent turn.");
-            sb.AppendLine("- The Resolved Intensity controls HOW explicitly you write the encounter (vocabulary, anatomical detail), not WHETHER you write it.");
-            sb.AppendLine("- At lower intensity levels: use evocative, sensory, emotionally resonant language — describe physical contact, sensation, and reactions without graphic anatomy.");
-        }
-
-        if (resolvedScale.HasValue && resolvedScale.Value >= (int)IntensityLevel.Explicit && currentPhase != "BuildUp" && intent != PromptIntent.Instruction)
-        {
-            var sanitizedDirective = PromptSanitizer.SanitizeSceneDirective(resolvedProfile?.SceneDirective);
-            if (!string.IsNullOrEmpty(sanitizedDirective))
+            sb.AppendLine($"[{record.FromPhase} → {record.ToPhase} — {record.CharacterId}]");
+            if (!string.IsNullOrWhiteSpace(record.ActiveSummary))
             {
-                _logger.LogDebug("Scene Writing Directive source: profile-configured, scale={Scale}", resolvedScale.Value);
-                sb.AppendLine("Scene Writing Directive:");
-                sb.AppendLine(sanitizedDirective);
-            }
-            else
-            {
-                _logger.LogDebug("Scene Writing Directive source: static, scale={Scale}", resolvedScale.Value);
-                sb.Append(GetStaticSceneDirective());
+                sb.AppendLine(record.ActiveSummary);
             }
         }
-
-        var styleHint = string.IsNullOrWhiteSpace(scenarioStyle)
-            ? effectiveStyleLabel
-            : $"{scenarioStyle} | effective mode: {effectiveStyleLabel}";
-
-        // Beat cursor context: inject current sub-beat framing when in Climax phase.
-        if (string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase)
-            && intent != PromptIntent.Instruction
-            && !string.IsNullOrWhiteSpace(session.AdaptiveState.CurrentBeatCode)
-            && _climaxBeatRepository is not null)
-        {
-            var beatEntry = await _climaxBeatRepository.GetByCodeAsync(session.AdaptiveState.CurrentBeatCode, cancellationToken);
-            if (beatEntry is null)
-            {
-                _logger.LogWarning(
-                    "ClimaxBeatCursor: BeatCode {BeatCode} not found in repository — skipping beat context injection",
-                    session.AdaptiveState.CurrentBeatCode);
-            }
-            else
-            {
-                sb.AppendLine("Beat Stage Context:");
-                sb.AppendLine($"Stage {beatEntry.StageNumber} — {beatEntry.StageName} / {beatEntry.BeatCode} — {beatEntry.SubBeatName}");
-                foreach (var hint in beatEntry.Hints)
-                    sb.AppendLine($"- {hint}");
-                if (beatEntry.NextBeatCode is not null)
-                {
-                    var nextEntry = await _climaxBeatRepository.GetByCodeAsync(beatEntry.NextBeatCode, cancellationToken);
-                    var nextLabel = nextEntry is not null ? $"{beatEntry.NextBeatCode} — {nextEntry.SubBeatName}" : beatEntry.NextBeatCode;
-                    sb.AppendLine($"Next: {nextLabel}");
-                }
-                var isEpisodic = RolePlayAssistantPrompts.IsEpisodicBeatStyle(activeTheme, currentPhase);
-                sb.AppendLine(isEpisodic
-                    ? "This is a brief, urgent encounter — explicit and heated, not slow or romantic. Let the scene flow naturally through this beat and advance across the next 2-3 beats as urgency drives escalation. Be explicit: name body parts, describe movements and sensations directly. Each encounter must be MORE physically advanced than the previous one — escalating across disappearances toward full intercourse. Override: the 'advance only one stage per response' and 'multiple turns per stage' rules do NOT apply here — a rushed episode covers multiple stages. Close at a natural stopping point (they return to the social space). The next encounter resumes from the next beat."
-                    : "Do not skip ahead — write this beat, then advance one beat when complete.");
-            }
-        }
-
-        // Re-inject the most recent plain instruction (non-/steer) from history so it stays
-        // authoritative regardless of how far back it sits in the rolling context window.
-        if (intent != PromptIntent.Instruction)
-        {
-            var instrContextView = session.GetContextView();
-            var instrWindowSize = Math.Max(12, session.ContextWindowSize);
-            var recentInstruction = instrContextView
-                .TakeLast(instrWindowSize)
-                .LastOrDefault(x => string.Equals(x.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase)
-                    && !string.IsNullOrWhiteSpace(x.Content)
-                    && !x.Content.TrimStart().StartsWith("/steer", StringComparison.OrdinalIgnoreCase)
-                    && !x.Content.TrimStart().StartsWith("/nextphase", StringComparison.OrdinalIgnoreCase)
-                    && !x.Content.TrimStart().StartsWith("/timeskip", StringComparison.OrdinalIgnoreCase)
-                    && !x.Content.TrimStart().StartsWith("/endclimax", StringComparison.OrdinalIgnoreCase)
-                    && !x.Content.TrimStart().StartsWith("/completeclimax", StringComparison.OrdinalIgnoreCase));
-            if (recentInstruction is not null)
-            {
-                sb.AppendLine("Active Instruction (persistent — follow for this turn and continue until explicitly overridden):");
-                sb.AppendLine(recentInstruction.Content.Trim());
-            }
-        }
-
-        // Place the per-turn prompt text immediately before the final writing instruction
-        // so it carries maximum authority (LLMs weight instructions near the end of long prompts).
-        if (!string.IsNullOrWhiteSpace(promptText))
-        {
-            var intentLabel = intent switch
-            {
-                PromptIntent.Message => "Message",
-                PromptIntent.Narrative => "Narrative Direction",
-                PromptIntent.Instruction => "Instruction",
-                _ => "Prompt"
-            };
-
-            sb.AppendLine($"{intentLabel}:");
-            sb.AppendLine(promptText.Trim());
-        }
-
-        // Re-inject the partner behavior constraint immediately before the writing directive.
-        // The constraint was already appended ~12K chars earlier; repeating it here ensures it
-        // is the most recent instruction the model reads before generating any character or narrative output.
-        if (!string.IsNullOrWhiteSpace(guidanceContext.HusbandAwarenessFrame))
-        {
-            sb.AppendLine($"HARD CONSTRAINT — enforce in this response: {guidanceContext.HusbandAwarenessFrame}");
-        }
-
-        if (intent == PromptIntent.Narrative)
-        {
-            if (string.Equals(currentPhase, "Climax", StringComparison.OrdinalIgnoreCase))
-            {
-                sb.AppendLine($"Write a detailed omniscient narrative of the physical scene as it stands this turn. " +
-                    $"Refer to {personaName} by name — NEVER use \"I\" or first person. " +
-                    "Describe the following in full physical detail: (1) exact body part positions and how characters are positioned relative to each other; " +
-                    "(2) physical contact points — what is touching what; " +
-                    "(3) clothing and undress state; " +
-                    "(4) physical sensations — texture, pressure, heat, weight; " +
-                    "(5) sounds — breathing, movement, ambient environment; " +
-                    "(6) rhythm and motion. " +
-                    "Write as a detailed physical account of what is occurring right now — positions, contact, sensation, and movement. " +
-                    "HARD CONSTRAINT — Include zero quoted speech. Do not write any dialogue in this passage. " +
-                    "HARD CONSTRAINT: Do not write departure scenes, farewells, or any narrative framing that concludes the story's time frame. The Climax phase is ongoing — sustain the scene within the encounter's moment. " +
-                    $"Match the established tone ({styleHint}). Write at least 300 words.");
-            }
-            else
-            {
-                sb.AppendLine($"Write the next narrative passage as an omniscient narrator in THIRD PERSON. " +
-                    $"Refer to {personaName} by name — NEVER use \"I\" or first person. " +
-                    "Describe the following: (1) spatial layout — where characters are and how they are positioned in the environment; " +
-                    "(2) lighting, temperature, sounds, and sensory atmosphere; " +
-                    "(3) character positions and body language relative to each other and the space; " +
-                    "(4) externally observable actions, movements, and scene-level state changes. " +
-                    "Your priority is the physical scene and environment — where characters are, how they are positioned, what surrounds them, what sounds and sensory details exist. " +
-                    "HARD CONSTRAINT — Include zero quoted speech. Include one brief spoken fragment only if it is absolutely required for scene continuity and cannot be omitted. " +
-                    "Do not write back-and-forth dialogue. Do not write character inner thoughts or feelings. " +
-                    $"Match the established tone ({styleHint}). Output 100-300 words.");
-            }
-        }
-        else
-        {
-            var perspectiveMode = session.ResolvePerspectiveMode(actor, actorName);
-            RolePlayPerspectivePromptBuilder.AppendInteractionInstruction(
-                sb,
-                perspectiveMode,
-                actorName,
-                personaName,
-                styleHint,
-                "Output 100-300 words.");
-        }
-
-        return sb.ToString();
     }
 
     private static void AppendActiveThemeContract(StringBuilder sb, RPTheme? activeTheme, string phase)
@@ -1227,6 +1467,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             .Where(x => !string.IsNullOrWhiteSpace(x.GuidanceText))
             .OrderBy(x => x.GuidanceText, StringComparer.OrdinalIgnoreCase)
             .Select(x => Regex.Replace(x.GuidanceText.Trim(), @"\[Beat[^\]]*\]", "", RegexOptions.IgnoreCase).Trim())
+            .Select(x => Regex.Replace(x, @"\[Aftermath:husband-contrast\]", "", RegexOptions.IgnoreCase).Trim())
             .ToList();
         if (phaseGuidance.Count > 0)
         {
@@ -1249,108 +1490,11 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             sb.AppendLine($"- Key Emphasis ({phase}): {string.Join(" | ", keyEmphasis)}");
         }
 
-        sb.AppendLine("- Treat this theme description as a primary scene contract for the next response.");
+        sb.AppendLine("- STEERING RANK: This theme contract is the highest-ranking directive in this prompt. Character behavioral frames and stat state texts describe tendencies, not requirements — the theme contract overrides them when they conflict.");
         sb.AppendLine("- If multiple continuations are possible, choose the one that best matches this theme description while preserving continuity and safety constraints.");
     }
 
-    private static void AppendSteerGuidance(
-        StringBuilder sb,
-        RolePlaySession session,
-        string currentPhase,
-        RPTheme? activeTheme,
-        string steerDirective,
-        bool includeThemeNotes,
-        int maxThemeNotes,
-        bool enableLocationServices)
-    {
-        sb.AppendLine("Steer Flow Guidance:");
-        sb.AppendLine($"- Requested steer direction: {steerDirective}");
-        sb.AppendLine($"- Current narrative phase: {currentPhase}");
 
-        var location = session.AdaptiveState.CurrentSceneLocation;
-        if (enableLocationServices && !string.IsNullOrWhiteSpace(location))
-        {
-            sb.AppendLine($"- Keep this steer plausible for the current surroundings at '{location}'.");
-            sb.AppendLine("- If the steer implies changing location, add an explicit transition beat before characters arrive in a new place.");
-        }
-
-        if (activeTheme is not null)
-        {
-            var themeLabel = string.IsNullOrWhiteSpace(activeTheme.Label) ? activeTheme.Id : activeTheme.Label;
-            sb.AppendLine($"- Active theme anchor: {themeLabel} ({activeTheme.Id}).");
-
-            var phaseGuidance = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(activeTheme, currentPhase);
-            if (phaseGuidance.Count > 0)
-            {
-                sb.AppendLine($"- Apply theme phase guidance for {currentPhase}:");
-                foreach (var line in phaseGuidance)
-                {
-                    sb.AppendLine($"  - {line}");
-                }
-            }
-
-            if (includeThemeNotes)
-            {
-                var notes = RolePlayAssistantPrompts.GetPhaseRelevantThemeAIGuidanceNotes(
-                    activeTheme,
-                    currentPhase,
-                    Math.Clamp(maxThemeNotes, 1, 6),
-                    includeFormulaNotes: false);
-                if (notes.Count > 0)
-                {
-                    sb.AppendLine("- Relevant theme AI guidance notes for this phase:");
-                    foreach (var note in notes)
-                    {
-                        sb.AppendLine($"  - [{note.Section}] {note.Text.Trim()}");
-                    }
-                }
-            }
-        }
-        else
-        {
-            var availableThemes = session.AdaptiveState.ThemeTracker.Themes.Values
-                .Where(x => !x.Blocked)
-                .OrderByDescending(x => x.Score)
-                .Take(3)
-                .ToList();
-
-            if (availableThemes.Count > 0)
-            {
-                sb.AppendLine("- No active theme is currently locked. Guide direction toward one of these available high-fit themes:");
-                foreach (var theme in availableThemes)
-                {
-                    var name = string.IsNullOrWhiteSpace(theme.ThemeName) ? theme.ThemeId : theme.ThemeName;
-                    sb.AppendLine($"  - {name} ({theme.ThemeId}), score={theme.Score:F1}, intensity={theme.Intensity}");
-                }
-                sb.AppendLine("- Choose a direction that naturally increases coherence with one of the above themes without abrupt pivots.");
-            }
-            else
-            {
-                sb.AppendLine("- No active or available themes are established yet. Steer toward a coherent, phase-appropriate direction and preserve scene plausibility.");
-            }
-        }
-    }
-
-    private static bool TryExtractSteerDirective(string promptText, out string directive)
-    {
-        directive = string.Empty;
-        if (string.IsNullOrWhiteSpace(promptText))
-        {
-            return false;
-        }
-
-        var raw = promptText.Trim();
-        if (!raw.StartsWith("/steer", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        var remaining = raw.Length > 6 ? raw[6..].Trim() : string.Empty;
-        directive = string.IsNullOrWhiteSpace(remaining)
-            ? "Steer the scene in a meaningful, phase-consistent direction."
-            : remaining;
-        return true;
-    }
 
     private static bool TryExtractTimeSkipDirective(string promptText, out string label)
     {
@@ -1396,30 +1540,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         sb.AppendLine("- After the time-skip opening, continue the narrative from the new moment forward as normal.");
     }
 
-    private static string? ResolveSteerDirective(RolePlaySession session, string promptText, PromptIntent intent)
-    {
-        if (intent == PromptIntent.Instruction
-            && TryExtractSteerDirective(promptText, out var currentDirective))
-        {
-            return currentDirective;
-        }
-
-        foreach (var interaction in session.Interactions.AsEnumerable().Reverse())
-        {
-            if (!string.Equals(interaction.ActorName, "Instruction", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (TryExtractSteerDirective(interaction.Content, out var historicalDirective))
-            {
-                return historicalDirective;
-            }
-        }
-
-        return null;
-    }
-
     private static string ResolvePromptActorLabel(RolePlaySession session, string? actorIdOrName)
     {
         if (string.IsNullOrWhiteSpace(actorIdOrName))
@@ -1445,96 +1565,6 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         return token;
     }
 
-    private static void AppendEscalationGuidance(
-        StringBuilder sb,
-        RolePlaySession session,
-        string actorName,
-        string phase,
-        PromptIntent intent)
-    {
-        if (intent == PromptIntent.Instruction)
-        {
-            return;
-        }
-
-        if (session.AdaptiveState.CharacterStats.Count == 0)
-        {
-            return;
-        }
-
-        var actorStats = ResolvePromptActorStats(session, actorName);
-        var desire = ResolveStat(actorStats, "Desire", session.AdaptiveState.CharacterStats.Values.Average(x => ResolveStat(x.Stats, "Desire", 50)));
-        var restraint = ResolveStat(actorStats, "Restraint", session.AdaptiveState.CharacterStats.Values.Average(x => ResolveStat(x.Stats, "Restraint", 50)));
-        var tension = ResolveStat(actorStats, "Tension", session.AdaptiveState.CharacterStats.Values.Average(x => ResolveStat(x.Stats, "Tension", 50)));
-
-        var isLatePhase = phase is "Approaching" or "Climax";
-        if (!isLatePhase)
-        {
-            return;
-        }
-
-        sb.AppendLine("Escalation Guidance:");
-        sb.AppendLine("- Advance the scene with clear forward momentum; avoid repeating only hesitant or reset beats.");
-
-        if (desire >= 70 || tension >= 60)
-        {
-            sb.AppendLine("- Show concrete progression in physical intimacy this turn when continuity allows (not just verbal tension). ");
-        }
-
-        if (restraint <= 55 || (desire >= 75 && tension >= 60))
-        {
-            sb.AppendLine("- Do not keep the scene at fully-clothed distance if continuity already supports escalation; progress to a more intimate state.");
-        }
-
-        if (phase == "Climax")
-        {
-            sb.AppendLine("- Every turn must advance to a new beat. Do not describe the same physical act or position that was the focus of the previous turn.");
-            sb.AppendLine("- Vary who is the focus, the position, the tempo, or the specific sensation each turn. Repetition of the same scene state is explicitly forbidden.");
-            sb.AppendLine("- You may remain in the same overall stage of intimacy (e.g. still oral), but every turn must shift something concrete: angle, position, who is leading, intensity, or body focus.");
-            sb.AppendLine("- Write explicit physical description — name body parts, movements, and sensations specifically.");
-            sb.AppendLine("- Urgency and narrative pressure should appear in character energy, dialogue, and pacing — not in abbreviating the scene.");
-            sb.AppendLine("- If in-narrative time pressure exists, use it to raise intensity of description, not to rush to conclusion.");
-            sb.AppendLine("- Do not imply or skip ahead to a post-scene state; remain in the physical moment.");
-            sb.AppendLine("- By default, do not write male characters reaching orgasm or ejaculating. The scene always continues until /endclimax — unless the active steer or instruction explicitly directs male climax or orgasm.");
-            sb.AppendLine("- Write at least 350 words this turn. Fill the length with explicit physical and sensory detail specific to the current act and position.");
-        }
-    }
-
-    private static string GetStaticSceneDirective()
-    {
-        return """
-            Scene Writing Directive:
-            Progression Contract:
-            - Read the last interaction. Identify what physical act or beat was just described.
-            - This response MUST move to a different beat, position, or sensation. Writing the same act or physical focus as the previous response is explicitly forbidden.
-            - You may stay in the same broad stage of intimacy, but every response must shift something concrete: angle, who is leading, position, tempo, or body focus.
-            Physical Escalation Sequence — follow this order unless established context requires otherwise:
-              Stage 1 — Clothed contact: touching, groping, kissing mouth/neck, hands roaming over clothing
-              Stage 2 — Undressing: removing clothes; kissing, licking, and sucking bare skin (chest, nipples, stomach)
-              Stage 3 — Intimate touch: bare hands on private areas; stroking, rubbing, fingering
-              Stage 4 — Sustained manual: handjob, fingering, grinding, mutual stimulation
-              Stage 5 — Oral (initial): first oral contact; light, exploratory, teasing
-              Stage 6 — Oral (building): sustained oral; rhythm established; hands involved
-              Stage 7 — Oral (intense): full oral, peak arousal, close to edge
-              Stage 8 — Penetrative: only after Stages 5-7 have been visited
-            Rules:
-            - Advance at most one stage per response. Do not skip multiple stages at once.
-            - Do not revisit an earlier stage once it has been passed unless the characters explicitly reset.
-            - Do not rush through stages in one response — each stage earns multiple turns of deepening.
-            Response Length:
-            - Write at least 350 words for each Climax-phase response. Fill that length with explicit physical and sensory detail — no filler repetition.
-            Pacing and Urgency:
-            - Narrative urgency is expressed through action intensity, breathless dialogue, and emotional tone. It does NOT abbreviate the writing or skip stages.
-            - Even a hurried encounter spans multiple full beats. The characters may be rushed; the prose remains detailed.
-            Male Climax Gate:
-            - By default, male characters do not orgasm or ejaculate until the user submits the command /endclimax. Until that command appears, the scene always continues.
-            - Exception: if the active steer or instruction explicitly directs a male character to orgasm or climax, follow that direction and write it.
-            - If no explicit direction is given and a male character appears to have climaxed, the scene does not end — sustain or continue the physical encounter.
-            Continuity Awareness:
-            - Use direct, explicit language appropriate to the resolved intensity level.
-            """;
-    }
-
     private static Dictionary<string, int>? ResolvePromptActorStats(RolePlaySession session, string actorName)
     {
         if (string.IsNullOrWhiteSpace(actorName))
@@ -1546,12 +1576,12 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             .FirstOrDefault(x => string.Equals(x.Key, actorName, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrWhiteSpace(direct.Key))
         {
-            return direct.Value.Stats;
+            return CharacterStatProfileV2Accessor.GetAllStats(direct.Value);
         }
 
         var byCharacterId = session.AdaptiveState.CharacterStats.Values.FirstOrDefault(x =>
             string.Equals(x.CharacterId, actorName, StringComparison.OrdinalIgnoreCase));
-        return byCharacterId?.Stats;
+        return byCharacterId is null ? null : CharacterStatProfileV2Accessor.GetAllStats(byCharacterId);
     }
 
     private static int ResolveStat(IReadOnlyDictionary<string, int>? stats, string statName, double fallback)
@@ -1581,18 +1611,22 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
 
         try
         {
-            var stats = session.AdaptiveState.CharacterStats;
-            var avgDesire = stats.Count == 0 ? 50.0
-                : stats.Values.Average(x => x.Stats.TryGetValue("Desire", out var v) ? v : 50);
-            var avgDominance = stats.Count == 0 ? 50.0
-                : stats.Values.Average(x => x.Stats.TryGetValue("Dominance", out var v) ? v : 50);
-            var otherManDominance = stats.Count == 0 ? avgDominance
-                : stats.Values.Average(x =>
+            // Only scenario-bound characters (those with a CharacterRole) contribute to stat averages.
+            var trackedStatsForPositions = session.AdaptiveState.CharacterStats.Values
+                .Where(x => !string.IsNullOrEmpty(x.CharacterRole))
+                .ToList();
+            var avgDesire = trackedStatsForPositions.Count == 0 ? 50.0
+                : trackedStatsForPositions.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Desire", 50));
+            var avgDominance = trackedStatsForPositions.Count == 0 ? 50.0
+                : trackedStatsForPositions.Average(x => CharacterStatProfileV2Accessor.GetStatOrDefault(x, "Dominance", 50));
+            var otherManDominance = trackedStatsForPositions.Count == 0 ? avgDominance
+                : trackedStatsForPositions.Average(x =>
                 {
-                    if (x.Stats.TryGetValue("OtherManDominance", out var d)) return (double)d;
-                    if (x.Stats.TryGetValue("OtherManDom", out var d2)) return (double)d2;
-                    if (x.Stats.TryGetValue("RivalDominance", out var d3)) return (double)d3;
-                    if (x.Stats.TryGetValue("BullDominance", out var d4)) return (double)d4;
+                    var allStats = CharacterStatProfileV2Accessor.GetAllStats(x);
+                    if (allStats.TryGetValue("OtherManDominance", out var d)) return (double)d;
+                    if (allStats.TryGetValue("OtherManDom", out var d2)) return (double)d2;
+                    if (allStats.TryGetValue("RivalDominance", out var d3)) return (double)d3;
+                    if (allStats.TryGetValue("BullDominance", out var d4)) return (double)d4;
                     return avgDominance;
                 });
 
@@ -1669,7 +1703,7 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         CancellationToken cancellationToken)
     {
         var correlationId = Guid.NewGuid().ToString("N");
-        var climaxMode = session.AdaptiveState.CurrentNarrativePhase == DreamGenClone.Domain.StoryAnalysis.NarrativePhase.Climax;
+        var climaxMode = session.AdaptiveState.CurrentPhase == NarrativePhase.Climax;
 
         var firstOutput = await _completionClient.GenerateAsync(prompt, resolved, cancellationToken);
         var firstAnalysis = AnalyzeNarrativeOutput(firstOutput, climaxMode);
@@ -1860,6 +1894,33 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
             CharacterInteriorityCount: interiorityCount);
     }
 
+    private static IReadOnlyList<ScenarioCharacter> BuildCharactersWithPersona(
+        IReadOnlyList<ScenarioCharacter>? scenarioCharacters,
+        RolePlaySession session)
+    {
+        var list = scenarioCharacters is not null
+            ? new List<ScenarioCharacter>(scenarioCharacters)
+            : [];
+
+        // The persona may already be present when the scenario's Characters list includes
+        // an IsPersona character (unified persona-as-character refactor). Only inject the
+        // legacy synthetic "__persona__" entry when no existing entry matches the persona
+        // name — this preserves the frame-generator resolution path for old sessions that
+        // still rely on the agg-slot token.
+        var personaName = !string.IsNullOrWhiteSpace(session.PersonaName) ? session.PersonaName : "Persona";
+        var alreadyPresent = list.Any(c =>
+            string.Equals(c.Name, personaName, StringComparison.OrdinalIgnoreCase));
+        if (alreadyPresent)
+        {
+            return list;
+        }
+
+        var personaRole = !string.IsNullOrWhiteSpace(session.PersonaRole) ? session.PersonaRole : string.Empty;
+        list.Add(new ScenarioCharacter("__persona__", personaName, personaRole));
+
+        return list;
+    }
+
     private sealed record NarrativeValidationResult(
         bool HasViolation,
         bool ShouldRetry,
@@ -1869,5 +1930,179 @@ public sealed class RolePlayContinuationService : IRolePlayContinuationService
         int DialogueAttributionCount,
         int FirstPersonLeakCount,
         int CharacterInteriorityCount);
+
+    // ── Intimate behavioral text injection helpers ──────────────────────────
+
+    private static void InjectCharacterBehavioralTexts(
+        StringBuilder sb,
+        DreamGenClone.Web.Domain.Scenarios.Character character,
+        System.Collections.Generic.IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character> allCharacters,
+        RolePlaySession session)
+    {
+        if (character.PhysicalAttributes is null) return;
+
+        // 1. Self-awareness text for every character with intimate attributes
+        var selfAwareness = IntimateBehavioralTextBuilder.BuildSelfAwarenessText(
+            character.PhysicalAttributes, character.Gender, awarenessLevel: null, character.Name);
+        if (!string.IsNullOrEmpty(selfAwareness))
+            sb.AppendLine($"    {selfAwareness}");
+
+        // 2. Partner perspective: for female characters related to male persona/character
+        var isFemale = string.Equals(character.Gender, "Female", StringComparison.OrdinalIgnoreCase);
+        if (!isFemale || session.PersonaPhysicalAttributes is null) return;
+
+        var personaIsMale = string.Equals(session.PersonaGender, "Male", StringComparison.OrdinalIgnoreCase);
+        if (!personaIsMale) return;
+
+        // Check if this female character is related to the male persona
+        var hasRelationToPersona = HasRelationToPersona(character, session, allCharacters);
+        if (!hasRelationToPersona) return;
+
+        // Partner perspective: this female character → persona
+        var partnerPerspective = IntimateBehavioralTextBuilder.BuildPartnerPerspectiveText(
+            session.PersonaPhysicalAttributes, session.PersonaGender,
+            character.PhysicalAttributes, character.Gender,
+            session.PersonaName, character.Name!);
+        if (!string.IsNullOrEmpty(partnerPerspective))
+            sb.AppendLine($"    {partnerPerspective}");
+
+        // 3. Partner perspective + comparison: for other male characters in scene
+        var otherMales = allCharacters
+            .Where(c => c != character
+                && string.Equals(c.Gender, "Male", StringComparison.OrdinalIgnoreCase)
+                && c.PhysicalAttributes is not null
+                && HasAnyIntimateFields(c.PhysicalAttributes))
+            .ToList();
+
+        string? firstOtherMaleName = null;
+        DreamGenClone.Domain.Templates.PhysicalAttributes? firstOtherMaleAttrs = null;
+
+        foreach (var otherMale in otherMales)
+        {
+            // B-058 Phase 6.2 gate: knowledge of the other man's intimate attributes now
+            // depends on whether an EncounterCompletion record exists for him. Pre-encounter
+            //   → attraction without knowledge (BuildPartnerPreEncounterText)
+            // Post-encounter → full partner perspective (BuildPartnerPerspectiveText)
+            // Comparison text is gated post-encounter only.
+            //
+            // B-058 Phase 6.3 EXCEPTION: the husband (or any male character related to this
+            // female character) has an established intimate history — the encounter gate is
+            // designed for new partners (the "other man"), not the spouse. Always treat
+            // related males as post-encounter.
+            var isRelatedMale = !string.IsNullOrWhiteSpace(otherMale.RelationTargetId)
+                && string.Equals(otherMale.RelationTargetId, character.Name, StringComparison.OrdinalIgnoreCase);
+
+            var hasEncounterCompletion = isRelatedMale
+                || IntimateBehavioralTextBuilder.HasEncounterCompletionForCharacter(
+                    otherMale.Id,
+                    session.AdaptiveState.EncounterSummaries,
+                    session.PersonaName);
+
+            if (!hasEncounterCompletion)
+            {
+                var anticipation = IntimateBehavioralTextBuilder.BuildPartnerPreEncounterText(
+                    otherMale.Name!, otherMale.Gender,
+                    otherMale.PhysicalAttributes,
+                    character.Name!, character.Gender);
+                if (!string.IsNullOrEmpty(anticipation))
+                    sb.AppendLine($"    {anticipation}");
+                // Pre-encounter: do NOT register as first-other-male — comparison is gated post-encounter.
+                continue;
+            }
+
+            var otherPerspective = IntimateBehavioralTextBuilder.BuildPartnerPerspectiveText(
+                otherMale.PhysicalAttributes!, otherMale.Gender,
+                character.PhysicalAttributes, character.Gender,
+                otherMale.Name!, character.Name!);
+            if (!string.IsNullOrEmpty(otherPerspective))
+                sb.AppendLine($"    {otherPerspective}");
+
+            if (firstOtherMaleName is null)
+            {
+                firstOtherMaleName = otherMale.Name;
+                firstOtherMaleAttrs = otherMale.PhysicalAttributes;
+            }
+        }
+
+        // 4. Comparison text: when there are two male partners
+        if (firstOtherMaleName is not null && firstOtherMaleAttrs is not null)
+        {
+            var comparison = IntimateBehavioralTextBuilder.BuildComparisonText(
+                session.PersonaPhysicalAttributes, session.PersonaName,
+                firstOtherMaleAttrs, firstOtherMaleName,
+                character.PhysicalAttributes, character.Name!);
+            if (!string.IsNullOrEmpty(comparison))
+                sb.AppendLine($"    {comparison}");
+        }
+    }
+
+    private static bool HasRelationToPersona(
+        DreamGenClone.Web.Domain.Scenarios.Character character,
+        RolePlaySession session,
+        System.Collections.Generic.IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character> allCharacters)
+    {
+        // Direct relation: character's RelationTargetId points to persona
+        if (!string.IsNullOrWhiteSpace(character.RelationTargetId))
+        {
+            // Check if the target is the persona (by name match or special token)
+            if (string.Equals(character.RelationTargetId, session.PersonaName, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        // Role-based: Wife role character and Husband role persona
+        var charRole = CharacterRoleCatalog.Normalize(character.Role);
+        var personaRole = CharacterRoleCatalog.Normalize(session.PersonaRole);
+        if (string.Equals(charRole, "Wife", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(personaRole, "Husband", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
+
+    private static int? ResolvePersonaAwarenessLevel(RolePlaySession session)
+    {
+        // Try to find a CharacterEncounterProfileId for the persona by matching name or role
+        foreach (var kvp in session.AdaptiveState.CharacterEncounterProfileIds)
+        {
+            if (string.Equals(kvp.Key, session.PersonaName, StringComparison.OrdinalIgnoreCase))
+                return ResolveAwarenessFromProfileId(kvp.Value);
+        }
+
+        // Fallback: match by persona role
+        foreach (var kvp in session.AdaptiveState.CharacterEncounterProfileIds)
+        {
+            if (string.Equals(kvp.Key, session.PersonaRole, StringComparison.OrdinalIgnoreCase))
+                return ResolveAwarenessFromProfileId(kvp.Value);
+        }
+
+        return null;
+    }
+
+    private static int? ResolveAwarenessFromProfileId(string? profileId)
+    {
+        // Awareness is derived from CharacterProfile dimensions.
+        // Without ICharacterProfileService injected into static helpers,
+        // we return null. The caller handles null by omitting awareness framing.
+        // Future enhancement: wire up ICharacterProfileService for full resolution.
+        return null;
+    }
+
+    private static bool HasAnyIntimateFields(DreamGenClone.Domain.Templates.PhysicalAttributes attrs)
+    {
+        return !string.IsNullOrWhiteSpace(attrs.Scent)
+            || !string.IsNullOrWhiteSpace(attrs.SexualDrive)
+            || !string.IsNullOrWhiteSpace(attrs.SexualConfidence)
+            || !string.IsNullOrWhiteSpace(attrs.SexualSkill)
+            || !string.IsNullOrWhiteSpace(attrs.OralSkill)
+            || !string.IsNullOrWhiteSpace(attrs.EndowmentLength)
+            || !string.IsNullOrWhiteSpace(attrs.EndowmentGirth)
+            || !string.IsNullOrWhiteSpace(attrs.Stamina)
+            || !string.IsNullOrWhiteSpace(attrs.Recovery)
+            || !string.IsNullOrWhiteSpace(attrs.EjaculationIntensity)
+            || !string.IsNullOrWhiteSpace(attrs.VaginalTightness)
+            || !string.IsNullOrWhiteSpace(attrs.Sensitivity)
+            || !string.IsNullOrWhiteSpace(attrs.Lubrication)
+            || !string.IsNullOrWhiteSpace(attrs.OrgasmicCapacity);
+    }
 
 }

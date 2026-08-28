@@ -2,6 +2,7 @@ using DreamGenClone.Domain.StoryAnalysis;
 
 namespace DreamGenClone.Application.StoryAnalysis;
 
+[Obsolete("Replaced by ICharacterProfileService — B-042")]
 public interface IBaseStatProfileService
 {
     Task<BaseStatProfile> CreateAsync(string name, string description, IReadOnlyDictionary<string, int> defaultStats, string targetGender, string targetRole, CancellationToken cancellationToken = default);

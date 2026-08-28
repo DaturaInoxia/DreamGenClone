@@ -1,0 +1,1401 @@
+@page "/roleplay/studio/{sessionId}/{interactionId}"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Models
+@using DreamGenClone.Web.Application.Sessions
+@using DreamGenClone.Web.Application.Scenarios
+@using DreamGenClone.Web.Domain.RolePlay
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Domain.StoryAnalysis
+@using System.Text.Json
+@implements IAsyncDisposable
+
+@inject ISessionService SessionService
+@inject ISceneImageService ImageService
+@inject ICharacterImageIdentityService IdentityService
+@inject IModelResolutionService ModelResolutionService
+@inject StoryAnalysisFacade StoryAnalysis
+@inject IScenarioService ScenarioService
+@inject WorkspaceSettingsState WorkspaceSettings
+@inject RolePlayDebugEventService DebugEventService
+@inject SceneImageTurnResolver TurnResolver
+@inject NavigationManager Nav
+@inject ILogger<SceneImageStudio> Logger
+
+<PageTitle>Scene Image Studio - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <a href="/roleplay/workspace/@sessionId" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i> Back to workspace
+            </a>
+            <h4 class="d-inline-block ms-2 mb-0">@_session?.Title</h4>
+        </div>
+        <div>
+            <a href="/roleplay/gallery/@sessionId" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-images me-1"></i> Gallery
+            </a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger">@_errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <div class="alert alert-info">@_statusMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(_policyResolutionError))
+    {
+        <div class="alert alert-warning">
+            <i class="bi bi-info-circle me-1"></i>
+            No image model is configured yet. Configure an image-capable provider + image model in
+            <a href="/model-manager" class="alert-link">Model Manager</a> before rendering.
+            <small class="d-block mt-1 text-muted">@_policyResolutionError</small>
+        </div>
+    }
+
+    @if (_session is null)
+    {
+        <div class="alert alert-warning">Session or interaction not found.</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @* ── Source + context ─────────────────────────────── *@
+            <div class="col-lg-5">
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <strong>Story Moment</strong>
+                        <span class="text-muted ms-2 small">@_interaction?.ActorName</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="scene-image-story-moment" style="max-height: 320px; overflow: auto; white-space: pre-wrap;">@_interaction?.Content</div>
+                    </div>
+                </div>
+
+                @if (_fullTurn is not null)
+                {
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <strong>Full Turn Context</strong>
+                            @if (_fullTurn.Turn is not null)
+                            {
+                                <span class="text-muted small">Turn #@(_fullTurn.Turn.TurnIndex + 1)</span>
+                            }
+                        </div>
+                        <div class="card-body py-2">
+                            <div class="text-muted small mb-2">
+                                @if (_fullTurn.Turn is not null)
+                                {
+                                    <span>Source: RolePlayV2Turns · @_fullTurn.Turn.TurnKind · @_fullTurn.Turn.TriggerSource</span>
+                                }
+                                else
+                                {
+                                    <span>Source: legacy context window</span>
+                                }
+                            </div>
+                            <div class="list-group list-group-flush scene-image-turn-context">
+                                @foreach (var turnInteraction in _fullTurn.Interactions)
+                                {
+                                    var isSelectedInteraction = string.Equals(turnInteraction.Id, interactionId, StringComparison.OrdinalIgnoreCase);
+                                    <div class="list-group-item px-0 @(isSelectedInteraction ? "scene-image-turn-selected" : "")">
+                                        <div class="d-flex justify-content-between gap-2 small">
+                                            <strong>@turnInteraction.ActorName</strong>
+                                            <span class="text-muted text-nowrap">@turnInteraction.InteractionType · @turnInteraction.CreatedAt.ToLocalTime().ToString("g")</span>
+                                        </div>
+                                        @if (isSelectedInteraction)
+                                        {
+                                            <div class="small text-info">Selected for this image</div>
+                                        }
+                                        <div class="small mt-1" style="white-space: pre-wrap;">@turnInteraction.Content</div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Image Beats</strong>
+                        @if (_beatAnalysis?.Status == SceneImageBeatAnalysisStatus.Complete)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="RequestReplaceBeats">Generate Beats Again</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-primary" disabled="@(_busy || _fullTurn?.Turn is null)" @onclick="GenerateBeatsAsync">Generate Beats</button>
+                        }
+                    </div>
+                    <div class="card-body small">
+                        @if (_fullTurn?.Turn is null)
+                        {
+                            <span class="text-muted">This legacy interaction has no persisted turn, so it cannot be analyzed into image beats.</span>
+                        }
+                        else if (_replaceBeatsRequested)
+                        {
+                            <div class="alert alert-warning py-2 mb-0">
+                                Replace the saved beats for this turn? Existing images remain unchanged.
+                                <div class="mt-2 d-flex gap-2">
+                                    <button class="btn btn-sm btn-warning" @onclick="GenerateBeatsAsync">Replace Beats</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => _replaceBeatsRequested = false">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else if (_beatAnalysis is null)
+                        {
+                            <span class="text-muted">Generate beats to have the model identify image-worthy moments in this turn.</span>
+                        }
+                        else if (_beatAnalysis.Status == SceneImageBeatAnalysisStatus.Pending)
+                        {
+                            <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Analyzing the full turn into image beats...</span>
+                        }
+                        else if (_beatAnalysis.Status == SceneImageBeatAnalysisStatus.Failed)
+                        {
+                            <div class="alert alert-danger py-2 mb-0">Beat analysis failed: @_beatAnalysis.ErrorMessage</div>
+                        }
+                        else if (_requiresBeatRegeneration)
+                        {
+                            <div class="alert alert-warning py-2 mb-0">
+                                These saved beats use an older format and cannot provide reliable ensemble geometry. Generate beats again before creating a prompt.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="d-grid gap-2 scene-image-beat-list">
+                                @foreach (var beat in _analysis?.Beats ?? [])
+                                {
+                                    <button class="btn text-start @(_selectedBeatId == beat.BeatId ? "btn-primary" : "btn-outline-secondary")" @onclick="() => SelectBeatAsync(beat.BeatId)">
+                                        <strong>@beat.Order. @beat.Label</strong>
+                                        <span class="d-block small">@beat.VisualDescription</span>
+                                        <span class="d-block small">@beat.Location · @beat.TimeOfDay</span>
+                                        <span class="d-block small">@beat.Lighting · @beat.Mood</span>
+                                        @foreach (var character in beat.Characters)
+                                        {
+                                            <span class="d-block small mt-1">
+                                                <strong>@character.Name</strong> · @character.Involvement · @character.Position<br />
+                                                @character.ActionOrObservation · looking @character.Sightline<br />
+                                                Clothing: @character.Clothing · Visible: @(character.VisibleCharacterNames.Count == 0 ? "none" : string.Join(", ", character.VisibleCharacterNames))
+                                            </span>
+                                        }
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Scene Context</strong></div>
+                    <ul class="list-group list-group-flush small">
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Phase</span><span>@_session.AdaptiveState.CurrentPhase</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Intensity</span><span>@(_resolvedIntensityLabel ?? "unknown")</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Setting</span><span>@(_session.AdaptiveState.CurrentSceneLocation ?? "unknown")</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Time of day</span><span>@_session.AdaptiveState.CurrentTimeOfDay</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            @* ── Settings + prompt + render ───────────────────── *@
+            <div class="col-lg-7">
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Image Settings</strong></div>
+                    <div class="card-body">
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label">Style</label>
+                                <select class="form-select form-select-sm" @bind="_settings.Style">
+                                    <option value="realistic">Realistic</option>
+                                    <option value="cinematic">Cinematic</option>
+                                    <option value="anime">Anime</option>
+                                    <option value="cartoon">Cartoon</option>
+                                    <option value="painterly">Painterly</option>
+                                    <option value="sketch">Sketch</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Size</label>
+                                <select class="form-select form-select-sm" @bind="_settings.ImageSize">
+                                    <option value="512x512">512 x 512</option>
+                                    <option value="768x768">768 x 768</option>
+                                    <option value="1024x1024">1024 x 1024</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Aspect Ratio (optional)</label>
+                                <input type="text" class="form-control form-control-sm" @bind="_settings.AspectRatio" placeholder="e.g. 16:9" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Seed (optional, blank = random)</label>
+                                <input type="number" class="form-control form-control-sm" @bind="_settings.Seed"
+                                       placeholder="e.g. 24680" />
+                            </div>
+                            <div class="col-12">
+                                <div class="form-text">A fixed seed makes a render reproducible; leave blank for a random seed each time. Only honored for the ComfyUI protocol.</div>
+                                @if (_resolvedPolicy == ImageContentPolicy.SfwFiltered)
+                                {
+                                    <div class="alert alert-warning py-2 small mb-2">
+                                        <i class="bi bi-shield-lock me-1"></i>
+                                        The configured image provider filters adult content — the prompt is clamped to safe-for-work.
+                                    </div>
+                                }
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="studio-explicit" @bind="_settings.AllowExplicitImage" disabled="@(_resolvedPolicy == ImageContentPolicy.SfwFiltered)" />
+                                    <label class="form-check-label @(_resolvedPolicy == ImageContentPolicy.SfwFiltered ? "text-muted" : "")" for="studio-explicit">Allow explicit content</label>
+                                    <div class="form-text">Only honored when the configured image provider's content policy is adult-allowed; otherwise the prompt is clamped to safe-for-work.</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row g-2 mt-2">
+                            <div class="col-6 col-md-3">
+                                <label class="form-label">CFG</label>
+                                <input type="number" step="0.5" class="form-control form-control-sm" @bind="_settings.Cfg" />
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <label class="form-label">Steps</label>
+                                <input type="number" class="form-control form-control-sm" @bind="_settings.Steps" />
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label">Sampler</label>
+                                <select class="form-select form-select-sm" @bind="_settings.SamplerName">
+                                    <option value="dpmpp_2m">dpmpp_2m</option>
+                                    <option value="dpmpp_2m_sde">dpmpp_2m_sde</option>
+                                    <option value="euler">euler</option>
+                                    <option value="euler_ancestral">euler_ancestral</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label">Scheduler</label>
+                                <select class="form-select form-select-sm" @bind="_settings.Scheduler">
+                                    <option value="karras">karras</option>
+                                    <option value="normal">normal</option>
+                                    <option value="simple">simple</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label">Clip Skip</label>
+                                <select class="form-select form-select-sm" @bind="_settings.ClipSkip">
+                                    <option value="">None</option>
+                                    <option value="-1">1</option>
+                                    <option value="-2">2</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-text">Sampler/CLIP options default to the suggested Juggernaut values and apply to the ComfyUI (SDXL/Juggernaut) workflow only.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Selected Beat and POV</strong></div>
+                    <div class="card-body small">
+                        @if (_selectedBeat is null)
+                        {
+                            <span class="text-muted">Choose a generated beat on the left.</span>
+                        }
+                        else
+                        {
+                            <div><strong>@_selectedBeat.Label</strong> · @_selectedBeat.Location · @_selectedBeat.TimeOfDay</div>
+                            <div class="mt-1">@_selectedBeat.VisualDescription</div>
+                            <div class="text-muted mt-1">@_selectedBeat.Environment</div>
+                            <div class="text-muted">Lighting: @_selectedBeat.Lighting · Mood: @_selectedBeat.Mood</div>
+                            <label class="form-label small mt-3 mb-1">POV</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var pov in _povOptions)
+                                {
+                                    <button class="btn btn-sm @(_selectedPov == pov ? "btn-primary" : "btn-outline-secondary")" @onclick="() => SelectPovAsync(pov)">@pov</button>
+                                }
+                            </div>
+                            @if (_selectedPov == SceneImagePovFramer.Omniscient)
+                            {
+                                <label class="form-label small mt-3 mb-1">Camera Angle (Omniscient)</label>
+                                <select class="form-select form-select-sm" value="@_selectedAngle" @onchange="OnOmniscientAngleChanged">
+                                    <option value="">Default (neutral wide)</option>
+                                    @foreach (var angle in OmniscientAngles)
+                                    {
+                                        <option value="@angle">@angle</option>
+                                    }
+                                </select>
+                                <div class="form-text">Adjust the external fly-on-the-wall camera angle for this scene.</div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Image Prompt</strong>
+                        <button class="btn btn-sm btn-primary" @onclick="GeneratePromptAsync" disabled="@(_busy || _selectedBeat is null || string.IsNullOrWhiteSpace(_selectedPov))">
+                            @if (_busy) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            <i class="bi bi-magic me-1"></i> Generate Prompt
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        @if (_activePrompt is not null && _activePrompt.Status == SceneImagePromptStatus.Pending)
+                        {
+                            <div class="text-muted small mb-2"><span class="spinner-border spinner-border-sm me-1"></span>Generating prompt…</div>
+                        }
+                        @if (_activePrompt is not null && _activePrompt.Status == SceneImagePromptStatus.Failed)
+                        {
+                            <div class="alert alert-danger py-2 small">Prompt generation failed: @_activePrompt.ErrorMessage</div>
+                        }
+                        <textarea class="form-control font-monospace" rows="5" @bind="_editablePrompt"
+                                  placeholder="The pre-processor will draft an image prompt here. You can edit it before rendering."></textarea>
+                        <div class="form-text">
+                            @WordCount(_editablePrompt) words · ~@EstimateTokens(_editablePrompt) tokens
+                            @if (EstimateTokens(_editablePrompt) > 77)
+                            {
+                                <span class="text-warning fw-semibold">⚠ Prompt exceeds the suggested 77-token limit — consider shortening.</span>
+                            }
+                        </div>
+                        <div class="d-flex gap-2 mt-2">
+                            <input type="text" class="form-control form-control-sm" @bind="_refineInstruction"
+                                   placeholder="Refine instruction, e.g. 'more atmospheric' or 'tighter framing'" />
+                            <button class="btn btn-sm btn-outline-secondary text-nowrap" @onclick="RefinePromptAsync" disabled="@_busy">
+                                <i class="bi bi-arrow-repeat me-1"></i> Refine
+                            </button>
+                        </div>
+                        <label class="form-label mt-3 mb-1 small fw-semibold">Negative Prompt (optional)</label>
+                        <textarea class="form-control font-monospace" rows="3" @bind="_settings.NegativePrompt"
+                                  placeholder="Optional guard terms (e.g. deformed, extra limbs, low quality). Leave blank to use the automatic negative."></textarea>
+                    </div>
+                </div>
+
+                @if (_analysis is not null)
+                {
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <strong>Why this prompt?</strong>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => _showAnalysis = !_showAnalysis">
+                                @(_showAnalysis ? "Hide" : "Show")
+                            </button>
+                        </div>
+                        @if (_showAnalysis)
+                        {
+                            <div class="card-body small">
+                                <div class="mb-2">
+                                    <span class="text-muted">Participants:</span>
+                                    @if (_analysis.Participants.Count == 0)
+                                    {
+                                        <span class="text-muted"> none</span>
+                                    }
+                                    else
+                                    {
+                                        <ul class="mb-0">
+                                            @foreach (var p in _analysis.Participants)
+                                            {
+                                                <li><strong>@p.Name</strong> — @p.Presence (@p.Reason)</li>
+                                            }
+                                        </ul>
+                                    }
+                                </div>
+                                @if (_analysis.Excluded.Count > 0)
+                                {
+                                    <div class="mb-2">
+                                        <span class="text-muted">Excluded:</span>
+                                        <ul class="mb-0">
+                                            @foreach (var p in _analysis.Excluded)
+                                            {
+                                                <li><strong>@p.Name</strong> — @p.Reason</li>
+                                            }
+                                        </ul>
+                                    </div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(_analysis.TurnId))
+                                {
+                                    <div class="text-muted">Turn: @_analysis.TurnId</div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Exact Preprocessor Request</strong>
+                        @if (_preprocessorPrompt is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => _showPreprocessorPrompts = !_showPreprocessorPrompts">
+                                @(_showPreprocessorPrompts ? "Hide" : "Show")
+                            </button>
+                        }
+                    </div>
+                    <div class="card-body small">
+                        @if (_activePrompt is null)
+                        {
+                            <span class="text-muted">Generate a prompt to inspect the exact system and user prompts sent to the preprocessor.</span>
+                        }
+                        else if (_preprocessorPrompt is null)
+                        {
+                            <span class="text-muted">The preprocessor request for this prompt is not available yet. It appears here after the background job records the sent request.</span>
+                        }
+                        else
+                        {
+                            <div class="text-muted mb-2">
+                                Exact request stored @(_preprocessorPrompt.CreatedUtc.ToLocalTime().ToString("g")) for prompt record <span class="font-monospace">@_preprocessorPrompt.PromptRecordId</span>.
+                            </div>
+                            @if (_showPreprocessorPrompts)
+                            {
+                                <div class="mb-3">
+                                    <label class="form-label small fw-semibold">System Prompt</label>
+                                    <pre class="scene-image-preprocessor-prompt mb-0">@_preprocessorPrompt.SystemPrompt</pre>
+                                </div>
+                                <div>
+                                    <label class="form-label small fw-semibold">User Prompt</label>
+                                    <pre class="scene-image-preprocessor-prompt mb-0">@_preprocessorPrompt.UserPrompt</pre>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Character Identity</strong>
+                        <button class="btn btn-sm btn-success" @onclick="RenderIdentityImageAsync"
+                                disabled="@(_busy || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null || !_identityPackOptions.Any(o => o.Selected))">
+                            <i class="bi bi-person-badge me-1"></i> Render with Identity
+                        </button>
+                    </div>
+                    <div class="card-body small">
+                        @if (_identityPackOptions.Count == 0)
+                        {
+                            <span class="text-muted">No approved identity packs yet. Create and approve one in
+                                <a href="/characters/identity">Character Identity</a> to render a recurring character with face conditioning.</span>
+                        }
+                        else
+                        {
+                            <label class="form-label mb-1">Approved Identity Packs (select one or more)</label>
+                            <div class="list-group list-group-flush">
+                                @foreach (var opt in _identityPackOptions)
+                                {
+                                    <div class="list-group-item d-flex align-items-center gap-2 px-0">
+                                        <input type="checkbox" class="form-check-input m-0" @bind="opt.Selected" id="@("idp_" + opt.PackId)" />
+                                        <label class="form-check-label flex-grow-1 mb-0" for="@("idp_" + opt.PackId)">@opt.Label</label>
+                                        <input type="number" class="form-control form-control-sm" style="width: 90px;"
+                                               @bind="opt.Strength" min="0" max="2" step="0.05"
+                                               placeholder="strength" title="Optional per-character strength override; defaults to the model's configured identity strength" />
+                                    </div>
+                                }
+                            </div>
+                            <div class="form-text">Selecting more than one pack chains IP-Adapter face conditioning with a per-character regional mask (the verified two-character workflow). Strength overrides the model's configured identity strength.</div>
+                        }
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Rendered Images</strong>
+                        <button class="btn btn-sm btn-success" @onclick="RenderImageAsync"
+                                disabled="@(_busy || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null)">
+                            <i class="bi bi-image me-1"></i> Render Image
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        @if (_images.Count == 0)
+                        {
+                            <div class="text-muted small">No images yet. Generate a prompt, then render an image.</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-3">
+                                @foreach (var img in _images)
+                                {
+                                    <div class="border rounded p-2" style="width: 220px;">
+                                        @if (img.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(img.FileRelativePath))
+                                        {
+                                            <img src="/scene-images/@img.FileRelativePath" class="img-fluid rounded scene-image-thumb" alt="Scene image"
+                                                 @onclick="() => OpenViewer(img)" />
+                                        }
+                                        else if (img.Status == SceneImageStatus.Generating || img.Status == SceneImageStatus.Pending)
+                                        {
+                                            <div class="d-flex align-items-center justify-content-center" style="height: 120px;">
+                                                <span class="spinner-border spinner-border-sm me-2"></span><span class="small">Rendering…</span>
+                                            </div>
+                                        }
+                                        else if (img.Status == SceneImageStatus.Failed)
+                                        {
+                                            <div class="alert alert-danger py-2 small mb-0">Image failed: @img.ErrorMessage</div>
+                                        }
+                                        <div class="d-flex justify-content-between align-items-center mt-1">
+                                            <small class="text-muted">@img.Style · @img.ImageSize</small>
+                                            <span>
+                                                @if (img.Status == SceneImageStatus.Complete)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Edit this image" disabled="@_busy"
+                                                        @onclick="() => OpenImageEditor(img)"><i class="bi bi-pencil-square"></i></button>
+                                                    <button class="btn btn-sm btn-outline-secondary scene-image-continue-btn py-0 px-1" title="Continue from this image (reuse prompt + settings)" disabled="@_busy"
+                                                            @onclick="() => ContinueFromImageAsync(img)">&#8635;</button>
+                                                    <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Regenerate (keeps this version)" disabled="@(_busy || HasInFlightWork())"
+                                                            @onclick="() => RegenerateImageAsync(img)">&#128260;</button>
+                                                }
+                                                <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete image" disabled="@_busy"
+                                                        @onclick="() => RequestDeleteImageAsync(img)">&#x2715;</button>
+                                            </span>
+                                        </div>
+                                        @if (_continueFromImageId == img.Id)
+                                        {
+                                            <div class="alert alert-success py-1 px-2 small mt-1 mb-0">Loaded prompt + settings from this image. Edit and Render to continue.</div>
+                                        }
+                                        @if (_pendingDeleteImageId == img.Id)
+                                        {
+                                            <div class="d-flex gap-2 mt-1 align-items-center">
+                                                <small class="text-danger">Delete this image?</small>
+                                                <button class="btn btn-sm btn-danger py-0 px-2" disabled="@_busy" @onclick="() => ConfirmDeleteImageAsync(img)">Delete</button>
+                                                <button class="btn btn-sm btn-outline-secondary py-0 px-2" disabled="@_busy" @onclick="CancelDeleteImage">Keep</button>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@if (_viewerImage is not null)
+{
+    <div class="scene-image-viewer-overlay" @onclick="CloseViewer">
+        <div class="scene-image-viewer" @onclick:stopPropagation="true">
+            <div class="scene-image-viewer-header">
+                <span class="text-muted small">@_viewerImage.Style · @_viewerImage.ImageSize</span>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="CloseViewer" title="Close (Esc)">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <img src="/scene-images/@_viewerImage.FileRelativePath" class="scene-image-viewer-img" alt="Scene image" />
+            <div class="scene-image-viewer-footer">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => CloseViewer()">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    [Parameter]
+    public string sessionId { get; set; } = string.Empty;
+
+    [Parameter]
+    public string interactionId { get; set; } = string.Empty;
+
+    private RolePlaySession? _session;
+    private RolePlayInteraction? _interaction;
+    private SceneImagePromptRecord? _activePrompt;
+    private SceneImageStudioSettings _settings = new();
+    private List<SceneImageRecord> _images = [];
+    private string _editablePrompt = string.Empty;
+
+    private static int WordCount(string text) =>
+        string.IsNullOrWhiteSpace(text) ? 0 : text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
+
+    private static int EstimateTokens(string text) =>
+        string.IsNullOrWhiteSpace(text) ? 0 : (int)Math.Ceiling(text.Length / 4.0);
+
+    private string _refineInstruction = string.Empty;
+    private string _statusMessage = string.Empty;
+    private string _errorMessage = string.Empty;
+    private bool _busy;
+    private bool _polling;
+    private CancellationTokenSource? _pollingCts;
+    private Task? _pollingTask;
+    private ImageContentPolicy? _resolvedPolicy;
+    private string? _policyResolutionError;
+    private string? _pendingDeleteImageId;
+    private bool _settingsSeeded;
+    private string? _continueFromImageId;
+    private string? _resolvedIntensityLabel;
+    private Dictionary<string, IntensityProfile> _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
+    private FullTurnContext? _fullTurn;
+    private SceneImageBeatAnalysisRecord? _beatAnalysis;
+    private bool _replaceBeatsRequested;
+    private bool _requiresBeatRegeneration;
+    private SceneImageAnalysisResult? _analysis;
+    private bool _showAnalysis;
+    private SceneImagePreprocessorPromptAudit? _preprocessorPrompt;
+    private bool _showPreprocessorPrompts;
+    private string? _selectedBeatId;
+    private string? _selectedPov;
+    private SceneImageRecord? _viewerImage;
+
+    private sealed class IdentityPackOption
+    {
+        public string PackId { get; set; } = string.Empty;
+        public string Label { get; set; } = string.Empty;
+        public bool Selected { get; set; }
+        public double? Strength { get; set; }
+    }
+    private List<IdentityPackOption> _identityPackOptions = [];
+
+    private SceneImageBeat? _selectedBeat
+        => _analysis?.Beats.FirstOrDefault(b => b.BeatId == _selectedBeatId);
+
+    private IReadOnlyList<string> _povOptions
+        => _selectedBeat is null
+            ? [SceneImagePovFramer.Omniscient]
+            : SceneImagePovFramer.GetPovOptions(_selectedBeat.Characters.Select(x => x.Name).ToList());
+
+    // Omniscient camera angle override (shown only for the Omniscient POV).
+    private string? _selectedAngle;
+    private static readonly IReadOnlyList<string> OmniscientAngles = new[]
+    {
+        "Wide exterior view, full visible event",
+        "High wide angle looking down at the scene",
+        "Over-the-shoulder view from a hidden corner",
+        "Low angle from floor level",
+        "Peering through a gap (window/blinds/curtain)",
+    };
+
+    private void OpenViewer(SceneImageRecord image) => _viewerImage = image;
+
+    private void CloseViewer() => _viewerImage = null;
+
+    private void SelectBeatAsync(string beatId)
+    {
+        _selectedBeatId = beatId;
+        _selectedPov = null;
+        ClearActivePrompt();
+        _statusMessage = $"Beat '{_selectedBeat?.Label}' selected. Choose a POV.";
+    }
+
+    private async Task SelectPovAsync(string pov)
+    {
+        _selectedPov = pov;
+        await RunAsync(async () =>
+        {
+            await LoadSelectedPromptAsync();
+            _statusMessage = _activePrompt is null
+                ? $"POV '{pov}' selected. Generate a prompt for this beat and POV."
+                : $"Loaded the saved prompt for POV '{pov}'.";
+        });
+    }
+
+    private void OnOmniscientAngleChanged(ChangeEventArgs e)
+    {
+        _selectedAngle = e.Value?.ToString();
+        _settings.OmniscientAngle = string.IsNullOrWhiteSpace(_selectedAngle) ? null : _selectedAngle;
+    }
+
+    private void SyncAngleFromSettings()
+    {
+        _selectedAngle = _settings.OmniscientAngle;
+    }
+
+    private void RequestReplaceBeats()
+    {
+        _replaceBeatsRequested = true;
+    }
+
+    private async Task GenerateBeatsAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var analysis = await ImageService.EnqueueBeatAnalysisAsync(new SceneImageBeatGenerationRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId
+            });
+            _beatAnalysis = analysis;
+            _analysis = null;
+            _selectedBeatId = null;
+            _selectedPov = null;
+            _replaceBeatsRequested = false;
+            _statusMessage = "Beat analysis queued.";
+            EnsurePolling();
+        });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _errorMessage = string.Empty;
+        try
+        {
+            _session = await SessionService.LoadRolePlaySessionAsync(sessionId);
+            if (_session is null)
+            {
+                _errorMessage = "Role-play session not found.";
+                return;
+            }
+
+            _interaction = _session.Interactions.FirstOrDefault(x => string.Equals(x.Id, interactionId, StringComparison.OrdinalIgnoreCase));
+            if (_interaction is null)
+            {
+                _errorMessage = "Interaction not found in this session.";
+                return;
+            }
+
+            if (!_settingsSeeded)
+            {
+                SeedSettingsFromWorkspace();
+                _settingsSeeded = true;
+            }
+
+            await LoadIntensityProfilesAsync();
+            ResolveIntensityLabel();
+            await ResolvePolicyAsync();
+            await LoadFullTurnContextAsync();
+            await RefreshAsync();
+            await LoadBeatAnalysisAsync();
+            await LoadIdentityPackOptionsAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load image studio: {ex.Message}";
+            Logger.LogError(ex, "SceneImageStudio load failed: SessionId={SessionId}, InteractionId={InteractionId}", sessionId, interactionId);
+        }
+    }
+
+    private async Task LoadFullTurnContextAsync()
+    {
+        if (_session is null || _interaction is null)
+        {
+            _fullTurn = null;
+            return;
+        }
+
+        try
+        {
+            _fullTurn = await TurnResolver.ResolveAsync(_session, _interaction.Id);
+        }
+        catch (Exception ex)
+        {
+            _fullTurn = null;
+            Logger.LogWarning(ex, "Failed to resolve full turn for studio: SessionId={SessionId}, InteractionId={InteractionId}", sessionId, interactionId);
+        }
+    }
+
+    private void SeedSettingsFromWorkspace()
+    {
+        _settings.ImageSize = WorkspaceSettings.ImageSize;
+        _settings.AllowExplicitImage = WorkspaceSettings.AllowExplicitImage;
+        if (!string.IsNullOrWhiteSpace(WorkspaceSettings.ImageStyleSuffix))
+        {
+            // Seed the free-text style cue as a suffix appended to the selected style so it
+            // survives regeneration; keep the base style selection distinct.
+            _settings.Style = WorkspaceSettings.ImageStyleSuffix;
+        }
+
+        Logger.LogInformation(
+            "Seeded studio settings from workspace defaults: SessionId={SessionId}, ImageSize={ImageSize}, Style={Style}, AllowExplicitImage={AllowExplicitImage}",
+            sessionId, _settings.ImageSize, _settings.Style, _settings.AllowExplicitImage);
+    }
+
+    private async Task LoadIntensityProfilesAsync()
+    {
+        try
+        {
+            var intensityProfiles = await StoryAnalysis.ListIntensityProfilesAsync();
+            _intensityProfilesById = intensityProfiles
+                .Where(x => x.Intensity != IntensityLevel.Intro)
+                .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load intensity profiles for studio: SessionId={SessionId}", sessionId);
+            _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private void ResolveIntensityLabel()
+    {
+        if (_session is null)
+        {
+            _resolvedIntensityLabel = null;
+            return;
+        }
+
+        IntensityLevel? selectedIntensityLevel = IntensityLevel.Emotional;
+        IntensityLevel? adaptiveIntensityLevel = null;
+
+        if (!string.IsNullOrWhiteSpace(_session.SelectedIntensityProfileId)
+            && _intensityProfilesById.TryGetValue(_session.SelectedIntensityProfileId, out var intensityProfile))
+        {
+            selectedIntensityLevel = intensityProfile.Intensity;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_session.AdaptiveIntensityProfileId)
+            && _intensityProfilesById.TryGetValue(_session.AdaptiveIntensityProfileId, out var adaptiveProfile))
+        {
+            adaptiveIntensityLevel = adaptiveProfile.Intensity;
+        }
+
+        var (label, _) = RolePlayStyleResolver.ResolveEffectiveStyle(_session, selectedIntensityLevel, adaptiveIntensityLevel);
+        _resolvedIntensityLabel = label;
+    }
+
+    private async Task ResolvePolicyAsync()
+    {
+        _resolvedPolicy = null;
+        _policyResolutionError = null;
+        try
+        {
+            var resolved = await ModelResolutionService.ResolveImageModelAsync(null);
+            _resolvedPolicy = resolved.ContentPolicy;
+        }
+        catch (Exception ex)
+        {
+            // No image model configured (or misconfigured). The render/enqueue paths fail fast with
+            // detailed guidance; here we just surface a friendly banner and leave the toggle enabled
+            // (the render path will still hard-clamp/hard-fail).
+            _policyResolutionError = ex.Message;
+            Logger.LogInformation(
+                "Scene image policy not resolvable on studio open (will surface at render time): SessionId={SessionId}, Error={Error}",
+                sessionId, ex.Message);
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_activePrompt?.Status == SceneImagePromptStatus.Pending)
+        {
+            _activePrompt = await ImageService.GetPromptAsync(sessionId, _activePrompt.Id);
+            if (_activePrompt?.Status == SceneImagePromptStatus.Complete)
+            {
+                _editablePrompt = _activePrompt.OutputPrompt;
+            }
+        }
+        else if (_selectedBeat is not null && !string.IsNullOrWhiteSpace(_selectedPov))
+        {
+            await LoadSelectedPromptAsync();
+        }
+        else
+        {
+            _activePrompt = await ImageService.GetLatestPromptAsync(sessionId, interactionId);
+            if (_activePrompt?.Status == SceneImagePromptStatus.Complete)
+            {
+                _editablePrompt = _activePrompt.OutputPrompt;
+            }
+        }
+        await LoadPreprocessorPromptAsync();
+        _images = (await ImageService.ListImagesByInteractionAsync(sessionId, interactionId)).ToList();
+        await LoadBeatAnalysisAsync();
+    }
+
+    private async Task LoadSelectedPromptAsync()
+    {
+        if (_selectedBeat is null
+            || string.IsNullOrWhiteSpace(_selectedPov)
+            || string.IsNullOrWhiteSpace(_beatAnalysis?.Id))
+        {
+            ClearActivePrompt();
+            return;
+        }
+
+        _activePrompt = await ImageService.GetLatestCompletedPromptAsync(
+            sessionId,
+            interactionId,
+            _beatAnalysis.Id,
+            _selectedBeat.BeatId,
+            _selectedPov);
+        _editablePrompt = _activePrompt?.OutputPrompt ?? string.Empty;
+        _preprocessorPrompt = null;
+        _showPreprocessorPrompts = false;
+        await LoadPreprocessorPromptAsync();
+    }
+
+    private void ClearActivePrompt()
+    {
+        _activePrompt = null;
+        _editablePrompt = string.Empty;
+        _preprocessorPrompt = null;
+        _showPreprocessorPrompts = false;
+    }
+
+    private async Task LoadPreprocessorPromptAsync()
+    {
+        if (_activePrompt is null)
+        {
+            _preprocessorPrompt = null;
+            return;
+        }
+
+        if (string.Equals(_preprocessorPrompt?.PromptRecordId, _activePrompt.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _preprocessorPrompt = null;
+        try
+        {
+            var events = await DebugEventService.QuerySessionEventsAsync(sessionId, eventKind: "SceneImagePromptSent", take: 100);
+            foreach (var debugEvent in events.Reverse())
+            {
+                if (!string.Equals(debugEvent.InteractionId, interactionId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var promptAudit = TryReadPreprocessorPromptAudit(debugEvent.MetadataJson, debugEvent.CreatedUtc);
+                if (promptAudit is not null
+                    && string.Equals(promptAudit.PromptRecordId, _activePrompt.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    _preprocessorPrompt = promptAudit;
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load preprocessor request for studio: SessionId={SessionId}, InteractionId={InteractionId}, PromptRecordId={PromptRecordId}", sessionId, interactionId, _activePrompt.Id);
+        }
+    }
+
+    private static SceneImagePreprocessorPromptAudit? TryReadPreprocessorPromptAudit(string metadataJson, DateTime createdUtc)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(metadataJson);
+            var metadata = document.RootElement;
+            if (!metadata.TryGetProperty("promptRecordId", out var promptRecordId)
+                || promptRecordId.ValueKind != JsonValueKind.String
+                || !metadata.TryGetProperty("systemPrompt", out var systemPrompt)
+                || systemPrompt.ValueKind != JsonValueKind.String
+                || !metadata.TryGetProperty("userPrompt", out var userPrompt)
+                || userPrompt.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            return new SceneImagePreprocessorPromptAudit(
+                promptRecordId.GetString() ?? string.Empty,
+                systemPrompt.GetString() ?? string.Empty,
+                userPrompt.GetString() ?? string.Empty,
+                createdUtc);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Loads (or computes) the scene-image analysis for this interaction (CR-006 P3/P4) so the
+    /// Beat selector + POV selector + "Why this prompt?" panel show immediately on studio open —
+    /// not only after a prompt has been generated. Prefers the persisted
+    /// <c>SceneImageAnalysisCompleted</c> debug event when present; otherwise computes it live from
+    /// the full-turn context + deterministic beat analyzer.
+    /// </summary>
+    private async Task LoadBeatAnalysisAsync()
+    {
+        if (_fullTurn?.Turn is null)
+        {
+            _beatAnalysis = null;
+            _analysis = null;
+            _requiresBeatRegeneration = false;
+            return;
+        }
+        _beatAnalysis = await ImageService.GetBeatAnalysisByTurnAsync(sessionId, _fullTurn.Turn.TurnId);
+        if (_beatAnalysis?.Status == SceneImageBeatAnalysisStatus.Complete)
+        {
+            var beats = JsonSerializer.Deserialize<IReadOnlyList<SceneImageBeat>>(_beatAnalysis.BeatsJson, JsonOptions) ?? [];
+            _requiresBeatRegeneration = beats.Count == 0
+                || beats.Any(x => x.SchemaVersion != SceneImageBeatAnalysisService.CurrentSchemaVersion);
+            _analysis = _requiresBeatRegeneration
+                ? null
+                : new SceneImageAnalysisResult { TurnId = _beatAnalysis.TurnId, Beats = beats, AnalysisStatus = "complete" };
+        }
+        else
+        {
+            _analysis = null;
+            _requiresBeatRegeneration = false;
+        }
+    }
+
+    private async Task<IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character>?> LoadScenarioCharactersAsync()
+    {
+        try
+        {
+            if (_session is null || string.IsNullOrWhiteSpace(_session.ScenarioId))
+            {
+                return null;
+            }
+            var scenario = await ScenarioService.GetScenarioAsync(_session.ScenarioId);
+            return scenario?.Characters;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load scenario characters for studio: SessionId={SessionId}", sessionId);
+            return null;
+        }
+    }
+
+    private async Task LoadIdentityPackOptionsAsync()
+    {
+        _identityPackOptions = [];
+        if (_session is null)
+        {
+            return;
+        }
+
+        var characters = await LoadScenarioCharactersAsync();
+        if (characters is null)
+        {
+            return;
+        }
+
+        var options = new List<IdentityPackOption>();
+        foreach (var character in characters)
+        {
+            IReadOnlyList<CharacterImageIdentityPack> packs;
+            try
+            {
+                packs = await IdentityService.ListPacksAsync(character.Id);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to load identity packs for character: CharacterId={CharacterId}", character.Id);
+                continue;
+            }
+
+            foreach (var pack in packs.Where(p => p.Status == CharacterImageIdentityPackStatus.Approved))
+            {
+                options.Add(new IdentityPackOption
+                {
+                    PackId = pack.Id,
+                    Label = $"{character.Name ?? character.Id} — v{pack.Version}"
+                });
+            }
+        }
+
+        _identityPackOptions = options;
+    }
+
+    private async Task GeneratePromptAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var record = await ImageService.EnqueuePromptAsync(new ScenePromptRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                Settings = _settings,
+                ExcerptOverride = null,
+                RefineInstruction = null,
+                BeatAnalysisId = _beatAnalysis?.Id ?? string.Empty,
+                BeatSnapshotJson = JsonSerializer.Serialize(_selectedBeat, JsonOptions),
+                Pov = _selectedPov
+            });
+            _activePrompt = record;
+            _editablePrompt = string.Empty;
+            _preprocessorPrompt = null;
+            _showPreprocessorPrompts = false;
+            _statusMessage = "Prompt generation queued.";
+            EnsurePolling();
+        });
+    }
+
+    private async Task RefinePromptAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_refineInstruction)) return;
+
+        await RunAsync(async () =>
+        {
+            var record = await ImageService.EnqueuePromptAsync(new ScenePromptRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                Settings = _settings,
+                ExcerptOverride = null,
+                RefineInstruction = _refineInstruction.Trim(),
+                BeatAnalysisId = _beatAnalysis?.Id ?? string.Empty,
+                BeatSnapshotJson = JsonSerializer.Serialize(_selectedBeat, JsonOptions),
+                Pov = _selectedPov
+            });
+            _activePrompt = record;
+            _preprocessorPrompt = null;
+            _showPreprocessorPrompts = false;
+            _statusMessage = "Prompt refinement queued.";
+            _refineInstruction = string.Empty;
+            EnsurePolling();
+        });
+    }
+
+    private async Task RenderImageAsync()
+    {
+        if (_activePrompt is null || string.IsNullOrWhiteSpace(_editablePrompt)) return;
+
+        await RunAsync(async () =>
+        {
+            // Persist the edited text back to the prompt record so a later studio reopen shows it.
+            await ImageService.UpdatePromptOutputAsync(sessionId, _activePrompt.Id, _editablePrompt.Trim());
+
+            var record = await ImageService.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                PromptRecordId = _activePrompt.Id,
+                Prompt = _editablePrompt.Trim(),
+                ImageSize = _settings.ImageSize,
+                SettingsJson = JsonSerializer.Serialize(_settings),
+                RegenerateOfId = _continueFromImageId,
+                BeatId = _selectedBeatId,
+                Pov = _selectedPov
+            });
+            _continueFromImageId = null;
+            _images.Insert(0, record);
+            _statusMessage = "Image render queued.";
+            EnsurePolling();
+        });
+    }
+
+    private async Task RenderIdentityImageAsync()
+    {
+        if (_activePrompt is null || string.IsNullOrWhiteSpace(_editablePrompt)) return;
+        var selected = _identityPackOptions.Where(o => o.Selected).ToList();
+        if (selected.Count == 0) return;
+
+        await RunAsync(async () =>
+        {
+            // Persist the edited text back to the prompt record so a later studio reopen shows it.
+            await ImageService.UpdatePromptOutputAsync(sessionId, _activePrompt.Id, _editablePrompt.Trim());
+
+            var identityPacks = selected
+                .Select(o => new IdentityPackSelection
+                {
+                    PackId = o.PackId,
+                    CharacterLabel = o.Label,
+                    Strength = o.Strength
+                })
+                .ToList();
+
+            var record = await ImageService.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                PromptRecordId = _activePrompt.Id,
+                Prompt = _editablePrompt.Trim(),
+                ImageSize = _settings.ImageSize,
+                SettingsJson = JsonSerializer.Serialize(_settings),
+                RegenerateOfId = null,
+                BeatId = _selectedBeatId,
+                Pov = _selectedPov,
+                RenderMode = SceneImageRenderMode.IdentityControlled,
+                IdentityPackId = identityPacks[0].PackId,
+                IdentityPacks = identityPacks
+            });
+            _images.Insert(0, record);
+            _statusMessage = selected.Count > 1
+                ? $"Identity-controlled render queued ({selected.Count} packs)."
+                : "Identity-controlled render queued.";
+            EnsurePolling();
+        });
+    }
+
+    private async Task RegenerateImageAsync(SceneImageRecord image)
+    {
+        if (_activePrompt is null || string.IsNullOrWhiteSpace(_editablePrompt)) return;
+
+        await RunAsync(async () =>
+        {
+            var record = await ImageService.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                PromptRecordId = _activePrompt.Id,
+                Prompt = _editablePrompt.Trim(),
+                ImageSize = _settings.ImageSize,
+                SettingsJson = JsonSerializer.Serialize(_settings),
+                RegenerateOfId = image.Id,
+                BeatId = _selectedBeatId,
+                Pov = _selectedPov
+            });
+            _continueFromImageId = null;
+            _images.Insert(0, record);
+            _statusMessage = "Regeneration queued (previous version kept).";
+            EnsurePolling();
+        });
+    }
+
+    private void OpenImageEditor(SceneImageRecord image)
+    {
+        Nav.NavigateTo($"/roleplay/image-editor/{sessionId}/{interactionId}/{image.Id}");
+    }
+
+    private async Task ContinueFromImageAsync(SceneImageRecord image)
+    {
+        await RunAsync(async () =>
+        {
+            _continueFromImageId = image.Id;
+
+            // Restore the prompt that produced this image.
+            if (!string.IsNullOrWhiteSpace(image.PromptSnapshot))
+            {
+                _editablePrompt = image.PromptSnapshot;
+            }
+
+            // Restore the exact settings that produced this image.
+            if (!string.IsNullOrWhiteSpace(image.SettingsJson) && image.SettingsJson != "{}")
+            {
+                try
+                {
+                    var restored = JsonSerializer.Deserialize<SceneImageStudioSettings>(image.SettingsJson);
+                    if (restored is not null)
+                    {
+                        _settings = restored;
+                        SyncAngleFromSettings();
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    Logger.LogWarning(ex, "Failed to restore settings from image {ImageId}; keeping current settings.", image.Id);
+                }
+            }
+
+            // Restore the beat + POV that produced this image (CR-006 P5).
+            if (!string.IsNullOrWhiteSpace(image.BeatId))
+            {
+                _selectedBeatId = image.BeatId;
+            }
+            if (!string.IsNullOrWhiteSpace(image.Pov))
+            {
+                _selectedPov = image.Pov;
+            }
+
+            _statusMessage = "Loaded prompt + settings from the selected image. Edit and render to continue from it.";
+        });
+    }
+
+    private void RequestDeleteImageAsync(SceneImageRecord image)
+    {
+        _pendingDeleteImageId = image.Id;
+    }
+
+    private void CancelDeleteImage()
+    {
+        _pendingDeleteImageId = null;
+    }
+
+    private async Task ConfirmDeleteImageAsync(SceneImageRecord image)
+    {
+        _pendingDeleteImageId = null;
+        await DeleteImageAsync(image);
+    }
+
+    private async Task DeleteImageAsync(SceneImageRecord image)
+    {
+        await RunAsync(async () =>
+        {
+            await ImageService.DeleteImageAsync(sessionId, image.Id);
+            _images.RemoveAll(x => string.Equals(x.Id, image.Id, StringComparison.OrdinalIgnoreCase));
+            _statusMessage = "Image deleted.";
+        });
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _errorMessage = string.Empty;
+        _statusMessage = string.Empty;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            Logger.LogWarning(ex, "SceneImageStudio action failed: SessionId={SessionId}, InteractionId={InteractionId}", sessionId, interactionId);
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool HasInFlightWork()
+    {
+        if (_beatAnalysis is not null && _beatAnalysis.Status == SceneImageBeatAnalysisStatus.Pending) return true;
+        if (_activePrompt is not null && _activePrompt.Status == SceneImagePromptStatus.Pending) return true;
+        return _images.Any(x => x.Status == SceneImageStatus.Pending || x.Status == SceneImageStatus.Generating);
+    }
+
+    private void EnsurePolling()
+    {
+        if (_polling) return;
+        _polling = true;
+        _pollingCts = new CancellationTokenSource();
+        _pollingTask = Task.Run(() => PollAsync(_pollingCts.Token));
+    }
+
+    private async Task PollAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                var stillWorking = false;
+                await InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await RefreshAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(ex, "SceneImageStudio poll refresh failed: SessionId={SessionId}", sessionId);
+                    }
+                    stillWorking = HasInFlightWork();
+                    if (!stillWorking)
+                    {
+                        _polling = false;
+                    }
+                    StateHasChanged();
+                });
+
+                if (!stillWorking) break;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
+        finally
+        {
+            _polling = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_pollingCts is not null)
+        {
+            await _pollingCts.CancelAsync();
+            _pollingCts.Dispose();
+            _pollingCts = null;
+        }
+    }
+
+    private sealed record SceneImagePreprocessorPromptAudit(
+        string PromptRecordId,
+        string SystemPrompt,
+        string UserPrompt,
+        DateTime CreatedUtc);
+}

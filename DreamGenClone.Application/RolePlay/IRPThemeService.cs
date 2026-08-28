@@ -28,6 +28,17 @@ public interface IRPThemeService
     Task<IReadOnlyList<RPTheme>> ListThemesByProfileAsync(string profileId, bool includeDisabled = false, CancellationToken cancellationToken = default);
     Task<RPTheme?> GetThemeAsync(string id, CancellationToken cancellationToken = default);
     Task<bool> DeleteThemeAsync(string id, CancellationToken cancellationToken = default);
+    Task<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticEventMapping>>> ResolveSemanticEventMappingsByProfileAsync(string profileId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticStatMapping>>> ResolveSemanticStatMappingsByProfileAsync(string profileId, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    // Per-session theme selections are the authoritative theme list for a live session.
+    // The RP theme profile is only used as a starting seed at session create time; once a
+    // session exists, themes may be added or removed independently of any profile.
+    Task<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticEventMapping>>> ResolveSemanticEventMappingsByThemeIdsAsync(IEnumerable<string> themeIds, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+    Task<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticStatMapping>>> ResolveSemanticStatMappingsByThemeIdsAsync(IEnumerable<string> themeIds, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
 
     Task<RPThemeMachineDefinition> SaveMachineDefinitionAsync(RPThemeMachineDefinition definition, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RPThemeMachineDefinition>> ListMachineDefinitionsAsync(string themeId, CancellationToken cancellationToken = default);

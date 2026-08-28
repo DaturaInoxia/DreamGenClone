@@ -76,6 +76,54 @@ public sealed class CompletionClient : ICompletionClient
         return await SendCompletionStreamingAsync(messages, resolved, onChunk, cancellationToken);
     }
 
+    public async Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(
+        string prompt,
+        ResolvedModel resolved,
+        CancellationToken cancellationToken = default)
+    {
+        var messages = new List<ChatMessage> { new("user", prompt) };
+        return await SendCompletionWithReasoningAsync(messages, resolved, cancellationToken);
+    }
+
+    public async Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(
+        string systemMessage,
+        string userMessage,
+        ResolvedModel resolved,
+        CancellationToken cancellationToken = default)
+    {
+        var messages = new List<ChatMessage>
+        {
+            new("system", systemMessage),
+            new("user", userMessage)
+        };
+        return await SendCompletionWithReasoningAsync(messages, resolved, cancellationToken);
+    }
+
+    public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(
+        string prompt,
+        ResolvedModel resolved,
+        Func<string, Task> onChunk,
+        CancellationToken cancellationToken = default)
+    {
+        var messages = new List<ChatMessage> { new("user", prompt) };
+        return await SendCompletionStreamingWithReasoningAsync(messages, resolved, onChunk, cancellationToken);
+    }
+
+    public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(
+        string systemMessage,
+        string userMessage,
+        ResolvedModel resolved,
+        Func<string, Task> onChunk,
+        CancellationToken cancellationToken = default)
+    {
+        var messages = new List<ChatMessage>
+        {
+            new("system", systemMessage),
+            new("user", userMessage)
+        };
+        return await SendCompletionStreamingWithReasoningAsync(messages, resolved, onChunk, cancellationToken);
+    }
+
     public async Task<bool> CheckHealthAsync(
         string providerBaseUrl,
         int timeoutSeconds,
@@ -218,8 +266,17 @@ public sealed class CompletionClient : ICompletionClient
                 Messages = messages,
                 Temperature = resolved.Temperature,
                 TopP = resolved.TopP,
-                MaxTokens = resolved.MaxTokens
+                MaxTokens = resolved.MaxTokens,
+                ChatTemplateKwargs = resolved.SupportsThinkingControl && resolved.ThinkingMode != ThinkingMode.Default
+                    ? new Dictionary<string, object> { ["thinking"] = resolved.ThinkingMode == ThinkingMode.Enabled }
+                    : null
             };
+
+            _logger.LogDebug(
+                "Completion request built: Model={ModelIdentifier}, SupportsThinkingControl={SupportsThinkingControl}, ThinkingMode={ThinkingMode}",
+                resolved.ModelIdentifier,
+                resolved.SupportsThinkingControl,
+                resolved.ThinkingMode);
 
             // Strip leading "/" from path so it resolves relative to BaseAddress, not root
             var relativePath = resolved.ChatCompletionsPath.TrimStart('/');
@@ -370,6 +427,21 @@ public sealed class CompletionClient : ICompletionClient
         Func<string, Task> onChunk,
         CancellationToken cancellationToken)
     {
+        // Wrap the chunk callback so that ObjectDisposedException / InvalidOperationException
+        // (thrown when the Blazor component that owns the callback has been disposed due to
+        // page navigation) never fault the engine task.  The wrapper is a no-op after the
+        // first disposal exception, mirroring RolePlayChunkCallbackWrapper behaviour.
+        var safeOnChunk = onChunk;
+        onChunk = async chunk =>
+        {
+            try
+            {
+                await safeOnChunk(chunk).ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
+        };
+
         var startTime = DateTime.UtcNow;
 
         var client = _httpClientFactory.CreateClient("CompletionClient");
@@ -468,7 +540,7 @@ public sealed class CompletionClient : ICompletionClient
                     break;
                 }
 
-                if (!TryParseStreamingChunk(data, out var chunkText, out var chunkFinishReason))
+                if (!TryParseStreamingChunkWithKind(data, out var chunkText, out var isReasoning, out var chunkFinishReason))
                 {
                     continue;
                 }
@@ -483,8 +555,15 @@ public sealed class CompletionClient : ICompletionClient
                     continue;
                 }
 
-                sb.Append(chunkText);
-                await onChunk(chunkText).ConfigureAwait(false);
+                if (isReasoning)
+                {
+                    sb.Append(chunkText);
+                }
+                else
+                {
+                    sb.Append(chunkText);
+                    await onChunk(chunkText).ConfigureAwait(false);
+                }
             }
         }
 
@@ -530,9 +609,249 @@ public sealed class CompletionClient : ICompletionClient
         return content;
     }
 
+    private async Task<(string Content, string? Reasoning)> SendCompletionWithReasoningAsync(
+        List<ChatMessage> messages,
+        ResolvedModel resolved,
+        CancellationToken cancellationToken)
+    {
+        var totalStopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient("CompletionClient");
+            var baseUrl = resolved.ProviderBaseUrl.TrimEnd('/') + "/";
+            client.BaseAddress = new Uri(baseUrl);
+            client.Timeout = TimeSpan.FromSeconds(resolved.ProviderTimeoutSeconds);
+
+            if (!string.IsNullOrEmpty(resolved.ApiKeyEncrypted))
+            {
+                try
+                {
+                    var decryptedKey = _encryptionService.Decrypt(resolved.ApiKeyEncrypted);
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedKey);
+                }
+                catch (System.Security.Cryptography.CryptographicException ex)
+                {
+                    _logger.LogError(ex, "Failed to decrypt API key for provider {ProviderName}", resolved.ProviderName);
+                    throw;
+                }
+            }
+
+            var payload = new ChatRequest
+            {
+                Model = resolved.ModelIdentifier,
+                Messages = messages,
+                Temperature = resolved.Temperature,
+                TopP = resolved.TopP,
+                MaxTokens = resolved.MaxTokens
+            };
+
+            var relativePath = resolved.ChatCompletionsPath.TrimStart('/');
+            using var response = await client.PostAsJsonAsync(relativePath, payload, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Completion (reasoning-aware) failed: {Status}, {Error}", (int)response.StatusCode, errorContent);
+                response.EnsureSuccessStatusCode();
+            }
+
+            var rawBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var (content, reasoning, finishReason, _) = ParseContentWithReasoning(rawBody, resolved);
+
+            if (string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(content))
+            {
+                var continuationResult = await ContinueTruncatedResponseAsync(
+                    client, relativePath, messages, resolved, content, cancellationToken);
+                content = continuationResult.Content;
+            }
+            else if (string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase)
+                     && string.IsNullOrWhiteSpace(content)
+                     && !string.IsNullOrWhiteSpace(reasoning))
+            {
+                // Reasoning models (e.g. DeepSeek) can spend the entire token budget on
+                // reasoning_content and emit zero content, hitting finish_reason=length before
+                // reaching the answer. Send one focused follow-up that asks for ONLY the final
+                // answer, so the model doesn't have to re-reason from scratch.
+                content = await ForceAnswerFromReasoningAsync(
+                    client, relativePath, messages, resolved, reasoning, cancellationToken);
+            }
+
+            totalStopwatch.Stop();
+            _logger.LogInformation(
+                "Completion (reasoning-aware) done: Model={Model}, ContentLen={ContentLen}, ReasoningLen={ReasoningLen}, DurationMs={DurationMs}",
+                resolved.ModelIdentifier, content?.Length ?? 0, reasoning?.Length ?? 0, totalStopwatch.ElapsedMilliseconds);
+
+            return (content ?? string.Empty, reasoning);
+        }
+        catch (Exception ex)
+        {
+            totalStopwatch.Stop();
+            _logger.LogError(ex, "Completion (reasoning-aware) failed: Model={Model}", resolved.ModelIdentifier);
+            throw;
+        }
+    }
+
+    private async Task<(string Content, string? Reasoning)> SendCompletionStreamingWithReasoningAsync(
+        List<ChatMessage> messages,
+        ResolvedModel resolved,
+        Func<string, Task> onChunk,
+        CancellationToken cancellationToken)
+    {
+        // Wrap the chunk callback for disposal safety
+        var safeOnChunk = onChunk;
+        onChunk = async chunk =>
+        {
+            try { await safeOnChunk(chunk).ConfigureAwait(false); }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
+        };
+
+        var startTime = DateTime.UtcNow;
+
+        var client = _httpClientFactory.CreateClient("CompletionClient");
+        var baseUrl = resolved.ProviderBaseUrl.TrimEnd('/') + "/";
+        client.BaseAddress = new Uri(baseUrl);
+        client.Timeout = TimeSpan.FromSeconds(resolved.ProviderTimeoutSeconds);
+
+        if (!string.IsNullOrEmpty(resolved.ApiKeyEncrypted))
+        {
+            try
+            {
+                var decryptedKey = _encryptionService.Decrypt(resolved.ApiKeyEncrypted);
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedKey);
+            }
+            catch (System.Security.Cryptography.CryptographicException ex)
+            {
+                _logger.LogError(ex, "Failed to decrypt API key for provider {ProviderName}", resolved.ProviderName);
+                throw;
+            }
+        }
+
+        var payload = new ChatRequest
+        {
+            Model = resolved.ModelIdentifier,
+            Messages = messages,
+            Temperature = resolved.Temperature,
+            TopP = resolved.TopP,
+            MaxTokens = resolved.MaxTokens,
+            Stream = true
+        };
+
+        var relativePath = resolved.ChatCompletionsPath.TrimStart('/');
+        using var request = new HttpRequestMessage(HttpMethod.Post, relativePath)
+        {
+            Content = JsonContent.Create(payload)
+        };
+
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogError("Streaming completion (reasoning-aware) failed: {StatusCode}, {Error}", (int)response.StatusCode, errorContent);
+            response.EnsureSuccessStatusCode();
+        }
+
+        var contentSb = new StringBuilder();
+        var reasoningSb = new StringBuilder();
+        string? finishReason = null;
+
+        await using (var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
+        using (var reader = new StreamReader(stream))
+        {
+            string? line;
+            while ((line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false)) is not null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var data = line[5..].Trim();
+                if (data.Length == 0) continue;
+                if (string.Equals(data, "[DONE]", StringComparison.Ordinal)) break;
+
+                if (!TryParseStreamingChunkWithKind(data, out var chunkText, out var isReasoning, out var chunkFinishReason))
+                    continue;
+
+                if (!string.IsNullOrWhiteSpace(chunkFinishReason))
+                    finishReason = chunkFinishReason;
+
+                if (string.IsNullOrEmpty(chunkText)) continue;
+
+                if (isReasoning)
+                    reasoningSb.Append(chunkText);
+                else
+                {
+                    contentSb.Append(chunkText);
+                    await onChunk(chunkText).ConfigureAwait(false);
+                }
+            }
+        }
+
+        var content = contentSb.ToString();
+        var reasoning = reasoningSb.Length > 0 ? reasoningSb.ToString() : null;
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            // Reasoning-only response (empty content): try a focused force-answer follow-up when the
+            // model reasoned but never emitted content; otherwise fall back to the plain path.
+            if (!string.IsNullOrWhiteSpace(reasoning))
+            {
+                content = await ForceAnswerFromReasoningAsync(
+                    client, relativePath, messages, resolved, reasoning, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                content = await SendCompletionAsync(messages, resolved, cancellationToken).ConfigureAwait(false);
+            }
+            if (!string.IsNullOrWhiteSpace(content))
+                await onChunk(content).ConfigureAwait(false);
+        }
+        else if (string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase))
+        {
+            var continuationResult = await ContinueTruncatedResponseAsync(
+                client, relativePath, messages, resolved, content, cancellationToken).ConfigureAwait(false);
+            var continuation = continuationResult.Content;
+            if (continuation.Length > content.Length)
+            {
+                var delta = continuation[content.Length..];
+                if (!string.IsNullOrWhiteSpace(delta))
+                    await onChunk(delta).ConfigureAwait(false);
+            }
+            content = continuation;
+        }
+
+        var duration = DateTime.UtcNow - startTime;
+        _logger.LogInformation(
+            "Streaming completion (reasoning-aware) done: Model={Model}, ContentLen={ContentLen}, ReasoningLen={ReasoningLen}, Duration={DurationMs}ms",
+            resolved.ModelIdentifier, content.Length, reasoning?.Length ?? 0, (int)duration.TotalMilliseconds);
+
+        return (content, reasoning);
+    }
+
+    /// <summary>
+    /// Parses a streaming SSE chunk and extracts only the content text.
+    /// Reasoning/thinking chunks are silently skipped to prevent them from
+    /// leaking into the interaction text.
+    /// </summary>
     private static bool TryParseStreamingChunk(string json, out string chunkText, out string? finishReason)
     {
+        var result = TryParseStreamingChunkWithKind(json, out chunkText, out var isReasoning, out finishReason);
+        if (result && isReasoning)
+        {
+            chunkText = string.Empty;
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Parses a streaming SSE chunk and indicates whether the chunk is model reasoning
+    /// (chain-of-thought) or actual content.
+    /// </summary>
+    private static bool TryParseStreamingChunkWithKind(string json, out string chunkText, out bool isReasoning, out string? finishReason)
+    {
         chunkText = string.Empty;
+        isReasoning = false;
         finishReason = null;
 
         try
@@ -563,12 +882,14 @@ public sealed class CompletionClient : ICompletionClient
                 if (delta.TryGetProperty("reasoning_content", out var deltaReasoning) && deltaReasoning.ValueKind == JsonValueKind.String)
                 {
                     chunkText = deltaReasoning.GetString() ?? string.Empty;
+                    isReasoning = true;
                     return true;
                 }
 
                 if (delta.TryGetProperty("reasoning", out var deltaReasoningFallback) && deltaReasoningFallback.ValueKind == JsonValueKind.String)
                 {
                     chunkText = deltaReasoningFallback.GetString() ?? string.Empty;
+                    isReasoning = true;
                     return true;
                 }
             }
@@ -584,12 +905,14 @@ public sealed class CompletionClient : ICompletionClient
                 if (message.TryGetProperty("reasoning_content", out var reasoning) && reasoning.ValueKind == JsonValueKind.String)
                 {
                     chunkText = reasoning.GetString() ?? string.Empty;
+                    isReasoning = true;
                     return true;
                 }
 
                 if (message.TryGetProperty("reasoning", out var reasoningFallback) && reasoningFallback.ValueKind == JsonValueKind.String)
                 {
                     chunkText = reasoningFallback.GetString() ?? string.Empty;
+                    isReasoning = true;
                     return true;
                 }
             }
@@ -599,6 +922,109 @@ public sealed class CompletionClient : ICompletionClient
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Focused follow-up for reasoning models (e.g. DeepSeek) that spent the whole token budget
+    /// on reasoning_content and hit finish_reason=length with empty content. Asks the model to
+    /// output ONLY the final answer based on the reasoning it already produced, without re-reasoning.
+    /// Returns the (possibly empty) content from the follow-up call.
+    /// </summary>
+    private async Task<string> ForceAnswerFromReasoningAsync(
+        HttpClient client,
+        string relativePath,
+        List<ChatMessage> originalMessages,
+        ResolvedModel resolved,
+        string reasoning,
+        CancellationToken cancellationToken)
+    {
+        const string forceAnswerPrompt =
+            "You already analyzed the task above. Output ONLY the final answer now — no more reasoning, no explanation. " +
+            "Respond in the exact format the original task requested.";
+
+        // Trim very long reasoning so it fits within context: keep the tail (most recent analysis).
+        const int maxReasoningChars = 8000;
+        var trimmedReasoning = reasoning.Length > maxReasoningChars
+            ? "…(earlier reasoning trimmed)… " + reasoning[^maxReasoningChars..]
+            : reasoning;
+
+        var forceMessages = new List<ChatMessage>(originalMessages)
+        {
+            new("assistant", trimmedReasoning),
+            new("user", forceAnswerPrompt)
+        };
+
+        var payload = new ChatRequest
+        {
+            Model = resolved.ModelIdentifier,
+            Messages = forceMessages,
+            Temperature = 0,
+            TopP = resolved.TopP,
+            MaxTokens = resolved.MaxTokens
+        };
+
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            using var forceResponse = await client.PostAsJsonAsync(relativePath, payload, cancellationToken);
+            stopwatch.Stop();
+
+            if (!forceResponse.IsSuccessStatusCode)
+            {
+                var errorContent = await forceResponse.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning(
+                    "Force-answer call failed: Model={ModelIdentifier}, Provider={ProviderName}, Status={StatusCode}, DurationMs={DurationMs}, Error={Error}",
+                    resolved.ModelIdentifier, resolved.ProviderName, (int)forceResponse.StatusCode, stopwatch.ElapsedMilliseconds, errorContent);
+                return string.Empty;
+            }
+
+            var forceRaw = await forceResponse.Content.ReadAsStringAsync(cancellationToken);
+            var (forceContent, forceReasoningExtracted, forceFinishReason, _) = ParseContentWithReasoning(forceRaw, resolved);
+
+            // If the follow-up ALSO hit length with empty content, return empty so callers fail
+            // explicitly rather than receive reasoning text as if it were content.
+            if (string.IsNullOrWhiteSpace(forceContent)
+                && string.Equals(forceFinishReason, "length", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(forceReasoningExtracted))
+            {
+                _logger.LogWarning(
+                    "Force-answer call still empty after length: Model={ModelIdentifier}, ReasoningLen={ReasoningLen}, DurationMs={DurationMs}",
+                    resolved.ModelIdentifier, forceReasoningExtracted?.Length ?? 0, stopwatch.ElapsedMilliseconds);
+                return string.Empty;
+            }
+
+            // If the follow-up produced content but STILL hit the token ceiling (e.g. a truncated
+            // structured JSON answer), attempt the standard continuation so the remaining answer
+            // has a chance to complete. Mirrors the main reasoning-aware path's length handling.
+            if (!string.IsNullOrWhiteSpace(forceContent)
+                && string.Equals(forceFinishReason, "length", StringComparison.OrdinalIgnoreCase))
+            {
+                var continuationResult = await ContinueTruncatedResponseAsync(
+                    client, relativePath, originalMessages, resolved, forceContent, cancellationToken);
+                var continuationContent = continuationResult.Content;
+                _logger.LogWarning(
+                    "Force-answer call hit length with content; continuation attempted: Model={ModelIdentifier}, ContentLen={ContentLen}, ContinuationCalls={ContinuationCalls}, ContinuationContentLen={ContinuationContentLen}",
+                    resolved.ModelIdentifier, continuationContent.Length, continuationResult.CallCount, continuationContent.Length);
+                if (continuationContent.Length > forceContent.Length)
+                {
+                    forceContent = continuationContent;
+                }
+            }
+
+            _logger.LogInformation(
+                "Force-answer call completed: Model={ModelIdentifier}, Provider={ProviderName}, ContentLen={ContentLen}, ReasoningLen={ReasoningLen}, FinishReason={FinishReason}, DurationMs={DurationMs}",
+                resolved.ModelIdentifier, resolved.ProviderName, forceContent?.Length ?? 0, forceReasoningExtracted?.Length ?? 0, forceFinishReason, stopwatch.ElapsedMilliseconds);
+
+            return forceContent ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            _logger.LogWarning(ex,
+                "Force-answer call exception: Model={ModelIdentifier}, Provider={ProviderName}, DurationMs={DurationMs}",
+                resolved.ModelIdentifier, resolved.ProviderName, stopwatch.ElapsedMilliseconds);
+            return string.Empty;
         }
     }
 
@@ -681,20 +1107,29 @@ public sealed class CompletionClient : ICompletionClient
         var firstChoice = result?.Choices?.FirstOrDefault();
         var content = firstChoice?.Message?.Content;
 
-        if (string.IsNullOrWhiteSpace(content))
+        return (content, firstChoice?.FinishReason, result?.Choices?.Count ?? 0);
+    }
+
+    /// <summary>
+    /// Parses a non-streaming completion response, extracting both the content text
+    /// and any model reasoning (reasoning_content / reasoning) as separate values.
+    /// </summary>
+    private (string? Content, string? Reasoning, string? FinishReason, int ChoiceCount) ParseContentWithReasoning(
+        string rawBody, ResolvedModel resolved)
+    {
+        var result = System.Text.Json.JsonSerializer.Deserialize<ChatResponse>(rawBody);
+        var firstChoice = result?.Choices?.FirstOrDefault();
+        var content = firstChoice?.Message?.Content;
+        var reasoning = firstChoice?.Message?.ReasoningContent ?? firstChoice?.Message?.Reasoning;
+
+        if (!string.IsNullOrWhiteSpace(reasoning))
         {
-            var fallback = firstChoice?.Message?.ReasoningContent ?? firstChoice?.Message?.Reasoning;
-            if (!string.IsNullOrWhiteSpace(fallback))
-            {
-                content = fallback;
-                _logger.LogInformation(
-                    "Using reasoning field as fallback: Model={ModelIdentifier}, Provider={ProviderName}",
-                    resolved.ModelIdentifier,
-                    resolved.ProviderName);
-            }
+            _logger.LogInformation(
+                "Extracted reasoning from response: Model={Model}, ReasoningLen={ReasoningLen}",
+                resolved.ModelIdentifier, reasoning.Length);
         }
 
-        return (content, firstChoice?.FinishReason, result?.Choices?.Count ?? 0);
+        return (content, reasoning, firstChoice?.FinishReason, result?.Choices?.Count ?? 0);
     }
 
     private sealed class ChatRequest
@@ -717,6 +1152,10 @@ public sealed class CompletionClient : ICompletionClient
         [JsonPropertyName("stream")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public bool? Stream { get; init; }
+
+        [JsonPropertyName("chat_template_kwargs")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Dictionary<string, object>? ChatTemplateKwargs { get; init; }
     }
 
     private sealed record ChatMessage(

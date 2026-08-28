@@ -1,3 +1,4 @@
+using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Application.RolePlay;
@@ -10,7 +11,9 @@ public sealed record ScenarioDefinition(
     decimal PreferencePriorityScore = 0m,
     string? ScenarioFitRulesJson = null,
     string? ScenarioFitRuleSource = null,
-    decimal FitScoreMultiplier = 1m);
+    decimal FitScoreMultiplier = 1m,
+    decimal SuccessorCausalityBoost = 0m,
+    decimal CompletionFitScorePenaltyPoints = 0m);
 
 public sealed class ScenarioGuidanceRequest
 {
@@ -25,14 +28,17 @@ public sealed class ScenarioGuidanceRequest
     public double AverageDominance { get; init; } = 50;
     public double AverageLoyalty { get; init; } = 50;
     public string? SelectedWillingnessProfileId { get; init; }
-    public string? HusbandAwarenessProfileId { get; init; }
+    public string? SelectedResistanceProfileId { get; init; }
+    public IReadOnlyDictionary<string, string> CharacterEncounterProfileIds { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    public IReadOnlyList<ScenarioCharacter> Characters { get; init; } = [];
     public IReadOnlyList<string> SuppressedScenarioIds { get; init; } = [];
+    public IReadOnlyDictionary<string, CharacterStatProfileV2>? CharacterRuntimeStats { get; init; }
 }
 
 public sealed class ScenarioGuidanceOutput
 {
     public string GuidanceText { get; init; } = string.Empty;
-    public string HusbandAwarenessFrame { get; init; } = string.Empty;
+    public IReadOnlyDictionary<string, string> CharacterBehavioralFrames { get; init; } = new Dictionary<string, string>();
     public IReadOnlyList<string> EmphasisPoints { get; init; } = [];
     public IReadOnlyList<string> AvoidancePoints { get; init; } = [];
     public string Source { get; init; } = "Fallback";
@@ -57,7 +63,7 @@ public sealed class LifecycleInputs
     public string? NarrativeGateProfileId { get; init; }
     public IReadOnlyList<NarrativeGateRule>? NarrativeGateRules { get; init; }
     public bool SkipDefaultNarrativeGateProfileFallback { get; init; }
-    public int InteractionsSinceCommitment { get; init; }
+    public int TurnsSinceCommitment { get; init; }
     public decimal ActiveScenarioConfidence { get; init; }
     public decimal ActiveScenarioFitScore { get; init; }
     public string EvidenceSummary { get; init; } = string.Empty;

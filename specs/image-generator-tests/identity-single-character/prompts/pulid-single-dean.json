@@ -1,0 +1,77 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": { "ckpt_name": "juggernautXL_ragnarok.safetensors" }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "a young man, head and shoulders portrait, looking at the camera, neutral expression, studio lighting, photorealistic, sharp focus",
+      "clip": ["4", 1]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "deformed, bad anatomy, extra fingers, extra limbs, blurry, low quality, cartoon, anime, illustration, painting, sketch, watermark, text, oversaturated, plastic skin",
+      "clip": ["4", 1]
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": { "width": 1024, "height": 1024, "batch_size": 1 }
+  },
+  "10": {
+    "class_type": "PulidModelLoader",
+    "inputs": { "pulid_file": "ip-adapter_pulid_sdxl_fp16.safetensors" }
+  },
+  "11": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "dean_face.png" }
+  },
+  "13": {
+    "class_type": "PulidInsightFaceLoader",
+    "inputs": { "provider": "CPU" }
+  },
+  "14": {
+    "class_type": "PulidEvaClipLoader",
+    "inputs": {}
+  },
+  "12": {
+    "class_type": "ApplyPulid",
+    "inputs": {
+      "model": ["4", 0],
+      "pulid": ["10", 0],
+      "eva_clip": ["14", 0],
+      "face_analysis": ["13", 0],
+      "image": ["11", 0],
+      "method": "fidelity",
+      "weight": 1.0,
+      "start_at": 0.0,
+      "end_at": 1.0
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 20256,
+      "steps": 30,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m_sde",
+      "scheduler": "karras",
+      "denoise": 1.0,
+      "model": ["12", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["3", 0], "vae": ["4", 2] }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": { "filename_prefix": "dg_pulid_dean_single", "images": ["8", 0] }
+  }
+}

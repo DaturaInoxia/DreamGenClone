@@ -1,0 +1,67 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": { "ckpt_name": "juggernautXL_ragnarok.safetensors" }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "a young man, head and shoulders portrait, looking at the camera, neutral expression, studio lighting, photorealistic, sharp focus",
+      "clip": ["4", 1]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "deformed, bad anatomy, extra fingers, extra limbs, blurry, low quality, cartoon, anime, illustration, painting, sketch, watermark, text, oversaturated, plastic skin",
+      "clip": ["4", 1]
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": { "width": 1024, "height": 1024, "batch_size": 1 }
+  },
+  "10": {
+    "class_type": "IPAdapterUnifiedLoader",
+    "inputs": { "model": ["4", 0], "preset": "PLUS FACE (portraits)" }
+  },
+  "11": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "dean_face.png" }
+  },
+  "12": {
+    "class_type": "IPAdapter",
+    "inputs": {
+      "model": ["10", 0],
+      "ipadapter": ["10", 1],
+      "image": ["11", 0],
+      "weight": 0.8,
+      "start_at": 0.0,
+      "end_at": 1.0,
+      "weight_type": "standard"
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 20256,
+      "steps": 30,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m_sde",
+      "scheduler": "karras",
+      "denoise": 1.0,
+      "model": ["12", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["3", 0], "vae": ["4", 2] }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": { "filename_prefix": "dg_ipadapter_dean_single", "images": ["8", 0] }
+  }
+}

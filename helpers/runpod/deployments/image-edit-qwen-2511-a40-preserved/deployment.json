@@ -1,0 +1,27 @@
+{
+  "deploymentKey": "image-edit-qwen-2511-a40-preserved",
+  "displayName": "Qwen Image Edit 2511 A40 preserved",
+  "capability": "ImageEditing",
+  "modelIdentifier": "qwen_image_edit_2511_fp8mixed.safetensors",
+  "podId": "u1bykx2grhns82",
+  "podName": "dreamgen-image-edit-qwen-2511",
+  "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
+  "cloudType": "SECURE",
+  "interruptible": false,
+  "gpuTypeId": "NVIDIA A40",
+  "gpuCount": 1,
+  "volumeInGb": 85,
+  "containerDiskInGb": 20,
+  "volumeMountPath": "/workspace",
+  "inferencePort": 3002,
+  "sshTcpPort": 22,
+  "sshUser": "root",
+  "readinessPath": "/system_stats",
+  "identityProbePath": "/object_info/UNETLoader",
+  "identityExpectedText": "qwen_image_edit_2511_fp8mixed.safetensors",
+  "expectedIdentity": {
+    "deploymentKey": "image-edit-qwen-2511-a40-preserved",
+    "modelIdentifier": "qwen_image_edit_2511_fp8mixed.safetensors",
+    "runtimeRevision": "e4c61d75555036fa28b6bb34e5fd67b007c9f391"
+  }
+}

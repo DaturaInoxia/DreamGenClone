@@ -13,11 +13,10 @@ public sealed class RolePlayDerivedFormulaEvaluatorTests
             CharacterId = "alpha",
             Desire = 70,
             Restraint = 40,
-            Tension = 60,
-            Connection = 50,
             Dominance = 30,
             Loyalty = 20,
-            SelfRespect = 40
+            SelfRespect = 40,
+            RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 60, ["Connection"] = 50 }
         };
 
         var scores = RolePlayDerivedFormulaEvaluator.EvaluateAll(profile);

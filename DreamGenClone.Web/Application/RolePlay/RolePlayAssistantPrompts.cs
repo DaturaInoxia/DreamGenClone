@@ -1,6 +1,7 @@
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Domain.RolePlay;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -18,10 +19,52 @@ public static class RolePlayAssistantPrompts
         return activeTheme.PhaseGuidance
             .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
             .Where(x => !string.IsNullOrWhiteSpace(x.GuidanceText))
-            .Select(x => x.GuidanceText.Trim())
+            .Select(x => StripPhaseGuidanceMarkers(x.GuidanceText.Trim()))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    public static IReadOnlyList<string> GetThemePhaseDirectiveLines(
+        RPTheme? activeTheme,
+        string phase)
+    {
+        if (activeTheme is null || activeTheme.PhaseGuidance.Count == 0)
+        {
+            return [];
+        }
+
+        return activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Where(x => !string.IsNullOrWhiteSpace(x.DirectiveText))
+            .Select(x => StripPhaseGuidanceMarkers(x.DirectiveText.Trim()))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Removes theme phase-guidance markers (<c>[BeatStyle:*]</c>, <c>[Pacing:*]</c>,
+    /// <c>[TimeShift:*]</c>, <c>[Granularity:*]</c>, <c>[ClimaxMode:*]</c>,
+    /// <c>[Aftermath:*]</c>, <c>[Deepening:*]</c>, <c>[ScenePresence]</c>) from guidance
+    /// prose before it is rendered to the model or UI. Markers are engine-side control
+    /// signals parsed from <see cref="RPTheme.PhaseGuidance"/> by the scene-direction
+    /// resolver — they must not leak as literal text into prompts. Marker parsing is
+    /// unaffected: resolution reads the raw guidance text, not these rendered lines.
+    /// </summary>
+    public static string StripPhaseGuidanceMarkers(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        return PhaseGuidanceMarkerRegex.Replace(text, string.Empty).Trim();
+    }
+
+    private static readonly Regex PhaseGuidanceMarkerRegex = new(
+        @"\[(BeatStyle|Pacing|TimeShift|Granularity|ClimaxMode|Aftermath|Deepening|ScenePresence)(?::[A-Za-z0-9-]+)?\]",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static bool IsEpisodicBeatStyle(RPTheme? activeTheme, string phase)
     {
@@ -31,23 +74,91 @@ public static class RolePlayAssistantPrompts
             .Any(x => x.GuidanceText.Contains("[BeatStyle:episodic]", StringComparison.OrdinalIgnoreCase));
     }
 
-    public static bool IsQuickFinishClimaxMode(RPTheme? activeTheme, string phase)
+    /// <summary>
+    /// Detects the [ClimaxMode:multi-encounter] phase-guidance marker. When true, the Climax
+    /// phase is paced as multiple discrete encounters whose boundaries are detected by the
+    /// sync encounter-completed semantic inference call. Theme-scoped — dormant for themes
+    /// without the marker.
+    /// </summary>
+    public static bool IsMultiEncounterClimax(RPTheme? activeTheme, string phase)
     {
         if (activeTheme is null) return false;
         return activeTheme.PhaseGuidance
             .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
-            .Any(x => x.GuidanceText.Contains("[ClimaxMode:quick-finish]", StringComparison.OrdinalIgnoreCase));
+            .Any(x => x.GuidanceText.Contains("[ClimaxMode:multi-encounter]", StringComparison.OrdinalIgnoreCase));
     }
 
-    public static bool AllowsWithinTimeframeTimeShift(RPTheme? activeTheme, string phase)
+    /// <summary>
+    /// Detects the [Aftermath:husband-contrast] phase-guidance marker (B-056).
+    /// When true, encounter boundaries in the phase trigger an AftermathCoupleInteraction
+    /// closure turn: the wife gets dressed, returns to the normal setting, interacts with
+    /// her husband, and acts normal — the contrast between secret reality and ordinary
+    /// performance is the narrative point. Works in any non-Reset phase; Reset is explicitly
+    /// excluded (out of scope per spec).
+    /// </summary>
+    public static bool IsAftermathHusbandContrast(RPTheme? activeTheme, string phase)
     {
         if (activeTheme is null) return false;
+        if (string.Equals(phase, "Reset", StringComparison.OrdinalIgnoreCase)) return false;
         return activeTheme.PhaseGuidance
             .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
-            .Any(x =>
-                x.GuidanceText.Contains("[TimeShift:within-timeframe]", StringComparison.OrdinalIgnoreCase)
-                || x.GuidanceText.Contains("Responses may skip forward within the time frame", StringComparison.OrdinalIgnoreCase)
-                || x.GuidanceText.Contains("a new response does not have to be the immediate next moment", StringComparison.OrdinalIgnoreCase));
+            .Any(x => x.GuidanceText.Contains("[Aftermath:husband-contrast]", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Returns the pacing mode declared by [Pacing:slow], [Pacing:medium], or [Pacing:fast]
+    /// in the theme's phase guidance for the given phase. Returns null if no marker is present.
+    /// When no marker is present, no scene writing directive is injected.
+    /// </summary>
+    public static string? GetPacingMode(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null || activeTheme.PhaseGuidance.Count == 0)
+            return null;
+
+        var guidanceTexts = activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.GuidanceText)
+            .Where(x => !string.IsNullOrWhiteSpace(x));
+
+        foreach (var text in guidanceTexts)
+        {
+            if (text.Contains("[Pacing:fast]", StringComparison.OrdinalIgnoreCase))
+                return "fast";
+            if (text.Contains("[Pacing:medium]", StringComparison.OrdinalIgnoreCase))
+                return "medium";
+            if (text.Contains("[Pacing:slow]", StringComparison.OrdinalIgnoreCase))
+                return "slow";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the word target marker declared by [targetwords:small], [targetwords:medium],
+    /// or [targetwords:large] in the theme's phase guidance for the given phase.
+    /// Returns null if no marker is present — the caller applies the default [small].
+    /// </summary>
+    public static string? GetWordTargetMarker(RPTheme? activeTheme, string phase)
+    {
+        if (activeTheme is null || activeTheme.PhaseGuidance.Count == 0)
+            return null;
+
+        var guidanceTexts = activeTheme.PhaseGuidance
+            .Where(x => string.Equals(x.Phase.ToString(), phase, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.GuidanceText)
+            .Where(x => !string.IsNullOrWhiteSpace(x));
+
+        foreach (var text in guidanceTexts)
+        {
+            if (text.Contains("[targetwords:large]", StringComparison.OrdinalIgnoreCase))
+                return "large";
+            if (text.Contains("[targetwords:medium]", StringComparison.OrdinalIgnoreCase))
+                return "medium";
+            if (text.Contains("[targetwords:small]", StringComparison.OrdinalIgnoreCase))
+                return "small";
+        }
+
+        return null;
     }
 
     public static IReadOnlyList<RPThemeAIGuidanceNote> GetPhaseRelevantThemeAIGuidanceNotes(
@@ -66,6 +177,7 @@ public static class RolePlayAssistantPrompts
 
         return activeTheme.AIGenerationNotes
             .Where(x => !string.IsNullOrWhiteSpace(x.Text))
+            .Where(x => x.Section != RPThemeAIGuidanceSection.HardConstraint)
             .Where(x => includeFormulaNotes || x.Section != RPThemeAIGuidanceSection.FitFormula)
             .Select(x => new
             {
@@ -76,6 +188,27 @@ public static class RolePlayAssistantPrompts
             .ThenBy(x => x.Note.SortOrder)
             .Select(x => x.Note)
             .DistinctBy(x => x.Text.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Take(clampedMax)
+            .ToList();
+    }
+
+    public static IReadOnlyList<string> GetThemeHardConstraintLines(
+        RPTheme? activeTheme,
+        int maxConstraints)
+    {
+        if (activeTheme is null || activeTheme.AIGenerationNotes.Count == 0)
+        {
+            return [];
+        }
+
+        var clampedMax = Math.Clamp(maxConstraints, 1, 20);
+
+        return activeTheme.AIGenerationNotes
+            .Where(x => x.Section == RPThemeAIGuidanceSection.HardConstraint)
+            .Where(x => !string.IsNullOrWhiteSpace(x.Text))
+            .OrderBy(x => x.SortOrder)
+            .Select(x => x.Text.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(clampedMax)
             .ToList();
     }
@@ -98,9 +231,21 @@ public static class RolePlayAssistantPrompts
 
         promptBuilder.AppendLine($"- Guidance: {guidance.GuidanceText}");
 
-        if (!string.IsNullOrWhiteSpace(guidance.HusbandAwarenessFrame))
+        foreach (var (label, frameText) in guidance.CharacterBehavioralFrames)
         {
-            promptBuilder.AppendLine($"HARD CONSTRAINT — Partner Character Behavior (authoritative, overrides all theme notes and guidance): {guidance.HusbandAwarenessFrame}");
+            promptBuilder.AppendLine($"CHARACTER TENDENCY — {label} behavioral frame (yields to theme contract): {frameText}");
+            if (guidance.CharacterStatStateTexts.TryGetValue(label, out var statStateText))
+            {
+                promptBuilder.AppendLine($"CHARACTER TENDENCY — {label} current state (yields to theme contract): {statStateText}");
+            }
+        }
+
+        foreach (var (label, statStateText) in guidance.CharacterStatStateTexts)
+        {
+            if (!guidance.CharacterBehavioralFrames.ContainsKey(label))
+            {
+                promptBuilder.AppendLine($"CHARACTER TENDENCY — {label} current state (yields to theme contract): {statStateText}");
+            }
         }
 
         if (guidance.ExcludedScenarioIds.Count > 0)
@@ -112,61 +257,6 @@ public static class RolePlayAssistantPrompts
         {
             promptBuilder.AppendLine($"- Guard: {guard}");
         }
-    }
-
-    public static IReadOnlyList<string> BuildFramingGuards(string phase, string? activeScenarioId)
-        => BuildFramingGuards(phase, activeScenarioId, activeTheme: null);
-
-    public static IReadOnlyList<string> BuildFramingGuards(string phase, string? activeScenarioId, RPTheme? activeTheme)
-    {
-        var guards = new List<string>();
-
-        if (string.IsNullOrWhiteSpace(activeScenarioId))
-        {
-            return guards;
-        }
-
-        if (phase == "BuildUp")
-        {
-            guards.Add("This is the BuildUp phase — tension and anticipation only. Do not write explicit sexual acts, physical consummation, or explicit physical contact of a sexual nature.");
-            guards.Add("Characters may flirt, exchange glances, build emotional tension, and suggestively interact, but all explicit escalation must be withheld until the scene advances past this phase.");
-        }
-
-        if (phase is "Committed" or "Approaching" or "Climax")
-        {
-            guards.Add($"Keep all major beats aligned to '{activeScenarioId}'.");
-            guards.Add("Do not pivot to a competing scenario unless the user explicitly overrides.");
-        }
-
-        if (phase == "Climax")
-        {
-            var isQuickFinishClimax = IsQuickFinishClimaxMode(activeTheme, phase);
-
-            guards.Add("Deliver high-intensity culmination consistent with established relational dynamics.");
-            guards.Add("Write with explicit positional and sensory detail; name body parts and movements specifically.");
-            guards.Add("Narrative urgency (time pressure, risk of interruption) must increase writing intensity, not truncate scene length.");
-
-            if (isQuickFinishClimax)
-            {
-                guards.Add("QUICK-FINISH CLIMAX MODE: Resolve the finale as urgent, frantic, and quick-release focused without reducing explicit detail.");
-                guards.Add("Urgency is conveyed through tone, pacing pressure, and interruption risk — not by shortening the scene into vague or minimal content.");
-                guards.Add("The encounter may span multiple turns/interactions with rich explicit detail before completion, but keep one primary position/focal act rather than running a full beat-sheet tour.");
-                guards.Add("All explicit contact must remain plausibly hidden from the husband and nearby guests in the moment; maintain believable concealment and deniability.");
-                guards.Add("Do not write overtly visible acts in open view (for example obvious neck-kissing, openly exposed groping, or other unmistakable public signals) when husband/bystanders are in direct line of sight.");
-                guards.Add("Choose one completion position (oral or penetrative sex) for the encounter, sustain it with explicit sensory detail, then return immediately to social composure.");
-                guards.Add("If close-proximity oral/penetrative completion is plausible, keep it nearby. Otherwise, a brief sneak-off to a secluded spot is allowed for rapid release, followed by immediate return.");
-                guards.Add("Do not force beat/sub-beat progression or multi-position variation in this finale.");
-            }
-            else
-            {
-                guards.Add("Every turn must advance the scene to a new beat. Do not repeat the same physical act, position, or sensation that was the focus of the immediately preceding turn.");
-                guards.Add("Within each stage of physical intimacy, vary position, tempo, who is the focus, and specific sensations each turn. Same stage is fine — same description is forbidden.");
-                guards.Add("Male orgasm/ejaculation is controlled by the configured Climax->Reset InteractionsSinceCommitment narrative gate: blocked gate means no male orgasm; passed gate allows male orgasm when continuity supports it. /endclimax still controls explicit phase completion.");
-                guards.Add("Do not write departure scenes, farewells, scenario-close transitions (e.g. 'the truck drove away', 'the weekend was over', 'she headed home'), or any narrative framing that concludes the story's time frame. The Climax phase continues until /endclimax is received — hold the story within the encounter's moment.");
-            }
-        }
-
-        return guards;
     }
 
     public static void AppendThemeAIGuidance(
@@ -211,6 +301,26 @@ public static class RolePlayAssistantPrompts
         promptBuilder.AppendLine(closingNote);
     }
 
+    public static void AppendThemeHardConstraints(
+        StringBuilder promptBuilder,
+        RPTheme? activeTheme,
+        int maxConstraints)
+    {
+        ArgumentNullException.ThrowIfNull(promptBuilder);
+
+        var constraints = GetThemeHardConstraintLines(activeTheme, maxConstraints);
+        if (constraints.Count == 0)
+        {
+            return;
+        }
+
+        promptBuilder.AppendLine("Theme Hard Constraints (authoritative):");
+        foreach (var constraint in constraints)
+        {
+            promptBuilder.AppendLine($"- HARD CONSTRAINT: {constraint}");
+        }
+    }
+
     public static void AppendThemeMachineGuidance(
         StringBuilder promptBuilder,
         ThemeMachineSessionSnapshot? snapshot)
@@ -235,7 +345,7 @@ public static class RolePlayAssistantPrompts
         else if (string.Equals(snapshot.CurrentStateCode, "ReintegrationCooldown", StringComparison.OrdinalIgnoreCase))
         {
             promptBuilder.AppendLine("- HARD CONSTRAINT: Reintegration cooldown is active; keep disappearance beats blocked until cooldown obligations are met.");
-            promptBuilder.AppendLine($"- Cooldown interactions in current state: {snapshot.TurnsInCurrentState}");
+            promptBuilder.AppendLine($"- Cooldown turns in current state: {snapshot.TurnsInCurrentState}");
             promptBuilder.AppendLine($"- Return beat completed: {(snapshot.ReturnBeatCompleted ? "yes" : "no")}");
         }
         else if (string.Equals(snapshot.CurrentStateCode, "NextDisappearanceEligible", StringComparison.OrdinalIgnoreCase))

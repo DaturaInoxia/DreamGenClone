@@ -42,18 +42,44 @@ if ($null -eq $gpu) { throw "No catalog GPU matches name '$($entry.gpuTypeId)'. 
 if ([string]::IsNullOrWhiteSpace($gpu.pool)) { throw "GPU '$($entry.gpuTypeId)' has no serverless pool (pool='$($gpu.pool)'). Pick a different GPU." }
 $pool = [string]$gpu.pool
 
+# Optional fields read from the endpoints.json entry (only added to the payload when present):
+#   networkVolumes : array of Network Volume IDs (attaching a volume pins workers to its DC)
+#   dataCenterIds  : array of DC IDs to constrain placement to
+#   timeoutMs      : per-JOB execution cap in ms (default 300000 = 5 min, too short for cold starts)
+#   flashboot      : "FLASHBOOT" / "PRIORITY_FLASHBOOT" / "OFF" (cold-start acceleration)
+#   minCudaVersion / allowedCudaVersions : pin worker placement to hosts whose CUDA driver supports
+#       the workload's torch build (e.g. Qwen VL vLLM needs CUDA 13.0 = host driver >= 580).
+#       Set at most ONE of them (a non-empty allowedCudaVersions and minCudaVersion are mutually
+#       exclusive -> 400). format: "13.0" / ["13.0","12.8"].
+$gpuConfig = @{ pools = @($pool); count = 1 }
+if ($entry.PSObject.Properties.Name -contains 'minCudaVersion' -and -not [string]::IsNullOrWhiteSpace($entry.minCudaVersion)) {
+    $gpuConfig.minCudaVersion = [string]$entry.minCudaVersion
+}
+if ($entry.PSObject.Properties.Name -contains 'allowedCudaVersions' -and $entry.allowedCudaVersions -and $entry.allowedCudaVersions.Count -gt 0) {
+    $gpuConfig.allowedCudaVersions = @($entry.allowedCudaVersions)
+}
+
 $bodyObj = @{
     name  = $EndpointKey
     image = [string]$entry.workerImage
     type  = "QUEUE"
-    gpu   = @{ pools = @($pool); count = 1 }
+    gpu   = $gpuConfig
     workers = @{
         min         = [int]$entry.minWorkers
         max         = [int]$entry.maxWorkers
         idleTimeout = [int]$entry.idleTimeoutSec
     }
     scaling = @{ type = "QUEUE_DELAY"; queueDelay = 4 }
-    timeout = 300000
+    timeout = if ($null -ne $entry.timeoutMs) { [int]$entry.timeoutMs } else { 300000 }
+}
+if ($entry.PSObject.Properties.Name -contains 'networkVolumes' -and $entry.networkVolumes) {
+    $bodyObj.networkVolumes = @($entry.networkVolumes)
+}
+if ($entry.PSObject.Properties.Name -contains 'dataCenterIds' -and $entry.dataCenterIds) {
+    $bodyObj.dataCenterIds = @($entry.dataCenterIds)
+}
+if ($entry.PSObject.Properties.Name -contains 'flashboot' -and $entry.flashboot) {
+    $bodyObj.flashboot = [string]$entry.flashboot
 }
 $body = $bodyObj | ConvertTo-Json -Depth 8
 
@@ -61,7 +87,13 @@ Write-Host "============================================================"
 Write-Host "Create Serverless endpoint: $($entry.function) [$EndpointKey]"
 Write-Host "  image      : $($entry.workerImage)"
 Write-Host "  gpu        : $($entry.gpuTypeId)  pool=$pool  srv=$($gpu.price.serverless)/hr"
+if ($gpuConfig.ContainsKey('minCudaVersion'))          { Write-Host "  cuda       : minCudaVersion=$($gpuConfig.minCudaVersion)" }
+if ($gpuConfig.ContainsKey('allowedCudaVersions'))     { Write-Host "  cuda       : allowedCudaVersions=$($gpuConfig.allowedCudaVersions -join ',')" }
 Write-Host "  workers    : min=$($entry.minWorkers) max=$($entry.maxWorkers) idle=$($entry.idleTimeoutSec)s  (QUEUE / QUEUE_DELAY)"
+if ($bodyObj.ContainsKey('networkVolumes')) { Write-Host "  volume     : $($bodyObj.networkVolumes -join ',')" }
+if ($bodyObj.ContainsKey('dataCenterIds'))  { Write-Host "  dc         : $($bodyObj.dataCenterIds -join ',')" }
+if ($bodyObj.ContainsKey('flashboot'))      { Write-Host "  flashboot  : $($bodyObj.flashboot)" }
+Write-Host "  timeout    : $($bodyObj.timeout) ms (per job)"
 Write-Host "============================================================"
 Write-Host "REST v2 payload (POST https://api.runpod.io/v2/serverless):"
 Write-Host $body

@@ -71,6 +71,27 @@ public sealed class RolePlayAssistantServiceAdaptiveContextTests
 
         public Task<(bool Success, string Message)> CheckModelHealthAsync(string providerBaseUrl, string chatCompletionsPath, int timeoutSeconds, string? decryptedApiKey, string modelIdentifier, CancellationToken cancellationToken = default)
             => Task.FromResult((true, "ok"));
+
+        public Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(string prompt, ResolvedModel resolved, CancellationToken cancellationToken = default)
+            => Task.FromResult<(string, string?)>(("ok", null));
+
+        public Task<(string Content, string? Reasoning)> GenerateWithReasoningAsync(string systemMessage, string userMessage, ResolvedModel resolved, CancellationToken cancellationToken = default)
+        {
+            LastUserMessage = userMessage;
+            return Task.FromResult<(string, string?)>(("ok", null));
+        }
+
+        public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string prompt, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+        {
+            await onChunk("ok");
+            return ("ok", null);
+        }
+
+        public async Task<(string Content, string? Reasoning)> StreamGenerateWithReasoningAsync(string systemMessage, string userMessage, ResolvedModel resolved, Func<string, Task> onChunk, CancellationToken cancellationToken = default)
+        {
+            await onChunk("ok");
+            return ("ok", null);
+        }
     }
 
     private sealed class StubModelResolutionService : IModelResolutionService
@@ -95,5 +116,14 @@ public sealed class RolePlayAssistantServiceAdaptiveContextTests
                 ProviderName: "test",
                 IsSessionOverride: false));
         }
+
+        public Task<ResolvedModel> ResolveImagePromptModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
+
+        public Task<ResolvedImageModel> ResolveImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Scene image resolution is not exercised by this test.");
+
+        public Task<ResolvedIdentityImageModel> ResolveIdentityImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Identity image resolution is not exercised by this test.");
     }
 }

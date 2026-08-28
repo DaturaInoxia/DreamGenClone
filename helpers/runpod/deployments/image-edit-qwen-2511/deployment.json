@@ -1,0 +1,28 @@
+{
+  "deploymentKey": "image-edit-qwen-2511-prod",
+  "displayName": "Qwen Image Edit 2511",
+  "capability": "ImageEditing",
+  "modelIdentifier": "qwen_image_edit_2511_fp8mixed.safetensors",
+  "nsfwLora": "qwen-image-edit-plus-nsfw-lora.safetensors (MCNL v1, ScottzillaSystems, 563 MB, added 2026-08-28)",
+  "podId": "jkms7ljhb54we9",
+  "podName": "dreamgen-image-edit-qwen-2511-l40s",
+  "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
+  "cloudType": "SECURE",
+  "interruptible": false,
+  "gpuTypeId": "NVIDIA L40S",
+  "gpuCount": 1,
+  "volumeInGb": 85,
+  "containerDiskInGb": 20,
+  "volumeMountPath": "/workspace",
+  "inferencePort": 3002,
+  "sshTcpPort": 22,
+  "sshUser": "root",
+  "readinessPath": "/system_stats",
+  "identityProbePath": "/object_info/UNETLoader",
+  "identityExpectedText": "qwen_image_edit_2511_fp8mixed.safetensors",
+  "expectedIdentity": {
+    "deploymentKey": "image-edit-qwen-2511-prod",
+    "modelIdentifier": "qwen_image_edit_2511_fp8mixed.safetensors",
+    "runtimeRevision": "e4c61d75555036fa28b6bb34e5fd67b007c9f391"
+  }
+}

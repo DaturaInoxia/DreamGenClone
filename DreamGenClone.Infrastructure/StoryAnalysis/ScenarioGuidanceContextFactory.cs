@@ -1,15 +1,22 @@
-using DreamGenClone.Application.StoryAnalysis;
-using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
+using DreamGenClone.Application.StoryAnalysis.Models;
+using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.StoryAnalysis;
 
 namespace DreamGenClone.Infrastructure.StoryAnalysis;
 
 public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFactory
 {
     private readonly IScenarioGuidanceGenerator? _scenarioGuidanceGenerator;
+    private readonly IBehavioralFrameGenerator _frameGenerator;
 
-    public ScenarioGuidanceContextFactory(IScenarioGuidanceGenerator? scenarioGuidanceGenerator = null)
+    public ScenarioGuidanceContextFactory(
+        IBehavioralFrameGenerator frameGenerator,
+        IScenarioGuidanceGenerator? scenarioGuidanceGenerator = null)
     {
+        _frameGenerator = frameGenerator;
         _scenarioGuidanceGenerator = scenarioGuidanceGenerator;
     }
 
@@ -24,7 +31,7 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
             return CreateFromGeneratorAsync(input, cancellationToken);
         }
 
-        return Task.FromResult(CreateFallback(input));
+        return CreateFallbackAsync(input, cancellationToken);
     }
 
     private async Task<ScenarioGuidanceContext> CreateFromGeneratorAsync(
@@ -40,13 +47,14 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
                 VariantId = input.VariantId,
                 AverageDesire = input.AverageDesire,
                 AverageRestraint = input.AverageRestraint,
-                AverageTension = input.AverageTension,
-                AverageConnection = input.AverageConnection,
                 AverageDominance = input.AverageDominance,
                 AverageLoyalty = input.AverageLoyalty,
                 SelectedWillingnessProfileId = input.SelectedWillingnessProfileId,
-                HusbandAwarenessProfileId = input.HusbandAwarenessProfileId,
-                SuppressedScenarioIds = input.SuppressedScenarioIds
+                SelectedResistanceProfileId = input.SelectedResistanceProfileId,
+                CharacterEncounterProfileIds = input.CharacterEncounterProfileIds,
+                Characters = input.Characters,
+                SuppressedScenarioIds = input.SuppressedScenarioIds,
+                CharacterRuntimeStats = input.CharacterRuntimeStats
             },
             cancellationToken);
 
@@ -61,15 +69,25 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
             mergedGuidanceText += $" Avoid: {string.Join(", ", generated.AvoidancePoints)}.";
         }
 
+        // T017: generate per-character behavioral frames with runtime stats override when available
+        var characterBehavioralFrames = await _frameGenerator.GenerateFramesAsync(
+            input.CharacterEncounterProfileIds,
+            input.Characters,
+            input.CharacterRuntimeStats,
+            cancellationToken);
+
+        var characterStatStateTexts = BuildCharacterStatStateTexts(input.CharacterRuntimeStats, input.Characters);
+
         return new ScenarioGuidanceContext(
             input.CurrentPhase,
             input.ActiveScenarioId,
             mergedGuidanceText,
             input.SuppressedScenarioIds,
-            generated.HusbandAwarenessFrame);
+            characterBehavioralFrames,
+            characterStatStateTexts);
     }
 
-    private static ScenarioGuidanceContext CreateFallback(ScenarioGuidanceInput input)
+    private async Task<ScenarioGuidanceContext> CreateFallbackAsync(ScenarioGuidanceInput input, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
 
@@ -87,10 +105,61 @@ public sealed class ScenarioGuidanceContextFactory : IScenarioGuidanceContextFac
             _ => "Maintain coherent narrative progression."
         };
 
+        var characterBehavioralFrames = await _frameGenerator.GenerateFramesAsync(
+            input.CharacterEncounterProfileIds,
+            input.Characters,
+            input.CharacterRuntimeStats,
+            cancellationToken);
+
+        var characterStatStateTexts = BuildCharacterStatStateTexts(input.CharacterRuntimeStats, input.Characters);
+
         return new ScenarioGuidanceContext(
             input.CurrentPhase,
             input.ActiveScenarioId,
             guidance,
-            input.SuppressedScenarioIds);
+            input.SuppressedScenarioIds,
+            characterBehavioralFrames,
+            characterStatStateTexts);
+    }
+
+    private static Dictionary<string, string> BuildCharacterStatStateTexts(
+        IReadOnlyDictionary<string, CharacterStatProfileV2>? characterRuntimeStats,
+        IReadOnlyList<ScenarioCharacter> characters)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (characterRuntimeStats is null) return result;
+
+        foreach (var (label, profile) in characterRuntimeStats)
+        {
+            var role = ResolveRoleFromLabel(label, characters);
+            if (role is null) continue;
+
+            var texts = new List<string>();
+            foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+            {
+                var value = CharacterStatProfileV2Accessor.GetStatOrDefault(profile, statName);
+                var text = CharacterStatTextCatalog.ResolveText(statName, role, value);
+                if (!string.IsNullOrWhiteSpace(text)) texts.Add($"  {statName} — {text}");
+            }
+
+            if (texts.Count > 0) result[label] = string.Join('\n', texts);
+        }
+
+        return result;
+    }
+
+    private static string? ResolveRoleFromLabel(string label, IReadOnlyList<ScenarioCharacter> characters)
+    {
+        foreach (var c in characters)
+        {
+            if (string.Equals($"{c.Name} ({c.Role})", label, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Id, label, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Name, label, StringComparison.OrdinalIgnoreCase))
+            {
+                return c.Role;
+            }
+        }
+
+        return null;
     }
 }

@@ -1,4 +1,5 @@
 using CoreAutoSaveCoordinator = DreamGenClone.Application.Sessions.IAutoSaveCoordinator;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;
@@ -36,7 +37,7 @@ public sealed class RolePlayIntentRoutingTests
     {
         var continuation = new RecordingContinuationService();
         var (service, _) = CreateService(continuation);
-        var session = await service.CreateSessionAsync("Routing Test", personaName: "Pilot");
+        var session = await service.CreateSessionAsync("Routing Test");
 
         var submission = new UnifiedPromptSubmission
         {
@@ -67,7 +68,7 @@ public sealed class RolePlayIntentRoutingTests
     {
         var continuation = new RecordingContinuationService();
         var (service, _) = CreateService(continuation);
-        var session = await service.CreateSessionAsync("Routing Test", personaName: "Pilot");
+        var session = await service.CreateSessionAsync("Routing Test");
 
         var submission = new UnifiedPromptSubmission
         {
@@ -95,7 +96,7 @@ public sealed class RolePlayIntentRoutingTests
     {
         var continuation = new RecordingContinuationService();
         var (service, _) = CreateService(continuation);
-        var session = await service.CreateSessionAsync("Routing Test", personaName: "Pilot");
+        var session = await service.CreateSessionAsync("Routing Test");
 
         var submission = new UnifiedPromptSubmission
         {
@@ -117,7 +118,7 @@ public sealed class RolePlayIntentRoutingTests
     {
         var continuation = new RecordingContinuationService();
         var (service, _) = CreateService(continuation);
-        var session = await service.CreateSessionAsync("Routing Test", personaName: "Pilot");
+        var session = await service.CreateSessionAsync("Routing Test");
 
         var submission = new UnifiedPromptSubmission
         {
@@ -160,7 +161,7 @@ public sealed class RolePlayIntentRoutingTests
             validator,
             fakeSessionService,
             new RolePlayTestFactory.NullScenarioService(),
-            new RolePlayTestFactory.FakeBaseStatProfileService(),
+            new RolePlayTestFactory.FakeCharacterProfileService(),
             autoSave,
             new RolePlayTestFactory.NullRolePlayDebugEventSink(),
             NullLogger<RolePlayEngineService>.Instance);
@@ -184,7 +185,10 @@ public sealed class RolePlayIntentRoutingTests
             PromptIntent intent,
             string promptText,
             Func<string, Task>? onChunk = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int? turnIndex = null,
+            int? positionInTurn = null,
+            int? turnActorCount = null)
         {
             ContinueCallCount++;
             LastIntent = intent;
@@ -214,7 +218,9 @@ public sealed class RolePlayIntentRoutingTests
             RolePlaySession session,
             string actorName,
             string promptText,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int? turnIndex = null,
+            int? turnActorCount = null)
         {
             return Task.FromResult(new RolePlayInteraction
             {
@@ -222,6 +228,24 @@ public sealed class RolePlayIntentRoutingTests
                 ActorName = actorName,
                 Content = promptText,
                 GeneratedByCommand = "Narrative"
+            });
+        }
+
+        public Task<RolePlayInteraction> ContinueNarrativeAsAlternativeAsync(
+            RolePlaySession session,
+            string actorName,
+            string promptText,
+            DreamGenClone.Domain.ModelManager.ResolvedModel resolved,
+            string command,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new RolePlayInteraction
+            {
+                InteractionType = InteractionType.System,
+                ActorName = actorName,
+                Content = promptText,
+                GeneratedByCommand = command,
+                GeneratedVariant = PromptVariant.Narrative
             });
         }
     }

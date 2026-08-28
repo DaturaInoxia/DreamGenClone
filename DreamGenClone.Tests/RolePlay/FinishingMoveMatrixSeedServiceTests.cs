@@ -25,10 +25,11 @@ public sealed class FinishingMoveMatrixSeedServiceTests : IDisposable
         await seeder.SeedDefaultsAsync();
 
         var rows = await rpThemeService.ListFinishingMoveMatrixRowsAsync();
-        Assert.Equal(27, rows.Count);
+        Assert.Equal(3, rows.Count);
 
-        Assert.Contains(rows, r => r.DesireBand == "60-100" && r.SelfRespectBand == "60-100" && r.OtherManDominanceBand == "0-29");
-        Assert.Contains(rows, r => r.DesireBand == "0-29" && r.SelfRespectBand == "0-29" && r.OtherManDominanceBand == "60-100");
+        Assert.Contains(rows, r => r.EscalationTier == "Low");
+        Assert.Contains(rows, r => r.EscalationTier == "Medium");
+        Assert.Contains(rows, r => r.EscalationTier == "High");
     }
 
     [Fact]
@@ -41,7 +42,7 @@ public sealed class FinishingMoveMatrixSeedServiceTests : IDisposable
         await seeder.SeedDefaultsAsync();
 
         var rows = await rpThemeService.ListFinishingMoveMatrixRowsAsync();
-        Assert.Equal(27, rows.Count);
+        Assert.Equal(3, rows.Count);
     }
 
     private async Task<RPThemeService> CreateServiceAsync()

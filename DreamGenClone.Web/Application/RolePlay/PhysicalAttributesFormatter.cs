@@ -8,8 +8,11 @@ internal static class PhysicalAttributesFormatter
     /// <summary>
     /// Returns a compact, single-line labelled appearance string for prompt injection,
     /// or <see cref="string.Empty"/> when <paramref name="attrs"/> is null or all fields are absent.
+    /// When <paramref name="gender"/> is "Male", Intimate — Female fields are skipped.
+    /// When <paramref name="gender"/> is "Female", Intimate — Male fields are skipped.
+    /// When null or "Unknown", all fields are included (backward compat).
     /// </summary>
-    internal static string FormatBlock(PhysicalAttributes? attrs)
+    internal static string FormatBlock(PhysicalAttributes? attrs, string? gender = null)
     {
         if (attrs is null) return string.Empty;
 
@@ -38,8 +41,18 @@ internal static class PhysicalAttributesFormatter
         Append(sb, "Piercings", attrs.Piercings);
         Append(sb, "Tattoos", attrs.Tattoos);
 
+        // B-079: Attractiveness renders as "n/10 — Label: prose" from AttractivenessTierCatalog.
+        // When Resolve returns no tier (null or out-of-range), the line is omitted entirely —
+        // no fallback prose (repo no-fallback rule).
         if (attrs.AttractivenessRating.HasValue)
-            Append(sb, "Attractiveness", $"{attrs.AttractivenessRating.Value}/10");
+        {
+            var tier = AttractivenessTierCatalog.Resolve(attrs.AttractivenessRating);
+            if (tier is not null)
+            {
+                Append(sb, "Attractiveness",
+                    $"{attrs.AttractivenessRating.Value}/10 — {tier.Label}: {tier.Prose}");
+            }
+        }
 
         // ── Intimate — shared ────────────────────────────────────────────────
         Append(sb, "Scent", attrs.Scent);
@@ -48,21 +61,86 @@ internal static class PhysicalAttributesFormatter
         Append(sb, "Sexual skill", attrs.SexualSkill);
         Append(sb, "Oral skill", attrs.OralSkill);
 
-        // ── Intimate — male ──────────────────────────────────────────────────
-        Append(sb, "Endowment", BuildEndowmentDescription(attrs.EndowmentLength, attrs.EndowmentGirth));
-        Append(sb, "Stamina", attrs.Stamina);
-        Append(sb, "Recovery", attrs.Recovery);
-        Append(sb, "Ejaculation", attrs.EjaculationIntensity);
+        var isMale = string.Equals(gender, "Male", StringComparison.OrdinalIgnoreCase);
+        var isFemale = string.Equals(gender, "Female", StringComparison.OrdinalIgnoreCase);
 
-        // ── Intimate — female ────────────────────────────────────────────────
-        Append(sb, "Vaginal tightness", attrs.VaginalTightness);
-        Append(sb, "Sensitivity", attrs.Sensitivity);
-        Append(sb, "Lubrication", attrs.Lubrication);
-        Append(sb, "Orgasmic capacity", attrs.OrgasmicCapacity);
+        // ── Intimate — male (skip when gender is Female) ─────────────────────
+        if (!isFemale)
+        {
+            Append(sb, "Endowment", BuildEndowmentDescription(attrs.EndowmentLength, attrs.EndowmentGirth));
+            Append(sb, "Stamina", attrs.Stamina);
+            Append(sb, "Recovery", attrs.Recovery);
+            Append(sb, "Ejaculation", attrs.EjaculationIntensity);
+        }
+
+        // ── Intimate — female (skip when gender is Male) ─────────────────────
+        if (!isMale)
+        {
+            Append(sb, "Vaginal tightness", attrs.VaginalTightness);
+            Append(sb, "Sensitivity", attrs.Sensitivity);
+            Append(sb, "Lubrication", attrs.Lubrication);
+            Append(sb, "Orgasmic capacity", attrs.OrgasmicCapacity);
+        }
 
         if (sb.Length == 0) return string.Empty;
 
         return "Appearance — " + sb.ToString();
+    }
+
+    /// <summary>
+    /// Returns a compact, single-line labelled **visual identity** string for image-prompt
+    /// injection, or <see cref="string.Empty"/> when <paramref name="attrs"/> is null or all
+    /// visual fields are absent.
+    ///
+    /// Unlike <see cref="FormatBlock"/>, this is limited to the stable visual anchors that make a
+    /// character look like the SAME person in images: age, height, weight, ethnicity, hair, eyes,
+    /// skin, body type, and distinguishing marks/piercings/tattoos. Body measurements and all
+    /// intimate/sexual fields are intentionally EXCLUDED — they don't affect a face/portrait, add
+    /// noise for image models, and can trip content-policy clamps.
+    /// </summary>
+    internal static string FormatVisualBlock(PhysicalAttributes? attrs)
+    {
+        if (attrs is null) return string.Empty;
+
+        var sb = new StringBuilder();
+
+        Append(sb, "Age", attrs.Age);
+        Append(sb, "Height", attrs.Height);
+        Append(sb, "Weight", attrs.Weight);
+        Append(sb, "Ethnicity", attrs.Ethnicity);
+        Append(sb, "Hair", CombineNotEmpty(attrs.HairStyle, attrs.HairColour, separator: ", "));
+        Append(sb, "Iris color", attrs.EyeColour);
+        Append(sb, "Skin", CombineNotEmpty(attrs.SkinTone, attrs.SkinTexture, separator: ", "));
+        Append(sb, "Body type", attrs.BodyType);
+        Append(sb, "Marks", attrs.DistinguishingMarks);
+        Append(sb, "Piercings", attrs.Piercings);
+        Append(sb, "Tattoos", attrs.Tattoos);
+
+        if (sb.Length == 0) return string.Empty;
+
+        return "Appearance — " + sb.ToString();
+    }
+
+    /// <summary>
+    /// Returns the character's clothing/outfit for image-prompt injection, or
+    /// <see cref="string.Empty"/> when no clothing is configured. Prefers <c>ClothingStyle</c>
+    /// (the character's usual attire) and falls back to <c>DefaultClothing</c>.
+    ///
+    /// This is separate from <see cref="FormatVisualBlock"/> so clothing can be injected as its own
+    /// consistent block (CR-006 clothing consistency) rather than being mixed into the fixed
+    /// identity anchors.
+    /// </summary>
+    internal static string FormatVisualClothing(PhysicalAttributes? attrs)
+    {
+        if (attrs is null) return string.Empty;
+
+        var clothing = attrs.ClothingStyle;
+        if (string.IsNullOrWhiteSpace(clothing))
+        {
+            clothing = attrs.DefaultClothing;
+        }
+
+        return string.IsNullOrWhiteSpace(clothing) ? string.Empty : clothing!.Trim();
     }
 
     private static string? CombineNotEmpty(string? a, string? b, string separator)
@@ -81,7 +159,7 @@ internal static class PhysicalAttributesFormatter
     /// Appends a sensation note for notably large, notably small, or strongly asymmetric combinations.
     /// Returns empty string when both inputs are absent.
     /// </summary>
-    private static string? BuildEndowmentDescription(string? length, string? girth)
+    internal static string? BuildEndowmentDescription(string? length, string? girth)
     {
         var hasLength = !string.IsNullOrWhiteSpace(length);
         var hasGirth  = !string.IsNullOrWhiteSpace(girth);

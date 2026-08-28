@@ -27,14 +27,35 @@ public sealed class ProviderRepository : IProviderRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO Providers (Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes)
-            VALUES ($id, $name, $type, $baseUrl, $path, $timeout, $apiKey, $enabled, $created, $updated, $notes)
+            INSERT INTO Providers (Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, ImageCapability, ImageGenerationPath, ContentPolicy, ImageProtocol, TimeoutSeconds,
+                LifecycleStrategyIdentifier, ReadinessPath, ReadinessSuccessContractJson, TransitionTimeoutSeconds, TransitionMarginSeconds, ShutdownDrainPolicyJson,
+                MaximumActiveRequests, QueueCapacity, CredentialReference, ServerIdentityPolicyJson, AllowedNetworkBoundary,
+                ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes)
+            VALUES ($id, $name, $type, $baseUrl, $path, $imageCapability, $imagePath, $contentPolicy, $imageProtocol, $timeout,
+                $lifecycleStrategy, $readinessPath, $readinessContract, $transitionTimeout, $transitionMargin, $shutdownDrainPolicy,
+                $maximumActiveRequests, $queueCapacity, $credentialReference, $serverIdentityPolicy, $allowedNetworkBoundary,
+                $apiKey, $enabled, $created, $updated, $notes)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = $name,
                 ProviderType = $type,
                 BaseUrl = $baseUrl,
                 ChatCompletionsPath = $path,
+                ImageCapability = $imageCapability,
+                ImageGenerationPath = $imagePath,
+                ContentPolicy = $contentPolicy,
+                ImageProtocol = $imageProtocol,
                 TimeoutSeconds = $timeout,
+                LifecycleStrategyIdentifier = $lifecycleStrategy,
+                ReadinessPath = $readinessPath,
+                ReadinessSuccessContractJson = $readinessContract,
+                TransitionTimeoutSeconds = $transitionTimeout,
+                TransitionMarginSeconds = $transitionMargin,
+                ShutdownDrainPolicyJson = $shutdownDrainPolicy,
+                MaximumActiveRequests = $maximumActiveRequests,
+                QueueCapacity = $queueCapacity,
+                CredentialReference = $credentialReference,
+                ServerIdentityPolicyJson = $serverIdentityPolicy,
+                AllowedNetworkBoundary = $allowedNetworkBoundary,
                 ApiKeyEncrypted = $apiKey,
                 IsEnabled = $enabled,
                 UpdatedUtc = $updated,
@@ -46,7 +67,22 @@ public sealed class ProviderRepository : IProviderRepository
         command.Parameters.AddWithValue("$type", (int)provider.ProviderType);
         command.Parameters.AddWithValue("$baseUrl", provider.BaseUrl);
         command.Parameters.AddWithValue("$path", provider.ChatCompletionsPath);
+        command.Parameters.AddWithValue("$imageCapability", (int)provider.ImageCapability);
+        command.Parameters.AddWithValue("$imagePath", provider.ImageGenerationPath);
+        command.Parameters.AddWithValue("$contentPolicy", (int)provider.ContentPolicy);
+        command.Parameters.AddWithValue("$imageProtocol", (int)provider.ImageProtocol);
         command.Parameters.AddWithValue("$timeout", provider.TimeoutSeconds);
+        command.Parameters.AddWithValue("$lifecycleStrategy", (object?)provider.LifecycleStrategyIdentifier ?? DBNull.Value);
+        command.Parameters.AddWithValue("$readinessPath", (object?)provider.ReadinessPath ?? DBNull.Value);
+        command.Parameters.AddWithValue("$readinessContract", (object?)provider.ReadinessSuccessContractJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$transitionTimeout", (object?)provider.TransitionTimeoutSeconds ?? DBNull.Value);
+        command.Parameters.AddWithValue("$transitionMargin", (object?)provider.TransitionMarginSeconds ?? DBNull.Value);
+        command.Parameters.AddWithValue("$shutdownDrainPolicy", (object?)provider.ShutdownDrainPolicyJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$maximumActiveRequests", (object?)provider.MaximumActiveRequests ?? DBNull.Value);
+        command.Parameters.AddWithValue("$queueCapacity", (object?)provider.QueueCapacity ?? DBNull.Value);
+        command.Parameters.AddWithValue("$credentialReference", (object?)provider.CredentialReference ?? DBNull.Value);
+        command.Parameters.AddWithValue("$serverIdentityPolicy", (object?)provider.ServerIdentityPolicyJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$allowedNetworkBoundary", (object?)provider.AllowedNetworkBoundary ?? DBNull.Value);
         command.Parameters.AddWithValue("$apiKey", (object?)provider.ApiKeyEncrypted ?? DBNull.Value);
         command.Parameters.AddWithValue("$enabled", provider.IsEnabled ? 1 : 0);
         command.Parameters.AddWithValue("$created", provider.CreatedUtc);
@@ -64,7 +100,7 @@ public sealed class ProviderRepository : IProviderRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes FROM Providers WHERE Id = $id";
+        command.CommandText = $"{ProviderSelectColumns} WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -82,7 +118,7 @@ public sealed class ProviderRepository : IProviderRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds, ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes FROM Providers ORDER BY Name";
+        command.CommandText = $"{ProviderSelectColumns} ORDER BY Name";
 
         var providers = new List<Provider>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -124,6 +160,14 @@ public sealed class ProviderRepository : IProviderRepository
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) > 0;
     }
 
+    private const string ProviderSelectColumns = """
+        SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, ImageCapability, ImageGenerationPath, ContentPolicy, ImageProtocol, TimeoutSeconds,
+               LifecycleStrategyIdentifier, ReadinessPath, ReadinessSuccessContractJson, TransitionTimeoutSeconds, TransitionMarginSeconds, ShutdownDrainPolicyJson,
+               MaximumActiveRequests, QueueCapacity, CredentialReference, ServerIdentityPolicyJson, AllowedNetworkBoundary,
+               ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes
+        FROM Providers
+        """;
+
     private static Provider ReadProvider(SqliteDataReader reader) => new()
     {
         Id = reader.GetString(0),
@@ -131,11 +175,26 @@ public sealed class ProviderRepository : IProviderRepository
         ProviderType = (ProviderType)reader.GetInt32(2),
         BaseUrl = reader.GetString(3),
         ChatCompletionsPath = reader.GetString(4),
-        TimeoutSeconds = reader.GetInt32(5),
-        ApiKeyEncrypted = reader.IsDBNull(6) ? null : reader.GetString(6),
-        IsEnabled = reader.GetInt32(7) == 1,
-        CreatedUtc = reader.GetString(8),
-        UpdatedUtc = reader.GetString(9),
-        Notes = reader.IsDBNull(10) ? null : reader.GetString(10)
+        ImageCapability = (ImageProviderCapability)reader.GetInt32(5),
+        ImageGenerationPath = reader.GetString(6),
+        ContentPolicy = (ImageContentPolicy)reader.GetInt32(7),
+        ImageProtocol = (ImageProtocol)reader.GetInt32(8),
+        TimeoutSeconds = reader.GetInt32(9),
+        LifecycleStrategyIdentifier = reader.IsDBNull(10) ? null : reader.GetString(10),
+        ReadinessPath = reader.IsDBNull(11) ? null : reader.GetString(11),
+        ReadinessSuccessContractJson = reader.IsDBNull(12) ? null : reader.GetString(12),
+        TransitionTimeoutSeconds = reader.IsDBNull(13) ? null : reader.GetInt32(13),
+        TransitionMarginSeconds = reader.IsDBNull(14) ? null : reader.GetInt32(14),
+        ShutdownDrainPolicyJson = reader.IsDBNull(15) ? null : reader.GetString(15),
+        MaximumActiveRequests = reader.IsDBNull(16) ? null : reader.GetInt32(16),
+        QueueCapacity = reader.IsDBNull(17) ? null : reader.GetInt32(17),
+        CredentialReference = reader.IsDBNull(18) ? null : reader.GetString(18),
+        ServerIdentityPolicyJson = reader.IsDBNull(19) ? null : reader.GetString(19),
+        AllowedNetworkBoundary = reader.IsDBNull(20) ? null : reader.GetString(20),
+        ApiKeyEncrypted = reader.IsDBNull(21) ? null : reader.GetString(21),
+        IsEnabled = reader.GetInt32(22) == 1,
+        CreatedUtc = reader.GetString(23),
+        UpdatedUtc = reader.GetString(24),
+        Notes = reader.IsDBNull(25) ? null : reader.GetString(25)
     };
 }

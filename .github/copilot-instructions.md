@@ -2,6 +2,10 @@
 
 These rules are mandatory for all coding tasks in this repository.
 
+## Hard Rule: Never Use Git Restore
+- Do NOT use `git restore`, `git checkout --`, `git reset --hard`, or any equivalent to revert files.
+- All fixes are forward-only code changes. If a change was wrong, fix it with another forward code edit.
+
 ## Hard Rule: No Fallbacks For Gate Values
 - For roleplay narrative gate thresholds, always use configured source values.
 - Do not introduce fallback/default/backup threshold logic.
@@ -18,6 +22,20 @@ These rules are mandatory for all coding tasks in this repository.
 - Treat explicit user constraints as requirements, not suggestions.
 - Do not re-introduce behavior the user explicitly removed.
 - If a requested behavior conflicts with existing code patterns, follow the user requirement and surface the conflict in plain language.
+
+## Hard Rule: All Tests Must Pass On Implementation Changes
+- Every implementation change must leave the test suite green — do not introduce or leave failing tests.
+- After any code change (implementation, fix, or refactor), run the test suite (at minimum the affected test project/areas, ideally the full suite) and confirm all tests pass before declaring the task complete.
+- Do not mark a task done, request review, or report a fix while any test is failing.
+- New tests written to cover the change must also pass — no skipped or disabled tests as a way to hide failures.
+- If a test fails after a change, the change is not complete: fix the code (or, only with explicit user approval, the test) forward — never via `git restore`/reverting.
+- Pre-existing failing tests must be reported and resolved (fixed or explicitly removed with user approval) rather than silently ignored.
+
+## Hard Rule: No RP Engine Code Changes Without Plan + Confirmation
+- Before ANY code change to RP engine files (`RolePlayEngineService.cs`, `RolePlayContinuationService.cs`, prompt slots, etc.), present: root cause, proposed fix with file list, and blast radius.
+- Wait for explicit "go ahead" or "yes" before touching any code.
+- This applies even when the fix seems obvious.
+- If the root cause is a config/data issue (not a code bug), state that and do not change code.
 
 ## Required Verification Before Declaring A Fix
 - Show where the value source is resolved.
@@ -43,6 +61,62 @@ These rules are mandatory for all coding tasks in this repository.
 - duplicated configuration-source resolution logic across services.
 - hidden recovery paths that alter RP behavior without explicit configured data.
 
+## Razor Editing Rules
+
+When editing or creating `.razor`, `.razor.cs`, or `.razor.css` files, follow the rules in [`.github/instructions/razor-editing.instructions.md`](instructions/razor-editing.instructions.md). These rules enforce full-context reads, anti-hallucination constraints, Razor grammar reminders, a self-validation checklist, and diff-only / micro-step workflows. They are mandatory for all models editing Razor files in this repository.
+
+For this project's Razor style conventions and patterns, see [`.github/razor-style-reference.md`](razor-style-reference.md).
+
+## Pacing Directive Findings (MANDATORY for pacing work)
+
+When working on pacing, scene tempo, beat advancement, or encounter pacing, read [`.github/instructions/pacing-directive-findings.instructions.md`](instructions/pacing-directive-findings.instructions.md) first. It documents verified findings from session `7763f8a8`:
+
+- The pacing HARD CONSTRAINT is **position-1-only** (`FinalInstructionSlot.cs`) — positions 2/3 receive no pacing directive, which is why theme guidance/directive prose can dominate and produce full one-turn scenes.
+- The **phase-default table is all Medium** (`SceneDirectionResolver`) — Climax is NOT Fast; the reference doc's old table was wrong.
+- The `rp-prompt-injection-reference.instructions.md` doc describes the pre-redesign injector architecture and has been corrected (see its warning banner).
+
+
+## DB Query Tool
+
+A permanent .NET 9 console project lives at `DreamGenClone.DbQuery/DreamGenClone.DbQuery.csproj` and is part of the solution.
+- **Use it for all SQLite database queries**, inspections, and data seeding tasks against `DreamGenClone.Web/data/dreamgenclone.dev.db`.
+- Run with: `dotnet run --project DreamGenClone.DbQuery -- <command> [args...]`
+- **Program.cs is a permanent named-command dispatcher — do NOT rewrite it per task.**
+- For ad-hoc SQL: write a `.sql` file and use the `sql` command: `dotnet run --project DreamGenClone.DbQuery -- sql myquery.sql [id]`
+- Full schema, all commands, and usage examples are in `.github/instructions/dbquery-reference.instructions.md`.
+- **Do not create ad-hoc query projects.** This first-class project is the supported query entry point.
+
+## DB Snapshot & Portable Database (IMPORTANT)
+
+- There are TWO databases in `DreamGenClone.Web/data/`:
+  - `dreamgenclone.dev.db` — the **live working DB** (has encrypted API keys). Git-ignored and untracked.
+  - `dreamgenclone.snapshot.db` — a **sanitized snapshot** (same content, API keys blanked). **This is the only DB tracked by git.**
+- **NEVER** commit `dreamgenclone.dev.db` or any other `.db`/`.bak` file — only `dreamgenclone.snapshot.db` is allowed in git.
+- **NEVER run `git clean -fd` / `git clean -fdx`** — it deletes ignored files, including the live `dreamgenclone.dev.db`.
+- A `git pull` never touches `dev.db` (it is ignored); it only updates `snapshot.db` and the rest of the repo.
+- The app resolves its DB path **relative to the working directory + environment**: Development → `data/dreamgenclone.dev.db`, Production → `data/dreamgenclone.db`. Always start the app from `DreamGenClone.Web` with `ASPNETCORE_ENVIRONMENT=Development` (as `helpers/start-webapp-dev-clean.ps1` does). Starting it from the repo root, or without the env var, reads the WRONG near-empty DB.
+- The dev DB balloons because `RolePlayDebugEvents.MetadataJson` stores full built LLM prompts (600 KB+ each); keep session data out of git via the snapshot model.
+- Full workflow (why the DB grows, pruning, snapshot refresh, other-machine setup) is in `.github/instructions/db-snapshot-workflow.instructions.md` and `docs/db-snapshot-setup.md`.
+
+## RunPod ComfyUI Checkpoint Outage (RECURRING — read before re-diagnosing)
+
+When the Juggernaut/ComfyUI pod returns `400: ckpt_name '...' not in [...]`, or when **"no
+prompt works in the app"** after a pod recycle/migrate, the cause is the lost
+`/ComfyUI/extra_model_paths.yaml` (container overlay wiped; the checkpoint is still on the
+persistent `/workspace` volume). This has recurred across pods `qguv5e029u58lb` →
+`emqmxptqdxu7pp` → `orknbkfc0pxktv`.
+
+Fix = run the idempotent provisioner ONCE over SSH (it also patches `/pre_start.sh` to
+self-heal on stop/resume):
+
+```bash
+ssh -i artifacts/runpod/ssh_ed25519 -p <SSH_PORT> root@<SSH_IP> \
+  'bash -s' < helpers/runpod/deployments/image-gen-juggernaut/provision-runtime.sh
+```
+
+Full runbook: `helpers/runpod/deployments/image-gen-juggernaut/README.md`. Do not tune prompts
+or settings to chase this — it is an infrastructure issue.
+
 ## Project Backlog
 
 The project backlog is at `specs/Planning/backlog.md`.
@@ -51,3 +125,30 @@ When the user refers to "the backlog", "backlog item", "add to the backlog", or 
 - Valid states: `new`, `designed`, `planned`, `implemented`, `debugging`, `done`, `done done`.
 - New ideas are added as `new`. Items progress through states as work advances.
 - Do not remove items from the backlog — change their state to `done done` when fully closed.
+
+## Hard Rule: RunPod Pod Changes Must Be Documented (MANDATORY)
+
+Applies to ALL work on DreamGenClone RunPod pods (`helpers/runpod/**`, deployment manifests, pod
+provisioning, Model Manager RunPod endpoints).
+
+- **Every change added to a pod** (a model/checkpoint, a ComfyUI custom node, a config file, a
+  system package, an installed service, an env var) **MUST be recorded** in
+  `helpers/runpod/pod-registry.json` (as an idempotent `provision` step) and reflected in the pod's
+  deployment manifest. A change is not "done" until it is documented AND reproducible from scratch
+  by the `runpod-pod-creation` skill.
+- **Pods must keep their changes across restart.** RunPod pods have a persistent `/workspace`
+  volume and an ephemeral container overlay (wiped on restart/recycle). Models, venvs, custom-node
+  clones, and config "masters" go on `/workspace`; anything that must live in the overlay
+  (e.g. `/ComfyUI/extra_model_paths.yaml`, `/pre_start.sh`, custom-node symlinks) MUST be restored
+  automatically on every boot via an idempotent `/pre_start.sh` patch. Services (ComfyUI, vLLM)
+  MUST auto-start on boot — never rely on a manual SSH start surviving a restart.
+- **Verify restart-proofness**: after provisioning, restart the pod and re-run the smoke test
+  before declaring the pod ready.
+- Read `helpers/runpod/POD-PERSISTENCE.md` (the standard) and use the `runpod-pod-creation` skill
+  (`.github/skills/runpod-pod-creation/SKILL.md`) and `helpers/runpod/pod-registry.json` as the
+  source of truth. If you add something to a pod and do NOT update the registry/provision script,
+  you are breaking this rule.
+- Also see the recurring checkpoint-outage note above: container-overlay loss after recycle is a
+  KNOWN cause of "missing after restart"; the fix is the documented provisioner + `/pre_start.sh`
+  self-heal, never re-diagnosing from scratch.
+

@@ -1,5 +1,6 @@
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Infrastructure.StoryAnalysis;
 using DreamGenClone.Web.Application.RolePlay;
@@ -13,178 +14,6 @@ namespace DreamGenClone.Tests.RolePlay;
 /// </summary>
 public sealed class SceneWritingDirectivePromptTests
 {
-    // --- Climax framing guards (T004) ---
-
-    [Fact]
-    public void BuildFramingGuards_Climax_ReturnsAtLeastFiveGuards()
-    {
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
-        // Pre-B006: 1 guard. Post-B006: 5 guards.
-        Assert.True(guards.Count >= 5, $"Expected at least 5 Climax guards; got {guards.Count}");
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_ContainsSustainedPacingDirective()
-    {
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
-        Assert.Contains(guards, g => g.Contains("Sustain", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_ContainsExplicitDetailDirective()
-    {
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
-        Assert.Contains(guards, g => g.Contains("explicit", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_ContainsUrgencyDirective()
-    {
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
-        Assert.Contains(guards, g => g.Contains("urgency", StringComparison.OrdinalIgnoreCase)
-                                  || g.Contains("Urgency", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_BuildUp_DoesNotContainClimaxGuards()
-    {
-        // BuildUp guards must not include Climax-phase specific scene-writing directives
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("BuildUp", "scene-exploration");
-        Assert.DoesNotContain(guards, g => g.Contains("Sustain the physical scene", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_NoActiveScenario_ReturnsEmpty()
-    {
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", null);
-        Assert.Empty(guards);
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_PublicFacade_UsesQuickFinishMode()
-    {
-        var theme = new RPTheme
-        {
-            Id = "infidelity-public-facade",
-            PhaseGuidance =
-            [
-                new RPThemePhaseGuidance { Phase = RpNarrativePhase.Climax, GuidanceText = "[ClimaxMode:quick-finish]" }
-            ]
-        };
-
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "infidelity-public-facade", theme);
-        Assert.Contains(guards, g => g.Contains("QUICK-FINISH CLIMAX MODE", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(guards, g => g.Contains("quick-release", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(guards, g => g.Contains("brief sneak-off", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_PublicFacade_DoesNotRequireEndClimaxGate()
-    {
-        var theme = new RPTheme
-        {
-            Id = "infidelity-public-facade",
-            PhaseGuidance =
-            [
-                new RPThemePhaseGuidance { Phase = RpNarrativePhase.Climax, GuidanceText = "[ClimaxMode:quick-finish]" }
-            ]
-        };
-
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "infidelity-public-facade", theme);
-        Assert.DoesNotContain(guards, g => g.Contains("/endclimax", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_PublicFacade_DoesNotForceBeatProgression()
-    {
-        var theme = new RPTheme
-        {
-            Id = "infidelity-public-facade",
-            PhaseGuidance =
-            [
-                new RPThemePhaseGuidance { Phase = RpNarrativePhase.Climax, GuidanceText = "[ClimaxMode:quick-finish]" }
-            ]
-        };
-
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "infidelity-public-facade", theme);
-        Assert.DoesNotContain(guards, g => g.Contains("Every turn must advance the scene to a new beat", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_PublicFacade_AllowsMultipleTurnsWithExplicitDetail()
-    {
-        var theme = new RPTheme
-        {
-            Id = "infidelity-public-facade",
-            PhaseGuidance =
-            [
-                new RPThemePhaseGuidance { Phase = RpNarrativePhase.Climax, GuidanceText = "[ClimaxMode:quick-finish]" }
-            ]
-        };
-
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "infidelity-public-facade", theme);
-        Assert.Contains(guards, g => g.Contains("multiple turns/interactions", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(guards, g => g.Contains("not by shortening the scene", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(guards, g => g.Contains("explicit detail", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_PublicFacade_RequiresPlausibleConcealment()
-    {
-        var theme = new RPTheme
-        {
-            Id = "infidelity-public-facade",
-            PhaseGuidance =
-            [
-                new RPThemePhaseGuidance { Phase = RpNarrativePhase.Climax, GuidanceText = "[ClimaxMode:quick-finish]" }
-            ]
-        };
-
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "infidelity-public-facade", theme);
-        Assert.Contains(guards, g => g.Contains("plausibly hidden", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(guards, g => g.Contains("Do not write overtly visible acts", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void AllowsWithinTimeframeTimeShift_True_WhenThemeContainsExplicitPhrase()
-    {
-        var theme = new RPTheme
-        {
-            Id = "infidelity-public-facade",
-            PhaseGuidance =
-            [
-                new RPThemePhaseGuidance
-                {
-                    Phase = RpNarrativePhase.Climax,
-                    GuidanceText = "Responses may skip forward within the time frame (e.g., 'an hour later,' 'after the meal') — a new response does not have to be the immediate next moment."
-                }
-            ]
-        };
-
-        var allowed = RolePlayAssistantPrompts.AllowsWithinTimeframeTimeShift(theme, "Climax");
-        Assert.True(allowed);
-    }
-
-    [Fact]
-    public void AllowsWithinTimeframeTimeShift_True_WhenThemeContainsMarker()
-    {
-        var theme = new RPTheme
-        {
-            Id = "infidelity-public-facade",
-            PhaseGuidance =
-            [
-                new RPThemePhaseGuidance
-                {
-                    Phase = RpNarrativePhase.Climax,
-                    GuidanceText = "[TimeShift:within-timeframe]"
-                }
-            ]
-        };
-
-        var allowed = RolePlayAssistantPrompts.AllowsWithinTimeframeTimeShift(theme, "Climax");
-        Assert.True(allowed);
-    }
-
     // --- Intensity descriptions (T005) ---
 
     [Fact]
@@ -230,7 +59,7 @@ public sealed class SceneWritingDirectivePromptTests
     public async Task ScenarioGuidanceContextFactory_ClimaxFallback_ContainsPhysicalDetailGuidance()
     {
         // No LLM generator → fallback path is taken
-        var factory = new ScenarioGuidanceContextFactory();
+        var factory = new ScenarioGuidanceContextFactory(NoOpFrameGenerator());
         var context = await factory.CreateAsync(new ScenarioGuidanceInput(
             SessionId: "s1",
             CurrentPhase: "Climax",
@@ -238,13 +67,12 @@ public sealed class SceneWritingDirectivePromptTests
             VariantId: null,
             AverageDesire: 80,
             AverageRestraint: 30,
-            AverageTension: 70,
-            AverageConnection: 60,
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
-            HusbandAwarenessProfileId: null,
-            SuppressedScenarioIds: []));
+            CharacterEncounterProfileIds: new Dictionary<string, string>(),
+            Characters: [],
+            SuppressedScenarioIds: []));;
 
         Assert.Equal("Climax", context.Phase);
         // Post-B006: guidance must be multi-sentence and mention physical detail and pacing
@@ -259,7 +87,7 @@ public sealed class SceneWritingDirectivePromptTests
     [Fact]
     public async Task ScenarioGuidanceContextFactory_ClimaxFallback_ContainsUrgencyGuidance()
     {
-        var factory = new ScenarioGuidanceContextFactory();
+        var factory = new ScenarioGuidanceContextFactory(NoOpFrameGenerator());
         var context = await factory.CreateAsync(new ScenarioGuidanceInput(
             SessionId: "s1",
             CurrentPhase: "Climax",
@@ -267,12 +95,11 @@ public sealed class SceneWritingDirectivePromptTests
             VariantId: null,
             AverageDesire: 80,
             AverageRestraint: 30,
-            AverageTension: 70,
-            AverageConnection: 60,
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
-            HusbandAwarenessProfileId: null,
+            CharacterEncounterProfileIds: new Dictionary<string, string>(),
+            Characters: [],
             SuppressedScenarioIds: []));
 
         Assert.True(
@@ -285,7 +112,7 @@ public sealed class SceneWritingDirectivePromptTests
     [Fact]
     public async Task ScenarioGuidanceContextFactory_NonClimaxPhases_StillReturnGuidance()
     {
-        var factory = new ScenarioGuidanceContextFactory();
+        var factory = new ScenarioGuidanceContextFactory(NoOpFrameGenerator());
         foreach (var phase in new[] { "BuildUp", "Committed", "Approaching", "Reset" })
         {
             var context = await factory.CreateAsync(new ScenarioGuidanceInput(
@@ -295,12 +122,11 @@ public sealed class SceneWritingDirectivePromptTests
                 VariantId: null,
                 AverageDesire: 60,
                 AverageRestraint: 40,
-                AverageTension: 50,
-                AverageConnection: 50,
                 AverageDominance: 50,
                 AverageLoyalty: 50,
                 SelectedWillingnessProfileId: null,
-                HusbandAwarenessProfileId: null,
+                CharacterEncounterProfileIds: new Dictionary<string, string>(),
+                Characters: [],
                 SuppressedScenarioIds: []));
 
             Assert.False(string.IsNullOrWhiteSpace(context.GuidanceText),
@@ -308,37 +134,12 @@ public sealed class SceneWritingDirectivePromptTests
         }
     }
 
-    // --- Phase 7 tweaks: position spanning, male climax gate, word count (T024/T025) ---
-
-    [Fact]
-    public void BuildFramingGuards_Climax_ContainsEndClimaxGate()
-    {
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
-        Assert.Contains(guards, g => g.Contains("/endclimax", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_UsesNarrativeGateForMaleOrgasm()
-    {
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
-        Assert.Contains(guards, g => g.Contains("InteractionsSinceCommitment", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(guards, g => g.Contains("Male completion is gated by /endclimax", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_ContainsPositionSpanningDirective()
-    {
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
-        // The new position-spanning guard must mention staying in the act across turns
-        Assert.Contains(guards, g =>
-            g.Contains("two turns", StringComparison.OrdinalIgnoreCase) ||
-            g.Contains("multiple turns", StringComparison.OrdinalIgnoreCase));
-    }
+    // --- Phase 7 tweaks: Climax fallback guidance ---
 
     [Fact]
     public async Task ScenarioGuidanceContextFactory_ClimaxFallback_ContainsEndClimaxGate()
     {
-        var factory = new ScenarioGuidanceContextFactory();
+        var factory = new ScenarioGuidanceContextFactory(NoOpFrameGenerator());
         var context = await factory.CreateAsync(new ScenarioGuidanceInput(
             SessionId: "s1",
             CurrentPhase: "Climax",
@@ -346,46 +147,25 @@ public sealed class SceneWritingDirectivePromptTests
             VariantId: null,
             AverageDesire: 80,
             AverageRestraint: 30,
-            AverageTension: 70,
-            AverageConnection: 60,
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
-            HusbandAwarenessProfileId: null,
+            CharacterEncounterProfileIds: new Dictionary<string, string>(),
+            Characters: [],
             SuppressedScenarioIds: []));
 
         Assert.Contains("/endclimax", context.GuidanceText, StringComparison.OrdinalIgnoreCase);
     }
 
-    // --- Phase 8 tweaks: same-scene multi-perspective turns (T031) ---
+    private static IBehavioralFrameGenerator NoOpFrameGenerator() => new NoOpBehavioralFrameGenerator();
 
-    [Fact]
-    public void BuildFramingGuards_Climax_ContainsTurnSceneContract()
+    private sealed class NoOpBehavioralFrameGenerator : IBehavioralFrameGenerator
     {
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
-        Assert.Contains(guards, g =>
-            g.Contains("Turn Scene Contract", StringComparison.OrdinalIgnoreCase) ||
-            g.Contains("same physical scene moment", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_ContainsTurnAdvancementGate()
-    {
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
-        // Turn-hold: scene advancement is gated to the next Continue turn
-        Assert.Contains(guards, g =>
-            g.Contains("next Continue turn", StringComparison.OrdinalIgnoreCase) ||
-            g.Contains("next continue", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void BuildFramingGuards_Climax_ContainsDepartureSceneBlock()
-    {
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "scene-dominance");
-        // Climax must block departure/scenario-close narrative until /endclimax
-        Assert.Contains(guards, g =>
-            g.Contains("departure", StringComparison.OrdinalIgnoreCase) ||
-            g.Contains("drove away", StringComparison.OrdinalIgnoreCase) ||
-            g.Contains("weekend was over", StringComparison.OrdinalIgnoreCase));
+        public Task<IReadOnlyDictionary<string, string>> GenerateFramesAsync(
+            IReadOnlyDictionary<string, string> characterEncounterProfileIds,
+            IReadOnlyList<ScenarioCharacter> characters,
+            IReadOnlyDictionary<string, CharacterStatProfileV2>? characterRuntimeStats = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
     }
 }

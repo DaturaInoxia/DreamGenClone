@@ -1,16 +1,15 @@
-using DreamGenClone.Domain.StoryAnalysis;
-using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Tests.StoryAnalysis;
 
 public sealed class ScenarioStateModelTests
 {
     [Fact]
-    public void RolePlayAdaptiveState_DefaultsToBuildUpAndEmptyHistory()
+    public void RolePlayAdaptiveState_DefaultsToOpeningAndEmptyHistory()
     {
-        var state = new RolePlayAdaptiveState();
+        var state = new AdaptiveScenarioState();
 
-        Assert.Equal(NarrativePhase.BuildUp, state.CurrentNarrativePhase);
+        Assert.Equal(NarrativePhase.Opening, state.CurrentPhase);
         Assert.Equal(0, state.CompletedScenarios);
         Assert.Empty(state.ScenarioHistory);
         Assert.Null(state.ActiveScenarioId);
@@ -19,7 +18,7 @@ public sealed class ScenarioStateModelTests
     [Fact]
     public void ThemeTrackerItem_DefaultCandidateFieldsAreSafe()
     {
-        var item = new ThemeTrackerItem();
+        var item = new ThemeScoreState();
 
         Assert.False(item.IsScenarioCandidate);
         Assert.Equal(0, item.NarrativeFitScore);
@@ -30,11 +29,11 @@ public sealed class ScenarioStateModelTests
     public void ScenarioMetadata_StoresExpectedValues()
     {
         var completedAt = DateTime.UtcNow;
-        var metadata = new ScenarioMetadata
+        var metadata = new ScenarioHistoryEntry
         {
             ScenarioId = "scenario-a",
             CompletedAtUtc = completedAt,
-            InteractionCount = 6,
+            TurnCount = 6,
             PeakThemeScore = 88,
             PeakDesireLevel = 79,
             AverageRestraintLevel = 34.5,
@@ -43,7 +42,7 @@ public sealed class ScenarioStateModelTests
 
         Assert.Equal("scenario-a", metadata.ScenarioId);
         Assert.Equal(completedAt, metadata.CompletedAtUtc);
-        Assert.Equal(6, metadata.InteractionCount);
+        Assert.Equal(6, metadata.TurnCount);
         Assert.Equal(88, metadata.PeakThemeScore);
         Assert.Equal(79, metadata.PeakDesireLevel);
         Assert.Equal(34.5, metadata.AverageRestraintLevel);

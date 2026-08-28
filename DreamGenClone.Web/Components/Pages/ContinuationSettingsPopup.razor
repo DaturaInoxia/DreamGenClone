@@ -1,0 +1,301 @@
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+
+<div class="rw-popup rw-continuation-settings-popup rw-continuation-settings-overlay-popup" @onclick:stopPropagation>
+    <div class="rw-popup-header">
+        <span class="rw-popup-intent-label">continuation settings</span>
+    </div>
+
+    <div class="rw-continuation-settings-body">
+
+        @* ── Tempo (primary density control) ── *@
+        <div class="rw-cs-row" style="margin: 8px 0;">
+            <div><strong>@ContinuationMarkerCatalog.TempoLabel</strong> <span style="opacity:.6;">current: @CurrentTempoLabel()</span></div>
+            <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:2px;">
+                <button class="rw-popup-action-btn @(!_working.Tempo.HasValue ? "is-primary" : null)" @onclick="ClearTempo">No override</button>
+                <button class="rw-popup-action-btn @(_working.Tempo == SceneTempo.Linger ? "is-primary" : null)" @onclick="() => SelectTempo(SceneTempo.Linger)">Linger</button>
+                <button class="rw-popup-action-btn @(_working.Tempo == SceneTempo.Steady ? "is-primary" : null)" @onclick="() => SelectTempo(SceneTempo.Steady)">Steady</button>
+                <button class="rw-popup-action-btn @(_working.Tempo == SceneTempo.Push ? "is-primary" : null)" @onclick="() => SelectTempo(SceneTempo.Push)">Push</button>
+                <button class="rw-popup-action-btn @(_working.Tempo == SceneTempo.Leap ? "is-primary" : null)" @onclick="() => SelectTempo(SceneTempo.Leap)">Leap</button>
+            </div>
+            <div style="opacity:.7;">@CurrentTempoDescription()</div>
+        </div>
+
+        @* ── Span (primary duration control) ── *@
+        <div class="rw-cs-row" style="margin: 8px 0;">
+            <div><strong>@ContinuationMarkerCatalog.SpanLabel</strong> <span style="opacity:.6;">current: @CurrentSpanLabel()</span></div>
+            <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:2px;">
+                <button class="rw-popup-action-btn @(!_working.Span.HasValue ? "is-primary" : null)" @onclick="ClearSpan">No override</button>
+                <button class="rw-popup-action-btn @(_working.Span == SceneSpan.Moment ? "is-primary" : null)" @onclick="() => SelectSpan(SceneSpan.Moment)">Moment</button>
+                <button class="rw-popup-action-btn @(_working.Span == SceneSpan.Scene ? "is-primary" : null)" @onclick="() => SelectSpan(SceneSpan.Scene)">Scene</button>
+                <button class="rw-popup-action-btn @(_working.Span == SceneSpan.ExtendedArc ? "is-primary" : null)" @onclick="() => SelectSpan(SceneSpan.ExtendedArc)">Extended Arc</button>
+            </div>
+            <div style="opacity:.7;">@CurrentSpanDescription()</div>
+        </div>
+
+        @* ── Advanced: raw scene-direction fields (power users) ── *@
+        <div style="margin: 4px 0 0 0;">
+            <button class="rw-popup-action-btn" @onclick="() => _showAdvanced = !_showAdvanced" style="width:100%; text-align:left;">
+                @(_showAdvanced ? "▾ Advanced" : "▸ Advanced")
+            </button>
+        </div>
+
+        @if (_showAdvanced)
+        {
+            @* ── Pacing ── *@
+            <div class="rw-cs-row" style="margin: 8px 0;">
+                <div><strong>@ContinuationMarkerCatalog.PacingLabel</strong> <span style="opacity:.6;">current: @(_working.Pacing?.ToString() ?? EffectiveDirection?.Pacing.ToString() ?? "—")</span></div>
+                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:2px;">
+                    <button class="rw-popup-action-btn @(!_working.Pacing.HasValue ? "is-primary" : null)" @onclick="() => _working.Pacing = null">No override</button>
+                    <button class="rw-popup-action-btn @(_working.Pacing == ScenePacing.Slow ? "is-primary" : null)" @onclick="() => _working.Pacing = ScenePacing.Slow">Slow</button>
+                    <button class="rw-popup-action-btn @(_working.Pacing == ScenePacing.Medium ? "is-primary" : null)" @onclick="() => _working.Pacing = ScenePacing.Medium">Medium</button>
+                    <button class="rw-popup-action-btn @(_working.Pacing == ScenePacing.Fast ? "is-primary" : null)" @onclick="() => _working.Pacing = ScenePacing.Fast">Fast</button>
+                </div>
+                <div style="opacity:.7;">@CurrentPacingDescription()</div>
+            </div>
+
+            @* ── Beat Style ── *@
+            <div class="rw-cs-row" style="margin: 8px 0;">
+                <div><strong>@ContinuationMarkerCatalog.BeatStyleLabel</strong> <span style="opacity:.6;">current: @(_working.BeatScope?.ToString() ?? EffectiveDirection?.BeatScope.ToString() ?? "—")</span></div>
+                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:2px;">
+                    <button class="rw-popup-action-btn @(!_working.BeatScope.HasValue ? "is-primary" : null)" @onclick="() => _working.BeatScope = null">No override</button>
+                    <button class="rw-popup-action-btn @(_working.BeatScope == BeatScope.Single ? "is-primary" : null)" @onclick="() => _working.BeatScope = BeatScope.Single" disabled="@IsBeatScopeSingleDisabled()">Single</button>
+                    <button class="rw-popup-action-btn @(_working.BeatScope == BeatScope.Short ? "is-primary" : null)" @onclick="() => _working.BeatScope = BeatScope.Short">Short</button>
+                    <button class="rw-popup-action-btn @(_working.BeatScope == BeatScope.Extended ? "is-primary" : null)" @onclick="() => _working.BeatScope = BeatScope.Extended" disabled="@IsBeatScopeExtendedDisabled()">Extended</button>
+                </div>
+                <div style="opacity:.7;">@CurrentBeatScopeDescription()</div>
+            </div>
+
+            @* ── Time Shift ── *@
+            <div class="rw-cs-row" style="margin: 8px 0;">
+                <div><strong>@ContinuationMarkerCatalog.TimeShiftLabel</strong> <span style="opacity:.6;">current: @(_working.TimeShift?.ToString() ?? EffectiveDirection?.TimeShift.ToString() ?? "—")</span></div>
+                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:2px;">
+                    <button class="rw-popup-action-btn @(!_working.TimeShift.HasValue ? "is-primary" : null)" @onclick="() => _working.TimeShift = null">No override</button>
+                    <button class="rw-popup-action-btn @(_working.TimeShift == TimeShiftPolicy.None ? "is-primary" : null)" @onclick="() => _working.TimeShift = TimeShiftPolicy.None">None</button>
+                    <button class="rw-popup-action-btn @(_working.TimeShift == TimeShiftPolicy.Small ? "is-primary" : null)" @onclick="() => _working.TimeShift = TimeShiftPolicy.Small">Small</button>
+                    <button class="rw-popup-action-btn @(_working.TimeShift == TimeShiftPolicy.Medium ? "is-primary" : null)" @onclick="() => _working.TimeShift = TimeShiftPolicy.Medium">Medium</button>
+                    <button class="rw-popup-action-btn @(_working.TimeShift == TimeShiftPolicy.Large ? "is-primary" : null)" @onclick="() => _working.TimeShift = TimeShiftPolicy.Large">Large</button>
+                </div>
+                <div style="opacity:.7;">@CurrentTimeShiftDescription()</div>
+            </div>
+
+            @* ── Granularity ── *@
+            <div class="rw-cs-row" style="margin: 8px 0;">
+                <div><strong>@ContinuationMarkerCatalog.GranularityLabel</strong> <span style="opacity:.6;">current: @(_working.Granularity?.ToString() ?? EffectiveDirection?.Granularity.ToString() ?? "—")</span></div>
+                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:2px;">
+                    <button class="rw-popup-action-btn @(!_working.Granularity.HasValue ? "is-primary" : null)" @onclick="() => _working.Granularity = null">No override</button>
+                    <button class="rw-popup-action-btn @(_working.Granularity == NarrativeGranularity.Micro ? "is-primary" : null)" @onclick="() => _working.Granularity = NarrativeGranularity.Micro" disabled="@IsGranularityMicroDisabled()">Micro</button>
+                    <button class="rw-popup-action-btn @(_working.Granularity == NarrativeGranularity.Meso ? "is-primary" : null)" @onclick="() => _working.Granularity = NarrativeGranularity.Meso">Meso</button>
+                    <button class="rw-popup-action-btn @(_working.Granularity == NarrativeGranularity.Macro ? "is-primary" : null)" @onclick="() => _working.Granularity = NarrativeGranularity.Macro" disabled="@IsGranularitySpanDisabled()">Macro</button>
+                    <button class="rw-popup-action-btn @(_working.Granularity == NarrativeGranularity.Montage ? "is-primary" : null)" @onclick="() => _working.Granularity = NarrativeGranularity.Montage" disabled="@IsGranularitySpanDisabled()">Montage</button>
+                </div>
+                <div style="opacity:.7;">@CurrentGranularityDescription()</div>
+            </div>
+
+            @* ── Deepening ── *@
+            <div class="rw-cs-row" style="margin: 8px 0;">
+                <div><strong>@ContinuationMarkerCatalog.DeepeningLabel</strong> <span style="opacity:.6;">current: @(_working.Deepening?.ToString() ?? EffectiveDirection?.Deepening.ToString() ?? "—")</span></div>
+                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:2px;">
+                    <button class="rw-popup-action-btn @(!_working.Deepening.HasValue ? "is-primary" : null)" @onclick="() => _working.Deepening = null" disabled="@IsDeepeningDisabled()">No override</button>
+                    <button class="rw-popup-action-btn @(_working.Deepening == DeepeningPolicy.None ? "is-primary" : null)" @onclick="() => _working.Deepening = DeepeningPolicy.None" disabled="@IsDeepeningDisabled()">Standard</button>
+                    <button class="rw-popup-action-btn @(_working.Deepening == DeepeningPolicy.SubsequentActors ? "is-primary" : null)" @onclick="() => _working.Deepening = DeepeningPolicy.SubsequentActors" disabled="@IsDeepeningDisabled()">Subsequent actors</button>
+                </div>
+                <div style="opacity:.7;">@CurrentDeepeningDescription()</div>
+            </div>
+        }
+
+        @* ── Climax Mode ── *@
+        <div class="rw-cs-row" style="margin: 8px 0;">
+            <div><strong>@ContinuationMarkerCatalog.ClimaxModeLabel</strong> <span style="opacity:.6;">current: @CurrentMultiEncounterLabel()</span></div>
+            <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:2px;">
+                <button class="rw-popup-action-btn @(!_working.ForceMultiEncounterClimax.HasValue ? "is-primary" : null)" @onclick="() => _working.ForceMultiEncounterClimax = null" disabled="@IsClimaxModeDisabled()">Theme decides</button>
+                <button class="rw-popup-action-btn @(_working.ForceMultiEncounterClimax == false ? "is-primary" : null)" @onclick="() => _working.ForceMultiEncounterClimax = false" disabled="@IsClimaxModeDisabled()">Normal</button>
+                <button class="rw-popup-action-btn @(_working.ForceMultiEncounterClimax == true ? "is-primary" : null)" @onclick="() => _working.ForceMultiEncounterClimax = true" disabled="@IsClimaxModeDisabled()">Multi-encounter</button>
+            </div>
+            <div style="opacity:.7;">@ContinuationMarkerCatalog.DescribeMultiEncounterClimax(_working.ForceMultiEncounterClimax ?? EffectiveMultiEncounter)</div>
+        </div>
+
+        @* ── Aftermath ── *@
+        <div class="rw-cs-row" style="margin: 8px 0;">
+            <div><strong>@ContinuationMarkerCatalog.AftermathLabel</strong> <span style="opacity:.6;">current: @CurrentAftermathLabel()</span></div>
+            <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:2px;">
+                <button class="rw-popup-action-btn @(!_working.ForceAftermathHusbandContrast.HasValue ? "is-primary" : null)" @onclick="() => _working.ForceAftermathHusbandContrast = null" disabled="@IsAftermathDisabled()">Theme decides</button>
+                <button class="rw-popup-action-btn @(_working.ForceAftermathHusbandContrast == false ? "is-primary" : null)" @onclick="() => _working.ForceAftermathHusbandContrast = false" disabled="@IsAftermathDisabled()">Off</button>
+                <button class="rw-popup-action-btn @(_working.ForceAftermathHusbandContrast == true ? "is-primary" : null)" @onclick="() => _working.ForceAftermathHusbandContrast = true" disabled="@IsAftermathDisabled()">Husband contrast</button>
+            </div>
+            <div style="opacity:.7;">@ContinuationMarkerCatalog.DescribeAftermathHusbandContrast(_working.ForceAftermathHusbandContrast ?? EffectiveAftermath)</div>
+        </div>
+
+        @* ── Word Count ── *@
+        <div class="rw-cs-row" style="margin: 8px 0;">
+            <div><strong>@ContinuationMarkerCatalog.WordCountLabel</strong> <span style="opacity:.6;">current: @CurrentWordRangeLabel()</span></div>
+            <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:2px;">
+                <button class="rw-popup-action-btn @(!_working.HasWordCountOverride ? "is-primary" : null)" @onclick="ClearWordCount">No override</button>
+                @foreach (var preset in ContinuationMarkerCatalog.WordCountPresets)
+                {
+                    <button class="rw-popup-action-btn @(IsWordPresetActive(preset.Key) ? "is-primary" : null)"
+                            @onclick="() => ApplyWordPreset(preset.Key)">
+                        @preset.Key
+                    </button>
+                }
+            </div>
+            <div style="margin-top:4px; display:flex; gap:6px; align-items:center;">
+                <input type="number" min="1" style="width:90px;" @bind="_working.WordTargetMin" />
+                <span>–</span>
+                <input type="number" min="1" style="width:90px;" @bind="_working.WordTargetMax" />
+                <span style="opacity:.6;">words (custom range)</span>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="rw-popup-actions rw-continue-popup-actions">
+        <button class="rw-popup-action-btn" @onclick="ClearAllAsync">Clear all</button>
+        <button class="rw-popup-action-btn" @onclick="CancelAsync">Cancel</button>
+        <button class="rw-popup-action-btn is-primary" @onclick="SaveAsync">Done</button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public NarrativePhase CurrentPhase { get; set; }
+    [Parameter] public SceneDirection? EffectiveDirection { get; set; }
+    [Parameter] public bool EffectiveMultiEncounter { get; set; }
+    [Parameter] public bool EffectiveAftermath { get; set; }
+    [Parameter] public int EffectiveWordMin { get; set; }
+    [Parameter] public int EffectiveWordMax { get; set; }
+    [Parameter] public ContinuationOverride? CurrentOverride { get; set; }
+    [Parameter] public EventCallback<ContinuationOverride?> OnSave { get; set; }
+    [Parameter] public EventCallback OnClear { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private ContinuationOverride _working = new();
+    private bool _showAdvanced = false;
+
+    protected override void OnParametersSet()
+    {
+        _working = new ContinuationOverride();
+        var src = CurrentOverride;
+        if (src is not null)
+        {
+            _working.Tempo = src.Tempo;
+            _working.Span = src.Span;
+            _working.Pacing = src.Pacing;
+            _working.BeatScope = src.BeatScope;
+            _working.TimeShift = src.TimeShift;
+            _working.Granularity = src.Granularity;
+            _working.Deepening = src.Deepening;
+            _working.ForceMultiEncounterClimax = src.ForceMultiEncounterClimax;
+            _working.ForceAftermathHusbandContrast = src.ForceAftermathHusbandContrast;
+            _working.WordTargetMin = src.WordTargetMin;
+            _working.WordTargetMax = src.WordTargetMax;
+        }
+    }
+
+    private async Task SaveAsync() => await OnSave.InvokeAsync(_working.HasAny ? _working : null);
+    private async Task ClearAllAsync() => await OnClear.InvokeAsync();
+    private async Task CancelAsync() => await OnCancel.InvokeAsync();
+
+    // ── B-089: Tempo/Span are the authoritative primary controls ──
+    // Selecting a Tempo clears the conflicting raw fields (Pacing/TimeShift/Granularity) and
+    // selecting a Span clears BeatScope, so the persisted override never carries both a Tempo
+    // bundle AND a contradictory raw field (which T8's ValidateCoherentOverride would reject).
+    private void SelectTempo(SceneTempo tempo)
+    {
+        _working.Tempo = tempo;
+        _working.Pacing = null;
+        _working.TimeShift = null;
+        _working.Granularity = null;
+    }
+
+    private void ClearTempo()
+    {
+        _working.Tempo = null;
+    }
+
+    private void SelectSpan(SceneSpan span)
+    {
+        _working.Span = span;
+        _working.BeatScope = null;
+    }
+
+    private void ClearSpan()
+    {
+        _working.Span = null;
+    }
+
+    private void ClearWordCount() { _working.WordTargetMin = null; _working.WordTargetMax = null; }
+
+    private void ApplyWordPreset(string key)
+    {
+        var preset = ContinuationMarkerCatalog.WordCountPresets.First(p => p.Key == key);
+        _working.WordTargetMin = preset.Min;
+        _working.WordTargetMax = preset.Max;
+    }
+
+    private bool IsWordPresetActive(string key)
+    {
+        var preset = ContinuationMarkerCatalog.WordCountPresets.First(p => p.Key == key);
+        return _working.WordTargetMin == preset.Min && _working.WordTargetMax == preset.Max;
+    }
+
+    // ── Effective descriptions (used when "No override" is selected) ──
+    private string CurrentTempoLabel()
+        => _working.Tempo.HasValue
+            ? _working.Tempo.Value.ToString()
+            : $"theme ({EffectiveDirection?.Tempo.ToString() ?? "—"})";
+
+    private string CurrentTempoDescription()
+        => ContinuationMarkerCatalog.DescribeTempo(_working.Tempo ?? EffectiveDirection?.Tempo ?? SceneTempo.Steady);
+
+    private string CurrentSpanLabel()
+        => _working.Span.HasValue
+            ? _working.Span.Value.ToString()
+            : $"theme ({EffectiveDirection?.Span.ToString() ?? "—"})";
+
+    private string CurrentSpanDescription()
+    {
+        var span = _working.Span ?? EffectiveDirection?.Span ?? SceneSpan.Scene;
+        var budget = ContinuationMarkerCatalog.GetSpanTurnBudget(span);
+        return ContinuationMarkerCatalog.DescribeSpan(span, 0, budget);
+    }
+
+    private string CurrentPacingDescription()
+        => ContinuationMarkerCatalog.DescribePacing(_working.Pacing ?? EffectiveDirection?.Pacing ?? ScenePacing.Medium);
+
+    private string CurrentBeatScopeDescription()
+        => ContinuationMarkerCatalog.DescribeBeatScope(_working.BeatScope ?? EffectiveDirection?.BeatScope ?? BeatScope.Short);
+
+    private string CurrentTimeShiftDescription()
+        => ContinuationMarkerCatalog.DescribeTimeShift(_working.TimeShift ?? EffectiveDirection?.TimeShift ?? TimeShiftPolicy.Medium);
+
+    private string CurrentGranularityDescription()
+        => ContinuationMarkerCatalog.DescribeGranularity(_working.Granularity ?? EffectiveDirection?.Granularity ?? NarrativeGranularity.Meso);
+
+    private string CurrentDeepeningDescription()
+        => ContinuationMarkerCatalog.DescribeDeepening(_working.Deepening ?? EffectiveDirection?.Deepening ?? DeepeningPolicy.None);
+
+    private string CurrentMultiEncounterLabel()
+        => _working.ForceMultiEncounterClimax.HasValue
+            ? (_working.ForceMultiEncounterClimax.Value ? "multi-encounter" : "normal")
+            : $"theme ({EffectiveMultiEncounter})";
+
+    private string CurrentAftermathLabel()
+        => _working.ForceAftermathHusbandContrast.HasValue
+            ? (_working.ForceAftermathHusbandContrast.Value ? "husband contrast" : "off")
+            : $"theme ({EffectiveAftermath})";
+
+    private string CurrentWordRangeLabel()
+        => _working.HasWordCountOverride
+            ? $"{_working.WordTargetMin}–{_working.WordTargetMax}"
+            : $"{EffectiveWordMin}–{EffectiveWordMax}";
+
+    // ── Validity gating ──
+    private bool IsDeepeningDisabled() => CurrentPhase == NarrativePhase.Opening;
+    private bool IsGranularityMicroDisabled() => CurrentPhase == NarrativePhase.Reset;
+    private bool IsClimaxModeDisabled() => CurrentPhase != NarrativePhase.Climax;
+    private bool IsAftermathDisabled() => CurrentPhase == NarrativePhase.Reset;
+    private bool IsBeatScopeSingleDisabled() => _working.Pacing == ScenePacing.Slow;
+    private bool IsBeatScopeExtendedDisabled() => _working.Pacing == ScenePacing.Fast;
+    private bool IsGranularitySpanDisabled() => _working.Deepening == DeepeningPolicy.SubsequentActors;
+}

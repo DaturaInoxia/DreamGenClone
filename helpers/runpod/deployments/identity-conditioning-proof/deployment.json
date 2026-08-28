@@ -1,0 +1,27 @@
+{
+  "deploymentKey": "identity-conditioning-proof",
+  "displayName": "Identity conditioning proof (IP-Adapter / PuLID + ControlNet)",
+  "capability": "IdentityConditioning",
+  "modelIdentifier": "juggernautXL_ragnarok.safetensors",
+  "podId": "7i2mutjmry5tkt",
+  "podName": "dreamgen-identity-proof",
+  "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
+  "cloudType": "SECURE",
+  "interruptible": false,
+  "gpuTypeId": "NVIDIA A40",
+  "gpuCount": 1,
+  "volumeInGb": 85,
+  "containerDiskInGb": 20,
+  "volumeMountPath": "/workspace",
+  "inferencePort": 3000,
+  "sshTcpPort": 22,
+  "sshUser": "root",
+  "readinessPath": "/system_stats",
+  "identityProbePath": "/object_info/CheckpointLoaderSimple",
+  "identityExpectedText": "juggernautXL_ragnarok.safetensors",
+  "expectedIdentity": {
+    "deploymentKey": "identity-conditioning-proof",
+    "modelIdentifier": "juggernautXL_ragnarok.safetensors",
+    "runtimeRevision": "runpod/stable-diffusion:comfy-ui-6.0.0"
+  }
+}

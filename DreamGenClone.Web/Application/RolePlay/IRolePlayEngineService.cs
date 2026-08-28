@@ -8,12 +8,6 @@ public interface IRolePlayEngineService
     Task<RolePlaySession> CreateSessionAsync(
         string title,
         string? scenarioId = null,
-        string personaName = "You",
-        string personaDescription = "",
-        string? personaTemplateId = null,
-        string personaGender = "Unknown",
-        string personaRole = "Unknown",
-        string? personaRelationTargetId = null,
         CancellationToken cancellationToken = default);
 
     Task<RolePlaySession> CreateSessionAsync(
@@ -23,6 +17,13 @@ public interface IRolePlayEngineService
     Task<IReadOnlyList<RolePlaySession>> GetSessionsAsync(CancellationToken cancellationToken = default);
 
     Task<RolePlaySession?> GetSessionAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Drops the in-memory cached copy of the given session so the next read goes back to the
+    /// persistent store. Used after out-of-band writes (e.g. background semantic-analysis jobs)
+    /// to prevent the UI from showing a stale snapshot.
+    /// </summary>
+    void InvalidateSessionCache(string sessionId);
 
     Task<RolePlaySession> OpenSessionAsync(
         string sessionId,
@@ -57,11 +58,15 @@ public interface IRolePlayEngineService
     Task<RolePlayInteraction> SubmitPromptAsync(
         UnifiedPromptSubmission submission,
         Func<string, Task>? onChunk = null,
+        Func<RolePlayInteraction, int, int, bool, Task>? onInteractionCompleted = null,
+        Func<int, string, int, Task>? onActorStart = null,
         CancellationToken cancellationToken = default);
 
     Task<ContinueAsResult> ContinueAsAsync(
         ContinueAsRequest request,
         Func<string, Task>? onChunk = null,
+        Func<RolePlayInteraction, int, int, bool, Task>? onInteractionCompleted = null,
+        Func<int, string, int, Task>? onActorStart = null,
         CancellationToken cancellationToken = default);
 
     Task<RolePlayPendingDecisionPrompt?> GetPendingDecisionPromptAsync(string sessionId, CancellationToken cancellationToken = default);

@@ -88,9 +88,9 @@ public sealed class SessionThemeSelectionsTests
 
         await service.SeedFromScenarioAsync(session, MinimalScenario());
 
-        Assert.Contains(ThemeA.Id, session.AdaptiveState.ThemeTracker.Themes.Keys, StringComparer.OrdinalIgnoreCase);
-        Assert.Contains(ThemeB.Id, session.AdaptiveState.ThemeTracker.Themes.Keys, StringComparer.OrdinalIgnoreCase);
-        Assert.DoesNotContain(ThemeC.Id, session.AdaptiveState.ThemeTracker.Themes.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(ThemeA.Id, session.AdaptiveState.ThemeScores.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(ThemeB.Id, session.AdaptiveState.ThemeScores.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(ThemeC.Id, session.AdaptiveState.ThemeScores.Keys, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public sealed class SessionThemeSelectionsTests
 
         await service.SeedFromScenarioAsync(session, MinimalScenario());
 
-        Assert.Single(session.AdaptiveState.ThemeTracker.Themes);
+        Assert.Single(session.AdaptiveState.ThemeScores);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ public sealed class SessionThemeSelectionsTests
 
         await service.SeedFromScenarioAsync(session, MinimalScenario());
 
-        var item = session.AdaptiveState.ThemeTracker.Themes[ThemeA.Id];
+        var item = session.AdaptiveState.ThemeScores[ThemeA.Id];
         Assert.Equal(15, item.Breakdown.ChoiceSignal);
     }
 
@@ -147,7 +147,7 @@ public sealed class SessionThemeSelectionsTests
 
         await service.SeedFromScenarioAsync(session, MinimalScenario());
 
-        var item = session.AdaptiveState.ThemeTracker.Themes[ThemeA.Id];
+        var item = session.AdaptiveState.ThemeScores[ThemeA.Id];
         Assert.True(item.Score >= 18, $"Expected score >= 18, got {item.Score}");
     }
 
@@ -165,7 +165,7 @@ public sealed class SessionThemeSelectionsTests
 
         await service.SeedFromScenarioAsync(session, MinimalScenario());
 
-        var item = session.AdaptiveState.ThemeTracker.Themes[ThemeB.Id];
+        var item = session.AdaptiveState.ThemeScores[ThemeB.Id];
         Assert.Equal(8, item.Breakdown.ChoiceSignal);
     }
 
@@ -183,7 +183,7 @@ public sealed class SessionThemeSelectionsTests
 
         await service.SeedFromScenarioAsync(session, MinimalScenario());
 
-        var item = session.AdaptiveState.ThemeTracker.Themes[ThemeC.Id];
+        var item = session.AdaptiveState.ThemeScores[ThemeC.Id];
         Assert.Equal(3, item.Breakdown.ChoiceSignal);
     }
 
@@ -201,7 +201,7 @@ public sealed class SessionThemeSelectionsTests
 
         await service.SeedFromScenarioAsync(session, MinimalScenario());
 
-        var item = session.AdaptiveState.ThemeTracker.Themes[ThemeA.Id];
+        var item = session.AdaptiveState.ThemeScores[ThemeA.Id];
         Assert.Equal(-5, item.Breakdown.ChoiceSignal);
     }
 
@@ -296,10 +296,16 @@ public sealed class SessionThemeSelectionsTests
     }
 
     [Fact]
-    public void CreateRolePlaySessionRequest_AwarenessProfileId_Persists()
+    public void CreateRolePlaySessionRequest_CharacterEncounterProfileIds_Persists()
     {
-        var req = new CreateRolePlaySessionRequest { AwarenessProfileId = "profile-42" };
-        Assert.Equal("profile-42", req.AwarenessProfileId);
+        var req = new CreateRolePlaySessionRequest
+        {
+            CharacterEncounterProfileIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["char-1"] = "profile-42"
+            }
+        };
+        Assert.Equal("profile-42", req.CharacterEncounterProfileIds["char-1"]);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -377,15 +383,21 @@ public sealed class SessionThemeSelectionsTests
     }
 
     [Fact]
-    public async Task CreateSessionAsync_WithAwarenessProfileId_StoredOnSessionAndAdaptiveState()
+    public async Task CreateSessionAsync_WithCharacterEncounterProfileIds_StoredOnAdaptiveState()
     {
         var engine = CreateEngineService();
-        var request = new CreateRolePlaySessionRequest { AwarenessProfileId = "awareness-99" };
+        var request = new CreateRolePlaySessionRequest
+        {
+            CharacterEncounterProfileIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["char-1"] = "awareness-99"
+            }
+        };
 
         var session = await engine.CreateSessionAsync(request);
 
-        Assert.Equal("awareness-99", session.SelectedAwarenessProfileId);
-        Assert.Equal("awareness-99", session.AdaptiveState.HusbandAwarenessProfileId);
+        Assert.True(session.AdaptiveState.CharacterEncounterProfileIds.ContainsKey("char-1"));
+        Assert.Equal("awareness-99", session.AdaptiveState.CharacterEncounterProfileIds["char-1"]);
     }
 
     [Fact]
@@ -434,8 +446,8 @@ public sealed class SessionThemeSelectionsTests
         var session = await engine.CreateSessionAsync(request);
 
         Assert.True(session.AdaptiveState.CharacterStats.TryGetValue("Leah", out var leahStats));
-        Assert.Equal(80, leahStats!.Stats["Desire"]);   // wizard value wins
-        Assert.Equal(50, leahStats.Stats["Restraint"]); // base value from scenario
+        Assert.Equal(80, leahStats!.Desire);   // wizard value wins
+        Assert.Equal(50, leahStats.Restraint); // base value from scenario
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -483,7 +495,7 @@ public sealed class SessionThemeSelectionsTests
 
     private sealed class NullSteeringProfileService : ISteeringProfileService
     {
-        public Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+        public Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
         public Task<List<SteeringProfile>> ListAsync(CancellationToken cancellationToken = default)
@@ -492,7 +504,7 @@ public sealed class SessionThemeSelectionsTests
         public Task<SteeringProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult<SteeringProfile?>(null);
 
-        public Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+        public Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
             => Task.FromResult<SteeringProfile?>(null);
 
         public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -521,6 +533,9 @@ public sealed class SessionThemeSelectionsTests
 
         public Task<IReadOnlyList<RPTheme>> ListThemesByProfileAsync(string profileId, bool includeDisabled = false, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<RPTheme>>(_themes.ToList());
+
+        public Task<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticEventMapping>>> ResolveSemanticEventMappingsByProfileAsync(string profileId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<RPSemanticEventMapping>>>(new Dictionary<string, IReadOnlyList<RPSemanticEventMapping>>(StringComparer.OrdinalIgnoreCase));
 
         public Task<RPTheme?> GetThemeAsync(string id, CancellationToken cancellationToken = default)
             => Task.FromResult(_themes.FirstOrDefault(t => string.Equals(t.Id, id, StringComparison.OrdinalIgnoreCase)));

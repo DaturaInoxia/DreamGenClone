@@ -3,13 +3,13 @@ description: 'Blazor component and application patterns'
 applyTo: '**/*.razor, **/*.razor.cs, **/*.razor.css'
 ---
 
-## Blazor Code Style and Structure
+# Blazor Code Style and Structure
 
-- Write idiomatic and efficient Blazor and C# code.
-- Follow .NET and Blazor conventions.
-- Use Razor Components appropriately for component-based UI development.
-- Prefer inline functions for smaller components but separate complex logic into code-behind or service classes.
-- Async/await should be used where applicable to ensure non-blocking UI operations.
+> **Editing existing Razor files?** See [`.github/instructions/razor-editing.instructions.md`](instructions/razor-editing.instructions.md) for the mandatory editing rules: full-context reads, anti-hallucination constraints, self-validation checklist, and diff-only workflow. Those rules take precedence over general style guidance when modifying existing `.razor` files.
+
+## Strict Editing Principle
+
+When modifying existing Razor files, do NOT restructure, refactor, or "improve" code unless explicitly asked. Preserve existing directives (`@page`, `@rendermode`, `@inject`, `@using`), layout structure, model binding, and Tag Helper usage. Follow the Razor Editing Rules for all .razor modifications.
 
 ## Naming Conventions
 

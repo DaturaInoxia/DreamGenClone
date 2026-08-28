@@ -13,17 +13,17 @@ public sealed class CreateRolePlaySessionRequest
 
     public string? ScenarioId { get; init; }
 
+    /// <summary>Character ID of the session's POV persona character.</summary>
+    public string? PersonaCharacterId { get; init; }
+
     public string PersonaName { get; init; } = "You";
-
     public string PersonaDescription { get; init; } = string.Empty;
-
     public string? PersonaTemplateId { get; init; }
-
     public string PersonaGender { get; init; } = "Unknown";
-
     public string PersonaRole { get; init; } = "Unknown";
-
     public string? PersonaRelationTargetId { get; init; }
+    public IReadOnlyDictionary<string, int> PersonaStatOverrides { get; init; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; init; }
 
     /// <summary>
     /// Explicit per-session theme selections set by the user during session create.
@@ -39,16 +39,51 @@ public sealed class CreateRolePlaySessionRequest
     public IReadOnlyDictionary<string, Dictionary<string, int>> CharacterStatOverrides { get; init; }
         = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Per-character encounter profile IDs, keyed by character ID.</summary>
+    public IReadOnlyDictionary<string, string> CharacterEncounterProfileIds { get; init; }
+        = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
-    /// Starting stat overrides for the persona character, keyed by stat name.
-    /// Applied after the persona template stats are seeded.
+    /// Optional per-session override for the maximum number of phase milestones to inject into
+    /// the continuation prompt. When null, the global <c>RolePlayMemoryOptions.MaxMilestonesToInject</c>
+    /// default is used.
     /// </summary>
-    public IReadOnlyDictionary<string, int> PersonaStatOverrides { get; init; }
-        = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    public int? MaxMilestonesToInject { get; init; }
 
-    /// <summary>Optional Husband Awareness Profile to associate with this session.</summary>
-    public string? AwarenessProfileId { get; init; }
+    /// <summary>
+    /// Optional per-session override for the maximum number of ArcCompletion entries (prior arcs)
+    /// to inject. When null, the global <c>RolePlayMemoryOptions.MaxArcCompletionsToInject</c>
+    /// default is used.
+    /// </summary>
+    public int? MaxArcCompletionsToInject { get; init; }
 
-    /// <summary>Optional physical appearance data for the POV persona.</summary>
-    public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; init; }
+    /// <summary>
+    /// Optional per-session override for the maximum number of EncounterCompletion entries
+    /// (encounter-boundary memories for the current arc) to inject. When null, the global
+    /// <c>RolePlayMemoryOptions.MaxEncounterCompletionsToInject</c> default is used.
+    /// </summary>
+    public int? MaxEncounterCompletionsToInject { get; init; }
+
+    // ── RP Prompt Redesign (001-rp-prompt-redesign): per-session prompt config options ──
+
+    /// <summary>
+    /// Maximum prompt characters before budget enforcement. When null at creation,
+    /// seeded from <c>RolePlayPromptOptions.RecommendedInitialMaxPromptChars</c> (35000).
+    /// </summary>
+    public int? MaxPromptChars { get; init; }
+
+    /// <summary>Turn-based history window for prompt building. When null, seeded from options.</summary>
+    public int? ContextWindowTurns { get; init; }
+
+    /// <summary>Turn band after which scenario context compresses. When null, seeded from options.</summary>
+    public int? ScenarioCompressionTurnThreshold { get; init; }
+
+    /// <summary>Recent turns with full detail. When null, seeded from options.</summary>
+    public int? HistoryFullDetailTurnBand { get; init; }
+
+    /// <summary>Middle turns with narrative-only summaries. When null, seeded from options.</summary>
+    public int? HistoryNarrativeOnlyTurnBand { get; init; }
+
+    /// <summary>Turn threshold for long-term memory compression. When null, seeded from options.</summary>
+    public int? SessionMemoryLongTermTurnThreshold { get; init; }
 }

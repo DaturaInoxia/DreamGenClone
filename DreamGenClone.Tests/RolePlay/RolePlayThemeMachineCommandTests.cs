@@ -563,8 +563,8 @@ public sealed class RolePlayThemeMachineCommandTests
                 new RolePlayCharacterPerspective { CharacterId = "Ken", CharacterName = "Ken" }
             ]
         };
-        session.AdaptiveState.CharacterStats["wife-char"] = new CharacterStatBlock { CharacterId = "wife-char" };
-        session.AdaptiveState.CharacterStats["Ken"] = new CharacterStatBlock { CharacterId = "Ken" };
+        session.AdaptiveState.CharacterStats["wife-char"] = new CharacterStatProfileV2 { CharacterId = "wife-char" };
+        session.AdaptiveState.CharacterStats["Ken"] = new CharacterStatProfileV2 { CharacterId = "Ken" };
 
         var state = new AdaptiveScenarioState
         {
@@ -605,6 +605,12 @@ public sealed class RolePlayThemeMachineCommandTests
 
         public Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
+
+        public Task SaveAdaptiveStateSemanticFieldsAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task SaveAdaptiveStateLocationFieldsAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
 
         public Task<AdaptiveScenarioState?> LoadAdaptiveStateAsync(string sessionId, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
@@ -650,5 +656,9 @@ public sealed class RolePlayThemeMachineCommandTests
 
         public Task<IReadOnlyList<ThemeMachineDiagnosticEvent>> LoadThemeMachineDiagnosticEventsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
+
+        public Task SaveEncounterSummaryAsync(EncounterSummaryRecord record, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task UpdateEncounterSummaryLlmAsync(string summaryId, string llmSummary, DateTime llmEnhancedUtc, string? enrichmentPrompt = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<EncounterSummaryRecord>> LoadEncounterSummariesForSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<EncounterSummaryRecord>>([]);
     }
 }

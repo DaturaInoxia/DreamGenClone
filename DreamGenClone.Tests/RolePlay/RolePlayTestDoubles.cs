@@ -1,6 +1,7 @@
 using CoreAutoSaveCoordinator = DreamGenClone.Application.Sessions.IAutoSaveCoordinator;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
@@ -8,6 +9,7 @@ using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
 using DreamGenClone.Web.Domain.Story;
 using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Domain.StoryAnalysis;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -19,9 +21,11 @@ internal static class RolePlayTestFactory
         IRolePlayContinuationService? continuationService = null,
         IRolePlayIdentityOptionsService? identityOptionsService = null,
         IScenarioService? scenarioService = null,
-        IBaseStatProfileService? baseStatProfileService = null,
+        ICharacterProfileService? characterProfileService = null,
         IRolePlayStateRepository? stateRepository = null,
-        IRPThemeService? rpThemeService = null)
+        IRPThemeService? rpThemeService = null,
+        IRolePlayAdaptiveStateService? adaptiveStateService = null,
+        IRolePlayDebugEventSink? debugEventSink = null)
     {
         var sessionService = new FakeSessionService();
         var coreAutoSave = new FakeCoreAutoSaveCoordinator();
@@ -34,13 +38,13 @@ internal static class RolePlayTestFactory
             behaviorMode,
             new RolePlayPromptRouter(),
             identityOptionsService ?? new DefaultIdentityOptionsService(),
-            new RolePlayAdaptiveStateService(new FakeThemeCatalogService()),
+            adaptiveStateService ?? new RolePlayAdaptiveStateService(new FakeThemeCatalogService()),
             validator,
             sessionService,
             scenarioService ?? new NullScenarioService(),
-            baseStatProfileService ?? new FakeBaseStatProfileService(),
+            characterProfileService ?? new FakeCharacterProfileService(),
             autoSave,
-            new NullRolePlayDebugEventSink(),
+            debugEventSink ?? new NullRolePlayDebugEventSink(),
                 NullLogger<RolePlayEngineService>.Instance,
                 stateRepository: stateRepository,
                 rpThemeService: rpThemeService);
@@ -55,7 +59,10 @@ internal static class RolePlayTestFactory
             PromptIntent intent,
             string promptText,
             Func<string, Task>? onChunk = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int? turnIndex = null,
+            int? positionInTurn = null,
+            int? turnActorCount = null)
         {
             return Task.FromResult(new RolePlayInteraction
             {
@@ -113,7 +120,9 @@ internal static class RolePlayTestFactory
             RolePlaySession session,
             string actorName,
             string promptText,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int? turnIndex = null,
+            int? turnActorCount = null)
         {
             return Task.FromResult(new RolePlayInteraction
             {
@@ -121,6 +130,24 @@ internal static class RolePlayTestFactory
                 ActorName = actorName,
                 Content = promptText,
                 GeneratedByCommand = "Narrative"
+            });
+        }
+
+        public Task<RolePlayInteraction> ContinueNarrativeAsAlternativeAsync(
+            RolePlaySession session,
+            string actorName,
+            string promptText,
+            DreamGenClone.Domain.ModelManager.ResolvedModel resolved,
+            string command,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new RolePlayInteraction
+            {
+                InteractionType = InteractionType.System,
+                ActorName = actorName,
+                Content = promptText,
+                GeneratedByCommand = command,
+                GeneratedVariant = PromptVariant.Narrative
             });
         }
     }
@@ -170,6 +197,54 @@ internal static class RolePlayTestFactory
     internal sealed class NullRolePlayDebugEventSink : IRolePlayDebugEventSink
     {
         public Task WriteAsync(RolePlayDebugEventRecord record, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
+
+    internal sealed class FakeCharacterProfileService : ICharacterProfileService
+    {
+        private readonly Dictionary<string, CharacterProfile> _profiles = new(StringComparer.OrdinalIgnoreCase);
+
+        public CharacterProfile Add(string name, IReadOnlyDictionary<string, int> characterStats, string targetRole = "Any")
+        {
+            var profile = new CharacterProfile
+            {
+                Name = name,
+                TargetRole = targetRole,
+                TargetGender = "Any",
+                CharacterStats = new Dictionary<string, int>(characterStats, StringComparer.OrdinalIgnoreCase)
+            };
+            _profiles[profile.Id] = profile;
+            return profile;
+        }
+
+        public Task<CharacterProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
+        {
+            _profiles.TryGetValue(id, out var profile);
+            return Task.FromResult(profile);
+        }
+
+        public Task<IReadOnlyList<CharacterProfile>> GetAllAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<CharacterProfile>>(_profiles.Values.OrderBy(x => x.Name).ToList());
+
+        public Task<IReadOnlyList<CharacterProfile>> GetByRoleAsync(string targetRole, CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<CharacterProfile> results = _profiles.Values
+                .Where(p => string.Equals(p.TargetRole, targetRole, StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(p.TargetRole, "Any", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => x.Name).ToList();
+            return Task.FromResult(results);
+        }
+
+        public Task SaveAsync(CharacterProfile profile, CancellationToken cancellationToken = default)
+        {
+            _profiles[profile.Id] = profile;
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
+            => Task.FromResult(_profiles.Remove(id));
+
+        public Task EnsureDefaultsAsync(CancellationToken cancellationToken = default)
             => Task.CompletedTask;
     }
 

@@ -15,7 +15,7 @@ namespace DreamGenClone.Infrastructure.Persistence;
 public sealed class SqlitePersistence : ISqlitePersistence
 {
     private const string LegacyMigrationVersionKey = "LegacyMigrationsVersion";
-    private const string CurrentLegacyMigrationVersion = "2026-04-12-1";
+    private const string CurrentLegacyMigrationVersion = "2026-05-01-1";
 
     private readonly PersistenceOptions _options;
     private readonly LmStudioOptions _lmStudioOptions;
@@ -60,6 +60,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 SessionType TEXT NOT NULL,
                 Name TEXT NOT NULL,
                 PayloadJson TEXT NOT NULL,
+                AdaptiveStateJson TEXT NULL,
                 SchemaVersion TEXT NOT NULL DEFAULT 'v1',
                 UpdatedUtc TEXT NOT NULL
             );
@@ -181,6 +182,20 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 UpdatedUtc TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS StatResistanceProfiles (
+                Id TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Description TEXT NOT NULL,
+                TargetStatName TEXT NOT NULL DEFAULT 'Loyalty',
+                IsDefault INTEGER NOT NULL DEFAULT 0,
+                ThresholdsJson TEXT NOT NULL DEFAULT '[]',
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_StatResistanceProfiles_Name
+                ON StatResistanceProfiles (Name);
+
             CREATE TABLE IF NOT EXISTS NarrativeGateProfiles (
                 Id TEXT PRIMARY KEY,
                 Name TEXT NOT NULL,
@@ -213,6 +228,21 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Description TEXT NOT NULL,
                 CreatedUtc TEXT NOT NULL,
                 UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS CharacterProfiles (
+                Id                  TEXT NOT NULL PRIMARY KEY,
+                Name                TEXT NOT NULL,
+                Description         TEXT NOT NULL DEFAULT '',
+                TargetGender        TEXT NOT NULL DEFAULT 'Any',
+                TargetRole          TEXT NOT NULL DEFAULT 'Any',
+                CharacterStatsJson  TEXT NOT NULL DEFAULT '{}',
+                EncounterStatsJson  TEXT NOT NULL DEFAULT '{}',
+                AdditionalNotes     TEXT NOT NULL DEFAULT '',
+                FullOverride        INTEGER NOT NULL DEFAULT 0,
+                IsSeeded            INTEGER NOT NULL DEFAULT 0,
+                CreatedUtc          TEXT NOT NULL,
+                UpdatedUtc          TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS RoleDefinitions (
@@ -303,6 +333,19 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 FOREIGN KEY (ChildThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS RPThemeSuccessorLinks (
+                SourceThemeId TEXT NOT NULL,
+                SuccessorThemeId TEXT NOT NULL,
+                ScoreBoost REAL NOT NULL,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (SourceThemeId, SuccessorThemeId),
+                FOREIGN KEY (SourceThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE,
+                FOREIGN KEY (SuccessorThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeSuccessorLinks_Source_Sort
+                ON RPThemeSuccessorLinks (SourceThemeId, SortOrder, SuccessorThemeId);
+
             CREATE TABLE IF NOT EXISTS RPThemeKeywords (
                 Id TEXT PRIMARY KEY,
                 ThemeId TEXT NOT NULL,
@@ -375,6 +418,48 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
             CREATE INDEX IF NOT EXISTS IX_RPThemeAIGuidanceNotes_Theme_Sort
                 ON RPThemeAIGuidanceNotes (ThemeId, SortOrder, Id);
+
+            CREATE TABLE IF NOT EXISTS RPThemeSemanticEventMappings (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                EventId TEXT NOT NULL,
+                Direction TEXT NOT NULL,
+                Delta REAL NOT NULL,
+                ConfidenceMin REAL NOT NULL,
+                ConfidenceMax REAL NOT NULL,
+                ReasonCode TEXT NOT NULL,
+                AttributionKey TEXT NOT NULL DEFAULT '',
+                Description TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeSemanticEventMappings_Theme_Sort
+                ON RPThemeSemanticEventMappings (ThemeId, SortOrder, Id);
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeSemanticEventMappings_Event
+                ON RPThemeSemanticEventMappings (EventId, ThemeId);
+
+            CREATE TABLE IF NOT EXISTS RPThemeSemanticStatMappings (
+                Id TEXT PRIMARY KEY,
+                ThemeId TEXT NOT NULL,
+                EventId TEXT NOT NULL,
+                TargetStat TEXT NOT NULL,
+                Direction TEXT NOT NULL,
+                Delta REAL NOT NULL,
+                ConfidenceMin REAL NOT NULL,
+                ConfidenceMax REAL NOT NULL,
+                ReasonCode TEXT NOT NULL,
+                AttributionKey TEXT NOT NULL DEFAULT '',
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (ThemeId) REFERENCES RPThemes(Id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeSemanticStatMappings_Theme_Sort
+                ON RPThemeSemanticStatMappings (ThemeId, SortOrder, Id);
+
+            CREATE INDEX IF NOT EXISTS IX_RPThemeSemanticStatMappings_Event
+                ON RPThemeSemanticStatMappings (EventId, ThemeId, TargetStat);
 
             CREATE TABLE IF NOT EXISTS RPThemeNarrativeGateRules (
                 Id TEXT PRIMARY KEY,
@@ -534,6 +619,33 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 FOREIGN KEY (ImportRunId) REFERENCES RPThemeImportRuns(Id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS SteeringGenerationRecords (
+                Id TEXT PRIMARY KEY,
+                SessionId TEXT NOT NULL,
+                GenerationPrompt TEXT NOT NULL,
+                GenerationResponse TEXT NOT NULL,
+                ParsedOptionsJson TEXT NULL,
+                CharacterSnapshotJson TEXT NULL,
+                ActiveThemeId TEXT NULL,
+                ActiveThemeLabel TEXT NULL,
+                Phase TEXT NULL,
+                ModelIdentifier TEXT NULL,
+                ProviderName TEXT NULL,
+                Temperature REAL NULL,
+                TopP REAL NULL,
+                MaxTokens INTEGER NULL,
+                Succeeded INTEGER NOT NULL DEFAULT 1,
+                ErrorMessage TEXT NULL,
+                SelectedDirectiveSummary TEXT NULL,
+                StagedInteractionId TEXT NULL,
+                ContinuationInteractionId TEXT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS IX_SteeringGenerationRecords_Session
+                ON SteeringGenerationRecords (SessionId, CreatedUtc DESC);
+
             CREATE TABLE IF NOT EXISTS StoryRankings (
                 Id TEXT PRIMARY KEY,
                 ParsedStoryId TEXT NOT NULL,
@@ -602,7 +714,22 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ProviderType INTEGER NOT NULL,
                 BaseUrl TEXT NOT NULL,
                 ChatCompletionsPath TEXT NOT NULL DEFAULT '/v1/chat/completions',
+                ImageCapability INTEGER NOT NULL DEFAULT 0,
+                ImageGenerationPath TEXT NOT NULL DEFAULT '/v1/images/generations',
+                ContentPolicy INTEGER NOT NULL DEFAULT 0,
+                ImageProtocol INTEGER NOT NULL DEFAULT 0,
                 TimeoutSeconds INTEGER NOT NULL DEFAULT 120,
+                LifecycleStrategyIdentifier TEXT NULL,
+                ReadinessPath TEXT NULL,
+                ReadinessSuccessContractJson TEXT NULL,
+                TransitionTimeoutSeconds INTEGER NULL,
+                TransitionMarginSeconds INTEGER NULL,
+                ShutdownDrainPolicyJson TEXT NULL,
+                MaximumActiveRequests INTEGER NULL,
+                QueueCapacity INTEGER NULL,
+                CredentialReference TEXT NULL,
+                ServerIdentityPolicyJson TEXT NULL,
+                AllowedNetworkBoundary TEXT NULL,
                 ApiKeyEncrypted TEXT,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 CreatedUtc TEXT NOT NULL,
@@ -616,11 +743,37 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ModelIdentifier TEXT NOT NULL,
                 DisplayName TEXT NOT NULL,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
+                SupportsThinkingControl INTEGER NOT NULL DEFAULT 0,
                 CreatedUtc TEXT NOT NULL,
                 ContextWindowSize INTEGER NOT NULL DEFAULT 0,
                 Quantization TEXT NOT NULL DEFAULT '',
                 ParameterCount TEXT NOT NULL DEFAULT '',
                 Notes TEXT,
+                ModelKind INTEGER NOT NULL DEFAULT 0,
+                ImageSizeSupported TEXT NULL,
+                SupportsImageInput INTEGER NOT NULL DEFAULT 0,
+                MaximumInputImages INTEGER NULL,
+                MaximumInputImageBytes INTEGER NULL,
+                MaximumInputImagePixels INTEGER NULL,
+                MaximumInputImageDimension INTEGER NULL,
+                AcceptedInputMediaTypes TEXT NULL,
+                MaximumResponseBytes INTEGER NULL,
+                RuntimeRevision TEXT NULL,
+                ArtifactRevision TEXT NULL,
+                ImageEditorDiffusionModel TEXT NULL,
+                ImageEditorTextEncoder TEXT NULL,
+                ImageEditorVae TEXT NULL,
+                ImageEditorSteps INTEGER NULL,
+                ImageEditorCfg REAL NULL,
+                ImageEditorSampler TEXT NULL,
+                ImageEditorScheduler TEXT NULL,
+                ImageEditorDenoise REAL NULL,
+                ImageEditorAuraFlowShift REAL NULL,
+                ImageEditorCfgNormStrength REAL NULL,
+                IdentityMechanism TEXT NULL,
+                IdentityStrength REAL NULL,
+                IdentityAdapterRef TEXT NULL,
+                IdentityClipVisionRef TEXT NULL,
                 FOREIGN KEY (ProviderId) REFERENCES Providers(Id) ON DELETE CASCADE,
                 UNIQUE (ProviderId, ModelIdentifier)
             );
@@ -632,6 +785,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Temperature REAL NOT NULL DEFAULT 0.7,
                 TopP REAL NOT NULL DEFAULT 0.9,
                 MaxTokens INTEGER NOT NULL DEFAULT 500,
+                ThinkingMode INTEGER NOT NULL DEFAULT 0,
+                MaxConcurrentJobs INTEGER NULL,
                 UpdatedUtc TEXT NOT NULL,
                 FOREIGN KEY (ModelId) REFERENCES RegisteredModels(Id)
             );
@@ -645,6 +800,26 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 IsHealthy INTEGER NOT NULL DEFAULT 0,
                 Message TEXT NOT NULL DEFAULT '',
                 CheckedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS PromptTestRuns (
+                Id TEXT PRIMARY KEY NOT NULL,
+                Comment TEXT NULL,
+                ModelIdentifier TEXT NOT NULL,
+                ModelDisplayName TEXT NOT NULL,
+                ProviderName TEXT NOT NULL,
+                SystemMessage TEXT NULL,
+                UserPrompt TEXT NOT NULL,
+                Temperature REAL NOT NULL DEFAULT 0.7,
+                TopP REAL NOT NULL DEFAULT 0.9,
+                MaxTokens INTEGER NOT NULL DEFAULT 500,
+                ResultText TEXT NULL,
+                ResultError TEXT NULL,
+                PromptCharCount INTEGER NOT NULL DEFAULT 0,
+                ResultWordCount INTEGER NOT NULL DEFAULT 0,
+                ResultCharCount INTEGER NOT NULL DEFAULT 0,
+                ElapsedSeconds REAL NOT NULL DEFAULT 0,
+                CreatedUtc TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS RolePlayDebugEvents (
@@ -673,7 +848,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ActiveScenarioId TEXT NULL,
                 ActiveVariantId TEXT NULL,
                 CurrentPhase TEXT NOT NULL,
-                InteractionCountInPhase INTEGER NOT NULL,
+                TurnCountInPhase INTEGER NOT NULL,
                 ConsecutiveLeadCount INTEGER NOT NULL,
                 LastEvaluationUtc TEXT NOT NULL,
                 CycleIndex INTEGER NOT NULL,
@@ -681,6 +856,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 SelectedWillingnessProfileId TEXT NULL,
                 SelectedNarrativeGateProfileId TEXT NULL,
                 HusbandAwarenessProfileId TEXT NULL,
+                CharacterEncounterProfileIdsJson TEXT NULL,
                 PhaseOverrideFloor TEXT NULL,
                 PhaseOverrideScenarioId TEXT NULL,
                 PhaseOverrideCycleIndex INTEGER NULL,
@@ -691,6 +867,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 CharacterLocationPerceptionsJson TEXT NOT NULL DEFAULT '[]',
                 CharacterSnapshotsJson TEXT NOT NULL,
                 ThemeMachineSnapshotJson TEXT NULL,
+                GlobalEncounterCount INTEGER NOT NULL DEFAULT 0,
                 UpdatedUtc TEXT NOT NULL
             );
 
@@ -848,6 +1025,98 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 MinTurnsBeforeAdvance INTEGER NOT NULL DEFAULT 1
             );
 
+            CREATE TABLE IF NOT EXISTS RolePlayV2ThemeScores (
+                SessionId TEXT NOT NULL,
+                ThemeId TEXT NOT NULL,
+                ThemeName TEXT NOT NULL,
+                Intensity TEXT NOT NULL DEFAULT 'None',
+                Score REAL NOT NULL DEFAULT 0,
+                Blocked INTEGER NOT NULL DEFAULT 0,
+                SuppressedHitCount INTEGER NOT NULL DEFAULT 0,
+                IsScenarioCandidate INTEGER NOT NULL DEFAULT 0,
+                NarrativeFitScore REAL NOT NULL DEFAULT 0,
+                LastCandidateEvaluationTimeUtc TEXT NULL,
+                CompletionCooldownTurns INTEGER NOT NULL DEFAULT 0,
+                BreakdownJson TEXT NOT NULL DEFAULT '{}',
+                UpdatedUtc TEXT NOT NULL,
+                PRIMARY KEY (SessionId, ThemeId)
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2ThemeScores_Session
+                ON RolePlayV2ThemeScores (SessionId);
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2ThemeTrackerMeta (
+                SessionId TEXT PRIMARY KEY,
+                PrimaryThemeId TEXT NULL,
+                SecondaryThemeId TEXT NULL,
+                ThemeSelectionRule TEXT NOT NULL DEFAULT 'Top1',
+                ObservedTurnCount INTEGER NOT NULL DEFAULT 0,
+                SelectionMinimumTurns INTEGER NOT NULL DEFAULT 0,
+                RecentEvidenceJson TEXT NOT NULL DEFAULT '[]',
+                UpdatedUtc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2ScenarioHistory (
+                Id TEXT PRIMARY KEY,
+                SessionId TEXT NOT NULL,
+                ScenarioId TEXT NOT NULL,
+                CompletedAtUtc TEXT NOT NULL,
+                TurnCount INTEGER NOT NULL DEFAULT 0,
+                PeakThemeScore INTEGER NOT NULL DEFAULT 0,
+                PeakDesireLevel INTEGER NOT NULL DEFAULT 0,
+                AverageRestraintLevel REAL NOT NULL DEFAULT 0,
+                Notes TEXT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2PairwiseStats (
+                SessionId TEXT NOT NULL,
+                SourceCharacterId TEXT NOT NULL,
+                TargetCharacterId TEXT NOT NULL,
+                StatsJson TEXT NOT NULL DEFAULT '{}',
+                UpdatedUtc TEXT NOT NULL,
+                PRIMARY KEY (SessionId, SourceCharacterId, TargetCharacterId)
+            );
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2SemanticEvents (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                SessionId TEXT NOT NULL,
+                InteractionId TEXT NOT NULL,
+                EventId TEXT NOT NULL,
+                Confidence REAL NOT NULL DEFAULT 0,
+                MappingId TEXT NOT NULL DEFAULT '',
+                Direction TEXT NOT NULL DEFAULT '',
+                ThemeTargetsJson TEXT NOT NULL DEFAULT '[]',
+                ProcessedUtc TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2SemanticEvents_Session_ProcessedUtc
+                ON RolePlayV2SemanticEvents (SessionId, ProcessedUtc DESC);
+
+            CREATE TABLE IF NOT EXISTS RolePlayV2EncounterSummaries (
+                Id                          TEXT NOT NULL PRIMARY KEY,
+                SessionId                   TEXT NOT NULL,
+                CharacterId                 TEXT NOT NULL,
+                SummaryType                 TEXT NOT NULL,
+                CycleIndex                  INTEGER NOT NULL DEFAULT 0,
+                FromPhase                   TEXT NOT NULL,
+                ToPhase                     TEXT NOT NULL,
+                OccurredUtc                 TEXT NOT NULL,
+                TurnCountInPhase     INTEGER NOT NULL DEFAULT 0,
+                EncounterNumber             INTEGER NOT NULL DEFAULT 0,
+                DetectionEvidence           TEXT NULL,
+                StartInteractionIndex       INTEGER NOT NULL DEFAULT 0,
+                EndInteractionIndex         INTEGER NOT NULL DEFAULT 0,
+                SceneLocation               TEXT NULL,
+                ActiveThemeId               TEXT NULL,
+                FinishingMoveId             TEXT NULL,
+                PositionIdsJson             TEXT NULL,
+                CharacterStatsSnapshotJson  TEXT NOT NULL DEFAULT '{}',
+                TemplateSummary             TEXT NOT NULL DEFAULT '',
+                LlmSummary                  TEXT NULL,
+                LlmEnhancedUtc              TEXT NULL,
+                EnrichmentPrompt            TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_RolePlayV2EncounterSummaries_Session_OccurredUtc
+                ON RolePlayV2EncounterSummaries (SessionId, OccurredUtc DESC);
+
             """;
 
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -867,6 +1136,31 @@ public sealed class SqlitePersistence : ISqlitePersistence
             );
             """;
         await metadataCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        // RP Prompt Redesign (001-rp-prompt-redesign): PhaseRuleOfThumb config table with
+        // 6-row seed (Opening, BuildUp, Committed, Approaching, Climax, Reset).
+        var phaseRuleOfThumbCommand = connection.CreateCommand();
+        phaseRuleOfThumbCommand.CommandText = """
+            CREATE TABLE IF NOT EXISTS PhaseRuleOfThumb (
+                Id TEXT NOT NULL PRIMARY KEY,
+                Phase TEXT NOT NULL,
+                RuleOfThumbText TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                UNIQUE(Phase)
+            );
+
+            INSERT OR REPLACE INTO PhaseRuleOfThumb (Id, Phase, RuleOfThumbText, CreatedUtc, UpdatedUtc)
+            VALUES
+            ('phase-rot-opening',    'Opening',    'Favor atmosphere and sensory grounding. Establish the world, the characters, and the mood before any tension begins. Let the reader settle into the setting.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-buildup',    'BuildUp',    'Favor atmosphere, tension, and sensory detail over speed. Let desire accumulate before anything explicit happens. Build anticipation through what characters notice, feel, and almost-do.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-committed',  'Committed',  'Balance atmosphere with forward momentum. The tension is established — now let it simmer. Characters are aware of the dynamic; let that awareness color their interactions without resolution.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-approaching','Approaching','Tighten the pace. The tension is escalating — let proximity, accidental contact, and charged glances carry the scene. Sensory detail should heighten, not linger. The characters are drawn toward the threshold.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-climax',     'Climax',     'The culmination is here. Maintain the evocative, sensory-rich style but with urgency and compression. Every sentence should advance the encounter. Do not slow for atmosphere — the atmosphere IS the encounter now.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z'),
+            ('phase-rot-reset',      'Reset',      'Let the emotional aftermath breathe. Sensory detail over action. The intensity has passed — now write the quiet, the guilt, the replay, the return to ordinary texture. The character is alone with what they did.', '2026-07-17T00:00:00Z', '2026-07-17T00:00:00Z');
+            """;
+        await phaseRuleOfThumbCommand.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Ensured PhaseRuleOfThumb table exists with 6 phase rows");
 
         // Always apply V2 decision-point additive schema updates, even when legacy migrations are skipped.
         var ensureDecisionContextSummaryColumn = connection.CreateCommand();
@@ -958,6 +1252,18 @@ public sealed class SqlitePersistence : ISqlitePersistence
             _logger.LogInformation("Migrated RolePlayV2CandidateEvaluations table: added UnpenalizedFitScore column");
         }
 
+        // Always ensure RolePlayV2CandidateEvaluations has SuccessorCausalityBoost column.
+        var ensureCandidateSuccessorBoostColumn = connection.CreateCommand();
+        ensureCandidateSuccessorBoostColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RolePlayV2CandidateEvaluations') WHERE name='SuccessorCausalityBoost'";
+        var hasCandidateSuccessorBoostColumn = Convert.ToInt64(await ensureCandidateSuccessorBoostColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasCandidateSuccessorBoostColumn)
+        {
+            var alterCandidateSuccessorBoost = connection.CreateCommand();
+            alterCandidateSuccessorBoost.CommandText = "ALTER TABLE RolePlayV2CandidateEvaluations ADD COLUMN SuccessorCausalityBoost REAL NOT NULL DEFAULT 0";
+            await alterCandidateSuccessorBoost.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RolePlayV2CandidateEvaluations table: added SuccessorCausalityBoost column");
+        }
+
         // Always ensure ToneProfiles has phase-offset columns, even if legacy migrations are marked complete.
         var ensureToneBuildUpOffset = connection.CreateCommand();
         ensureToneBuildUpOffset.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ToneProfiles') WHERE name='BuildUpPhaseOffset'";
@@ -987,15 +1293,33 @@ public sealed class SqlitePersistence : ISqlitePersistence
             _logger.LogInformation("Migrated ToneProfiles table: added phase offset columns");
         }
 
-        var ensureToneSceneDirective = connection.CreateCommand();
-        ensureToneSceneDirective.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ToneProfiles') WHERE name='SceneDirective'";
-        var hasToneSceneDirectiveAlways = Convert.ToInt64(await ensureToneSceneDirective.ExecuteScalarAsync(cancellationToken)) > 0;
-        if (!hasToneSceneDirectiveAlways)
+        // Always ensure ToneProfiles has the 5 writing directive columns (plan-amendment 2026-07-22).
+        var ensureToneProseStyleDir = connection.CreateCommand();
+        ensureToneProseStyleDir.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ToneProfiles') WHERE name='ProseStyleDirective'";
+        var hasToneProseStyleDir = Convert.ToInt64(await ensureToneProseStyleDir.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasToneProseStyleDir)
         {
-            var alterToneSceneDirective = connection.CreateCommand();
-            alterToneSceneDirective.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN SceneDirective TEXT NOT NULL DEFAULT ''";
-            await alterToneSceneDirective.ExecuteNonQueryAsync(cancellationToken);
-            _logger.LogInformation("Migrated ToneProfiles table: added SceneDirective column");
+            var alterToneProseStyle = connection.CreateCommand();
+            alterToneProseStyle.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN ProseStyleDirective TEXT NOT NULL DEFAULT ''";
+            await alterToneProseStyle.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterToneVoice = connection.CreateCommand();
+            alterToneVoice.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN VoiceDirective TEXT NOT NULL DEFAULT ''";
+            await alterToneVoice.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterToneTone = connection.CreateCommand();
+            alterToneTone.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN ToneDirective TEXT NOT NULL DEFAULT ''";
+            await alterToneTone.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterToneFocus = connection.CreateCommand();
+            alterToneFocus.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN FocusDirective TEXT NOT NULL DEFAULT ''";
+            await alterToneFocus.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterToneHeatLevel = connection.CreateCommand();
+            alterToneHeatLevel.CommandText = "ALTER TABLE ToneProfiles ADD COLUMN HeatLevelDirective TEXT NOT NULL DEFAULT ''";
+            await alterToneHeatLevel.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogInformation("Migrated ToneProfiles table: added 5 writing directive columns");
         }
 
         // Always ensure RPFinishingMoveMatrixRows has WifeReceptivity column.
@@ -1033,6 +1357,387 @@ public sealed class SqlitePersistence : ISqlitePersistence
             await alterPositionEscalationTier.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RPPositions table: added EscalationTier column");
         }
+
+        // Scene Image Generator (B-032 / 001-scene-image-generator): additive image capability
+        // columns on Providers and RegisteredModels. Existing rows default to non-image / unknown
+        // policy (correct: chat-only providers are not image-capable until explicitly configured).
+        var providerImageColumns = new (string Column, string Ddl)[]
+        {
+            ("ImageCapability", "ALTER TABLE Providers ADD COLUMN ImageCapability INTEGER NOT NULL DEFAULT 0"),
+            ("ImageGenerationPath", "ALTER TABLE Providers ADD COLUMN ImageGenerationPath TEXT NOT NULL DEFAULT '/v1/images/generations'"),
+            ("ContentPolicy", "ALTER TABLE Providers ADD COLUMN ContentPolicy INTEGER NOT NULL DEFAULT 0"),
+            ("ImageProtocol", "ALTER TABLE Providers ADD COLUMN ImageProtocol INTEGER NOT NULL DEFAULT 0"),
+            ("LifecycleStrategyIdentifier", "ALTER TABLE Providers ADD COLUMN LifecycleStrategyIdentifier TEXT NULL"),
+            ("ReadinessPath", "ALTER TABLE Providers ADD COLUMN ReadinessPath TEXT NULL"),
+            ("ReadinessSuccessContractJson", "ALTER TABLE Providers ADD COLUMN ReadinessSuccessContractJson TEXT NULL"),
+            ("TransitionTimeoutSeconds", "ALTER TABLE Providers ADD COLUMN TransitionTimeoutSeconds INTEGER NULL"),
+            ("TransitionMarginSeconds", "ALTER TABLE Providers ADD COLUMN TransitionMarginSeconds INTEGER NULL"),
+            ("ShutdownDrainPolicyJson", "ALTER TABLE Providers ADD COLUMN ShutdownDrainPolicyJson TEXT NULL"),
+            ("MaximumActiveRequests", "ALTER TABLE Providers ADD COLUMN MaximumActiveRequests INTEGER NULL"),
+            ("QueueCapacity", "ALTER TABLE Providers ADD COLUMN QueueCapacity INTEGER NULL"),
+            ("CredentialReference", "ALTER TABLE Providers ADD COLUMN CredentialReference TEXT NULL"),
+            ("ServerIdentityPolicyJson", "ALTER TABLE Providers ADD COLUMN ServerIdentityPolicyJson TEXT NULL"),
+            ("AllowedNetworkBoundary", "ALTER TABLE Providers ADD COLUMN AllowedNetworkBoundary TEXT NULL"),
+        };
+        foreach (var (column, ddl) in providerImageColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('Providers') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated Providers table: added {Column} column", column);
+            }
+        }
+
+        var registeredModelImageColumns = new (string Column, string Ddl)[]
+        {
+            ("ModelKind", "ALTER TABLE RegisteredModels ADD COLUMN ModelKind INTEGER NOT NULL DEFAULT 0"),
+            ("ImageSizeSupported", "ALTER TABLE RegisteredModels ADD COLUMN ImageSizeSupported TEXT NULL"),
+            ("SupportsImageInput", "ALTER TABLE RegisteredModels ADD COLUMN SupportsImageInput INTEGER NOT NULL DEFAULT 0"),
+            ("MaximumInputImages", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImages INTEGER NULL"),
+            ("MaximumInputImageBytes", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImageBytes INTEGER NULL"),
+            ("MaximumInputImagePixels", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImagePixels INTEGER NULL"),
+            ("MaximumInputImageDimension", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImageDimension INTEGER NULL"),
+            ("AcceptedInputMediaTypes", "ALTER TABLE RegisteredModels ADD COLUMN AcceptedInputMediaTypes TEXT NULL"),
+            ("MaximumResponseBytes", "ALTER TABLE RegisteredModels ADD COLUMN MaximumResponseBytes INTEGER NULL"),
+            ("RuntimeRevision", "ALTER TABLE RegisteredModels ADD COLUMN RuntimeRevision TEXT NULL"),
+            ("ArtifactRevision", "ALTER TABLE RegisteredModels ADD COLUMN ArtifactRevision TEXT NULL"),
+        };
+        foreach (var (column, ddl) in registeredModelImageColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
+            }
+        }
+
+        var registeredModelEditorColumns = new (string Column, string Ddl)[]
+        {
+            ("ImageEditorDiffusionModel", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorDiffusionModel TEXT NULL"),
+            ("ImageEditorTextEncoder", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorTextEncoder TEXT NULL"),
+            ("ImageEditorVae", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorVae TEXT NULL"),
+            ("ImageEditorSteps", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorSteps INTEGER NULL"),
+            ("ImageEditorCfg", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorCfg REAL NULL"),
+            ("ImageEditorSampler", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorSampler TEXT NULL"),
+            ("ImageEditorScheduler", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorScheduler TEXT NULL"),
+            ("ImageEditorDenoise", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorDenoise REAL NULL"),
+            ("ImageEditorAuraFlowShift", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorAuraFlowShift REAL NULL"),
+            ("ImageEditorCfgNormStrength", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorCfgNormStrength REAL NULL")
+        };
+        foreach (var (column, ddl) in registeredModelEditorColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
+            }
+        }
+
+        var registeredModelIdentityColumns = new (string Column, string Ddl)[]
+        {
+            ("IdentityMechanism", "ALTER TABLE RegisteredModels ADD COLUMN IdentityMechanism TEXT NULL"),
+            ("IdentityStrength", "ALTER TABLE RegisteredModels ADD COLUMN IdentityStrength REAL NULL"),
+            ("IdentityAdapterRef", "ALTER TABLE RegisteredModels ADD COLUMN IdentityAdapterRef TEXT NULL"),
+            ("IdentityClipVisionRef", "ALTER TABLE RegisteredModels ADD COLUMN IdentityClipVisionRef TEXT NULL")
+        };
+        foreach (var (column, ddl) in registeredModelIdentityColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
+            }
+        }
+
+        // SceneImagePrompts: add RefineInstruction column (US3 refine pass) if the table exists.
+        // The table is created lazily by SceneImageRepository.EnsureSchemaAsync, so guard on table
+        // existence before attempting the ALTER (a fresh DB with no scene-image activity has no table).
+        var checkPromptTableExists = connection.CreateCommand();
+        checkPromptTableExists.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='SceneImagePrompts'";
+        if (Convert.ToInt64(await checkPromptTableExists.ExecuteScalarAsync(cancellationToken)) > 0)
+        {
+            var checkPromptRefineColumn = connection.CreateCommand();
+            checkPromptRefineColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImagePrompts') WHERE name='RefineInstruction'";
+            if (Convert.ToInt64(await checkPromptRefineColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterPromptRefine = connection.CreateCommand();
+                alterPromptRefine.CommandText = "ALTER TABLE SceneImagePrompts ADD COLUMN RefineInstruction TEXT NULL";
+                await alterPromptRefine.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImagePrompts table: added RefineInstruction column");
+            }
+        }
+
+        // SceneImages: add SettingsJson column (CR-003 "continue from this image" settings snapshot)
+        // if the table exists. The table is created lazily by SceneImageRepository.EnsureSchemaAsync.
+        var checkSceneImagesTableExists = connection.CreateCommand();
+        checkSceneImagesTableExists.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='SceneImages'";
+        if (Convert.ToInt64(await checkSceneImagesTableExists.ExecuteScalarAsync(cancellationToken)) > 0)
+        {
+            var checkImageSettingsColumn = connection.CreateCommand();
+            checkImageSettingsColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='SettingsJson'";
+            if (Convert.ToInt64(await checkImageSettingsColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterImageSettings = connection.CreateCommand();
+                alterImageSettings.CommandText = "ALTER TABLE SceneImages ADD COLUMN SettingsJson TEXT NOT NULL DEFAULT '{}'";
+                await alterImageSettings.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImages table: added SettingsJson column");
+            }
+
+            // SceneImages: add BeatId + Pov columns (CR-006 P5 — beat + POV framing persistence).
+            var checkImageBeatColumn = connection.CreateCommand();
+            checkImageBeatColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='BeatId'";
+            if (Convert.ToInt64(await checkImageBeatColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterImageBeat = connection.CreateCommand();
+                alterImageBeat.CommandText = "ALTER TABLE SceneImages ADD COLUMN BeatId TEXT NULL";
+                await alterImageBeat.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImages table: added BeatId column");
+            }
+
+            var checkImagePovColumn = connection.CreateCommand();
+            checkImagePovColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='Pov'";
+            if (Convert.ToInt64(await checkImagePovColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterImagePov = connection.CreateCommand();
+                alterImagePov.CommandText = "ALTER TABLE SceneImages ADD COLUMN Pov TEXT NULL";
+                await alterImagePov.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImages table: added Pov column");
+            }
+
+            var sceneImageEditColumns = new (string Column, string Ddl)[]
+            {
+                ("Operation", "ALTER TABLE SceneImages ADD COLUMN Operation TEXT NOT NULL DEFAULT 'Generate'"),
+                ("SourceImageId", "ALTER TABLE SceneImages ADD COLUMN SourceImageId TEXT NULL"),
+                ("EditSessionId", "ALTER TABLE SceneImages ADD COLUMN EditSessionId TEXT NULL"),
+                ("EditCompilationAttemptId", "ALTER TABLE SceneImages ADD COLUMN EditCompilationAttemptId TEXT NULL"),
+                ("EditPromptRevisionId", "ALTER TABLE SceneImages ADD COLUMN EditPromptRevisionId TEXT NULL"),
+                ("EditIntentSnapshot", "ALTER TABLE SceneImages ADD COLUMN EditIntentSnapshot TEXT NULL"),
+                ("EditCompilerProvenanceJson", "ALTER TABLE SceneImages ADD COLUMN EditCompilerProvenanceJson TEXT NULL")
+            };
+            foreach (var (column, ddl) in sceneImageEditColumns)
+            {
+                var checkColumn = connection.CreateCommand();
+                checkColumn.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='{column}'";
+                if (Convert.ToInt64(await checkColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+                {
+                    var alterColumn = connection.CreateCommand();
+                    alterColumn.CommandText = ddl;
+                    await alterColumn.ExecuteNonQueryAsync(cancellationToken);
+                    _logger.LogInformation("Migrated SceneImages table: added {Column} column", column);
+                }
+            }
+        }
+
+        var sceneImageEditSchema = connection.CreateCommand();
+        sceneImageEditSchema.CommandText = """
+            CREATE TABLE IF NOT EXISTS SceneImageEditSessions (
+                Id TEXT PRIMARY KEY,
+                SourceImageId TEXT NOT NULL,
+                SourceImageSha256 TEXT NOT NULL,
+                SessionId TEXT NOT NULL,
+                InteractionId TEXT NOT NULL,
+                Status TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                CompletedUtc TEXT NULL,
+                DescriptionText TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditSessions_Source
+                ON SceneImageEditSessions (SourceImageId);
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditSessions_Session
+                ON SceneImageEditSessions (SessionId, UpdatedUtc DESC);
+
+            CREATE TABLE IF NOT EXISTS SceneImageEditCompilationAttempts (
+                Id TEXT PRIMARY KEY,
+                EditSessionId TEXT NOT NULL,
+                Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                RawIntent TEXT NOT NULL,
+                ClarificationContextJson TEXT NULL,
+                SourceImageSha256 TEXT NOT NULL,
+                Status TEXT NOT NULL,
+                ResolvedModelSnapshotJson TEXT NOT NULL,
+                CompilerSchemaVersion TEXT NOT NULL,
+                SystemPromptVersion TEXT NOT NULL,
+                RawModelResponse TEXT NULL,
+                ParsedResultJson TEXT NULL,
+                Error TEXT NULL,
+                CreatedUtc TEXT NOT NULL,
+                StartedUtc TEXT NULL,
+                CompletedUtc TEXT NULL,
+                FOREIGN KEY (EditSessionId) REFERENCES SceneImageEditSessions(Id) ON DELETE RESTRICT,
+                UNIQUE (EditSessionId, Ordinal)
+            );
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditCompilationAttempts_SessionStatus
+                ON SceneImageEditCompilationAttempts (EditSessionId, Status, Ordinal DESC);
+
+            CREATE TABLE IF NOT EXISTS SceneImageEditPromptRevisions (
+                Id TEXT PRIMARY KEY,
+                CompilationAttemptId TEXT NOT NULL,
+                Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                Prompt TEXT NOT NULL,
+                RevisionKind TEXT NOT NULL,
+                PromptSha256 TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                FOREIGN KEY (CompilationAttemptId) REFERENCES SceneImageEditCompilationAttempts(Id) ON DELETE RESTRICT,
+                UNIQUE (CompilationAttemptId, Ordinal),
+                UNIQUE (CompilationAttemptId, PromptSha256)
+            );
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditPromptRevisions_Attempt
+                ON SceneImageEditPromptRevisions (CompilationAttemptId, Ordinal DESC);
+            """;
+        await sceneImageEditSchema.ExecuteNonQueryAsync(cancellationToken);
+
+        var checkSceneImageEditDescriptionColumn = connection.CreateCommand();
+        checkSceneImageEditDescriptionColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImageEditSessions') WHERE name='DescriptionText'";
+        var hasSceneImageEditDescriptionColumn = Convert.ToInt64(await checkSceneImageEditDescriptionColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasSceneImageEditDescriptionColumn)
+        {
+            var alterSceneImageEditDescription = connection.CreateCommand();
+            alterSceneImageEditDescription.CommandText = "ALTER TABLE SceneImageEditSessions ADD COLUMN DescriptionText TEXT NULL";
+            await alterSceneImageEditDescription.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated SceneImageEditSessions table: added DescriptionText column");
+        }
+
+        var checkAdaptiveStateJsonColumn = connection.CreateCommand();
+        checkAdaptiveStateJsonColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='AdaptiveStateJson'";
+        var hasAdaptiveStateJsonColumn = Convert.ToInt64(await checkAdaptiveStateJsonColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasAdaptiveStateJsonColumn)
+        {
+            var alterAdaptiveStateJson = connection.CreateCommand();
+            alterAdaptiveStateJson.CommandText = "ALTER TABLE Sessions ADD COLUMN AdaptiveStateJson TEXT NULL";
+            await alterAdaptiveStateJson.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated Sessions table: added AdaptiveStateJson column");
+        }
+
+        var checkMaxMilestonesToInjectColumn = connection.CreateCommand();
+        checkMaxMilestonesToInjectColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='MaxMilestonesToInject'";
+        var hasMaxMilestonesToInjectColumn = Convert.ToInt64(await checkMaxMilestonesToInjectColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasMaxMilestonesToInjectColumn)
+        {
+            var alterMaxMilestonesToInject = connection.CreateCommand();
+            alterMaxMilestonesToInject.CommandText = "ALTER TABLE Sessions ADD COLUMN MaxMilestonesToInject INTEGER NULL";
+            await alterMaxMilestonesToInject.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated Sessions table: added MaxMilestonesToInject column");
+        }
+
+        // B-058 Phase 1.2: per-session overrides for arc/encounter completion injection caps.
+        var sessionOverrideColumns = new (string Column, string Ddl)[]
+        {
+            ("MaxArcCompletionsToInject", "ALTER TABLE Sessions ADD COLUMN MaxArcCompletionsToInject INTEGER NULL"),
+            ("MaxEncounterCompletionsToInject", "ALTER TABLE Sessions ADD COLUMN MaxEncounterCompletionsToInject INTEGER NULL"),
+        };
+        foreach (var (column, ddl) in sessionOverrideColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated Sessions table: added {Column} column", column);
+            }
+        }
+
+        // RP Prompt Redesign (001-rp-prompt-redesign): 6 new per-session prompt config columns.
+        var promptConfigColumns = new (string Column, string Ddl)[]
+        {
+            ("MaxPromptChars", "ALTER TABLE Sessions ADD COLUMN MaxPromptChars INTEGER NULL"),
+            ("ContextWindowTurns", "ALTER TABLE Sessions ADD COLUMN ContextWindowTurns INTEGER NULL"),
+            ("ScenarioCompressionTurnThreshold", "ALTER TABLE Sessions ADD COLUMN ScenarioCompressionTurnThreshold INTEGER NULL"),
+            ("HistoryFullDetailTurnBand", "ALTER TABLE Sessions ADD COLUMN HistoryFullDetailTurnBand INTEGER NULL"),
+            ("HistoryNarrativeOnlyTurnBand", "ALTER TABLE Sessions ADD COLUMN HistoryNarrativeOnlyTurnBand INTEGER NULL"),
+            ("SessionMemoryLongTermTurnThreshold", "ALTER TABLE Sessions ADD COLUMN SessionMemoryLongTermTurnThreshold INTEGER NULL"),
+        };
+        foreach (var (column, ddl) in promptConfigColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('Sessions') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated Sessions table: added {Column} column", column);
+            }
+        }
+
+        // B-058 Phase 1.1/2.1: additive columns on RolePlayV2EncounterSummaries for
+        // EncounterCompletion tracking (encounter number, detection evidence, interaction range).
+        var encounterSummaryColumns = new (string Column, string Ddl)[]
+        {
+            ("EncounterNumber", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN EncounterNumber INTEGER NOT NULL DEFAULT 0"),
+            ("DetectionEvidence", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN DetectionEvidence TEXT NULL"),
+            ("StartInteractionIndex", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN StartInteractionIndex INTEGER NOT NULL DEFAULT 0"),
+            ("EndInteractionIndex", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN EndInteractionIndex INTEGER NOT NULL DEFAULT 0"),
+            ("EnrichmentPrompt", "ALTER TABLE RolePlayV2EncounterSummaries ADD COLUMN EnrichmentPrompt TEXT NULL"),
+        };
+        foreach (var (column, ddl) in encounterSummaryColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RolePlayV2EncounterSummaries') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RolePlayV2EncounterSummaries table: added {Column} column", column);
+            }
+        }
+
+        // V2 unification (B-038): additive columns on RolePlayV2AdaptiveStates for fields previously
+        // held only in V1 Sessions.AdaptiveStateJson. All non-nullable with explicit defaults; existing
+        // rows pick up safe initial values.
+        var v2AdaptiveExtraColumns = new (string Column, string Ddl)[]
+        {
+            ("CompletedScenarios", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN CompletedScenarios INTEGER NOT NULL DEFAULT 0"),
+            ("TurnsSinceCommitment", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TurnsSinceCommitment INTEGER NOT NULL DEFAULT 0"),
+            ("TurnsInApproaching", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN TurnsInApproaching INTEGER NOT NULL DEFAULT 0"),
+            ("ScenarioCommitmentTimeUtc", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN ScenarioCommitmentTimeUtc TEXT NULL"),
+            ("SemanticStepSucceeded", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticStepSucceeded INTEGER NOT NULL DEFAULT 1"),
+            ("SemanticDeltaBreakdownsJson", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticDeltaBreakdownsJson TEXT NOT NULL DEFAULT '[]'"),
+            ("SemanticStatDeltaBreakdownsJson", "ALTER TABLE RolePlayV2AdaptiveStates ADD COLUMN SemanticStatDeltaBreakdownsJson TEXT NOT NULL DEFAULT '[]'"),
+        };
+        foreach (var (column, ddl) in v2AdaptiveExtraColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RolePlayV2AdaptiveStates') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RolePlayV2AdaptiveStates table: added {Column} column", column);
+            }
+        }
+
+        // B-044: rename Interaction* columns to Turn* on V2 tables and convert stored values
+        // from interaction units to turn units (÷3 ceiling). Idempotent — skips already-renamed columns.
+        await MigrateV2ColumnsToTurnsAsync(connection, cancellationToken);
 
         var shouldRunLegacyMigrations = await ShouldRunLegacyMigrationsAsync(connection, cancellationToken);
         if (!shouldRunLegacyMigrations)
@@ -1566,6 +2271,53 @@ public sealed class SqlitePersistence : ISqlitePersistence
             _logger.LogInformation("Migrated StyleProfiles table: added ThemeAffinities, EscalatingThemeIds, StatBias columns");
         }
 
+        // Migrate: add ImmersionDirective, ActionDirective, WordTargetMin, WordTargetMax,
+        // NarrativeWordTargetMin, NarrativeWordTargetMax columns to StyleProfiles if missing
+        var checkImmersionDirective = connection.CreateCommand();
+        checkImmersionDirective.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StyleProfiles') WHERE name='ImmersionDirective'";
+        var hasImmersionDirective = Convert.ToInt64(await checkImmersionDirective.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasImmersionDirective)
+        {
+            var alterImmersion = connection.CreateCommand();
+            alterImmersion.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN ImmersionDirective TEXT NOT NULL DEFAULT ''";
+            await alterImmersion.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterAction = connection.CreateCommand();
+            alterAction.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN ActionDirective TEXT NOT NULL DEFAULT ''";
+            await alterAction.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterWordMin = connection.CreateCommand();
+            alterWordMin.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN WordTargetMin INTEGER NOT NULL DEFAULT 0";
+            await alterWordMin.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterWordMax = connection.CreateCommand();
+            alterWordMax.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN WordTargetMax INTEGER NOT NULL DEFAULT 0";
+            await alterWordMax.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterNarrMin = connection.CreateCommand();
+            alterNarrMin.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN NarrativeWordTargetMin INTEGER NOT NULL DEFAULT 0";
+            await alterNarrMin.ExecuteNonQueryAsync(cancellationToken);
+
+            var alterNarrMax = connection.CreateCommand();
+            alterNarrMax.CommandText = "ALTER TABLE StyleProfiles ADD COLUMN NarrativeWordTargetMax INTEGER NOT NULL DEFAULT 0";
+            await alterNarrMax.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogInformation("Migrated StyleProfiles table: added ImmersionDirective, ActionDirective, WordTargetMin, WordTargetMax, NarrativeWordTargetMin, NarrativeWordTargetMax columns");
+        }
+
+        // Migrate: add DirectiveText column to RPThemePhaseGuidance if missing
+        var checkPhaseDirective = connection.CreateCommand();
+        checkPhaseDirective.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPThemePhaseGuidance') WHERE name='DirectiveText'";
+        var hasPhaseDirective = Convert.ToInt64(await checkPhaseDirective.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasPhaseDirective)
+        {
+            var alterPhaseDirective = connection.CreateCommand();
+            alterPhaseDirective.CommandText = "ALTER TABLE RPThemePhaseGuidance ADD COLUMN DirectiveText TEXT NOT NULL DEFAULT ''";
+            await alterPhaseDirective.ExecuteNonQueryAsync(cancellationToken);
+
+            _logger.LogInformation("Migrated RPThemePhaseGuidance table: added DirectiveText column");
+        }
+
         // Migrate: add CatalogId column to ThemePreferences if missing
         var checkCatalogId = connection.CreateCommand();
         checkCatalogId.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ThemePreferences') WHERE name='CatalogId'";
@@ -1579,9 +2331,112 @@ public sealed class SqlitePersistence : ISqlitePersistence
             _logger.LogInformation("Migrated ThemePreferences table: added CatalogId column");
         }
 
+        // B-042: Migrate BaseStatProfiles and HusbandAwarenessProfiles → CharacterProfiles
+        // Delete the synthetic "Balanced Baseline" seed that is superseded by per-role unified archetypes.
+        var deleteBalancedBaseline = connection.CreateCommand();
+        deleteBalancedBaseline.CommandText = "DELETE FROM BaseStatProfiles WHERE Name = 'Balanced Baseline'";
+        await deleteBalancedBaseline.ExecuteNonQueryAsync(cancellationToken);
+
+        // Migrate BaseStatProfiles → CharacterProfiles (INSERT OR IGNORE = safe to re-run)
+        var migrateBaseStats = connection.CreateCommand();
+        migrateBaseStats.CommandText = """
+            INSERT OR IGNORE INTO CharacterProfiles
+                (Id, Name, Description, TargetGender, TargetRole,
+                 CharacterStatsJson, EncounterStatsJson, AdditionalNotes,
+                 FullOverride, IsSeeded, CreatedUtc, UpdatedUtc)
+            SELECT
+                Id, Name, Description,
+                COALESCE(TargetGender, 'Any'), COALESCE(TargetRole, 'Any'),
+                COALESCE(DefaultStatsJson, '{}'), '{}', '',
+                0, 1, CreatedUtc, UpdatedUtc
+            FROM BaseStatProfiles;
+            """;
+        await migrateBaseStats.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("B-042: Migrated BaseStatProfiles → CharacterProfiles");
+
+        // Migrate HusbandAwarenessProfiles → CharacterProfiles (INSERT OR IGNORE = safe to re-run)
+        var migrateHusband = connection.CreateCommand();
+        migrateHusband.CommandText = """
+            INSERT OR IGNORE INTO CharacterProfiles
+                (Id, Name, Description, TargetGender, TargetRole,
+                 CharacterStatsJson, EncounterStatsJson, AdditionalNotes,
+                 FullOverride, IsSeeded, CreatedUtc, UpdatedUtc)
+            SELECT
+                Id, Name, Description,
+                'Any', 'Husband',
+                '{"Desire":50,"Restraint":50,"Tension":50,"Connection":50,"Dominance":50,"Loyalty":50,"SelfRespect":50}',
+                json_object(
+                    'Awareness',     AwarenessLevel,
+                    'Acceptance',    AcceptanceLevel,
+                    'Voyeurism',     VoyeurismLevel,
+                    'Participation', ParticipationLevel,
+                    'Encouragement', EncouragementLevel,
+                    'RiskTolerance', RiskTolerance
+                ),
+                COALESCE(Notes, ''),
+                0, 1, CreatedUtc, UpdatedUtc
+            FROM HusbandAwarenessProfiles;
+            """;
+        await migrateHusband.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("B-042: Migrated HusbandAwarenessProfiles → CharacterProfiles");
+
         await MarkLegacyMigrationsCompleteAsync(connection, cancellationToken);
 
     AfterLegacyMigrations:
+
+        // Thinking-control migrations must run for every database, including databases whose
+        // legacy migration version is already complete.
+        var checkThinkingControl = connection.CreateCommand();
+        checkThinkingControl.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='SupportsThinkingControl'";
+        var hasThinkingControl = Convert.ToInt64(await checkThinkingControl.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasThinkingControl)
+        {
+            var alterThinkingControl = connection.CreateCommand();
+            alterThinkingControl.CommandText = "ALTER TABLE RegisteredModels ADD COLUMN SupportsThinkingControl INTEGER NOT NULL DEFAULT 0";
+            await alterThinkingControl.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RegisteredModels table: added SupportsThinkingControl column");
+        }
+
+        var checkThinkingMode = connection.CreateCommand();
+        checkThinkingMode.CommandText = "SELECT COUNT(*) FROM pragma_table_info('FunctionModelDefaults') WHERE name='ThinkingMode'";
+        var hasThinkingMode = Convert.ToInt64(await checkThinkingMode.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasThinkingMode)
+        {
+            var addThinkingMode = connection.CreateCommand();
+            addThinkingMode.CommandText = "ALTER TABLE FunctionModelDefaults ADD COLUMN ThinkingMode INTEGER NOT NULL DEFAULT 0";
+            await addThinkingMode.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated FunctionModelDefaults: added ThinkingMode column");
+        }
+
+        // B-078 follow-up: config-backed event-catalog descriptions for semantic inference clarity.
+        var checkEventMappingDescription = connection.CreateCommand();
+        checkEventMappingDescription.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RPThemeSemanticEventMappings') WHERE name='Description'";
+        var hasEventMappingDescription = Convert.ToInt64(await checkEventMappingDescription.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasEventMappingDescription)
+        {
+            var addEventMappingDescription = connection.CreateCommand();
+            addEventMappingDescription.CommandText = "ALTER TABLE RPThemeSemanticEventMappings ADD COLUMN Description TEXT NOT NULL DEFAULT ''";
+            await addEventMappingDescription.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RPThemeSemanticEventMappings: added Description column");
+        }
+
+        // 001-opening-period: seed OpeningGuidanceText into scenario payload JSON.
+        // Runs unconditionally (outside the legacy-migration gate) so existing DBs get seeded.
+        // Idempotent: only sets the field when missing/empty. The value flows to the prompt
+        // builder via Scenario.OpeningGuidanceText (deserialized from PayloadJson).
+        var openingGuidanceSeed = connection.CreateCommand();
+        openingGuidanceSeed.CommandText = """
+            UPDATE Scenarios
+            SET PayloadJson = json_set(
+                PayloadJson,
+                '$.OpeningGuidanceText',
+                'Introduce the characters and the scenario — who they are, how they fit into their world, and the situation they are in now — grounded in the character profiles and descriptions. State the marriage as it currently is: a settled, long-established couple with a sex life that matches their stats. When their Desire is high and their Restraint is low, they are sexually active and recently intimate — comfortable with each other''s bodies, past courtship and discovery. When their stats are muted, show that instead: a physical life that is routine or subdued. On-screen intimacy is allowed in the opening only when their profiles and current state support it. This is not about them reconnecting or reaching for emotional closeness; their dynamic is already fixed. Sketch their routines, the rhythm of their days, and the setting. Let the potential arcs foreshadow quietly in the background. Keep the focus on the husband and wife; other characters remain in the background.'
+            )
+            WHERE json_extract(PayloadJson, '$.OpeningGuidanceText') IS NULL
+               OR json_extract(PayloadJson, '$.OpeningGuidanceText') = '';
+            """;
+        var openingGuidanceSeeded = await openingGuidanceSeed.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("001-opening-period: Seeded OpeningGuidanceText on {ScenarioCount} scenario(s)", openingGuidanceSeeded);
 
         // Seed Model Manager tables on first run (empty Providers table)
         var checkProviders = connection.CreateCommand();
@@ -1691,6 +2546,18 @@ public sealed class SqlitePersistence : ISqlitePersistence
         var updatedRows = await updateAssistantTokens.ExecuteNonQueryAsync(cancellationToken);
         if (updatedRows > 0)
             _logger.LogInformation("Migrated RolePlayAssistant function default: MaxTokens 500 → 2000");
+
+        // Migrate: add MaxConcurrentJobs column to FunctionModelDefaults (semantic model concurrency control)
+        var checkMaxConcurrent = connection.CreateCommand();
+        checkMaxConcurrent.CommandText = "SELECT COUNT(*) FROM pragma_table_info('FunctionModelDefaults') WHERE name='MaxConcurrentJobs'";
+        var hasMaxConcurrentJobs = Convert.ToInt64(await checkMaxConcurrent.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasMaxConcurrentJobs)
+        {
+            var addMaxConcurrent = connection.CreateCommand();
+            addMaxConcurrent.CommandText = "ALTER TABLE FunctionModelDefaults ADD COLUMN MaxConcurrentJobs INTEGER NULL";
+            await addMaxConcurrent.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated FunctionModelDefaults: added MaxConcurrentJobs column");
+        }
 
         // Migrate: ensure ScenarioEngineSettings table exists (for databases created before this table was added)
         var checkEngineSettings = connection.CreateCommand();
@@ -2523,43 +3390,20 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var hasPhaseOffsets = await HasTonePhaseOffsetColumnsAsync(connection, cancellationToken);
-        var hasSceneDirective = hasPhaseOffsets && await HasToneSceneDirectiveColumnAsync(connection, cancellationToken);
 
         string commandText;
-        if (hasSceneDirective)
+        if (hasPhaseOffsets)
         {
             commandText = """
                 INSERT INTO ToneProfiles (
                     Id, Name, Description, Intensity,
                     BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset,
-                    SceneDirective, CreatedUtc, UpdatedUtc)
-                VALUES (
-                    $id, $name, $description, $intensity,
-                    $buildUpPhaseOffset, $committedPhaseOffset, $approachingPhaseOffset, $climaxPhaseOffset, $resetPhaseOffset,
-                    $sceneDirective, $createdUtc, $updatedUtc)
-                ON CONFLICT(Id) DO UPDATE SET
-                    Name = $name,
-                    Description = $description,
-                    Intensity = $intensity,
-                    BuildUpPhaseOffset = $buildUpPhaseOffset,
-                    CommittedPhaseOffset = $committedPhaseOffset,
-                    ApproachingPhaseOffset = $approachingPhaseOffset,
-                    ClimaxPhaseOffset = $climaxPhaseOffset,
-                    ResetPhaseOffset = $resetPhaseOffset,
-                    SceneDirective = $sceneDirective,
-                    UpdatedUtc = $updatedUtc;
-                """;
-        }
-        else if (hasPhaseOffsets)
-        {
-            commandText = """
-                INSERT INTO ToneProfiles (
-                    Id, Name, Description, Intensity,
-                    BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset,
+                    ProseStyleDirective, VoiceDirective, ToneDirective, FocusDirective, HeatLevelDirective,
                     CreatedUtc, UpdatedUtc)
                 VALUES (
                     $id, $name, $description, $intensity,
                     $buildUpPhaseOffset, $committedPhaseOffset, $approachingPhaseOffset, $climaxPhaseOffset, $resetPhaseOffset,
+                    $proseStyleDirective, $voiceDirective, $toneDirective, $focusDirective, $heatLevelDirective,
                     $createdUtc, $updatedUtc)
                 ON CONFLICT(Id) DO UPDATE SET
                     Name = $name,
@@ -2570,6 +3414,11 @@ public sealed class SqlitePersistence : ISqlitePersistence
                     ApproachingPhaseOffset = $approachingPhaseOffset,
                     ClimaxPhaseOffset = $climaxPhaseOffset,
                     ResetPhaseOffset = $resetPhaseOffset,
+                    ProseStyleDirective = $proseStyleDirective,
+                    VoiceDirective = $voiceDirective,
+                    ToneDirective = $toneDirective,
+                    FocusDirective = $focusDirective,
+                    HeatLevelDirective = $heatLevelDirective,
                     UpdatedUtc = $updatedUtc;
                 """;
         }
@@ -2598,10 +3447,11 @@ public sealed class SqlitePersistence : ISqlitePersistence
             command.Parameters.AddWithValue("$approachingPhaseOffset", profile.ApproachingPhaseOffset);
             command.Parameters.AddWithValue("$climaxPhaseOffset", profile.ClimaxPhaseOffset);
             command.Parameters.AddWithValue("$resetPhaseOffset", profile.ResetPhaseOffset);
-        }
-        if (hasSceneDirective)
-        {
-            command.Parameters.AddWithValue("$sceneDirective", profile.SceneDirective);
+            command.Parameters.AddWithValue("$proseStyleDirective", profile.ProseStyleDirective);
+            command.Parameters.AddWithValue("$voiceDirective", profile.VoiceDirective);
+            command.Parameters.AddWithValue("$toneDirective", profile.ToneDirective);
+            command.Parameters.AddWithValue("$focusDirective", profile.FocusDirective);
+            command.Parameters.AddWithValue("$heatLevelDirective", profile.HeatLevelDirective);
         }
         command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
@@ -2616,14 +3466,11 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var hasPhaseOffsets = await HasTonePhaseOffsetColumnsAsync(connection, cancellationToken);
-        var hasSceneDirective = hasPhaseOffsets && await HasToneSceneDirectiveColumnAsync(connection, cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = hasSceneDirective
-            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc, SceneDirective FROM ToneProfiles WHERE Id = $id"
-            : hasPhaseOffsets
-                ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id"
-                : "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id";
+        command.CommandText = hasPhaseOffsets
+            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, ProseStyleDirective, VoiceDirective, ToneDirective, FocusDirective, HeatLevelDirective, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id"
+            : "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -2632,7 +3479,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
             return null;
         }
 
-        return ReadToneProfile(reader, hasPhaseOffsets, hasSceneDirective);
+        return ReadToneProfile(reader, hasPhaseOffsets);
     }
 
     public async Task<List<IntensityProfile>> LoadAllToneProfilesAsync(CancellationToken cancellationToken = default)
@@ -2641,20 +3488,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var hasPhaseOffsets = await HasTonePhaseOffsetColumnsAsync(connection, cancellationToken);
-        var hasSceneDirective = hasPhaseOffsets && await HasToneSceneDirectiveColumnAsync(connection, cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = hasSceneDirective
-            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc, SceneDirective FROM ToneProfiles ORDER BY Name"
-            : hasPhaseOffsets
-                ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name"
-                : "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name";
+        command.CommandText = hasPhaseOffsets
+            ? "SELECT Id, Name, Description, Intensity, BuildUpPhaseOffset, CommittedPhaseOffset, ApproachingPhaseOffset, ClimaxPhaseOffset, ResetPhaseOffset, ProseStyleDirective, VoiceDirective, ToneDirective, FocusDirective, HeatLevelDirective, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name"
+            : "SELECT Id, Name, Description, Intensity, CreatedUtc, UpdatedUtc FROM ToneProfiles ORDER BY Name";
 
         var results = new List<IntensityProfile>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            results.Add(ReadToneProfile(reader, hasPhaseOffsets, hasSceneDirective));
+            results.Add(ReadToneProfile(reader, hasPhaseOffsets));
         }
 
         return results;
@@ -2674,10 +3518,12 @@ public sealed class SqlitePersistence : ISqlitePersistence
         return rowsAffected > 0;
     }
 
-    private static IntensityProfile ReadToneProfile(SqliteDataReader reader, bool hasPhaseOffsets, bool hasSceneDirective)
+    private static IntensityProfile ReadToneProfile(SqliteDataReader reader, bool hasPhaseOffsets)
     {
-        var createdColumnIndex = hasPhaseOffsets ? 9 : 4;
-        var updatedColumnIndex = hasPhaseOffsets ? 10 : 5;
+        // hasDirectivesNew: true when the 5 directive columns were added (after phase offsets at cols 4-8, col 9+)
+        var hasDirectivesNew = hasPhaseOffsets && reader.FieldCount > 11; // 12+ cols includes directives
+        var createdColBase = hasPhaseOffsets ? (hasDirectivesNew ? 14 : 9) : 4;
+        var updatedCol = createdColBase + 1;
 
         return new IntensityProfile
         {
@@ -2692,18 +3538,14 @@ public sealed class SqlitePersistence : ISqlitePersistence
             ApproachingPhaseOffset = hasPhaseOffsets ? reader.GetInt32(6) : 1,
             ClimaxPhaseOffset = hasPhaseOffsets ? reader.GetInt32(7) : 2,
             ResetPhaseOffset = hasPhaseOffsets ? reader.GetInt32(8) : -1,
-            CreatedUtc = DateTime.TryParse(reader.GetString(createdColumnIndex), out var created) ? created : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(updatedColumnIndex), out var updated) ? updated : DateTime.UtcNow,
-            SceneDirective = hasSceneDirective && !reader.IsDBNull(11) ? reader.GetString(11) : string.Empty
+            ProseStyleDirective = hasDirectivesNew ? reader.GetString(9) : string.Empty,
+            VoiceDirective = hasDirectivesNew ? reader.GetString(10) : string.Empty,
+            ToneDirective = hasDirectivesNew ? reader.GetString(11) : string.Empty,
+            FocusDirective = hasDirectivesNew ? reader.GetString(12) : string.Empty,
+            HeatLevelDirective = hasDirectivesNew ? reader.GetString(13) : string.Empty,
+            CreatedUtc = DateTime.TryParse(reader.GetString(createdColBase), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(updatedCol), out var updated) ? updated : DateTime.UtcNow
         };
-    }
-
-    private static async Task<bool> HasToneSceneDirectiveColumnAsync(SqliteConnection connection, CancellationToken cancellationToken)
-    {
-        var check = connection.CreateCommand();
-        check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ToneProfiles') WHERE name='SceneDirective'";
-        var count = Convert.ToInt64(await check.ExecuteScalarAsync(cancellationToken));
-        return count == 1;
     }
 
     private static async Task<bool> HasTonePhaseOffsetColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -2897,6 +3739,146 @@ public sealed class SqlitePersistence : ISqlitePersistence
         }
     }
 
+    // B-044: rename Interaction* columns to Turn* on V2 tables and convert stored values
+    // from interaction units to turn units (÷3 ceiling). Idempotent — skips already-renamed columns.
+    // Also rewrites RPThemeMachineTransitions.GateConfigJson: minimumInteractions → minimumTurns (÷3 ceiling).
+    private async Task MigrateV2ColumnsToTurnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        // Column renames with idempotency: skip if old column missing OR new column already present.
+        var renames = new (string Table, string OldCol, string NewCol)[]
+        {
+            ("RolePlayV2AdaptiveStates",    "InteractionCountInPhase",     "TurnCountInPhase"),
+            ("RolePlayV2AdaptiveStates",    "InteractionsSinceCommitment", "TurnsSinceCommitment"),
+            ("RolePlayV2AdaptiveStates",    "InteractionsInApproaching",   "TurnsInApproaching"),
+            ("RolePlayV2ThemeScores",       "CompletionCooldownInteractions", "CompletionCooldownTurns"),
+            ("RolePlayV2ScenarioHistory",   "InteractionCount",            "TurnCount"),
+            ("RolePlayV2EncounterSummaries","InteractionCountInPhase",     "TurnCountInPhase"),
+        };
+
+        foreach (var (table, oldCol, newCol) in renames)
+        {
+            var hasOld = await ColumnExistsAsync(connection, table, oldCol, cancellationToken);
+            var hasNew = await ColumnExistsAsync(connection, table, newCol, cancellationToken);
+            if (!hasOld || hasNew) continue;
+
+            var renameCmd = connection.CreateCommand();
+            renameCmd.CommandText = $"ALTER TABLE {table} RENAME COLUMN {oldCol} TO {newCol}";
+            await renameCmd.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("B-044 migration: renamed {Table}.{OldCol} → {NewCol}", table, oldCol, newCol);
+
+            // Convert the numeric values from interaction units to turn units (÷3 ceiling).
+            var updateCmd = connection.CreateCommand();
+            updateCmd.CommandText = $"UPDATE {table} SET {newCol} = MAX(0, ({newCol} + 2) / 3)";
+            await updateCmd.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("B-044 migration: converted {Table}.{NewCol} values (÷3 ceiling)", table, newCol);
+        }
+
+        // Rewrite theme machine gate JSON: minimumInteractions → minimumTurns with ÷3 value.
+        await MigrateGateConfigJsonToTurnsAsync(connection, cancellationToken);
+    }
+
+    private static async Task<bool> ColumnExistsAsync(SqliteConnection connection, string table, string column, CancellationToken cancellationToken)
+    {
+        var cmd = connection.CreateCommand();
+        cmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name='{column}'";
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(cancellationToken)) > 0;
+    }
+
+    private async Task MigrateGateConfigJsonToTurnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        // Select rows whose GateConfigJson contains the legacy key.
+        var selectCmd = connection.CreateCommand();
+        selectCmd.CommandText = """
+            SELECT TransitionId, GateConfigJson FROM RPThemeMachineTransitions
+            WHERE GateConfigJson LIKE '%minimumInteractions%'
+            """;
+
+        await using var reader = await selectCmd.ExecuteReaderAsync(cancellationToken);
+        var updates = new List<(string TransitionId, string NewJson)>();
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var transitionId = reader.GetString(0);
+            var oldJson = reader.GetString(1);
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(oldJson);
+                var root = doc.RootElement;
+
+                // Read legacy minimumInteractions if present.
+                int legacyValue = 0;
+                bool hasLegacy = false;
+                if (root.TryGetProperty("minimumInteractions", out var legacyProp)
+                    && legacyProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                    && legacyProp.TryGetInt32(out legacyValue))
+                {
+                    hasLegacy = true;
+                }
+
+                // Skip rows that already have minimumTurns and no minimumInteractions — done.
+                bool hasNew = root.TryGetProperty("minimumTurns", out _);
+                if (!hasLegacy && hasNew) continue;
+                if (hasNew && !hasLegacy) continue;
+
+                // Determine the turn value.
+                int turnValue;
+                if (hasNew && root.TryGetProperty("minimumTurns", out var mtProp)
+                    && mtProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                    && mtProp.TryGetInt32(out var existingMt))
+                {
+                    turnValue = existingMt; // already migrated, keep
+                }
+                else
+                {
+                    turnValue = Math.Max(0, (legacyValue + 2) / 3); // ÷3 ceiling
+                }
+
+                // Build new JSON preserving all properties except minimumInteractions.
+                using var stream = new MemoryStream();
+                using var writer = new System.Text.Json.Utf8JsonWriter(stream, new System.Text.Json.JsonWriterOptions { Indented = false });
+                writer.WriteStartObject();
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (prop.NameEquals("minimumInteractions")) continue; // remove legacy key
+                    if (prop.NameEquals("minimumTurns"))
+                    {
+                        writer.WriteNumber("minimumTurns", turnValue);
+                        continue;
+                    }
+                    prop.WriteTo(writer);
+                }
+                // If minimumTurns was not in the original, add it now.
+                if (!root.TryGetProperty("minimumTurns", out _))
+                {
+                    writer.WriteNumber("minimumTurns", turnValue);
+                }
+                writer.WriteEndObject();
+                writer.Flush();
+
+                var newJson = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+                updates.Add((transitionId, newJson));
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                _logger.LogWarning(ex, "B-044 migration: failed to parse GateConfigJson for transition {TransitionId}, skipping", transitionId);
+            }
+        }
+
+        foreach (var (transitionId, newJson) in updates)
+        {
+            var updateCmd = connection.CreateCommand();
+            updateCmd.CommandText = "UPDATE RPThemeMachineTransitions SET GateConfigJson = $json WHERE TransitionId = $id";
+            updateCmd.Parameters.AddWithValue("$json", newJson);
+            updateCmd.Parameters.AddWithValue("$id", transitionId);
+            await updateCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (updates.Count > 0)
+        {
+            _logger.LogInformation("B-044 migration: rewrote {Count} RPThemeMachineTransitions.GateConfigJson blobs (minimumInteractions → minimumTurns, ÷3)", updates.Count);
+        }
+    }
+
     // --- Stat willingness profile persistence ---
 
     public async Task SaveStatWillingnessProfileAsync(StatWillingnessProfile profile, CancellationToken cancellationToken = default)
@@ -3044,6 +4026,150 @@ public sealed class SqlitePersistence : ISqlitePersistence
     // --- Husband awareness profile persistence ---
 
     // --- Narrative gate profile persistence ---
+    // --- Stat resistance profile persistence ---
+
+    public async Task SaveStatResistanceProfileAsync(StatResistanceProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO StatResistanceProfiles (Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc)
+            VALUES (@id, @name, @description, @targetStatName, @isDefault, @thresholdsJson, @createdUtc, @updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name = @name,
+                Description = @description,
+                TargetStatName = @targetStatName,
+                IsDefault = @isDefault,
+                ThresholdsJson = @thresholdsJson,
+                UpdatedUtc = @updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("@id", profile.Id);
+        command.Parameters.AddWithValue("@name", profile.Name);
+        command.Parameters.AddWithValue("@description", profile.Description);
+        command.Parameters.AddWithValue("@targetStatName", profile.TargetStatName);
+        command.Parameters.AddWithValue("@isDefault", profile.IsDefault ? 1 : 0);
+        command.Parameters.AddWithValue("@thresholdsJson", JsonSerializer.Serialize(profile.Thresholds));
+        command.Parameters.AddWithValue("@createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("@updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        if (profile.IsDefault)
+        {
+            var resetDefaults = connection.CreateCommand();
+            resetDefaults.CommandText = "UPDATE StatResistanceProfiles SET IsDefault = 0 WHERE Id <> @id";
+            resetDefaults.Parameters.AddWithValue("@id", profile.Id);
+            await resetDefaults.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        _logger.LogInformation("Stat resistance profile persisted: {ProfileId}, Name={Name}", profile.Id, profile.Name);
+    }
+
+    public async Task<StatResistanceProfile?> LoadStatResistanceProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatResistanceProfiles WHERE Id = @id";
+        command.Parameters.AddWithValue("@id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadStatResistanceProfile(reader);
+    }
+
+    public async Task<StatResistanceProfile?> LoadDefaultStatResistanceProfileAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatResistanceProfiles WHERE IsDefault = 1 LIMIT 1";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return ReadStatResistanceProfile(reader);
+        }
+
+        var fallback = connection.CreateCommand();
+        fallback.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatResistanceProfiles ORDER BY UpdatedUtc DESC LIMIT 1";
+        await using var fallbackReader = await fallback.ExecuteReaderAsync(cancellationToken);
+        if (await fallbackReader.ReadAsync(cancellationToken))
+        {
+            return ReadStatResistanceProfile(fallbackReader);
+        }
+
+        return null;
+    }
+
+    public async Task<List<StatResistanceProfile>> LoadAllStatResistanceProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, Description, TargetStatName, IsDefault, ThresholdsJson, CreatedUtc, UpdatedUtc FROM StatResistanceProfiles ORDER BY Name";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var results = new List<StatResistanceProfile>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadStatResistanceProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteStatResistanceProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM StatResistanceProfiles WHERE Id = @id";
+        command.Parameters.AddWithValue("@id", id);
+
+        var rows = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Stat resistance profile deletion attempted: {ProfileId}, RowsAffected={RowsAffected}", id, rows);
+        return rows > 0;
+    }
+
+    private static StatResistanceProfile ReadStatResistanceProfile(SqliteDataReader reader)
+    {
+        List<ResistanceThreshold>? thresholds = null;
+        try
+        {
+            thresholds = JsonSerializer.Deserialize<List<ResistanceThreshold>>(reader.GetString(5));
+        }
+        catch
+        {
+            thresholds = null;
+        }
+
+        return new StatResistanceProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            TargetStatName = reader.GetString(3),
+            IsDefault = reader.GetInt32(4) == 1,
+            Thresholds = thresholds ?? [],
+            CreatedUtc = DateTime.TryParse(reader.GetString(6), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(7), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
+
 
     public async Task SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken cancellationToken = default)
     {
@@ -3390,6 +4516,150 @@ public sealed class SqlitePersistence : ISqlitePersistence
         };
     }
 
+    // --- Character profile persistence (B-042) ---
+
+    public async Task SaveCharacterProfileAsync(CharacterProfile profile, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO CharacterProfiles
+                (Id, Name, Description, TargetGender, TargetRole,
+                 CharacterStatsJson, EncounterStatsJson, AdditionalNotes, FullOverride, IsSeeded,
+                 CreatedUtc, UpdatedUtc)
+            VALUES
+                ($id, $name, $description, $targetGender, $targetRole,
+                 $characterStatsJson, $encounterStatsJson, $additionalNotes, $fullOverride, $isSeeded,
+                 $createdUtc, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET
+                Name              = $name,
+                Description       = $description,
+                TargetGender      = $targetGender,
+                TargetRole        = $targetRole,
+                CharacterStatsJson= $characterStatsJson,
+                EncounterStatsJson= $encounterStatsJson,
+                AdditionalNotes   = $additionalNotes,
+                FullOverride      = $fullOverride,
+                UpdatedUtc        = $updatedUtc;
+            """;
+
+        command.Parameters.AddWithValue("$id", profile.Id);
+        command.Parameters.AddWithValue("$name", profile.Name);
+        command.Parameters.AddWithValue("$description", profile.Description ?? "");
+        command.Parameters.AddWithValue("$targetGender", profile.TargetGender ?? "Any");
+        command.Parameters.AddWithValue("$targetRole", profile.TargetRole ?? "Any");
+        command.Parameters.AddWithValue("$characterStatsJson",
+            profile.CharacterStats.Count > 0 ? JsonSerializer.Serialize(profile.CharacterStats) : "{}");
+        command.Parameters.AddWithValue("$encounterStatsJson",
+            profile.EncounterStats.Count > 0 ? JsonSerializer.Serialize(profile.EncounterStats) : "{}");
+        command.Parameters.AddWithValue("$additionalNotes", profile.AdditionalNotes ?? "");
+        command.Parameters.AddWithValue("$fullOverride", profile.FullOverride ? 1 : 0);
+        command.Parameters.AddWithValue("$isSeeded", profile.IsSeeded ? 1 : 0);
+        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Character profile persisted: {ProfileId}, Name={Name}, Role={Role}", profile.Id, profile.Name, profile.TargetRole);
+    }
+
+    public async Task<CharacterProfile?> LoadCharacterProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT Id, Name, Description, TargetGender, TargetRole, CharacterStatsJson, EncounterStatsJson, AdditionalNotes, FullOverride, IsSeeded, CreatedUtc, UpdatedUtc " +
+            "FROM CharacterProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return ReadCharacterProfile(reader);
+    }
+
+    public async Task<List<CharacterProfile>> LoadAllCharacterProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT Id, Name, Description, TargetGender, TargetRole, CharacterStatsJson, EncounterStatsJson, AdditionalNotes, FullOverride, IsSeeded, CreatedUtc, UpdatedUtc " +
+            "FROM CharacterProfiles ORDER BY TargetRole, Name";
+
+        var results = new List<CharacterProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadCharacterProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<List<CharacterProfile>> LoadCharacterProfilesByRoleAsync(string targetRole, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT Id, Name, Description, TargetGender, TargetRole, CharacterStatsJson, EncounterStatsJson, AdditionalNotes, FullOverride, IsSeeded, CreatedUtc, UpdatedUtc " +
+            "FROM CharacterProfiles WHERE TargetRole = $role ORDER BY Name";
+        command.Parameters.AddWithValue("$role", targetRole);
+
+        var results = new List<CharacterProfile>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadCharacterProfile(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> DeleteCharacterProfileAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM CharacterProfiles WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+
+        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+        _logger.LogInformation("Character profile deletion attempted: {ProfileId}, RowsAffected={RowsAffected}", id, rowsAffected);
+        return rowsAffected > 0;
+    }
+
+    private static CharacterProfile ReadCharacterProfile(SqliteDataReader reader)
+    {
+        return new CharacterProfile
+        {
+            Id = reader.GetString(0),
+            Name = reader.GetString(1),
+            Description = reader.GetString(2),
+            TargetGender = reader.GetString(3),
+            TargetRole = reader.GetString(4),
+            CharacterStats = JsonSerializer.Deserialize<Dictionary<string, int>>(reader.GetString(5)) ?? [],
+            EncounterStats = JsonSerializer.Deserialize<Dictionary<string, int>>(reader.GetString(6)) ?? [],
+            AdditionalNotes = reader.GetString(7),
+            FullOverride = reader.GetInt32(8) != 0,
+            IsSeeded = reader.GetInt32(9) != 0,
+            CreatedUtc = DateTime.TryParse(reader.GetString(10), out var created) ? created : DateTime.UtcNow,
+            UpdatedUtc = DateTime.TryParse(reader.GetString(11), out var updated) ? updated : DateTime.UtcNow
+        };
+    }
+
     // --- Role definition persistence ---
 
     public async Task SaveRoleDefinitionAsync(RoleDefinition roleDefinition, CancellationToken cancellationToken = default)
@@ -3495,8 +4765,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO StyleProfiles (Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc)
-            VALUES ($id, $name, $description, $example, $ruleOfThumb, $themeAffinities, $escalatingThemeIds, $statBias, $createdUtc, $updatedUtc)
+            INSERT INTO StyleProfiles (Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc, ImmersionDirective, ActionDirective, WordTargetMin, WordTargetMax, NarrativeWordTargetMin, NarrativeWordTargetMax)
+            VALUES ($id, $name, $description, $example, $ruleOfThumb, $themeAffinities, $escalatingThemeIds, $statBias, $createdUtc, $updatedUtc, $immersionDirective, $actionDirective, $wordTargetMin, $wordTargetMax, $narrativeWordTargetMin, $narrativeWordTargetMax)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = $name,
                 Description = $description,
@@ -3505,7 +4775,13 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ThemeAffinities = $themeAffinities,
                 EscalatingThemeIds = $escalatingThemeIds,
                 StatBias = $statBias,
-                UpdatedUtc = $updatedUtc;
+                UpdatedUtc = $updatedUtc,
+                ImmersionDirective = $immersionDirective,
+                ActionDirective = $actionDirective,
+                WordTargetMin = $wordTargetMin,
+                WordTargetMax = $wordTargetMax,
+                NarrativeWordTargetMin = $narrativeWordTargetMin,
+                NarrativeWordTargetMax = $narrativeWordTargetMax;
             """;
 
         command.Parameters.AddWithValue("$id", profile.Id);
@@ -3518,6 +4794,12 @@ public sealed class SqlitePersistence : ISqlitePersistence
         command.Parameters.AddWithValue("$statBias", JsonSerializer.Serialize(profile.StatBias));
         command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$immersionDirective", profile.ImmersionDirective ?? string.Empty);
+        command.Parameters.AddWithValue("$actionDirective", profile.ActionDirective ?? string.Empty);
+        command.Parameters.AddWithValue("$wordTargetMin", profile.WordTargetMin);
+        command.Parameters.AddWithValue("$wordTargetMax", profile.WordTargetMax);
+        command.Parameters.AddWithValue("$narrativeWordTargetMin", profile.NarrativeWordTargetMin);
+        command.Parameters.AddWithValue("$narrativeWordTargetMax", profile.NarrativeWordTargetMax);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
         _logger.LogInformation("Style profile persisted: {StyleProfileId}, Name={Name}", profile.Id, profile.Name);
@@ -3529,7 +4811,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc FROM StyleProfiles WHERE Id = $id";
+        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc, ImmersionDirective, ActionDirective, WordTargetMin, WordTargetMax, NarrativeWordTargetMin, NarrativeWordTargetMax FROM StyleProfiles WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -3547,7 +4829,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc FROM StyleProfiles ORDER BY Name";
+        command.CommandText = "SELECT Id, Name, Description, Example, RuleOfThumb, ThemeAffinities, EscalatingThemeIds, StatBias, CreatedUtc, UpdatedUtc, ImmersionDirective, ActionDirective, WordTargetMin, WordTargetMax, NarrativeWordTargetMin, NarrativeWordTargetMax FROM StyleProfiles ORDER BY Name";
 
         var results = new List<SteeringProfile>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -3586,7 +4868,13 @@ public sealed class SqlitePersistence : ISqlitePersistence
             EscalatingThemeIds = JsonSerializer.Deserialize<List<string>>(reader.GetString(6)) ?? [],
             StatBias = JsonSerializer.Deserialize<Dictionary<string, int>>(reader.GetString(7)) ?? new(StringComparer.OrdinalIgnoreCase),
             CreatedUtc = DateTime.TryParse(reader.GetString(8), out var created) ? created : DateTime.UtcNow,
-            UpdatedUtc = DateTime.TryParse(reader.GetString(9), out var updated) ? updated : DateTime.UtcNow
+            UpdatedUtc = DateTime.TryParse(reader.GetString(9), out var updated) ? updated : DateTime.UtcNow,
+            ImmersionDirective = reader.FieldCount > 10 ? reader.GetString(10) : string.Empty,
+            ActionDirective = reader.FieldCount > 11 ? reader.GetString(11) : string.Empty,
+            WordTargetMin = reader.FieldCount > 12 ? reader.GetInt32(12) : 0,
+            WordTargetMax = reader.FieldCount > 13 ? reader.GetInt32(13) : 0,
+            NarrativeWordTargetMin = reader.FieldCount > 14 ? reader.GetInt32(14) : 0,
+            NarrativeWordTargetMax = reader.FieldCount > 15 ? reader.GetInt32(15) : 0,
         };
     }
 
@@ -4313,5 +5601,105 @@ public sealed class SqlitePersistence : ISqlitePersistence
         }
 
         return sanitized.Length > 32 ? sanitized[..32] : sanitized;
+    }
+
+    // --- B-075: Steering Generation Records ---
+
+    public async Task SaveSteeringGenerationRecordAsync(SteeringGenerationRecord record, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT OR REPLACE INTO SteeringGenerationRecords
+                (Id, SessionId, GenerationPrompt, GenerationResponse, ParsedOptionsJson,
+                 CharacterSnapshotJson, ActiveThemeId, ActiveThemeLabel, Phase,
+                 ModelIdentifier, ProviderName, Temperature, TopP, MaxTokens,
+                 Succeeded, ErrorMessage, SelectedDirectiveSummary,
+                 StagedInteractionId, ContinuationInteractionId,
+                 CreatedUtc, UpdatedUtc)
+            VALUES
+                (@Id, @SessionId, @GenerationPrompt, @GenerationResponse, @ParsedOptionsJson,
+                 @CharacterSnapshotJson, @ActiveThemeId, @ActiveThemeLabel, @Phase,
+                 @ModelIdentifier, @ProviderName, @Temperature, @TopP, @MaxTokens,
+                 @Succeeded, @ErrorMessage, @SelectedDirectiveSummary,
+                 @StagedInteractionId, @ContinuationInteractionId,
+                 @CreatedUtc, @UpdatedUtc)
+            """;
+        var p = command.Parameters;
+        p.AddWithValue("@Id", record.Id);
+        p.AddWithValue("@SessionId", record.SessionId);
+        p.AddWithValue("@GenerationPrompt", record.GenerationPrompt);
+        p.AddWithValue("@GenerationResponse", record.GenerationResponse);
+        p.AddWithValue("@ParsedOptionsJson", (object?)record.ParsedOptionsJson ?? DBNull.Value);
+        p.AddWithValue("@CharacterSnapshotJson", (object?)record.CharacterSnapshotJson ?? DBNull.Value);
+        p.AddWithValue("@ActiveThemeId", (object?)record.ActiveThemeId ?? DBNull.Value);
+        p.AddWithValue("@ActiveThemeLabel", (object?)record.ActiveThemeLabel ?? DBNull.Value);
+        p.AddWithValue("@Phase", (object?)record.Phase ?? DBNull.Value);
+        p.AddWithValue("@ModelIdentifier", (object?)record.ModelIdentifier ?? DBNull.Value);
+        p.AddWithValue("@ProviderName", (object?)record.ProviderName ?? DBNull.Value);
+        p.AddWithValue("@Temperature", (object?)record.Temperature ?? DBNull.Value);
+        p.AddWithValue("@TopP", (object?)record.TopP ?? DBNull.Value);
+        p.AddWithValue("@MaxTokens", (object?)record.MaxTokens ?? DBNull.Value);
+        p.AddWithValue("@Succeeded", record.Succeeded ? 1L : 0L);
+        p.AddWithValue("@ErrorMessage", (object?)record.ErrorMessage ?? DBNull.Value);
+        p.AddWithValue("@SelectedDirectiveSummary", (object?)record.SelectedDirectiveSummary ?? DBNull.Value);
+        p.AddWithValue("@StagedInteractionId", (object?)record.StagedInteractionId ?? DBNull.Value);
+        p.AddWithValue("@ContinuationInteractionId", (object?)record.ContinuationInteractionId ?? DBNull.Value);
+        p.AddWithValue("@CreatedUtc", record.CreatedUtc.ToString("O"));
+        p.AddWithValue("@UpdatedUtc", record.UpdatedUtc.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<SteeringGenerationRecord?> LoadSteeringGenerationRecordAsync(string id, CancellationToken ct = default)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync(ct);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT * FROM SteeringGenerationRecords WHERE Id = @Id";
+        command.Parameters.AddWithValue("@Id", id);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        return ReadSteeringGenerationRecord(reader);
+    }
+
+    private static SteeringGenerationRecord ReadSteeringGenerationRecord(SqliteDataReader reader)
+    {
+        return new SteeringGenerationRecord
+        {
+            Id = reader.GetString(0),
+            SessionId = reader.GetString(1),
+            GenerationPrompt = reader.GetString(2),
+            GenerationResponse = reader.GetString(3),
+            ParsedOptionsJson = reader.IsDBNull(4) ? null : reader.GetString(4),
+            CharacterSnapshotJson = reader.IsDBNull(5) ? null : reader.GetString(5),
+            ActiveThemeId = reader.IsDBNull(6) ? null : reader.GetString(6),
+            ActiveThemeLabel = reader.IsDBNull(7) ? null : reader.GetString(7),
+            Phase = reader.IsDBNull(8) ? null : reader.GetString(8),
+            ModelIdentifier = reader.IsDBNull(9) ? null : reader.GetString(9),
+            ProviderName = reader.IsDBNull(10) ? null : reader.GetString(10),
+            Temperature = reader.IsDBNull(11) ? null : reader.GetDouble(11),
+            TopP = reader.IsDBNull(12) ? null : reader.GetDouble(12),
+            MaxTokens = reader.IsDBNull(13) ? null : reader.GetInt32(13),
+            Succeeded = reader.GetInt64(14) != 0,
+            ErrorMessage = reader.IsDBNull(15) ? null : reader.GetString(15),
+            SelectedDirectiveSummary = reader.IsDBNull(16) ? null : reader.GetString(16),
+            StagedInteractionId = reader.IsDBNull(17) ? null : reader.GetString(17),
+            ContinuationInteractionId = reader.IsDBNull(18) ? null : reader.GetString(18),
+            CreatedUtc = DateTime.Parse(reader.GetString(19)),
+            UpdatedUtc = DateTime.Parse(reader.GetString(20)),
+        };
+    }
+
+    public async Task<SteeringGenerationRecord?> GetLatestSteeringGenerationRecordAsync(string sessionId)
+    {
+        await using var connection = new SqliteConnection(_options.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT * FROM SteeringGenerationRecords WHERE SessionId = @SessionId AND Succeeded = 1 ORDER BY CreatedUtc DESC LIMIT 1";
+        command.Parameters.AddWithValue("@SessionId", sessionId);
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync()) return null;
+        return ReadSteeringGenerationRecord(reader);
     }
 }

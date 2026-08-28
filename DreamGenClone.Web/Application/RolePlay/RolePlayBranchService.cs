@@ -32,10 +32,7 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
             boundedIndex = -1;
         }
 
-        var clone = await _engineService.CreateSessionAsync(
-            branchTitle, source.ScenarioId,
-            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId, source.PersonaGender, source.PersonaRole, source.PersonaRelationTargetId,
-            cancellationToken);
+        var clone = await _engineService.CreateSessionAsync(branchTitle, source.ScenarioId, cancellationToken);
         clone.ParentSessionId = source.Id;
         clone.BehaviorMode = source.BehaviorMode;
 
@@ -74,10 +71,7 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
             throw new ArgumentException($"Interaction {interactionId} not found as original in session {sourceSessionId}.", nameof(interactionId));
         }
 
-        var clone = await _engineService.CreateSessionAsync(
-            branchTitle, source.ScenarioId,
-            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId, source.PersonaGender, source.PersonaRole, source.PersonaRelationTargetId,
-            cancellationToken);
+        var clone = await _engineService.CreateSessionAsync(branchTitle, source.ScenarioId, cancellationToken);
         clone.ParentSessionId = source.Id;
         clone.BehaviorMode = source.BehaviorMode;
 
@@ -111,10 +105,7 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
             throw new ArgumentException($"Interaction {interactionId} not found as original in session {sourceSessionId}.", nameof(interactionId));
         }
 
-        var clone = await _engineService.CreateSessionAsync(
-            branchTitle, source.ScenarioId,
-            source.PersonaName, source.PersonaDescription, source.PersonaTemplateId, source.PersonaGender, source.PersonaRole, source.PersonaRelationTargetId,
-            cancellationToken);
+        var clone = await _engineService.CreateSessionAsync(branchTitle, source.ScenarioId, cancellationToken);
         clone.ParentSessionId = source.Id;
         clone.BehaviorMode = source.BehaviorMode;
 
@@ -143,7 +134,8 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
             CreatedAt = active.CreatedAt,
             IsExcluded = active.IsExcluded,
             IsHidden = active.IsHidden,
-            IsPinned = active.IsPinned
+            IsPinned = active.IsPinned,
+            NarrativePhaseAtCreation = active.NarrativePhaseAtCreation
         };
     }
 
@@ -157,7 +149,8 @@ public sealed class RolePlayBranchService : IRolePlayBranchService
             CreatedAt = interaction.CreatedAt,
             IsExcluded = interaction.IsExcluded,
             IsHidden = interaction.IsHidden,
-            IsPinned = interaction.IsPinned
+            IsPinned = interaction.IsPinned,
+            NarrativePhaseAtCreation = interaction.NarrativePhaseAtCreation
         };
     }
 }

@@ -31,6 +31,8 @@ This section outlines the absolute order of operations. These rules have the hig
 -   **Minimal Necessary Changes**: When adding a new feature or making a modification, alter the absolute minimum amount of existing code required to implement the change successfully.
 -   **Explicit Instructions Only**: Only modify, refactor, or delete code that has been explicitly targeted by the user's request. Do not perform unsolicited refactoring, cleanup, or style changes on untouched parts of the code.
 -   **Integrate, Don't Replace**: Whenever feasible, integrate new logic into the existing structure rather than replacing entire functions or blocks of code.
+-   **Diff-Only for Razor Edits**: When editing `.razor` files, prefer returning only the changed lines (unified diff format) rather than the entire file. This prevents accidental changes to unrelated sections. See `.github/instructions/razor-editing.instructions.md` for the full Razor editing rules.
+-   **Micro-Step Decomposition**: For complex multi-concept changes (especially in `.razor` files), break the task into separate sequential edits — one logical concept per edit. For example, instead of "add a table, form, and model binding" in one edit, do three separate edits: (1) add the table, (2) add the form, (3) update the model binding.
 
 ## Intelligent Tool Usage
 

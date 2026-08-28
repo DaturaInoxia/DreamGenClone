@@ -58,6 +58,169 @@
         "restartProof": true
       },
       "migratedFromDeploymentKey": "pose-dwpose-prod"
+    },
+    {
+      "endpointKey": "pose-dwpose-serverless-comfy",
+      "function": "Pose extraction (DWPose) - GitHub Integration endpoint (replaces 0.5.0 hand-built endpoint)",
+      "capability": "PoseExtraction",
+      "status": "working-validated",
+      "endpointId": "urls820tw26oew",
+      "requestUrls": {
+        "run": "https://api.runpod.ai/v2/urls820tw26oew/run",
+        "runSync": "https://api.runpod.ai/v2/urls820tw26oew/runsync",
+        "health": "https://api.runpod.ai/v2/urls820tw26oew/health"
+      },
+      "deployment": "RunPod GitHub Integration ('Start from GitHub Repo') - repo DaturaInoxia/DreamGenClone, branch master, Dockerfile helpers/runpod/serverless/dwpose-worker/Dockerfile. Every push to master auto-rebuilds + updates this endpoint. NO GHCR / NO GitHub Actions (superseded 2026-08-28).",
+      "workerImage": "registry.runpod.net/daturainoxia-dreamgenclone-master-helpers-runpod-serverless-dwpose-worker-dockerfile:198c0a86f (RunPod-built, ephemeral registry; rebuilt on push)",
+      "workerDir": "helpers/runpod/serverless/dwpose-worker",
+      "baseImage": "runpod/worker-comfyui:5.8.4-base (official worker-comfyui base)",
+      "apiContract": "OFFICIAL worker-comfyui: input.workflow (ComfyUI API JSON) + input.images[{name,image}] -> output.images[{filename,type:base64,data}]",
+      "minWorkers": 0,
+      "maxWorkers": 2,
+      "idleTimeoutSec": 300,
+      "timeoutMs": 600000,
+      "flashboot": false,
+      "gpuPool": "AMPERE_16 (RTX 4000 Ada)",
+      "env": {},
+      "modelManager": { "registered": false, "providerName": "Not registered (intentional) - same as pod" },
+      "persistence": { "standard": "Image immutable; cold start = pull RunPod-built image (~11-16 GB base) + boot. FlashBoot lever for faster pull (currently OFF).", "restartProof": true },
+      "migratedFromDeploymentKey": "pose-dwpose-prod",
+      "smokeTest": {
+        "result": "PASSED 2026-08-28 job 8053baca: COMPLETED, exec 12829ms, delay 12632ms, worker 39gtbwufhkdc5h. output.images[0] = dwpose_sls_00001_.png (base64) - pose skeleton verified via view_image. Official contract (input.workflow + input.images -> output.images) validated end-to-end.",
+        "jobInput": "official contract: {\"input\":{\"workflow\":<DWPose workflow JSON>,\"images\":[{\"name\":\"input_image.png\",\"image\":\"data:image/png;base64,...\"}]}}",
+        "expectedOutput": "rendered pose PNG at output.images[0].data (base64)"
+      },
+      "note": "Old pose-dwpose-serverless (06lhf1akdg34c2, image 0.5.0 hand-built) kept as validated fallback until this GitHub-Integration endpoint soaks green.",
+      "proof": {
+        "status": "ready",
+        "type": "dwpose",
+        "imagePath": "specs/image-generator-tests/identity-two-character/refs/dean_face.png",
+        "outDir": "artifacts/tmp/proofs/dwpose",
+        "reason": ""
+      }
+    },
+    {
+      "endpointKey": "img-juggernaut-serverless",
+      "function": "SDXL / Juggernaut XL text-to-image (first app-integrated workload)",
+      "capability": "TextToImage",
+      "status": "working-validated",
+      "endpointId": "p3e3708j6s9oa6",
+      "requestUrls": {
+        "run": "https://api.runpod.ai/v2/p3e3708j6s9oa6/run",
+        "runSync": "https://api.runpod.ai/v2/p3e3708j6s9oa6/runsync",
+        "health": "https://api.runpod.ai/v2/p3e3708j6s9oa6/health"
+      },
+      "deployment": "RunPod GitHub Integration ('Start from GitHub Repo', repo DaturaInoxia/DreamGenClone, branch master) - builds helpers/runpod/serverless/identity-worker/Dockerfile: stock runpod/worker-comfyui:5.8.4-base + comfy-node-install ComfyUI_IPAdapter_plus. Serves BOTH plain SDXL T2I and identity-conditioned (IP-Adapter regional) renders from ONE endpoint. Needs a GitHub RELEASE to rebuild. Models on Network Volume xkslgh6xo0 (checkpoint, ipadapter/, clip_vision/).",
+      "workerImage": "registry.runpod.net/daturainoxia-dreamgenclone-master-helpers-runpod-serverless-identity-worker-dockerfile:<sha> (RunPod-built, ephemeral; rebuilt on push)",
+      "workerDir": "helpers/runpod/serverless/identity-worker",
+      "baseImage": "runpod/worker-comfyui:5.8.4-base (official) + ComfyUI_IPAdapter_plus",
+      "apiContract": "OFFICIAL worker-comfyui: input.workflow + input.images -> output.images (identity refs+masks travel inline as base64; RunPodServerlessIdentityClient)",
+      "minWorkers": 0,
+      "maxWorkers": 1,
+      "idleTimeoutSec": 1800,
+      "timeoutMs": 900000,
+      "flashboot": "OFF",
+      "gpuPool": "AMPERE_16 (RTX 4000 Ada) / AMPERE_24 (A5000) - pool resolved at create from gpuTypeId",
+      "gpuTypeId": "RTX 4000 Ada",
+      "candidateGpuTypeIds": [
+        "NVIDIA RTX 4000 Ada",
+        "NVIDIA RTX A5000",
+        "NVIDIA GeForce RTX 3090 Ti"
+      ],
+      "networkVolumes": ["xkslgh6xo0"],
+      "dataCenterIds": ["EU-RO-1"],
+      "volumeModelPath": "/runpod-volume/models/checkpoints/juggernautXL_ragnarok.safetensors",
+      "env": {},
+      "modelManager": { "registered": false, "providerName": "juggernaut - register when the app points here (B-032 SceneImageStudio) " },
+      "smokeTest": {
+        "result": "PASSED 2026-08-28 job 8ef8465a-ca59-43eb-9efd-6219e57efc21-u2: COMPLETED, exec 71084ms, worker 13zdho63aiq0g2. output.images[0] = juggernaut_t2i_00001_.png (base64) - rendered via helpers/runpod/workflows/juggernaut-t2i.json, checkpoint loaded from /runpod-volume/models/checkpoints/juggernautXL_ragnarok.safetensors. Render verified via view_image (clean SDXL portrait).",
+        "jobInput": "official contract: {\"input\":{\"workflow\":<helpers/runpod/workflows/juggernaut-t2i.json>}} (pure T2I, no input images)",
+        "expectedOutput": "rendered PNG at output.images[0].data (base64)"
+      },
+      "persistence": {
+        "standard": "Model on Network Volume xkslgh6xo0 (persistent, survives cold start); worker image immutable stock base. FlashBoot lever for faster cold pull (currently OFF).",
+        "restartProof": true
+      },
+      "migratedFromDeploymentKey": "image-gen-juggernaut",
+      "note": "Juggernaut serves BOTH plain T2I and identity renders (same endpoint, same RolePlaySceneImage function default). Rebuilt via identity-worker/Dockerfile (IPAdapter_plus) once the identity models finish uploading; a GitHub RELEASE applies the rebuild. PATCH idleTimeout per dev-warm strategy.",
+      "proof": {
+        "status": "ready",
+        "type": "t2i",
+        "workflowJson": "helpers/runpod/workflows/juggernaut-t2i.json",
+        "outDir": "artifacts/tmp/proofs/juggernaut",
+        "reason": ""
+      },
+      "identityProof": {
+        "status": "pending-dockerfile",
+        "type": "identity",
+        "workflowJson": "specs/image-generator-tests/identity-two-character/prompts/matrix/c1_s1001.json",
+        "imagesJson": "helpers/runpod/serverless/proofs/identity-2char-c1.images.json",
+        "outDir": "artifacts/tmp/proofs/identity-2char",
+        "reason": "identity-worker Dockerfile (IPAdapter_plus) not deployed to this endpoint yet; requires identity models uploaded to volume + GitHub RELEASE rebuild."
+      }
+    },
+    {
+      "endpointKey": "compiler-qwen-vl-serverless",
+      "function": "Qwen2.5-VL 7B abliterated image compiler (vLLM)",
+      "capability": "ImageVisionCompiler",
+      "status": "pending-model-upload",
+      "endpointId": "",
+      "deployment": "vLLM serverless worker (NOT worker-comfyui) - worker image TBD. Model served from Network Volume at /runpod-volume/qwen-vl-edit-compiler/model. Create via create-endpoint.ps1 with minCudaVersion 13.0.",
+      "workerImage": "<vllm-worker-image-tbd>",
+      "baseImage": "TBD (vLLM serverless worker; torch CUDA 13.0 required)",
+      "gpuTypeId": "NVIDIA L40S",
+      "gpuPool": "ADA_48_PRO (L40S) - PROVEN for CUDA-13 vLLM; do NOT use A5000 (driver 550 = CUDA 12.4)",
+      "minCudaVersion": "13.0",
+      "minWorkers": 0,
+      "maxWorkers": 1,
+      "idleTimeoutSec": 1800,
+      "timeoutMs": 900000,
+      "flashboot": "OFF",
+      "networkVolumes": ["xkslgh6xo0"],
+      "dataCenterIds": ["EU-RO-1"],
+      "volumeModelPath": "/runpod-volume/qwen-vl-edit-compiler/model",
+      "env": { "VLLM_USE_FLASHINFER_SAMPLER": "0" },
+      "modelManager": { "registered": false, "providerName": "RunPod Qwen VL image compiler - TBD (existing provider 2dde3563 points at the dead pod; re-point or add when the vLLM endpoint is live)" },
+      "smokeTest": { "jobInput": "vLLM OpenAI /v1/chat/completions with image", "expectedOutput": "schema-valid structured JSON (prove-one-image.py)" },
+      "persistence": { "standard": "Model on volume; vLLM worker image immutable. CUDA-13 host required (minCudaVersion 13.0).", "restartProof": true },
+      "migratedFromDeploymentKey": "image-vision-qwen-vl-prod",
+      "note": "CRITICAL GPU CONSTRAINT: vLLM pinned torch CUDA 13.0 -> host driver >= 580. L40S is the PROVEN GPU; A5000 is FORBIDDEN (2026-08-27 driver-550 failure). create-endpoint.ps1 supports gpu.minCudaVersion since 2026-08-28.",
+      "proof": {
+        "status": "pending-model-upload",
+        "type": "qwen-vl",
+        "reason": "vLLM worker image TBD + 16.6 GB model upload to volume in progress; endpoint requires minCudaVersion 13.0 (L40S / ADA_48_PRO)."
+      }
+    },
+    {
+      "endpointKey": "img-qwen-edit-serverless",
+      "function": "Qwen-Image-Edit Rapid-AIO v23 (NSFW) image editing",
+      "capability": "ImageEdit",
+      "status": "pending-download",
+      "endpointId": "",
+      "deployment": "STOCK runpod/worker-comfyui:5.8.4-base (same as Juggernaut) + checkpoint on Network Volume at /runpod-volume/models/checkpoints/Qwen-Rapid-AIO-NSFW-v23.safetensors. Create via create-endpoint.ps1 with networkVolumes xkslgh6xo0.",
+      "workerImage": "runpod/worker-comfyui:5.8.4-base",
+      "baseImage": "runpod/worker-comfyui:5.8.4-base (official)",
+      "apiContract": "OFFICIAL worker-comfyui: input.workflow + input.images -> output.images",
+      "minWorkers": 0,
+      "maxWorkers": 1,
+      "idleTimeoutSec": 1800,
+      "timeoutMs": 900000,
+      "flashboot": "OFF",
+      "gpuPool": "AMPERE_16 / AMPERE_24",
+      "gpuTypeId": "RTX 4000 Ada",
+      "networkVolumes": ["xkslgh6xo0"],
+      "dataCenterIds": ["EU-RO-1"],
+      "volumeModelPath": "/runpod-volume/models/checkpoints/Qwen-Rapid-AIO-NSFW-v23.safetensors",
+      "env": {},
+      "modelManager": { "registered": false, "providerName": "RunPod Qwen Edit - TBD (existing provider f264400b points at the pod; re-point when the endpoint is live)" },
+      "smokeTest": { "jobInput": "official contract input.workflow + input.images (source image)", "expectedOutput": "edited PNG at output.images[0].data (base64)" },
+      "persistence": { "standard": "Model on volume; worker image immutable stock base.", "restartProof": true },
+      "migratedFromDeploymentKey": "image-edit-qwen-2511",
+      "proof": {
+        "status": "pending-download",
+        "type": "qwen-edit",
+        "reason": "28.43 GB Qwen-Rapid-AIO-NSFW-v23.safetensors download + volume upload in progress; serverless editing client (input.images + /run) still to be built."
+      }
     }
   ]
 }

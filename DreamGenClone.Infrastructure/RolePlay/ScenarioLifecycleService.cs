@@ -149,7 +149,7 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             ReasonCode = reasonCode,
             EvidencePayload = JsonSerializer.Serialize(new
             {
-                inputs.InteractionsSinceCommitment,
+                inputs.TurnsSinceCommitment,
                 inputs.ActiveScenarioConfidence,
                 inputs.ActiveScenarioFitScore,
                 averageDesire,
@@ -185,6 +185,7 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         AdaptiveScenarioState state,
         ResetReason reason,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>>? perCharacterBaselineOverrides = null,
+        IReadOnlyDictionary<string, decimal>? statDecayScaleOverrides = null,
         CancellationToken cancellationToken = default)
     {
         var nextCycleIndex = state.CycleIndex + 1;
@@ -202,9 +203,13 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         var resetState = new AdaptiveScenarioState
         {
             SessionId = state.SessionId,
-            ActiveScenarioId = state.ActiveScenarioId,
+            // Clear ActiveScenarioId on Reset so the next BuildUp enters observer mode and
+            // performs a fresh theme/scenario selection (driven by configured completion penalty,
+            // cooldown, and successor causality boosts). Preserving the just-completed scenario
+            // here defeats observer re-entry and causes the same scenario to be re-used.
+            ActiveScenarioId = null,
             CurrentPhase = NarrativePhase.Reset,
-            InteractionCountInPhase = 0,
+            TurnCountInPhase = 0,
             ConsecutiveLeadCount = 0,
             LastEvaluationUtc = DateTime.UtcNow,
             CycleIndex = nextCycleIndex,
@@ -221,18 +226,89 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                         snapshot,
                         _resetStatBaselines,
                         statPull,
-                        characterBaselines);
+                        characterBaselines,
+                        statDecayScaleOverrides);
                 })
                 .ToList()
         };
 
+        // Per-character before/after snapshot for algorithm validation. Pairs each input
+        // snapshot with its post-reset counterpart (matched by CharacterId, falling back to
+        // ordinal position) and records the per-stat baseline used plus the resulting delta.
+        var beforeAfter = state.CharacterSnapshots
+            .Select((before, index) =>
+            {
+                var after = resetState.CharacterSnapshots
+                    .FirstOrDefault(x => string.Equals(x.CharacterId, before.CharacterId, StringComparison.OrdinalIgnoreCase))
+                    ?? (index < resetState.CharacterSnapshots.Count ? resetState.CharacterSnapshots[index] : null);
+
+                IReadOnlyDictionary<string, int>? characterBaselineOverride = null;
+                if (perCharacterBaselineOverrides is not null
+                    && !string.IsNullOrWhiteSpace(before.CharacterId)
+                    && perCharacterBaselineOverrides.TryGetValue(before.CharacterId, out var ov))
+                {
+                    characterBaselineOverride = ov;
+                }
+
+                int Baseline(string statName)
+                {
+                    if (characterBaselineOverride is not null
+                        && characterBaselineOverride.TryGetValue(statName, out var perCharacter))
+                    {
+                        return Math.Clamp(perCharacter, 0, 100);
+                    }
+                    return _resetStatBaselines.TryGetValue(statName, out var configured)
+                        ? Math.Clamp(configured, 0, 100)
+                        : 50;
+                }
+
+                decimal PullFor(string statName)
+                {
+                    if (statDecayScaleOverrides is not null
+                        && statDecayScaleOverrides.TryGetValue(statName, out var scale))
+                    {
+                        return Math.Clamp(scale, 0m, 1m);
+                    }
+                    return statPull;
+                }
+
+                object StatRow(string name, int beforeVal, int afterVal) => new
+                {
+                    stat = name,
+                    before = beforeVal,
+                    baseline = Baseline(name),
+                    pull = PullFor(name),
+                    after = afterVal,
+                    delta = afterVal - beforeVal
+                };
+
+                return new
+                {
+                    characterId = before.CharacterId,
+                    stats = after is null
+                        ? Array.Empty<object>()
+                        : new[]
+                        {
+                            StatRow("Desire", before.Desire, after.Desire),
+                            StatRow("Restraint", before.Restraint, after.Restraint),
+                            StatRow("Tension", before.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50, after.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50),
+                            StatRow("Connection", before.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50, after.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50),
+                            StatRow("Dominance", before.Dominance, after.Dominance),
+                            StatRow("Loyalty", before.Loyalty, after.Loyalty),
+                            StatRow("SelfRespect", before.SelfRespect, after.SelfRespect)
+                        }
+                };
+            })
+            .ToList();
+
         _logger.LogInformation(
-            "RolePlayV2 reset executed: SessionId={SessionId} NewCycleIndex={CycleIndex} Reason={Reason} StatPull={StatPull} Baselines={Baselines}",
+            "RolePlayV2 reset executed: SessionId={SessionId} NewCycleIndex={CycleIndex} Reason={Reason} StatPull={StatPull} Baselines={Baselines} CharacterStats={CharacterStats}",
             state.SessionId,
             resetState.CycleIndex,
             reason,
             statPull,
-            JsonSerializer.Serialize(_resetStatBaselines));
+            JsonSerializer.Serialize(_resetStatBaselines),
+            JsonSerializer.Serialize(beforeAfter));
 
         return Task.FromResult(resetState);
     }
@@ -241,7 +317,8 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
         CharacterStatProfileV2 snapshot,
         IReadOnlyDictionary<string, int> baselines,
         decimal statPull,
-        IReadOnlyDictionary<string, int>? characterBaselineOverride = null)
+        IReadOnlyDictionary<string, int>? characterBaselineOverride = null,
+        IReadOnlyDictionary<string, decimal>? statDecayScaleOverrides = null)
     {
         int ResolveBaseline(string statName)
         {
@@ -257,16 +334,34 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                 : 50;
         }
 
+        decimal EffectivePull(string statName)
+        {
+            if (statDecayScaleOverrides is not null
+                && statDecayScaleOverrides.TryGetValue(statName, out var scale))
+            {
+                return Math.Clamp(scale, 0m, 1m);
+            }
+            return statPull;
+        }
+
         return new CharacterStatProfileV2
         {
             CharacterId = snapshot.CharacterId,
-            Desire = MoveTowardBaseline(snapshot.Desire, ResolveBaseline("Desire"), statPull),
-            Restraint = MoveTowardBaseline(snapshot.Restraint, ResolveBaseline("Restraint"), statPull),
-            Tension = MoveTowardBaseline(snapshot.Tension, ResolveBaseline("Tension"), statPull),
-            Connection = MoveTowardBaseline(snapshot.Connection, ResolveBaseline("Connection"), statPull),
-            Dominance = MoveTowardBaseline(snapshot.Dominance, ResolveBaseline("Dominance"), statPull),
-            Loyalty = MoveTowardBaseline(snapshot.Loyalty, ResolveBaseline("Loyalty"), statPull),
-            SelfRespect = MoveTowardBaseline(snapshot.SelfRespect, ResolveBaseline("SelfRespect"), statPull),
+            // Preserve the narrative role across the cycle boundary. The gate's average-stat
+            // computation only includes characters with a non-empty CharacterRole, so dropping
+            // it here would silently zero out gate metrics (e.g. Avg Desire) on the next arc.
+            CharacterRole = snapshot.CharacterRole,
+            Desire = MoveTowardBaseline(snapshot.Desire, ResolveBaseline("Desire"), EffectivePull("Desire")),
+            Restraint = MoveTowardBaseline(snapshot.Restraint, ResolveBaseline("Restraint"), EffectivePull("Restraint")),
+            Dominance = MoveTowardBaseline(snapshot.Dominance, ResolveBaseline("Dominance"), EffectivePull("Dominance")),
+            Loyalty = MoveTowardBaseline(snapshot.Loyalty, ResolveBaseline("Loyalty"), EffectivePull("Loyalty")),
+            SelfRespect = MoveTowardBaseline(snapshot.SelfRespect, ResolveBaseline("SelfRespect"), EffectivePull("SelfRespect")),
+            RuntimeEncounterStats = snapshot.RuntimeEncounterStats is null ? null
+                : snapshot.RuntimeEncounterStats
+                    .ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => MoveTowardBaseline(kvp.Value, ResolveBaseline(kvp.Key), EffectivePull(kvp.Key)),
+                        StringComparer.OrdinalIgnoreCase),
             SnapshotUtc = DateTime.UtcNow
         };
     }
@@ -332,13 +427,13 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
             [NarrativeGateMetricKeys.ActiveScenarioScore] = inputs.ActiveScenarioFitScore,
             [NarrativeGateMetricKeys.AverageDesire] = averageDesire,
             [NarrativeGateMetricKeys.AverageRestraint] = averageRestraint,
-            [NarrativeGateMetricKeys.InteractionsSinceCommitment] = inputs.InteractionsSinceCommitment
+            [NarrativeGateMetricKeys.TurnsSinceCommitment] = inputs.TurnsSinceCommitment
         };
 
         if (state.CurrentPhase == NarrativePhase.Committed && HasConfiguredGateRules(profile, "Committed", "Approaching"))
         {
             return EvaluateConfiguredGate(profile, "Committed", "Approaching", metricValues)
-                ? (true, NarrativePhase.Approaching, TransitionTriggerType.InteractionCountGate, "COMMITTED_TO_APPROACHING")
+                ? (true, NarrativePhase.Approaching, TransitionTriggerType.TurnCountGate, "COMMITTED_TO_APPROACHING")
                 : (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
         }
 
@@ -351,11 +446,19 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
 
         if (state.CurrentPhase == NarrativePhase.Climax)
         {
-            // Climax phase exits ONLY via explicit completion (/endclimax) or manual override.
-            // Configured gate rules for Climax→Reset are intentionally ignored here.
-            if (inputs.ManualOverride || inputs.ClimaxCompletionRequested)
+            // /endclimax is an unconditional explicit command — it always exits Climax regardless
+            // of whether a configured gate exists or whether its threshold has been reached.
+            if (inputs.ClimaxCompletionRequested)
             {
-                return (true, NarrativePhase.Reset, TransitionTriggerType.Override, "CLIMAX_TO_RESET_EXPLICIT");
+                return (true, NarrativePhase.Reset, TransitionTriggerType.Override, "CLIMAX_TO_RESET");
+            }
+
+            // Automatic exit — requires configured gate rules. No hidden fallback threshold.
+            if (HasConfiguredGateRules(profile, "Climax", "Reset"))
+            {
+                return EvaluateConfiguredGate(profile, "Climax", "Reset", metricValues)
+                    ? (true, NarrativePhase.Reset, TransitionTriggerType.Threshold, "CLIMAX_TO_RESET")
+                    : (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
             }
 
             return (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
@@ -374,8 +477,7 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
                     : (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
             }
 
-            // No configured gate: transition immediately (backward-compatible fallback).
-            return (true, NarrativePhase.BuildUp, TransitionTriggerType.Reset, "RESET_TO_BUILDUP");
+            return (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
         }
 
         return (false, state.CurrentPhase, TransitionTriggerType.Threshold, "NO_TRANSITION");
@@ -383,17 +485,24 @@ public sealed class ScenarioLifecycleService : IScenarioLifecycleService
 
     private static decimal GetAverageStat(AdaptiveScenarioState state, Func<CharacterStatProfileV2, int> selector)
     {
-        if (state.CharacterSnapshots.Count == 0)
+        // Only scenario-bound characters (those with a CharacterRole) contribute to averages.
+        // Incidental characters mentioned in narrative have no role and must not affect gating.
+        var tracked = state.CharacterSnapshots
+            .Where(x => !string.IsNullOrEmpty(x.CharacterRole))
+            .ToList();
+
+        if (tracked.Count == 0)
         {
             return 50m;
         }
 
-        return (decimal)state.CharacterSnapshots.Average(x => selector(x));
+        return (decimal)tracked.Average(x => selector(x));
     }
 
     private static int GetPhaseOrder(NarrativePhase phase)
         => phase switch
         {
+            NarrativePhase.Opening => -1,
             NarrativePhase.BuildUp => 0,
             NarrativePhase.Committed => 1,
             NarrativePhase.Approaching => 2,

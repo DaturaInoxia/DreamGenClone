@@ -19,24 +19,35 @@ using DreamGenClone.Web.Application.Export;
 using DreamGenClone.Web.Application.Import;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Prompts;
+using DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Application.StoryParser;
 using DreamGenClone.Web.Application.Story;
 using DreamGenClone.Web.Application.StoryAnalysis;
+using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Application.Processing;
 using DreamGenClone.Infrastructure.Processing;
 using Microsoft.Extensions.Options;
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Infrastructure.Administration;
 using DreamGenClone.Infrastructure.ModelManager;
+using DreamGenClone.Application.PromptTester;
+using DreamGenClone.Infrastructure.PromptTester;
 using DreamGenClone.Web.Application.Administration;
 using DreamGenClone.Web.Application.ModelManager;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Infrastructure.RolePlay;
+using Microsoft.Extensions.FileProviders;
 using Serilog.Context;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Load git-ignored per-instance secrets (Model Manager API keys, e.g. ModelManagerSecrets:RunPod).
+// The file is never committed; without it the app simply runs with DB-stored keys only.
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 builder.WebHost.UseStaticWebAssets();
 
@@ -48,6 +59,9 @@ builder.Services.Configure<StoryParserOptions>(builder.Configuration.GetSection(
 builder.Services.Configure<StoryAnalysisOptions>(builder.Configuration.GetSection(StoryAnalysisOptions.SectionName));
 builder.Services.Configure<ScenarioAdaptationOptions>(builder.Configuration.GetSection(ScenarioAdaptationOptions.SectionName));
 builder.Services.Configure<RolePlayDecisionOptions>(builder.Configuration.GetSection(RolePlayDecisionOptions.SectionName));
+builder.Services.Configure<RolePlayFeatureFlagsOptions>(builder.Configuration.GetSection(RolePlayFeatureFlagsOptions.SectionName));
+builder.Services.Configure<RolePlayMemoryOptions>(builder.Configuration.GetSection(RolePlayMemoryOptions.SectionName));
+builder.Services.Configure<RolePlayPromptOptions>(builder.Configuration.GetSection(RolePlayPromptOptions.SectionName));
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -69,6 +83,7 @@ builder.Services.AddScoped<IScenarioAdaptationService, ScenarioAdaptationService
 builder.Services.AddScoped<IScenarioTokenCounter, ScenarioTokenCounter>();
 builder.Services.AddScoped<ISessionService, SessionService>();
 builder.Services.AddScoped<ISessionCloneForkService, SessionCloneForkService>();
+builder.Services.AddScoped<DreamGenClone.Web.Domain.RolePlay.WorkspaceSettingsState>();
 builder.Services.AddScoped<DreamGenClone.Web.Application.Sessions.AutoSaveCoordinator>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<ISessionImportService, SessionImportService>();
@@ -80,8 +95,12 @@ builder.Services.AddScoped<IRolePlayAssistantService, RolePlayAssistantService>(
 builder.Services.AddScoped<IScenarioAssistantService, ScenarioAssistantService>();
 builder.Services.AddScoped<RolePlayPromptComposer>();
 builder.Services.AddScoped<IRolePlayEngineService, RolePlayEngineService>();
+builder.Services.AddScoped<IRolePlayAutoCompleteService, RolePlayAutoCompleteService>();
 builder.Services.AddScoped<IRolePlayContinuationService, RolePlayContinuationService>();
 builder.Services.AddScoped<IRolePlayAdaptiveStateService, RolePlayAdaptiveStateService>();
+builder.Services.AddScoped<ISemanticEventInferenceService, SemanticEventInferenceService>();
+builder.Services.AddScoped<ILocationDetectionService, LocationDetectionService>();
+builder.Services.AddScoped<IActorSelectionService, ActorSelectionService>();
 builder.Services.AddScoped<IRolePlayPromptRouter, RolePlayPromptRouter>();
 builder.Services.AddScoped<IRolePlayIdentityOptionsService, RolePlayIdentityOptionsService>();
 builder.Services.AddScoped<IBehaviorModeService, BehaviorModeService>();
@@ -111,6 +130,53 @@ builder.Services.AddScoped<IThemeMachineResolutionService, ThemeMachineResolutio
 builder.Services.AddScoped<IThemeMachineEvaluator, ThemeMachineEvaluator>();
 builder.Services.AddScoped<IRPThemeService, RPThemeService>();
 builder.Services.AddScoped<IRolePlayStateRepository, RolePlayStateRepository>();
+
+// RP Prompt Redesign (001-rp-prompt-redesign): new prompt architecture
+// Phase 1-2: Foundation
+builder.Services.AddScoped<IPhaseRuleOfThumbRepository>(sp =>
+    new PhaseRuleOfThumbRepository(sp.GetRequiredService<IOptions<PersistenceOptions>>().Value.ConnectionString));
+builder.Services.AddScoped<ActorProfileResolver>();
+builder.Services.AddScoped<PromptBudgetEnforcer>();
+builder.Services.AddScoped<RolePlayPromptBuilder>();
+
+// Phase 3 (US1): Zone A slots + Character Data
+builder.Services.AddScoped<IPromptSlot, SystemPrimerSlot>();
+builder.Services.AddScoped<IPromptSlot, SceneAnchorSlot>();
+builder.Services.AddScoped<IPromptSlot, ActorAssignmentSlot>();
+builder.Services.AddScoped<IPromptSlot, TurnContextSlot>();
+builder.Services.AddScoped<IPromptSlot, SceneLocationLockSlot>();
+builder.Services.AddScoped<IPromptSlot, CharacterDataSlot>();
+
+// Phase 4 (US6): Zone C directive slots (Theme Contract, Behavioral Frames, Final Instruction)
+builder.Services.AddScoped<IPromptSlot, ThemeContractSlot>();
+builder.Services.AddScoped<IPromptSlot, BehavioralFramesSlot>();
+builder.Services.AddScoped<IPromptSlot, FinalInstructionSlot>();
+
+// Phase 6 (US3): Zone B trimmable slots (Scenario Context, Current Location, Writing Style, Scene Continuity Anchor)
+builder.Services.AddScoped<IPromptSlot, ScenarioContextSlot>();
+builder.Services.AddScoped<IPromptSlot, CurrentLocationSlot>();
+builder.Services.AddScoped<IPromptSlot, WritingStyleSlot>();
+builder.Services.AddScoped<IPromptSlot, SceneContinuityAnchorSlot>();
+
+// Phase 7 (US4): Zone B tiered-history slots (Interaction History, Session Memory)
+builder.Services.AddScoped<IPromptSlot, InteractionHistorySlot>();
+builder.Services.AddScoped<IPromptSlot, SessionMemorySlot>();
+
+// Phase 8 (US5): Zone A conditional World State slot (FR-009, B-062)
+builder.Services.AddScoped<IPromptSlot, WorldStateSlot>();
+
+// Phase 9 (Polish): Zone C remaining slots (Scenario Guidance, Intensity Pacing, User Direction)
+builder.Services.AddScoped<IPromptSlot, PinnedContextSlot>();
+builder.Services.AddScoped<IPromptSlot, StagedDirectionsSlot>();
+builder.Services.AddScoped<IPromptSlot, ScenarioGuidanceSlot>();
+builder.Services.AddScoped<IPromptSlot, IntensityPacingSlot>();
+builder.Services.AddScoped<IPromptSlot, UserDirectionSlot>();
+
+// B-082: sticky continuation-settings override slot (Beat Style / Time Shift / Granularity / Scene Presence overrides)
+builder.Services.AddScoped<IPromptSlot, ContinuationOverrideSlot>();
+
+builder.Services.AddScoped<IEncounterSummaryService, EncounterSummaryService>();
+builder.Services.AddScoped<ISemanticInteractionAnalysisRepository, SemanticInteractionAnalysisRepository>();
 builder.Services.AddScoped<IRolePlayDiagnosticsRepository, RolePlayDiagnosticsRepository>();
 builder.Services.AddScoped<IRolePlayDiagnosticsService, RolePlayDiagnosticsService>();
 builder.Services.AddScoped<RolePlaySessionCompatibilityService>();
@@ -142,8 +208,11 @@ builder.Services.AddScoped<ICharacterStatPresetImportService, CharacterStatPrese
 builder.Services.AddScoped<IStatKeywordCategoryService, StatKeywordCategoryService>();
 builder.Services.AddScoped<IBaseStatProfileService, BaseStatProfileService>();
 builder.Services.AddScoped<IStatWillingnessProfileService, StatWillingnessProfileService>();
+builder.Services.AddScoped<IStatResistanceProfileService, StatResistanceProfileService>();
 builder.Services.AddScoped<INarrativeGateProfileService, NarrativeGateProfileService>();
 builder.Services.AddScoped<IHusbandAwarenessProfileService, HusbandAwarenessProfileService>();
+builder.Services.AddScoped<ICharacterProfileService, CharacterProfileService>();
+builder.Services.AddScoped<IBehavioralFrameGenerator, CharacterBehavioralFrameGenerator>();
 builder.Services.AddScoped<IBackgroundCharacterProfileService, BackgroundCharacterProfileService>();
 builder.Services.AddScoped<IRoleDefinitionService, RoleDefinitionService>();
 builder.Services.AddScoped<IPromptDealbreakerService, PromptDealbreakerService>();
@@ -156,12 +225,19 @@ builder.Services.AddSingleton<IProviderRepository, ProviderRepository>();
 builder.Services.AddSingleton<IRegisteredModelRepository, RegisteredModelRepository>();
 builder.Services.AddSingleton<IFunctionDefaultRepository, FunctionDefaultRepository>();
 builder.Services.AddSingleton<IHealthCheckRepository, HealthCheckRepository>();
+builder.Services.AddSingleton<IPromptTestRunRepository, PromptTestRunRepository>();
 builder.Services.AddSingleton<IDatabaseBackupRepository, DatabaseBackupRepository>();
 builder.Services.AddSingleton<IApiKeyEncryptionService, ApiKeyEncryptionService>();
 builder.Services.AddSingleton<ICompletionClient, CompletionClient>();
+builder.Services.AddSingleton<IMultimodalCompletionClient, OpenAiMultimodalCompletionClient>();
 builder.Services.AddSingleton<IClimaxBeatRepository, ClimaxBeatRepository>();
 builder.Services.AddHttpClient("CompletionClient");
+builder.Services.AddHttpClient("MultimodalCompletionClient");
 builder.Services.AddScoped<IModelResolutionService, ModelResolutionService>();
+builder.Services.AddScoped<IMultimodalModelResolutionService>(serviceProvider =>
+    serviceProvider.GetRequiredService<IModelResolutionService>() as ModelResolutionService
+    ?? throw new InvalidOperationException("The configured model resolver does not support multimodal resolution."));
+builder.Services.AddScoped<IImageEditorModelResolver, ImageEditorModelResolver>();
 builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
 builder.Services.AddScoped<ModelManagerFacade>();
 builder.Services.AddScoped<AdministrationFacade>();
@@ -173,6 +249,62 @@ builder.Services.AddScoped<ModelMetadataService>();
 builder.Services.AddSingleton<ModelProcessingQueue>();
 builder.Services.AddSingleton<IModelProcessingQueue>(sp => sp.GetRequiredService<ModelProcessingQueue>());
 builder.Services.AddHostedService<ModelProcessingWorker>();
+
+// Generic background jobs queue
+builder.Services.AddSingleton<GenericBackgroundJobQueue>();
+builder.Services.AddSingleton<IBackgroundJobQueue>(sp => sp.GetRequiredService<GenericBackgroundJobQueue>());
+builder.Services.AddScoped<IBackgroundJobHandler, SemanticInteractionAnalysisJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, EncounterSummaryJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, LocationDetectionJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SteerGenerationJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneImageBeatGenerationJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneImagePromptGenerationJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneImageRenderingJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditingJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditCompilationJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditDescriptionJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneAssetGenerationJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneAssetEditingJobHandler>();
+builder.Services.AddScoped<IBackgroundJobHandler, SceneAssetProfilePackJobHandler>();
+builder.Services.AddScoped<SceneImageTurnResolver>();
+builder.Services.AddScoped<SceneImageBeatAnalysisService>();
+builder.Services.AddHostedService<GenericBackgroundJobWorker>();
+builder.Services.AddSingleton<SemanticBackgroundJobQueue>();
+builder.Services.AddSingleton<ISemanticBackgroundJobQueue>(sp => sp.GetRequiredService<SemanticBackgroundJobQueue>());
+builder.Services.AddHostedService<SemanticBackgroundJobWorker>();
+
+// Scene Image Generator (001-scene-image-generator): image pipeline services.
+builder.Services.AddSingleton<IModelManagerSecretProvider, ModelManagerSecretProvider>();
+builder.Services.AddSingleton<ImageGenerationClient>();
+builder.Services.AddSingleton<ComfyUIImageClient>();
+builder.Services.AddSingleton<RunPodServerlessImageClient>();
+builder.Services.AddSingleton<IImageGenerationClient, ImageGenerationClientDispatcher>();
+builder.Services.AddSingleton<IImageEditingClient, ComfyUIImageEditingClient>();
+builder.Services.AddSingleton<ComfyUIIdentityConditionedClient>();
+builder.Services.AddSingleton<RunPodServerlessIdentityClient>();
+builder.Services.AddSingleton<IIdentityConditionedImageClient, IdentityConditionedImageClientDispatcher>();
+builder.Services.AddSingleton<ISceneImageRepository, SceneImageRepository>();
+builder.Services.AddSingleton<ISceneImageEditRepository, SceneImageEditRepository>();
+builder.Services.AddSingleton<ISceneImageStorageService, SceneImageStorageService>();
+builder.Services.AddSingleton<ICharacterImageIdentityRepository, CharacterImageIdentityRepository>();
+builder.Services.AddSingleton<ICharacterImageAssetStorageService, CharacterImageAssetStorageService>();
+builder.Services.AddScoped<ICharacterImageIdentityService, CharacterImageIdentityService>();
+builder.Services.AddSingleton<ISceneAssetRepository, SceneAssetRepository>();
+builder.Services.AddSingleton<ISceneAssetStorageService, SceneAssetStorageService>();
+builder.Services.AddScoped<ISceneAssetService, SceneAssetService>();
+builder.Services.AddScoped<IReferenceImageQualityAnalyzer, ReferenceImageQualityAnalyzer>();
+builder.Services.AddScoped<ISceneImageService, SceneImageService>();
+builder.Services.AddScoped<ISceneImageEditCompilationService, SceneImageEditCompilationService>();
+builder.Services.AddSingleton<PonySceneImagePromptBuilder>();
+builder.Services.AddSingleton<IPonySceneImagePromptBuilder>(sp => sp.GetRequiredService<PonySceneImagePromptBuilder>());
+builder.Services.AddSingleton<ISceneImageLLMPromptBuilder>(sp => sp.GetRequiredService<PonySceneImagePromptBuilder>());
+builder.Services.AddSingleton<ISceneImageEditPromptCompiler, QwenSceneImageEditPromptCompiler>();
+builder.Services.AddSingleton<SdxlSceneImagePromptBuilder>();
+builder.Services.AddSingleton<ISdxlSceneImagePromptBuilder>(sp => sp.GetRequiredService<SdxlSceneImagePromptBuilder>());
+
+// Prompt-queue navigation resilience (B-027)
+builder.Services.AddSingleton<RolePlaySubmissionTracker>();
+builder.Services.AddSingleton<IRolePlaySubmissionTracker>(sp => sp.GetRequiredService<RolePlaySubmissionTracker>());
 
 // Increase SignalR message size for large text editing (combined story text)
 builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 1024 * 1024); // 1 MB
@@ -223,6 +355,20 @@ using (var scope = app.Services.CreateScope())
 
     var themePreferenceService = scope.ServiceProvider.GetRequiredService<IThemePreferenceService>();
     await themePreferenceService.AutoLinkToCatalogAsync();
+
+    // Seed a default ScenarioEngineSettings row if none exists (fail-fast LoadAsync requires a row).
+    var engineSettingsRepository = scope.ServiceProvider.GetRequiredService<IScenarioEngineSettingsRepository>();
+    try
+    {
+        await engineSettingsRepository.LoadAsync();
+    }
+    catch (InvalidOperationException)
+    {
+        await engineSettingsRepository.SaveAsync(new DreamGenClone.Domain.RolePlay.ScenarioEngineSettings());
+    }
+
+    var characterProfileService = scope.ServiceProvider.GetRequiredService<ICharacterProfileService>();
+    await characterProfileService.EnsureDefaultsAsync();
 }
 
 // Run startup health checks for all configured providers and models
@@ -265,6 +411,16 @@ app.Use(async (context, next) =>
 
 app.UseAntiforgery();
 
+// Serve generated scene images from the git-ignored scene-image root (kept out of wwwroot).
+var sceneImageRoot = app.Services.GetRequiredService<IOptions<PersistenceOptions>>().Value.SceneImageRoot;
+var sceneImageFullPath = Path.GetFullPath(sceneImageRoot);
+Directory.CreateDirectory(sceneImageFullPath);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(sceneImageFullPath),
+    RequestPath = "/scene-images"
+});
+
 app.MapStaticAssets();
 app.MapGet("/administration/backups/{backupId}/download", async (string backupId, AdministrationFacade facade, CancellationToken cancellationToken) =>
 {
@@ -275,6 +431,14 @@ app.MapGet("/administration/backups/{backupId}/download", async (string backupId
     }
 
     return Results.File(download.Value.FilePath, "application/octet-stream", download.Value.Backup.FileName);
+});
+app.MapGet("/asset-studio/{assetId}/download", async (string assetId, ISceneAssetService assetService, CancellationToken cancellationToken) =>
+{
+    var (asset, stream) = await assetService.OpenForDownloadAsync(assetId, cancellationToken);
+    var name = string.IsNullOrWhiteSpace(asset.Name) ? asset.Id : asset.Name;
+    var extension = Path.GetExtension(asset.FileRelativePath ?? string.Empty);
+    if (string.IsNullOrWhiteSpace(extension)) extension = ".png";
+    return Results.Stream(stream, asset.MediaType, $"{name}{extension}");
 });
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

@@ -76,6 +76,26 @@ public static class CharacterStatProfileAccessor
         return SetStat(profile, statName, current + delta);
     }
 
+    public static Dictionary<string, int> GetAllStats(CharacterStatProfileV2 profile)
+    {
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+            result[statName] = GetStatOrDefault(profile, statName);
+        return result;
+    }
+
+    public static void ApplyAllDeltas(CharacterStatProfileV2 profile, IReadOnlyDictionary<string, int> deltas)
+    {
+        foreach (var (name, delta) in deltas)
+            ApplyDelta(profile, name, delta);
+    }
+
+    public static void SetAllStats(CharacterStatProfileV2 profile, IReadOnlyDictionary<string, int> stats)
+    {
+        foreach (var (name, value) in stats)
+            SetStat(profile, name, value);
+    }
+
     private static bool TryResolveCanonicalStatName(string statName, out string canonicalStatName)
     {
         canonicalStatName = string.Empty;

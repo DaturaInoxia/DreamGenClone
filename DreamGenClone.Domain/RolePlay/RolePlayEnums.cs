@@ -3,7 +3,7 @@ namespace DreamGenClone.Domain.RolePlay;
 public enum TransitionTriggerType
 {
     Threshold = 0,
-    InteractionCountGate = 1,
+    TurnCountGate = 1,
     Override = 2,
     Reset = 3
 }

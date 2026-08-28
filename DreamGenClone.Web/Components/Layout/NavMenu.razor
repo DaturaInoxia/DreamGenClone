@@ -4,9 +4,9 @@
     </div>
 </div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+<input type="checkbox" id="navbar-toggler" title="Navigation menu" class="navbar-toggler" />
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+<div class="nav-scrollable" onclick="document.getElementById('navbar-toggler').click()">
     <nav class="nav flex-column">
 
         <div class="nav-group">
@@ -42,6 +42,16 @@
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="scenarios">
                         <span class="bi bi-book-nav-menu" aria-hidden="true"></span> Scenarios
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="characters/identity">
+                        <span class="bi bi-people-nav-menu" aria-hidden="true"></span> Character Identity
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="asset-studio">
+                        <span class="bi bi-image-nav-menu" aria-hidden="true"></span> Asset Studio
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
@@ -95,6 +105,11 @@
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="administration">
                         <span class="bi bi-tools-nav-menu" aria-hidden="true"></span> Administration
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="prompt-tester">
+                        <span class="bi bi-terminal-nav-menu" aria-hidden="true"></span> Prompt Tester
                     </NavLink>
                 </div>
             </div>

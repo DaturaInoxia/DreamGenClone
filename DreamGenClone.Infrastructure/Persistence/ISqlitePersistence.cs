@@ -73,6 +73,13 @@ public interface ISqlitePersistence
     Task<List<StatWillingnessProfile>> LoadAllStatWillingnessProfilesAsync(CancellationToken cancellationToken = default);
     Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default);
 
+    // Stat resistance profile operations
+    Task SaveStatResistanceProfileAsync(StatResistanceProfile profile, CancellationToken cancellationToken = default);
+    Task<StatResistanceProfile?> LoadStatResistanceProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<StatResistanceProfile?> LoadDefaultStatResistanceProfileAsync(CancellationToken cancellationToken = default);
+    Task<List<StatResistanceProfile>> LoadAllStatResistanceProfilesAsync(CancellationToken cancellationToken = default);
+    Task<bool> DeleteStatResistanceProfileAsync(string id, CancellationToken cancellationToken = default);
+
     // Narrative gate profile operations
     Task SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken cancellationToken = default);
     Task<NarrativeGateProfile?> LoadNarrativeGateProfileAsync(string id, CancellationToken cancellationToken = default);
@@ -91,6 +98,13 @@ public interface ISqlitePersistence
     Task<BackgroundCharacterProfile?> LoadBackgroundCharacterProfileAsync(string id, CancellationToken cancellationToken = default);
     Task<List<BackgroundCharacterProfile>> LoadAllBackgroundCharacterProfilesAsync(CancellationToken cancellationToken = default);
     Task<bool> DeleteBackgroundCharacterProfileAsync(string id, CancellationToken cancellationToken = default);
+
+    // Character profile operations (B-042)
+    Task SaveCharacterProfileAsync(CharacterProfile profile, CancellationToken cancellationToken = default);
+    Task<CharacterProfile?> LoadCharacterProfileAsync(string id, CancellationToken cancellationToken = default);
+    Task<List<CharacterProfile>> LoadAllCharacterProfilesAsync(CancellationToken cancellationToken = default);
+    Task<List<CharacterProfile>> LoadCharacterProfilesByRoleAsync(string targetRole, CancellationToken cancellationToken = default);
+    Task<bool> DeleteCharacterProfileAsync(string id, CancellationToken cancellationToken = default);
 
     // Role definition operations
     Task SaveRoleDefinitionAsync(RoleDefinition roleDefinition, CancellationToken cancellationToken = default);
@@ -141,4 +155,9 @@ public interface ISqlitePersistence
     Task<UserStoryRating?> LoadUserStoryRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default);
     Task<bool> DeleteUserStoryRatingAsync(string parsedStoryId, CancellationToken cancellationToken = default);
     Task<Dictionary<string, UserStoryRating>> LoadUserStoryRatingsBatchAsync(IEnumerable<string> parsedStoryIds, CancellationToken cancellationToken = default);
+
+    // B-075: Steering generation records
+    Task SaveSteeringGenerationRecordAsync(SteeringGenerationRecord record, CancellationToken cancellationToken = default);
+    Task<SteeringGenerationRecord?> LoadSteeringGenerationRecordAsync(string id, CancellationToken ct = default);
+    Task<SteeringGenerationRecord?> GetLatestSteeringGenerationRecordAsync(string sessionId);
 }

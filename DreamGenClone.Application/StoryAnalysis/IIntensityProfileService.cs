@@ -13,7 +13,11 @@ public interface IIntensityProfileService
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
-        string sceneDirective = "",
+        string proseStyleDirective = "",
+        string voiceDirective = "",
+        string toneDirective = "",
+        string focusDirective = "",
+        string heatLevelDirective = "",
         CancellationToken cancellationToken = default);
 
     Task<List<IntensityProfile>> ListAsync(CancellationToken cancellationToken = default);
@@ -30,7 +34,11 @@ public interface IIntensityProfileService
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
-        string sceneDirective = "",
+        string proseStyleDirective = "",
+        string voiceDirective = "",
+        string toneDirective = "",
+        string focusDirective = "",
+        string heatLevelDirective = "",
         CancellationToken cancellationToken = default);
 
     Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);

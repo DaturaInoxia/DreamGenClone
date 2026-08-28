@@ -1,4 +1,5 @@
 using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
@@ -17,8 +18,10 @@ public sealed class StoryAnalysisFacade
     private readonly ISteeringProfileService _steeringProfileService;
     private readonly IBaseStatProfileService _baseStatProfileService;
     private readonly IStatWillingnessProfileService _statWillingnessProfileService;
+    private readonly IStatResistanceProfileService _statResistanceProfileService;
     private readonly INarrativeGateProfileService _narrativeGateProfileService;
     private readonly IHusbandAwarenessProfileService _husbandAwarenessProfileService;
+    private readonly ICharacterProfileService _characterProfileService;
     private readonly IBackgroundCharacterProfileService _backgroundCharacterProfileService;
     private readonly IRoleDefinitionService _roleDefinitionService;
     private readonly IStoryRankingService _rankingService;
@@ -40,8 +43,10 @@ public sealed class StoryAnalysisFacade
         ISteeringProfileService styleProfileService,
         IBaseStatProfileService baseStatProfileService,
         IStatWillingnessProfileService statWillingnessProfileService,
+        IStatResistanceProfileService statResistanceProfileService,
         INarrativeGateProfileService narrativeGateProfileService,
         IHusbandAwarenessProfileService husbandAwarenessProfileService,
+        ICharacterProfileService characterProfileService,
         IBackgroundCharacterProfileService backgroundCharacterProfileService,
         IRoleDefinitionService roleDefinitionService,
         IStoryRankingService rankingService,
@@ -62,8 +67,10 @@ public sealed class StoryAnalysisFacade
         _steeringProfileService = styleProfileService;
         _baseStatProfileService = baseStatProfileService;
         _statWillingnessProfileService = statWillingnessProfileService;
+        _statResistanceProfileService = statResistanceProfileService;
         _narrativeGateProfileService = narrativeGateProfileService;
         _husbandAwarenessProfileService = husbandAwarenessProfileService;
+        _characterProfileService = characterProfileService;
         _backgroundCharacterProfileService = backgroundCharacterProfileService;
         _roleDefinitionService = roleDefinitionService;
         _rankingService = rankingService;
@@ -231,7 +238,11 @@ public sealed class StoryAnalysisFacade
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
-        string sceneDirective = "",
+        string proseStyleDirective = "",
+        string voiceDirective = "",
+        string toneDirective = "",
+        string focusDirective = "",
+        string heatLevelDirective = "",
         CancellationToken cancellationToken = default)
         => _intensityProfileService.CreateAsync(
             name,
@@ -242,7 +253,11 @@ public sealed class StoryAnalysisFacade
             approachingPhaseOffset,
             climaxPhaseOffset,
             resetPhaseOffset,
-            sceneDirective,
+            proseStyleDirective,
+            voiceDirective,
+            toneDirective,
+            focusDirective,
+            heatLevelDirective,
             cancellationToken);
 
     public Task<List<IntensityProfile>> ListIntensityProfilesAsync(CancellationToken cancellationToken = default)
@@ -261,7 +276,11 @@ public sealed class StoryAnalysisFacade
         int approachingPhaseOffset,
         int climaxPhaseOffset,
         int resetPhaseOffset,
-        string sceneDirective = "",
+        string proseStyleDirective = "",
+        string voiceDirective = "",
+        string toneDirective = "",
+        string focusDirective = "",
+        string heatLevelDirective = "",
         CancellationToken cancellationToken = default)
         => _intensityProfileService.UpdateAsync(
             id,
@@ -273,15 +292,19 @@ public sealed class StoryAnalysisFacade
             approachingPhaseOffset,
             climaxPhaseOffset,
             resetPhaseOffset,
-            sceneDirective,
+            proseStyleDirective,
+            voiceDirective,
+            toneDirective,
+            focusDirective,
+            heatLevelDirective,
             cancellationToken);
 
     public Task<bool> DeleteIntensityProfileAsync(string id, CancellationToken cancellationToken = default)
         => _intensityProfileService.DeleteAsync(id, cancellationToken);
 
     // Steering Profiles
-    public Task<SteeringProfile> CreateSteeringProfileAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
-        => _steeringProfileService.CreateAsync(name, description, example, ruleOfThumb, themeAffinities, escalatingThemeIds, statBias, cancellationToken);
+    public Task<SteeringProfile> CreateSteeringProfileAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
+        => _steeringProfileService.CreateAsync(name, description, example, ruleOfThumb, themeAffinities, escalatingThemeIds, statBias, immersionDirective, actionDirective, wordTargetMin, wordTargetMax, narrativeWordTargetMin, narrativeWordTargetMax, cancellationToken);
 
     public Task<List<SteeringProfile>> ListSteeringProfilesAsync(CancellationToken cancellationToken = default)
         => _steeringProfileService.ListAsync(cancellationToken);
@@ -289,8 +312,8 @@ public sealed class StoryAnalysisFacade
     public Task<SteeringProfile?> GetSteeringProfileAsync(string id, CancellationToken cancellationToken = default)
         => _steeringProfileService.GetAsync(id, cancellationToken);
 
-    public Task<SteeringProfile?> UpdateSteeringProfileAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
-        => _steeringProfileService.UpdateAsync(id, name, description, example, ruleOfThumb, themeAffinities, escalatingThemeIds, statBias, cancellationToken);
+    public Task<SteeringProfile?> UpdateSteeringProfileAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
+        => _steeringProfileService.UpdateAsync(id, name, description, example, ruleOfThumb, themeAffinities, escalatingThemeIds, statBias, immersionDirective, actionDirective, wordTargetMin, wordTargetMax, narrativeWordTargetMin, narrativeWordTargetMax, cancellationToken);
 
     public Task<bool> DeleteSteeringProfileAsync(string id, CancellationToken cancellationToken = default)
         => _steeringProfileService.DeleteAsync(id, cancellationToken);
@@ -343,6 +366,14 @@ public sealed class StoryAnalysisFacade
     public Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken cancellationToken = default)
         => _statWillingnessProfileService.DeleteAsync(id, cancellationToken);
 
+    // Stat Resistance Profiles
+    public Task<StatResistanceProfile> SaveStatResistanceProfileAsync(StatResistanceProfile profile, CancellationToken ct = default)
+        => _statResistanceProfileService.SaveAsync(profile, ct);
+    public Task<List<StatResistanceProfile>> ListStatResistanceProfilesAsync(CancellationToken ct = default)
+        => _statResistanceProfileService.ListAsync(ct);
+    public Task<bool> DeleteStatResistanceProfileAsync(string id, CancellationToken ct = default)
+        => _statResistanceProfileService.DeleteAsync(id, ct);
+
     // Narrative Gate Profiles
     public Task<NarrativeGateProfile> SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken cancellationToken = default)
         => _narrativeGateProfileService.SaveAsync(profile, cancellationToken);
@@ -371,6 +402,19 @@ public sealed class StoryAnalysisFacade
 
     public Task<bool> DeleteHusbandAwarenessProfileAsync(string id, CancellationToken cancellationToken = default)
         => _husbandAwarenessProfileService.DeleteAsync(id, cancellationToken);
+
+    // Character Profiles (B-042)
+    public Task<IReadOnlyList<CharacterProfile>> GetAllCharacterProfilesAsync(CancellationToken cancellationToken = default)
+        => _characterProfileService.GetAllAsync(cancellationToken);
+
+    public Task<IReadOnlyList<CharacterProfile>> GetCharacterProfilesByRoleAsync(string targetRole, CancellationToken cancellationToken = default)
+        => _characterProfileService.GetByRoleAsync(targetRole, cancellationToken);
+
+    public Task SaveCharacterProfileAsync(CharacterProfile profile, CancellationToken cancellationToken = default)
+        => _characterProfileService.SaveAsync(profile, cancellationToken);
+
+    public Task<bool> DeleteCharacterProfileAsync(string id, CancellationToken cancellationToken = default)
+        => _characterProfileService.DeleteAsync(id, cancellationToken);
 
     // Background Character Profiles
     public Task<BackgroundCharacterProfile> SaveBackgroundCharacterProfileAsync(BackgroundCharacterProfile profile, CancellationToken cancellationToken = default)

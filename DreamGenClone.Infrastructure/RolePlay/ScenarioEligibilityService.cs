@@ -33,8 +33,8 @@ internal static class ScenarioEligibilityService
         }
 
         var avgDesire = (decimal)state.CharacterSnapshots.Average(x => x.Desire);
-        var avgConnection = (decimal)state.CharacterSnapshots.Average(x => x.Connection);
-        var avgTension = (decimal)state.CharacterSnapshots.Average(x => x.Tension);
+        var avgConnection = (decimal)state.CharacterSnapshots.Average(x => x.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50);
+        var avgTension = (decimal)state.CharacterSnapshots.Average(x => x.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50);
 
         var desireWeight = (decimal)settings.LegacyFitDesireWeight;
         var connectionWeight = (decimal)settings.LegacyFitConnectionWeight;

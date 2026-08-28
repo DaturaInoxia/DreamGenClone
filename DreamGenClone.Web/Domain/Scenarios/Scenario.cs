@@ -1,6 +1,7 @@
 namespace DreamGenClone.Web.Domain.Scenarios;
 
 using System.Text.Json.Serialization;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Domain.RolePlay;
 
 /// <summary>
@@ -12,6 +13,14 @@ public class Scenario
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string? Name { get; set; }
     public string? Description { get; set; }
+
+    /// <summary>
+    /// Opening-period guidance text injected into the LLM prompt during the first 3 turns
+    /// of a new session. When null, the engine uses the DefaultOpeningGuidanceText constant.
+    /// </summary>
+    [JsonInclude]
+    [JsonPropertyName("OpeningGuidanceText")]
+    public string? OpeningGuidanceText { get; set; }
     
     /// <summary>
     /// Plot component including conflicts and goals.
@@ -125,6 +134,14 @@ public class Scenario
     }
 
     /// <summary>
+    /// Default starting location ID — the location where the scenario's opening
+    /// narrative should ground the scene. When set, the opening prompt uses this
+    /// as the sole location anchor instead of listing all available locations.
+    /// If null, the opening prompt falls back to listing all location names.
+    /// </summary>
+    public string? DefaultStartingLocationId { get; set; }
+
+    /// <summary>
     /// Default intensity profile to use when creating sessions from this scenario.
     /// </summary>
     public string? DefaultIntensityProfileId { get; set; }
@@ -133,6 +150,13 @@ public class Scenario
     /// Default steering profile to use when creating sessions from this scenario.
     /// </summary>
     public string? DefaultSteeringProfileId { get; set; }
+
+    /// <summary>
+    /// The scenario character ID that serves as the default persona for new sessions.
+    /// When set, the RP Create wizard defaults to this character; the user can override.
+    /// </summary>
+    [JsonPropertyName("DefaultPersonaCharacterId")]
+    public string? DefaultPersonaCharacterId { get; set; }
 
     /// <summary>
     /// Optional lower intensity boundary for this scenario.
@@ -156,9 +180,31 @@ public class Scenario
     public Dictionary<string, int> ResolvedBaseStats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Default role-play perspective mode for the persona when creating sessions from this scenario.
-    /// </summary>
     public CharacterPerspectiveMode DefaultPersonaPerspectiveMode { get; set; } = CharacterPerspectiveMode.FirstPersonInternalMonologue;
+
+    /// <summary>
+    /// Default time of day when creating sessions from this scenario.
+    /// </summary>
+    public TimeOfDay DefaultTimeOfDay { get; set; } = TimeOfDay.Afternoon;
+
+    /// <summary>
+    /// Returns the single persona character in this scenario, or null if none is defined.
+    /// </summary>
+    public Character? GetPersonaCharacter() => Characters.FirstOrDefault(c => c.IsPersona);
+
+    /// <summary>
+    /// Validates that no more than one character is marked as the persona.
+    /// Throws <see cref="InvalidOperationException"/> if the invariant is violated.
+    /// </summary>
+    public void EnsureSinglePersona()
+    {
+        var count = Characters.Count(c => c.IsPersona);
+        if (count > 1)
+        {
+            throw new InvalidOperationException(
+                $"Scenario has {count} characters marked as persona. Only one IsPersona character is allowed per scenario.");
+        }
+    }
 
     /// <summary>
     /// Persisted assistant chat threads for scenario editor assistant usage.

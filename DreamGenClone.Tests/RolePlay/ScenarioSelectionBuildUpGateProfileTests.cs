@@ -17,7 +17,7 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
 
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 55, restraint: 45, tension: 50);
         state.CurrentPhase = NarrativePhase.BuildUp;
-        state.InteractionCountInPhase = 2;
+        state.TurnCountInPhase = 2;
 
         var evaluations = new[]
         {
@@ -66,7 +66,7 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
 
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 35, tension: 60);
         state.CurrentPhase = NarrativePhase.BuildUp;
-        state.InteractionCountInPhase = 3;
+        state.TurnCountInPhase = 3;
         state.SelectedNarrativeGateProfileId = profile.Id;
 
         var evaluations = new[]
@@ -98,7 +98,7 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
 
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 35, tension: 60);
         state.CurrentPhase = NarrativePhase.BuildUp;
-        state.InteractionCountInPhase = 3;
+        state.TurnCountInPhase = 3;
         state.SelectedNarrativeGateProfileId = "missing-profile";
 
         var evaluations = new[]
@@ -130,7 +130,7 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
 
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 35, tension: 60);
         state.CurrentPhase = NarrativePhase.BuildUp;
-        state.InteractionCountInPhase = 3;
+        state.TurnCountInPhase = 3;
 
         var evaluations = new[]
         {
@@ -165,7 +165,7 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
                     SortOrder = 1,
                     FromPhase = "BuildUp",
                     ToPhase = "Committed",
-                    MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+                    MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment,
                     Comparator = NarrativeGateComparators.GreaterThanOrEqual,
                     Threshold = 2m
                 }
@@ -179,7 +179,7 @@ public sealed class ScenarioSelectionBuildUpGateProfileTests
 
         var state = RolePlayV2AcceptanceFixtureData.BuildBoundaryState(desire: 70, restraint: 35, tension: 60);
         state.CurrentPhase = NarrativePhase.BuildUp;
-        state.InteractionCountInPhase = 1;
+        state.TurnCountInPhase = 1;
         state.SelectedNarrativeGateProfileId = profile.Id;
 
         var evaluations = new[]

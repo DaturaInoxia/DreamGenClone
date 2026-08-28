@@ -17,32 +17,24 @@ public sealed class RolePlaySession
 
     public string? ParentSessionId { get; set; }
 
-    /// <summary>The POV persona name ("You" perspective). Defaults to "You".</summary>
     public string PersonaName { get; set; } = "You";
 
-    /// <summary>Description/content of the POV persona (from template or manual).</summary>
     public string PersonaDescription { get; set; } = string.Empty;
 
-    /// <summary>Active perspective mode for the persona in this session.</summary>
     public CharacterPerspectiveMode PersonaPerspectiveMode { get; set; } = CharacterPerspectiveMode.FirstPersonInternalMonologue;
 
-    /// <summary>Optional link to the Persona template this was sourced from.</summary>
     public string? PersonaTemplateId { get; set; }
 
-    /// <summary>Explicit persona gender used for strict adaptive profile matching.</summary>
     public string PersonaGender { get; set; } = "Unknown";
 
-    /// <summary>Explicit persona role used for strict adaptive profile matching.</summary>
     public string PersonaRole { get; set; } = "Unknown";
 
-    /// <summary>
-    /// Optional linked relation target for the persona, used to disambiguate paired roles.
-    /// Target can be a scenario character id.
-    /// </summary>
     public string? PersonaRelationTargetId { get; set; }
 
-    /// <summary>Optional physical appearance data for the POV persona in this session.</summary>
     public DreamGenClone.Domain.Templates.PhysicalAttributes? PersonaPhysicalAttributes { get; set; }
+
+    /// <summary>The scenario character ID of the persona for this session.</summary>
+    public string? PersonaCharacterId { get; set; }
 
     public List<RolePlayInteraction> Interactions { get; set; } = [];
 
@@ -65,7 +57,7 @@ public sealed class RolePlaySession
     public int TurnTakingThreshold { get; set; } = 4;
 
     /// <summary>Number of recent interactions to include in prompt context window.</summary>
-    public int ContextWindowSize { get; set; } = 30;
+    public int ContextWindowSize { get; set; } = 12;
 
     /// <summary>Persisted session model override ID (null = use function default).</summary>
     public string? SessionModelId { get; set; }
@@ -136,6 +128,13 @@ public sealed class RolePlaySession
     /// <summary>Session-level intensity ceiling override.</summary>
     public string? IntensityCeilingOverride { get; set; }
 
+    /// <summary>
+    /// Sticky continuation-settings override (B-082): pacing, beat style, time shift,
+    /// granularity, deepening, scene presence, Climax Mode, Aftermath, and word-count target.
+    /// Null = no override (theme markers / phase defaults decide). Persisted with the session.
+    /// </summary>
+    public ContinuationOverride? ContinuationOverride { get; set; }
+
     /// <summary>When true, the intensity profile is pinned by the user and auto-adaptation is suppressed.</summary>
     public bool IsIntensityManuallyPinned { get; set; }
 
@@ -163,8 +162,9 @@ public sealed class RolePlaySession
     /// <summary>Recent adaptive intensity transition records for diagnostics and UI transparency.</summary>
     public List<AdaptiveIntensityTransitionRecord> AdaptiveIntensityTransitions { get; set; } = [];
 
-    /// <summary>Adaptive theme and stat state updated per interaction.</summary>
-    public RolePlayAdaptiveState AdaptiveState { get; set; } = new();
+    /// <summary>Adaptive theme and stat state updated per interaction. Lives exclusively in V2 tables (RolePlayV2AdaptiveStates); not serialized into PayloadJson.</summary>
+    [JsonIgnore]
+    public AdaptiveScenarioState AdaptiveState { get; set; } = new();
 
     /// <summary>
     /// When true, structured RP theme AI guidance notes are included as soft prompt hints.
@@ -199,12 +199,80 @@ public sealed class RolePlaySession
     /// <summary>Currently selected assistant chat thread ID.</summary>
     public string? ActiveAssistantChatId { get; set; }
 
+    /// <summary>
+    /// Per-session override for the number of phase milestones to inject into prompts.
+    /// Null means use the global RolePlayMemoryOptions.MaxMilestonesToInject default.
+    /// </summary>
+    public int? MaxMilestonesToInject { get; set; }
+
+    /// <summary>
+    /// Per-session override for the number of ArcCompletion entries (prior arcs) to inject.
+    /// Null means use the global RolePlayMemoryOptions.MaxArcCompletionsToInject default.
+    /// </summary>
+    public int? MaxArcCompletionsToInject { get; set; }
+
+    /// <summary>
+    /// Per-session override for the number of EncounterCompletion entries (encounter-boundary
+    /// memories for the current arc) to inject. Null means use the global
+    /// RolePlayMemoryOptions.MaxEncounterCompletionsToInject default.
+    /// </summary>
+    public int? MaxEncounterCompletionsToInject { get; set; }
+
+    // ── RP Prompt Redesign: per-session prompt configuration (seeded at creation, no code defaults) ──
+
+    /// <summary>
+    /// Maximum prompt characters allowed before budget enforcement trims Zone B slots.
+    /// Null or &lt;= 0 at runtime causes fail-fast. Seeded with
+    /// <see cref="Infrastructure.Configuration.RolePlayPromptOptions.RecommendedInitialMaxPromptChars"/> (35000).
+    /// </summary>
+    public int? MaxPromptChars { get; set; }
+
+    /// <summary>Turn-based history window for prompt building (replaces ContextWindowSize interaction count for prompts).</summary>
+    public int? ContextWindowTurns { get; set; }
+
+    /// <summary>Turn band after which scenario context compresses to 2-3 line summary (FR-012).</summary>
+    public int? ScenarioCompressionTurnThreshold { get; set; }
+
+    /// <summary>Number of recent turns with full character+narrative detail (FR-015 Layer 1).</summary>
+    public int? HistoryFullDetailTurnBand { get; set; }
+
+    /// <summary>Number of middle turns with narrative-only summaries (FR-015 Layer 2).</summary>
+    public int? HistoryNarrativeOnlyTurnBand { get; set; }
+
+    /// <summary>Turn after which long-term memory compresses (FR-016 Tier 1).</summary>
+    public int? SessionMemoryLongTermTurnThreshold { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>Schema compatibility marker used by RolePlay v2 validation.</summary>
     public string RolePlayV2SchemaVersion { get; set; } = "v2";
+
+    /// <summary>
+    /// Per-character turn overrides keyed by character name (case-insensitive).
+    /// Persona ("You") is excluded from this dictionary.
+    /// </summary>
+    public Dictionary<string, CharacterTurnOverride> CharacterTurnOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Probability (0.0–1.0) that the highest participation-scoring character
+    /// leads the turn regardless of PreferredPosition groups. Default 0.15 means
+    /// the First/Last position bias is overridden ~15% of turns. Clamped to [0,1] on save.
+    /// </summary>
+    public double PreferredPositionOverrideChance { get; set; } = 0.15;
+
+    /// <summary>Transient cache of LLM-ordered actor names from last selection. Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<string>? LastActorOrdering { get; set; }
+
+    /// <summary>Transient composite fingerprint from last selection cache hit. Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? LastContextFingerprint { get; set; }
+
+    /// <summary>Transient interaction count at last location detection enqueue. Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int LastLocationDetectionInteractionCount { get; set; }
 }
 
 public sealed class RolePlayAssistantChatThread

@@ -15,4 +15,19 @@ public sealed class WorkspaceSettingsState
     }
 
     public void ResetPanelWidth() => _settingsPanelWidth = DefaultPanelWidth;
+
+    /// <summary>Master on/off for scene image generation. When false the workspace hides the
+    /// per-interaction "Generate image" trigger.</summary>
+    public bool ImageGenerationEnabled { get; set; } = true;
+
+    /// <summary>Free-text style cue (e.g. "cinematic lighting, 35mm") seeding the studio. When empty,
+    /// the studio falls back to the default style (cartoon).</summary>
+    public string? ImageStyleSuffix { get; set; }
+
+    /// <summary>Default image size (e.g. "1024x1024").</summary>
+    public string ImageSize { get; set; } = "1024x1024";
+
+    /// <summary>Default selected. Honored only when the resolved image provider content policy is
+    /// adult-allowed; the studio clamps to safe-for-work otherwise.</summary>
+    public bool AllowExplicitImage { get; set; } = true;
 }

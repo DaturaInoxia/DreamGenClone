@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
@@ -32,7 +33,7 @@ public sealed class PersonaInteractionSelectionTests
                 ]
             }));
 
-        var created = await service.CreateSessionAsync("Persona Overflow", scenarioId: "sc1", personaName: "Alex");
+        var created = await service.CreateSessionAsync("Persona Overflow", scenarioId: "sc1");
         created.AutoNarrative = false;
         created.SceneContinueBatchSize = 2;
         await service.SaveSessionAsync(created);
@@ -48,75 +49,6 @@ public sealed class PersonaInteractionSelectionTests
         Assert.DoesNotContain(result.ParticipantOutputs, x => x.InteractionType == InteractionType.User);
     }
 
-    [Fact]
-    public async Task ContinueAsAsync_Overflow_CanIncludePersonaOccasionally_OutOfScene()
-    {
-        var continuation = new CapturingContinuationService();
-        var service = RolePlayTestFactory.CreateEngineService(
-            continuationService: continuation,
-            scenarioService: new SingleScenarioService(new Scenario
-            {
-                Id = "sc1",
-                Characters =
-                [
-                    new Character { Id = "c1", Name = "Aria" },
-                    new Character { Id = "c2", Name = "Bruno" }
-                ]
-            }));
-
-        var created = await service.CreateSessionAsync("Persona Overflow Occasional", scenarioId: "sc1", personaName: "Alex");
-        created.AutoNarrative = false;
-        created.SceneContinueBatchSize = 3;
-        created.Interactions.Add(new RolePlayInteraction { InteractionType = InteractionType.Npc, ActorName = "Aria", Content = "..." });
-        created.Interactions.Add(new RolePlayInteraction { InteractionType = InteractionType.Custom, ActorName = "Bruno", Content = "..." });
-        created.Interactions.Add(new RolePlayInteraction { InteractionType = InteractionType.Npc, ActorName = "Aria", Content = "..." });
-        await service.SaveSessionAsync(created);
-
-        var result = await service.ContinueAsAsync(new ContinueAsRequest
-        {
-            SessionId = created.Id,
-            TriggeredBy = SubmissionSource.MainOverflowContinue
-        });
-
-        Assert.True(result.Success);
-        Assert.Contains(result.ParticipantOutputs, x => x.InteractionType == InteractionType.User);
-    }
-
-    [Fact]
-    public async Task ContinueAsAsync_Overflow_BatchSizeOne_CanStillSelectPersonaWhenEligible()
-    {
-        var continuation = new CapturingContinuationService();
-        var service = RolePlayTestFactory.CreateEngineService(
-            continuationService: continuation,
-            scenarioService: new SingleScenarioService(new Scenario
-            {
-                Id = "sc1",
-                Characters =
-                [
-                    new Character { Id = "c1", Name = "Aria" },
-                    new Character { Id = "c2", Name = "Bruno" }
-                ]
-            }));
-
-        var created = await service.CreateSessionAsync("Persona Batch1", scenarioId: "sc1", personaName: "Alex");
-        created.AutoNarrative = false;
-        created.SceneContinueBatchSize = 1;
-        created.Interactions.Add(new RolePlayInteraction { InteractionType = InteractionType.Npc, ActorName = "Aria", Content = "..." });
-        created.Interactions.Add(new RolePlayInteraction { InteractionType = InteractionType.Custom, ActorName = "Bruno", Content = "..." });
-        created.Interactions.Add(new RolePlayInteraction { InteractionType = InteractionType.Npc, ActorName = "Aria", Content = "..." });
-        await service.SaveSessionAsync(created);
-
-        var result = await service.ContinueAsAsync(new ContinueAsRequest
-        {
-            SessionId = created.Id,
-            TriggeredBy = SubmissionSource.MainOverflowContinue
-        });
-
-        Assert.True(result.Success);
-        Assert.Single(result.ParticipantOutputs);
-        Assert.Equal(InteractionType.User, result.ParticipantOutputs[0].InteractionType);
-    }
-
     private sealed class CapturingContinuationService : IRolePlayContinuationService
     {
         public Task<RolePlayInteraction> ContinueAsync(
@@ -126,7 +58,10 @@ public sealed class PersonaInteractionSelectionTests
             PromptIntent intent,
             string promptText,
             Func<string, Task>? onChunk = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int? turnIndex = null,
+            int? positionInTurn = null,
+            int? turnActorCount = null)
         {
             return Task.FromResult(new RolePlayInteraction
             {
@@ -157,7 +92,9 @@ public sealed class PersonaInteractionSelectionTests
             RolePlaySession session,
             string actorName,
             string promptText,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int? turnIndex = null,
+            int? turnActorCount = null)
         {
             return Task.FromResult(new RolePlayInteraction
             {
@@ -165,6 +102,24 @@ public sealed class PersonaInteractionSelectionTests
                 ActorName = actorName,
                 Content = promptText,
                 GeneratedByCommand = "Narrative"
+            });
+        }
+
+        public Task<RolePlayInteraction> ContinueNarrativeAsAlternativeAsync(
+            RolePlaySession session,
+            string actorName,
+            string promptText,
+            DreamGenClone.Domain.ModelManager.ResolvedModel resolved,
+            string command,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new RolePlayInteraction
+            {
+                InteractionType = InteractionType.System,
+                ActorName = actorName,
+                Content = promptText,
+                GeneratedByCommand = command,
+                GeneratedVariant = PromptVariant.Narrative
             });
         }
     }

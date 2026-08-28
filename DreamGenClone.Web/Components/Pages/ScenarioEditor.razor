@@ -9,6 +9,7 @@
 @using DreamGenClone.Web.Domain.RolePlay
 @using DreamGenClone.Web.Domain.Scenarios
 @using DreamGenClone.Application.StoryAnalysis
+@using DreamGenClone.Application.StoryAnalysis.Abstractions
 @using DreamGenClone.Domain.StoryAnalysis
 @using DreamGenClone.Domain.Templates
 
@@ -18,6 +19,7 @@
 @inject StoryAnalysisFacade StoryAnalysisFacade
 @inject IScenarioAssistantService ScenarioAssistant
 @inject IRPThemeService RPThemeService
+@inject ICharacterProfileService CharacterProfileService
 @inject NavigationManager Navigation
 
 <PageTitle>Scenario Editor - DreamGenClone</PageTitle>
@@ -64,6 +66,17 @@
                         <div class="mb-3">
                             <label class="form-label">Description</label>
                             <textarea class="form-control" @bind="CurrentScenario.Description" rows="3"></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Default Persona Character</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultPersonaCharacterId">
+                                <option value="">(none)</option>
+                                @foreach (var c in CurrentScenario.Characters.Where(c => !string.IsNullOrWhiteSpace(c.Name)))
+                                {
+                                    <option value="@c.Id">@c.Name</option>
+                                }
+                            </select>
                         </div>
                     </div>
                 </div>
@@ -194,7 +207,7 @@
                             <label class="form-label">Default Character State Profile</label>
                             <select class="form-select" @bind="CurrentScenario.BaseStatProfileId">
                                 <option value="">(None)</option>
-                                @foreach (var profile in BaseStatProfiles)
+                                @foreach (var profile in CharacterProfiles)
                                 {
                                     <option value="@profile.Id">@profile.Name</option>
                                 }
@@ -226,8 +239,27 @@
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Narrative Tone</label>
-                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.NarrativeTone" placeholder="e.g., Dark, Humorous, Serious" />
+                            <label class="form-label">Narrative Tone (deprecated — use Tone below)</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.NarrativeTone" placeholder="Legacy combined tone string" disabled />
+                            <div class="form-text text-muted">Deprecated. Use the separate Tone, Register, and Focus fields below.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Tone</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.Tone" placeholder="e.g., Erotic, conversational, playful" />
+                            <div class="form-text">Mood/attitude of the narrative.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Register</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.Register" placeholder="e.g., Low to moderate language complexity" />
+                            <div class="form-text">Language complexity level.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Focus</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Narrative.Focus" placeholder="e.g., Physical pleasure" />
+                            <div class="form-text">Subject emphasis for the narrative.</div>
                         </div>
                         
                         <div class="mb-3">
@@ -261,6 +293,32 @@
                                 }
                             </select>
                         </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Default Time of Day</label>
+                            <select class="form-select" @bind="CurrentScenario.DefaultTimeOfDay">
+                                @foreach (var tod in Enum.GetValues<TimeOfDay>())
+                                {
+                                    <option value="@tod">@tod</option>
+                                }
+                            </select>
+                            <div class="form-text">Starting time of day for new sessions created from this scenario.</div>
+                        </div>
+
+                        @if (CurrentScenario.Locations.Any())
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Default Starting Location</label>
+                                <select class="form-select" @bind="CurrentScenario.DefaultStartingLocationId">
+                                    <option value="">(none — use opening location)</option>
+                                    @foreach (var loc in CurrentScenario.Locations.Where(l => !string.IsNullOrWhiteSpace(l.Name)))
+                                    {
+                                        <option value="@loc.Id">@(loc.Name ?? loc.Id)</option>
+                                    }
+                                </select>
+                                <div class="form-text">Seeds the initial scene location when a new session starts. Opening-level LocationId takes precedence.</div>
+                            </div>
+                        }
                         
                         <div class="mb-3">
                             <label class="form-label">Narrative Guidelines</label>
@@ -337,31 +395,44 @@
                                                             }
                                                         </select>
                                                     </div>
+                                                    @if (string.Equals(character.Role, "OtherMan", StringComparison.OrdinalIgnoreCase))
+                                                    {
+                                                        <div class="mt-3 border rounded p-2 bg-light-subtle">
+                                                            <label class="form-label small fw-semibold">Seduction Archetypes</label>
+                                                            <div class="small text-muted mb-2">Select how this OtherMan seduces. None selected = role-level default guidance.</div>
+                                                            <div class="d-flex flex-wrap gap-2">
+                                                                @foreach (var archetype in SeductionArchetypeCatalog.All)
+                                                                {
+                                                                    <div class="form-check form-check-inline">
+                                                                        <input class="form-check-input" type="checkbox"
+                                                                               id="archetype-@(archetype.Id)-@(index)"
+                                                                               checked="@character.SeductionArchetypes.Contains(archetype.Id, StringComparer.OrdinalIgnoreCase)"
+                                                                               @onchange="@(e => ToggleSeductionArchetype(character, archetype.Id))" />
+                                                                        <label class="form-check-label small" for="archetype-@(archetype.Id)-@(index)">
+                                                                            <span class="fw-semibold">@archetype.DisplayName</span>
+                                                                        </label>
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                            @if (character.SeductionArchetypes.Count > 0)
+                                                            {
+                                                                <div class="mt-2">
+                                                                    <label class="form-label small text-muted">Prompt Preview</label>
+                                                                    <textarea class="form-control form-control-sm" rows="3" readonly
+                                                                              value="@(SeductionArchetypeCatalog.BuildGuidance(character.SeductionArchetypes) ?? string.Empty)"></textarea>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
                                                     <div class="mt-2">
                                                         <div class="small text-muted mb-1">Character Stat Profile</div>
-                                                        <div class="input-group input-group-sm mb-2" style="max-width: 520px;">
-                                                            <select class="form-select" value="@GetCharacterProfileSelection(character)" @onchange="@(e => SetCharacterProfileSelection(character, e.Value?.ToString()))">
-                                                                <option value="">(Select Profile)</option>
-                                                                @foreach (var profile in GetApplicableBaseStatProfiles(character))
-                                                                {
-                                                                    <option value="@profile.Id">@profile.Name (@CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender) / @CharacterRoleCatalog.Normalize(profile.TargetRole))</option>
-                                                                }
-                                                            </select>
-                                                            <button class="btn btn-outline-primary" type="button" @onclick="@(() => ApplyCharacterProfile(character))">Apply</button>
-                                                        </div>
-                                                        <div class="small text-muted mb-1">Character State Overrides (applied after scenario profile defaults at session start)</div>
-                                                        @foreach (var statName in BaseStatNames)
-                                                        {
-                                                            <div class="input-group input-group-sm mb-1">
-                                                                <span class="input-group-text" style="min-width: 140px;">@statName</span>
-                                                                <input type="number"
-                                                                       class="form-control"
-                                                                       min="0"
-                                                                       max="100"
-                                                                       value="@GetCharacterStat(character, statName)"
-                                                                       @onchange="@(e => SetCharacterStat(character, statName, e.Value?.ToString()))" />
-                                                            </div>
-                                                        }
+                                                        <select class="form-select form-select-sm" style="max-width: 520px;" value="@GetCharacterProfileSelection(character)" @onchange="@(e => SetCharacterProfileSelection(character, e.Value?.ToString()))">
+                                                            <option value="">(Select Profile)</option>
+                                                            @foreach (var profile in GetApplicableCharacterProfiles(character))
+                                                            {
+                                                                <option value="@profile.Id">@profile.Name (@CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender) / @CharacterRoleCatalog.Normalize(profile.TargetRole))</option>
+                                                            }
+                                                        </select>
                                                     </div>
                                                     <div class="mt-3">
                                                         <PhysicalAttributesEditor
@@ -369,6 +440,70 @@
                                                             AttributesChanged="@(attrs => character.PhysicalAttributes = attrs)"
                                                             Gender="@character.Gender" />
                                                     </div>
+                                                    @* T053+T054: Per-character Location Affinities editor with time-specific rules + conflict warning *@
+                                                    @if (CurrentScenario.Locations.Any())
+                                                    {
+                                                        <div class="mt-3 border rounded p-2 bg-light-subtle">
+                                                            <label class="form-label small fw-semibold">Location Affinities</label>
+                                                            @foreach (var location in CurrentScenario.Locations.Where(l => !string.IsNullOrWhiteSpace(l.Name)))
+                                                            {
+                                                                var locName = location.Name!.Trim();
+                                                                var existingAffinities = character.LocationAffinities
+                                                                    .Where(a => string.Equals(a.LocationName, locName, StringComparison.OrdinalIgnoreCase))
+                                                                    .ToList();
+                                                                var hasExcluded = existingAffinities.Any(a => a.AffinityType == AffinityType.Excluded);
+                                                                var hasRequired = existingAffinities.Any(a => a.AffinityType == AffinityType.Required);
+                                                                var hasPreferred = existingAffinities.Any(a => a.AffinityType == AffinityType.Preferred);
+                                                                var conflictWarning = (hasExcluded && hasRequired)
+                                                                    ? $"This Excluded rule will conflict with the existing Required rule — Excluded wins."
+                                                                    : (hasExcluded && hasPreferred)
+                                                                        ? $"This Excluded rule will conflict with the existing Preferred rule — Excluded wins."
+                                                                        : null;
+
+                                                                <div class="mb-2">
+                                                                    <div class="d-flex gap-2 align-items-center mb-1">
+                                                                        <span class="small text-muted" style="min-width:100px">@locName</span>
+                                                                        <select class="form-select form-select-sm" style="width:130px"
+                                                                                @onchange="@(e => UpdateAffinityForLocation(character, locName, e.Value?.ToString()))">
+                                                                            <option value="None" selected="@(existingAffinities.Count == 0 || existingAffinities.All(a => a.AffinityType == AffinityType.None))">None</option>
+                                                                            <option value="Preferred" selected="@hasPreferred">Preferred</option>
+                                                                            <option value="Required" selected="@hasRequired">Required</option>
+                                                                            <option value="Excluded" selected="@hasExcluded">Excluded</option>
+                                                                        </select>
+                                                                        <select class="form-select form-select-sm" style="width:120px"
+                                                                                @onchange="@(e => UpdateAffinityTimeOfDay(character, locName, e.Value?.ToString()))">
+                                                                            <option value="" selected="@(existingAffinities.Count == 0 || existingAffinities.All(a => a.TimeOfDay == null))">Auto</option>
+                                                                            <option value="Morning" selected="@(existingAffinities.Any(a => a.TimeOfDay == TimeOfDay.Morning))">Morning</option>
+                                                                            <option value="Afternoon" selected="@(existingAffinities.Any(a => a.TimeOfDay == TimeOfDay.Afternoon))">Afternoon</option>
+                                                                            <option value="Evening" selected="@(existingAffinities.Any(a => a.TimeOfDay == TimeOfDay.Evening))">Evening</option>
+                                                                            <option value="Night" selected="@(existingAffinities.Any(a => a.TimeOfDay == TimeOfDay.Night))">Night</option>
+                                                                        </select>
+                                                                    </div>
+                                                                    @if (conflictWarning is not null)
+                                                                    {
+                                                                        <div class="small text-warning-emphasis">@conflictWarning</div>
+                                                                    }
+                                                                    @if (existingAffinities.Count > 0)
+                                                                    {
+                                                                        <div class="ms-3 small">
+                                                                            @foreach (var aff in existingAffinities)
+                                                                            {
+                                                                                <div class="d-flex align-items-center gap-1 mb-1">
+                                                                                    <span class="badge @((aff.AffinityType == AffinityType.Excluded) ? "bg-danger" : (aff.AffinityType == AffinityType.Required) ? "bg-primary" : (aff.AffinityType == AffinityType.Preferred) ? "bg-info" : "bg-secondary")">@aff.AffinityType</span>
+                                                                                    <span class="text-muted">@(aff.TimeOfDay?.ToString() ?? "Auto")</span>
+                                                                                    <button class="btn btn-link btn-sm py-0 px-1 text-danger" @onclick="@(() => RemoveAffinity(character, aff))">×</button>
+                                                                                </div>
+                                                                            }
+                                                                        </div>
+                                                                    }
+                                                                    <button class="btn btn-link btn-sm py-0 px-0 text-muted"
+                                                                            @onclick="@(() => AddAffinity(character, locName))">
+                                                                        + add time-specific rule
+                                                                    </button>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
                                                 </div>
                                                 <div class="col-md-4 text-end">
                                                     <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditingCharacterIndex = index)">Edit</button>
@@ -389,6 +524,7 @@
                             Label="Add Character" 
                             TemplateTypeFilter="TemplateType.Character"
                             OnEntityCreated="@OnCharacterCreated" />
+
                     </div>
                 </div>
                 
@@ -670,11 +806,10 @@
         ("Erotic", "Erotic"),
         ("Hardcore", "Hardcore")
     ];
-    private List<BaseStatProfile> BaseStatProfiles = [];
+    private List<CharacterProfile> CharacterProfiles = [];
     private List<RoleDefinition> RoleDefinitions = [];
     private List<TemplateDefinition> CharacterLikeTemplates = [];
     private readonly Dictionary<string, string?> _characterProfileSelectionById = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly string[] BaseStatNames = GetBaseStatNames();
     
     protected override async Task OnInitializedAsync()
     {
@@ -685,7 +820,7 @@
             .ToList();
         ToneProfiles = await StoryAnalysisFacade.ListIntensityProfilesAsync();
         StyleProfiles = await StoryAnalysisFacade.ListSteeringProfilesAsync();
-        BaseStatProfiles = await StoryAnalysisFacade.ListBaseStatProfilesAsync();
+        CharacterProfiles = (await CharacterProfileService.GetAllAsync()).ToList();
         RoleDefinitions = await StoryAnalysisFacade.ListRoleDefinitionsAsync();
         CharacterLikeTemplates = (await TemplateService.GetAllAsync())
             .Where(x => IsCharacterLikeTemplate(x.TemplateType))
@@ -711,6 +846,18 @@
 
         EnsureBaseStatsInitialized();
         InitializeAssistantChatsFromScenario();
+
+        // Restore saved per-character profile selection from persisted field.
+        if (CurrentScenario is not null)
+        {
+            foreach (var character in CurrentScenario.Characters)
+            {
+                if (!string.IsNullOrWhiteSpace(character.DefaultEncounterProfileId))
+                {
+                    _characterProfileSelectionById[character.Id] = character.DefaultEncounterProfileId;
+                }
+            }
+        }
     }
 
     private static string[] GetBaseStatNames()
@@ -771,6 +918,22 @@
         }
 
         UpdateScenarioCharacterRelation(CurrentScenario.Characters, character, targetId);
+    }
+
+    private void ToggleSeductionArchetype(Character character, string archetypeId)
+    {
+        if (character is null || string.IsNullOrWhiteSpace(archetypeId)) return;
+
+        var index = character.SeductionArchetypes
+            .FindIndex(a => string.Equals(a, archetypeId, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0)
+        {
+            character.SeductionArchetypes.RemoveAt(index);
+        }
+        else
+        {
+            character.SeductionArchetypes.Add(archetypeId);
+        }
     }
 
     private void UpdateScenarioCharacterRelation(List<Character> characters, Character sourceCharacter, string? targetId)
@@ -851,6 +1014,14 @@
     private void DeleteScenarioCharacter(int index)
     {
         if (CurrentScenario is null || index < 0 || index >= CurrentScenario.Characters.Count)
+        {
+            return;
+        }
+
+        // The persona character is required for session creation and cannot be deleted.
+        // Other characters may be re-pointed at the persona via relation targets; deleting
+        // the persona would orphan those references.
+        if (CurrentScenario.Characters[index].IsPersona)
         {
             return;
         }
@@ -1341,6 +1512,80 @@
         return character;
     }
 
+    // ---- T053/T054: Location Affinity editing helpers ----
+
+    private void UpdateAffinityForLocation(Character character, string locationName, string? newValue)
+    {
+        if (string.IsNullOrWhiteSpace(newValue) || newValue == "None")
+        {
+            // Clear all wildcard (null TimeOfDay) affinity entries for this location.
+            character.LocationAffinities.RemoveAll(a =>
+                string.Equals(a.LocationName, locationName, StringComparison.OrdinalIgnoreCase)
+                && a.TimeOfDay is null);
+            return;
+        }
+
+        if (!Enum.TryParse<AffinityType>(newValue, out var parsed))
+        {
+            return;
+        }
+
+        var existing = character.LocationAffinities.FirstOrDefault(a =>
+            string.Equals(a.LocationName, locationName, StringComparison.OrdinalIgnoreCase)
+            && a.TimeOfDay is null);
+        if (existing is not null)
+        {
+            existing.AffinityType = parsed;
+        }
+        else
+        {
+            character.LocationAffinities.Add(new CharacterLocationAffinity
+            {
+                LocationName = locationName,
+                AffinityType = parsed,
+                TimeOfDay = null
+            });
+        }
+    }
+
+    private void UpdateAffinityTimeOfDay(Character character, string locationName, string? newValue)
+    {
+        var existing = character.LocationAffinities.FirstOrDefault(a =>
+            string.Equals(a.LocationName, locationName, StringComparison.OrdinalIgnoreCase)
+            && a.TimeOfDay is null);
+        if (existing is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(newValue))
+        {
+            existing.TimeOfDay = null;
+            return;
+        }
+
+        if (Enum.TryParse<TimeOfDay>(newValue, out var parsed))
+        {
+            existing.TimeOfDay = parsed;
+        }
+    }
+
+    private void AddAffinity(Character character, string locationName)
+    {
+        // T054: Add a new time-specific rule entry (defaults to None affinity + first TimeOfDay)
+        character.LocationAffinities.Add(new CharacterLocationAffinity
+        {
+            LocationName = locationName,
+            AffinityType = AffinityType.None,
+            TimeOfDay = TimeOfDay.Morning
+        });
+    }
+
+    private void RemoveAffinity(Character character, CharacterLocationAffinity affinity)
+    {
+        character.LocationAffinities.Remove(affinity);
+    }
+
     private static DreamGenClone.Domain.Templates.PhysicalAttributes ClonePhysicalAttributes(DreamGenClone.Domain.Templates.PhysicalAttributes src) => new()
     {
         Age = src.Age,
@@ -1433,11 +1678,23 @@
         }
     }
 
-    private IEnumerable<BaseStatProfile> GetApplicableBaseStatProfiles(Character character)
+    private IEnumerable<CharacterProfile> GetApplicableCharacterProfiles(Character character)
     {
-        return BaseStatProfiles.Where(profile =>
-            CharacterGenderCatalog.IsProfileApplicableToCharacter(profile.TargetGender, character.Gender)
-            && CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, character.Role));
+        return CharacterProfiles.Where(profile =>
+        {
+            // When character gender/role is Unknown, skip that filter dimension
+            // so all profiles are visible for selection.
+            var normalizedCharGender = CharacterGenderCatalog.NormalizeForCharacter(character.Gender);
+            var normalizedCharRole = CharacterRoleCatalog.Normalize(character.Role);
+
+            bool genderMatch = string.Equals(normalizedCharGender, CharacterGenderCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+                || CharacterGenderCatalog.IsProfileApplicableToCharacter(profile.TargetGender, character.Gender);
+
+            bool roleMatch = string.Equals(normalizedCharRole, CharacterRoleCatalog.Unknown, StringComparison.OrdinalIgnoreCase)
+                || CharacterRoleCatalog.IsProfileApplicableToCharacter(profile.TargetRole, character.Role);
+
+            return genderMatch && roleMatch;
+        });
     }
 
     private string GetCharacterProfileSelection(Character character)
@@ -1453,6 +1710,7 @@
     private void SetCharacterProfileSelection(Character character, string? profileId)
     {
         _characterProfileSelectionById[character.Id] = string.IsNullOrWhiteSpace(profileId) ? null : profileId;
+        character.DefaultEncounterProfileId = string.IsNullOrWhiteSpace(profileId) ? null : profileId;
     }
 
     private void ApplyCharacterProfile(Character character)
@@ -1463,7 +1721,7 @@
             return;
         }
 
-        var profile = BaseStatProfiles.FirstOrDefault(x =>
+        var profile = CharacterProfiles.FirstOrDefault(x =>
             string.Equals(x.Id, selectedProfileId, StringComparison.OrdinalIgnoreCase)
             && CharacterGenderCatalog.IsProfileApplicableToCharacter(x.TargetGender, character.Gender)
             && CharacterRoleCatalog.IsProfileApplicableToCharacter(x.TargetRole, character.Role));
@@ -1472,9 +1730,10 @@
             return;
         }
 
-        character.BaseStats = AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+        character.BaseStats = AdaptiveStatCatalog.NormalizeComplete(profile.CharacterStats);
         character.Gender = CharacterGenderCatalog.NormalizeForCharacter(profile.TargetGender);
         character.Role = CharacterRoleCatalog.Normalize(profile.TargetRole);
+        character.DefaultEncounterProfileId = selectedProfileId;
     }
     
     private void AddLocation(string name, string? templateId, string? description)
@@ -1580,10 +1839,10 @@
             return;
         }
 
-        var profile = await StoryAnalysisFacade.GetBaseStatProfileAsync(CurrentScenario.BaseStatProfileId);
+        var profile = await CharacterProfileService.GetAsync(CurrentScenario.BaseStatProfileId);
         CurrentScenario.ResolvedBaseStats = profile is null
             ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-            : AdaptiveStatCatalog.NormalizeComplete(profile.DefaultStats);
+            : AdaptiveStatCatalog.NormalizeComplete(profile.CharacterStats);
     }
 
     private void EnsureBaseStatsInitialized()
@@ -1603,27 +1862,6 @@
     {
         character.Gender = CharacterGenderCatalog.NormalizeForCharacter(character.Gender);
         character.BaseStats = AdaptiveStatCatalog.NormalizeComplete(character.BaseStats);
-    }
-
-    private static int GetCharacterStat(Character character, string statName)
-    {
-        if (!character.BaseStats.TryGetValue(statName, out var value))
-        {
-            value = 50;
-            character.BaseStats[statName] = value;
-        }
-
-        return value;
-    }
-
-    private static void SetCharacterStat(Character character, string statName, string? rawValue)
-    {
-        if (!int.TryParse(rawValue, out var value))
-        {
-            value = 50;
-        }
-
-        character.BaseStats[statName] = Math.Clamp(value, 0, 100);
     }
 
     private ScenarioAssistantContext BuildAssistantContext(Scenario scenario, string? sessionId = null, ScenarioAssistantTarget? target = null)

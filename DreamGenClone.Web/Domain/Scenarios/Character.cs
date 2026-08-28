@@ -37,4 +37,34 @@ public class Character
     public CharacterPerspectiveMode PerspectiveMode { get; set; } = CharacterPerspectiveMode.ThirdPersonExternalOnly;
 
     public DreamGenClone.Domain.Templates.PhysicalAttributes? PhysicalAttributes { get; set; }
+
+    /// <summary>
+    /// Per-character location affinity rules. Multiple entries per (character, location)
+    /// are allowed, each with a distinct or null TimeOfDay.
+    /// Conflicts resolved by Excluded > Required > Preferred precedence,
+    /// then exact-time match over wildcard (null TimeOfDay).
+    /// </summary>
+    public List<CharacterLocationAffinity> LocationAffinities { get; set; } = [];
+
+    /// <summary>
+    /// Seduction archetype identifiers (B-078). Values should match
+    /// <c>SeductionArchetypeCatalog</c> entry Ids. Empty = no archetype configured →
+    /// role-level <c>SteerRoleIntentCatalog</c> fallback applies.
+    /// Only injected into prompts when Role is "OtherMan".
+    /// </summary>
+    public List<string> SeductionArchetypes { get; set; } = [];
+
+    /// <summary>
+    /// Optional default CharacterProfile (encounter profile) ID pre-selected
+    /// when creating an RP session from this scenario. Can be overridden in the wizard.
+    /// </summary>
+    public string? DefaultEncounterProfileId { get; set; }
+
+    /// <summary>
+    /// Marks this character as the scenario's POV persona ("You").
+    /// Exactly one character per scenario may have this flag set.
+    /// The persona character is treated as a first-class character for
+    /// location gates, affinities, scoring, and candidate selection.
+    /// </summary>
+    public bool IsPersona { get; set; }
 }

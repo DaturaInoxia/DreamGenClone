@@ -116,6 +116,13 @@ public sealed class StyleProfileAffinityTests
 
         Assert.Equal(5, sultry.StatBias["Desire"]);
         Assert.Equal(5, sultry.StatBias["Restraint"]);
+
+        Assert.Equal("Stay inside this character's perceptions, thoughts, feelings, and physical sensations. Show, don't tell.", sultry.ImmersionDirective);
+        Assert.Equal("Respond to the scene naturally.", sultry.ActionDirective);
+        Assert.Equal(200, sultry.WordTargetMin);
+        Assert.Equal(400, sultry.WordTargetMax);
+        Assert.Equal(300, sultry.NarrativeWordTargetMin);
+        Assert.Equal(500, sultry.NarrativeWordTargetMax);
     }
 
     private sealed class InMemoryStyleProfilePersistence : ISqlitePersistence
@@ -148,6 +155,11 @@ public sealed class StyleProfileAffinityTests
         public Task<StatWillingnessProfile?> LoadDefaultStatWillingnessProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<List<StatWillingnessProfile>> LoadAllStatWillingnessProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteStatWillingnessProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveStatResistanceProfileAsync(StatResistanceProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<StatResistanceProfile?> LoadStatResistanceProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<StatResistanceProfile?> LoadDefaultStatResistanceProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<StatResistanceProfile>> LoadAllStatResistanceProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteStatResistanceProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task SaveNarrativeGateProfileAsync(NarrativeGateProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<NarrativeGateProfile?> LoadNarrativeGateProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<NarrativeGateProfile?> LoadDefaultNarrativeGateProfileAsync(CancellationToken ct = default) => throw new NotImplementedException();
@@ -232,5 +244,13 @@ public sealed class StyleProfileAffinityTests
         public Task<UserStoryRating?> LoadUserStoryRatingAsync(string parsedStoryId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteUserStoryRatingAsync(string parsedStoryId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<Dictionary<string, UserStoryRating>> LoadUserStoryRatingsBatchAsync(IEnumerable<string> parsedStoryIds, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveCharacterProfileAsync(CharacterProfile profile, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<CharacterProfile?> LoadCharacterProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<CharacterProfile>> LoadAllCharacterProfilesAsync(CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<CharacterProfile>> LoadCharacterProfilesByRoleAsync(string targetRole, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteCharacterProfileAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task SaveSteeringGenerationRecordAsync(SteeringGenerationRecord record, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<SteeringGenerationRecord?> LoadSteeringGenerationRecordAsync(string id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<SteeringGenerationRecord?> GetLatestSteeringGenerationRecordAsync(string sessionId) => Task.FromResult<SteeringGenerationRecord?>(null);
     }
 }

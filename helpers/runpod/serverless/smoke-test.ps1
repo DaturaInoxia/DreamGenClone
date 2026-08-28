@@ -8,9 +8,23 @@
 # Usage:
 #   powershell -ExecutionPolicy RemoteSigned -File helpers/runpod/serverless/smoke-test.ps1 `
 #     -EndpointKey pose-dwpose-serverless -ImagePath path/to/image.png
+#   powershell -ExecutionPolicy RemoteSigned -File helpers/runpod/serverless/smoke-test.ps1 `
+#     -EndpointKey img-juggernaut-serverless -WorkflowJsonPath helpers/runpod/workflows/juggernaut-t2i.json
+#   powershell -ExecutionPolicy RemoteSigned -File helpers/runpod/serverless/smoke-test.ps1 `
+#     -EndpointKey img-identity-serverless -WorkflowJsonPath helpers/runpod/serverless/proofs/identity-2char.json `
+#     -ImagesJsonPath helpers/runpod/serverless/proofs/identity-2char.images.json -OutDir artifacts/tmp/proofs/identity
+#
+# -ImagesJsonPath: a JSON file that is an ARRAY of { "name": <ComfyUI image field name>, "path": <local file> }.
+#   Each entry is attached to input.images under the given name (must match the LoadImage/LoadImageMask
+#   'image' fields in the workflow). Used for identity (refs + regional masks) and qwen-edit (source) proofs.
+# -OutDir: when the job COMPLETES, output.images[].data (base64) is decoded and written here as
+#   <endpointKey>_<i>.png, and the saved paths are printed on their own lines as SAVED:<path>.
 param(
     [Parameter(Mandatory = $true)][string]$EndpointKey,
-    [string]$ImagePath
+    [string]$ImagePath,
+    [string]$WorkflowJsonPath,
+    [string]$ImagesJsonPath,
+    [string]$OutDir
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,31 +42,50 @@ if ([string]::IsNullOrWhiteSpace($endpointId)) {
     throw "endpoints.json entry '$EndpointKey' has no endpointId yet (create the endpoint first)."
 }
 
-$jobInput = @{}
 # Official worker-comfyui contract: input.workflow (ComfyUI API JSON) + input.images[].
-# DWPose workflow (node ids verified on 0.5.0). LoadImage 'image' must match images[].name.
-$workflow = @{
-    "1" = @{ class_type = "LoadImage"; inputs = @{ image = "input_image.png" } }
-    "2" = @{
-        class_type = "DWPreprocessor"
-        inputs     = @{
-            image            = @("1", 0)
-            detect_hand      = "enable"
-            detect_body      = "enable"
-            detect_face      = "enable"
-            resolution       = 512
-            bbox_detector    = "yolox_l.torchscript.pt"
-            pose_estimator   = "dw-ll_ucoco_384_bs5.torchscript.pt"
-            scale_stick_for_xinsr_cn = "disable"
+$jobInput = @{ workflow = $null; images = @() }
+
+if ($WorkflowJsonPath) {
+    # Use an external ComfyUI API-format workflow file (e.g. a T2I workflow for Juggernaut).
+    Write-Host "Using workflow file: $WorkflowJsonPath"
+    $jobInput.workflow = Get-Content -Raw -Path (Resolve-Path $WorkflowJsonPath) | ConvertFrom-Json
+} else {
+    # Default DWPose workflow (node ids verified on 0.5.0).
+    # LoadImage 'image' must match images[].name.
+    $jobInput.workflow = @{
+        "1" = @{ class_type = "LoadImage"; inputs = @{ image = "input_image.png" } }
+        "2" = @{
+            class_type = "DWPreprocessor"
+            inputs     = @{
+                image            = @("1", 0)
+                detect_hand      = "enable"
+                detect_body      = "enable"
+                detect_face      = "enable"
+                resolution       = 512
+                bbox_detector    = "yolox_l.torchscript.pt"
+                pose_estimator   = "dw-ll_ucoco_384_bs5.torchscript.pt"
+                scale_stick_for_xinsr_cn = "disable"
+            }
         }
+        "3" = @{ class_type = "SaveImage"; inputs = @{ filename_prefix = "dwpose_sls"; images = @("2", 0) } }
     }
-    "3" = @{ class_type = "SaveImage"; inputs = @{ filename_prefix = "dwpose_sls"; images = @("2", 0) } }
 }
 
-$jobInput = @{ workflow = $workflow; images = @() }
 if ($ImagePath) {
     $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $ImagePath)))
     $jobInput.images = @(@{ name = "input_image.png"; image = "data:image/png;base64,$b64" })
+}
+
+if ($ImagesJsonPath) {
+    # Multi-image manifest: [ { name, path }, ... ] -> input.images[]. Names MUST match the
+    # workflow's LoadImage / LoadImageMask 'image' fields (the worker substitutes by name).
+    $manifest = Get-Content -Raw -Path (Resolve-Path $ImagesJsonPath) | ConvertFrom-Json
+    $jobInput.images = @()
+    foreach ($item in $manifest) {
+        $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $item.path)))
+        $jobInput.images += @{ name = $item.name; image = "data:image/png;base64,$b64" }
+        Write-Host "  attached image '$($item.name)' from $($item.path)"
+    }
 }
 
 $headers = @{ Authorization = "Bearer $env:RUNPOD_API_KEY" }
@@ -84,5 +117,28 @@ for ($i = 1; $i -le 90; $i++) {   # up to ~15 min
     }
 }
 if (-not $done) { Write-Host "`nTIMEOUT after 15 min - check RunPod console for the job's status/logs." }
-elseif ($st.status -eq "COMPLETED") { Write-Host "`nPASS: job completed. Inspect output.images[] for the rendered pose PNG (base64)." }
+elseif ($st.status -eq "COMPLETED") {
+    Write-Host "`nPASS: job completed. Inspect output.images[] for the rendered PNG (base64)."
+    # Decode output images when an output dir is requested (proof-runner flow).
+    if ($OutDir) {
+        $outRoot = Resolve-Path $OutDir -ErrorAction SilentlyContinue
+        if (-not $outRoot) { $outRoot = Join-Path $repoRoot $OutDir; New-Item -ItemType Directory -Force -Path $outRoot | Out-Null }
+        $outRoot = (Resolve-Path $outRoot).Path
+        $idx = 0
+        if ($st.output.images) {
+            foreach ($img in $st.output.images) {
+                if ($img.data) {
+                    $raw = $img.data
+                    if ($raw -match '^data:') { $raw = ($raw -split ',', 2)[1] }
+                    $bytes = [Convert]::FromBase64String($raw)
+                    $outPath = Join-Path $outRoot "$EndpointKey`_$idx.png"
+                    [IO.File]::WriteAllBytes($outPath, $bytes)
+                    Write-Host "SAVED:$outPath"
+                    $idx++
+                }
+            }
+        }
+        if ($idx -eq 0) { Write-Host "WARN: no output.images[].data found to save." }
+    }
+}
 else { Write-Host "`nFAIL: inspect 'output'/'error' above; check RunPod console for job logs (no SSH)." }

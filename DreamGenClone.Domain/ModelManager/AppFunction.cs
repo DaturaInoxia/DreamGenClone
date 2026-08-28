@@ -12,5 +12,16 @@ public enum AppFunction
     ScenarioAssistant,
     WritingAssistant,
     RolePlayAssistant,
-    ModelAnalysis
+    ModelAnalysis,
+    RolePlaySemanticAnalysis,
+    RolePlaySummaryEnhancement,
+    RolePlayLocationDetection,
+    RolePlayActorSelection,
+    RolePlaySteering,
+    RolePlayEncounterDetection,
+    RolePlaySceneImagePreprocessor,
+    RolePlaySceneImage,
+    RolePlaySceneImageEditor,
+    RolePlaySceneImageEditPromptCompiler,
+    RolePlaySceneImageValidator
 }

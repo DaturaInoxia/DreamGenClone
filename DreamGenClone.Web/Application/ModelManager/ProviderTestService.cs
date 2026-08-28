@@ -8,17 +8,20 @@ namespace DreamGenClone.Web.Application.ModelManager;
 public sealed class ProviderTestService
 {
     private readonly ICompletionClient _completionClient;
+    private readonly IImageGenerationClient _imageGenerationClient;
     private readonly IApiKeyEncryptionService _encryptionService;
     private readonly IProviderRepository _providerRepository;
     private readonly ILogger<ProviderTestService> _logger;
 
     public ProviderTestService(
         ICompletionClient completionClient,
+        IImageGenerationClient imageGenerationClient,
         IApiKeyEncryptionService encryptionService,
         IProviderRepository providerRepository,
         ILogger<ProviderTestService> logger)
     {
         _completionClient = completionClient;
+        _imageGenerationClient = imageGenerationClient;
         _encryptionService = encryptionService;
         _providerRepository = providerRepository;
         _logger = logger;
@@ -87,6 +90,26 @@ public sealed class ProviderTestService
                 _logger.LogError(ex, "Failed to decrypt API key for provider {ProviderName} while testing model {ModelName}.", provider.Name, model.DisplayName);
                 return (false, "API key decryption failed. Please re-enter the API key on the provider.");
             }
+        }
+
+        // Image-kind models are served at the image-generation endpoint (not chat completions),
+        // so probe the image path for them. Text models keep the existing chat health check.
+        if (model.ModelKind == ModelKind.Image)
+        {
+            _logger.LogInformation(
+                "Testing image model connection: Model={ModelIdentifier}, Provider={ProviderName}, Path={ImagePath}",
+                model.ModelIdentifier,
+                provider.Name,
+                provider.ImageGenerationPath);
+
+            return await _imageGenerationClient.CheckImageModelHealthAsync(
+                provider.BaseUrl,
+                provider.ImageGenerationPath,
+                provider.TimeoutSeconds,
+                decryptedKey,
+                model.ModelIdentifier,
+                provider.ContentPolicy,
+                cancellationToken);
         }
 
         return await _completionClient.CheckModelHealthAsync(

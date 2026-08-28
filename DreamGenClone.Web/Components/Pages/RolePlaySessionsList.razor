@@ -6,10 +6,12 @@
 @using DreamGenClone.Components.Shared
 @using DreamGenClone.Web.Application.Scenarios
 @using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Application.StoryAnalysis.Abstractions
 
 @inject IRolePlayEngineService RolePlayEngine
 @inject IScenarioService ScenarioService
 @inject IRPThemeService RPThemeService
+@inject ICharacterProfileService CharacterProfileService
 @inject NavigationManager Navigation
 @inject ILogger<RolePlaySessionsList> Logger
 
@@ -47,6 +49,8 @@
                     PrimaryActionLabel='@(session.Status == RolePlaySessionStatus.NotStarted ? "Start" : "Continue")'
                     ScenarioName="@GetScenarioName(session)"
                     ThemeSummary="@GetThemeSummary(session)"
+                    PersonaSummary="@GetPersonaSummary(session)"
+                    CharactersSummary="@GetCharactersSummary(session)"
                     OnPrimaryAction="@(() => OpenSessionAsync(session))"
                     OnDeleteAction="@(() => AskDelete(session))" />
 
@@ -73,6 +77,7 @@
     private string? _pendingDeleteSessionId;
     private Dictionary<string, string> _scenarioNames = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _themeLabels = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _characterProfileNames = new(StringComparer.OrdinalIgnoreCase);
 
     protected override async Task OnInitializedAsync()
     {
@@ -84,11 +89,14 @@
         var sessionsTask = RolePlayEngine.GetSessionsAsync();
         var scenariosTask = ScenarioService.GetAllScenariosAsync();
         var themesTask = RPThemeService.ListThemesAsync();
-        await Task.WhenAll(sessionsTask, scenariosTask, themesTask);
+        var profilesTask = CharacterProfileService.GetAllAsync();
+        await Task.WhenAll(sessionsTask, scenariosTask, themesTask, profilesTask);
         _sessions.Clear();
         _sessions.AddRange(sessionsTask.Result);
         _scenarioNames = scenariosTask.Result.ToDictionary(s => s.Id, s => s.Name, StringComparer.OrdinalIgnoreCase);
         _themeLabels = themesTask.Result.ToDictionary(t => t.Id, t => t.Label ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+        _characterProfileNames = profilesTask.Result.ToDictionary(p => p.Id, p => (string)(p.Name ?? string.Empty), StringComparer.OrdinalIgnoreCase);
+
         _statusMessage = string.Empty;
     }
 
@@ -110,6 +118,46 @@
         var extra = labels.Count - shown.Count;
         var summary = string.Join(", ", shown);
         return extra > 0 ? $"Themes: {summary} (+{extra} more)" : $"Themes: {summary}";
+    }
+
+    private string GetPersonaSummary(RolePlaySession session)
+    {
+        var name = string.IsNullOrWhiteSpace(session.PersonaName) ? "You" : session.PersonaName;
+        var role = string.IsNullOrWhiteSpace(session.PersonaRole) ? null : session.PersonaRole;
+        // Resolve persona encounter profile name
+        string? profileName = null;
+        if (session.AdaptiveState.CharacterEncounterProfileIds.TryGetValue("__persona__", out var personaProfileId)
+            && _characterProfileNames.TryGetValue(personaProfileId, out var pName))
+        {
+            profileName = pName;
+        }
+
+        var rolePart = role is not null ? $" ({role})" : string.Empty;
+        var profilePart = !string.IsNullOrWhiteSpace(profileName) ? $" - {profileName}" : string.Empty;
+        return $"{name}{rolePart}{profilePart}";
+    }
+
+    private string GetCharactersSummary(RolePlaySession session)
+    {
+        var parts = new List<string>();
+        foreach (var cp in session.CharacterPerspectives)
+        {
+            var label = cp.CharacterName;
+            // Resolve role from adaptive state
+            session.AdaptiveState.CharacterRoles.TryGetValue(cp.CharacterId, out var role);
+            // Resolve encounter profile name
+            string? profileName = null;
+            if (session.AdaptiveState.CharacterEncounterProfileIds.TryGetValue(cp.CharacterId, out var profileId)
+                && _characterProfileNames.TryGetValue(profileId, out var pName))
+            {
+                profileName = pName;
+            }
+
+            var rolePart = !string.IsNullOrWhiteSpace(role) ? $" ({role})" : string.Empty;
+            var profilePart = !string.IsNullOrWhiteSpace(profileName) ? $" - {profileName}" : string.Empty;
+            parts.Add($"{label}{rolePart}{profilePart}");
+        }
+        return parts.Count > 0 ? string.Join(", ", parts) : string.Empty;
     }
 
     private async Task OpenSessionAsync(RolePlaySession session)

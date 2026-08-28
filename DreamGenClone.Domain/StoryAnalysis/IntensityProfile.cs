@@ -20,11 +20,16 @@ public sealed class IntensityProfile
 
     public int ResetPhaseOffset { get; set; } = -1;
 
-    public string SceneDirective { get; set; } = string.Empty;
-
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+
+    // ── Writing directive columns (plan-amendment 2026-07-22) ──────
+    public string ProseStyleDirective { get; set; } = string.Empty;
+    public string VoiceDirective { get; set; } = string.Empty;
+    public string ToneDirective { get; set; } = string.Empty;
+    public string FocusDirective { get; set; } = string.Empty;
+    public string HeatLevelDirective { get; set; } = string.Empty;
 
     public int GetPhaseOffset(NarrativePhase phase)
     {

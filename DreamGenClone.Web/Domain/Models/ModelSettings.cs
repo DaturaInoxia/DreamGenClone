@@ -33,7 +33,12 @@ public sealed class ModelSettings
     /// <summary>
     /// Whether the user has explicitly set an override (any field changed from default).
     /// </summary>
-    public bool HasOverride => SessionModelId != null;
+    public bool HasOverride =>
+        SessionModelId != null ||
+        MaxTokens != 500 ||
+        Math.Abs(Temperature - 0.7) > 1e-9 ||
+        Math.Abs(TopP - 0.9) > 1e-9 ||
+        ContextWindowSize != 0;
 
     /// <summary>
     /// Creates a shallow copy of this model settings.

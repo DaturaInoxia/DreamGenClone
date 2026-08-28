@@ -15,6 +15,7 @@
 
 @inject StoryAnalysisFacade Facade
 @inject DreamGenClone.Application.RolePlay.IClimaxBeatRepository ClimaxBeatRepository
+@inject NavigationManager Navigation
 
 <PageTitle>Profiles</PageTitle>
 
@@ -34,7 +35,7 @@
             <span class="badge bg-success-subtle text-success-emphasis border">Character State: @_baseStatProfiles.Count</span>
             <span class="badge bg-warning-subtle text-warning-emphasis border">Willingness: @_willingnessProfiles.Count</span>
             <span class="badge bg-warning-subtle text-warning-emphasis border">Narrative Gates: @_narrativeGateProfiles.Count</span>
-            <span class="badge bg-danger-subtle text-danger-emphasis border">Husband Awareness: @_husbandAwarenessProfiles.Count</span>
+            <span class="badge bg-success-subtle text-success-emphasis border">Character Profiles: @_characterProfiles.Count</span>
             <span class="badge bg-info-subtle text-info-emphasis border">Roles: @_roleDefinitions.Count</span>
             <span class="badge bg-secondary-subtle text-secondary-emphasis border">Background Characters: @_backgroundCharacterProfiles.Count</span>
             <span class="badge bg-danger-subtle text-danger-emphasis border">Finishing Move Rows: @_finishingMoveRows.Count</span>
@@ -45,55 +46,55 @@
 
     <ul class="nav nav-pills flex-nowrap overflow-auto mb-4" role="tablist" style="gap:0.5rem; white-space:nowrap;">
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("ranking")" @onclick='() => _activeTab = "ranking"'>Theme</button>
+            <button type="button" class="nav-link @GetTabClass("ranking")" @onclick='() => SelectTab("ranking")'>Theme</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("tone")" @onclick='() => _activeTab = "tone"'>Intensity</button>
+            <button type="button" class="nav-link @GetTabClass("tone")" @onclick='() => SelectTab("tone")'>Intensity</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("style")" @onclick='() => _activeTab = "style"'>Writing Style</button>
+            <button type="button" class="nav-link @GetTabClass("style")" @onclick='() => SelectTab("style")'>Writing Style</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("base-stats")" @onclick='() => _activeTab = "base-stats"'>Character State</button>
+            <button type="button" class="nav-link @GetTabClass("character-profiles")" @onclick='() => SelectTab("character-profiles")'>Character Profiles</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("willingness")" @onclick='() => _activeTab = "willingness"'>Willingness</button>
+            <button type="button" class="nav-link @GetTabClass("willingness")" @onclick='() => SelectTab("willingness")'>Willingness</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("narrative-gates")" @onclick='() => _activeTab = "narrative-gates"'>Narrative Gate Values</button>
+            <button type="button" class="nav-link @GetTabClass("resistance")" @onclick='() => SelectTab("resistance")'>Resistance</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("husband-awareness")" @onclick='() => _activeTab = "husband-awareness"'>Husband Awareness</button>
+            <button type="button" class="nav-link @GetTabClass("narrative-gates")" @onclick='() => SelectTab("narrative-gates")'>Narrative Gate Values</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("roles")" @onclick='() => _activeTab = "roles"'>Roles</button>
+            <button type="button" class="nav-link @GetTabClass("roles")" @onclick='() => SelectTab("roles")'>Roles</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("background-characters")" @onclick='() => _activeTab = "background-characters"'>Background Characters</button>
+            <button type="button" class="nav-link @GetTabClass("background-characters")" @onclick='() => SelectTab("background-characters")'>Background Characters</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("finishing-move")" @onclick='() => _activeTab = "finishing-move"'>Finishing Move</button>
+            <button type="button" class="nav-link @GetTabClass("finishing-move")" @onclick='() => SelectTab("finishing-move")'>Finishing Move</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("steer-position")" @onclick='() => _activeTab = "steer-position"'>Steer Position</button>
+            <button type="button" class="nav-link @GetTabClass("steer-position")" @onclick='() => SelectTab("steer-position")'>Steer Position</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("flow-guide")" @onclick='() => _activeTab = "flow-guide"'>Flow Guide</button>
+            <button type="button" class="nav-link @GetTabClass("flow-guide")" @onclick='() => SelectTab("flow-guide")'>Flow Guide</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("perspective")" @onclick='() => _activeTab = "perspective"'>Perspective</button>
+            <button type="button" class="nav-link @GetTabClass("perspective")" @onclick='() => SelectTab("perspective")'>Perspective</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("selection-engine")" @onclick='() => _activeTab = "selection-engine"'>Selection Engine</button>
+            <button type="button" class="nav-link @GetTabClass("selection-engine")" @onclick='() => SelectTab("selection-engine")'>Selection Engine</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("beat-sheet")" @onclick='() => _activeTab = "beat-sheet"'>Beat Sheet</button>
+            <button type="button" class="nav-link @GetTabClass("beat-sheet")" @onclick='() => SelectTab("beat-sheet")'>Beat Sheet</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("templates")" @onclick='() => _activeTab = "templates"'>Templates</button>
+            <button type="button" class="nav-link @GetTabClass("templates")" @onclick='() => SelectTab("templates")'>Templates</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button type="button" class="nav-link @GetTabClass("stat-keywords")" @onclick='() => _activeTab = "stat-keywords"'>Stat Keywords</button>
+            <button type="button" class="nav-link @GetTabClass("stat-keywords")" @onclick='() => SelectTab("stat-keywords")'>Stat Keywords</button>
         </li>
     </ul>
 
@@ -1197,19 +1198,6 @@
                                 <textarea class="form-control" rows="3" @bind="_toneFormDescription"></textarea>
                             </div>
                             <div class="col-12">
-                                <label class="form-label">Scene Writing Directive <span class="text-muted small">(Explicit / Hardcore only)</span></label>
-                                <textarea class="form-control"
-                                          rows="5"
-                                          maxlength="2000"
-                                          placeholder="Optional: custom scene-writing instructions for explicit scenes at this intensity level. Leave empty to use the built-in default directive."
-                                          disabled="@(!IsSceneDirectiveActive)"
-                                          @bind="_toneFormSceneDirective"></textarea>
-                                @if (!IsSceneDirectiveActive)
-                                {
-                                    <div class="form-text text-warning">Scene writing directives only apply to Explicit and Hardcore intensity levels.</div>
-                                }
-                            </div>
-                            <div class="col-12">
                                 <label class="form-label">Flow Phase Offsets</label>
                                 <div class="row g-2">
                                     <div class="col-6 col-md-2">
@@ -1234,6 +1222,30 @@
                                     </div>
                                 </div>
                                 <div class="form-text">Per-phase baseline deltas applied before stat modifiers. Typical defaults: 0, 0, +1, +2, -1.</div>
+                            </div>
+                            <div class="col-12">
+                                <hr class="my-2" />
+                                <h6>Writing Directives</h6>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Prose Style</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormProseStyleDirective" placeholder="e.g. Sensory-driven prose. The body's experience of desire."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Voice</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormVoiceDirective" placeholder="e.g. Build anticipation through physical detail."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Tone</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormToneDirective" placeholder="e.g. Warm and intimate."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Focus</label>
+                                <textarea class="form-control" rows="2" @bind="_toneFormFocusDirective" placeholder="e.g. The progression of physical intimacy."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Heat Level</label>
+                                <textarea class="form-control" rows="3" @bind="_toneFormHeatLevelDirective" placeholder="e.g. Sensual intimacy. Passionate kissing, caressing."></textarea>
                             </div>
                         </div>
                         @if (!string.IsNullOrEmpty(_toneError))
@@ -1342,6 +1354,30 @@
                             <div class="col-12">
                                 <label class="form-label">Rule of Thumb</label>
                                 <textarea class="form-control" rows="2" @bind="_styleFormRuleOfThumb"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Immersion Directive</label>
+                                <textarea class="form-control" rows="2" @bind="_styleFormImmersionDirective" placeholder="e.g. Stay inside this character's perceptions. Show, don't tell."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Action Directive</label>
+                                <textarea class="form-control" rows="2" @bind="_styleFormActionDirective" placeholder="e.g. Respond to the scene naturally."></textarea>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Character Min Words</label>
+                                <input type="number" class="form-control" min="1" max="2000" @bind="_styleFormWordTargetMin" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Character Max Words</label>
+                                <input type="number" class="form-control" min="1" max="2000" @bind="_styleFormWordTargetMax" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Narrative Min Words</label>
+                                <input type="number" class="form-control" min="1" max="2000" @bind="_styleFormNarrativeWordTargetMin" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Narrative Max Words</label>
+                                <input type="number" class="form-control" min="1" max="2000" @bind="_styleFormNarrativeWordTargetMax" />
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Theme Affinities</label>
@@ -1649,166 +1685,7 @@
             </div>
         </div>
     }
-    else if (_activeTab == "base-stats")
-    {
-        <div class="row g-4">
-            <div class="col-lg-4">
-                <div class="card h-100">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>Character State Profiles</span>
-                        <div class="d-flex flex-wrap gap-2">
-                            <button class="btn btn-sm btn-outline-secondary" @onclick="ImportCharacterStatPresets" disabled="@_isBusy">Import Presets</button>
-                            <button class="btn btn-sm btn-primary" @onclick="StartCreateBaseStatProfile">New</button>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        @if (!string.IsNullOrWhiteSpace(_baseStatImportStatus))
-                        {
-                            <div class="alert alert-info py-2 small">@_baseStatImportStatus</div>
-                        }
-
-                        @if (_baseStatProfiles.Count > 0)
-                        {
-                            <div class="list-group">
-                                @foreach (var profile in _baseStatProfiles)
-                                {
-                                    <button type="button"
-                                            class="list-group-item list-group-item-action @(profile.Id == _selectedBaseStatProfileId ? "active" : "")"
-                                            @onclick="() => SelectBaseStatProfile(profile.Id)">
-                                        <strong>@profile.Name</strong>
-                                        <span class="badge @(profile.Id == _selectedBaseStatProfileId ? "bg-light text-dark" : "bg-secondary") ms-2">@CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender)</span>
-                                        <span class="badge @(profile.Id == _selectedBaseStatProfileId ? "bg-light text-dark" : "bg-secondary") ms-2">@CharacterRoleCatalog.Normalize(profile.TargetRole)</span>
-                                        <small class="d-block @(profile.Id == _selectedBaseStatProfileId ? "text-light" : "text-muted")">@Truncate(profile.Description, 100)</small>
-                                    </button>
-                                }
-                            </div>
-                        }
-                        else
-                        {
-                            <p class="text-muted mb-0">No character state profiles yet.</p>
-                        }
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-8">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <div>
-                            <strong>@(_selectedBaseStatProfileId is null ? "Create Character State Profile" : "Edit Character State Profile")</strong>
-                            <div class="text-muted small">Defines default per-character stat seeds for scenario session initialization.</div>
-                        </div>
-                        @if (_selectedBaseStatProfileId is not null)
-                        {
-                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteBaseStatProfile" disabled="@_isBusy">Delete</button>
-                        }
-                    </div>
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Name</label>
-                                <input type="text" class="form-control" @bind="_baseStatFormName" />
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Description</label>
-                                <textarea class="form-control" rows="2" @bind="_baseStatFormDescription"></textarea>
-                            </div>
-                            <div class="col-md-4" style="max-width: 280px;">
-                                <label class="form-label">Target Gender</label>
-                                <select class="form-select" @bind="_baseStatFormTargetGender">
-                                    @foreach (var option in CharacterGenderCatalog.ProfileGenders)
-                                    {
-                                        <option value="@option">@option</option>
-                                    }
-                                </select>
-                            </div>
-                            <div class="col-md-4" style="max-width: 280px;">
-                                <label class="form-label">Target Role</label>
-                                <select class="form-select" @bind="_baseStatFormTargetRole">
-                                    @foreach (var option in GetAdaptiveRoleOptions(_baseStatFormTargetRole))
-                                    {
-                                        <option value="@option">@option</option>
-                                    }
-                                </select>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Default Stats</label>
-                                @foreach (var statName in BaseStatNames)
-                                {
-                                    <div class="input-group input-group-sm mb-2" style="max-width: 360px;">
-                                        <span class="input-group-text" style="min-width: 140px;">@statName</span>
-                                        <input type="number"
-                                               class="form-control"
-                                               min="0"
-                                               max="100"
-                                               value="@GetBaseStatValue(statName)"
-                                               @onchange="@(e => SetBaseStatValue(statName, e.Value?.ToString()))" />
-                                    </div>
-                                }
-
-                                <div class="border rounded p-3 mt-3 bg-light-subtle">
-                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-                                        <strong>Adaptive Stat Guide</strong>
-                                        <span class="badge bg-secondary-subtle text-secondary-emphasis border">Default seed: 50</span>
-                                    </div>
-
-                                    <div class="row g-2">
-                                        @foreach (var stat in AdaptiveStatCatalog.CanonicalStats)
-                                        {
-                                            <div class="col-12 col-md-6">
-                                                <div class="border rounded p-2 h-100 bg-white">
-                                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                                        <strong>@stat.Name</strong>
-                                                        <span class="badge bg-light text-dark border">@stat.DefaultValue</span>
-                                                    </div>
-                                                    <div class="small text-muted mb-1">@stat.Description</div>
-                                                    <div class="small"><span class="text-muted">Low:</span> @stat.LowMeaning</div>
-                                                    <div class="small"><span class="text-muted">High:</span> @stat.HighMeaning</div>
-                                                    @if (StatEngineEffects.TryGetValue(stat.Name, out var effect))
-                                                    {
-                                                        <div class="small mt-1"><span class="text-muted">Engine:</span> @effect</div>
-                                                    }
-                                                </div>
-                                            </div>
-                                        }
-                                    </div>
-
-                                    <div class="mt-3">
-                                        <div class="fw-semibold mb-1">Interaction Patterns</div>
-                                        <ul class="small mb-0">
-                                            @foreach (var interaction in StatInteractionPatterns)
-                                            {
-                                                <li><strong>@interaction.Pair:</strong> @interaction.Effect</li>
-                                            }
-                                        </ul>
-                                    </div>
-
-                                    <div class="mt-3">
-                                        <div class="fw-semibold mb-1">Cross-Character Behavior (Current)</div>
-                                        <ul class="small mb-0">
-                                            @foreach (var note in CrossCharacterBehaviorNotes)
-                                            {
-                                                <li>@note</li>
-                                            }
-                                        </ul>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        @if (!string.IsNullOrEmpty(_baseStatError))
-                        {
-                            <div class="text-danger mt-3 small">@_baseStatError</div>
-                        }
-                        <div class="d-flex flex-wrap gap-2 mt-3">
-                            <button class="btn btn-primary" @onclick="SaveBaseStatProfile" disabled="@_isBusy">@(_selectedBaseStatProfileId is null ? "Create Profile" : "Save Changes")</button>
-                            <button class="btn btn-outline-secondary" @onclick="StartCreateBaseStatProfile" disabled="@_isBusy">Reset</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
-    else if (_activeTab == "scenario-definitions")
+        else if (_activeTab == "scenario-definitions")
     {
         <div class="row g-4">
             <div class="col-lg-4">
@@ -2020,6 +1897,84 @@
             </div>
         </div>
     }
+    else if (_activeTab == "resistance")
+    {
+        <div class="row g-4">
+            <div class="col-lg-3">
+                <div class="card">
+                    <div class="card-header d-flex align-items-center justify-content-between">
+                        <span>Resistance Profiles</span>
+                        <button class="btn btn-sm btn-primary" @onclick="StartCreateResistanceProfile">+ New</button>
+                    </div>
+                    <div class="list-group list-group-flush" style="max-height:500px;overflow-y:auto;">
+                        @if (_resistanceProfiles.Count > 0)
+                        {
+                            @foreach (var profile in _resistanceProfiles)
+                            {
+                                <button type="button"
+                                    class="list-group-item list-group-item-action text-start @(string.Equals(profile.Id, _selectedResistanceProfileId, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+                                    @onclick="() => SelectResistanceProfile(profile.Id)">
+                                    <strong>@profile.Name</strong>
+                                    @if (profile.IsDefault)
+                                    {
+                                        <span class="badge bg-info ms-1">default</span>
+                                    }
+                                    <small class="d-block @(string.Equals(profile.Id, _selectedResistanceProfileId, StringComparison.OrdinalIgnoreCase) ? "text-light" : "text-muted")">Target: @profile.TargetStatName</small>
+                                </button>
+                            }
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No resistance profiles found.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-9">
+                <div class="card">
+                    <div class="card-header">
+                        <strong>@(_selectedResistanceProfileId is null ? "Create Resistance Profile" : "Edit Resistance Profile")</strong>
+                    </div>
+                    <div class="card-body">
+                        @if (_selectedResistanceProfileId is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-danger float-end" @onclick="DeleteResistanceProfile">Delete</button>
+                        }
+                        <div class="mb-3">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" @bind="_resistanceFormName" placeholder="Profile name" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Target Stat</label>
+                            <input type="text" class="form-control" @bind="_resistanceFormTargetStat" placeholder="Loyalty" />
+                            <div class="form-text">Canonical stat name used to resolve the resistance band (e.g. Loyalty, Restraint).</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" rows="2" @bind="_resistanceFormDescription" placeholder="What this resistance profile represents"></textarea>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" @bind="_resistanceFormIsDefault" id="resistanceIsDefault" />
+                            <label class="form-check-label" for="resistanceIsDefault">Set as default profile</label>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Thresholds JSON</label>
+                            <textarea class="form-control font-monospace" rows="8" @bind="_resistanceThresholdsJson" placeholder='[{"SortOrder":1,"MinValue":0,"MaxValue":20,"ResistanceLevel":"Strict","Description":"Firm boundaries","PromptDirective":"...","ExampleScenarios":[]}]'></textarea>
+                            <div class="form-text">Format: array of objects with SortOrder, MinValue, MaxValue, ResistanceLevel, Description, PromptDirective, ExampleScenarios.</div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_resistanceError))
+                        {
+                            <div class="text-danger mt-3 small">@_resistanceError</div>
+                        }
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-primary" @onclick="SaveResistanceProfile" disabled="@_isBusy">@(_selectedResistanceProfileId is null ? "Create Profile" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateResistanceProfile" disabled="@_isBusy">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
     else if (_activeTab == "narrative-gates")
     {
         <div class="row g-4">
@@ -2096,7 +2051,7 @@
                             <div class="col-md-6">
                                 <label class="form-label">Climax Completion Interaction Threshold</label>
                                 <input type="number" min="1" step="1" class="form-control" @bind="_climaxResetInteractionThreshold" />
-                                <div class="form-text">Stored as the Climax -&gt; Reset rule using InteractionsSinceCommitment and &gt;=.</div>
+                                <div class="form-text">Stored as the Climax -&gt; Reset rule using TurnsSinceCommitment and &gt;=.</div>
                             </div>
                         </div>
 
@@ -2187,33 +2142,49 @@
             </div>
         </div>
     }
-    else if (_activeTab == "husband-awareness")
+    else if (_activeTab == "character-profiles")
     {
         <div class="row g-4">
             <div class="col-lg-4">
                 <div class="card h-100">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>Husband Awareness Profiles</span>
-                        <button class="btn btn-sm btn-primary" @onclick="StartCreateHusbandAwarenessProfile">New</button>
+                        <span>Character Profiles</span>
+                        <div class="d-flex gap-2 align-items-center">
+                            <select class="form-select form-select-sm" style="width:auto" @bind="_charProfileRoleFilter" @bind:after="OnCharProfileRoleFilterChanged">
+                                <option value="">All</option>
+                                <option value="Husband">Husband</option>
+                                <option value="Wife">Wife</option>
+                                <option value="OtherMan">OtherMan</option>
+                            </select>
+                            <button class="btn btn-sm btn-primary" @onclick="StartCreateCharacterProfile">New</button>
+                        </div>
                     </div>
                     <div class="card-body">
-                        @if (_husbandAwarenessProfiles.Count > 0)
+                        @if (_filteredCharacterProfiles.Count > 0)
                         {
-                            <div class="list-group">
-                                @foreach (var profile in _husbandAwarenessProfiles)
+                            <div class="list-group list-group-flush overflow-auto" style="max-height:60vh">
+                                @foreach (var profile in _filteredCharacterProfiles)
                                 {
                                     <button type="button"
-                                            class="list-group-item list-group-item-action @(profile.Id == _selectedHusbandAwarenessProfileId ? "active" : "")"
-                                            @onclick="() => SelectHusbandAwarenessProfile(profile.Id)">
-                                        <strong>@profile.Name</strong>
-                                        <small class="d-block @(profile.Id == _selectedHusbandAwarenessProfileId ? "text-light" : "text-muted")">Awareness @profile.AwarenessLevel / Encouragement @profile.EncouragementLevel</small>
+                                            class="list-group-item list-group-item-action @(profile.Id == _selectedCharacterProfileId ? "active" : "")"
+                                            @onclick="() => SelectCharacterProfile(profile.Id)">
+                                        <div class="d-flex justify-content-between align-items-start gap-1">
+                                            <div>
+                                                <strong>@profile.Name</strong>
+                                                <small class="d-block @(profile.Id == _selectedCharacterProfileId ? "text-light" : "text-muted")">@profile.TargetRole</small>
+                                            </div>
+                                            @if (profile.IsSeeded)
+                                            {
+                                                <span class="badge bg-secondary-subtle text-secondary-emphasis border">seeded</span>
+                                            }
+                                        </div>
                                     </button>
                                 }
                             </div>
                         }
                         else
                         {
-                            <p class="text-muted mb-0">No husband awareness profiles yet.</p>
+                            <p class="text-muted mb-0">No character profiles yet.</p>
                         }
                     </div>
                 </div>
@@ -2223,64 +2194,110 @@
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
-                            <strong>@(_selectedHusbandAwarenessProfileId is null ? "Create Husband Awareness Profile" : "Edit Husband Awareness Profile")</strong>
-                            <div class="text-muted small">This table controls awareness/involvement taxonomy available to V2 guidance.</div>
+                            <strong>@(_selectedCharacterProfileId is null ? "Create Character Profile" : "Edit Character Profile")</strong>
+                            <div class="text-muted small">Per-character behavioral archetypes used by the LLM guidance generator.</div>
                         </div>
-                        @if (_selectedHusbandAwarenessProfileId is not null)
+                        @if (_selectedCharacterProfileId is not null && !(_characterProfiles.FirstOrDefault(p => p.Id == _selectedCharacterProfileId)?.IsSeeded ?? false))
                         {
-                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteHusbandAwarenessProfile" disabled="@_isBusy">Delete</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="DeleteCharacterProfile" disabled="@_isBusy">Delete</button>
                         }
                     </div>
                     <div class="card-body">
                         <div class="row g-3">
-                            <div class="col-md-6">
+                            <div class="col-md-8">
                                 <label class="form-label">Name</label>
-                                <input type="text" class="form-control" @bind="_husbandAwarenessFormName" />
+                                <input type="text" class="form-control" @bind="_charProfileFormName" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Target Role</label>
+                                <select class="form-select" @bind="_charProfileFormTargetRole" @bind:after="OnCharProfileTargetRoleChanged">
+                                    <option value="Any">Any</option>
+                                    <option value="Husband">Husband</option>
+                                    <option value="Wife">Wife</option>
+                                    <option value="OtherMan">OtherMan</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Target Gender</label>
+                                <select class="form-select" @bind="_charProfileFormTargetGender">
+                                    <option value="Any">Any</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                </select>
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Description</label>
-                                <textarea class="form-control" rows="2" @bind="_husbandAwarenessFormDescription"></textarea>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Awareness</label>
-                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandAwarenessLevel" />
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Acceptance</label>
-                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandAcceptanceLevel" />
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Voyeurism</label>
-                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandVoyeurismLevel" />
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Participation</label>
-                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandParticipationLevel" />
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Humiliation Desire</label>
-                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandHumiliationDesire" />
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Encouragement</label>
-                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandEncouragementLevel" />
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Risk Tolerance</label>
-                                <input type="number" min="0" max="100" class="form-control" @bind="_husbandRiskTolerance" />
+                                <textarea class="form-control" rows="2" @bind="_charProfileFormDescription" @bind:event="oninput"></textarea>
                             </div>
                             <div class="col-12">
-                                <label class="form-label">Notes</label>
-                                <textarea class="form-control" rows="3" @bind="_husbandAwarenessNotes"></textarea>
+                                <div class="fw-semibold mb-2">Character Stats</div>
+                                <div class="row g-2">
+                                    @foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                                    {
+                                        <div class="col-md-6">
+                                            <label class="form-label d-flex justify-content-between">
+                                                <span>@statName</span>
+                                                <span class="text-muted">@GetCharStatValue(statName)</span>
+                                            </label>
+                                            <input type="range" min="0" max="100" class="form-range"
+                                                   value="@GetCharStatValue(statName)"
+                                                   @oninput="e => SetCharStatValue(statName, e.Value?.ToString())" />
+                                        </div>
+                                    }
+                                </div>
                             </div>
+                            @if (_charProfileFormTargetRole != "Any")
+                            {
+                                <div class="col-12">
+                                    <div class="fw-semibold mb-2">Encounter Behavior � @_charProfileFormTargetRole</div>
+                                    <div class="row g-2">
+                                        @foreach (var dim in BehavioralDimensionCatalog.GetDimensions(_charProfileFormTargetRole))
+                                        {
+                                            <div class="col-md-6">
+                                                <label class="form-label d-flex justify-content-between">
+                                                    <span>@dim.Name</span>
+                                                    <span class="text-muted">@GetEncounterStatValue(dim.Name)</span>
+                                                </label>
+                                                <input type="range" min="0" max="100" class="form-range"
+                                                       value="@GetEncounterStatValue(dim.Name)"
+                                                       @oninput="e => SetEncounterStatValue(dim.Name, e.Value?.ToString())" />
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <div class="fw-semibold mb-2">Live Preview</div>
+                                    <div class="p-3 border rounded small" style="background-color: #1a1f2e; color: #c9d1e0;">
+                                        @foreach (var dim in BehavioralDimensionCatalog.GetDimensions(_charProfileFormTargetRole))
+                                        {
+                                            var previewText = BehavioralDimensionCatalog.ResolveTierText(_charProfileFormTargetRole, dim.Name, GetEncounterStatValue(dim.Name));
+                                            if (!string.IsNullOrEmpty(previewText))
+                                            {
+                                                <div class="mb-1"><strong>@dim.Name:</strong> @previewText</div>
+                                            }
+                                        }
+                                    </div>
+                                </div>
+                            }
+                            <div class="col-12">
+                                <label class="form-label">Additional Notes</label>
+                                <textarea class="form-control" rows="3" @bind="_charProfileFormAdditionalNotes" @bind:event="oninput"></textarea>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_charProfileFormAdditionalNotes))
+                            {
+                                <div class="col-12 form-check ms-1">
+                                    <input id="charProfileFullOverride" type="checkbox" class="form-check-input" @bind="_charProfileFormFullOverride" />
+                                    <label class="form-check-label" for="charProfileFullOverride">Full Override (use notes only, skip dimension tiers)</label>
+                                </div>
+                            }
                         </div>
-                        @if (!string.IsNullOrEmpty(_husbandAwarenessError))
+                        @if (!string.IsNullOrEmpty(_charProfileError))
                         {
-                            <div class="text-danger mt-3 small">@_husbandAwarenessError</div>
+                            <div class="text-danger mt-3 small">@_charProfileError</div>
                         }
                         <div class="d-flex flex-wrap gap-2 mt-3">
-                            <button class="btn btn-primary" @onclick="SaveHusbandAwarenessProfile" disabled="@_isBusy">@(_selectedHusbandAwarenessProfileId is null ? "Create Profile" : "Save Changes")</button>
-                            <button class="btn btn-outline-secondary" @onclick="StartCreateHusbandAwarenessProfile" disabled="@_isBusy">Reset</button>
+                            <button class="btn btn-primary" @onclick="SaveCharacterProfile" disabled="@_isBusy">@(_selectedCharacterProfileId is null ? "Create Profile" : "Save Changes")</button>
+                            <button class="btn btn-outline-secondary" @onclick="StartCreateCharacterProfile" disabled="@_isBusy">Reset</button>
                         </div>
                     </div>
                 </div>
@@ -2717,6 +2734,59 @@
                     </div>
                 </div>
 
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Wife Willingness to Cheat (B-034)</strong></div>
+                    <div class="card-body">
+                        <p class="text-muted small">Option A: willingness = 50 + (Desire−Loyalty)×DW + (SedRecept−BoundFirm)×BW + ((100−Att)+(100−Intim))×MDW. Verdict bands map the score to YES / MAYBE / NO; ceiling = min(Desire, willingness).</p>
+                        <div class="row g-3">
+                            <div class="col-sm-4">
+                                <label class="form-label">Desire−Loyalty Weight</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="2" @bind="_engineSettings.WillingnessDesireLoyaltyWeight" />
+                                <div class="form-text">Default: 0.5</div>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Behavior Weight</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="2" @bind="_engineSettings.WillingnessBehaviorWeight" />
+                                <div class="form-text">Default: 0.5</div>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Marital Deficit Weight</label>
+                                <input type="number" class="form-control" step="0.05" min="0" max="2" @bind="_engineSettings.WillingnessMaritalDeficitWeight" />
+                                <div class="form-text">Default: 0.25</div>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-1">
+                            <div class="col-sm-4">
+                                <label class="form-label">Verdict NO Max</label>
+                                <input type="number" class="form-control" step="1" min="0" max="100" @bind="_engineSettings.WillingnessVerdictNoMax" />
+                                <div class="form-text">Default: 40 (0-40 → NO)</div>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Verdict MAYBE Max</label>
+                                <input type="number" class="form-control" step="1" min="0" max="100" @bind="_engineSettings.WillingnessVerdictMaybeMax" />
+                                <div class="form-text">Default: 70 (41-70 → MAYBE, 71+ → YES)</div>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-1">
+                            <div class="col-sm-4">
+                                <label class="form-label">NO Directive</label>
+                                <input type="text" class="form-control" @bind="_engineSettings.WillingnessVerdictNoDirective" />
+                                <div class="form-text">Prompt text emitted with verdict NO.</div>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">MAYBE Directive</label>
+                                <input type="text" class="form-control" @bind="_engineSettings.WillingnessVerdictMaybeDirective" />
+                                <div class="form-text">Prompt text emitted with verdict MAYBE.</div>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">YES Directive</label>
+                                <input type="text" class="form-control" @bind="_engineSettings.WillingnessVerdictYesDirective" />
+                                <div class="form-text">Prompt text emitted with verdict YES.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="d-flex gap-2 mt-3">
                     <button class="btn btn-primary" @onclick="SaveEngineSettingsAsync" disabled="@_isBusy">Save</button>
                     <button class="btn btn-outline-secondary" @onclick="ResetEngineSettingsAsync" disabled="@_isBusy">Reset to Defaults</button>
@@ -2892,10 +2962,9 @@
         "catalog",
         "definitions",
         "scenario-definitions",
-        "base-stats",
+        "character-profiles",
         "willingness",
         "narrative-gates",
-        "husband-awareness",
         "roles",
         "background-characters",
         "finishing-move",
@@ -3064,9 +3133,7 @@
     private string? _selectedToneId;
     private string _toneFormName = string.Empty;
     private string _toneFormDescription = string.Empty;
-    private string _toneFormSceneDirective = string.Empty;
     private IntensityLevel _toneFormIntensity = IntensityLevel.Emotional;
-    private bool IsSceneDirectiveActive => _toneFormIntensity >= IntensityLevel.Explicit;
     private int _toneBuildUpOffset;
     private int _toneCommittedOffset;
     private int _toneApproachingOffset = 1;
@@ -3074,12 +3141,25 @@
     private int _toneResetOffset = -1;
     private string? _toneError;
 
+    // ── Writing directive fields (plan-amendment 2026-07-22) ──
+    private string _toneFormProseStyleDirective = string.Empty;
+    private string _toneFormVoiceDirective = string.Empty;
+    private string _toneFormToneDirective = string.Empty;
+    private string _toneFormFocusDirective = string.Empty;
+    private string _toneFormHeatLevelDirective = string.Empty;
+
     private List<SteeringProfile> _steeringProfiles = [];
     private string? _selectedStyleId;
     private string _styleFormName = string.Empty;
     private string _styleFormDescription = string.Empty;
     private string _styleFormExample = string.Empty;
     private string _styleFormRuleOfThumb = string.Empty;
+    private string _styleFormImmersionDirective = string.Empty;
+    private string _styleFormActionDirective = string.Empty;
+    private int _styleFormWordTargetMin;
+    private int _styleFormWordTargetMax;
+    private int _styleFormNarrativeWordTargetMin;
+    private int _styleFormNarrativeWordTargetMax;
     private Dictionary<string, int> _styleFormThemeAffinities = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _styleFormEscalatingThemeIds = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, int> _styleFormStatBias = new(StringComparer.OrdinalIgnoreCase);
@@ -3109,14 +3189,20 @@
     private int _editCatalogWeight = 3;
     private bool _editCatalogEnabled = true;
 
+    private List<CharacterProfile> _characterProfiles = [];
+    private List<CharacterProfile> _filteredCharacterProfiles = [];
+    private string _charProfileRoleFilter = string.Empty;
+    private string? _selectedCharacterProfileId;
+    private string _charProfileFormName = string.Empty;
+    private string _charProfileFormDescription = string.Empty;
+    private string _charProfileFormTargetGender = "Any";
+    private string _charProfileFormTargetRole = "Any";
+    private Dictionary<string, int> _charProfileFormStats = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, int> _charProfileFormEncounterStats = new(StringComparer.OrdinalIgnoreCase);
+    private string _charProfileFormAdditionalNotes = string.Empty;
+    private bool _charProfileFormFullOverride;
+    private string? _charProfileError;
     private List<BaseStatProfile> _baseStatProfiles = [];
-    private string? _selectedBaseStatProfileId;
-    private string _baseStatFormName = string.Empty;
-    private string _baseStatFormDescription = string.Empty;
-    private string _baseStatFormTargetGender = CharacterGenderCatalog.Female;
-    private string _baseStatFormTargetRole = CharacterRoleCatalog.Wife;
-    private Dictionary<string, int> _baseStatFormStats = new(StringComparer.OrdinalIgnoreCase);
-    private string? _baseStatError;
     private string? _baseStatImportStatus;
 
     private List<ScenarioDefinitionEntity> _scenarioDefinitions = [];
@@ -3145,6 +3231,15 @@
     private string _willingnessThresholdsJson = "[]";
     private string? _willingnessError;
 
+    private List<StatResistanceProfile> _resistanceProfiles = [];
+    private string? _selectedResistanceProfileId;
+    private string _resistanceFormName = string.Empty;
+    private string _resistanceFormDescription = string.Empty;
+    private string _resistanceFormTargetStat = "Loyalty";
+    private bool _resistanceFormIsDefault;
+    private string _resistanceThresholdsJson = "[]";
+    private string? _resistanceError;
+
     private List<NarrativeGateProfile> _narrativeGateProfiles = [];
     private string? _selectedNarrativeGateProfileId;
     private string _narrativeGateFormName = string.Empty;
@@ -3160,7 +3255,7 @@
         NarrativeGateMetricKeys.ActiveScenarioScore,
         NarrativeGateMetricKeys.AverageDesire,
         NarrativeGateMetricKeys.AverageRestraint,
-        NarrativeGateMetricKeys.InteractionsSinceCommitment
+        NarrativeGateMetricKeys.TurnsSinceCommitment
     ];
     private readonly string[] _narrativeGateComparatorOptions =
     [
@@ -3170,20 +3265,6 @@
         NarrativeGateComparators.LessThan,
         NarrativeGateComparators.Equal
     ];
-
-    private List<HusbandAwarenessProfile> _husbandAwarenessProfiles = [];
-    private string? _selectedHusbandAwarenessProfileId;
-    private string _husbandAwarenessFormName = string.Empty;
-    private string _husbandAwarenessFormDescription = string.Empty;
-    private int _husbandAwarenessLevel = 20;
-    private int _husbandAcceptanceLevel = 20;
-    private int _husbandVoyeurismLevel;
-    private int _husbandParticipationLevel;
-    private int _husbandHumiliationDesire;
-    private int _husbandEncouragementLevel;
-    private int _husbandRiskTolerance = 10;
-    private string _husbandAwarenessNotes = string.Empty;
-    private string? _husbandAwarenessError;
 
     private List<RoleDefinition> _roleDefinitions = [];
     private string? _selectedRoleDefinitionId;
@@ -3266,13 +3347,13 @@
             SelectSteering(_steeringProfiles[0].Id);
         }
 
-        if (_selectedBaseStatProfileId is null && _baseStatProfiles.Count > 0)
+        if (_selectedCharacterProfileId is null && _filteredCharacterProfiles.Count > 0)
         {
-            SelectBaseStatProfile(_baseStatProfiles[0].Id);
+            SelectCharacterProfile(_filteredCharacterProfiles[0].Id);
         }
-        else if (_selectedBaseStatProfileId is null && _baseStatProfiles.Count == 0)
+        else if (_selectedCharacterProfileId is null)
         {
-            StartCreateBaseStatProfile();
+            StartCreateCharacterProfile();
         }
 
         if (_selectedWillingnessProfileId is null && _willingnessProfiles.Count > 0)
@@ -3284,6 +3365,15 @@
             StartCreateWillingnessProfile();
         }
 
+        if (_selectedResistanceProfileId is null && _resistanceProfiles.Count > 0)
+        {
+            SelectResistanceProfile(_resistanceProfiles[0].Id);
+        }
+        else if (_selectedResistanceProfileId is null && _resistanceProfiles.Count == 0)
+        {
+            StartCreateResistanceProfile();
+        }
+
         if (_selectedNarrativeGateProfileId is null && _narrativeGateProfiles.Count > 0)
         {
             SelectNarrativeGateProfile(_narrativeGateProfiles[0].Id);
@@ -3293,11 +3383,6 @@
             StartCreateNarrativeGateProfile();
         }
 
-        if (_selectedHusbandAwarenessProfileId is null && _husbandAwarenessProfiles.Count > 0)
-        {
-            SelectHusbandAwarenessProfile(_husbandAwarenessProfiles[0].Id);
-        }
-
         if (_selectedRoleDefinitionId is null && _roleDefinitions.Count > 0)
         {
             SelectRoleDefinition(_roleDefinitions[0].Id);
@@ -3305,10 +3390,6 @@
         else if (_selectedRoleDefinitionId is null && _roleDefinitions.Count == 0)
         {
             StartCreateRoleDefinition();
-        }
-        else if (_selectedHusbandAwarenessProfileId is null && _husbandAwarenessProfiles.Count == 0)
-        {
-            StartCreateHusbandAwarenessProfile();
         }
 
         if (_selectedBackgroundCharacterProfileId is null && _backgroundCharacterProfiles.Count > 0)
@@ -3343,10 +3424,13 @@
             .ToList();
         _steeringProfiles = await Facade.ListSteeringProfilesAsync();
         _baseStatProfiles = await Facade.ListBaseStatProfilesAsync();
+        var characterProfileList = await Facade.GetAllCharacterProfilesAsync();
+        _characterProfiles = characterProfileList.ToList();
+        OnCharProfileRoleFilterChanged();
         _scenarioDefinitions = (await Facade.ListScenarioDefinitionsAsync(includeDisabled: true)).ToList();
         _willingnessProfiles = await Facade.ListStatWillingnessProfilesAsync();
+        _resistanceProfiles = await Facade.ListStatResistanceProfilesAsync();
         _narrativeGateProfiles = await Facade.ListNarrativeGateProfilesAsync();
-        _husbandAwarenessProfiles = await Facade.ListHusbandAwarenessProfilesAsync();
         _roleDefinitions = await Facade.ListRoleDefinitionsAsync();
         _backgroundCharacterProfiles = await Facade.ListBackgroundCharacterProfilesAsync();
         _catalogEntries = await Facade.ListCatalogEntriesAsync(includeDisabled: true);
@@ -3402,6 +3486,16 @@
     private void SelectThemeDefinition(ThemeDefinitionDocument definition)
     {
         _selectedThemeDefinition = definition;
+    }
+
+    private void SelectTab(string tab)
+    {
+        if (!_validTabs.Contains(tab))
+            return;
+
+        _activeTab = tab;
+        var currentPath = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0];
+        Navigation.NavigateTo($"/{currentPath}?tab={Uri.EscapeDataString(tab)}");
     }
 
     private string GetTabClass(string tab) => _activeTab == tab ? "active" : string.Empty;
@@ -4648,7 +4742,6 @@
         _selectedToneId = null;
         _toneFormName = string.Empty;
         _toneFormDescription = string.Empty;
-        _toneFormSceneDirective = string.Empty;
         _toneFormIntensity = IntensityLevel.Emotional;
         _toneBuildUpOffset = 0;
         _toneCommittedOffset = 0;
@@ -4656,6 +4749,11 @@
         _toneClimaxOffset = 2;
         _toneResetOffset = -1;
         _toneError = null;
+        _toneFormProseStyleDirective = string.Empty;
+        _toneFormVoiceDirective = string.Empty;
+        _toneFormToneDirective = string.Empty;
+        _toneFormFocusDirective = string.Empty;
+        _toneFormHeatLevelDirective = string.Empty;
     }
 
     private void SelectIntensity(string toneId)
@@ -4669,7 +4767,6 @@
         _selectedToneId = tone.Id;
         _toneFormName = tone.Name;
         _toneFormDescription = tone.Description;
-        _toneFormSceneDirective = tone.SceneDirective;
         _toneFormIntensity = tone.Intensity;
         _toneBuildUpOffset = tone.BuildUpPhaseOffset;
         _toneCommittedOffset = tone.CommittedPhaseOffset;
@@ -4677,6 +4774,11 @@
         _toneClimaxOffset = tone.ClimaxPhaseOffset;
         _toneResetOffset = tone.ResetPhaseOffset;
         _toneError = null;
+        _toneFormProseStyleDirective = tone.ProseStyleDirective;
+        _toneFormVoiceDirective = tone.VoiceDirective;
+        _toneFormToneDirective = tone.ToneDirective;
+        _toneFormFocusDirective = tone.FocusDirective;
+        _toneFormHeatLevelDirective = tone.HeatLevelDirective;
     }
 
     private async Task SaveIntensity()
@@ -4702,7 +4804,11 @@
                     _toneApproachingOffset,
                     _toneClimaxOffset,
                     _toneResetOffset,
-                    _toneFormSceneDirective);
+                    _toneFormProseStyleDirective,
+                    _toneFormVoiceDirective,
+                    _toneFormToneDirective,
+                    _toneFormFocusDirective,
+                    _toneFormHeatLevelDirective);
                 await ReloadAsync();
                 SelectIntensity(created.Id);
             }
@@ -4718,7 +4824,11 @@
                     _toneApproachingOffset,
                     _toneClimaxOffset,
                     _toneResetOffset,
-                    _toneFormSceneDirective);
+                    _toneFormProseStyleDirective,
+                    _toneFormVoiceDirective,
+                    _toneFormToneDirective,
+                    _toneFormFocusDirective,
+                    _toneFormHeatLevelDirective);
                 await ReloadAsync();
                 SelectIntensity(_selectedToneId);
             }
@@ -4772,6 +4882,12 @@
         _styleFormDescription = string.Empty;
         _styleFormExample = string.Empty;
         _styleFormRuleOfThumb = string.Empty;
+        _styleFormImmersionDirective = string.Empty;
+        _styleFormActionDirective = string.Empty;
+        _styleFormWordTargetMin = 0;
+        _styleFormWordTargetMax = 0;
+        _styleFormNarrativeWordTargetMin = 0;
+        _styleFormNarrativeWordTargetMax = 0;
         _styleFormThemeAffinities = new(StringComparer.OrdinalIgnoreCase);
         _styleFormEscalatingThemeIds = new(StringComparer.OrdinalIgnoreCase);
         _styleFormStatBias = new(StringComparer.OrdinalIgnoreCase);
@@ -4791,6 +4907,12 @@
         _styleFormDescription = style.Description;
         _styleFormExample = style.Example;
         _styleFormRuleOfThumb = style.RuleOfThumb;
+        _styleFormImmersionDirective = style.ImmersionDirective ?? string.Empty;
+        _styleFormActionDirective = style.ActionDirective ?? string.Empty;
+        _styleFormWordTargetMin = style.WordTargetMin;
+        _styleFormWordTargetMax = style.WordTargetMax;
+        _styleFormNarrativeWordTargetMin = style.NarrativeWordTargetMin;
+        _styleFormNarrativeWordTargetMax = style.NarrativeWordTargetMax;
         _styleFormThemeAffinities = new(style.ThemeAffinities, StringComparer.OrdinalIgnoreCase);
         _styleFormEscalatingThemeIds = new(style.EscalatingThemeIds, StringComparer.OrdinalIgnoreCase);
         _styleFormStatBias = new(style.StatBias, StringComparer.OrdinalIgnoreCase);
@@ -4815,13 +4937,13 @@
 
             if (_selectedStyleId is null)
             {
-                var created = await Facade.CreateSteeringProfileAsync(_styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb, affinities, escalating, bias);
+                var created = await Facade.CreateSteeringProfileAsync(_styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb, affinities, escalating, bias, _styleFormImmersionDirective, _styleFormActionDirective, _styleFormWordTargetMin, _styleFormWordTargetMax, _styleFormNarrativeWordTargetMin, _styleFormNarrativeWordTargetMax);
                 await ReloadAsync();
                 SelectSteering(created.Id);
             }
             else
             {
-                await Facade.UpdateSteeringProfileAsync(_selectedStyleId, _styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb, affinities, escalating, bias);
+                await Facade.UpdateSteeringProfileAsync(_selectedStyleId, _styleFormName, _styleFormDescription, _styleFormExample, _styleFormRuleOfThumb, affinities, escalating, bias, _styleFormImmersionDirective, _styleFormActionDirective, _styleFormWordTargetMin, _styleFormWordTargetMax, _styleFormNarrativeWordTargetMin, _styleFormNarrativeWordTargetMax);
                 await ReloadAsync();
                 SelectSteering(_selectedStyleId);
             }
@@ -4861,152 +4983,6 @@
         catch (Exception ex)
         {
             _styleError = ex.Message;
-        }
-        finally
-        {
-            _isBusy = false;
-        }
-    }
-
-    private void StartCreateBaseStatProfile()
-    {
-        _selectedBaseStatProfileId = null;
-        _baseStatFormName = string.Empty;
-        _baseStatFormDescription = string.Empty;
-        _baseStatFormTargetGender = CharacterGenderCatalog.Female;
-        _baseStatFormTargetRole = CharacterRoleCatalog.Wife;
-        _baseStatError = null;
-        _baseStatFormStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var statName in BaseStatNames)
-        {
-            _baseStatFormStats[statName] = 50;
-        }
-    }
-
-    private void SelectBaseStatProfile(string profileId)
-    {
-        var profile = _baseStatProfiles.FirstOrDefault(x => x.Id == profileId);
-        if (profile is null)
-        {
-            return;
-        }
-
-        _selectedBaseStatProfileId = profile.Id;
-        _baseStatFormName = profile.Name;
-        _baseStatFormDescription = profile.Description;
-        _baseStatFormTargetGender = CharacterGenderCatalog.NormalizeForProfile(profile.TargetGender);
-        _baseStatFormTargetRole = CharacterRoleCatalog.Normalize(profile.TargetRole);
-        _baseStatError = null;
-        _baseStatFormStats = new Dictionary<string, int>(profile.DefaultStats, StringComparer.OrdinalIgnoreCase);
-        foreach (var statName in BaseStatNames)
-        {
-            if (!_baseStatFormStats.ContainsKey(statName))
-            {
-                _baseStatFormStats[statName] = 50;
-            }
-        }
-    }
-
-    private async Task SaveBaseStatProfile()
-    {
-        _baseStatError = null;
-        if (string.IsNullOrWhiteSpace(_baseStatFormName.Trim()))
-        {
-            _baseStatError = "Character state profile name is required.";
-            return;
-        }
-
-        _isBusy = true;
-        try
-        {
-            if (_selectedBaseStatProfileId is null)
-            {
-                var created = await Facade.CreateBaseStatProfileAsync(_baseStatFormName, _baseStatFormDescription, _baseStatFormStats, _baseStatFormTargetGender, _baseStatFormTargetRole);
-                await ReloadAsync();
-                SelectBaseStatProfile(created.Id);
-            }
-            else
-            {
-                await Facade.UpdateBaseStatProfileAsync(_selectedBaseStatProfileId, _baseStatFormName, _baseStatFormDescription, _baseStatFormStats, _baseStatFormTargetGender, _baseStatFormTargetRole);
-                await ReloadAsync();
-                SelectBaseStatProfile(_selectedBaseStatProfileId);
-            }
-        }
-        catch (Exception ex)
-        {
-            _baseStatError = ex.Message;
-        }
-        finally
-        {
-            _isBusy = false;
-        }
-    }
-
-    private async Task DeleteBaseStatProfile()
-    {
-        if (_selectedBaseStatProfileId is null)
-        {
-            return;
-        }
-
-        _baseStatError = null;
-        _isBusy = true;
-        try
-        {
-            await Facade.DeleteBaseStatProfileAsync(_selectedBaseStatProfileId);
-            await ReloadAsync();
-            if (_baseStatProfiles.Count > 0)
-            {
-                SelectBaseStatProfile(_baseStatProfiles[0].Id);
-            }
-            else
-            {
-                StartCreateBaseStatProfile();
-            }
-        }
-        catch (Exception ex)
-        {
-            _baseStatError = ex.Message;
-        }
-        finally
-        {
-            _isBusy = false;
-        }
-    }
-
-    private async Task ImportCharacterStatPresets()
-    {
-        _baseStatImportStatus = null;
-        _baseStatError = null;
-        _isBusy = true;
-
-        try
-        {
-            var result = await Facade.ImportCharacterStatPresetsAsync();
-            await ReloadAsync();
-
-            if (_baseStatProfiles.Count > 0)
-            {
-                if (!string.IsNullOrWhiteSpace(_selectedBaseStatProfileId)
-                    && _baseStatProfiles.Any(x => string.Equals(x.Id, _selectedBaseStatProfileId, StringComparison.OrdinalIgnoreCase)))
-                {
-                    SelectBaseStatProfile(_selectedBaseStatProfileId);
-                }
-                else
-                {
-                    SelectBaseStatProfile(_baseStatProfiles[0].Id);
-                }
-            }
-
-            var warningSuffix = result.Warnings.Count > 0
-                ? $" Warnings: {string.Join(" | ", result.Warnings.Take(3))}{(result.Warnings.Count > 3 ? " ..." : string.Empty)}"
-                : string.Empty;
-
-            _baseStatImportStatus = $"Import completed. Processed {result.TotalProcessed} preset profiles: created {result.CreatedCount}, updated {result.UpdatedCount}, unchanged {result.SkippedCount}.{warningSuffix}";
-        }
-        catch (Exception ex)
-        {
-            _baseStatError = ex.Message;
         }
         finally
         {
@@ -5263,6 +5239,114 @@
         }
     }
 
+    private void StartCreateResistanceProfile()
+    {
+        _selectedResistanceProfileId = null;
+        _resistanceFormName = string.Empty;
+        _resistanceFormDescription = string.Empty;
+        _resistanceFormTargetStat = "Loyalty";
+        _resistanceFormIsDefault = false;
+        _resistanceThresholdsJson = "[]";
+        _resistanceError = null;
+    }
+
+    private void SelectResistanceProfile(string profileId)
+    {
+        var profile = _resistanceProfiles.FirstOrDefault(x => x.Id == profileId);
+        if (profile is null)
+        {
+            return;
+        }
+
+        _selectedResistanceProfileId = profile.Id;
+        _resistanceFormName = profile.Name;
+        _resistanceFormDescription = profile.Description;
+        _resistanceFormTargetStat = profile.TargetStatName;
+        _resistanceFormIsDefault = profile.IsDefault;
+        _resistanceThresholdsJson = System.Text.Json.JsonSerializer.Serialize(profile.Thresholds, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        _resistanceError = null;
+    }
+
+    private async Task SaveResistanceProfile()
+    {
+        _resistanceError = null;
+
+        List<ResistanceThreshold>? thresholds;
+        try
+        {
+            thresholds = System.Text.Json.JsonSerializer.Deserialize<List<ResistanceThreshold>>(_resistanceThresholdsJson);
+        }
+        catch (Exception ex)
+        {
+            _resistanceError = $"Threshold JSON is invalid: {ex.Message}";
+            return;
+        }
+
+        if (thresholds is null)
+        {
+            _resistanceError = "Threshold JSON cannot be empty.";
+            return;
+        }
+
+        var profile = new StatResistanceProfile
+        {
+            Id = _selectedResistanceProfileId ?? Guid.NewGuid().ToString(),
+            Name = _resistanceFormName,
+            Description = _resistanceFormDescription,
+            TargetStatName = _resistanceFormTargetStat,
+            IsDefault = _resistanceFormIsDefault,
+            Thresholds = thresholds
+        };
+
+        _isBusy = true;
+        try
+        {
+            var saved = await Facade.SaveStatResistanceProfileAsync(profile);
+            await ReloadAsync();
+            SelectResistanceProfile(saved.Id);
+        }
+        catch (Exception ex)
+        {
+            _resistanceError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteResistanceProfile()
+    {
+        if (_selectedResistanceProfileId is null)
+        {
+            return;
+        }
+
+        _resistanceError = null;
+        _isBusy = true;
+        try
+        {
+            await Facade.DeleteStatResistanceProfileAsync(_selectedResistanceProfileId);
+            await ReloadAsync();
+            if (_resistanceProfiles.Count > 0)
+            {
+                SelectResistanceProfile(_resistanceProfiles[0].Id);
+            }
+            else
+            {
+                StartCreateResistanceProfile();
+            }
+        }
+        catch (Exception ex)
+        {
+            _resistanceError = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
     private void StartCreateNarrativeGateProfile()
     {
         var cloneSource = _narrativeGateProfiles.FirstOrDefault(x => string.Equals(x.Id, _selectedNarrativeGateProfileId, StringComparison.OrdinalIgnoreCase))
@@ -5368,7 +5452,7 @@
             SortOrder = normalizedRules.Count + 1,
             FromPhase = "Climax",
             ToPhase = "Reset",
-            MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment,
+            MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment,
             Comparator = NarrativeGateComparators.GreaterThanOrEqual,
             Threshold = decimal.Round(_climaxResetInteractionThreshold, 0, MidpointRounding.AwayFromZero)
         });
@@ -5453,7 +5537,7 @@
     {
         return string.Equals(rule.FromPhase, "Climax", StringComparison.OrdinalIgnoreCase)
             && string.Equals(rule.ToPhase, "Reset", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(rule.MetricKey, NarrativeGateMetricKeys.InteractionsSinceCommitment, StringComparison.OrdinalIgnoreCase);
+            && string.Equals(rule.MetricKey, NarrativeGateMetricKeys.TurnsSinceCommitment, StringComparison.OrdinalIgnoreCase);
     }
 
     private static decimal ResolveClimaxResetInteractionThreshold(IReadOnlyList<NarrativeGateRule> rules)
@@ -5465,109 +5549,142 @@
         return existing is null ? 12m : Math.Max(1m, decimal.Round(existing.Threshold, 0, MidpointRounding.AwayFromZero));
     }
 
-    private void StartCreateHusbandAwarenessProfile()
+    private void OnCharProfileRoleFilterChanged()
     {
-        _selectedHusbandAwarenessProfileId = null;
-        _husbandAwarenessFormName = string.Empty;
-        _husbandAwarenessFormDescription = string.Empty;
-        _husbandAwarenessLevel = 20;
-        _husbandAcceptanceLevel = 20;
-        _husbandVoyeurismLevel = 0;
-        _husbandParticipationLevel = 0;
-        _husbandHumiliationDesire = 0;
-        _husbandEncouragementLevel = 0;
-        _husbandRiskTolerance = 10;
-        _husbandAwarenessNotes = string.Empty;
-        _husbandAwarenessError = null;
+        _filteredCharacterProfiles = string.IsNullOrEmpty(_charProfileRoleFilter)
+            ? [.._characterProfiles]
+            : _characterProfiles.Where(p => string.Equals(p.TargetRole, _charProfileRoleFilter, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
-    private void SelectHusbandAwarenessProfile(string profileId)
+    private void OnCharProfileTargetRoleChanged()
     {
-        var profile = _husbandAwarenessProfiles.FirstOrDefault(x => x.Id == profileId);
-        if (profile is null)
+        _charProfileFormEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dim in BehavioralDimensionCatalog.GetDimensions(_charProfileFormTargetRole))
+            _charProfileFormEncounterStats[dim.Name] = 50;
+    }
+
+    private int GetCharStatValue(string statName)
+    {
+        if (!_charProfileFormStats.TryGetValue(statName, out var value))
         {
+            value = 50;
+            _charProfileFormStats[statName] = value;
+        }
+        return value;
+    }
+
+    private void SetCharStatValue(string statName, string? rawValue)
+    {
+        if (!int.TryParse(rawValue, out var value)) value = 50;
+        _charProfileFormStats[statName] = Math.Clamp(value, 0, 100);
+    }
+
+    private int GetEncounterStatValue(string dimName)
+    {
+        if (!_charProfileFormEncounterStats.TryGetValue(dimName, out var value))
+        {
+            value = 50;
+            _charProfileFormEncounterStats[dimName] = value;
+        }
+        return value;
+    }
+
+    private void SetEncounterStatValue(string dimName, string? rawValue)
+    {
+        if (!int.TryParse(rawValue, out var value)) value = 50;
+        _charProfileFormEncounterStats[dimName] = Math.Clamp(value, 0, 100);
+    }
+
+    private void StartCreateCharacterProfile()
+    {
+        _selectedCharacterProfileId = null;
+        _charProfileFormName = string.Empty;
+        _charProfileFormDescription = string.Empty;
+        _charProfileFormTargetGender = "Any";
+        _charProfileFormTargetRole = "Any";
+        _charProfileFormAdditionalNotes = string.Empty;
+        _charProfileFormFullOverride = false;
+        _charProfileError = null;
+        _charProfileFormStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+            _charProfileFormStats[statName] = 50;
+        _charProfileFormEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void SelectCharacterProfile(string profileId)
+    {
+        var profile = _characterProfiles.FirstOrDefault(x => x.Id == profileId);
+        if (profile is null) return;
+        _selectedCharacterProfileId = profile.Id;
+        _charProfileFormName = profile.Name;
+        _charProfileFormDescription = profile.Description;
+        _charProfileFormTargetGender = profile.TargetGender;
+        _charProfileFormTargetRole = profile.TargetRole;
+        _charProfileFormAdditionalNotes = profile.AdditionalNotes;
+        _charProfileFormFullOverride = profile.FullOverride;
+        _charProfileError = null;
+        _charProfileFormStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+            _charProfileFormStats[statName] = profile.CharacterStats.TryGetValue(statName, out var v) ? v : 50;
+        _charProfileFormEncounterStats = new Dictionary<string, int>(profile.EncounterStats, StringComparer.OrdinalIgnoreCase);
+        foreach (var dim in BehavioralDimensionCatalog.GetDimensions(profile.TargetRole))
+            if (!_charProfileFormEncounterStats.ContainsKey(dim.Name)) _charProfileFormEncounterStats[dim.Name] = 50;
+    }
+
+    private async Task SaveCharacterProfile()
+    {
+        _charProfileError = null;
+        if (string.IsNullOrWhiteSpace(_charProfileFormName.Trim()))
+        {
+            _charProfileError = "Character profile name is required.";
             return;
         }
-
-        _selectedHusbandAwarenessProfileId = profile.Id;
-        _husbandAwarenessFormName = profile.Name;
-        _husbandAwarenessFormDescription = profile.Description;
-        _husbandAwarenessLevel = profile.AwarenessLevel;
-        _husbandAcceptanceLevel = profile.AcceptanceLevel;
-        _husbandVoyeurismLevel = profile.VoyeurismLevel;
-        _husbandParticipationLevel = profile.ParticipationLevel;
-        _husbandHumiliationDesire = profile.HumiliationDesire;
-        _husbandEncouragementLevel = profile.EncouragementLevel;
-        _husbandRiskTolerance = profile.RiskTolerance;
-        _husbandAwarenessNotes = profile.Notes;
-        _husbandAwarenessError = null;
-    }
-
-    private async Task SaveHusbandAwarenessProfile()
-    {
-        _husbandAwarenessError = null;
-        var profile = new HusbandAwarenessProfile
-        {
-            Id = _selectedHusbandAwarenessProfileId ?? Guid.NewGuid().ToString(),
-            Name = _husbandAwarenessFormName,
-            Description = _husbandAwarenessFormDescription,
-            AwarenessLevel = _husbandAwarenessLevel,
-            AcceptanceLevel = _husbandAcceptanceLevel,
-            VoyeurismLevel = _husbandVoyeurismLevel,
-            ParticipationLevel = _husbandParticipationLevel,
-            HumiliationDesire = _husbandHumiliationDesire,
-            EncouragementLevel = _husbandEncouragementLevel,
-            RiskTolerance = _husbandRiskTolerance,
-            Notes = _husbandAwarenessNotes
-        };
-
         _isBusy = true;
         try
         {
-            var saved = await Facade.SaveHusbandAwarenessProfileAsync(profile);
+            var canonicalStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var statName in AdaptiveStatCatalog.CanonicalStatNames)
+                canonicalStats[statName] = _charProfileFormStats.TryGetValue(statName, out var v) ? v : 50;
+
+            var profile = new CharacterProfile
+            {
+                Id = _selectedCharacterProfileId ?? Guid.NewGuid().ToString(),
+                Name = _charProfileFormName.Trim(),
+                Description = _charProfileFormDescription.Trim(),
+                TargetGender = _charProfileFormTargetGender,
+                TargetRole = _charProfileFormTargetRole,
+                CharacterStats = canonicalStats,
+                EncounterStats = new Dictionary<string, int>(_charProfileFormEncounterStats, StringComparer.OrdinalIgnoreCase),
+                AdditionalNotes = _charProfileFormAdditionalNotes.Trim(),
+                FullOverride = _charProfileFormFullOverride && !string.IsNullOrWhiteSpace(_charProfileFormAdditionalNotes),
+            };
+            await Facade.SaveCharacterProfileAsync(profile);
             await ReloadAsync();
-            SelectHusbandAwarenessProfile(saved.Id);
+            SelectCharacterProfile(profile.Id);
         }
         catch (Exception ex)
         {
-            _husbandAwarenessError = ex.Message;
+            _charProfileError = ex.Message;
         }
-        finally
-        {
-            _isBusy = false;
-        }
+        finally { _isBusy = false; }
     }
 
-    private async Task DeleteHusbandAwarenessProfile()
+    private async Task DeleteCharacterProfile()
     {
-        if (_selectedHusbandAwarenessProfileId is null)
-        {
-            return;
-        }
-
-        _husbandAwarenessError = null;
+        if (_selectedCharacterProfileId is null) return;
+        _charProfileError = null;
         _isBusy = true;
         try
         {
-            await Facade.DeleteHusbandAwarenessProfileAsync(_selectedHusbandAwarenessProfileId);
+            await Facade.DeleteCharacterProfileAsync(_selectedCharacterProfileId);
             await ReloadAsync();
-            if (_husbandAwarenessProfiles.Count > 0)
-            {
-                SelectHusbandAwarenessProfile(_husbandAwarenessProfiles[0].Id);
-            }
+            if (_filteredCharacterProfiles.Count > 0)
+                SelectCharacterProfile(_filteredCharacterProfiles[0].Id);
             else
-            {
-                StartCreateHusbandAwarenessProfile();
-            }
+                StartCreateCharacterProfile();
         }
-        catch (Exception ex)
-        {
-            _husbandAwarenessError = ex.Message;
-        }
-        finally
-        {
-            _isBusy = false;
-        }
+        catch (Exception ex) { _charProfileError = ex.Message; }
+        finally { _isBusy = false; }
     }
 
     private void StartCreateRoleDefinition()
@@ -5755,27 +5872,6 @@
         {
             _isBusy = false;
         }
-    }
-
-    private int GetBaseStatValue(string statName)
-    {
-        if (!_baseStatFormStats.TryGetValue(statName, out var value))
-        {
-            value = 50;
-            _baseStatFormStats[statName] = value;
-        }
-
-        return value;
-    }
-
-    private void SetBaseStatValue(string statName, string? rawValue)
-    {
-        if (!int.TryParse(rawValue, out var value))
-        {
-            value = 50;
-        }
-
-        _baseStatFormStats[statName] = Math.Clamp(value, 0, 100);
     }
 
     private static string Truncate(string? value, int maxLength)

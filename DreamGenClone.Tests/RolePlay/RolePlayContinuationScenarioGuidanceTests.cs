@@ -1,5 +1,6 @@
 using System.Text;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Application.StoryAnalysis.Models;
 using DreamGenClone.Infrastructure.StoryAnalysis;
 using DreamGenClone.Web.Application.RolePlay;
@@ -16,7 +17,7 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
     [InlineData("Reset")]
     public async Task CreateAsync_BuildsGuidance_ForEachPhase(string phase)
     {
-        var factory = new ScenarioGuidanceContextFactory();
+        var factory = new ScenarioGuidanceContextFactory(new NoOpBehavioralFrameGenerator());
 
         var context = await factory.CreateAsync(new ScenarioGuidanceInput(
             SessionId: "s1",
@@ -25,35 +26,15 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
             VariantId: null,
             AverageDesire: 70,
             AverageRestraint: 35,
-            AverageTension: 50,
-            AverageConnection: 50,
             AverageDominance: 50,
             AverageLoyalty: 50,
             SelectedWillingnessProfileId: null,
-            HusbandAwarenessProfileId: null,
+            CharacterEncounterProfileIds: new Dictionary<string, string>(),
+            Characters: [],
             SuppressedScenarioIds: ["infidelity"]));
 
         Assert.Equal(phase, context.Phase);
         Assert.False(string.IsNullOrWhiteSpace(context.GuidanceText));
-    }
-
-    [Fact]
-    public void AppendScenarioGuidance_IncludesExclusionAndGuards()
-    {
-        var builder = new StringBuilder();
-        var guidance = new ScenarioGuidanceContext(
-            Phase: "Climax",
-            ActiveScenarioId: "dominance",
-            GuidanceText: "Deliver culmination",
-            ExcludedScenarioIds: ["infidelity", "voyeurism"]);
-
-        var guards = RolePlayAssistantPrompts.BuildFramingGuards("Climax", "dominance");
-        RolePlayAssistantPrompts.AppendScenarioGuidance(builder, guidance, guards);
-
-        var text = builder.ToString();
-        Assert.Contains("Active Scenario: dominance", text, StringComparison.Ordinal);
-        Assert.Contains("Exclude contradictory framing for: infidelity, voyeurism", text, StringComparison.Ordinal);
-        Assert.Contains("Do not pivot to a competing scenario", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -68,7 +49,8 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
                 new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.KeyScenarioElement, Text = "Keep departures brief and plausible.", SortOrder = 0 },
                 new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.InteractionDynamics, Text = "Escalate excuse complexity over time.", SortOrder = 1 },
                 new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.Avoidance, Text = "Avoid direct witness by partner.", SortOrder = 2 },
-                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.FitFormula, Text = "Fit Score = (Tension x 0.25) + (Restraint x 0.25)", SortOrder = 3 }
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.HardConstraint, Text = "Do not write immediate resolution.", SortOrder = 3 },
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.FitFormula, Text = "Fit Score = (Tension x 0.25) + (Restraint x 0.25)", SortOrder = 4 }
             ]
         };
 
@@ -78,7 +60,31 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
         Assert.Contains("Theme AI Guidance (soft hints, influence=40%):", text, StringComparison.Ordinal);
         Assert.Contains("Escalate excuse complexity over time.", text, StringComparison.Ordinal);
         Assert.Contains("Apply these as soft guidance only", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Do not write immediate resolution.", text, StringComparison.Ordinal);
         Assert.DoesNotContain("Fit Score =", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AppendThemeHardConstraints_RendersOnlyHardConstraintNotes()
+    {
+        var builder = new StringBuilder();
+        var theme = new RPTheme
+        {
+            Id = "denial-edging",
+            AIGenerationNotes =
+            [
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.InteractionDynamics, Text = "Maintain teasing rhythm.", SortOrder = 0 },
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.HardConstraint, Text = "No climax release in this turn.", SortOrder = 1 },
+                new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.HardConstraint, Text = "No climax release in this turn.", SortOrder = 2 }
+            ]
+        };
+
+        RolePlayAssistantPrompts.AppendThemeHardConstraints(builder, theme, maxConstraints: 5);
+
+        var text = builder.ToString();
+        Assert.Contains("Theme Hard Constraints (authoritative):", text, StringComparison.Ordinal);
+        Assert.Contains("HARD CONSTRAINT: No climax release in this turn.", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Maintain teasing rhythm.", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -108,6 +114,48 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
         Assert.Equal(2, lines.Count);
         Assert.Contains("Committed guidance.", lines);
         Assert.DoesNotContain("BuildUp guidance.", lines);
+    }
+
+    [Fact]
+    public void StripPhaseGuidanceMarkers_RemovesKnownMarkers_KeepsProse()
+    {
+        var stripped = RolePlayAssistantPrompts.StripPhaseGuidanceMarkers(
+            "[Pacing:medium] [Aftermath:husband-contrast]\n\n**Phase Context:** The event is in progress.");
+
+        Assert.DoesNotContain("[Pacing:medium]", stripped, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("[Aftermath:husband-contrast]", stripped, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("[BeatStyle:episodic]", stripped, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("**Phase Context:** The event is in progress.", stripped, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetThemePhaseGuidanceLines_StripsMarkers_AndDropsMarkerOnlyLines()
+    {
+        var theme = new RPTheme
+        {
+            Id = "infidelity-brief-disappearance",
+            PhaseGuidance =
+            [
+                // Marker-only line — must be dropped after stripping.
+                new RPThemePhaseGuidance
+                {
+                    Phase = NarrativePhase.Climax,
+                    GuidanceText = "[BeatStyle:episodic] [Pacing:slow] [ClimaxMode:multi-encounter] [Aftermath:husband-contrast] [Deepening:subsequent-actors]"
+                },
+                // Marker + prose on the same line — markers removed, prose kept.
+                new RPThemePhaseGuidance
+                {
+                    Phase = NarrativePhase.Climax,
+                    GuidanceText = "[Pacing:slow] Write each act in full physical detail."
+                }
+            ]
+        };
+
+        var lines = RolePlayAssistantPrompts.GetThemePhaseGuidanceLines(theme, "Climax");
+
+        Assert.Single(lines);
+        Assert.DoesNotContain(lines, x => x.Contains('[', StringComparison.Ordinal));
+        Assert.Contains("Write each act in full physical detail.", lines[0], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -174,7 +222,17 @@ public sealed class RolePlayContinuationScenarioGuidanceTests
 
         var text = builder.ToString();
         Assert.Contains("Current State: ReintegrationCooldown", text, StringComparison.Ordinal);
-        Assert.Contains("Cooldown interactions in current state: 3", text, StringComparison.Ordinal);
+        Assert.Contains("Cooldown turns in current state: 3", text, StringComparison.Ordinal);
         Assert.Contains("Return beat completed: no", text, StringComparison.Ordinal);
+    }
+
+    private sealed class NoOpBehavioralFrameGenerator : IBehavioralFrameGenerator
+    {
+        public Task<IReadOnlyDictionary<string, string>> GenerateFramesAsync(
+            IReadOnlyDictionary<string, string> characterEncounterProfileIds,
+            IReadOnlyList<ScenarioCharacter> characters,
+            IReadOnlyDictionary<string, CharacterStatProfileV2>? characterRuntimeStats = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
     }
 }

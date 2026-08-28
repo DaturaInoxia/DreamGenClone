@@ -1,0 +1,27 @@
+{
+  "id": "juggernaut-nsfw-orgy-four-way-test",
+  "title": "orgy four way",
+  "actors": "2F2M",
+  "closeup": false,
+  "neutralScene": "Four naked adults in a group orgy on a bed, four distinct separate bodies: the first woman straddling the first man riding his erect penis while the second woman kneels performing fellatio on the second man's erect penis; medium shot, correct anatomy, natural bodies and skin texture, soft warm light, sharp focus.",
+  "negative": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, fused bodies, merged bodies, extra people, misplaced genitals, penis on arm, penis on hand, detached penis, extra penis, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+  "variants": {
+    "sdxl-juggernaut": "Photorealistic explicit sex scene, exactly two adult men and exactly two adult women in a group orgy on a bed, four distinct separate bodies, the first woman straddling the first man on top riding his erect penis while the second woman kneels performing fellatio on the second man's erect penis, medium shot, correct penis and vagina anatomy, all four fully nude, natural realistic body proportions, natural skin texture, soft warm bedroom lighting, 35mm lens, sharp focus, highly detailed",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 2girls and 2boys, 4people, orgy, group sex, cowgirl, riding, fellatio, vaginal penetration, penis in vagina, penis in mouth, nude, medium shot, correct anatomy, soft lighting, sharp focus",
+    "qwen-edit": "Change the scene to a four-person orgy as described. Keep all people's faces, hair, identity, bodies, skin, and lighting exactly unchanged."
+  },
+  "settings": {
+    "seed": 20401,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  },
+  "source": {
+    "suite": "juggernaut",
+    "workflow": "juggernaut/prompts/juggernaut-nsfw-orgy-four-way-test.json"
+  }
+}

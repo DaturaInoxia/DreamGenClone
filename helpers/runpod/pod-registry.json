@@ -1,0 +1,377 @@
+{
+  "schemaVersion": 1,
+  "updatedUtc": "2026-08-27",
+  "purpose": "Fresh pod-creation registry for the runpod-pod-creation skill. Used when a pod cannot be started and RunPod manual migration fails (no available GPU). Fresh pods start with an EMPTY local volume, so each entry carries from-scratch provisioning steps (model re-download).",
+  "cloudDefault": "SECURE",
+  "notes": [
+    "B-101 (2026-08-27): Serverless migration IN PROGRESS. Plan: specs/Planning/B-101-serverless-migration/plan.md. Serverless endpoint registry + scaffold: helpers/runpod/serverless/ (README.md, endpoints.json, worker Dockerfiles/handlers, create-endpoint/smoke-test/build-on-pod helpers). Migration order: DWPose (infra proof) -> Juggernaut -> identity -> Qwen VL -> Qwen Edit. Pods are STOPPED-NOT-DELETED as rollback until each endpoint soaks green; deprovision (and this note) only after cutover.",
+    "B-101 QWEN EDIT MODEL DECISION (2026-08-28): the stock qwen_image_edit_2511_fp8mixed.safetensors is safety-aligned (breasts render, genital region blanks to a 'mannequin'). Pod-side fix with Scottzilla MCNL v1 NSFW LoRA FAILED proof (anatomy confusion - both figures got female anatomy); the LoRA-on-fp8-UNET path is dead. The serverless qwen-edit-worker MUST use the merged checkpoint Phr00t/Qwen-Image-Edit-Rapid-AIO-NSFW-v23 (26.48 GB FP8, ungated at huggingface.co/Phr00t/Qwen-Image-Edit-Rapid-AIO/resolve/main/v23/Qwen-Rapid-AIO-NSFW-v23.safetensors; SFW sibling Qwen-Rapid-AIO-SFW-v23.safetensors). No runtime LoRA needed (LoRAs baked). Requires CheckpointLoaderSimple workflow (not UNETLoader split) + ~4-8 steps / 1 CFG / euler_ancestral/beta. GGUF NVFP4 variants are a dead end (need Blackwell/CUDA 13+). Full detail in the B-101 plan.md MODEL DECISION block.",
+    "There is no RunPod REST availability endpoint. create-pod.ps1 passes candidateGpuTypeIds in order with gpuTypePriority=custom; RunPod rents the FIRST GPU with current capacity. Cheapest-first ordering implements the 'cheaper when it still supports the workflow and is not too slow' policy.",
+    "SECURE cloud = on-demand reserved (no preemption, guaranteed public IP, SSH TCP works). COMMUNITY cloud = cheaper spot capacity but preemptible and no public-IP guarantee; only use if the manifest tooling (SSH, proxy) is confirmed to work there.",
+    "Fresh pod = empty /workspace. Every pod below re-downloads its models via its provision script. Model download size is noted per pod.",
+    "Cloud compatibility: create-pod.ps1 filters candidates by the requested cloud. NVIDIA GeForce RTX 3090 Ti is COMMUNITY-ONLY (secureCloud=false) and is auto-dropped on SECURE. NVIDIA A40 and RTX PRO 4500 are SECURE-only in this catalog."
+  ],
+  "pods": [
+    {
+      "function": "Image generation (Juggernaut XL Ragnarok)",
+      "deploymentKey": "image-gen-juggernaut-prod",
+      "manifestPath": "helpers/runpod/deployments/image-gen-juggernaut/deployment.json",
+      "capability": "ImageGeneration",
+      "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
+      "inferencePort": 3000,
+      "volumeInGb": 50,
+      "containerDiskInGb": 20,
+      "minVramGb": 24,
+      "provenGpuTypeId": "NVIDIA A40",
+      "candidateGpuTypeIds": [
+        "NVIDIA A40",
+        "NVIDIA RTX A5000",
+        "NVIDIA GeForce RTX 3090 Ti",
+        "NVIDIA GeForce RTX 3090",
+        "NVIDIA GeForce RTX 4090",
+        "NVIDIA RTX PRO 4000 Blackwell"
+      ],
+      "candidateNotes": "SDXL generation (~7 GB checkpoint, needs ~16 GB VRAM). A40 is the proven/cheap-fast 48 GB option; A5000 is cheapest but ~25% slower. 24 GB options all fit.",
+      "modelDownloadGb": 7,
+      "provision": [
+        {
+          "kind": "provision-script",
+          "path": "helpers/runpod/deployments/image-gen-juggernaut/provision-runtime.sh",
+          "args": [],
+          "env": {},
+          "note": "Writes extra_model_paths.yaml master on /workspace, patches /pre_start.sh, starts ComfyUI on 3000."
+        },
+        {
+          "kind": "prep-command",
+          "command": "mkdir -p /workspace/comfyui/models/checkpoints",
+          "note": "install-model-remote.ps1 requires the checkpoint dir to already exist."
+        },
+        {
+          "kind": "install-model-remote",
+          "modelName": "juggernautXL_ragnarok.safetensors",
+          "sourceUrl": "https://civitai.com/api/download/models/1759168?fileId=1659952",
+          "note": "Civitai checkpoint. Verify size ~6.62 GB on the pod after install."
+        },
+        {
+          "kind": "provision-script",
+          "path": "helpers/runpod/deployments/image-gen-juggernaut/provision-runtime.sh",
+          "args": [],
+          "env": {},
+          "note": "Rerun to restart ComfyUI so CheckpointLoaderSimple lists the newly installed checkpoint."
+        }
+      ],
+      "smokeTest": {
+        "readinessPath": "/system_stats",
+        "identityProbePath": "/object_info/CheckpointLoaderSimple",
+        "identityExpectedText": "juggernautXL_ragnarok.safetensors",
+        "deepProof": "Optional: submit a real ComfyUI prompt via helpers/runpod/generate-one.ps1 and confirm a PNG is produced."
+      },
+      "modelManager": {
+        "providerId": "b2147752-48db-4a5c-94c3-1997f38e4429",
+        "providerName": "RunPod ComfyUI",
+        "registeredModel": "juggernautXL_ragnarok.safetensors",
+        "updateEndpoint": true
+      },
+      "persistence": {
+        "standard": "helpers/runpod/POD-PERSISTENCE.md",
+        "persistentOnWorkspace": "checkpoint + extra_model_paths.yaml.master",
+        "ephemeralRestoredByPreStart": "/ComfyUI/extra_model_paths.yaml + ComfyUI process on 3000",
+        "autoStartOnBoot": "ComfyUI on 3000 (provisioner /pre_start.sh patch)",
+        "notes": "Restart-proof via provision-runtime.sh. IP-Adapter custom nodes NOT installed here - identity renders fail (node IPAdapterUnifiedLoader does not exist). If added, they must be on /workspace + symlinked + restored on boot."
+      },
+      "recreateDefault": true
+    },
+    {
+      "function": "Image editing (Qwen Image Edit 2511)",
+      "deploymentKey": "image-edit-qwen-2511-prod",
+      "manifestPath": "helpers/runpod/deployments/image-edit-qwen-2511/deployment.json",
+      "capability": "ImageEditing",
+      "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
+      "inferencePort": 3002,
+      "volumeInGb": 85,
+      "containerDiskInGb": 20,
+      "minVramGb": 48,
+      "provenGpuTypeId": "NVIDIA L40S",
+      "candidateGpuTypeIds": [
+        "NVIDIA A40",
+        "NVIDIA RTX A6000",
+        "NVIDIA L40",
+        "NVIDIA RTX 6000 Ada Generation",
+        "NVIDIA RTX PRO 5000 Blackwell",
+        "NVIDIA L40S"
+      ],
+      "candidateNotes": "Qwen Image Edit 2511 fp8 requires ~48 GB VRAM (20.5 GB diffusion + 9.4 GB TE + VAE, fp8 scaling). 24 GB is NOT enough. A40 is the cheapest 48 GB; the preserved pod already proved Qwen Edit on A40. 2026-08-28: added MCNL v1 NSFW LoRA (ScottzillaSystems/qwen-image-edit-plus-nsfw-lora, 563 MB) for explicit-anatomy editing.",
+      "modelDownloadGb": 31,
+      "provision": [
+        {
+          "kind": "provision-script",
+          "path": "helpers/runpod/qwen-image-edit-2511/provision-runtime.sh",
+          "args": ["/workspace/comfyui-qwen-2511"],
+          "env": {},
+          "note": "Clones pinned ComfyUI rev e4c61d7, venv, deps, downloads+verifies 3 models (~30 GB) AND MCNL v1 NSFW LoRA (563 MB) into models/loras/ (added 2026-08-28)."
+        },
+        {
+          "kind": "prep-command",
+          "command": "/workspace/comfyui-qwen-2511/.venv/bin/pip install --quiet 'tokenizers==0.22.2' && rm -rf /workspace/comfyui-qwen-2511/.venv/lib/python3.10/site-packages/tokenizers-0.23.1.dist-info",
+          "note": "2026-08-27 fix: transformers 5.15.1 requires tokenizers>=0.22.0,<=0.23.0. Pin 0.22.2 AND remove the stale 0.23.1 dist-info (importlib.metadata otherwise reports 0.23.1 and ComfyUI fails to import transformers)."
+        },
+        {
+          "kind": "start-script",
+          "path": "helpers/runpod/qwen-image-edit-2511/start-comfyui.sh",
+          "args": ["/workspace/comfyui-qwen-2511", "3002"],
+          "env": {},
+          "note": "Starts isolated ComfyUI on 3002. NOTE: start-comfyui.sh binds 127.0.0.1 (SSH-forward use); the RunPod PROXY deployment requires binding 0.0.0.0:3002 (relaunch main.py with --listen 0.0.0.0)."
+        }
+      ],
+      "smokeTest": {
+        "readinessPath": "/system_stats",
+        "identityProbePath": "/object_info/UNETLoader",
+        "identityExpectedText": "qwen_image_edit_2511_fp8mixed.safetensors",
+        "deepProof": "Optional: real edit via a Qwen edit workflow (see specs/image-generator-tests/qwen)."
+      },
+      "modelManager": {
+        "providerId": "0b7fb8dc-a07e-44ee-9418-c613a8230253",
+        "providerName": "RunPod Qwen Image Edit",
+        "registeredModel": "qwen_image_edit_2511_fp8mixed.safetensors",
+        "nsfwLoRA": "qwen-image-edit-plus-nsfw-lora.safetensors (MCNL v1, ScottzillaSystems) - PROOF FAILED 2026-08-28 (anatomy confusion); do not use for app integration",
+        "updateEndpoint": true
+      },
+      "persistence": {
+        "standard": "helpers/runpod/POD-PERSISTENCE.md",
+        "persistentOnWorkspace": "comfyui-qwen-2511/ clone + models (incl. MCNL v1 NSFW LoRA) + .venv",
+        "ephemeralRestoredByPreStart": "isolated ComfyUI process on 3002 (bound 0.0.0.0 for proxy)",
+        "autoStartOnBoot": "DONE 2026-08-27: /pre_start.sh hook auto-starts ComfyUI on 0.0.0.0:3002",
+        "notes": "tokenizers fix documented in provision steps. Service verified reachable via RunPod proxy (comfyui 0.6.0). MCNL v1 NSFW LoRA added 2026-08-28 (download-models.sh verifies size+SHA); PROOF FAILED same day (male got female anatomy) -> pod LoRA path dead. Serverless qwen-edit-worker must use Phr00t Rapid-AIO-NSFW-v23 merged checkpoint instead - see B-101 plan.md MODEL DECISION + pod-registry notes."
+      },
+      "recreateDefault": true
+    },
+    {
+      "function": "Image identification/compiler (Qwen2.5-VL 7B abliterated)",
+      "deploymentKey": "image-vision-qwen-vl-prod",
+      "manifestPath": "helpers/runpod/deployments/image-vision-qwen-vl/deployment.json",
+      "capability": "ImageVisionCompiler",
+      "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
+      "inferencePort": 3004,
+      "volumeInGb": 85,
+      "containerDiskInGb": 20,
+      "minVramGb": 24,
+      "provenGpuTypeId": "NVIDIA L40S",
+      "candidateGpuTypeIds": [
+        "NVIDIA L40S",
+        "NVIDIA A40",
+        "NVIDIA GeForce RTX 4090",
+        "NVIDIA GeForce RTX 3090",
+        "NVIDIA GeForce RTX 3090 Ti"
+      ],
+      "candidateNotes": "DONT use NVIDIA RTX A5000 (2026-08-27): A5000 landed on driver 550.127.05 = CUDA 12.4, CANNOT run the pinned torch-CUDA-13 vLLM ('driver too old 12040'). L40S is the PROVEN GPU for this workload - old Qwen VL pod yx7zudzunz95b3 ran the CUDA-13 vLLM on L40S. L40S ($0.99) first; A40/4090/3090 hosts are untested for CUDA-13 drivers - VERIFY the landed host driver (nvidia-smi) >= 580 immediately after create. start-vllm.sh uses --gpu-memory-utilization 0.9 (proven 2026-08-25).",
+      "modelDownloadGb": 16,
+      "provision": [
+        {
+          "kind": "provision-script",
+          "path": "helpers/runpod/qwen-vl-edit-compiler/provision-runtime.sh",
+          "args": ["/workspace/qwen-vl-edit-compiler"],
+          "env": { "QWEN_VL_WORKSPACE_CAPACITY_GIB": "85" },
+          "note": "Downloads pinned abliterated model (4 shards) into /workspace/qwen-vl-edit-compiler/model, builds Python 3.13.2 venv with vllm==0.27.1."
+        },
+        {
+          "kind": "start-script",
+          "path": "helpers/runpod/qwen-vl-edit-compiler/start-vllm.sh",
+          "args": ["/workspace/qwen-vl-edit-compiler", "3004", "0.9"],
+          "env": { "VLLM_USE_FLASHINFER_SAMPLER": "0" },
+          "note": "Starts vLLM on 0.0.0.0:3004, served-model-name huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated. Startup ~276s process-to-health."
+        }
+      ],
+      "smokeTest": {
+        "readinessPath": "/health",
+        "identityProbePath": "/v1/models",
+        "identityExpectedText": "huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated",
+        "deepProof": "Required: python helpers/runpod/qwen-vl-edit-compiler/prove-one-image.py <port> <source-image> <raw-response-path> against the proxy and confirm schema-valid structured JSON."
+      },
+      "modelManager": {
+        "providerId": "2dde3563-589d-436a-bc60-d646a2da3c25",
+        "providerName": "RunPod Qwen VL image compiler",
+        "registeredModel": "qwen2.5-vl-7b-edit-compiler",
+        "registeredModelAlt": "huihui-ai/Qwen2.5-VL-7B-Instruct-abliterated",
+        "updateEndpoint": true
+      },
+      "persistence": {
+        "standard": "helpers/runpod/POD-PERSISTENCE.md",
+        "persistentOnWorkspace": "qwen-vl-edit-compiler/ venv + model + runtime",
+        "ephemeralRestoredByPreStart": "vLLM process on 3004",
+        "autoStartOnBoot": "DONE 2026-08-27: /pre_start.sh 'dreamgen-qwen-vl-bootstrap' auto-starts vLLM on 3004 (added to provision-runtime.sh + applied live). Restart-proofness test still recommended.",
+        "notes": "DONT (2026-08-27): do not use this A5000 host (driver 550 = CUDA 12.4) for the CUDA-13 vLLM runtime. venv + 16GB model persist on /workspace; only vLLM needs an auto-start hook + a CUDA-13-compatible driver.",
+        "recreatedOn": "2026-08-27 -> L40S pod ed75qs3tty7xq2 (driver 580 = CUDA-13 OK). Deep proof PASSED (5.28s, schema-valid JSON). MM synced -> https://ed75qs3tty7xq2-3004.proxy.runpod.net. Auto-start hook applied. prove-one-image.py MODEL_NAME fixed to served abliterated id."
+      },
+      "recreateDefault": true
+    },
+    {
+      "function": "Pose extraction (DWPose)",
+      "deploymentKey": "pose-dwpose-prod",
+      "manifestPath": "helpers/runpod/deployments/pose-dwpose/deployment.json",
+      "capability": "PoseExtraction",
+      "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
+      "inferencePort": 3003,
+      "volumeInGb": 40,
+      "containerDiskInGb": 20,
+      "minVramGb": 8,
+      "provenGpuTypeId": "NVIDIA RTX PRO 4500 Blackwell",
+      "candidateGpuTypeIds": [
+        "NVIDIA RTX A5000",
+        "NVIDIA RTX 4000 Ada Generation",
+        "NVIDIA GeForce RTX 3090 Ti",
+        "NVIDIA RTX PRO 4000 Blackwell",
+        "NVIDIA RTX PRO 4500 Blackwell"
+      ],
+      "candidateNotes": "DWPose is a light OpenCV-CPU pose extractor; VRAM is not the constraint. On Blackwell (sm_120) the provisioner installs torch 2.7.0+cu128; on any other GPU the standard base torch is used. Cheapest adequate GPU is fine.",
+      "modelDownloadGb": 1,
+      "provision": [
+        {
+          "kind": "provision-script",
+          "path": "helpers/runpod/deployments/pose-dwpose/provision-runtime.sh",
+          "args": [],
+          "env": {},
+          "note": "Clones pinned comfyui_controlnet_aux e8b689a, symlinks into /ComfyUI/custom_nodes, installs validated deps + Blackwell torch if needed, sets port 3003, starts ComfyUI."
+        }
+      ],
+      "smokeTest": {
+        "readinessPath": "/system_stats",
+        "identityProbePath": "/object_info/DWPreprocessor",
+        "identityExpectedText": "dw-ll_ucoco_384_bs5.torchscript.pt",
+        "deepProof": "Optional: helpers/runpod/workflows/dwpose-extract-proof.json (LoadImage -> DWPreprocessor -> SaveImage) and confirm OpenPose JSON + rendered PNG."
+      },
+      "modelManager": {
+        "providerId": null,
+        "providerName": "Not registered in Model Manager (intentional)",
+        "registeredModel": null,
+        "updateEndpoint": false
+      },
+      "persistence": {
+        "standard": "helpers/runpod/POD-PERSISTENCE.md",
+        "persistentOnWorkspace": "comfyui/custom_nodes/comfyui_controlnet_aux + DWPose ckpts",
+        "ephemeralRestoredByPreStart": "/ComfyUI/custom_nodes symlink + torch/package overlay + ComfyUI on 3003",
+        "autoStartOnBoot": "ComfyUI on 3003 (provisioner /pre_start.sh patch)",
+        "notes": "From-scratch provisioner handles overlay restore; on Blackwell it also installs torch 2.7.0+cu128."
+      },
+      "recreateDefault": true
+    },
+    {
+      "function": "Image editing backup (Qwen Image Edit 2511 A40 preserved)",
+      "deploymentKey": "image-edit-qwen-2511-a40-preserved",
+      "manifestPath": "helpers/runpod/deployments/image-edit-qwen-2511-a40-preserved/deployment.json",
+      "capability": "ImageEditing",
+      "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
+      "inferencePort": 3002,
+      "volumeInGb": 85,
+      "containerDiskInGb": 20,
+      "minVramGb": 48,
+      "provenGpuTypeId": "NVIDIA A40",
+      "candidateGpuTypeIds": [
+        "NVIDIA A40",
+        "NVIDIA RTX A6000",
+        "NVIDIA L40",
+        "NVIDIA RTX 6000 Ada Generation",
+        "NVIDIA RTX PRO 5000 Blackwell",
+        "NVIDIA L40S"
+      ],
+      "candidateNotes": "Identical workload to image-edit-qwen-2511-prod (48 GB required). Marked 'preserved, do not use or delete without approval'. Recreate only on explicit user request.",
+      "modelDownloadGb": 30,
+      "provision": [
+        {
+          "kind": "provision-script",
+          "path": "helpers/runpod/qwen-image-edit-2511/provision-runtime.sh",
+          "args": ["/workspace/comfyui-qwen-2511"],
+          "env": {},
+          "note": "Same isolated Qwen Edit runtime as the prod Qwen Edit pod."
+        },
+        {
+          "kind": "start-script",
+          "path": "helpers/runpod/qwen-image-edit-2511/start-comfyui.sh",
+          "args": ["/workspace/comfyui-qwen-2511", "3002"],
+          "env": {},
+          "note": "Starts isolated ComfyUI on 127.0.0.1:3002."
+        }
+      ],
+      "smokeTest": {
+        "readinessPath": "/system_stats",
+        "identityProbePath": "/object_info/UNETLoader",
+        "identityExpectedText": "qwen_image_edit_2511_fp8mixed.safetensors",
+        "deepProof": "Optional: real edit via a Qwen edit workflow."
+      },
+      "modelManager": {
+        "providerId": null,
+        "providerName": "Backup only; not in Model Manager",
+        "registeredModel": null,
+        "updateEndpoint": false
+      },
+      "persistence": {
+        "standard": "helpers/runpod/POD-PERSISTENCE.md",
+        "persistentOnWorkspace": "comfyui-qwen-2511/ clone + models + .venv",
+        "ephemeralRestoredByPreStart": "isolated ComfyUI process on 3002",
+        "autoStartOnBoot": "GAP: same as prod Qwen Edit - needs /pre_start.sh auto-start for 3002",
+        "notes": "Duplicate of image-edit-qwen-2511-prod workload; recreate only on explicit request."
+      },
+      "recreateDefault": false
+    },
+    {
+      "function": "Identity conditioning proof (IP-Adapter / PuLID + ControlNet) - informational",
+      "deploymentKey": "identity-conditioning-proof",
+      "manifestPath": "helpers/runpod/deployments/identity-conditioning-proof/deployment.json",
+      "capability": "IdentityConditioning",
+      "containerImage": "runpod/stable-diffusion:comfy-ui-6.0.0",
+      "inferencePort": 3000,
+      "volumeInGb": 85,
+      "containerDiskInGb": 20,
+      "minVramGb": 24,
+      "provenGpuTypeId": "NVIDIA A40",
+      "candidateGpuTypeIds": [
+        "NVIDIA A40",
+        "NVIDIA RTX A5000",
+        "NVIDIA GeForce RTX 3090 Ti",
+        "NVIDIA GeForce RTX 4090"
+      ],
+      "candidateNotes": "Proof pod for identity conditioning (SDXL + IP-Adapter/PuLID + ControlNet). 24 GB works, 48 GB safer. Not in Model Manager. Recreate only on explicit request.",
+      "modelDownloadGb": 12,
+      "provision": [
+        {
+          "kind": "provision-script",
+          "path": "helpers/runpod/deployments/image-gen-juggernaut/provision-runtime.sh",
+          "args": [],
+          "env": {},
+          "note": "Same extra_model_paths.yaml fix + ComfyUI on 3000."
+        },
+        {
+          "kind": "prep-command",
+          "command": "mkdir -p /workspace/comfyui/models/checkpoints",
+          "note": "Ensure checkpoint dir exists."
+        },
+        {
+          "kind": "install-model-remote",
+          "modelName": "juggernautXL_ragnarok.safetensors",
+          "sourceUrl": "https://civitai.com/api/download/models/1759168?fileId=1659952",
+          "note": "Base checkpoint for identity proofs."
+        }
+      ],
+      "smokeTest": {
+        "readinessPath": "/system_stats",
+        "identityProbePath": "/object_info/CheckpointLoaderSimple",
+        "identityExpectedText": "juggernautXL_ragnarok.safetensors",
+        "deepProof": "Optional: identity conditioning proof workflow."
+      },
+      "modelManager": {
+        "providerId": "f032981b-b87b-44fb-8247-f531fb6e784a",
+        "providerName": "RunPod Identity Conditioning (IP-Adapter)",
+        "registeredModel": "juggernautXL_ragnarok.safetensors",
+        "updateEndpoint": true,
+        "notes": "Added to Model Manager 2026-08-27 (was skipped by accident). Model is a clone of the Juggernaut row with identity columns (IpAdapter / 0.8 / PLUS FACE (portraits)). Additive insert; does not change the Juggernaut provider or the RolePlaySceneImage default."
+      },
+      "persistence": {
+        "standard": "helpers/runpod/POD-PERSISTENCE.md",
+        "persistentOnWorkspace": "checkpoint + identity custom-node clones/masters",
+        "ephemeralRestoredByPreStart": "custom-node symlinks + ComfyUI on 3000",
+        "autoStartOnBoot": "ComfyUI on 3000",
+        "notes": "This is the pod that HAS the IP-Adapter/ControlNet stack needed for identity/2-person renders (the plain Juggernaut pod does not). Migration successor ncsmze3anko7w2 carries the volume over."
+      },
+      "recreateDefault": false
+    }
+  ]
+}

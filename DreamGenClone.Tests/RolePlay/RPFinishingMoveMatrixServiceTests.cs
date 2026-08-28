@@ -173,7 +173,7 @@ public sealed class RPFinishingMoveMatrixServiceTests : IDisposable
 
         var rows = await freshService.ListFinishingMoveMatrixRowsAsync();
         var row = Assert.Single(rows);
-        Assert.Equal("75-100", row.DesireBand);
+        Assert.Equal("60-100", row.DesireBand);
     }
 
     private async Task<RPThemeService> CreateServiceAsync()

@@ -100,7 +100,10 @@ public class ModelProcessingWorkerTests
         var task = new ModelProcessingTask { ParsedStoryId = "s1", TaskType = ModelProcessingTaskType.Summarize };
         queue.Enqueue(task);
 
-        await Task.Delay(200);
+        // Wait deterministically for the task to reach Completed (with a generous timeout) instead
+        // of a fixed delay, which is flaky under load.
+        await WaitForStatusAsync(queue, task.Id, ModelProcessingStatus.Completed, TimeSpan.FromSeconds(10));
+
         cts.Cancel();
         try { await workerTask; } catch (OperationCanceledException) { }
 
@@ -108,6 +111,32 @@ public class ModelProcessingWorkerTests
         Assert.Contains(statusChanges, s => s.TaskId == task.Id && s.Status == ModelProcessingStatus.Queued);
         Assert.Contains(statusChanges, s => s.TaskId == task.Id && s.Status == ModelProcessingStatus.Processing);
         Assert.Contains(statusChanges, s => s.TaskId == task.Id && s.Status == ModelProcessingStatus.Completed);
+    }
+
+    /// <summary>
+    /// Polls the queue until the task reaches the target status or the timeout elapses. Replaces
+    /// fixed <c>Task.Delay</c> waits that are flaky under CI/load.
+    /// </summary>
+    private static async Task WaitForStatusAsync(
+        ModelProcessingQueue queue,
+        string taskId,
+        ModelProcessingStatus target,
+        TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            var task = queue.GetAllTasks().FirstOrDefault(t => t.Id == taskId);
+            if (task is not null && task.Status == target)
+            {
+                return;
+            }
+            await Task.Delay(25);
+        }
+
+        var actual = queue.GetAllTasks().FirstOrDefault(t => t.Id == taskId)?.Status;
+        throw new TimeoutException(
+            $"Task '{taskId}' did not reach {target} within {timeout.TotalSeconds}s (actual: {actual}).");
     }
 
     private static IServiceScopeFactory BuildServiceProvider(ModelProcessingQueue queue, bool failSummarize = false)

@@ -14,7 +14,13 @@ public sealed class SteeringProfileService : ISteeringProfileService
         string RuleOfThumb,
         Dictionary<string, int>? ThemeAffinities = null,
         List<string>? EscalatingThemeIds = null,
-        Dictionary<string, int>? StatBias = null);
+        Dictionary<string, int>? StatBias = null,
+        string ImmersionDirective = "",
+        string ActionDirective = "",
+        int WordTargetMin = 0,
+        int WordTargetMax = 0,
+        int NarrativeWordTargetMin = 0,
+        int NarrativeWordTargetMax = 0);
 
     private static readonly DefaultStyleProfile[] DefaultProfiles =
     [
@@ -25,7 +31,13 @@ public sealed class SteeringProfileService : ISteeringProfileService
             "Favor atmosphere, tension, and sensory detail over speed. Let desire accumulate before anything explicit happens.",
             ThemeAffinities: new(StringComparer.OrdinalIgnoreCase) { ["intimacy"] = 5, ["voyeurism"] = 4, ["forbidden-risk"] = 2 },
             EscalatingThemeIds: ["dominance", "power-dynamics", "forbidden-risk", "humiliation", "infidelity"],
-            StatBias: new(StringComparer.OrdinalIgnoreCase) { ["Desire"] = 5, ["Restraint"] = 5 })
+            StatBias: new(StringComparer.OrdinalIgnoreCase) { ["Desire"] = 5, ["Restraint"] = 5 },
+            ImmersionDirective: "Stay inside this character's perceptions, thoughts, feelings, and physical sensations. Show, don't tell.",
+            ActionDirective: "Respond to the scene naturally.",
+            WordTargetMin: 200,
+            WordTargetMax: 400,
+            NarrativeWordTargetMin: 300,
+            NarrativeWordTargetMax: 500)
     ];
 
     private readonly ISqlitePersistence _persistence;
@@ -37,7 +49,7 @@ public sealed class SteeringProfileService : ISteeringProfileService
         _logger = logger;
     }
 
-    public async Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+    public async Task<SteeringProfile> CreateAsync(string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
 
@@ -62,6 +74,12 @@ public sealed class SteeringProfileService : ISteeringProfileService
             ThemeAffinities = themeAffinities ?? new(StringComparer.OrdinalIgnoreCase),
             EscalatingThemeIds = escalatingThemeIds ?? [],
             StatBias = statBias ?? new(StringComparer.OrdinalIgnoreCase),
+            ImmersionDirective = immersionDirective?.Trim() ?? string.Empty,
+            ActionDirective = actionDirective?.Trim() ?? string.Empty,
+            WordTargetMin = wordTargetMin,
+            WordTargetMax = wordTargetMax,
+            NarrativeWordTargetMin = narrativeWordTargetMin,
+            NarrativeWordTargetMax = narrativeWordTargetMax,
             CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow
         };
@@ -77,7 +95,7 @@ public sealed class SteeringProfileService : ISteeringProfileService
     public Task<SteeringProfile?> GetAsync(string id, CancellationToken cancellationToken = default)
         => _persistence.LoadStyleProfileAsync(id, cancellationToken);
 
-    public async Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, CancellationToken cancellationToken = default)
+    public async Task<SteeringProfile?> UpdateAsync(string id, string name, string description, string example, string ruleOfThumb, Dictionary<string, int>? themeAffinities = null, List<string>? escalatingThemeIds = null, Dictionary<string, int>? statBias = null, string immersionDirective = "", string actionDirective = "", int wordTargetMin = 0, int wordTargetMax = 0, int narrativeWordTargetMin = 0, int narrativeWordTargetMax = 0, CancellationToken cancellationToken = default)
     {
         await EnsureDefaultProfilesAsync(cancellationToken);
 
@@ -107,6 +125,12 @@ public sealed class SteeringProfileService : ISteeringProfileService
         if (themeAffinities is not null) existing.ThemeAffinities = themeAffinities;
         if (escalatingThemeIds is not null) existing.EscalatingThemeIds = escalatingThemeIds;
         if (statBias is not null) existing.StatBias = statBias;
+        existing.ImmersionDirective = immersionDirective?.Trim() ?? string.Empty;
+        existing.ActionDirective = actionDirective?.Trim() ?? string.Empty;
+        existing.WordTargetMin = wordTargetMin;
+        existing.WordTargetMax = wordTargetMax;
+        existing.NarrativeWordTargetMin = narrativeWordTargetMin;
+        existing.NarrativeWordTargetMax = narrativeWordTargetMax;
         existing.UpdatedUtc = DateTime.UtcNow;
 
         await _persistence.SaveStyleProfileAsync(existing, cancellationToken);
@@ -148,6 +172,12 @@ public sealed class SteeringProfileService : ISteeringProfileService
                     ThemeAffinities = item.ThemeAffinities ?? new(StringComparer.OrdinalIgnoreCase),
                     EscalatingThemeIds = item.EscalatingThemeIds ?? [],
                     StatBias = item.StatBias ?? new(StringComparer.OrdinalIgnoreCase),
+                    ImmersionDirective = item.ImmersionDirective,
+                    ActionDirective = item.ActionDirective,
+                    WordTargetMin = item.WordTargetMin,
+                    WordTargetMax = item.WordTargetMax,
+                    NarrativeWordTargetMin = item.NarrativeWordTargetMin,
+                    NarrativeWordTargetMax = item.NarrativeWordTargetMax,
                     CreatedUtc = DateTime.UtcNow,
                     UpdatedUtc = DateTime.UtcNow
                 }, cancellationToken);
@@ -163,6 +193,12 @@ public sealed class SteeringProfileService : ISteeringProfileService
                 existing.ThemeAffinities = item.ThemeAffinities ?? new(StringComparer.OrdinalIgnoreCase);
                 existing.EscalatingThemeIds = item.EscalatingThemeIds ?? [];
                 existing.StatBias = item.StatBias ?? new(StringComparer.OrdinalIgnoreCase);
+                existing.ImmersionDirective = item.ImmersionDirective;
+                existing.ActionDirective = item.ActionDirective;
+                existing.WordTargetMin = item.WordTargetMin;
+                existing.WordTargetMax = item.WordTargetMax;
+                existing.NarrativeWordTargetMin = item.NarrativeWordTargetMin;
+                existing.NarrativeWordTargetMax = item.NarrativeWordTargetMax;
                 existing.UpdatedUtc = DateTime.UtcNow;
                 await _persistence.SaveStyleProfileAsync(existing, cancellationToken);
                 changed = true;
@@ -180,6 +216,12 @@ public sealed class SteeringProfileService : ISteeringProfileService
         return profile.ThemeAffinities.ContainsKey("romantic-tension")
             || profile.ThemeAffinities.ContainsKey("emotional-vulnerability")
             || (profile.StatBias.TryGetValue("Desire", out var desire) && desire == 1)
-            || profile.StatBias.ContainsKey("Connection");
+            || profile.StatBias.ContainsKey("Connection")
+            || string.IsNullOrWhiteSpace(profile.ImmersionDirective)
+            || string.IsNullOrWhiteSpace(profile.ActionDirective)
+            || profile.WordTargetMin <= 0
+            || profile.WordTargetMax <= 0
+            || profile.NarrativeWordTargetMin <= 0
+            || profile.NarrativeWordTargetMax <= 0;
     }
 }

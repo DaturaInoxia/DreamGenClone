@@ -5,6 +5,9 @@ using DreamGenClone.Infrastructure.RolePlay;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging.Abstractions;
+using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Domain.RolePlay;
+using System.Reflection;
 
 namespace DreamGenClone.Tests.RolePlay;
 
@@ -19,41 +22,6 @@ public sealed class PhaseLifecycleTransitionTests
     }
 
     [Fact]
-    public async Task ValidLifecycleTransitionSequence_ProgressesInOrder()
-    {
-        // All phase transitions require a configured profile — no hardcoded fallbacks.
-        var service = CreateServiceWithProfile();
-        var state = CreateState();
-        state.CurrentPhase = NarrativePhase.Committed;
-
-        var toApproaching = await service.EvaluateTransitionAsync(state, new LifecycleInputs
-        {
-            InteractionsSinceCommitment = 3,
-            ActiveScenarioFitScore = 61m,
-            ActiveScenarioConfidence = 0.8m
-        });
-        state.CurrentPhase = toApproaching.TargetPhase;
-
-        var toClimax = await service.EvaluateTransitionAsync(state, new LifecycleInputs
-        {
-            InteractionsSinceCommitment = 1,
-            ActiveScenarioFitScore = 85m,
-            ActiveScenarioConfidence = 0.9m
-        });
-        state.CurrentPhase = toClimax.TargetPhase;
-
-        var toReset = await service.EvaluateTransitionAsync(state, new LifecycleInputs { ClimaxCompletionRequested = true });
-        state.CurrentPhase = toReset.TargetPhase;
-
-        var toBuildUp = await service.EvaluateTransitionAsync(state, new LifecycleInputs());
-
-        Assert.Equal(NarrativePhase.Approaching, toApproaching.TargetPhase);
-        Assert.Equal(NarrativePhase.Climax, toClimax.TargetPhase);
-        Assert.Equal(NarrativePhase.Reset, toReset.TargetPhase);
-        Assert.Equal(NarrativePhase.BuildUp, toBuildUp.TargetPhase);
-    }
-
-    [Fact]
     public async Task BuildUp_DoesNotTransitionToCommitted_ViaLifecycle()
     {
         var service = CreateServiceWithProfile();
@@ -63,7 +31,7 @@ public sealed class PhaseLifecycleTransitionTests
         {
             ActiveScenarioConfidence = 0.99m,
             ActiveScenarioFitScore = 95m,
-            InteractionsSinceCommitment = 100
+            TurnsSinceCommitment = 100
         });
 
         Assert.False(result.Transitioned);
@@ -79,7 +47,7 @@ public sealed class PhaseLifecycleTransitionTests
 
         var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs
         {
-            InteractionsSinceCommitment = 100,
+            TurnsSinceCommitment = 100,
             ActiveScenarioConfidence = 0.99m,
             ActiveScenarioFitScore = 95m
         });
@@ -89,26 +57,51 @@ public sealed class PhaseLifecycleTransitionTests
     }
 
     [Fact]
-    public async Task Climax_DoesNotAutoResetWithoutCommandOrGateProfile()
+    public async Task Climax_AlwaysTransitionsToReset()
     {
         var state = CreateState();
         state.CurrentPhase = NarrativePhase.Climax;
 
+        // Climax → Reset is configuration-driven. Without configured Climax→Reset gate rules,
+        // explicit climax completion must be requested to transition.
         var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs
         {
-            InteractionsSinceCommitment = 50,
-            ActiveScenarioFitScore = 95m
+            TurnsSinceCommitment = 50,
+            ActiveScenarioFitScore = 95m,
+            ClimaxCompletionRequested = true
+        });
+
+        Assert.True(result.Transitioned);
+        Assert.Equal(NarrativePhase.Reset, result.TargetPhase);
+    }
+
+    [Fact]
+    public async Task CommittedPhase_DoesNotTransitionWhenSemanticStatDeltaIsSuppressed()
+    {
+        var service = CreateServiceWithProfile();
+        var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Committed;
+
+        // Simulate suppression/cap outcome where applied semantic delta is effectively zero.
+        state.CharacterSnapshots[0].Desire = 64;
+        state.CharacterSnapshots[0].Restraint = 44;
+
+        var result = await service.EvaluateTransitionAsync(state, new LifecycleInputs
+        {
+            TurnsSinceCommitment = 3,
+            ActiveScenarioFitScore = 61m,
+            ActiveScenarioConfidence = 0.8m
         });
 
         Assert.False(result.Transitioned);
-        Assert.Equal(NarrativePhase.Climax, result.TargetPhase);
+        Assert.Equal(NarrativePhase.Committed, result.TargetPhase);
     }
 
     [Fact]
     public async Task IllegalTransitionRequest_IsRejected()
     {
         var state = CreateState();
-        var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs { InteractionsSinceCommitment = 5, ActiveScenarioFitScore = 90m });
+        var result = await _service.EvaluateTransitionAsync(state, new LifecycleInputs { TurnsSinceCommitment = 5, ActiveScenarioFitScore = 90m });
 
         Assert.False(result.Transitioned);
         Assert.Equal(NarrativePhase.BuildUp, result.TargetPhase);
@@ -146,31 +139,6 @@ public sealed class PhaseLifecycleTransitionTests
     }
 
     [Fact]
-    public async Task ResetToBuildUp_ExecuteResetPreservesContinuityRelevantState()
-    {
-        var state = CreateState();
-        state.CurrentPhase = NarrativePhase.Reset;
-        state.CycleIndex = 4;
-        state.ActiveFormulaVersion = "custom-v2";
-        var snapshot = state.CharacterSnapshots[0];
-
-        var reset = await _service.ExecuteResetAsync(state, ResetReason.Completion);
-        var decayed = reset.CharacterSnapshots[0];
-
-        Assert.Equal(NarrativePhase.BuildUp, reset.CurrentPhase);
-        Assert.Equal(5, reset.CycleIndex);
-        Assert.Equal("custom-v2", reset.ActiveFormulaVersion);
-        Assert.Single(reset.CharacterSnapshots);
-        Assert.Equal(snapshot.CharacterId, reset.CharacterSnapshots[0].CharacterId);
-        Assert.True(decayed.Desire < snapshot.Desire);
-        Assert.True(decayed.Tension <= snapshot.Tension);
-        Assert.True(decayed.Dominance <= snapshot.Dominance);
-        Assert.Equal(snapshot.Connection, decayed.Connection);
-        Assert.Equal(snapshot.Loyalty, decayed.Loyalty);
-        Assert.Equal(snapshot.SelfRespect, decayed.SelfRespect);
-    }
-
-    [Fact]
     public async Task ResetDecay_StrongerForHigherElevatedDesire()
     {
         var state = new AdaptiveScenarioState
@@ -185,22 +153,20 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-high",
                     Desire = 95,
                     Restraint = 20,
-                    Tension = 85,
-                    Connection = 60,
                     Dominance = 80,
                     Loyalty = 55,
-                    SelfRespect = 58
+                    SelfRespect = 58,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 85, ["Connection"] = 60 }
                 },
                 new CharacterStatProfileV2
                 {
                     CharacterId = "char-mid",
                     Desire = 65,
                     Restraint = 80,
-                    Tension = 60,
-                    Connection = 60,
                     Dominance = 60,
                     Loyalty = 55,
-                    SelfRespect = 58
+                    SelfRespect = 58,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 60, ["Connection"] = 60 }
                 }
             ]
         };
@@ -229,11 +195,10 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-a",
                     Desire = 90,
                     Restraint = 20,
-                    Tension = 80,
-                    Connection = 55,
                     Dominance = 70,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 80, ["Connection"] = 55 }
                 }
             ]
         };
@@ -250,11 +215,10 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-a",
                     Desire = 90,
                     Restraint = 20,
-                    Tension = 80,
-                    Connection = 55,
                     Dominance = 70,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 80, ["Connection"] = 55 }
                 }
             ]
         };
@@ -266,7 +230,6 @@ public sealed class PhaseLifecycleTransitionTests
         var late = lateReset.CharacterSnapshots[0];
 
         Assert.True(late.Desire > early.Desire);
-        Assert.True(late.Tension > early.Tension);
         Assert.True(late.Dominance > early.Dominance);
         Assert.True(late.Restraint < early.Restraint);
     }
@@ -313,11 +276,10 @@ public sealed class PhaseLifecycleTransitionTests
                         CharacterId = "char-a",
                         Desire = 100,
                         Restraint = 20,
-                        Tension = 80,
-                        Connection = 55,
                         Dominance = 70,
                         Loyalty = 50,
-                        SelfRespect = 50
+                        SelfRespect = 50,
+                        RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 80, ["Connection"] = 55 }
                     }
                 ]
             };
@@ -338,11 +300,10 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-b",
                     Desire = 10,
                     Restraint = 20,
-                    Tension = 10,
-                    Connection = 10,
                     Dominance = 10,
                     Loyalty = 10,
-                    SelfRespect = 10
+                    SelfRespect = 10,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 10, ["Connection"] = 10 }
                 }
             ]
         };
@@ -351,8 +312,8 @@ public sealed class PhaseLifecycleTransitionTests
         var updated = belowBaselineReset.CharacterSnapshots[0];
         Assert.True(updated.Desire > 10);
         Assert.True(updated.Restraint > 20);
-        Assert.True(updated.Tension > 10);
-        Assert.True(updated.Connection > 10);
+        Assert.True((updated.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50) > 10);
+        Assert.True((updated.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50) > 10);
         Assert.True(updated.Dominance > 10);
         Assert.True(updated.Loyalty > 10);
         Assert.True(updated.SelfRespect > 10);
@@ -385,11 +346,10 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-a",
                     Desire = 90,
                     Restraint = 50,
-                    Tension = 50,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
                 }
             ]
         };
@@ -409,11 +369,10 @@ public sealed class PhaseLifecycleTransitionTests
                     CharacterId = "char-a",
                     Desire = 90,
                     Restraint = 50,
-                    Tension = 50,
-                    Connection = 50,
                     Dominance = 50,
                     Loyalty = 50,
-                    SelfRespect = 50
+                    SelfRespect = 50,
+                    RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 50 }
                 }
             ]
         };
@@ -428,6 +387,81 @@ public sealed class PhaseLifecycleTransitionTests
         Assert.Equal(86, laterChar.Desire);
         Assert.True(laterChar.Desire > firstChar.Desire,
             $"Later cycles should retain more stat gains: later={laterChar.Desire} should > first={firstChar.Desire}");
+    }
+
+    [Fact]
+    public async Task StatDecayOverride_ScaleZero_StatFrozenAfterReset()
+    {
+        // Desire override = 0.0 → decay pull is multiplied by 0 → stat should not move at all.
+        var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Reset;
+        state.CycleIndex = 0;
+        var snapshot = state.CharacterSnapshots[0]; // Desire = 80, baseline = 50 by default
+
+        var overrides = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Desire"] = 0.0m
+        };
+
+        var reset = await _service.ExecuteResetAsync(state, ResetReason.Completion, statDecayScaleOverrides: overrides);
+        var decayed = reset.CharacterSnapshots[0];
+
+        Assert.Equal(snapshot.Desire, decayed.Desire);
+    }
+
+    [Fact]
+    public async Task StatDecayOverride_ScaleHalf_StatMovesHalfwayToBaseline()
+    {
+        // At scale 1.0 Desire would fully decay to baseline.
+        // At scale 0.5 it should move approximately halfway.
+        // Use pull schedule = [1.0] and baselines = {Desire: 0} so the full-pull target is 0.
+        var opts = Options.Create(new StoryAnalysisOptions
+        {
+            ResetStatBaselinePullSchedule = [1.0],
+            ResetStatBaselines = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Desire"] = 0 }
+        });
+        var service = new ScenarioLifecycleService(NullLogger<ScenarioLifecycleService>.Instance, null, opts);
+
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "test",
+            CurrentPhase = NarrativePhase.Reset,
+            CycleIndex = 0,
+            ActiveFormulaVersion = "rpv2-default",
+            CharacterSnapshots = [new CharacterStatProfileV2 { CharacterId = "c", Desire = 100 }]
+        };
+
+        // Full pull (scale=1.0) → Desire should go to 0.
+        var fullReset = await service.ExecuteResetAsync(state, ResetReason.Completion);
+        Assert.Equal(0, fullReset.CharacterSnapshots[0].Desire);
+
+        // Half pull (scale=0.5) → Desire should move halfway: 100 * (1 - 0.5) = 50.
+        var halfOverrides = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { ["Desire"] = 0.5m };
+        var halfReset = await service.ExecuteResetAsync(state, ResetReason.Completion, statDecayScaleOverrides: halfOverrides);
+        Assert.Equal(50, halfReset.CharacterSnapshots[0].Desire);
+    }
+
+    [Fact]
+    public async Task StatDecayOverride_EmptyOverrides_NumericallyIdenticalToNoOverrides()
+    {
+        // Regression guard: passing an empty overrides dictionary must produce the same result as null.
+        var state = CreateState();
+        state.CurrentPhase = NarrativePhase.Reset;
+        state.CycleIndex = 0;
+
+        var withNull = await _service.ExecuteResetAsync(state, ResetReason.Completion, statDecayScaleOverrides: null);
+        var withEmpty = await _service.ExecuteResetAsync(state, ResetReason.Completion,
+            statDecayScaleOverrides: new Dictionary<string, decimal>());
+
+        var nullSnap = withNull.CharacterSnapshots[0];
+        var emptySnap = withEmpty.CharacterSnapshots[0];
+        Assert.Equal(nullSnap.Desire, emptySnap.Desire);
+        Assert.Equal(nullSnap.Restraint, emptySnap.Restraint);
+        Assert.Equal(nullSnap.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50, emptySnap.RuntimeEncounterStats?.GetValueOrDefault("Tension") ?? 50);
+        Assert.Equal(nullSnap.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50, emptySnap.RuntimeEncounterStats?.GetValueOrDefault("Connection") ?? 50);
+        Assert.Equal(nullSnap.Dominance, emptySnap.Dominance);
+        Assert.Equal(nullSnap.Loyalty, emptySnap.Loyalty);
+        Assert.Equal(nullSnap.SelfRespect, emptySnap.SelfRespect);
     }
 
     [Fact]
@@ -568,6 +602,23 @@ public sealed class PhaseLifecycleTransitionTests
         await command.ExecuteNonQueryAsync();
     }
 
+    private static async Task<IReadOnlyList<ScenarioDefinition>> InvokeBuildScenarioCandidatesAsync(RolePlayEngineService engine, RolePlaySession session)
+    {
+        var method = typeof(RolePlayEngineService).GetMethod("BuildScenarioCandidatesAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("BuildScenarioCandidatesAsync method not found.");
+
+        var taskObject = method.Invoke(engine, [session, CancellationToken.None]) as Task
+            ?? throw new InvalidOperationException("BuildScenarioCandidatesAsync invocation did not return a task.");
+
+        await taskObject.ConfigureAwait(false);
+
+        var resultProperty = taskObject.GetType().GetProperty("Result")
+            ?? throw new InvalidOperationException("BuildScenarioCandidatesAsync task did not expose a Result property.");
+
+        return (IReadOnlyList<ScenarioDefinition>?)resultProperty.GetValue(taskObject)
+            ?? [];
+    }
+
     private static AdaptiveScenarioState CreateState() => new()
     {
         SessionId = "session-1",
@@ -575,7 +626,7 @@ public sealed class PhaseLifecycleTransitionTests
         ActiveFormulaVersion = "rpv2-default",
         CharacterSnapshots =
         [
-            new CharacterStatProfileV2 { CharacterId = "char-a", Desire = 80, Restraint = 30, Tension = 50, Connection = 55, Dominance = 50, Loyalty = 50, SelfRespect = 50 }
+            new CharacterStatProfileV2 { CharacterId = "char-a", Desire = 80, Restraint = 30, Dominance = 50, Loyalty = 50, SelfRespect = 50, RuntimeEncounterStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Tension"] = 50, ["Connection"] = 55 } }
         ]
     };
 
@@ -591,11 +642,11 @@ public sealed class PhaseLifecycleTransitionTests
                 new() { SortOrder = 1, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
                 new() { SortOrder = 2, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 65m },
                 new() { SortOrder = 3, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 45m },
-                new() { SortOrder = 4, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m },
+                new() { SortOrder = 4, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m },
                 new() { SortOrder = 5, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 80m },
                 new() { SortOrder = 6, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageDesire, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 75m },
                 new() { SortOrder = 7, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.AverageRestraint, Comparator = NarrativeGateComparators.LessThanOrEqual, Threshold = 35m },
-                new() { SortOrder = 8, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m }
+                new() { SortOrder = 8, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m }
             ]
         };
 

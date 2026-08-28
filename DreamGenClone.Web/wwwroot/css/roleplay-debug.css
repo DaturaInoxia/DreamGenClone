@@ -1,7 +1,14 @@
+/* Strip article padding so the debug shell fills the viewport */
+article:has(.rpd-shell) {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
 .rpd-shell {
-    height: calc(100vh - 56px);
+    height: 100vh;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
     background: #0d1213;
     color: #dde5e7;
 }
@@ -41,12 +48,23 @@
 }
 
 .rpd-filters {
-    display: grid;
-    grid-template-columns: 1fr 210px 220px;
+    display: flex;
+    flex-direction: row;
     gap: 10px;
     padding: 10px 14px;
     border-bottom: 1px solid #1e2b2f;
     background: #101719;
+    flex-shrink: 0;
+}
+
+.rpd-filters .rpd-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.rpd-filters .rpd-select {
+    flex-shrink: 0;
+    width: auto;
 }
 
 .rpd-input,
@@ -61,11 +79,24 @@
 .rpd-grid {
     flex: 1;
     min-height: 0;
-    display: grid;
-    grid-template-columns: 440px 1fr;
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+}
+
+.rpd-full {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .rpd-list {
+    width: 320px;
+    flex-shrink: 0;
     border-right: 1px solid #1f2d31;
     overflow: auto;
     padding: 8px;
@@ -109,6 +140,8 @@
 }
 
 .rpd-details {
+    flex: 1;
+    min-width: 0;
     overflow: auto;
     padding: 12px;
     display: flex;
@@ -199,16 +232,17 @@
     color: #b6c7cc;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 700px) {
     .rpd-filters {
-        grid-template-columns: 1fr;
+        flex-wrap: wrap;
     }
 
     .rpd-grid {
-        grid-template-columns: 1fr;
+        flex-direction: column;
     }
 
     .rpd-list {
+        width: 100%;
         max-height: 280px;
         border-right: 0;
         border-bottom: 1px solid #1f2d31;

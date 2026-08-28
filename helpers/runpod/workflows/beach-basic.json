@@ -1,0 +1,66 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "ponyDiffusionV6XL_v6.safetensors"
+    }
+  },
+  "10": {
+    "class_type": "CLIPSetLastLayer",
+    "inputs": {
+      "stop_at_clip_layer": -2,
+      "clip": ["4", 1]
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "score_9, score_8_up, score_7_up, rating_safe, beach, lakeside beach, sandy shore near calm lake water, a man and a woman relaxing on two beach towels side by side near the water, man sitting on a striped towel leaning back on his elbows wearing casual shorts, woman lying on a neighboring towel wearing a yellow sundress, striped beach umbrella, cooler, other people in the background, a family resting under a striped umbrella, two older men sitting in folding chairs, a couple standing near a wooden dock, two kayaks drifting on the calm lake, late morning, bright golden sunlight, photorealistic, candid photo, natural",
+      "clip": ["10", 0]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "blurry, low quality, ugly, deformed, extra limbs, bad anatomy, malformed hands, watermark, text, frame, nudity, naked, nude, extra people in foreground, crowd",
+      "clip": ["10", 0]
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 24680,
+      "steps": 25,
+      "cfg": 7.0,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["4", 2]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "dreamgen_beach_basic",
+      "images": ["8", 0]
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "juggernaut-nsfw-reverse-cowgirl-test",
+  "title": "reverse cowgirl",
+  "actors": "1M1F",
+  "closeup": false,
+  "neutralScene": "Two naked adults: the man lying on his back on the bed, the woman straddling him facing away in reverse cowgirl, his erect penis deep inside her vagina as she rides; medium shot, correct anatomy, natural bodies and skin texture, soft warm light, sharp focus.",
+  "negative": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+  "variants": {
+    "sdxl-juggernaut": "Photorealistic explicit sex scene, one adult man lying on his back on a bed and one adult woman straddling him on top facing away from him in reverse cowgirl position, medium shot, the man's erect penis visibly deep inside the woman's vagina as she rides him, correct penis and vagina anatomy, both fully nude, natural realistic body proportions, natural skin texture, soft warm bedroom lighting, 35mm lens, sharp focus, highly detailed",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl and 1boy, 2people, reverse cowgirl, woman on top facing away, riding, vaginal penetration, penis in vagina, nude, medium shot, correct anatomy, soft lighting, sharp focus",
+    "qwen-edit": "Reposition the woman to straddle the man facing away in reverse cowgirl, his erect penis deep inside her. Keep both people's faces, hair, identity, bodies, skin, and lighting exactly unchanged."
+  },
+  "settings": {
+    "seed": 20241,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  },
+  "source": {
+    "suite": "juggernaut",
+    "workflow": "juggernaut/prompts/juggernaut-nsfw-reverse-cowgirl-test.json"
+  }
+}

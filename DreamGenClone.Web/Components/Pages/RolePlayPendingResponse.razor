@@ -9,15 +9,24 @@
         <span class="rw-spinner rw-spinner-pending"></span>
     </div>
     <div class="rw-interaction-body">
-        <div class="rw-actor-name">Generating</div>
-        <div class="rw-pending-response-text">@(string.IsNullOrWhiteSpace(_text) ? Label : _text)</div>
+        <div class="rw-actor-name">@(_actorName ?? "Generating")</div>
+        <div class="rw-pending-response-text">@(string.IsNullOrWhiteSpace(_text) ? _label : _text)</div>
     </div>
 </div>
 
 @code {
     [Parameter] public string Label { get; set; } = string.Empty;
 
+    private string _label = string.Empty;
     private string _text = string.Empty;
+    private string? _actorName;
+
+    protected override void OnParametersSet()
+    {
+        // Keep the internal label in sync with the parent-supplied parameter so the
+        // initial/static label still renders. SetLabel overrides it per actor (B-087).
+        _label = Label;
+    }
 
     /// <summary>
     /// Update the streaming text and trigger a render of THIS component only.
@@ -30,9 +39,31 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
+    /// <summary>
+    /// Update the pending label shown in the bubble body (B-087 per-actor progress, e.g.
+    /// "Generating Becky (1 of 2)..." or "Waiting for narrative continuation...").
+    /// Child-only render — no parent re-render required.
+    /// </summary>
+    public void SetLabel(string label)
+    {
+        _label = label ?? string.Empty;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// Update the actor name shown in the pending bubble header (B-087 per-actor label).
+    /// Fire-and-forget render of this component only.
+    /// </summary>
+    public void SetActorName(string? actorName)
+    {
+        _actorName = actorName;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
     /// <summary>Reset text between streaming sessions.</summary>
     public void Clear()
     {
         _text = string.Empty;
+        _actorName = null;
     }
 }

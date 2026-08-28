@@ -1,4 +1,6 @@
 using System.Text.Json;
+using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Web.Domain.RolePlay;
@@ -18,11 +20,16 @@ public sealed class SessionService : ISessionService
 
     private readonly string _connectionString;
     private readonly ILogger<SessionService> _logger;
+    private readonly IRolePlayStateRepository? _rpStateRepository;
 
-    public SessionService(IOptions<PersistenceOptions> options, ILogger<SessionService> logger)
+    public SessionService(
+        IOptions<PersistenceOptions> options,
+        ILogger<SessionService> logger,
+        IRolePlayStateRepository? rpStateRepository = null)
     {
         _connectionString = options.Value.ConnectionString;
         _logger = logger;
+        _rpStateRepository = rpStateRepository;
     }
 
     public Task SaveStorySessionAsync(StorySession session, CancellationToken cancellationToken = default)
@@ -32,7 +39,25 @@ public sealed class SessionService : ISessionService
 
     public Task SaveRolePlaySessionAsync(RolePlaySession session, CancellationToken cancellationToken = default)
     {
-        return SaveAsync(session.Id, RolePlaySessionType, session.Title, JsonSerializer.Serialize(session, JsonOptions), cancellationToken);
+        // AdaptiveState is [JsonIgnore] — it lives exclusively in V2 tables and is
+        // not serialized into the session blob. CharacterSnapshots sync is handled
+        // by IRolePlayStateRepository.SaveAdaptiveStateAsync.
+        var payloadJson = JsonSerializer.Serialize(session, JsonOptions);
+        return SaveRolePlayAsync(
+            session.Id,
+            session.Title,
+            payloadJson,
+            null,
+            session.MaxMilestonesToInject,
+            session.MaxArcCompletionsToInject,
+            session.MaxEncounterCompletionsToInject,
+            session.MaxPromptChars,
+            session.ContextWindowTurns,
+            session.ScenarioCompressionTurnThreshold,
+            session.HistoryFullDetailTurnBand,
+            session.HistoryNarrativeOnlyTurnBand,
+            session.SessionMemoryLongTermTurnThreshold,
+            cancellationToken);
     }
 
     public async Task<StorySession?> LoadStorySessionAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -55,6 +80,18 @@ public sealed class SessionService : ISessionService
         }
 
         var session = JsonSerializer.Deserialize<RolePlaySession>(row.PayloadJson, JsonOptions);
+
+        // AdaptiveState is [JsonIgnore] — load from the authoritative V2 tables.
+        // The V2 store is the single source of truth for adaptive state.
+        if (session is not null && _rpStateRepository is not null)
+        {
+            var v2State = await _rpStateRepository.LoadAdaptiveStateAsync(session.Id, cancellationToken);
+            if (v2State is not null)
+            {
+                session.AdaptiveState = v2State;
+            }
+        }
+
         NormalizeRolePlaySession(session);
         return session;
     }
@@ -192,13 +229,65 @@ public sealed class SessionService : ISessionService
         _logger.LogInformation(SessionLogEvents.PersistedSession, "Persisted session {SessionId} as {SessionType}", id, sessionType);
     }
 
+    private async Task SaveRolePlayAsync(string id, string name, string payloadJson, string? adaptiveStateJson, int? maxMilestonesToInject, int? maxArcCompletionsToInject, int? maxEncounterCompletionsToInject, int? maxPromptChars, int? contextWindowTurns, int? scenarioCompressionTurnThreshold, int? historyFullDetailTurnBand, int? historyNarrativeOnlyTurnBand, int? sessionMemoryLongTermTurnThreshold, CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = tx;
+            command.CommandText = """
+                INSERT INTO Sessions (Id, SessionType, Name, PayloadJson, AdaptiveStateJson, MaxMilestonesToInject, MaxArcCompletionsToInject, MaxEncounterCompletionsToInject, MaxPromptChars, ContextWindowTurns, ScenarioCompressionTurnThreshold, HistoryFullDetailTurnBand, HistoryNarrativeOnlyTurnBand, SessionMemoryLongTermTurnThreshold, UpdatedUtc)
+                VALUES ($id, $sessionType, $name, $payloadJson, $adaptiveStateJson, $maxMilestonesToInject, $maxArcCompletionsToInject, $maxEncounterCompletionsToInject, $maxPromptChars, $contextWindowTurns, $scenarioCompressionTurnThreshold, $historyFullDetailTurnBand, $historyNarrativeOnlyTurnBand, $sessionMemoryLongTermTurnThreshold, $updatedUtc)
+                ON CONFLICT(Id) DO UPDATE SET
+                    SessionType = excluded.SessionType,
+                    Name = excluded.Name,
+                    PayloadJson = excluded.PayloadJson,
+                    AdaptiveStateJson = excluded.AdaptiveStateJson,
+                    MaxMilestonesToInject = excluded.MaxMilestonesToInject,
+                    MaxArcCompletionsToInject = excluded.MaxArcCompletionsToInject,
+                    MaxEncounterCompletionsToInject = excluded.MaxEncounterCompletionsToInject,
+                    MaxPromptChars = excluded.MaxPromptChars,
+                    ContextWindowTurns = excluded.ContextWindowTurns,
+                    ScenarioCompressionTurnThreshold = excluded.ScenarioCompressionTurnThreshold,
+                    HistoryFullDetailTurnBand = excluded.HistoryFullDetailTurnBand,
+                    HistoryNarrativeOnlyTurnBand = excluded.HistoryNarrativeOnlyTurnBand,
+                    SessionMemoryLongTermTurnThreshold = excluded.SessionMemoryLongTermTurnThreshold,
+                    UpdatedUtc = excluded.UpdatedUtc;
+                """;
+
+            command.Parameters.AddWithValue("$id", id);
+            command.Parameters.AddWithValue("$sessionType", RolePlaySessionType);
+            command.Parameters.AddWithValue("$name", string.IsNullOrWhiteSpace(name) ? "Untitled Session" : name.Trim());
+            command.Parameters.AddWithValue("$payloadJson", payloadJson);
+            command.Parameters.AddWithValue("$adaptiveStateJson", (object?)adaptiveStateJson ?? DBNull.Value);
+            command.Parameters.AddWithValue("$maxMilestonesToInject", (object?)maxMilestonesToInject ?? DBNull.Value);
+            command.Parameters.AddWithValue("$maxArcCompletionsToInject", (object?)maxArcCompletionsToInject ?? DBNull.Value);
+            command.Parameters.AddWithValue("$maxEncounterCompletionsToInject", (object?)maxEncounterCompletionsToInject ?? DBNull.Value);
+            command.Parameters.AddWithValue("$maxPromptChars", (object?)maxPromptChars ?? DBNull.Value);
+            command.Parameters.AddWithValue("$contextWindowTurns", (object?)contextWindowTurns ?? DBNull.Value);
+            command.Parameters.AddWithValue("$scenarioCompressionTurnThreshold", (object?)scenarioCompressionTurnThreshold ?? DBNull.Value);
+            command.Parameters.AddWithValue("$historyFullDetailTurnBand", (object?)historyFullDetailTurnBand ?? DBNull.Value);
+            command.Parameters.AddWithValue("$historyNarrativeOnlyTurnBand", (object?)historyNarrativeOnlyTurnBand ?? DBNull.Value);
+            command.Parameters.AddWithValue("$sessionMemoryLongTermTurnThreshold", (object?)sessionMemoryLongTermTurnThreshold ?? DBNull.Value);
+            command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await tx.CommitAsync(cancellationToken);
+        _logger.LogInformation(SessionLogEvents.PersistedSession, "Persisted session {SessionId} as {SessionType}", id, RolePlaySessionType);
+    }
+
     private async Task<SessionRow?> LoadRowAsync(string sessionId, CancellationToken cancellationToken)
     {
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, SessionType, Name, PayloadJson, UpdatedUtc FROM Sessions WHERE Id = $id;";
+        command.CommandText = "SELECT Id, SessionType, Name, PayloadJson, AdaptiveStateJson, UpdatedUtc FROM Sessions WHERE Id = $id;";
         command.Parameters.AddWithValue("$id", sessionId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -212,10 +301,11 @@ public sealed class SessionService : ISessionService
             reader.GetString(1),
             reader.GetString(2),
             reader.GetString(3),
-            DateTime.Parse(reader.GetString(4)));
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            DateTime.Parse(reader.GetString(5)));
     }
 
-    private sealed record SessionRow(string Id, string SessionType, string Name, string PayloadJson, DateTime UpdatedUtc);
+    private sealed record SessionRow(string Id, string SessionType, string Name, string PayloadJson, string? AdaptiveStateJson, DateTime UpdatedUtc);
 
     private static void NormalizeRolePlaySession(RolePlaySession? session)
     {
@@ -224,19 +314,20 @@ public sealed class SessionService : ISessionService
             return;
         }
 
-        session.AdaptiveState ??= new RolePlayAdaptiveState();
-        session.AdaptiveState.ThemeTracker ??= new ThemeTrackerState();
-        session.AdaptiveState.ThemeTracker.Themes ??= new Dictionary<string, ThemeTrackerItem>(StringComparer.OrdinalIgnoreCase);
-        session.AdaptiveState.ThemeTracker.RecentEvidence ??= [];
-        session.AdaptiveState.CharacterStats ??= new Dictionary<string, CharacterStatBlock>(StringComparer.OrdinalIgnoreCase);
-        session.AdaptiveState.PairwiseStats ??= new Dictionary<string, PairwiseStatBlock>(StringComparer.OrdinalIgnoreCase);
-        session.AdaptiveState.ScenarioHistory ??= [];
+        session.AdaptiveState ??= new AdaptiveScenarioState();
+
+        // SessionId in AdaptiveScenarioState is the foreign-key used by SaveAdaptiveStateAsync.
+        // It is not set in old PayloadJson blobs; always stamp it from the authoritative session Id.
+        if (string.IsNullOrWhiteSpace(session.AdaptiveState.SessionId))
+        {
+            session.AdaptiveState.SessionId = session.Id;
+        }
 
         session.AdaptiveState.CompletedScenarios = Math.Max(
             session.AdaptiveState.CompletedScenarios,
             session.AdaptiveState.ScenarioHistory.Count);
-        session.AdaptiveState.InteractionsSinceCommitment = Math.Max(0, session.AdaptiveState.InteractionsSinceCommitment);
-        session.AdaptiveState.InteractionsInApproaching = Math.Max(0, session.AdaptiveState.InteractionsInApproaching);
+        session.AdaptiveState.TurnsSinceCommitment = Math.Max(0, session.AdaptiveState.TurnsSinceCommitment);
+        session.AdaptiveState.TurnsInApproaching = Math.Max(0, session.AdaptiveState.TurnsInApproaching);
 
         if (string.IsNullOrWhiteSpace(session.AdaptiveIntensityProfileId)
             && !string.IsNullOrWhiteSpace(session.SelectedIntensityProfileId))
@@ -244,31 +335,8 @@ public sealed class SessionService : ISessionService
             session.AdaptiveIntensityProfileId = session.SelectedIntensityProfileId;
         }
 
-        if (string.IsNullOrWhiteSpace(session.AdaptiveState.ActiveScenarioId))
-        {
-            var repairedScenarioId = ResolveScenarioIdFromThemeTracker(session.AdaptiveState.ThemeTracker);
-            if (!string.IsNullOrWhiteSpace(repairedScenarioId))
-            {
-                session.AdaptiveState.ActiveScenarioId = repairedScenarioId;
-            }
-        }
-    }
-
-
-    private static string? ResolveScenarioIdFromThemeTracker(ThemeTrackerState tracker)
-    {
-        if (!string.IsNullOrWhiteSpace(tracker.PrimaryThemeId)
-            && tracker.Themes.TryGetValue(tracker.PrimaryThemeId, out var primaryTheme)
-            && !primaryTheme.Blocked)
-        {
-            return primaryTheme.ThemeId;
-        }
-
-        return tracker.Themes.Values
-            .Where(x => !x.Blocked)
-            .OrderByDescending(x => x.Score)
-            .ThenBy(x => x.ThemeId, StringComparer.OrdinalIgnoreCase)
-            .Select(x => x.ThemeId)
-            .FirstOrDefault();
+        // V2 tables are the single source of truth for adaptive state.
+        // No repair logic needed — ActiveScenarioId, ThemeSelectionRule, and
+        // CurrentPhase are loaded directly from RolePlayV2AdaptiveStates.
     }
 }

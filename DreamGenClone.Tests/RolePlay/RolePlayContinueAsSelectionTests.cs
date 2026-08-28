@@ -1,12 +1,15 @@
 using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Domain.Scenarios;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 using Xunit;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -65,7 +68,7 @@ public sealed class RolePlayContinueAsSelectionTests
         var service = RolePlayTestFactory.CreateEngineService(
             scenarioService: new SingleScenarioService(scenario));
 
-        var session = await service.CreateSessionAsync("Overflow persona continue", scenario.Id, personaName: "Pilot");
+        var session = await service.CreateSessionAsync("Overflow persona continue", scenario.Id);
         await service.AddInteractionAsync(session.Id, ContinueAsActor.Npc, "Becky", "Becky spoke last.");
 
         var result = await service.ContinueAsAsync(new ContinueAsRequest
@@ -127,6 +130,162 @@ public sealed class RolePlayContinueAsSelectionTests
         Assert.Contains("all candidates were blocked", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task OverflowContinue_HusbandNotExcludedByDefault()
+    {
+        // After removing ScoreRoleHusband=-5000, the Husband role should
+        // no longer be effectively excluded from overflow continue.
+        var scenario = new Scenario
+        {
+            Id = "scenario-husband",
+            Name = "Husband Test",
+            Characters =
+            [
+                new Character { Id = "c1", Name = "Becky", Role = "Wife" },
+                new Character { Id = "c2", Name = "Ken", Role = "Husband" },
+                new Character { Id = "c3", Name = "Dean", Role = "OtherMan" }
+            ]
+        };
+
+        var service = RolePlayTestFactory.CreateEngineService(
+            scenarioService: new SingleScenarioService(scenario));
+
+        var session = await service.CreateSessionAsync("Husband test", scenario.Id);
+        // Advance past the opening period so all characters are eligible
+        for (int i = 0; i < 6; i++)
+        {
+            await service.AddInteractionAsync(session.Id, ContinueAsActor.Npc, "Becky", $"Turn {i} content.");
+        }
+
+        // Perform overflow continue — Ken (Husband) should now be a candidate
+        var result = await service.ContinueAsAsync(new ContinueAsRequest
+        {
+            SessionId = session.Id,
+            TriggeredBy = SubmissionSource.MainOverflowContinue
+        });
+
+        Assert.True(result.Success);
+        // With the old -5000 penalty, Ken would almost never appear.
+        // Now he should be among the participants at least occasionally.
+        // Since the test uses the fallback path (no actor selection service),
+        // we verify there's at least one participant — the engine doesn't crash.
+        Assert.NotEmpty(result.ParticipantOutputs);
+    }
+
+    [Fact]
+    public async Task PreferredPositionOverrideChance_DefaultsTo015_OnNewSession()
+    {
+        var service = RolePlayTestFactory.CreateEngineService();
+        var session = await service.CreateSessionAsync("Override chance default");
+
+        // Default should be 0.15 as specified in RolePlaySession
+        Assert.Equal(0.15, session.PreferredPositionOverrideChance, precision: 3);
+    }
+
+    [Fact]
+    public async Task ParticipateInAutoContinue_False_ExcludesCharacter()
+    {
+        var scenario = new Scenario
+        {
+            Id = "scenario-participate",
+            Name = "Participate Test",
+            Characters =
+            [
+                new Character { Id = "c1", Name = "Becky", Role = "Wife" },
+                new Character { Id = "c2", Name = "Ken", Role = "Husband" },
+                new Character { Id = "c3", Name = "Dean", Role = "OtherMan" }
+            ]
+        };
+
+        var service = RolePlayTestFactory.CreateEngineService(
+            scenarioService: new SingleScenarioService(scenario));
+
+        var session = await service.CreateSessionAsync("Participate test", scenario.Id);
+
+        // Set Ken to not participate in auto-continue
+        session.CharacterTurnOverrides["Ken"] = new CharacterTurnOverride
+        {
+            CharacterName = "Ken",
+            ParticipateInAutoContinue = false,
+            ResponsePriority = null,
+            PreferredPosition = PreferredTurnPosition.Auto
+        };
+
+        // Advance past opening period
+        for (int i = 0; i < 6; i++)
+        {
+            await service.AddInteractionAsync(session.Id, ContinueAsActor.Npc, "Becky", $"Turn {i} content.");
+        }
+
+        // Perform overflow continue — Ken should be excluded from candidates
+        var result = await service.ContinueAsAsync(new ContinueAsRequest
+        {
+            SessionId = session.Id,
+            TriggeredBy = SubmissionSource.MainOverflowContinue
+        });
+
+        Assert.True(result.Success);
+        // Ken should not appear in the participant outputs due to ParticipateInAutoContinue=false
+        Assert.DoesNotContain(result.ParticipantOutputs, x =>
+            string.Equals(x.ActorName, "Ken", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Session_PreferredPositionOverrideChance_DefaultsTo015()
+    {
+        var session = new RolePlaySession();
+        Assert.Equal(0.15, session.PreferredPositionOverrideChance, precision: 3);
+    }
+
+    [Fact]
+    public async Task EvaluateCandidatesAsync_ChangesLeader_WhenNarrativeEvidenceSnapshotChanges()
+    {
+        var service = CreateScenarioSelectionService();
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "session-ordering",
+            ActiveScenarioId = "scenario-a"
+        };
+
+        var firstPass = await service.EvaluateCandidatesAsync(
+            state,
+            [
+                new ScenarioDefinition("scenario-a", "Scenario A", Priority: 5, NarrativeEvidenceScore: 0.8m, PreferencePriorityScore: 0.5m),
+                new ScenarioDefinition("scenario-b", "Scenario B", Priority: 4, NarrativeEvidenceScore: 0.2m, PreferencePriorityScore: 0.5m)
+            ]);
+
+        var secondPass = await service.EvaluateCandidatesAsync(
+            state,
+            [
+                new ScenarioDefinition("scenario-a", "Scenario A", Priority: 5, NarrativeEvidenceScore: 0.2m, PreferencePriorityScore: 0.5m),
+                new ScenarioDefinition("scenario-b", "Scenario B", Priority: 4, NarrativeEvidenceScore: 0.8m, PreferencePriorityScore: 0.5m)
+            ]);
+
+        Assert.Equal("scenario-a", firstPass[0].ScenarioId);
+        Assert.Equal("scenario-b", secondPass[0].ScenarioId);
+    }
+
+    [Fact]
+    public async Task EvaluateCandidatesAsync_IncreasesFitScore_WhenNarrativeEvidenceSnapshotIncreases()
+    {
+        var service = CreateScenarioSelectionService();
+        var state = new AdaptiveScenarioState
+        {
+            SessionId = "session-fit",
+            ActiveScenarioId = "scenario-a"
+        };
+
+        var lowEvidenceResult = await service.EvaluateCandidatesAsync(
+            state,
+            [new ScenarioDefinition("scenario-a", "Scenario A", Priority: 5, NarrativeEvidenceScore: 0.2m, PreferencePriorityScore: 0.5m)]);
+
+        var highEvidenceResult = await service.EvaluateCandidatesAsync(
+            state,
+            [new ScenarioDefinition("scenario-a", "Scenario A", Priority: 5, NarrativeEvidenceScore: 0.8m, PreferencePriorityScore: 0.5m)]);
+
+        Assert.True(highEvidenceResult[0].FitScore > lowEvidenceResult[0].FitScore);
+    }
+
     private static ScenarioSelectionService CreateScenarioSelectionService()
     {
         var options = Options.Create(new StoryAnalysisOptions
@@ -178,5 +337,16 @@ public sealed class RolePlayContinueAsSelectionTests
         public Task<bool> DeleteScenarioAsync(string id) => Task.FromResult(false);
 
         public Task<Scenario> CloneScenarioAsync(string id, string newName) => throw new NotImplementedException();
+    }
+
+    private sealed class RecordingDebugEventSink : IRolePlayDebugEventSink
+    {
+        public List<RolePlayDebugEventRecord> Records { get; } = [];
+
+        public Task WriteAsync(RolePlayDebugEventRecord record, CancellationToken cancellationToken = default)
+        {
+            Records.Add(record);
+            return Task.CompletedTask;
+        }
     }
 }

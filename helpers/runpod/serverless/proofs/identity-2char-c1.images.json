@@ -1,0 +1,18 @@
+[
+  {
+    "name": "dean_face.png",
+    "path": "specs/image-generator-tests/identity-two-character/refs/dean_face.png"
+  },
+  {
+    "name": "becky_face.jpg",
+    "path": "specs/image-generator-tests/identity-two-character/refs/becky_face.jpg"
+  },
+  {
+    "name": "c1_left.png",
+    "path": "specs/image-generator-tests/identity-two-character/masks/c1_left.png"
+  },
+  {
+    "name": "c1_right.png",
+    "path": "specs/image-generator-tests/identity-two-character/masks/c1_right.png"
+  }
+]

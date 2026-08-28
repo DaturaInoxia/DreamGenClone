@@ -1,0 +1,27 @@
+{
+  "id": "juggernaut-nsfw-orgy-four-way-closeup-test",
+  "title": "orgy four way closeup",
+  "actors": "2F2M",
+  "closeup": true,
+  "neutralScene": "Four naked adults; close-up of a group orgy's central action: a man's erect penis entering a woman's vagina while another man's erect penis enters her anus and a second woman performs fellatio; clear penetration, correct anatomy, natural skin texture, soft warm light, sharp focus.",
+  "negative": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, fused bodies, merged bodies, extra people, misplaced genitals, penis on arm, penis on hand, detached penis, extra penis, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+  "variants": {
+    "sdxl-juggernaut": "Photorealistic explicit close-up of a group orgy, two adult men and two adult women on a bed, close-up of the central action, a man's erect penis visibly entering a woman's vagina while another man's erect penis visibly enters her anus and a second woman performs fellatio, clear penetration, correct penis and vagina and anus anatomy, natural realistic body proportions, natural skin texture, soft warm bedroom lighting, 35mm macro lens, sharp focus, highly detailed",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 2girls and 2boys, 4people, orgy, group sex, close-up, double penetration, fellatio, anal and vaginal penetration, penis in mouth, nude, correct anatomy, soft lighting, sharp focus",
+    "qwen-edit": "Zoom to a close-up of the orgy's central action. Keep all people's identity, skin, and lighting exactly unchanged."
+  },
+  "settings": {
+    "seed": 20323,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  },
+  "source": {
+    "suite": "juggernaut",
+    "workflow": "juggernaut/prompts/juggernaut-nsfw-orgy-four-way-closeup-test.json"
+  }
+}

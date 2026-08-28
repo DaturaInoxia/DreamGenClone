@@ -45,6 +45,121 @@
                     </label>
                 </div>
             </div>
+            <div class="col-md-4">
+                <label class="form-label">Thinking Control</label>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" @bind="_supportsThinkingControl" id="details-thinking-control" />
+                    <label class="form-check-label" for="details-thinking-control">Supported by chat template</label>
+                </div>
+                <div class="form-text">Enable only when the provider supports chat_template_kwargs.thinking.</div>
+            </div>
+            <div class="col-12"><hr class="my-1" /><strong>Multimodal Input Contract</strong></div>
+            <div class="col-md-3">
+                <label class="form-label">Image Input</label>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" @bind="Model.SupportsImageInput" id="details-image-input" />
+                    <label class="form-check-label" for="details-image-input">Accepts source images</label>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Max Images</label>
+                <input type="number" class="form-control" @bind="Model.MaximumInputImages" min="1" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Max Image Bytes</label>
+                <input type="number" class="form-control" @bind="Model.MaximumInputImageBytes" min="1" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Max Response Bytes</label>
+                <input type="number" class="form-control" @bind="Model.MaximumResponseBytes" min="1" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Max Image Pixels</label>
+                <input type="number" class="form-control" @bind="Model.MaximumInputImagePixels" min="1" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Max Image Dimension</label>
+                <input type="number" class="form-control" @bind="Model.MaximumInputImageDimension" min="1" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Accepted Media Types</label>
+                <input type="text" class="form-control" @bind="Model.AcceptedInputMediaTypes" placeholder="image/png,image/jpeg,image/webp" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Runtime Revision</label>
+                <input type="text" class="form-control" @bind="Model.RuntimeRevision" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Artifact Revision</label>
+                <input type="text" class="form-control" @bind="Model.ArtifactRevision" />
+            </div>
+            @if (Model.ModelKind == ModelKind.Image)
+            {
+                <div class="col-12"><hr class="my-1" /><strong>Qwen Source-Image Editor Settings</strong></div>
+                <div class="col-md-4">
+                    <label class="form-label">Diffusion Model</label>
+                    <input type="text" class="form-control" @bind="Model.ImageEditorDiffusionModel" placeholder="qwen_image_edit_2511_fp8mixed.safetensors" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Text Encoder</label>
+                    <input type="text" class="form-control" @bind="Model.ImageEditorTextEncoder" placeholder="qwen_2.5_vl_7b_fp8_scaled.safetensors" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">VAE</label>
+                    <input type="text" class="form-control" @bind="Model.ImageEditorVae" placeholder="qwen_image_vae.safetensors" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Steps</label>
+                    <input type="number" class="form-control" @bind="Model.ImageEditorSteps" min="1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">CFG</label>
+                    <input type="number" class="form-control" @bind="Model.ImageEditorCfg" min="0" step="0.1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Sampler</label>
+                    <input type="text" class="form-control" @bind="Model.ImageEditorSampler" placeholder="euler" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Scheduler</label>
+                    <input type="text" class="form-control" @bind="Model.ImageEditorScheduler" placeholder="simple" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Denoise</label>
+                    <input type="number" class="form-control" @bind="Model.ImageEditorDenoise" min="0" step="0.1" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">AuraFlow Shift</label>
+                    <input type="number" class="form-control" @bind="Model.ImageEditorAuraFlowShift" min="0" step="0.1" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">CFGNorm Strength</label>
+                    <input type="number" class="form-control" @bind="Model.ImageEditorCfgNormStrength" min="0" step="0.1" />
+                </div>
+                <div class="col-12"><div class="form-text">These values are used only when this model is assigned to RP Scene Image Editor. Missing values fail explicitly when an edit is requested.</div></div>
+                <div class="col-12"><hr class="my-1" /><strong>Character Identity Conditioning</strong></div>
+                <div class="col-md-3">
+                    <label class="form-label">Mechanism</label>
+                    <select class="form-select" @bind="Model.IdentityMechanism">
+                        <option value="">Not configured</option>
+                        <option value="IpAdapter">IP-Adapter</option>
+                        <option value="PuLid">PuLID</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Strength</label>
+                    <input type="number" class="form-control" @bind="Model.IdentityStrength" min="0" step="0.05" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Adapter Ref</label>
+                    <input type="text" class="form-control" @bind="Model.IdentityAdapterRef" placeholder="PLUS FACE (portraits)" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Clip Vision Ref (optional)</label>
+                    <input type="text" class="form-control" @bind="Model.IdentityClipVisionRef" />
+                </div>
+                <div class="col-12"><div class="form-text">Used for identity-controlled scene rendering (IP-Adapter or PuLID face conditioning). Missing or invalid values fail explicitly when an identity render is requested.</div></div>
+            }
             <div class="col-12">
                 <label class="form-label">Notes</label>
                 <textarea class="form-control" rows="2" @bind="_notes" maxlength="1000"
@@ -266,6 +381,7 @@
     private string _modelIdentifier = "";
     private string _displayName = "";
     private bool _isEnabled;
+    private bool _supportsThinkingControl;
     private int _contextWindowSize;
     private string _parameterCount = "";
     private string _quantization = "";
@@ -288,6 +404,7 @@
         _modelIdentifier = Model.ModelIdentifier;
         _displayName = Model.DisplayName;
         _isEnabled = Model.IsEnabled;
+        _supportsThinkingControl = Model.SupportsThinkingControl;
         _contextWindowSize = Model.ContextWindowSize;
         _parameterCount = Model.ParameterCount;
         _quantization = Model.Quantization;
@@ -308,6 +425,11 @@
             _formError = "Display name is required.";
             return;
         }
+        if (!ValidateMultimodalModel(Model, out var multimodalError))
+        {
+            _formError = multimodalError;
+            return;
+        }
 
         _isSaving = true;
         _formError = null;
@@ -316,6 +438,7 @@
             Model.ModelIdentifier = _modelIdentifier.Trim();
             Model.DisplayName = _displayName.Trim();
             Model.IsEnabled = _isEnabled;
+            Model.SupportsThinkingControl = _supportsThinkingControl;
             Model.ContextWindowSize = _contextWindowSize;
             Model.ParameterCount = _parameterCount.Trim();
             Model.Quantization = _quantization.Trim();
@@ -351,6 +474,7 @@
             Model.ModelIdentifier = _modelIdentifier.Trim();
             Model.DisplayName = _displayName.Trim();
             Model.IsEnabled = _isEnabled;
+            Model.SupportsThinkingControl = _supportsThinkingControl;
             Model.ContextWindowSize = _contextWindowSize;
             Model.ParameterCount = _parameterCount.Trim();
             Model.Quantization = _quantization.Trim();
@@ -510,5 +634,28 @@
     {
         // "RolePlayGeneration" → "Role Play Generation"
         return System.Text.RegularExpressions.Regex.Replace(name, "(?<!^)([A-Z])", " $1");
+    }
+
+    private static bool ValidateMultimodalModel(RegisteredModel model, out string? error)
+    {
+        error = null;
+        if (!model.SupportsImageInput)
+            return true;
+        if (model.MaximumInputImages is null or <= 0
+            || model.MaximumInputImageBytes is null or <= 0
+            || model.MaximumInputImagePixels is null or <= 0
+            || model.MaximumInputImageDimension is null or <= 0
+            || model.MaximumResponseBytes is null or <= 0)
+        {
+            error = "Image-input models require positive image count, byte, pixel, dimension, and response byte limits.";
+            return false;
+        }
+        var mediaTypes = model.AcceptedInputMediaTypes?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
+        if (mediaTypes.Length == 0 || mediaTypes.Any(value => !value.StartsWith("image/", StringComparison.OrdinalIgnoreCase)))
+        {
+            error = "Image-input models require one or more comma-separated image/* media types.";
+            return false;
+        }
+        return true;
     }
 }

@@ -31,11 +31,11 @@ public sealed class StoryAnalysisOptions
 
     public int AdaptiveThemeAffinityStackLimit { get; set; } = 1;
 
-    public int AdaptiveEarlyTurnInteractionThreshold { get; set; } = 3;
+    public int AdaptiveEarlyTurnThreshold { get; set; } = 3;
 
     public int AdaptiveEarlyTurnPerStatDeltaCap { get; set; } = 2;
 
-    public int AdaptivePerInteractionTotalDeltaBudget { get; set; } = 10;
+    public int AdaptivePerTurnTotalDeltaBudget { get; set; } = 10;
 
     public int AdaptiveThemeAffinityCapBuildUp { get; set; } = 0;
 
@@ -52,6 +52,36 @@ public sealed class StoryAnalysisOptions
 
     // Per-interaction cap for suppressed evidence score gain.
     public double SuppressedEvidencePerTurnCap { get; set; } = 1.5;
+
+    // Per-interaction cap for semantic event evidence score gain per theme.
+    // Semantic event mappings have designed deltas of 5-22; this cap must exceed
+    // SuppressedEvidencePerTurnCap to allow structured LLM-guided signals to apply.
+    public double SemanticEvidencePerTurnCap { get; set; } = 25.0;
+
+    // Per-interaction cap on the net applied semantic stat delta per character per stat.
+    // Keyed by canonical stat name (Desire, Restraint, Loyalty, SelfRespect, Dominance).
+    // A stat present in this dictionary is capped at the configured magnitude per turn;
+    // the mapped deltas themselves are unchanged. A stat absent from the dictionary has
+    // no per-turn cap (only the final-band damping below applies).
+    public Dictionary<string, int> SemanticStatPerTurnCapByStat { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    // Per-interaction cap on the net drift applied to a behavioral dimension
+    // (RuntimeEncounterStats) per character per dimension. A dimension can be fed by
+    // multiple stats (e.g. BoundaryFirmness = Loyalty*0.75 + Restraint*0.90), so even with
+    // each stat capped at 2 a single dimension could move up to ~4 in one turn. This cap
+    // bounds the dimension drift itself. A dimension absent from the dictionary (or a value
+    // <= 0) has no per-turn cap (only the final-band damping below applies).
+    public Dictionary<string, int> SemanticBehavioralDimensionPerTurnCapByDimension { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    // Final-band damping: when a stat is being pushed toward 100 and its current value is
+    // above this threshold, the applied delta is scaled down linearly toward 0 as the value
+    // approaches 100 (making 100 asymptotically hard to reach).
+    public int SemanticStatFinalBandHighStart { get; set; } = 70;
+
+    // Final-band damping: when a stat is being pushed toward 0 and its current value is
+    // below this threshold, the applied delta is scaled down linearly toward 0 as the value
+    // approaches 0 (making 0 asymptotically hard to reach).
+    public int SemanticStatFinalBandLowStart { get; set; } = 30;
 
     // BuildUp scenario selection fit scoring strategy key.
     public string BuildUpSelectionFitScoreStrategy { get; set; } = "weighted-blend";
@@ -86,6 +116,15 @@ public sealed class StoryAnalysisOptions
     // Theme tracker score penalty applied to the just-completed scenario during reset.
     public int CompletedScenarioThemeScorePenalty { get; set; } = 10;
 
+    // Number of interactions the just-completed theme is suppressed from selection after reset.
+    // Default 10 prevents immediate re-selection during the Reset phase.
+    public int CompletedScenarioThemeCooldownTurns { get; set; } = 10;
+
+    // Flat FitScore point deduction applied to the just-completed theme after reset.
+    // Applied as a direct subtraction from the gate-adjusted FitScore (0–100 scale).
+    // Configurable. Default 20 points. Set to 0 to disable.
+    public decimal CompletedScenarioFitScorePenaltyPoints { get; set; } = 20m;
+
     // Per-cycle reduction in reset pull toward baseline for elevated stats.
     // Example: 0.10 means each completed cycle reduces reset pull by 10%.
     // Default 0 means no reduction (feature must be explicitly enabled via configuration).
@@ -113,5 +152,5 @@ public sealed class StoryAnalysisOptions
     public List<double> ResetDesireBaselinePullSchedule { get; set; } = [];
 
     // Minimum BuildUp interactions required before a scenario can be committed.
-    public int BuildUpMinInteractionsBeforeCommit { get; set; } = 2;
+    public int BuildUpMinTurnsBeforeCommit { get; set; } = 2;
 }

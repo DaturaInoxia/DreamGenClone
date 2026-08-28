@@ -21,6 +21,7 @@ public sealed class RPThemeCloneTests : IDisposable
     public async Task CloneThemeAsync_CopiesAllThemeData_WithIndependentChildIdentities()
     {
         var service = await CreateServiceAsync();
+        await service.SaveThemeAsync(BuildStubTheme("follow-up-theme", "Follow-up Theme"));
         var source = BuildSourceTheme("source-theme", "Source Theme");
         await service.SaveThemeAsync(source);
 
@@ -39,7 +40,13 @@ public sealed class RPThemeCloneTests : IDisposable
         Assert.Equal(source.GuidancePoints.Count, clone.GuidancePoints.Count);
         Assert.Equal(source.FitRules.Count, clone.FitRules.Count);
         Assert.Equal(source.AIGenerationNotes.Count, clone.AIGenerationNotes.Count);
+        Assert.Equal(source.SemanticEventMappings.Count, clone.SemanticEventMappings.Count);
+        Assert.Equal(source.SemanticStatMappings.Count, clone.SemanticStatMappings.Count);
         Assert.Equal(source.NarrativeGateRules.Count, clone.NarrativeGateRules.Count);
+        Assert.Equal(source.SuccessorThemeLinks.Count, clone.SuccessorThemeLinks.Count);
+        Assert.Equal(source.SuccessorThemeLinks[0].SuccessorThemeId, clone.SuccessorThemeLinks[0].SuccessorThemeId);
+        Assert.Equal(source.SuccessorThemeLinks[0].ScoreBoost, clone.SuccessorThemeLinks[0].ScoreBoost);
+        Assert.Equal(clone.Id, clone.SuccessorThemeLinks[0].SourceThemeId);
 
         Assert.NotEqual(source.Keywords[0].Id, clone.Keywords[0].Id);
         Assert.NotEqual(source.StatAffinities[0].Id, clone.StatAffinities[0].Id);
@@ -48,15 +55,20 @@ public sealed class RPThemeCloneTests : IDisposable
         Assert.NotEqual(source.FitRules[0].Id, clone.FitRules[0].Id);
         Assert.NotEqual(source.FitRules[0].Clauses[0].Id, clone.FitRules[0].Clauses[0].Id);
         Assert.NotEqual(source.AIGenerationNotes[0].Id, clone.AIGenerationNotes[0].Id);
+        Assert.NotEqual(source.SemanticEventMappings[0].Id, clone.SemanticEventMappings[0].Id);
+        Assert.NotEqual(source.SemanticStatMappings[0].Id, clone.SemanticStatMappings[0].Id);
         Assert.Equal(clone.Id, clone.Keywords[0].ThemeId);
         Assert.Equal(clone.Id, clone.FitRules[0].ThemeId);
         Assert.Equal(clone.FitRules[0].Id, clone.FitRules[0].Clauses[0].FitRuleId);
+        Assert.Equal(clone.Id, clone.SemanticEventMappings[0].ThemeId);
+        Assert.Equal(clone.Id, clone.SemanticStatMappings[0].ThemeId);
     }
 
     [Fact]
     public async Task CloneThemeAsync_DuplicateTargetId_Throws()
     {
         var service = await CreateServiceAsync();
+        await service.SaveThemeAsync(BuildStubTheme("follow-up-theme", "Follow-up Theme"));
         var source = BuildSourceTheme("source-theme", "Source Theme");
         await service.SaveThemeAsync(source);
         await service.SaveThemeAsync(BuildSourceTheme("existing-theme", "Existing Theme"));
@@ -71,6 +83,7 @@ public sealed class RPThemeCloneTests : IDisposable
     public async Task CloneThemeAsync_ChangesToClone_DoNotMutateSource()
     {
         var service = await CreateServiceAsync();
+        await service.SaveThemeAsync(BuildStubTheme("follow-up-theme", "Follow-up Theme"));
         var source = BuildSourceTheme("source-theme", "Source Theme");
         await service.SaveThemeAsync(source);
 
@@ -107,6 +120,24 @@ public sealed class RPThemeCloneTests : IDisposable
 
         return new RPThemeService(persistenceOptions, NullLogger<RPThemeService>.Instance);
     }
+
+    private static RPTheme BuildStubTheme(string id, string label) => new()
+    {
+        Id = id,
+        Label = label,
+        Description = "Stub theme for successor-link validation.",
+        Category = "Power",
+        Weight = 1,
+        IsEnabled = true,
+        NarrativeGateRules =
+        [
+            new NarrativeGateRule { SortOrder = 1, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
+            new NarrativeGateRule { SortOrder = 2, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
+            new NarrativeGateRule { SortOrder = 3, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 80m },
+            new NarrativeGateRule { SortOrder = 4, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m },
+            new NarrativeGateRule { SortOrder = 5, FromPhase = "Reset", ToPhase = "BuildUp", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m }
+        ]
+    };
 
     private static RPTheme BuildSourceTheme(string id, string label)
     {
@@ -156,13 +187,50 @@ public sealed class RPThemeCloneTests : IDisposable
             [
                 new RPThemeAIGuidanceNote { Section = RPThemeAIGuidanceSection.KeyScenarioElement, Text = "Keep it subtle.", SortOrder = 1 }
             ],
+            SemanticEventMappings =
+            [
+                new RPSemanticEventMapping
+                {
+                    EventId = "lie_to_husband",
+                    Direction = "increase",
+                    Delta = 4m,
+                    ConfidenceMin = 0m,
+                    ConfidenceMax = 1m,
+                    ReasonCode = "semantic_lie_to_husband",
+                    AttributionKey = "semantic",
+                    SortOrder = 1
+                }
+            ],
+            SemanticStatMappings =
+            [
+                new RPSemanticStatMapping
+                {
+                    EventId = "lie_to_husband",
+                    TargetStat = "Desire",
+                    Delta = 3m,
+                    ConfidenceMin = 0m,
+                    ConfidenceMax = 1m,
+                    ReasonCode = "semantic_lie_to_husband_stat",
+                    SortOrder = 1
+                }
+            ],
             NarrativeGateRules =
             [
                 new NarrativeGateRule { SortOrder = 1, FromPhase = "BuildUp", ToPhase = "Committed", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
                 new NarrativeGateRule { SortOrder = 2, FromPhase = "Committed", ToPhase = "Approaching", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 60m },
                 new NarrativeGateRule { SortOrder = 3, FromPhase = "Approaching", ToPhase = "Climax", MetricKey = NarrativeGateMetricKeys.ActiveScenarioScore, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 80m },
-                new NarrativeGateRule { SortOrder = 4, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m },
-                new NarrativeGateRule { SortOrder = 5, FromPhase = "Reset", ToPhase = "BuildUp", MetricKey = NarrativeGateMetricKeys.InteractionsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m }
+                new NarrativeGateRule { SortOrder = 4, FromPhase = "Climax", ToPhase = "Reset", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 12m },
+                new NarrativeGateRule { SortOrder = 5, FromPhase = "Reset", ToPhase = "BuildUp", MetricKey = NarrativeGateMetricKeys.TurnsSinceCommitment, Comparator = NarrativeGateComparators.GreaterThanOrEqual, Threshold = 3m }
+            ],
+            SuccessorThemeLinks =
+            [
+                new RPThemeSuccessorLink
+                {
+                    SourceThemeId = id,
+                    SuccessorThemeId = "follow-up-theme",
+                    ScoreBoost = 15m,
+                    SortOrder = 1
+                }
             ]
         };
     }

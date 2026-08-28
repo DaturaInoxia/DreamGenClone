@@ -16,7 +16,7 @@ public sealed class UnifiedPromptSubmission
 
     public BehaviorMode BehaviorModeAtSubmit { get; set; } = BehaviorMode.TakeTurns;
 
-    public SubmissionSource SubmittedVia { get; set; } = SubmissionSource.SendButton;
+    public SubmissionSource SubmittedVia { get; set; } = SubmissionSource.MainOverflowContinue;
 
     public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
 

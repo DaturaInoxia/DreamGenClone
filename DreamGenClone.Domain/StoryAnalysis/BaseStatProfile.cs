@@ -1,5 +1,6 @@
 namespace DreamGenClone.Domain.StoryAnalysis;
 
+[Obsolete("Replaced by CharacterProfile — B-042")]
 public sealed class BaseStatProfile
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
