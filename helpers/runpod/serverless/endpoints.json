@@ -8,6 +8,7 @@
     "Endpoint API field names (minWorkers/maxWorkers/idleTimeout/gpuIds) verified at P0 against the live RunPod serverless API/console before the first create.",
     "Serverless workers have no SSH. Debugging = build -> deploy -> send job -> read job logs -> iterate.",
     "Migration order: DWPose (infra proof, no app changes) -> Juggernaut (first app-integrated) -> identity -> Qwen VL -> Qwen Edit.",
+    "PIVOT (2026-08-28): all workers rebuilt FROM the OFFICIAL runpod/worker-comfyui:<ver>-base (AGPL-3.0, v5.8.7) - NOT the pod image + hand-rolled handler. Official API contract: input.workflow (ComfyUI API JSON) + input.images[{name,image}] -> output.images[{filename,type:base64,data}]. WebSocket completion; SSH debug via PUBLIC_KEY; native network-volume support (models at /runpod-volume/models). Network-volume integration DEFERRED (user). Our hand-rolled serverless-worker.py is deleted.",
     "Pods stay running (stopped-not-deleted) as rollback until each endpoint soaks green.",
     "QWEN EDIT MODEL DECISION (2026-08-28): stock qwen_image_edit_2511_fp8mixed.safetensors is safety-aligned (genital region blanks to 'mannequin'); the pod-side Scottzilla MCNL v1 NSFW LoRA proof FAILED (anatomy confusion). The qwen-edit-worker MUST bake Phr00t/Qwen-Image-Edit-Rapid-AIO-NSFW-v23 (26.48 GB FP8, ungated: huggingface.co/Phr00t/Qwen-Image-Edit-Rapid-AIO/resolve/main/v23/Qwen-Rapid-AIO-NSFW-v23.safetensors; SFW sibling v23/Qwen-Rapid-AIO-SFW-v23.safetensors). No runtime LoRA (baked). Load via CheckpointLoaderSimple (model+clip+vae), ~4-8 steps / 1 CFG / euler_ancestral/beta. GGUF NVFP4 variants need Blackwell/CUDA 13+ - dead end on this fleet. Full detail: specs/Planning/B-101-serverless-migration/plan.md MODEL DECISION block."
   ],
@@ -16,19 +17,20 @@
       "endpointKey": "pose-dwpose-serverless",
       "function": "Pose extraction (DWPose)",
       "capability": "PoseExtraction",
-      "status": "smoke-testing",
+      "status": "working-validated",
       "endpointId": "06lhf1akdg34c2",
       "requestUrls": {
         "run": "https://api.runpod.ai/v2/06lhf1akdg34c2/run",
         "runSync": "https://api.runpod.ai/v2/06lhf1akdg34c2/runsync",
         "health": "https://api.runpod.ai/v2/06lhf1akdg34c2/health"
       },
-      "workerImage": "ghcr.io/daturoinoxia/dreamgenclone/dreamgen-dwpose-worker:0.3.0",
+      "workerImage": "ghcr.io/daturoinoxia/dreamgenclone/dreamgen-dwpose-worker:0.5.0",
       "workerDir": "helpers/runpod/serverless/dwpose-worker",
       "imageVerified": {
-        "built": "2026-08-28 run 33139945603 (GH Actions, 25m)",
-        "publicPullVerified": "anonymous docker pull OK - digest sha256:49321d6895aad1e8e6aa7f2b0556ea34f40f72a78bdd9e13507ef675b2eb5afd",
-        "note": "GHCR visibility took ~50 min to propagate to the registry edge after the push (see /memories/repo/ghcr-public-propagation-delay.md)"
+        "built": "2026-08-28 run 33198038559 (GH Actions, 10m29s)",
+        "publicPullVerified": "anonymous pull OK (package public)",
+        "smokeTest": "COMPLETED 2026-08-28 job 2f61ca55: exec 17449ms, rendered pose PNG verified by view_image. Rollout to 0.5.0 all-healthy. See plan.md debug trail (0.3.0 timeout -> 0.4.0 ckpt path/hf_transfer -> 0.5.0 fix).",
+        "note": "DWPose ckpts baked at ckpts/<repo_id>/<file> (custom_hf_download layout); HF_HUB_ENABLE_HF_TRANSFER=0. keypoints JSON still TODO (handler returns keypoints:null)."
       },
       "verifiedSecurePricePerHr": {"gpu": "RTX 4000 Ada", "price": 0.28, "source": "live gpuTypes query 2026-08-28 via get-available-gpus.ps1"},
       "gpuTypeId": "RTX 4000 Ada",

@@ -29,11 +29,30 @@ if ([string]::IsNullOrWhiteSpace($endpointId)) {
 }
 
 $jobInput = @{}
+# Official worker-comfyui contract: input.workflow (ComfyUI API JSON) + input.images[].
+# DWPose workflow (node ids verified on 0.5.0). LoadImage 'image' must match images[].name.
+$workflow = @{
+    "1" = @{ class_type = "LoadImage"; inputs = @{ image = "input_image.png" } }
+    "2" = @{
+        class_type = "DWPreprocessor"
+        inputs     = @{
+            image            = @("1", 0)
+            detect_hand      = "enable"
+            detect_body      = "enable"
+            detect_face      = "enable"
+            resolution       = 512
+            bbox_detector    = "yolox_l.torchscript.pt"
+            pose_estimator   = "dw-ll_ucoco_384_bs5.torchscript.pt"
+            scale_stick_for_xinsr_cn = "disable"
+        }
+    }
+    "3" = @{ class_type = "SaveImage"; inputs = @{ filename_prefix = "dwpose_sls"; images = @("2", 0) } }
+}
+
+$jobInput = @{ workflow = $workflow; images = @() }
 if ($ImagePath) {
     $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $ImagePath)))
-    $jobInput.image_b64 = "data:image/png;base64,$b64"
-} else {
-    $jobInput = @{ image_b64 = "<placeholder>" }
+    $jobInput.images = @(@{ name = "input_image.png"; image = "data:image/png;base64,$b64" })
 }
 
 $headers = @{ Authorization = "Bearer $env:RUNPOD_API_KEY" }
@@ -65,5 +84,5 @@ for ($i = 1; $i -le 90; $i++) {   # up to ~15 min
     }
 }
 if (-not $done) { Write-Host "`nTIMEOUT after 15 min - check RunPod console for the job's status/logs." }
-elseif ($st.status -eq "COMPLETED") { Write-Host "`nPASS: job completed. Inspect output for OpenPose JSON + rendered PNG." }
+elseif ($st.status -eq "COMPLETED") { Write-Host "`nPASS: job completed. Inspect output.images[] for the rendered pose PNG (base64)." }
 else { Write-Host "`nFAIL: inspect 'output'/'error' above; check RunPod console for job logs (no SSH)." }
