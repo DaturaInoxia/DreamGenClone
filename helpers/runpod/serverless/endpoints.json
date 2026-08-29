@@ -110,9 +110,9 @@
         "runSync": "https://api.runpod.ai/v2/p3e3708j6s9oa6/runsync",
         "health": "https://api.runpod.ai/v2/p3e3708j6s9oa6/health"
       },
-      "deployment": "RunPod GitHub Integration ('Start from GitHub Repo', repo DaturaInoxia/DreamGenClone, branch master) - builds helpers/runpod/serverless/identity-worker/Dockerfile: stock runpod/worker-comfyui:5.8.4-base + comfy-node-install ComfyUI_IPAdapter_plus. Serves BOTH plain SDXL T2I and identity-conditioned (IP-Adapter regional) renders from ONE endpoint. Needs a GitHub RELEASE to rebuild. Models on Network Volume xkslgh6xo0 (checkpoint, ipadapter/, clip_vision/).",
-      "workerImage": "registry.runpod.net/daturainoxia-dreamgenclone-master-helpers-runpod-serverless-identity-worker-dockerfile:<sha> (RunPod-built, ephemeral; rebuilt on push)",
-      "workerDir": "helpers/runpod/serverless/identity-worker",
+      "deployment": "RunPod GitHub Integration ('Start from GitHub Repo', repo DaturaInoxia/DreamGenClone, branch master) - builds helpers/runpod/serverless/juggernaut-identity-worker/Dockerfile: stock runpod/worker-comfyui:5.8.4-base + comfy-node-install ComfyUI_IPAdapter_plus. This is the JUGGERNAUT worker that ALSO does identity - serves BOTH plain SDXL T2I and identity-conditioned (IP-Adapter regional) renders from ONE endpoint. Needs a GitHub RELEASE to rebuild. Models on Network Volume xkslgh6xo0 (checkpoint, ipadapter/, clip_vision/).",
+      "workerImage": "registry.runpod.net/daturainoxia-dreamgenclone-master-helpers-runpod-serverless-juggernaut-identity-worker-dockerfile:<sha> (RunPod-built, ephemeral; rebuilt on push)",
+      "workerDir": "helpers/runpod/serverless/juggernaut-identity-worker",
       "baseImage": "runpod/worker-comfyui:5.8.4-base (official) + ComfyUI_IPAdapter_plus",
       "apiContract": "OFFICIAL worker-comfyui: input.workflow + input.images -> output.images (identity refs+masks travel inline as base64; RunPodServerlessIdentityClient)",
       "minWorkers": 0,
@@ -142,7 +142,7 @@
         "restartProof": true
       },
       "migratedFromDeploymentKey": "image-gen-juggernaut",
-      "note": "Juggernaut serves BOTH plain T2I and identity renders (same endpoint, same RolePlaySceneImage function default). Rebuilt via identity-worker/Dockerfile (IPAdapter_plus) once the identity models finish uploading; a GitHub RELEASE applies the rebuild. PATCH idleTimeout per dev-warm strategy.",
+      "note": "Juggernaut serves BOTH plain T2I and identity renders (same endpoint, same RolePlaySceneImage function default). Rebuilt via juggernaut-identity-worker/Dockerfile (IPAdapter_plus) once the identity models finish uploading; a GitHub RELEASE applies the rebuild. PATCH idleTimeout per dev-warm strategy.",
       "proof": {
         "status": "ready",
         "type": "t2i",
@@ -156,7 +156,7 @@
         "workflowJson": "specs/image-generator-tests/identity-two-character/prompts/matrix/c1_s1001.json",
         "imagesJson": "helpers/runpod/serverless/proofs/identity-2char-c1.images.json",
         "outDir": "artifacts/tmp/proofs/identity-2char",
-        "reason": "identity-worker Dockerfile (IPAdapter_plus) not deployed to this endpoint yet; requires identity models uploaded to volume + GitHub RELEASE rebuild."
+        "reason": "juggernaut-identity-worker Dockerfile (IPAdapter_plus) not deployed to this endpoint yet; requires identity models uploaded to volume + GitHub RELEASE rebuild."
       }
     },
     {

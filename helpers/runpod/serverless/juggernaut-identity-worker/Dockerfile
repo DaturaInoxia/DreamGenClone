@@ -1,7 +1,8 @@
-# Identity-capable worker: stock runpod/worker-comfyui base + ComfyUI_IPAdapter_plus.
+# Juggernaut worker (also identity-capable): stock runpod/worker-comfyui base + ComfyUI_IPAdapter_plus.
 #
-# Serves BOTH plain SDXL/Juggernaut T2I and identity-conditioned renders (IP-Adapter regional,
-# single- or multi-character) from ONE endpoint. No models are baked here — the checkpoint
+# This is the worker for the img-juggernaut-serverless endpoint. It serves BOTH plain
+# SDXL/Juggernaut T2I AND identity-conditioned renders (IP-Adapter regional, single- or
+# multi-character) from ONE endpoint. No models are baked here — the checkpoint
 # (juggernautXL_ragnarok.safetensors), IP-Adapter (models/ipadapter/) and CLIP-vision
 # (models/clip_vision/) files all live on the Network Volume xkslgh6xo0 at /runpod-volume/models/*,
 # which the official worker-comfyui base auto-detects.
