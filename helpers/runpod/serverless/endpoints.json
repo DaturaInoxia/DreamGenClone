@@ -155,10 +155,10 @@
       "identityProof": {
         "status": "pending-build",
         "type": "identity",
-        "workflowJson": "specs/image-generator-tests/identity-two-character/prompts/matrix/c1_s1001.json",
+        "workflowJson": "helpers/runpod/serverless/proofs/identity-2char-c1.workflow.json",
         "imagesJson": "helpers/runpod/serverless/proofs/identity-2char-c1.images.json",
         "outDir": "artifacts/tmp/proofs/identity-2char",
-        "reason": "Wait for GitHub Integration build + rollout to finish, then smoke-test identity 2-char proof before declaring ready."
+        "reason": "Uses the BARE workflow (extracted prompt object) - the proof-suite c1_s1001.json is pod-style {prompt,client_id} and the client_id string broke ComfyUI validate_prompt (AttributeError 'str' has no .get). Wait for IPAdapter rebuild (Release v0.1.1) then re-run."
       }
     },
     {
