@@ -24,3 +24,23 @@ FROM runpod/worker-comfyui:5.8.4-base
 # (comfyui_ipadapter_plus), NOT the GitHub repo name (ComfyUI_IPAdapter_plus) - using the repo name
 # installs nothing (verified: node 'IPAdapterUnifiedLoader' not found, 500 on /prompt, 2026-08-28).
 RUN comfy-node-install comfyui_ipadapter_plus
+
+# worker-comfyui maps /runpod-volume/models/* into ComfyUI with a FIXED folder list (checkpoints,
+# clip, clip_vision, configs, controlnet, embeddings, loras, upscale_models, vae, unet) - it does
+# NOT include 'ipadapter' because that folder is only registered by the IP-Adapter custom node at
+# runtime, AFTER the volume paths are computed. Without it, IPAdapterUnifiedLoader fails with
+# 'IPAdapter model not found' (verified 2026-08-28). Fix: symlink /comfyui/models/ipadapter -> the
+# volume's ipadapter folder before the base /start.sh boots ComfyUI. Base ENTRYPOINT is
+# /opt/nvidia/nvidia_entrypoint.sh + CMD /start.sh, so overriding CMD with this wrapper works.
+RUN cat > /start-dreamgen.sh <<'EOF'
+#!/bin/bash
+set -e
+mkdir -p /comfyui/models
+if [ ! -e /comfyui/models/ipadapter ] && [ -d /runpod-volume/models/ipadapter ]; then
+    ln -s /runpod-volume/models/ipadapter /comfyui/models/ipadapter
+    echo "Linked /comfyui/models/ipadapter -> /runpod-volume/models/ipadapter"
+fi
+exec /start.sh
+EOF
+RUN chmod +x /start-dreamgen.sh
+CMD ["/start-dreamgen.sh"]
