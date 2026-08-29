@@ -18,10 +18,18 @@ import os
 import sys
 
 import boto3
+from botocore.config import Config as BotoConfig
+from boto3.s3.transfer import TransferConfig
 
 ENDPOINT = os.environ.get("RUNPOD_VOLUME_ENDPOINT", "https://s3api-eu-ro-1.runpod.io")
 REGION = os.environ.get("RUNPOD_VOLUME_REGION", "eu-ro-1")
 BUCKET = os.environ.get("RUNPOD_VOLUME_BUCKET", "")  # filled from `buckets` if not set
+
+# 64 MiB parts + bounded concurrency: the boto3 default is 8 MiB parts, which for a ~28 GB file
+# means ~3400 separate UploadPart requests - each one a chance to hit a Cloudflare 524 on the
+# flaky dev-host upstream. Larger parts (fewer requests) + long read timeout + many retries make
+# big uploads far more resilient.
+MULTIPART_CHUNK = 64 * 1024 * 1024
 
 
 def _client():
@@ -35,6 +43,12 @@ def _client():
         aws_secret_access_key=sk,
         region_name=REGION,
         endpoint_url=ENDPOINT,
+        config=BotoConfig(
+            connect_timeout=30,
+            read_timeout=600,          # 10 min per request; slow links must not drop mid-part
+            retries={"max_attempts": 25, "mode": "standard"},
+            max_pool_connections=16,
+        ),
     )
 
 
@@ -72,8 +86,14 @@ def cmd_upload(args):
     local = args.local
     obj = args.object
     size = os.path.getsize(local)
-    print(f"uploading {local} ({size} bytes) -> s3://{bucket}/{obj}")
-    c.upload_file(local, bucket, obj)
+    print(f"uploading {local} ({size} bytes) -> s3://{bucket}/{obj} (chunk={MULTIPART_CHUNK // (1024*1024)}MiB, retries=25, read_timeout=600s)")
+    tcfg = TransferConfig(
+        multipart_threshold=MULTIPART_CHUNK,
+        multipart_chunksize=MULTIPART_CHUNK,
+        max_concurrency=4,
+        use_threads=True,
+    )
+    c.upload_file(local, bucket, obj, Config=tcfg)
     print("upload complete")
 
 
