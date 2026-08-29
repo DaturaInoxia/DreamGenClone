@@ -20,5 +20,7 @@
 FROM runpod/worker-comfyui:5.8.4-base
 
 # IP-Adapter custom node (regional identity conditioning). comfy-node-install is the official tooling
-# in the worker-comfyui base image.
-RUN comfy-node-install ComfyUI_IPAdapter_plus
+# in the worker-comfyui base image. NOTE: the argument is the COMfy REGISTRY package name
+# (comfyui_ipadapter_plus), NOT the GitHub repo name (ComfyUI_IPAdapter_plus) - using the repo name
+# installs nothing (verified: node 'IPAdapterUnifiedLoader' not found, 500 on /prompt, 2026-08-28).
+RUN comfy-node-install comfyui_ipadapter_plus
