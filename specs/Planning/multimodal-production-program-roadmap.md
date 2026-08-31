@@ -269,12 +269,15 @@ Execute in this order using only the current branch state:
 5. **Close the Phase 2 decision and evidence gaps.** Resolve P2-023 in light of the failed angled
    identity cases, add P2-027 handler/provenance coverage, and complete P2-028 through P2-032. Do not
    claim strict identity acceptance unless the frozen matrix passes.
-6. **Parallel: freeze B-100 contracts.** Complete B-100 Phases 0-2 and executable golden fixtures
-   across image, speech, sound, music, video, native-video audio, and lip-sync. Only then start its
-   durable job and Catalogue runtime implementation.
-7. **Add manual approval before broad continuity automation.** Implement bounded candidate review
-   and immutable `ApprovedSceneFrame`, aligned with Scene Asset, before automated repair or B-101
-   still placement.
+6. **Implement B-100 Catalogue plus the Production Studio backbone.** After B-100 Phases 0-2 and
+   executable golden fixtures, implement durable jobs, analyzer configuration, and the compact
+   Catalogue. Then add B-032 production groups, staged attempts, branch-aware review, immutable
+   approval, protected byte cleanup, and explicit approved-frame-to-Scene-Asset promotion as defined
+   in `B-100-progressive-scene-beat-pipeline/production-studio-image-workflow.md`.
+7. **Add identity-after-composition and finishing stages.** Extend the image editor contract for
+   approved identity references, require packs for visible known characters unless a persisted skip
+   is chosen, and support repeated finishing edits including configured adult-capable edits. Do not
+   substitute the current identity-conditioned text-to-image path for this source-image stage.
 8. **Then implement Phase 3 and modality generators.** Build location/blocking/multi-POV controls
    against exact B-100 Moment versions, followed by independent audio/video/lip-sync generators.
 9. **Implement B-101 last as presentation.** It remains the wrapper/editor/player over exact B-100

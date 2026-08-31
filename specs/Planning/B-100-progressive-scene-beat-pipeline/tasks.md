@@ -129,6 +129,23 @@ Task format: `[ID] [P?] [Story?] Description` where `[P]` indicates work that ca
 - [ ] T118 [P] Add frozen visual, instantaneous sound, and video key-state tests.
 - [ ] T119 Validate Moment-enrichment validity and latency gates.
 
+## Phase 9A - Production Studio and Image Attempt Backbone
+
+- [ ] T066 [US10] Add `SceneImageProductionGroup`, stage, disposition, identity-policy, and approval-decision domain contracts under B-032 ownership.
+- [ ] T067 [US10] Add repository contracts and additive SQLite schema with exact Catalogue/Beat/Moment enrichment lineage.
+- [ ] T068 [US10] Add transactional production-group creation that requires a current completed Moment enrichment and POV.
+- [ ] T069 [US10] Extend `SceneImageRecord` with production-group, stage, disposition, lineage, typed-reference snapshot, and optional bytes-purged metadata.
+- [ ] T083 [US10] Register existing prompt-only generation as an immutable `Composition` attempt.
+- [ ] T084 [US10] Add branch-aware attempt queries using existing `SourceImageId` lineage.
+- [ ] T085 [US10] Add shortlist, reject, archive, approve, supersede, and revoke operations with compare-and-set current approval.
+- [ ] T086 [US10] Add guarded rejected-byte purge and persisted UI-backed retention configuration.
+- [ ] T087 [US10] Add explicit approved-frame-to-`SceneAsset` promotion with source provenance and shared-file reference guards.
+- [ ] T088 [US10] Build the Production Studio shell: compact Catalogue/Beat/Moment rail, active-stage canvas, inspector, and branch-aware attempt strip.
+- [ ] T089 [US10] Separate legacy images and POC actions from the new production-group workflow during migration.
+- [ ] T100 [P] Add production-group, branching, disposition, approval-version, protected-purge, and asset-promotion persistence tests.
+- [ ] T101 [P] Add Razor diagnostics and focused UI state tests for progressive command visibility.
+- [ ] T102 Validate one selected Moment through composition attempts, approval, cleanup, and optional reusable-asset promotion.
+
 ## Phase 10 - Multimodal Compiler Contracts
 
 - [ ] T130 [US7] Implement proven semantic input projections for still, speech, ambience/effects, music, video, video-with-audio, and lip-sync/performance.

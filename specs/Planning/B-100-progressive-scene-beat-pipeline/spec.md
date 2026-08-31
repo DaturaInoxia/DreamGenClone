@@ -119,6 +119,31 @@ As a production user, I can compile one Beat/Moment lineage into image, speech, 
 5. Native-video audio and external audio requests use the same dialogue, effect, ambience, and music cue ownership.
 6. Unsupported required intent fails compatibility validation and is never silently omitted, guessed, or replaced.
 
+## User Story 10 - Produce and approve one scene image through staged attempts (P1)
+
+As a production user, I can create many composition, identity, and finishing attempts for one selected
+Moment, compare them, and approve one exact version without filling the reusable Asset Library with
+discarded work.
+
+**Independent test:** One enriched Moment creates one production group; two composition branches and
+multiple edits remain grouped; one exact completed attempt is approved; rejected bytes are purged only
+when unreferenced while their metadata remains.
+
+**Acceptance scenarios:**
+
+1. Image work cannot begin without a current completed Moment enrichment and explicit POV.
+2. The first normal stage creates a safe composition attempt for positions, pose, framing, clothing,
+	location, and props.
+3. Visible known characters require approved identity packs before the identity stage, unless the user
+	records an explicit skip decision and reason.
+4. Finishing edits create immutable child attempts and may branch from any completed eligible attempt.
+5. Execution completion, shortlist/reject disposition, and approval are separate persisted states.
+6. Approving an attempt records its exact checksum and full B-100 lineage; a later approval supersedes
+	rather than mutates the prior decision.
+7. Rejected bytes are purged only under persisted UI-backed policy and never when protected by approval,
+	ancestry, asset promotion, identity, or edit-session references.
+8. Scene Asset creation occurs only through explicit promotion of an approved frame.
+
 ## Functional Requirements
 
 - **FR-001:** The system shall represent Beat Catalogue, Beat Production Plan, Beat dialogue/sound/video cues, Moment Set, Scene Moment, and Moment Enrichment as separate persisted resources.
@@ -171,6 +196,17 @@ As a production user, I can compile one Beat/Moment lineage into image, speech, 
 - **FR-048:** Native-video audio shall compile from the same canonical cue IDs used by external speech, effects, ambience, and music generation.
 - **FR-049:** Compiler output shall report every unsupported required canonical field before media work is accepted.
 - **FR-050:** A golden lineage shall compile through every representative modality contract and pass cross-modal consistency assertions before schema freeze.
+- **FR-051:** One `SceneImageProductionGroup` shall represent one intended approved frame for one exact current Moment enrichment and POV.
+- **FR-052:** Every scene-image generation or edit shall be an immutable attempt assigned to exactly one production group and stage.
+- **FR-053:** Image stages shall distinguish `Composition`, `Identity`, and `Finish`; successful execution shall not imply approval.
+- **FR-054:** The normal composition stage shall be safe and position-focused; identity and finishing edits shall consume its exact stored output rather than regenerate story semantics.
+- **FR-055:** Identity shall be required for known visible characters unless an explicit persisted user skip and reason exist.
+- **FR-056:** An approved scene frame shall be an append-only decision over one exact completed attempt and checksum, with at most one current approval per production group.
+- **FR-057:** Attempt disposition shall distinguish active, shortlisted, rejected, and archived records independently from execution status.
+- **FR-058:** Cleanup shall retain attempt provenance and enforce all persisted reference guards before removing bytes.
+- **FR-059:** Retention mode and age shall be UI-backed persisted configuration; no hardcoded cleanup policy is permitted.
+- **FR-060:** Reusable `SceneAsset` records shall be created only through explicit promotion of an approved frame or through their existing dedicated authoring workflows.
+- **FR-061:** Production Studio shall present Catalogue, Beat, Moment, image stage, attempt lineage, and approval as one progressive workflow without displaying all POC controls simultaneously.
 
 ## Non-Functional Requirements
 
@@ -190,7 +226,8 @@ As a production user, I can compile one Beat/Moment lineage into image, speech, 
 - Character identity conditioning and identity-pack authoring.
 - Three-dimensional blocking and camera editor implementation.
 - Image validation and bounded repair implementation.
-- Image, speech, sound, music, lip-sync, and video generator implementation.
+- Image provider implementation beyond adapting existing generation/edit paths into production attempts.
+- Speech, sound, music, lip-sync, and video generator implementation.
 - Selecting production providers or treating documentation-only fixtures as live provider qualification.
 - Storyboard sequencing, asset placement, publication, and Visual Novel playback.
 - Automatic rendering of the recommended moment without user confirmation.

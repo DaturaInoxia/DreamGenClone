@@ -21,6 +21,11 @@ Replace the slow, fragile one-shot Generate Beats operation with a progressive p
 7. Enrich selected Moments into complete visual and instantaneous audio-event production data.
 8. Compile the same Beat/Moment lineage independently for image, speech, sound, music, video, native-video audio, and lip-sync/performance generators.
 
+The approved Production Studio and image-attempt lifecycle is defined in
+[production-studio-image-workflow.md](production-studio-image-workflow.md). It connects B-100's
+selected Moment to B-032's staged Compose -> Identity -> Edit/Finish -> Review -> Approve workflow
+without moving image execution or reusable-asset ownership into B-100.
+
 A Beat answers, "What narrative development happens over this interval, what is said and heard, and how does state change?" A Moment answers, "What exact frozen state exists at this point inside that Beat?" Beat enrichment produces the canonical temporal source for audio and video. Moment enrichment produces the canonical frozen visual source for still images and video key states. Discovery and enrichment stages use separate persisted records, schemas, jobs, and diagnostics.
 
 A Beat may contain movement through time and owns ordered story events, exact dialogue and narration spans, ambience state, discrete sound events, an action arc, and start/end continuity. A Moment represents exactly one frozen visual state and must not combine before-and-after actions. Still images, POV variants, and visual continuity controls bind to a Moment. Video may bind to one Moment, movement between ordered Moments, a Beat excerpt, or the whole Beat. Audio cues bind to exact dialogue/events and Beat-relative or Moment anchors.
@@ -100,6 +105,10 @@ The system does not eagerly generate moments for every beat or enrich every mome
 | D-100-16 | Canonical fields require documented semantic consumers. Provider request syntax, model IDs, sampling, codecs, seeds, and capability workarounds remain compiler/profile concerns. |
 | D-100-17 | Beat-relative time windows and realized media alignment are first-class. Compilers and B-101 do not infer timing independently from prose or estimated text length. |
 | D-100-18 | Every reference is typed by production role. A generic asset/reference list cannot substitute for identity, continuity, keyframe, voice, pose, style, or conditioning intent. |
+| D-100-19 | Production Studio is one staged work surface. B-100 owns Beat/Moment semantics; B-032 owns image production groups, attempts, execution, review, approval, cleanup, and explicit Scene Asset promotion. |
+| D-100-20 | The default scene-image workflow is Compose a safe positional base -> Apply required character identities or record an explicit skip -> Run one or more finishing edits -> Approve one exact version. |
+| D-100-21 | Completed renders are attempts, not approved assets. Attempt metadata is retained; eligible rejected bytes use a configurable UI-backed purge policy. |
+| D-100-22 | Approved scene frames enter the reusable Scene Asset library only through explicit user promotion. |
 | D-100-19 | One golden Beat/Moment lineage must compile consistently into every modality contract before the acceptance corpus or persistence schema is frozen. |
 
 ## Artifacts
@@ -110,6 +119,7 @@ The system does not eagerly generate moments for every beat or enrich every mome
 - [tasks.md](tasks.md) - Dependency-ordered implementation checklist.
 - [data-model.md](data-model.md) - Persisted entities, statuses, invariants, and relationships.
 - [provider-evidence-matrix.md](provider-evidence-matrix.md) - Official model-input evidence, canonical/compiler ownership, consistency invariants, and golden fixture requirements.
+- [production-studio-image-workflow.md](production-studio-image-workflow.md) - Unified Studio UX, staged image workflow, attempt grouping, approval, retention, and Scene Asset promotion.
 - [contracts/progressive-beat-pipeline-contract.md](contracts/progressive-beat-pipeline-contract.md) - Service, job, structured-output, concurrency, and failure contracts.
 
 ## Success Measures

@@ -109,6 +109,22 @@ The feature does not modify RP continuation, narrative gates, phase transitions,
 
 **Exit:** Generate Beats produces only compact entries and meets the catalogue corpus validity gate.
 
+## Phase 9A - Production Studio and Attempt Backbone
+
+1. Add B-032-owned production-group, attempt-stage/disposition, and append-only approval contracts.
+2. Add additive persistence and exact B-100 lineage from a group to one Moment enrichment and POV.
+3. Adapt existing generation into `Composition` attempts without changing provider behavior.
+4. Add guarded shortlist, reject, approve, supersede, archive, and byte-purge operations.
+5. Add explicit approved-frame-to-Scene-Asset promotion with safe file-reference accounting.
+6. Replace the all-at-once POC controls with the Production Studio shell described in
+	`production-studio-image-workflow.md`; preserve legacy records in a separate read-only section.
+
+**Exit:** one selected Moment owns a branchable attempt group, one exact image can be approved, and
+eligible rejected bytes can be removed without deleting provenance or protected lineage.
+
+Identity-reference editing is the next B-032 slice. The current identity-conditioned text-to-image
+path is not substituted for identity-after-composition.
+
 ## Phase 7 - Selected-Beat Multimodal Production Vertical Slice
 
 1. Add versioned `SceneBeatProductionPlan`, timeline, dialogue, sound, music, typed-reference, video-coverage, and attempt records.

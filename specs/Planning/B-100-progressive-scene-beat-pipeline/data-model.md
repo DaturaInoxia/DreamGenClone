@@ -13,6 +13,10 @@ erDiagram
     SCENE_BEAT_PRODUCTION_PLAN ||--o{ SCENE_MOMENT_SET : develops_into
     SCENE_MOMENT_SET ||--|{ SCENE_MOMENT : contains
     SCENE_MOMENT ||--o{ SCENE_MOMENT_ENRICHMENT : selected_for
+    SCENE_MOMENT_ENRICHMENT ||--o{ SCENE_IMAGE_PRODUCTION_GROUP : produces
+    SCENE_IMAGE_PRODUCTION_GROUP ||--o{ SCENE_IMAGE_ATTEMPT : contains
+    SCENE_IMAGE_PRODUCTION_GROUP ||--o{ APPROVED_SCENE_FRAME_DECISION : decides
+    SCENE_IMAGE_ATTEMPT ||--o{ SCENE_IMAGE_ATTEMPT : derives
     SCENE_BEAT_CATALOGUE ||--o{ SCENE_BEAT_ANALYSIS_ATTEMPT : attempted_by
     SCENE_MOMENT_SET ||--o{ SCENE_BEAT_ANALYSIS_ATTEMPT : attempted_by
     SCENE_MOMENT_ENRICHMENT ||--o{ SCENE_BEAT_ANALYSIS_ATTEMPT : attempted_by
@@ -243,6 +247,35 @@ Append-only execution history for catalogue, Beat production enrichment, Moment 
 | `InputCharacters` | integer | Diagnostic. |
 | `OutputCharacters` | integer? | Diagnostic. |
 | timestamps | datetime | Required lifecycle timestamps. |
+
+## SceneImageProductionGroup
+
+B-032-owned aggregate linking one intended approved frame to one exact B-100 Moment enrichment and POV.
+It stores full Catalogue, Beat-plan, Moment-set, Moment, and enrichment lineage; status; identity policy;
+optional persisted skip reason; current approval decision; and timestamps. Replacement analysis never
+rebinds an existing group.
+
+## SceneImageAttempt
+
+`SceneImageRecord` remains the stored execution attempt. It gains `ProductionGroupId`, stage
+(`Composition`, `Identity`, `Finish`), disposition (`Active`, `Shortlisted`, `Rejected`, `Archived`),
+exact canonical lineage, and typed-reference snapshot. Existing `SourceImageId` remains the immutable
+parent relation for edit-derived attempts. Execution status remains independent from disposition and
+approval.
+
+## ApprovedSceneFrameDecision
+
+Append-only B-032 approval record containing production-group ID, decision version, exact scene-image
+ID and checksum, full B-100 lineage, decision state (`Approved`, `Superseded`, `Revoked`), actor, note,
+and timestamp. At most one decision is current and Approved per production group. B-101 and continuity
+consumers reference this record, never an arbitrary completed `SceneImageRecord`.
+
+## Scene Asset Promotion
+
+An explicit promotion creates a reusable `SceneAsset` with source approval ID, source image ID,
+checksum, typed asset role, stable name, association metadata, and provenance. Files may be safely
+shared only while repository reference guards prevent premature deletion. Production attempts do not
+automatically become library assets.
 
 ## DurableBackgroundJob
 
