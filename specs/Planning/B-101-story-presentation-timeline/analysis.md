@@ -55,7 +55,7 @@ Character speech, narration, ambience, discrete effects, and music have differen
 
 A useful video may animate one Moment, interpolate between two Moments, depict a short Beat interval, or cover a whole Beat. Assuming one video per Moment loses action arcs; assuming one video per Beat may produce an overlong or under-specified request.
 
-**Decision:** B-100 `SceneVideoCoveragePlan` explicitly defines `MomentHold`, `MomentAction`, `MomentTransition`, `BeatExcerpt`, or `WholeBeat`, including action/state/audio requirements. B-101 selects one plan, requests/approves generation, and places the resulting video.
+**Decision:** B-100 `SceneVideoCoveragePlan` explicitly defines `MomentHold`, `MomentAction`, `MomentTransition`, `BeatExcerpt`, or `WholeBeat`, including action/state/audio requirements. B-101 selects one plan, submits it through the owning generator, and places an approved resulting video.
 
 ### F-101-06 - More media improves richness, not story completeness
 

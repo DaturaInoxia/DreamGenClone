@@ -6,6 +6,7 @@
 **Created:** 2026-08-26  
 **Parent feature:** [B-032 Scene Image Generator](../B-032-scene-image-generator/README.md)
 **Downstream consumer:** [B-101 Story Presentation Timeline and Storyboard](../B-101-story-presentation-timeline/README.md)
+**Program sequencing:** [Multimodal Production Program Roadmap](../multimodal-production-program-roadmap.md)
 
 ## Purpose
 

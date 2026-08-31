@@ -56,7 +56,7 @@ As an author, I can place B-100's persistent ambience and exact sound-event cues
 
 As an author, I can select B-100 still/key-state and video coverage plans for a segment, request generation, and place approved results.
 
-**Independent test:** Each video coverage kind rejects incomplete or cross-lineage sources and creates a provider-neutral brief when complete.
+**Independent test:** Each video coverage kind rejects incomplete or cross-lineage sources and creates a provider-neutral production selection when complete.
 
 **Acceptance scenarios:**
 
@@ -64,18 +64,18 @@ As an author, I can select B-100 still/key-state and video coverage plans for a 
 2. A Moment-transition placement references a B-100 plan with ordered enriched start/end Moments and complete continuity states.
 3. Beat-excerpt/whole-Beat placement references a B-100 action arc and required key Moments.
 4. Dialogue-bearing video preserves B-100 speech cue mappings and lip-sync requirements.
-5. No provider prompt or workflow syntax is required to author a valid brief.
+5. No provider prompt or workflow syntax is required to author a valid production selection.
 
-## User Story 6 - Generate and approve media independently (P2)
+## User Story 6 - Request and select independently approved media (P2)
 
-As an author, I can request multiple media takes and explicitly approve one without changing story or timeline metadata.
+As an author, I can request multiple media takes through the owning generator and select one of its approved derivatives without changing story or timeline metadata.
 
-**Independent test:** Two candidates exist for one brief; approving one creates eligibility, rejecting or regenerating another does not affect the approved asset or source cue.
+**Independent test:** Two candidates exist in an owning generator; B-101 can place only the derivative that generator reports as approved and eligible, while rejection or regeneration does not affect the source cue.
 
 **Acceptance scenarios:**
 
-1. Media resolution validates exact configured capabilities before job acceptance.
-2. Every candidate records brief, compiler, model, settings, asset checksum, and generation provenance.
+1. B-101 submits an exact B-100 production selection through the owning generator contract.
+2. B-101 reads candidate and provenance state from the owning generator without duplicating it.
 3. Generation completion alone is not eligible for placement.
 4. Still-image placement reuses B-032 `ApprovedSceneFrame` authority rather than creating another image-approval path.
 
@@ -126,9 +126,9 @@ As a viewer, I can move Back and Forward through text, images/video, and synchro
 - **FR-016:** Video placement shall reference exactly one current B-100 coverage plan and all required enriched Moment key states.
 - **FR-017:** Video requests shall preserve B-100 action arc, continuity, camera, audio ownership, and dialogue synchronization while adding only presentation timing/asset choices.
 - **FR-018:** Storyboard entities shall not derive semantic media metadata from raw RP prose; they shall select and place B-100 production data.
-- **FR-019:** Provider/model compilers shall be selected by explicit media capabilities and configured keys.
-- **FR-020:** Missing or incompatible generation configuration shall fail before enqueue without fallback.
-- **FR-021:** Generated candidates shall be immutable and ineligible until approved.
+- **FR-019:** B-101 shall submit generation requests only through modality-owned contracts that resolve explicit compiler capabilities and configured keys.
+- **FR-020:** A modality generator shall report missing or incompatible generation configuration before enqueue without fallback; B-101 shall surface that result unchanged.
+- **FR-021:** B-101 shall treat generator-owned candidates as read-only and ineligible until the owning generator reports approval.
 - **FR-022:** Placements shall reference exact approved assets and checksums.
 - **FR-023:** Cue timing shall use typed relative anchors and resolve without cycles or invalid overlap.
 - **FR-024:** No default duration shall be substituted when one is required.
@@ -137,7 +137,7 @@ As a viewer, I can move Back and Forward through text, images/video, and synchro
 - **FR-027:** Playback manifests shall contain all concrete text, assets, timing, transitions, mix, navigation, and restoration policy.
 - **FR-028:** The Visual Novel Player shall perform no analysis, generation, model resolution, or semantic inference.
 - **FR-029:** More-media coverage shall be measured separately from basic publication validity.
-- **FR-030:** All arrangement, generation, validation, approval, and publication operations shall be auditable.
+- **FR-030:** All B-101 arrangement, request submission, approved-asset selection, validation, and publication operations shall be auditable and retain links to generator-owned provenance.
 - **FR-031:** Missing dialogue, audio, visual, action, continuity, or video semantics shall require an explicit B-100 revision, never B-101 inference.
 
 ## Non-Functional Requirements

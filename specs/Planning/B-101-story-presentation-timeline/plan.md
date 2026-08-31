@@ -8,6 +8,7 @@
 4. B-101 never repairs missing production metadata by re-analyzing RP prose.
 5. Candidate generation never implies approval or publication eligibility.
 6. Text-first delivery proves the domain before expensive media integration.
+7. B-101 submits through compiler/generator contracts but does not own prompt compilation, provider clients, candidate validation, or asset approval.
 
 ## Ownership Boundaries
 
@@ -18,8 +19,8 @@
 | SQLite repositories and asset storage | `DreamGenClone.Infrastructure` |
 | Storyboard Studio and Visual Novel Player | separate pages/components in `DreamGenClone.Web` |
 | Beat/Moment/image/audio/video production semantics | B-100 ownership; referenced read-only |
-| Still generation/approval | B-032 ownership; reused by adapter/eligibility service |
-| Future audio/video compilers and clients | separate Infrastructure media adapters |
+| Still compilation, generation, candidate review, and approval | B-100 compiler contracts plus B-032 execution/approval; consumed read-only |
+| Future audio/video compilers, clients, candidate review, and approval | separate generator epics consuming B-100 contracts |
 
 ## Phase 0 - End-to-End Production Contract Gate
 
@@ -54,7 +55,7 @@
 
 ## Phase 3 - Still Coverage and B-032 Integration
 
-1. Add Visual Cue, Media Brief, candidate adapter, approved-asset adapter, and Timeline Placement models.
+1. Add Visual Cue, production-brief selection, approved-asset adapter, and Timeline Placement models.
 2. Resolve source Moments and request B-032 still generation without duplicating its compiler or approval path.
 3. Place exact `ApprovedSceneFrame` versions/checksums.
 4. Implement `NewStill`, `HoldPreviousStill`, and `TextOnly` publication validation.
@@ -69,7 +70,7 @@
 3. Add versioned Voice Identity metadata and consent/provenance.
 4. Add Speech Cue Placement and production-brief selection contracts referencing B-100 cue IDs.
 5. Add timing anchors, captions/transcripts, and speech-synchronized text reveal.
-6. Build compiler/asset interfaces without choosing the final TTS provider in this architecture item.
+6. Build production-selection and approved-asset interfaces without defining a TTS compiler or choosing the final provider in this architecture item.
 
 **Exit:** every placed spoken line retains B-100 source/speaker/performance semantics and adds voice, timing, and mix choices ready for independent TTS.
 
@@ -77,7 +78,7 @@
 
 1. Import typed B-100 Ambience, Sound Effect, and Music Intent cues.
 2. Place cues with continuity groups, location/time boundaries, and explicit silence.
-3. Add production-brief selections and candidate/approval plumbing referencing exact B-100 cue IDs.
+3. Add production-brief selections and generator-owned approved-asset adapters referencing exact B-100 cue IDs.
 4. Implement track overlap rules, mix intents, fade/ducking metadata, and concrete duration resolution.
 5. Build an audiovisual timeline preview and validation matrix.
 
@@ -89,19 +90,20 @@
 2. Build selectors for existing one-Moment, two-Moment transition, Beat-excerpt, and whole-Beat plans.
 3. Snapshot exact B-100 action, continuity, key-Moment, camera, dialogue/audio, and content-policy lineage.
 4. Map B-100 dialogue cue requirements to selected speech placements and resolved generator line windows.
-5. Add provider-neutral video brief compiler boundary and approved video asset placement.
+5. Add a provider-neutral video production-selection boundary and approved video asset placement.
 6. Validate video audio modes against external cue tracks and prevent duplicate speech/effects.
 
 **Exit:** Storyboard Studio can request and place video from complete B-100 metadata without interpreting the RP story or depending on one video model.
 
-## Phase 7 - Publication Compiler
+## Phase 7 - Approved-Media Eligibility and Publication Compiler
 
-1. Implement one presentation validator with stable entity-scoped findings.
-2. Resolve all relative timing to concrete segment manifests.
-3. Verify approved assets, checksums, source versions, policies, and continuity.
-4. Compile immutable Playback Manifest schema v1.
-5. Promote revisions through compare-and-set publication.
-6. Preserve published manifests when new drafts or regenerated assets appear.
+1. Implement thin adapters over modality-owned approved-asset eligibility contracts.
+2. Implement one presentation validator with stable entity-scoped findings.
+3. Resolve all relative timing to concrete segment manifests.
+4. Verify approved assets, checksums, source versions, policies, and continuity without re-approving them.
+5. Compile immutable Playback Manifest schema v1.
+6. Promote revisions through compare-and-set publication.
+7. Preserve published manifests when new drafts or regenerated assets appear.
 
 **Exit:** text-only, still, audio, and video-capable revisions publish through the same deterministic contract.
 
@@ -128,7 +130,7 @@ Create separate implementation items for:
 - audio/video validation and bounded repair;
 - export/packaging and optional branching.
 
-Each consumes B-100 production contracts plus B-101 presentation selections and returns candidates through the common approval contract. None may redefine story facts, production semantics, order, or lineage.
+Each consumes B-100 production contracts plus B-101 presentation selections, owns its candidate and approval lifecycle, and exposes approved derivatives through a common eligibility contract. None may redefine story facts, production semantics, order, or lineage.
 
 ## Testing Strategy
 

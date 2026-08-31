@@ -85,16 +85,15 @@ Task format: `[ID] [P?] [Story?] Description` where `[P]` indicates parallel wor
 - [ ] T118 [P] Add complete B-100 coverage-kind import/placement tests.
 - [ ] T119 [P] Add cross-Beat, reversed-Moment, and duplicate-audio rejection tests.
 
-## Phase 7 - Generic Media Candidate and Approval Boundary
+## Phase 7 - Approved-Media Eligibility Boundary
 
-- [ ] T130 [US6] Define compiler, candidate, validation, approval, and eligibility interfaces.
-- [ ] T131 [US6] Add explicit registered-model media capabilities and compiler keys.
-- [ ] T132 [US6] Add Model Manager validation for required media capabilities.
-- [ ] T133 [US6] Persist semantic brief and compiled-request provenance separately.
-- [ ] T134 [US6] Add candidate comparison and explicit approval UI.
-- [ ] T135 [US6] Implement exact approved-asset placement and revocation effects.
-- [ ] T136 [P] Add missing/incompatible configuration fail-fast tests.
-- [ ] T137 [P] Add candidate immutability and eligibility tests.
+- [ ] T130 [US6] Define thin adapters over B-032 and modality-generator approved-asset eligibility contracts.
+- [ ] T131 [US6] Import exact compiler key, semantic-brief checksum, compiled-request checksum, and derivative provenance read-only.
+- [ ] T132 [US6] Reject assets whose owning generator reports missing, incompatible, unapproved, revoked, or stale lineage.
+- [ ] T133 [US6] Implement exact approved-asset placement and revocation effects without duplicating candidate or approval state.
+- [ ] T134 [US6] Link to the owning generator's candidate comparison and approval workflow.
+- [ ] T135 [P] Add approved-version, checksum, revocation, and stale-lineage eligibility tests.
+- [ ] T136 [P] Assert B-101 cannot compile prompts, invoke provider clients directly, or approve candidate assets.
 
 ## Phase 8 - Publication Compiler
 
@@ -141,7 +140,7 @@ flowchart TD
     P4 --> P5[Audio Timeline Metadata]
     P3 --> P6[Video Specifications]
     P4 --> P6
-    P3 --> P7[Media Candidate Boundary]
+    P3 --> P7[Approved-Media Eligibility]
     P5 --> P7
     P6 --> P7
     P7 --> P8[Publication Compiler]

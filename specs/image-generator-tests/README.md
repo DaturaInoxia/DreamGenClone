@@ -4,10 +4,15 @@ Permanent, source-controlled test suite for pod-based image generation in the B-
 
 Every asset here is committed and reproducible: each test's exact prompt / negative / settings / seed and the generated result image, with integrity metadata in a per-suite `manifest.json`.
 
+For the behavior-oriented view of the suite, start with [`TEST-MATRIX.md`](TEST-MATRIX.md). It
+organizes coverage by SFW/NSFW, stock/identity, one-person/two-person, and the Dean/Becky identity
+comparisons. Existing folders remain the canonical evidence packages and are not duplicated.
+
 ## Structure
 
 ```
 image-generator-tests/
+├── TEST-MATRIX.md              # cross-suite qualification matrix and coverage status
 ├── baseline/                   # model-agnostic position/act prompt catalog (32 positions)
 │   ├── positions/              #   neutral scene + per-model variants (SDXL/Pony/Qwen)
 │   └── manifest.json           #   hashes + actor metadata

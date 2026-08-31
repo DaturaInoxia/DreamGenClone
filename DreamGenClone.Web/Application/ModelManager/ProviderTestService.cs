@@ -1,6 +1,7 @@
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Infrastructure.Models;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.ModelManager;
@@ -9,6 +10,7 @@ public sealed class ProviderTestService
 {
     private readonly ICompletionClient _completionClient;
     private readonly IImageGenerationClient _imageGenerationClient;
+    private readonly RunPodServerlessImageClient _runPodServerlessImageClient;
     private readonly IApiKeyEncryptionService _encryptionService;
     private readonly IProviderRepository _providerRepository;
     private readonly ILogger<ProviderTestService> _logger;
@@ -16,12 +18,14 @@ public sealed class ProviderTestService
     public ProviderTestService(
         ICompletionClient completionClient,
         IImageGenerationClient imageGenerationClient,
+        RunPodServerlessImageClient runPodServerlessImageClient,
         IApiKeyEncryptionService encryptionService,
         IProviderRepository providerRepository,
         ILogger<ProviderTestService> logger)
     {
         _completionClient = completionClient;
         _imageGenerationClient = imageGenerationClient;
+        _runPodServerlessImageClient = runPodServerlessImageClient;
         _encryptionService = encryptionService;
         _providerRepository = providerRepository;
         _logger = logger;
@@ -45,11 +49,20 @@ public sealed class ProviderTestService
                 }
             }
 
-            var isHealthy = await _completionClient.CheckHealthAsync(
-                provider.BaseUrl,
-                provider.TimeoutSeconds,
-                decryptedKey,
-                cancellationToken);
+            var isHealthy = provider.ImageProtocol == ImageProtocol.ComfyUiServerless
+                ? (await _runPodServerlessImageClient.CheckImageModelHealthAsync(
+                    provider.BaseUrl,
+                    provider.ImageGenerationPath,
+                    provider.TimeoutSeconds,
+                    decryptedKey,
+                    modelIdentifier: "",
+                    provider.ContentPolicy,
+                    cancellationToken)).Success
+                : await _completionClient.CheckHealthAsync(
+                    provider.BaseUrl,
+                    provider.TimeoutSeconds,
+                    decryptedKey,
+                    cancellationToken);
 
             if (isHealthy)
             {
@@ -101,6 +114,18 @@ public sealed class ProviderTestService
                 model.ModelIdentifier,
                 provider.Name,
                 provider.ImageGenerationPath);
+
+            if (provider.ImageProtocol == ImageProtocol.ComfyUiServerless)
+            {
+                return await _runPodServerlessImageClient.CheckImageModelHealthAsync(
+                    provider.BaseUrl,
+                    provider.ImageGenerationPath,
+                    provider.TimeoutSeconds,
+                    decryptedKey,
+                    model.ModelIdentifier,
+                    provider.ContentPolicy,
+                    cancellationToken);
+            }
 
             return await _imageGenerationClient.CheckImageModelHealthAsync(
                 provider.BaseUrl,

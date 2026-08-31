@@ -221,6 +221,72 @@
         "type": "qwen-edit",
         "reason": "28.43 GB Qwen-Rapid-AIO-NSFW-v23.safetensors download + volume upload in progress; serverless editing client (input.images + /run) still to be built."
       }
+    },
+    {
+      "endpointKey": "img-biglust-serverless",
+      "function": "SDXL / BigLust 1.6 adult-oriented text-to-image",
+      "capability": "TextToImage",
+      "status": "working-validated; reduced-qualification-passed; application-round-trip-pending",
+      "endpointId": "ovwnwol2o30grn",
+      "requestUrls": {
+        "run": "https://api.runpod.ai/v2/ovwnwol2o30grn/run",
+        "runSync": "https://api.runpod.ai/v2/ovwnwol2o30grn/runsync",
+        "health": "https://api.runpod.ai/v2/ovwnwol2o30grn/health"
+      },
+      "deployment": "STOCK runpod/worker-comfyui:5.8.4-base with the verified checkpoint served from a Network Volume.",
+      "workerImage": "runpod/worker-comfyui:5.8.4-base",
+      "workerDir": "",
+      "baseImage": "runpod/worker-comfyui:5.8.4-base (official)",
+      "apiContract": "OFFICIAL worker-comfyui: input.workflow + input.images -> output.images",
+      "minWorkers": 0,
+      "maxWorkers": 1,
+      "idleTimeoutSec": 1800,
+      "timeoutMs": 900000,
+      "flashboot": "OFF",
+      "gpuPool": "AMPERE_16 (RTX 4000 Ada) / AMPERE_24 (A5000) - pool resolved at create from gpuTypeId",
+      "gpuTypeId": "RTX 4000 Ada",
+      "candidateGpuTypeIds": [
+        "NVIDIA RTX 4000 Ada",
+        "NVIDIA RTX A5000",
+        "NVIDIA GeForce RTX 3090 Ti"
+      ],
+      "networkVolumes": ["xkslgh6xo0"],
+      "dataCenterIds": ["EU-RO-1"],
+      "volumeModelPath": "/runpod-volume/models/checkpoints/bigLust_v16.safetensors",
+      "modelArtifact": {
+        "name": "bigLust_v16.safetensors",
+        "family": "SDXL",
+        "civitaiModelId": "575395",
+        "civitaiVersionId": "1081768",
+        "sha256": "4C1E096B9493DBB5C0AB84FD80FD20AA64817544E565DDA95A45C637FC839AAF",
+        "byteCount": 6938058338,
+        "license": "CreativeML Open RAIL++-M",
+        "sourceUrl": "https://civitai.com/api/download/models/1081768?fileId=986850",
+        "mirrorUrl": null,
+        "verificationStatus": "local-and-remote-size-verified; sha256-verified-local; endpoint-created"
+      },
+      "env": {},
+      "modelManager": {
+        "registered": false,
+        "providerName": "BigLust Serverless - register after endpoint smoke tests"
+      },
+      "smokeTest": {
+        "workflow": "helpers/runpod/workflows/biglust-t2i.json",
+        "expectedOutput": "rendered PNG at output.images[0].data (base64)",
+        "technicalResult": "PASSED 2026-08-31 job cfafdb38-cc9f-45a5-b5ef-9eb4d7ced828-u2: COMPLETED, exec 73804ms, worker 4wr7esoyiji2o2. output.images[0] = biglust_t2i_00001_.png (base64); decoded PNG rendered successfully and verified via view_image.",
+        "qualificationCases": [
+          "technical smoke: neutral SDXL portrait",
+          "adult target: helpers/runpod/workflows/pony-nsfw-test.json -> job 49b56730-2171-41d7-b7d9-4384e4d8da6e-u2 -> artifacts/tmp/biglust-qualification/standing/output_1_49b56730-2171-41d7-b7d9-4384e4d8da6e-u2.png (COMPLETED)",
+          "two-person composition: helpers/runpod/workflows/sdxl-man-woman.json -> job 1548aded-cea4-4864-a41a-a6fbc6bbc00c-u2 -> artifacts/tmp/biglust-qualification/two-person/output_1_1548aded-cea4-4864-a41a-a6fbc6bbc00c-u2.png (COMPLETED)",
+          "close-up anatomy and negative prompt: helpers/runpod/workflows/sdxl-genital-anatomy-test.json -> job a316c08a-c1f9-4021-95aa-6c133c2c2d4b-u2 -> artifacts/tmp/biglust-qualification/anatomy/output_1_a316c08a-c1f9-4021-95aa-6c133c2c2d4b-u2.png (COMPLETED)"
+        ],
+        "fullJuggernautSuite": "deferred"
+      },
+      "persistence": {
+        "standard": "Model on Network Volume xkslgh6xo0; worker image is immutable stock base.",
+        "restartProof": "pending"
+      },
+      "note": "Separate BigLust endpoint. Do not modify img-juggernaut-serverless."
     }
   ]
 }

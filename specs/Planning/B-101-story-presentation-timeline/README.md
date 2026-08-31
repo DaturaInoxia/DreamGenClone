@@ -5,6 +5,7 @@
 **Scope:** Large epic  
 **Created:** 2026-08-27  
 **Prerequisites:** [B-100 Progressive Scene Beat and Image Moment Pipeline](../B-100-progressive-scene-beat-pipeline/README.md), [B-032 Scene Image Generator](../B-032-scene-image-generator/README.md)
+**Program sequencing:** [Multimodal Production Program Roadmap](../multimodal-production-program-roadmap.md)
 
 ## Purpose
 
@@ -17,7 +18,7 @@ Wrap B-100's canonical multimodal production data in an editable presentation ti
 
 "Storyboard" is the authoring experience. The durable domain is a **Story Presentation Timeline**, because audio and video require duration, overlap, cue timing, and synchronization that cannot belong to a zero-duration frozen Moment.
 
-This feature defines selection, sequencing, presentation timing, generation-request orchestration, asset placement, publication, and playback contracts. It does not derive dialogue, soundscape, visual state, action arcs, or video coverage from RP prose; those are B-100 outputs. It also does not select image, speech, music, sound-effect, or video generation technology.
+This feature defines selection, sequencing, presentation timing, submission of already-compiled generation requests, approved-asset placement, publication, and playback contracts. It does not derive dialogue, soundscape, visual state, action arcs, or video coverage from RP prose; those are B-100 outputs. It does not own provider prompt compilation, generator clients, candidate validation, or asset approval, and it does not select image, speech, music, sound-effect, or video generation technology.
 
 ## Core Hierarchy
 
@@ -59,8 +60,8 @@ flowchart LR
     RP[Roleplay Workspace] -->|authoritative turns and interactions| B100[B-100 Beat and Moment Analysis]
     B100 -->|complete multimodal production plans| TL[Story Presentation Timeline]
     TL --> SB[Storyboard Studio]
-    SB -->|approved media briefs| MG[Independent Media Generators]
-    MG -->|candidate assets and provenance| SB
+    SB -->|selected B-100 compiler input| MG[Independent Media Generators]
+    MG -->|approved assets and provenance| SB
     SB -->|publish immutable revision| PUB[(Published Presentation Revision)]
     PUB --> VN[Visual Novel Player]
     B032[B-032 Image Pipeline] -->|ApprovedSceneFrame| SB
@@ -102,7 +103,8 @@ The semantic content of these tracks comes from B-100. B-101 adds presentation c
 - imports B-100 production plans and proposes presentation segments without re-analyzing source semantics;
 - exposes unresolved B-100 speaker/continuity/coverage issues plus B-101 timing/placement issues;
 - allows text projection edits while preserving the source snapshot;
-- lets users request, compare, approve, replace, or omit media assets;
+- lets users request media, inspect generator-owned candidates, open the owning approval workflow,
+  and select, replace, or omit approved assets;
 - previews the exact Back/Forward sequence and synchronized timeline;
 - publishes an immutable revision only when required validation passes.
 
@@ -139,7 +141,7 @@ The same principle applies to audio. Silence, continued ambience, and a new cue 
 | D-101-06 | Media generation consumes B-100 provider-neutral production contracts; B-101 orchestrates requests and places approved results. |
 | D-101-07 | B-100 persists exact dialogue source, speaker attribution, performance intent, and lip-sync relevance; B-101 adds voice selection and presentation timing. |
 | D-101-08 | Ambiguous or contradictory source interpretation blocks publication or requires explicit review; there is no guessed fallback. |
-| D-101-09 | Generated media candidates are immutable derivatives; explicit approval selects assets for a presentation revision. |
+| D-101-09 | Generated media candidates and approval are owned by each modality generator; B-101 selects exact approved derivatives for a presentation revision. |
 | D-101-10 | The Visual Novel Player consumes only an immutable published manifest and performs no model inference. |
 | D-101-11 | Holding prior media, continuing ambience, silence, and text-only presentation are explicit authored policies. |
 | D-101-12 | Linear playback is the first contract; branching narrative graphs are a future extension, not implicit scope. |

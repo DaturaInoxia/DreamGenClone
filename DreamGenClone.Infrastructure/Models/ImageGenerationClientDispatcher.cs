@@ -37,7 +37,11 @@ public sealed class ImageGenerationClientDispatcher : IImageGenerationClient
         {
             ImageProtocol.ComfyUi => _comfyUiClient.GenerateAsync(model, prompt, size, negativePrompt, seed, cancellationToken, options),
             ImageProtocol.ComfyUiServerless => _serverlessClient.GenerateAsync(model, prompt, size, negativePrompt, seed, cancellationToken, options),
-            _ => _openAiClient.GenerateAsync(model, prompt, size, negativePrompt, seed, cancellationToken, options)
+            ImageProtocol.OpenAiImages => _openAiClient.GenerateAsync(model, prompt, size, negativePrompt, seed, cancellationToken, options),
+            _ => throw new ImageGenerationException(
+                $"Unsupported image protocol '{model.ImageProtocol}'. Configure a supported provider protocol in Model Manager.",
+                model.ProviderName,
+                reasonCode: "unsupported_image_protocol")
         };
 
     public Task<(bool Success, string Message)> CheckImageModelHealthAsync(

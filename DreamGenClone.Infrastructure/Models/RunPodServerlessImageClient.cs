@@ -15,7 +15,7 @@ namespace DreamGenClone.Infrastructure.Models;
 /// POST <c>https://api.runpod.ai/v2/{endpointId}/run</c> with
 /// <c>{ "input": { "workflow": &lt;ComfyUI API JSON&gt; } }</c>, poll <c>/status/{jobId}</c>, then read
 /// the base64 <c>output.images[].data</c>. There are no <c>/prompt</c>, <c>/history</c>,
-/// <c>/view</c> or <c>/upload/image</c> endpoints — results come back inline (base64) in the job
+/// <c>/view</c> or <c>/upload/image</c> endpoints â€” results come back inline (base64) in the job
 /// output. The provider <c>BaseUrl</c> must be <c>https://api.runpod.ai/v2/{endpointId}</c> and the
 /// API key is the RunPod API key (Bearer, resolved via Model Manager's encrypted store or the
 /// git-ignored ModelManagerSecrets).
@@ -46,21 +46,17 @@ public sealed class RunPodServerlessImageClient : IImageGenerationClient
         SceneImageGenerationOptions? options = null)
     {
         var stopwatch = Stopwatch.StartNew();
-        var baseUrl = model.ProviderBaseUrl.TrimEnd('/');
+        var baseUrl = RequireEndpointBase(model);
+        var apiKey = RequireApiKey(model);
 
         try
         {
             var client = _httpClientFactory.CreateClient("CompletionClient");
             client.Timeout = TimeSpan.FromSeconds(model.ProviderTimeoutSeconds);
-
-            if (!string.IsNullOrEmpty(model.ApiKeyEncrypted))
-            {
-                var decryptedKey = _encryptionService.Decrypt(model.ApiKeyEncrypted);
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedKey);
-            }
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
             // Checkpoint name: the model identifier is used verbatim when it looks like a ComfyUI
-            // checkpoint filename. Any other identifier is a misconfiguration — fail fast, never a
+            // checkpoint filename. Any other identifier is a misconfiguration â€” fail fast, never a
             // silent default model.
             if (!LooksLikeFilename(model.ModelIdentifier))
             {
@@ -216,14 +212,22 @@ public sealed class RunPodServerlessImageClient : IImageGenerationClient
         ImageContentPolicy contentPolicy,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(providerBaseUrl)
+            || !Uri.TryCreate(providerBaseUrl, UriKind.Absolute, out var endpointUri)
+            || endpointUri.Scheme is not ("http" or "https"))
+        {
+            return (false, "RunPod Serverless endpoint URL is not configured correctly.");
+        }
+        if (string.IsNullOrWhiteSpace(decryptedApiKey))
+        {
+            return (false, "RunPod API key is not configured.");
+        }
+
         try
         {
             var client = _httpClientFactory.CreateClient("CompletionClient");
             client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
-            if (!string.IsNullOrEmpty(decryptedApiKey))
-            {
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedApiKey);
-            }
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedApiKey);
 
             var baseUrl = providerBaseUrl.TrimEnd('/');
             using var response = await client.GetAsync($"{baseUrl}/health", cancellationToken);
@@ -237,6 +241,43 @@ public sealed class RunPodServerlessImageClient : IImageGenerationClient
         {
             return (false, $"RunPod serverless health check failed: {ex.Message}");
         }
+    }
+
+    private static string RequireEndpointBase(ResolvedImageModel model)
+    {
+        if (string.IsNullOrWhiteSpace(model.ProviderBaseUrl)
+            || !Uri.TryCreate(model.ProviderBaseUrl, UriKind.Absolute, out var endpointUri)
+            || endpointUri.Scheme is not ("http" or "https"))
+        {
+            throw new ImageGenerationException(
+                "RunPod Serverless provider URL must be the complete endpoint base URL.",
+                model.ProviderName,
+                reasonCode: "invalid_serverless_endpoint_url");
+        }
+
+        return model.ProviderBaseUrl.TrimEnd('/');
+    }
+
+    private string RequireApiKey(ResolvedImageModel model)
+    {
+        if (string.IsNullOrWhiteSpace(model.ApiKeyEncrypted))
+        {
+            throw new ImageGenerationException(
+                "RunPod Serverless provider API key is not configured.",
+                model.ProviderName,
+                reasonCode: "missing_serverless_api_key");
+        }
+
+        var apiKey = _encryptionService.Decrypt(model.ApiKeyEncrypted);
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new ImageGenerationException(
+                "RunPod Serverless provider API key decrypted to an empty value.",
+                model.ProviderName,
+                reasonCode: "invalid_serverless_api_key");
+        }
+
+        return apiKey;
     }
 
     private static bool LooksLikeFilename(string value)

@@ -13,10 +13,9 @@ erDiagram
     PRESENTATION_SEGMENT ||--o{ AUDIO_CUE : sounds
     PRESENTATION_SEGMENT ||--o{ VISUAL_CUE : shows
     PRESENTATION_SEGMENT ||--o{ PRESENTATION_VIDEO_PLACEMENT : moves
-    PRODUCTION_BRIEF_SELECTION ||--o{ MEDIA_ASSET_CANDIDATE : generates
-    MEDIA_ASSET_CANDIDATE ||--o| APPROVED_MEDIA_ASSET : approval_creates
+    PRODUCTION_BRIEF_SELECTION ||--o{ EXTERNAL_GENERATION_REQUEST : submits
     PRESENTATION_SEGMENT ||--o{ TIMELINE_PLACEMENT : places
-    APPROVED_MEDIA_ASSET ||--o{ TIMELINE_PLACEMENT : selected_by
+    EXTERNAL_APPROVED_MEDIA_ASSET ||--o{ TIMELINE_PLACEMENT : selected_by
     PRESENTATION_REVISION ||--o| PLAYBACK_MANIFEST : publishes
 ```
 
@@ -159,21 +158,24 @@ Fields: `Id`, `RevisionId`, `OwnerType`, `OwnerId`, `MediaKind`, `BeatProduction
 
 Media kinds: `StillImage`, `Speech`, `Ambience`, `SoundEffect`, `Music`, `Video`, `LipSync`, `AudioMix`.
 
-The immutable semantic snapshot is compiled from referenced B-100 records. Provider/model selection and compiled request live on generation attempts, not this selection.
+The immutable semantic snapshot is supplied by referenced B-100 compiler inputs. Provider/model selection and compiled requests live in the owning generator, not this selection.
 
-## MediaAssetCandidate and ApprovedMediaAsset
+## ExternalGenerationRequest and ExternalApprovedMediaAsset
 
-Candidate fields: `Id`, `ProductionBriefSelectionId`, `Attempt`, `ResolvedModelSnapshotJson`, `CompiledRequestSnapshotJson`, `AssetPath`, `MimeType`, `DurationMs`, `Sha256`, `GenerationProvenanceJson`, `ValidationStatus`, timestamps.
+Generation request fields: `Id`, `ProductionBriefSelectionId`, `GeneratorKind`, `ExternalRequestId`, `SubmittedUtc`, `LastObservedStatus`, `LastObservedUtc`.
 
-Approval fields: `Id`, `CandidateId`, `ApprovalDecisionId`, `Sha256`, `ApprovedBy`, `CreatedUtc`, optional `RevokedUtc`.
+Approved-asset reference fields: `Id`, `GeneratorKind`, `ExternalApprovedAssetId`, `SemanticBriefSha256`, `CompiledRequestSha256`, `AssetSha256`, `MimeType`, `DurationMs`, `EligibilitySnapshotJson`, `ObservedUtc`.
 
-Approval never mutates the candidate. Revoked assets make dependent draft revisions invalid and published manifests historical but reproducible under retention policy.
+B-101 does not persist candidate or approval decisions. It caches only external identity, checksums,
+eligibility, and provenance needed for validation and publication. Revoked external assets make
+dependent draft revisions invalid while published manifests remain historical and reproducible under
+the owning generator's retention policy.
 
 ## TimelinePlacement
 
 Selects an approved asset onto one track.
 
-Fields: `Id`, `SegmentId`, `TrackKind`, `CueId`, `ApprovedMediaAssetId`, `StartOffsetMs`, `EndOffsetMs`, `Layer`, `MixGroup`, `TransitionJson`, `ResolvedDurationSource`, `Status`.
+Fields: `Id`, `SegmentId`, `TrackKind`, `CueId`, `ExternalApprovedMediaAssetId`, `StartOffsetMs`, `EndOffsetMs`, `Layer`, `MixGroup`, `TransitionJson`, `ResolvedDurationSource`, `Status`.
 
 Placements may overlap only where the track policy permits. Speech overlap, video-audio ownership, ambience continuation, and music ducking are validated explicitly.
 

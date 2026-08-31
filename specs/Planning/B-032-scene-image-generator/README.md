@@ -1,11 +1,19 @@
 # B-032 — Scene Image Generator Engine
 
-**State:** `planned` (large epic; Phase 1 implemented, Phase 1B vision-aware editing planned next)
-**2026-08-25 rework:** B-097 re-opened — ControlNet OpenPose + Depth conditioning is a required control starting Phase 1B/2
+**State:** `planned` (large epic; implementation and acceptance status reconciled below)
+**Program sequencing:** [Multimodal Production Program Roadmap](../multimodal-production-program-roadmap.md)
 **Priority:** low
 **Scope:** large
 **Plan author:** Copilot session 2026-08-19 (refined 2026-08-22)
 **Backlog ref:** `specs/Planning/backlog.md` → B-032
+
+> **2026-08-31 current-branch reconciliation:** Phase 1 is implemented with T068 manual acceptance
+> open. Phase 1B application infrastructure is implemented, while P1B-009/010 and P1B-036 through
+> P1B-047 remain. Phase 2 is partially implemented; its strict regional identity gate failed four
+> angled cases, so P2-023 and P2-027 through P2-032 remain decision/evidence work. The implemented
+> Scene Asset subsystem must be reconciled with Phase 2 references, Phase 3 location/wardrobe assets,
+> and Phase 4 approved frames before new overlapping stores are introduced. Use the program roadmap's
+> Exact Next-Work Queue for current-branch execution.
 
 ---
 

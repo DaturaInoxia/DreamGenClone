@@ -31,7 +31,7 @@ Speaker attribution, exact text, sound-event meaning, Beat/Moment membership, ac
 
 All edits target one draft revision and require its concurrency token. Structural edits include segment split/merge/reorder, source reassignment, and cue movement. They trigger revalidation of downstream timing and media briefs.
 
-Published revisions are immutable. Editing a published presentation first creates a new draft based on that revision. Candidate and approved assets remain reusable only when source lineage, brief version, continuity, and content policy are compatible.
+Published revisions are immutable. Editing a published presentation first creates a new draft based on that revision. Generator-owned approved assets remain reusable only when source lineage, brief version, continuity, and content policy are compatible.
 
 ## Timing Contract
 
@@ -98,32 +98,27 @@ B-100 maps dialogue cues to video line intent, on-screen speaker, and lip-sync r
 ## Media Generation Boundary
 
 ```csharp
-public interface IMultimodalProductionBriefCompiler
-{
-    string MediaKind { get; }
-    string CompilerKey { get; }
-
-    CompiledMediaRequest Compile(
-        MultimodalProductionBriefSnapshot brief,
-        ResolvedMediaModel model);
-}
-
 public interface IMediaAssetEligibilityService
 {
-    Task<ApprovedMediaAsset> RequireApprovedAsync(
-        string approvedMediaAssetId,
+    Task<ExternalApprovedMediaAsset> RequireApprovedAsync(
+        string generatorKind,
+        string externalApprovedMediaAssetId,
         MediaPlacementRequirements requirements,
         CancellationToken cancellationToken = default);
 }
 ```
 
-The `MultimodalProductionBriefSnapshot` is compiled from current B-100 production records. Model Manager declares media kind, capabilities, compiler key, content policy, duration limits, input modalities, audio/lip-sync support, and output formats. Exactly one compatible path is resolved. Missing/incompatible configuration fails before job acceptance; no media-kind fallback or raw-RP reinterpretation is allowed.
+The owning generator consumes current B-100 compiler inputs plus the exact B-101 production selection.
+It owns Model Manager capability resolution, provider request compilation, execution, candidates,
+validation, and approval. B-101 stores the external request identity and reads eligibility/provenance;
+it never invokes a provider client directly. Missing or incompatible configuration is returned
+unchanged before job acceptance; no media-kind fallback or raw-RP reinterpretation is allowed.
 
 ## Asset Approval Contract
 
-Generation completion does not make an asset eligible. Eligibility requires explicit approval, checksum verification, source/brief compatibility, required validation, and non-revoked status.
+Generation completion does not make an asset eligible. The owning generator reports eligibility only after explicit approval, checksum verification, source/brief compatibility, required validation, and non-revoked status.
 
-B-032 `ApprovedSceneFrame` is the still-image authority. B-101 may reference it directly or through an `ApprovedMediaAsset` adapter record, but must not create a competing still-image approval path.
+B-032 `ApprovedSceneFrame` is the still-image authority. B-101 may reference it directly or through an external approved-asset adapter record, but must not create a competing still-image approval path.
 
 Audio/video validation policies are future implementation packages. Until configured automation exists, explicit human review is required; the system must not fabricate validation success.
 

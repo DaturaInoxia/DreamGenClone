@@ -1,8 +1,14 @@
-# B-101 — Migrate RunPod image workloads from dedicated pods to Serverless
+# B-102 — Migrate RunPod image workloads from dedicated pods to Serverless
 
-**Status:** `new` (design draft)
+**Status:** `debugging` (active implementation and qualification)
 **Date:** 2026-08-27
 **Related:** B-032 (scene image engine), B-097 (pose/layout control), B-098/B-099 (Pony/SDXL paths)
+
+> **Identifier correction (2026-08-28):** B-101 is reserved for Story Presentation. This stream is
+> B-102. The folder keeps its old name temporarily to avoid disrupting active uncommitted work and
+> should be moved to `B-102-serverless-migration` in a dedicated clean rename after stabilization.
+> Cross-epic sequencing is controlled by
+> [`../multimodal-production-program-roadmap.md`](../multimodal-production-program-roadmap.md).
 
 **Progress (2026-08-27):** concept confirmed (same pattern ×5; DWPose first as infra proof);
 scaffold created under `helpers/runpod/serverless/` — `README.md` (no-local-Docker build options),
@@ -344,7 +350,7 @@ Serverless handlers lets handlers be developed/tested locally in a container bef
   record the Serverless migration and mark the pods retired. Update `GPU-SELECTION.md` + runbook
   docs with the Serverless workflow.
 - **P6 — Docs + backlog close:** update `.github/instructions/*` runbooks, snapshot DB refresh not
-  needed (no data-model change beyond new provider rows), close B-101.
+  needed (no data-model change beyond new provider rows), close B-102.
 
 ## 7. Rollback strategy
 
@@ -365,3 +371,97 @@ Serverless handlers lets handlers be developed/tested locally in a container bef
 4. **Live Serverless pricing** must be confirmed (pod catalog is a proxy).
 5. **NSFW content on Serverless** — RunPod Serverless is generally permissive, but the adult-content
    editing path should be validated on the endpoint (same as the Qwen proof did on the pod).
+
+## 9. BigLust Serverless endpoint plan
+
+**Scope:** Add BigLust as a separate SDXL text-to-image Serverless endpoint and integrate it into the
+application without changing or removing `img-juggernaut-serverless` (`p3e3708j6s9oa6`). The initial
+qualification uses a small subset of the existing image-generator tests; the full Juggernaut catalog
+is not required.
+
+### 9.1 Artifact gate
+
+Use **BigLust v1.6 standard**, the current published Big Lust SDXL checkpoint:
+
+- checkpoint: `bigLust_v16.safetensors`
+- base: SDXL 1.0
+- Civitai model/version: `575395` / `1081768`
+- Civitai file: `986850`
+- SHA-256: `4C1E096B9493DBB5C0AB84FD80FD20AA64817544E565DDA95A45C637FC839AAF`
+- approximate size: 6.5 GB
+- intended domain: adult-oriented / not-for-all-audiences BigASP + Lustify lineage
+
+Before deployment, record the canonical source URL, complete SHA-256, exact byte count, license, and
+mirror URL. Verify the mirror hash against the canonical artifact. An incomplete hash or a search result
+is not sufficient to pass this gate.
+
+### 9.2 Endpoint and storage work
+
+1. Verify capacity for BigLust on the existing Network Volume `xkslgh6xo0`; create a separate volume if
+  sharing would compromise capacity or rollback isolation.
+2. Store the verified checkpoint at
+  `/runpod-volume/models/checkpoints/bigLust_v16.safetensors`.
+3. Add `img-biglust-serverless` to `helpers/runpod/serverless/endpoints.json`. Do not edit the existing
+  Juggernaut entry.
+4. Use the official `runpod/worker-comfyui:5.8.4-base` contract with scale-to-zero, one maximum worker,
+  a cold-start-capable job timeout, and an SDXL-compatible GPU pool.
+5. Add `helpers/runpod/workflows/biglust-t2i.json` using `CheckpointLoaderSimple`, SDXL text
+  conditioning, `EmptyLatentImage`, `KSampler`, `VAEDecode`, and `SaveImage`. Expose prompt, negative
+  prompt, seed, dimensions, sampler, scheduler, steps, and CFG. Do not use DMD2-specific settings.
+
+### 9.3 Reduced endpoint qualification matrix
+
+Run these checks only:
+
+1. **Technical smoke:** standard SDXL portrait workflow; proves checkpoint loading, PNG output, cold
+  start, and warm execution.
+2. **Adult-target behavior:** reuse `juggernaut-nsfw-standing-test`; proves adult-oriented prompting is
+  not blanked, refused, or replaced by a mannequin-like result.
+3. **Two-person composition:** reuse `juggernaut-nsfw-missionary-test` or
+  `juggernaut-nsfw-spooning-test`; proves distinct subjects and relationship fidelity.
+4. **Close-up anatomy/negative prompt:** reuse `juggernaut-nsfw-cowgirl-penetration-closeup-test`; proves
+  the highest-risk adult behavior and anatomy-focused negative prompt.
+
+For each case, record completion status, cold/warm timing, valid PNG output, prompt fidelity, subject
+count, anatomy quality, censorship/blanking behavior, negative-prompt behavior, and fixed-seed
+repeatability. Use existing Juggernaut result images as qualitative references; do not rerun the full
+Juggernaut suite.
+
+Do not initially run the full position catalog, all close-up variants, multi-person orgy cases,
+identity-conditioning cases, Qwen cases, or DMD2/FP8-specific cases. Identity tests become a separate
+qualification gate only if BigLust is selected for the identity-conditioned rendering path.
+
+### 9.4 Application integration
+
+The current image dispatcher supports OpenAI Images and direct ComfyUI HTTP, but not RunPod Serverless.
+Add an additive Serverless image protocol and a reusable Infrastructure client that:
+
+- submits `POST /v2/{endpointId}/run` jobs;
+- polls `GET /v2/{endpointId}/status/{jobId}` with timeout and cancellation;
+- parses `output.images[].data` from the official base64 response;
+- returns decoded image bytes through `IImageGenerationClient`;
+- preserves existing OpenAI and direct-ComfyUI providers for rollback.
+
+Add the required persisted Serverless provider fields, Model Manager editing and validation, and a
+BigLust model entry using `bigLust_v16.safetensors`. Serverless health testing must submit a small
+workflow job; it cannot reuse the OpenAI `/v1/images/generations` probe.
+
+### 9.5 Focused automated tests
+
+Add unit coverage for Serverless URL/authentication, workflow payload construction, async polling,
+completed and failed jobs, timeout/cancellation, malformed output, base64 PNG decoding, dispatcher
+selection, negative-prompt propagation, seed propagation, and preservation of direct-ComfyUI behavior.
+Use `DreamGenClone.Tests/RolePlay/ComfyUIImageClientTests.cs` as the nearest existing test pattern.
+
+The application round trip is one additional real endpoint test: generate one normal scene and one
+adult-target scene through the normal application path, then verify provider resolution, persistence,
+provenance/model logging, retry behavior, and gallery/UI display.
+
+### 9.6 Cutover and completion gate
+
+Register BigLust as a selectable model first. Change the application default mapping only after the
+endpoint subset and application round trip pass. Keep Juggernaut available as the rollback provider.
+
+Done means the model artifact is fully verified, cold and warm jobs succeed, the adult-target behavior
+passes, the application generates and persists BigLust images, focused unit tests and the affected .NET
+test project pass, and the endpoint ID, volume ID, timings, hash, and rollback instructions are recorded.
