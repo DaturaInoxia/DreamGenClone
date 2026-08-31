@@ -19,5 +19,5 @@ public interface ISceneImageEditPromptCompiler
 {
     SceneImageEditCompilerMessages BuildMessages(SceneImageEditCompilerContext context);
 
-    SceneImageEditCompilationResult Parse(string rawResponse);
+    SceneImageEditCompilationResult Parse(string rawResponse, int imageWidth, int imageHeight);
 }

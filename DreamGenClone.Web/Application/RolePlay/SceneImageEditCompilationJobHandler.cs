@@ -105,7 +105,7 @@ public sealed class SceneImageEditCompilationJobHandler : IBackgroundJobHandler
                 cancellationToken);
 
             attempt.RawModelResponse = completion.Content;
-            var result = _compiler.Parse(completion.Content);
+            var result = _compiler.Parse(completion.Content, input.Width, input.Height);
             attempt.ParsedResultJson = JsonSerializer.Serialize(result, JsonOptions);
             attempt.Status = result.Status switch
             {
