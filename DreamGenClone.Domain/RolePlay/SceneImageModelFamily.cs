@@ -50,7 +50,8 @@ public static class SceneImageModelFamilyResolver
             || id.Contains("sdxl", StringComparison.OrdinalIgnoreCase)
             || id.Contains("realvis", StringComparison.OrdinalIgnoreCase)
             || id.Contains("realistic vision", StringComparison.OrdinalIgnoreCase)
-            || id.Contains("lustify", StringComparison.OrdinalIgnoreCase))
+            || id.Contains("lustify", StringComparison.OrdinalIgnoreCase)
+            || id.Contains("biglust", StringComparison.OrdinalIgnoreCase))
         {
             return SceneImageModelFamily.Sdxl;
         }

@@ -17,9 +17,9 @@ public sealed class SceneImageModelFamilyTests
     [InlineData("juggernautXL_ragnarok.safetensors")]
     [InlineData("sd_xl_base_1.0.safetensors")]
     [InlineData("RealVisXL_V4.0.safetensors")]
-    [InlineData("juggernautXL_ragnarok.safetensors")]
     [InlineData("lustifyNSFWCheckpoint_zenithV9.safetensors")]
     [InlineData("lustifyNSFWCheckpoint_apexV8.safetensors")]
+    [InlineData("bigLust_v16.safetensors")]
     public void Classify_SdxlIdentifier_ReturnsSdxl(string checkpoint)
     {
         Assert.Equal(SceneImageModelFamily.Sdxl, SceneImageModelFamilyResolver.Classify(checkpoint));
