@@ -44,7 +44,7 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
             CreateResponseSchema());
     }
 
-    public SceneImageEditCompilationResult Parse(string rawResponse)
+    public SceneImageEditCompilationResult Parse(string rawResponse, int imageWidth = 0, int imageHeight = 0)
     {
         if (string.IsNullOrWhiteSpace(rawResponse))
             throw new InvalidOperationException("Scene image edit compiler returned empty output.");
@@ -77,7 +77,7 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
                 SchemaVersion = schemaVersion,
                 Status = status,
                 SourceSummary = RequiredString(root, "sourceSummary"),
-                Targets = ParseTargets(Required(root, "targets")),
+                Targets = ParseTargets(Required(root, "targets"), imageWidth, imageHeight),
                 RequestedChanges = ParseStringArray(Required(root, "requestedChanges"), "requestedChanges"),
                 Preserve = ParseStringArray(Required(root, "preserve"), "preserve"),
                 ClarificationQuestion = OptionalString(root, "clarificationQuestion"),
@@ -194,7 +194,7 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
         }
     }
 
-    private static List<SceneImageEditTarget> ParseTargets(JsonElement element)
+    private static List<SceneImageEditTarget> ParseTargets(JsonElement element, int imageWidth, int imageHeight)
     {
         if (element.ValueKind != JsonValueKind.Array)
             throw new InvalidOperationException("Compiler targets must be an array.");
@@ -212,12 +212,12 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
             var key = RequiredString(value, "key");
             if (!keys.Add(key))
                 throw new InvalidOperationException("Compiler target keys must be unique.");
-            targets.Add(new SceneImageEditTarget { Key = key, VisibleLocator = RequiredString(value, "visibleLocator"), Region = ParseRegion(Required(value, "region")) });
+            targets.Add(new SceneImageEditTarget { Key = key, VisibleLocator = RequiredString(value, "visibleLocator"), Region = ParseRegion(Required(value, "region"), imageWidth, imageHeight) });
         }
         return targets;
     }
 
-    private static SceneImageEditTargetRegion? ParseRegion(JsonElement element)
+    private static SceneImageEditTargetRegion? ParseRegion(JsonElement element, int imageWidth, int imageHeight)
     {
         if (element.ValueKind == JsonValueKind.Null)
             return null;
@@ -227,8 +227,29 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
         if (properties.Count != 4 || properties.Any(property => property.Name is not ("x" or "y" or "width" or "height")))
             throw new InvalidOperationException("Compiler target region has unknown, missing, or duplicate fields.");
 
-        var region = new SceneImageEditTargetRegion { X = RequiredNumber(element, "x"), Y = RequiredNumber(element, "y"), Width = RequiredNumber(element, "width"), Height = RequiredNumber(element, "height") };
-        if (region.X < 0 || region.Y < 0 || region.Width <= 0 || region.Height <= 0 || region.X + region.Width > 1 || region.Y + region.Height > 1)
+        var x = RequiredNumber(element, "x");
+        var y = RequiredNumber(element, "y");
+        var width = RequiredNumber(element, "width");
+        var height = RequiredNumber(element, "height");
+
+        // Local backends (LM Studio / llama.cpp) do not enforce the schema's numeric bounds, so a
+        // vision model can emit PIXEL coordinates (e.g. x=690, width=720 on a 1024px image) instead
+        // of normalized 0..1 fractions. Convert pixels to normalized using the known source image
+        // dimensions, then clamp into the valid [0,1] range. Without dimensions we fail fast on
+        // pixel-scale values rather than guessing.
+        if (x > 1 || y > 1 || width > 1 || height > 1)
+        {
+            if (imageWidth <= 0 || imageHeight <= 0)
+                throw new InvalidOperationException("Compiler target region is pixel-scale, but no source image dimensions were provided to normalize it.");
+            x = Math.Clamp(x / imageWidth, 0.0, 1.0);
+            y = Math.Clamp(y / imageHeight, 0.0, 1.0);
+            width = Math.Clamp(width / imageWidth, 0.0, 1.0 - x);
+            height = Math.Clamp(height / imageHeight, 0.0, 1.0 - y);
+        }
+
+        var region = new SceneImageEditTargetRegion { X = x, Y = y, Width = width, Height = height };
+        if (region.X < 0 || region.Y < 0 || region.Width <= 0 || region.Height <= 0
+            || region.X + region.Width > 1.000000001 || region.Y + region.Height > 1.000000001)
             throw new InvalidOperationException("Compiler target region must be normalized and contained within the image.");
         return region;
     }

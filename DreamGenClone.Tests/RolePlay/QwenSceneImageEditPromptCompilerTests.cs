@@ -212,6 +212,55 @@ public sealed class QwenSceneImageEditPromptCompilerTests
         Assert.Throws<InvalidOperationException>(() => _compiler.Parse(json));
     }
 
+    [Fact]
+    public void Parse_PixelScaleRegion_NormalizesUsingSourceDimensions()
+    {
+        // Real observed output from the local LM Studio backend (llama.cpp grammar does not
+        // enforce the schema's 0..1 bounds): pixel coordinates on a 1024x1024 image.
+        var json = ReadyJson().Replace(
+            "{\"x\":0.20,\"y\":0.10,\"width\":0.30,\"height\":0.70}",
+            "{\"x\":690,\"y\":435,\"width\":720,\"height\":180}",
+            StringComparison.Ordinal);
+
+        var result = _compiler.Parse(json, 1024, 1024);
+
+        Assert.Equal(SceneImageEditCompilationResultStatus.Ready, result.Status);
+        var region = result.Targets[0].Region!;
+        Assert.Equal(690.0 / 1024.0, region.X, 6);
+        Assert.Equal(435.0 / 1024.0, region.Y, 6);
+        Assert.Equal(1.0 - 690.0 / 1024.0, region.Width, 6); // clamped to stay inside the image
+        Assert.Equal(180.0 / 1024.0, region.Height, 6);
+        Assert.InRange(region.X + region.Width, 0.999999, 1.000001);
+    }
+
+    [Fact]
+    public void Parse_PixelScaleRegion_WithoutDimensions_FailsFast()
+    {
+        var json = ReadyJson().Replace(
+            "{\"x\":0.20,\"y\":0.10,\"width\":0.30,\"height\":0.70}",
+            "{\"x\":690,\"y\":435,\"width\":720,\"height\":180}",
+            StringComparison.Ordinal);
+
+        Assert.Throws<InvalidOperationException>(() => _compiler.Parse(json));
+    }
+
+    [Fact]
+    public void Parse_PixelScaleRegion_ClampsOverflowIntoImage()
+    {
+        // Box that overflows the image width in pixels (x=1000, width=200 -> 1200 > 1024).
+        var json = ReadyJson().Replace(
+            "{\"x\":0.20,\"y\":0.10,\"width\":0.30,\"height\":0.70}",
+            "{\"x\":1000,\"y\":100,\"width\":200,\"height\":100}",
+            StringComparison.Ordinal);
+
+        var result = _compiler.Parse(json, 1024, 1024);
+
+        Assert.Equal(SceneImageEditCompilationResultStatus.Ready, result.Status);
+        var region = result.Targets[0].Region!;
+        Assert.InRange(region.X + region.Width, 0.999999, 1.000001);
+        Assert.InRange(region.Y + region.Height, 0.0, 1.0);
+    }
+
     private static string ReadyJson() => """
         {
           "schemaVersion":"scene-image-edit-compiler-v1",
