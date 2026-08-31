@@ -224,19 +224,19 @@
     },
     {
       "endpointKey": "img-biglust-serverless",
-      "function": "SDXL / BigLust 1.6 adult-oriented text-to-image",
-      "capability": "TextToImage",
-      "status": "working-validated; reduced-qualification-passed; application-round-trip-pending",
+      "function": "SDXL / BigLust 1.6 adult-oriented text-to-image + IP-Adapter identity conditioning",
+      "capability": "TextToImage + IdentityConditioning",
+      "status": "working-validated; reduced-qualification-passed; ipadapter-added-2026-08-31-pending-smoke; application-round-trip-pending",
       "endpointId": "ovwnwol2o30grn",
       "requestUrls": {
         "run": "https://api.runpod.ai/v2/ovwnwol2o30grn/run",
         "runSync": "https://api.runpod.ai/v2/ovwnwol2o30grn/runsync",
         "health": "https://api.runpod.ai/v2/ovwnwol2o30grn/health"
       },
-      "deployment": "STOCK runpod/worker-comfyui:5.8.4-base with the verified checkpoint served from a Network Volume.",
-      "workerImage": "runpod/worker-comfyui:5.8.4-base",
-      "workerDir": "",
-      "baseImage": "runpod/worker-comfyui:5.8.4-base (official)",
+      "deployment": "REUSES the identity-worker image (RunPod GitHub Integration build of helpers/runpod/serverless/identity-worker/Dockerfile: runpod/worker-comfyui:5.8.4-base + comfy-node-install ComfyUI_IPAdapter_plus). PATCHed 2026-08-31 from the stock base to add IP-Adapter. Checkpoint + ipadapter/ + clip_vision/ all live on Network Volume xkslgh6xo0.",
+      "workerImage": "registry.runpod.net/daturainoxia-dreamgenclone-master-helpers-runpod-serverless-juggernaut-identity-worker-dockerfile:3d428020d",
+      "workerDir": "helpers/runpod/serverless/identity-worker",
+      "baseImage": "runpod/worker-comfyui:5.8.4-base (official) + ComfyUI_IPAdapter_plus",
       "apiContract": "OFFICIAL worker-comfyui: input.workflow + input.images -> output.images",
       "minWorkers": 0,
       "maxWorkers": 1,
@@ -283,10 +283,10 @@
         "fullJuggernautSuite": "deferred"
       },
       "persistence": {
-        "standard": "Model on Network Volume xkslgh6xo0; worker image is immutable stock base.",
+        "standard": "Checkpoint + ipadapter/ + clip_vision/ on Network Volume xkslgh6xo0; worker image is the immutable identity-worker image (IP-Adapter enabled).",
         "restartProof": "pending"
       },
-      "note": "Separate BigLust endpoint. Do not modify img-juggernaut-serverless."
+      "note": "Separate BigLust endpoint. Do not modify img-juggernaut-serverless. IP-Adapter added 2026-08-31 by PATCHing the worker image to the identity-worker build (3d428020d) - same image tag as the Juggernaut identity endpoint; checkpoint stays bigLust_v16.safetensors via the workflow."
     }
   ]
 }

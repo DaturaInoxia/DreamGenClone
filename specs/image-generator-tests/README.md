@@ -13,6 +13,10 @@ comparisons. Existing folders remain the canonical evidence packages and are not
 ```
 image-generator-tests/
 ├── TEST-MATRIX.md              # cross-suite qualification matrix and coverage status
+├── TEST-MATRIX-PROMPTS.json    # consolidated simple BigLust positive prompts (one per matrix cell)
+├── biglust/                    # BigLust v1.6 text-to-image + IP-Adapter identity matrix (dated runs)
+│   ├── run_biglust_identity.py #   identity-conditioned runner (single-char + multiangle)
+│   └── runs/                   #   dated comparable runs: <ts>/{-label}/images, prompts, manifest.json
 ├── baseline/                   # model-agnostic position/act prompt catalog (32 positions)
 │   ├── positions/              #   neutral scene + per-model variants (SDXL/Pony/Qwen)
 │   └── manifest.json           #   hashes + actor metadata

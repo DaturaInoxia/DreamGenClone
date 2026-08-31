@@ -1,0 +1,188 @@
+{
+  "suite": "biglust-identity-matrix",
+  "model": "BigLust v1.6 (bigLust_v16.safetensors, IP-Adapter PLUS FACE)",
+  "runDir": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity",
+  "generatedUtc": "2026-08-31T19:56:19.554432Z",
+  "cells": [
+    {
+      "id": "identity-1p-dean",
+      "suite": "single",
+      "seed": 1781932584,
+      "result": "PASS",
+      "jobId": "025d743a-04ae-43a7-9fd1-9d98143c3133-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-1p-dean.png",
+      "sha256": "49897f8aa2cf2aad0b4a3159b2ed8e4f472991eee54f05e9a7b5c1331d7bbf30"
+    },
+    {
+      "id": "identity-1p-becky",
+      "suite": "single",
+      "seed": 1661339601,
+      "result": "PASS",
+      "jobId": "0548a186-5692-4d2c-a330-5e33200ee885-u1",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-1p-becky.png",
+      "sha256": "3a25d1d650b31229b08cac3aa385fd4caa451e53845056a6b3cd60c9e578882d"
+    },
+    {
+      "id": "identity-ma-c1",
+      "suite": "multiangle",
+      "seed": 56664161,
+      "result": "PASS",
+      "jobId": "d9f71342-d58b-45d5-91fe-de99f937ec9f-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-ma-c1.png",
+      "sha256": "19b3f025d2f500e84920882482811d20ce9250888b10ed1313c7024af50ec8c7"
+    },
+    {
+      "id": "identity-ma-c2",
+      "suite": "multiangle",
+      "seed": 915968189,
+      "result": "PASS",
+      "jobId": "589e9be6-cd18-4dec-9f85-ff24bcb2551e-u1",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-ma-c2.png",
+      "sha256": "cf3c7cb966302a0e0e6ed4a18bab0fe0f52af6b36176ea10c85b0627c3bbf567"
+    },
+    {
+      "id": "identity-ma-c3",
+      "suite": "multiangle",
+      "seed": 167017627,
+      "result": "PASS",
+      "jobId": "f4d0d89c-7c8d-4f48-b3e4-ff34daccd40e-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-ma-c3.png",
+      "sha256": "fdbf9190b227a705d2045ffc450516b3217ddb2dc5544779be44562fd7f7d31c"
+    },
+    {
+      "id": "identity-ma-c4",
+      "suite": "multiangle",
+      "seed": 93362088,
+      "result": "PASS",
+      "jobId": "a642184a-fdcf-427a-a2c8-8a36070b0744-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-ma-c4.png",
+      "sha256": "7b4e0f78aaf4be869e39e395709eeb71e022ab6cd1d16855cc57d9e038bf6a1f"
+    },
+    {
+      "id": "identity-ma-c5",
+      "suite": "multiangle",
+      "seed": 1794026091,
+      "result": "PASS",
+      "jobId": "8e576386-e812-4d87-b51f-db090b4a8185-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-ma-c5.png",
+      "sha256": "d39ba6211e4cf2d2cd65e2708f1dc67551f694186e6c6cb0a01749bce2d487c3"
+    },
+    {
+      "id": "identity-ma-c6",
+      "suite": "multiangle",
+      "seed": 502168825,
+      "result": "PASS",
+      "jobId": "a03b65ee-a790-4963-bf41-21eb5c31ceed-u1",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-ma-c6.png",
+      "sha256": "0e853282541c194afcb3445e9db6b202a3727af64ee40bb15ea7999aaadd8a30"
+    },
+    {
+      "id": "identity-ma-fellatio-side",
+      "suite": "multiangle",
+      "seed": 89266645,
+      "result": "PASS",
+      "jobId": "4e218e6d-51fc-4a7b-9904-fbcb8a0aec21-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-ma-fellatio-side.png",
+      "sha256": "e08a7f7ca53de5096fa2fd7112eb223ad3ed331f29087047f9d7768c3d77fdb6"
+    },
+    {
+      "id": "identity-pos-missionary",
+      "suite": "position",
+      "seed": 1226229715,
+      "result": "PASS",
+      "jobId": "3cdcb3a6-5540-4fa9-8db8-4929830666d2-u1",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-pos-missionary.png",
+      "sha256": "f5adc218ed3a1f9601b0518f9b493028ae331745ef75af0f54172831dbec0c4f"
+    },
+    {
+      "id": "identity-pos-doggy",
+      "suite": "position",
+      "seed": 1150525437,
+      "result": "PASS",
+      "jobId": "3b27fc47-929a-486d-b056-3b7cb4e4a03b-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-pos-doggy.png",
+      "sha256": "e15a8fc995ede8f0495e58005b13e5326c7d87d03c11302548ce6eb72e9d309d"
+    },
+    {
+      "id": "identity-pos-cowgirl",
+      "suite": "position",
+      "seed": 1538796868,
+      "result": "PASS",
+      "jobId": "131d8d31-50e7-4258-b648-3d8643d0b6e6-u1",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-pos-cowgirl.png",
+      "sha256": "35761109a1897ff9c2e9c0678fb8f643fa92ce2283aca9e85ba75122d5c379af"
+    },
+    {
+      "id": "identity-pos-fellatio",
+      "suite": "position",
+      "seed": 1233203109,
+      "result": "PASS",
+      "jobId": "64e15c6d-2527-4553-8990-d9069a819cca-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-pos-fellatio.png",
+      "sha256": "1bb28170ed46c64dfcd3289903baf7674b9c148b7201cea50f907ba99b3dfad2"
+    },
+    {
+      "id": "identity-pos-cunnilingus",
+      "suite": "position",
+      "seed": 1658053710,
+      "result": "PASS",
+      "jobId": "65de7ed6-5c7d-46a2-b843-711ffb291179-u1",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-pos-cunnilingus.png",
+      "sha256": "b8746fa7dccabc56eca7ccb92985102cd956ef59875afa7f9a32bb83bfa15e90"
+    },
+    {
+      "id": "identity-solo-becky-down-top",
+      "suite": "solo",
+      "seed": 1067226760,
+      "result": "PASS",
+      "jobId": "ab353b68-2fe4-40a2-9b01-d39866234e85-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-solo-becky-down-top.png",
+      "sha256": "796a47ea08d2692532d8bb9c1668bdb6181e2c08517eca6b68470c7e17ffc6c4"
+    },
+    {
+      "id": "identity-solo-becky-upskirt",
+      "suite": "solo",
+      "seed": 1571659256,
+      "result": "PASS",
+      "jobId": "37876b37-bf86-49c0-b325-cf0bc382e1b8-u1",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-solo-becky-upskirt.png",
+      "sha256": "391fb23bc47bce7542f6ad006993b7a6d0b7653643ca26a04a4da57d87380417"
+    },
+    {
+      "id": "identity-solo-becky-masturbation",
+      "suite": "solo",
+      "seed": 1519644204,
+      "result": "PASS",
+      "jobId": "898fdac3-aa75-4534-b7b7-1ded55aeaebc-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-solo-becky-masturbation.png",
+      "sha256": "ad5de1fed5615bd82566580a6f31db861ce5f665ac82517067a09b6527c8984c"
+    },
+    {
+      "id": "identity-solo-dean-non-erect",
+      "suite": "solo",
+      "seed": 1301976791,
+      "result": "PASS",
+      "jobId": "5f537364-6e21-417b-b863-010f6910cc5f-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-solo-dean-non-erect.png",
+      "sha256": "cb34f1346a943f8a75e7b6a85fa231854cf4e733d4f1ce4d3a43068562b8f78d"
+    },
+    {
+      "id": "identity-solo-dean-erect",
+      "suite": "solo",
+      "seed": 1299254615,
+      "result": "PASS",
+      "jobId": "1a58400e-d55b-41f6-8a5a-f94cfc62ea40-u1",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-solo-dean-erect.png",
+      "sha256": "c467d0a46ae2ce3cd58187054c13365246f9503c514cb7fb85c4a576a94c640c"
+    },
+    {
+      "id": "identity-solo-dean-cumshot",
+      "suite": "solo",
+      "seed": 2008943677,
+      "result": "PASS",
+      "jobId": "96b498b0-bfc1-4059-ae04-5440a40b0c3f-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-08-31_154551-identity/images/identity-solo-dean-cumshot.png",
+      "sha256": "f3658c89f60dd5b4efcc503d4d4fad794c0380bffb73542b8a2a0d0434e80604"
+    }
+  ]
+}

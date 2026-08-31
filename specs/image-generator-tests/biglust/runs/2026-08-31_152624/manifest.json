@@ -1,0 +1,217 @@
+{
+    "suite":  "biglust-matrix",
+    "model":  "BigLust v1.6 (bigLust_v16.safetensors, SDXL text-to-image, no edits)",
+    "runDir":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624",
+    "generatedUtc":  "2026-08-31T19:32:55.2978714Z",
+    "cells":  [
+                  {
+                      "id":  "sfw-identity-1p-becky",
+                      "suite":  "sfw-identity",
+                      "pose":  "neutral portrait",
+                      "seed":  128629112,
+                      "prompt":  "Photorealistic portrait of one adult woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, wearing a casual top, standing facing the camera, neutral expression, soft studio lighting, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "c614d94b-1c03-4291-aafd-9e14b6c27cf8-u1",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/sfw-identity-1p-becky.png",
+                      "sha256":  "E1E02D8728C17DE08E79828DB537B4142D6C45C67660FE370FC01615D0BFFF6B"
+                  },
+                  {
+                      "id":  "sfw-identity-1p-dean",
+                      "suite":  "sfw-identity",
+                      "pose":  "neutral portrait",
+                      "seed":  128629113,
+                      "prompt":  "Photorealistic portrait of one adult man with short brown hair, stubble, blue eyes, and broad shoulders, wearing a t-shirt, standing facing the camera, neutral expression, soft studio lighting, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "c37604fd-4149-486c-9f89-8430b0d9125d-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/sfw-identity-1p-dean.png",
+                      "sha256":  "C9D216DEE4D224B3876BAE32C5F516188C34500D37FCA0536E37987CA1690241"
+                  },
+                  {
+                      "id":  "sfw-identity-2p",
+                      "suite":  "sfw-identity",
+                      "pose":  "neutral clothed composition",
+                      "seed":  128629114,
+                      "prompt":  "Photorealistic photo of a man and a woman standing side by side facing the camera, the man with short brown hair, stubble, blue eyes, and broad shoulders wearing a t-shirt and shorts, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs wearing a sundress, both fully clothed, neutral expressions, bright daylight, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "6d309fda-ad1f-4b7c-b634-270e097ca66f-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/sfw-identity-2p.png",
+                      "sha256":  "4C12DA123200442D972C31A75CFEAA3CB9B123910D15B42CC410760E94E6D11A"
+                  },
+                  {
+                      "id":  "stock-nsfw-missionary",
+                      "suite":  "stock-nsfw",
+                      "pose":  "missionary",
+                      "seed":  128629115,
+                      "prompt":  "Photorealistic explicit sex scene, one adult man and one adult woman on a bed, the man on top face to face in missionary position, his erect penis penetrating her vagina, full genital contact, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "f96b5173-b294-493a-b559-fab5d27366b4-u1",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/stock-nsfw-missionary.png",
+                      "sha256":  "D2118F4EB708822FA3012589F6E7AD90A47F0BB5B3CA102A170DD9169A525919"
+                  },
+                  {
+                      "id":  "stock-nsfw-doggy",
+                      "suite":  "stock-nsfw",
+                      "pose":  "doggy",
+                      "seed":  128629116,
+                      "prompt":  "Photorealistic explicit sex scene, one adult man and one adult woman on a bed, the woman on her hands and knees with her back arched, the man kneeling behind her, his erect penis visibly entering her vagina from behind, clear penetration, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "f35304f2-e91d-450d-ad86-d54809ac687f-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/stock-nsfw-doggy.png",
+                      "sha256":  "B095DAF3E992153FCDD966EB720B6830BEC26DDF46510D6BC887D65D312D2DA7"
+                  },
+                  {
+                      "id":  "stock-nsfw-cowgirl",
+                      "suite":  "stock-nsfw",
+                      "pose":  "cowgirl",
+                      "seed":  128629117,
+                      "prompt":  "Photorealistic explicit sex scene, one adult man and one adult woman on a bed, the man lying on his back, the woman straddling him on top facing him in cowgirl position, lowering herself onto his erect penis, full genital contact, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "9aed52ca-42df-4bdf-8187-d78a97c8dfc0-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/stock-nsfw-cowgirl.png",
+                      "sha256":  "F3C578458A626FAC13C657CFD2A1F8189DE9691B40647EC6EAB1DFF5ECB62BD7"
+                  },
+                  {
+                      "id":  "stock-nsfw-fellatio",
+                      "suite":  "stock-nsfw",
+                      "pose":  "fellatio",
+                      "seed":  128629118,
+                      "prompt":  "Photorealistic explicit sex scene, one adult man and one adult woman, the woman kneeling in front of the standing man taking his erect penis into her mouth, fellatio oral sex, clear oral contact, correct penis anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "fa1162f8-9a62-402d-babc-3b09209818ba-u1",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/stock-nsfw-fellatio.png",
+                      "sha256":  "FBCB7DC26F989019EE0846BC118A0E2AAE4C8AC7EFDFB9FDDB1CC06598DDE281"
+                  },
+                  {
+                      "id":  "stock-nsfw-cunnilingus",
+                      "suite":  "stock-nsfw",
+                      "pose":  "cunnilingus",
+                      "seed":  128629119,
+                      "prompt":  "Photorealistic explicit sex scene, one adult man and one adult woman, the woman lying on her back with her legs open, the man positioned between her legs performing cunnilingus on her vagina, clear oral contact, correct anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "a2feaa69-a875-4ea0-a8bc-5b0e7f0bfe38-u1",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/stock-nsfw-cunnilingus.png",
+                      "sha256":  "6E99E1073A6AD6A3B760FE9DE2A2AAB85CF64C8C71ACD7DB685D5629B946B83B"
+                  },
+                  {
+                      "id":  "stock-nsfw-identity-missionary",
+                      "suite":  "stock-nsfw-identity",
+                      "pose":  "missionary",
+                      "seed":  128629120,
+                      "prompt":  "Photorealistic explicit sex scene of a man and a woman on a bed, the man with short brown hair, stubble, blue eyes, and broad shoulders, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, the man lying on top of the woman face to face in missionary position, his erect penis penetrating her vagina, full genital contact, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "75e19427-4339-4d72-b0ec-c6f7f38643de-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/stock-nsfw-identity-missionary.png",
+                      "sha256":  "D9B66A71205CF832A5323E50E4969A54468B29CDF3AC6885FC5C263C15DB685D"
+                  },
+                  {
+                      "id":  "stock-nsfw-identity-doggy",
+                      "suite":  "stock-nsfw-identity",
+                      "pose":  "doggy",
+                      "seed":  128629121,
+                      "prompt":  "Photorealistic explicit sex scene of a man and a woman on a bed, the man with short brown hair, stubble, blue eyes, and broad shoulders, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, the woman on her hands and knees with her back arched, the man kneeling behind her, his erect penis visibly entering her vagina from behind, clear penetration, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "1a647d1c-8164-4a71-98f6-bb286e3066e8-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/stock-nsfw-identity-doggy.png",
+                      "sha256":  "F748E7683555E57FCBB823C8E10DDE6B046DDAC8C8B879F2D4D8656FED3DC6DA"
+                  },
+                  {
+                      "id":  "stock-nsfw-identity-cowgirl",
+                      "suite":  "stock-nsfw-identity",
+                      "pose":  "cowgirl",
+                      "seed":  128629122,
+                      "prompt":  "Photorealistic explicit sex scene of a man and a woman on a bed, the man with short brown hair, stubble, blue eyes, and broad shoulders, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, the man lying on his back, the woman straddling him on top facing him in cowgirl position, lowering herself onto his erect penis, full genital contact, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "05d6c2c0-b257-4f7d-8654-187299260ee5-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/stock-nsfw-identity-cowgirl.png",
+                      "sha256":  "A7A313011B4EEA591F7C4EEED766EB6C3F1CBF6C4B9A81EFFA0517112A43E368"
+                  },
+                  {
+                      "id":  "stock-nsfw-identity-fellatio",
+                      "suite":  "stock-nsfw-identity",
+                      "pose":  "fellatio",
+                      "seed":  128629123,
+                      "prompt":  "Photorealistic explicit sex scene of a man and a woman, the man with short brown hair, stubble, blue eyes, and broad shoulders, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, the woman kneeling in front of the standing man taking his erect penis into her mouth, fellatio oral sex, clear oral contact, correct penis anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "f7aaf7c3-82f1-4696-8fed-b17180c154b5-u1",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/stock-nsfw-identity-fellatio.png",
+                      "sha256":  "74F6A9884563806B34B6A9A24B64D670C24CD8BB12C1DEF44B4C6D3C86A5F252"
+                  },
+                  {
+                      "id":  "stock-nsfw-identity-cunnilingus",
+                      "suite":  "stock-nsfw-identity",
+                      "pose":  "cunnilingus",
+                      "seed":  128629124,
+                      "prompt":  "Photorealistic explicit sex scene of a man and a woman, the man with short brown hair, stubble, blue eyes, and broad shoulders, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, the woman lying on her back with her legs open, the man positioned between her legs performing cunnilingus on her vagina, clear oral contact, correct anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "d5507f77-ab5d-4332-9969-768a6d2843d2-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/stock-nsfw-identity-cunnilingus.png",
+                      "sha256":  "D57310249C6CF0C837932B3A3E361E0AD553AB228022BB75BFD070185661E4F1"
+                  },
+                  {
+                      "id":  "solo-woman-down-top",
+                      "suite":  "solo-nsfw-woman",
+                      "pose":  "down top",
+                      "seed":  128629125,
+                      "prompt":  "Photorealistic explicit scene of one adult woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, wearing a pulled-down top that exposes her bare breasts, facing the camera, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "fb72e7e8-0dd0-4d95-a3d8-d4085fa1f35f-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/solo-woman-down-top.png",
+                      "sha256":  "FF0AD87ECB69D13EA6436806FCC893B26F1E4FF993A6387DABAB0E1083A20CB3"
+                  },
+                  {
+                      "id":  "solo-woman-upskirt",
+                      "suite":  "solo-nsfw-woman",
+                      "pose":  "upskirt",
+                      "seed":  128629126,
+                      "prompt":  "Photorealistic explicit scene of one adult woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, in a short skirt, viewed from a low angle with her skirt lifted to reveal her pelvis and underwear, looking over her shoulder, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "abfed6c8-654b-400e-9ff9-5b44afa93d38-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/solo-woman-upskirt.png",
+                      "sha256":  "531F133534D294BD389A85303561E1D0E19FFC1E987C711408057088146E5337"
+                  },
+                  {
+                      "id":  "solo-woman-masturbation",
+                      "suite":  "solo-nsfw-woman",
+                      "pose":  "masturbation",
+                      "seed":  128629127,
+                      "prompt":  "Photorealistic explicit scene of one fully nude adult woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, lying on her back with her legs parted, touching herself with one hand between her legs, masturbation, correct anatomy, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "e06bcee4-0f3e-4aab-b10a-1fca5faa56a3-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/solo-woman-masturbation.png",
+                      "sha256":  "763E5DB794B53A4A19E376863B27FBFB1736A41D2F5F423052CBF6BA8E12DF12"
+                  },
+                  {
+                      "id":  "solo-man-pose-non-erect",
+                      "suite":  "solo-nsfw-man",
+                      "pose":  "standing nude, non-erect",
+                      "seed":  128629128,
+                      "prompt":  "Photorealistic nude scene of one adult man with short brown hair, stubble, blue eyes, and broad shoulders, standing in a confident full-body pose with a flaccid non-erect penis, correct anatomy, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "cebfaa3e-e98e-4ecd-9064-75c7e86777d0-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/solo-man-pose-non-erect.png",
+                      "sha256":  "C17483A81940E4E26254167D55220AF52733523DE9B2292AC03D76609C8844C7"
+                  },
+                  {
+                      "id":  "solo-man-pose-erect",
+                      "suite":  "solo-nsfw-man",
+                      "pose":  "standing nude, erect",
+                      "seed":  128629129,
+                      "prompt":  "Photorealistic nude scene of one adult man with short brown hair, stubble, blue eyes, and broad shoulders, standing in a confident full-body pose with an erect penis, correct anatomy, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "f864e95e-651d-4d15-b488-46afe2799441-u2",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/solo-man-pose-erect.png",
+                      "sha256":  "E30799F1C0040D6AA9DC954AA73FEABB0A5760BA55D5E2463894A6C107AD95CE"
+                  },
+                  {
+                      "id":  "solo-man-masturbation-cumshot",
+                      "suite":  "solo-nsfw-man",
+                      "pose":  "masturbation, cumshot",
+                      "seed":  128629130,
+                      "prompt":  "Photorealistic explicit scene of one fully nude adult man with short brown hair, stubble, blue eyes, and broad shoulders, masturbating with his hand on his erect penis, ejaculating with a visible cumshot, correct anatomy, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed",
+                      "result":  "PASS",
+                      "jobId":  "88bd7b1b-a9b9-4b5e-bdeb-bc0b29153220-u1",
+                      "image":  "specs/image-generator-tests/biglust/runs/2026-08-31_152624/images/solo-man-masturbation-cumshot.png",
+                      "sha256":  "9A2D6EC72D7ED9BCEDD4825000625FEE4FD0EF7E65AB7D645945D00A41E19F82"
+                  }
+              ]
+}
