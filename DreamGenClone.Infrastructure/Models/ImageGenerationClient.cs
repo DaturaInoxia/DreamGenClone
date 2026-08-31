@@ -16,6 +16,13 @@ namespace DreamGenClone.Infrastructure.Models;
 /// </summary>
 public sealed class ImageGenerationClient : IImageGenerationClient
 {
+    // Together's Cloudflare rejects non-browser User-Agents with 403 error 1010 (verified
+    // 2026-08-30 on the gpt-image-2 base). Set on the per-request HttpClient instance returned by
+    // CreateClient (never on a shared pool), so it only affects image-generation requests.
+    private const string BrowserUserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IApiKeyEncryptionService _encryptionService;
     private readonly ILogger<ImageGenerationClient> _logger;
@@ -63,6 +70,13 @@ public sealed class ImageGenerationClient : IImageGenerationClient
                         model.ProviderName);
                     throw;
                 }
+            }
+
+            // Browser UA for the OpenAI-compatible images endpoint (Cloudflare 403 error 1010
+            // otherwise, verified on gpt-image-2/Together).
+            if (client.DefaultRequestHeaders.UserAgent.Count == 0)
+            {
+                client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent);
             }
 
             var payload = new ImageGenerationRequest
@@ -171,6 +185,13 @@ public sealed class ImageGenerationClient : IImageGenerationClient
             if (!string.IsNullOrEmpty(decryptedApiKey))
             {
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedApiKey);
+            }
+
+            // Browser UA for the OpenAI-compatible images endpoint (Cloudflare 403 error 1010
+            // otherwise, verified on gpt-image-2/Together).
+            if (client.DefaultRequestHeaders.UserAgent.Count == 0)
+            {
+                client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent);
             }
 
             // Minimal image request to the image-generation path. Seedream/FLUX-style image models
