@@ -13,7 +13,10 @@
     ]
   },
   "turn": { "id": "b100-turn-location", "index": 3, "kind": "SubmitPrompt", "triggerSource": "User", "inputInteractionId": "location-i1", "outputInteractionIds": ["location-c1", "location-n1"], "startedUtc": "2026-01-14T14:20:00Z", "completedUtc": "2026-01-14T14:20:03Z" },
-  "characters": [ { "id": "b100-character-arun", "name": "Arun", "role": "Guide", "gender": "Male", "description": "A station guide in a navy coat." } ],
+  "characters": [
+    { "id": "b100-character-arun", "name": "Arun", "role": "Guide", "gender": "Male", "description": "A station guide in a navy coat." },
+    { "id": "b100-persona-location", "name": "Sela", "role": "Traveler", "gender": "Female", "description": "A traveler carrying a canvas satchel." }
+  ],
   "expectations": {
     "beatBoundaries": [
       { "label": "Platform departure", "evidenceInteractionIds": ["location-i1", "location-n1"], "match": "subset" },

@@ -65,6 +65,12 @@ public sealed class SceneBeatCatalogueContract
             user.AppendLine($"[{profile.Key}] {profile.Name} | role={profile.Role} | gender={profile.Gender}");
         }
 
+        user.AppendLine("KNOWN LOCATIONS:");
+        foreach (var location in snapshot.Locations)
+        {
+            user.AppendLine($"- {location}");
+        }
+
         return new SceneBeatCatalogueContractMessages(
             ContractVersion,
             BuildSystemPrompt(maximumEntries),
@@ -155,8 +161,7 @@ public sealed class SceneBeatCatalogueContract
         var order = RequiredInt(element, "order", $"Beat Catalogue beat '{beatId}'");
         var label = RequiredBoundedString(element, "label", LabelMaxLength, $"Beat Catalogue beat '{beatId}'");
         var synopsis = RequiredBoundedString(element, "beatSynopsis", BeatSynopsisMaxLength, $"Beat Catalogue beat '{beatId}'");
-        var location = RequiredBoundedString(element, "primaryLocation", PrimaryLocationMaxLength, $"Beat Catalogue beat '{beatId}'");
-        ValidateAtomicLocation(location, beatId);
+        var location = OptionalBoundedString(element, "primaryLocation", PrimaryLocationMaxLength, $"Beat Catalogue beat '{beatId}'");
 
         var participantsElement = Required(element, "participants", $"Beat Catalogue beat '{beatId}'");
         if (participantsElement.ValueKind != JsonValueKind.Array)
@@ -212,7 +217,7 @@ public sealed class SceneBeatCatalogueContract
                 ["order"] = new JsonObject { ["type"] = "integer", ["minimum"] = 1 },
                 ["label"] = StringSchema(LabelMaxLength),
                 ["beatSynopsis"] = StringSchema(BeatSynopsisMaxLength),
-                ["primaryLocation"] = StringSchema(PrimaryLocationMaxLength),
+                ["primaryLocation"] = StringSchemaAllowEmpty(PrimaryLocationMaxLength),
                 ["participants"] = new JsonObject
                 {
                     ["type"] = "array",
@@ -242,6 +247,9 @@ public sealed class SceneBeatCatalogueContract
     private static JsonObject StringSchema(int maxLength)
         => new() { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = maxLength };
 
+    private static JsonObject StringSchemaAllowEmpty(int maxLength)
+        => new() { ["type"] = "string", ["minLength"] = 0, ["maxLength"] = maxLength };
+
     private static string BuildSystemPrompt(int maximumEntries)
         => $$"""
             You are a narrative production analyst. Read one complete authoritative role-play turn and identify 1 to {{maximumEntries}} distinct narrative Beats for later production planning.
@@ -250,7 +258,7 @@ public sealed class SceneBeatCatalogueContract
 
             Treat [n0] Narrative as the authoritative chronology and shared-scene synthesis. Use [c#] evidence only to support that chronology. Merge parallel accounts of the same development. Start a new Beat only for a material change in action, arrangement, location, clothing state, time, or scene purpose.
 
-            Every Beat must cite n0 and every supporting evidence key. Use only supplied evidence keys and known participant names. Every Beat requires at least one active participant; people who only watch or notice are observers. primaryLocation must name exactly one physical event location.
+            Every Beat must cite n0 and every supporting evidence key. Use only supplied evidence keys and known participant names. Every Beat requires at least one active participant; people who only watch or notice are observers. primaryLocation names the known location where the beat happens, followed by ' - ' and the specific spot within it whenever you can determine one (for example 'Husband and Wife Trailer — Shared Private Space - the trailer deck'). Choose the parent from KNOWN LOCATIONS when one matches; otherwise describe the location briefly. Return the bare location name without a spot only when no specific spot can be determined. If no location applies, return an empty string.
 
             Keep labels under {{LabelMaxLength}} characters, synopses under {{BeatSynopsisMaxLength}} characters, and locations under {{PrimaryLocationMaxLength}} characters. Return only JSON matching the supplied schema. Do not use markdown fences or explanatory text.
             """;
@@ -264,13 +272,6 @@ public sealed class SceneBeatCatalogueContract
             throw new InvalidOperationException($"Beat Catalogue input snapshot schemaVersion {snapshot.SchemaVersion} is unsupported.");
         if (!snapshot.Evidence.Any(item => string.Equals(item.Key, "n0", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Beat Catalogue input snapshot is missing Narrative evidence key n0.");
-    }
-
-    private static void ValidateAtomicLocation(string location, string beatId)
-    {
-        string[] separators = [" and ", " & ", " / ", ";", "|"];
-        if (separators.Any(separator => location.Contains(separator, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException($"Beat Catalogue beat '{beatId}' primaryLocation must contain exactly one physical location.");
     }
 
     private static void RequireExactFields(JsonElement element, HashSet<string> expected, string context)
@@ -298,6 +299,16 @@ public sealed class SceneBeatCatalogueContract
         if (property.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(property.GetString()))
             throw new InvalidOperationException($"{context} has invalid {name}.");
         var value = property.GetString()!.Trim();
+        if (value.Length > maxLength)
+            throw new InvalidOperationException($"{context} {name} exceeds {maxLength} characters.");
+        return value;
+    }
+
+    private static string OptionalBoundedString(JsonElement element, string name, int maxLength, string context)
+    {
+        if (!element.TryGetProperty(name, out var property) || property.ValueKind != JsonValueKind.String)
+            return string.Empty;
+        var value = property.GetString()?.Trim() ?? string.Empty;
         if (value.Length > maxLength)
             throw new InvalidOperationException($"{context} {name} exceeds {maxLength} characters.");
         return value;

@@ -46,7 +46,7 @@ public sealed class SceneBeatCatalogueJobHandlerTests
     public async Task Handle_SemanticallyInvalidOutputPreservesRawResponseAndFailsAttempt()
     {
         const string raw = """
-            {"schemaVersion":1,"beats":[{"beatId":"b1","order":1,"label":"Arrival","beatSynopsis":"Alex enters.","primaryLocation":"hall and stairs","participants":[{"name":"Alex","involvement":"active"}],"evidenceKeys":["n0"]}]}
+            {"schemaVersion":1,"beats":[{"beatId":"b1","order":1,"label":"Arrival","beatSynopsis":"Alex enters.","primaryLocation":"hall and stairs","participants":[{"name":"Bob","involvement":"active"}],"evidenceKeys":["n0"]}]}
             """;
         var fixture = await CreateFixtureAsync(new CompletionClient(raw));
         try
@@ -115,7 +115,8 @@ public sealed class SceneBeatCatalogueJobHandlerTests
             now,
             "membership-hash",
             [new("n0", 0, "narrative-1", "Narrative", "System", "Alex enters the hall.", now, "source-hash")],
-            [new("p0", null, "Alex", "protagonist", "nonbinary", "", "", "", true, "profile-hash")]);
+            [new("p0", null, "Alex", "protagonist", "nonbinary", "", "", "", true, "profile-hash")],
+            []);
         var execution = new SceneBeatAnalyzerExecutionSnapshot(
             "function-default-1",
             "model-1",

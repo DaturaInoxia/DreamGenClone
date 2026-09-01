@@ -13,7 +13,10 @@
     ]
   },
   "turn": { "id": "b100-turn-parallel", "index": 7, "kind": "Continue", "triggerSource": "User", "inputInteractionId": "parallel-i1", "outputInteractionIds": ["parallel-c1", "parallel-n1"], "startedUtc": "2026-01-12T21:00:00Z", "completedUtc": "2026-01-12T21:00:03Z" },
-  "characters": [ { "id": "b100-character-oren", "name": "Oren", "role": "Dock Inspector", "gender": "Male", "description": "An inspector wearing a yellow raincoat and dark gloves." } ],
+  "characters": [
+    { "id": "b100-character-oren", "name": "Oren", "role": "Dock Inspector", "gender": "Male", "description": "An inspector wearing a yellow raincoat and dark gloves." },
+    { "id": "b100-persona-parallel", "name": "Iris", "role": "Harbor Keeper", "gender": "Female", "description": "A harbor keeper stationed in the signal tower." }
+  ],
   "expectations": {
     "beatBoundaries": [ { "label": "Signals exchanged across harbor", "evidenceInteractionIds": ["parallel-i1", "parallel-c1", "parallel-n1"], "match": "subset" } ],
     "selectedBeatOrdinal": 1,

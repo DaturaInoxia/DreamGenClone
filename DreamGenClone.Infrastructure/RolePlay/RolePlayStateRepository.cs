@@ -146,6 +146,82 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository, IRolePla
         }
     }
 
+    public async Task ReconcileTurnMembershipsAsync(
+        string sessionId,
+        IReadOnlySet<string> liveInteractionIds,
+        IReadOnlyDictionary<string, string> replacements,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            throw new InvalidOperationException("Session id is required to reconcile role-play turns.");
+
+        var turns = await LoadTurnsAsync(sessionId, take: 500, cancellationToken);
+        var changes = new List<(RolePlayTurn Turn, string? NewInputId, IReadOnlyList<string> NewOutputIds)>();
+        foreach (var turn in turns)
+        {
+            string? newInput = turn.InputInteractionId;
+            var changed = false;
+            if (!string.IsNullOrWhiteSpace(newInput))
+            {
+                if (replacements.TryGetValue(newInput, out var promotedInput))
+                {
+                    newInput = promotedInput;
+                    changed = true;
+                }
+                else if (!liveInteractionIds.Contains(newInput))
+                {
+                    newInput = null;
+                    changed = true;
+                }
+            }
+
+            var newOutputs = new List<string>();
+            foreach (var id in turn.OutputInteractionIds)
+            {
+                if (string.IsNullOrWhiteSpace(id)) continue;
+                if (replacements.TryGetValue(id, out var promotedOutput))
+                {
+                    if (!newOutputs.Contains(promotedOutput)) newOutputs.Add(promotedOutput);
+                    changed = true;
+                }
+                else if (liveInteractionIds.Contains(id))
+                {
+                    newOutputs.Add(id);
+                }
+                else
+                {
+                    changed = true; // stale reference -> drop
+                }
+            }
+
+            if (changed) changes.Add((turn, newInput, newOutputs));
+        }
+
+        if (changes.Count == 0) return;
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureTurnSchemaAsync(connection, cancellationToken);
+        foreach (var (turn, newInputId, newOutputIds) in changes)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                UPDATE RolePlayV2Turns
+                SET InputInteractionId = $inputId,
+                    OutputInteractionIdsJson = $outputInteractionIdsJson,
+                    OutputInteractionCount = $outputInteractionCount,
+                    UpdatedUtc = $updatedUtc
+                WHERE SessionId = $sessionId AND TurnId = $turnId;
+                """;
+            command.Parameters.AddWithValue("$inputId", (object?)newInputId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$outputInteractionIdsJson", JsonSerializer.Serialize(newOutputIds));
+            command.Parameters.AddWithValue("$outputInteractionCount", newOutputIds.Count);
+            command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+            command.Parameters.AddWithValue("$sessionId", sessionId);
+            command.Parameters.AddWithValue("$turnId", turn.TurnId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
     public async Task<IReadOnlyList<RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(sessionId))

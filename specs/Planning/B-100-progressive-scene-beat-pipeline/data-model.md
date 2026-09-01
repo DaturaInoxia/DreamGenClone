@@ -67,7 +67,7 @@ Compact selection metadata. This is not a render brief.
 | `Order` | integer | Positive; unique within catalogue. |
 | `Label` | string | Short selector title. |
 | `BeatSynopsis` | string | One or two concise sentences describing the narrative development; may span movement through time. |
-| `PrimaryLocation` | string | One physical event location. |
+| `PrimaryLocation` | string | One physical location, optionally a known canonical location plus a specific spot within it (e.g. `Husband and Wife Trailer — Shared Private Space - the trailer deck`); empty is allowed when no location applies (the user picks/enters one downstream). Canonical location names are supplied to the model as `KNOWN LOCATIONS`. |
 | `ParticipantSummaryJson` | JSON | Names plus compact `active`/`observer` roles only. |
 | `EvidenceInteractionIdsJson` | JSON | Resolved authoritative IDs; never model-invented UUIDs. |
 | `ContentTagsJson` | JSON | Optional neutral tags for filtering; not prompt-family syntax. |

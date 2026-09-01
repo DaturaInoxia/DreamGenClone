@@ -141,6 +141,81 @@ public sealed class SceneBeatProductionParserTests
       }
 
       [Fact]
+      public void Parse_AcceptsValidatedNarrationCueWithoutSpeaker()
+      {
+        var response = MutateResponse(root =>
+        {
+          var cue = root["dialogue"]![0]!;
+          cue["kind"] = "Narration";
+          cue["speakerKey"] = null;
+          cue["performance"]!["speakerKey"] = null;
+          cue["lipSyncRelevant"] = false;
+          root["videoCoverage"]![0]!["lipSyncRequired"] = false;
+        });
+
+        var narration = Assert.Single(Parse(response).DialogueCues);
+
+        Assert.Equal(SceneBeatDialogueKind.Narration, narration.Kind);
+        Assert.Null(narration.SpeakerCharacterId);
+        Assert.Equal(ProductionReviewStatus.Validated, narration.ReviewStatus);
+      }
+
+      [Fact]
+      public void Parse_RejectsNarrationCueWithSpeaker()
+      {
+        var response = MutateResponse(root =>
+        {
+          var cue = root["dialogue"]![0]!;
+          cue["kind"] = "Narration";
+          cue["performance"]!["speakerKey"] = null;
+        });
+
+        var error = Assert.Throws<InvalidOperationException>(() => Parse(response));
+
+        Assert.Contains("must not declare a speaker", error.Message, StringComparison.OrdinalIgnoreCase);
+      }
+
+      [Fact]
+      public void Parse_AcceptsExactTextDifferingOnlyByBoundaryWhitespace()
+      {
+        var response = MutateResponse(root => root["dialogue"]![0]!["endOffset"] = 20);
+        var snapshot = CreateTrailingNewlineSnapshot();
+
+        var cue = Assert.Single(new SceneBeatProductionParser().Parse("plan-1", response, snapshot).DialogueCues);
+
+        Assert.Equal("You're still awake.\n", cue.ExactSourceText);
+      }
+
+      [Fact]
+      public void Parse_AcceptsNormalizedTextSplittingHyphenatedCompound()
+      {
+        var response = MutateResponse(root =>
+        {
+          var cue = root["dialogue"]![0]!;
+          cue["exactSourceText"] = "Pale-blue shirt.";
+          cue["displayText"] = "Pale-blue shirt.";
+          cue["normalizedSpokenText"] = "Pale blue shirt.";
+          cue["startOffset"] = 0;
+          cue["endOffset"] = 16;
+        });
+        var snapshot = CreateHyphenatedSnapshot();
+
+        var cue = Assert.Single(new SceneBeatProductionParser().Parse("plan-1", response, snapshot).DialogueCues);
+
+        Assert.Equal("Pale blue shirt.", cue.NormalizedSpokenText);
+      }
+
+      [Fact]
+      public void Parse_RejectsNormalizedTextThatChangesWords()
+      {
+        var response = MutateResponse(root => root["dialogue"]![0]!["normalizedSpokenText"] = "You're still asleep.");
+
+        var error = Assert.Throws<InvalidOperationException>(() => Parse(response));
+
+        Assert.Contains("changes semantic words", error.Message, StringComparison.OrdinalIgnoreCase);
+      }
+
+      [Fact]
       public void Parse_RejectsAuthoredSilenceWithSoundSources()
       {
         var response = MutateResponse(root => root["ambience"]!["authoredSilence"] = true);
@@ -241,6 +316,44 @@ public sealed class SceneBeatProductionParserTests
             [
                 new("n0", 0, "interaction-0", "Narrative", "System", "Dean speaks to Becky.", DateTime.UtcNow, new string('B', 64)),
                 new("c1", 1, "interaction-1", "Dean", "User", "You're still awake.", DateTime.UtcNow, new string('C', 64))
+            ],
+            [
+                new("p0", "character-becky", "Becky", "Wife", "Female", "", "", "", false, new string('D', 64)),
+                new("p1", "character-dean", "Dean", "Husband", "Male", "", "", "", true, new string('E', 64))
+            ]);
+
+    private static SceneBeatProductionSourceSnapshot CreateTrailingNewlineSnapshot()
+        => new(
+            1,
+            "catalogue-1",
+            1,
+            new SceneBeatProductionBeatSnapshot(
+                "b1", 1, "Conversation", "Dean speaks to Becky.", "entry hall",
+                [new("Becky", "active", "p0"), new("Dean", "active", "p1")], ["n0", "c1"]),
+            new SceneBeatProductionTurnSnapshot(
+                "session-1", "turn-1", 1, "SubmitPrompt", DateTime.UtcNow, DateTime.UtcNow, new string('A', 64)),
+            [
+                new("n0", 0, "interaction-0", "Narrative", "System", "Dean speaks to Becky.", DateTime.UtcNow, new string('B', 64)),
+                new("c1", 1, "interaction-1", "Dean", "User", "You're still awake.\n", DateTime.UtcNow, new string('C', 64))
+            ],
+            [
+                new("p0", "character-becky", "Becky", "Wife", "Female", "", "", "", false, new string('D', 64)),
+                new("p1", "character-dean", "Dean", "Husband", "Male", "", "", "", true, new string('E', 64))
+            ]);
+
+    private static SceneBeatProductionSourceSnapshot CreateHyphenatedSnapshot()
+        => new(
+            1,
+            "catalogue-1",
+            1,
+            new SceneBeatProductionBeatSnapshot(
+                "b1", 1, "Conversation", "Dean speaks to Becky.", "entry hall",
+                [new("Becky", "active", "p0"), new("Dean", "active", "p1")], ["n0", "c1"]),
+            new SceneBeatProductionTurnSnapshot(
+                "session-1", "turn-1", 1, "SubmitPrompt", DateTime.UtcNow, DateTime.UtcNow, new string('A', 64)),
+            [
+                new("n0", 0, "interaction-0", "Narrative", "System", "Dean speaks to Becky.", DateTime.UtcNow, new string('B', 64)),
+                new("c1", 1, "interaction-1", "Dean", "User", "Pale-blue shirt.", DateTime.UtcNow, new string('C', 64))
             ],
             [
                 new("p0", "character-becky", "Becky", "Wife", "Female", "", "", "", false, new string('D', 64)),

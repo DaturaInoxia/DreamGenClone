@@ -25,6 +25,15 @@ public sealed class SceneBeatSessionReader : ISceneBeatSessionReader
 public interface ISceneBeatScenarioReader
 {
     Task<IReadOnlyList<Character>?> GetCharactersAsync(string scenarioId);
+
+    /// <summary>
+    /// Canonical location names available for the scenario, used to ground beat locations.
+    /// Returns an empty list when locations are unavailable or not resolved.
+    /// </summary>
+    Task<IReadOnlyList<string>?> GetLocationsAsync(string scenarioId)
+    {
+        return Task.FromResult<IReadOnlyList<string>?>([]);
+    }
 }
 
 public sealed class SceneBeatScenarioReader : ISceneBeatScenarioReader
@@ -38,4 +47,10 @@ public sealed class SceneBeatScenarioReader : ISceneBeatScenarioReader
 
     public async Task<IReadOnlyList<Character>?> GetCharactersAsync(string scenarioId)
         => (await _scenarioService.GetScenarioAsync(scenarioId))?.Characters;
+
+    public async Task<IReadOnlyList<string>?> GetLocationsAsync(string scenarioId)
+        => (await _scenarioService.GetScenarioAsync(scenarioId))?.Locations
+            .Where(location => !string.IsNullOrWhiteSpace(location.Name))
+            .Select(location => location.Name!.Trim())
+            .ToList();
 }

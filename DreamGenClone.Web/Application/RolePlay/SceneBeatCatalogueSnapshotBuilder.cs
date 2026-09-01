@@ -17,7 +17,8 @@ public sealed record SceneBeatCatalogueInputSnapshot(
     DateTime CompletedUtc,
     string TurnMembershipSha256,
     IReadOnlyList<SceneBeatCatalogueEvidenceSnapshot> Evidence,
-    IReadOnlyList<SceneBeatCatalogueProfileSnapshot> Profiles);
+    IReadOnlyList<SceneBeatCatalogueProfileSnapshot> Profiles,
+    IReadOnlyList<string> Locations);
 
 public sealed record SceneBeatCatalogueEvidenceSnapshot(
     string Key,
@@ -50,7 +51,8 @@ public sealed class SceneBeatCatalogueSnapshotBuilder
     public SceneBeatCatalogueInputSnapshot Build(
         FullTurnContext fullTurn,
         RolePlaySession session,
-        IReadOnlyList<Character>? characters)
+        IReadOnlyList<Character>? characters,
+        IReadOnlyList<string>? locations = null)
     {
         ArgumentNullException.ThrowIfNull(fullTurn);
         ArgumentNullException.ThrowIfNull(session);
@@ -116,8 +118,17 @@ public sealed class SceneBeatCatalogueSnapshotBuilder
             turn.CompletedUtc.Value,
             Hash(membership),
             evidence,
-            CreateProfiles(session, characters));
+            CreateProfiles(session, characters),
+            NormalizeLocations(locations));
     }
+
+    private static IReadOnlyList<string> NormalizeLocations(IReadOnlyList<string>? locations)
+        => (locations ?? [])
+            .Where(location => !string.IsNullOrWhiteSpace(location))
+            .Select(location => location.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(location => location, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     public string Serialize(SceneBeatCatalogueInputSnapshot snapshot)
     {
@@ -145,8 +156,12 @@ public sealed class SceneBeatCatalogueSnapshotBuilder
         RolePlaySession session,
         IReadOnlyList<Character>? characters)
     {
+        // The persona is an ordinary cast member, not a separate participant: include every
+        // scenario character as-is. The persona flag is derived from the authoritative
+        // session.PersonaCharacterId so snapshot metadata stays accurate without treating the
+        // persona differently for inclusion (IsPersona on scenario characters is unreliable).
+        var personaCharacterId = session.PersonaCharacterId?.Trim();
         var sources = (characters ?? [])
-            .Where(character => !character.IsPersona)
             .Select(character => new ProfileSource(
                 character.Id,
                 RequiredName(character.Name, "Scenario character"),
@@ -155,16 +170,8 @@ public sealed class SceneBeatCatalogueSnapshotBuilder
                 character.Description ?? string.Empty,
                 PhysicalAttributesFormatter.FormatVisualBlock(character.PhysicalAttributes),
                 PhysicalAttributesFormatter.FormatVisualClothing(character.PhysicalAttributes),
-                false))
-            .Append(new ProfileSource(
-                session.PersonaCharacterId,
-                RequiredName(session.PersonaName, "Session persona"),
-                session.PersonaRole,
-                session.PersonaGender,
-                session.PersonaDescription,
-                PhysicalAttributesFormatter.FormatVisualBlock(session.PersonaPhysicalAttributes),
-                PhysicalAttributesFormatter.FormatVisualClothing(session.PersonaPhysicalAttributes),
-                true))
+                !string.IsNullOrWhiteSpace(personaCharacterId)
+                    && string.Equals(character.Id?.Trim(), personaCharacterId, StringComparison.OrdinalIgnoreCase)))
             .OrderBy(source => source.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(source => source.CharacterId, StringComparer.Ordinal)
             .ToList();

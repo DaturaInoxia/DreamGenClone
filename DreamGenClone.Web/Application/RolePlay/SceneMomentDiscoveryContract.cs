@@ -142,9 +142,9 @@ public sealed class SceneMomentDiscoveryContract
         ("evidenceKeys", UniqueStringArray(1)));
 
     private const string SystemPrompt = """
-        You are a narrative key-state planner. From exactly one selected Beat Production Plan, identify 2 to 4 compact Moments that together satisfy useful still-image choices and every requested video or sound key-state role.
+        You are a narrative key-state planner. From exactly one selected Beat Production Plan, identify 2 to 4 compact Moments that together satisfy useful still-image choices, every requested video key-state role, and sound key-state coverage. Assign the SoundEventAnchor production role to at least one Moment where a distinct instantaneous sound event occurs (for example a door creak, a glass setting on the rail, or water running), and do not assign SoundEventAnchor to a Moment with no distinct instantaneous sound.
 
-        Each Moment is exactly one frozen instant, not a time range, shot sequence, montage, mini-scene, or before-and-after action. temporalAnchor locates one instant in the supplied timeline. frozenState describes only the state visible at that instant. visibleAction names an action arrested at that instant.
+        Each Moment is exactly one frozen instant, not a time range, shot sequence, montage, mini-scene, or before-and-after action. temporalAnchor locates one instant in the supplied timeline using only a supplied event key and a second offset, for example "e5, ~45s into beat"; never describe a transition. frozenState describes only the state visible at that instant. visibleAction names an action arrested at that instant. Never use the words "before", "after", "then", "followed by", "transitions to", "moves from", or "and then" in temporalAnchor, frozenState, or visibleAction - those fields describe one frozen state only.
 
         Use only supplied profile keys, evidence keys, event chronology, action phases, continuity boundaries, and requested production roles. Never invent UUIDs, people, events, evidence, source facts, or media assets. Return 2 to 4 Moments in temporal order and recommend exactly one returned StillCandidate.
 

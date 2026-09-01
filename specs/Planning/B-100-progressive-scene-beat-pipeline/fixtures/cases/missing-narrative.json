@@ -12,7 +12,10 @@
     ]
   },
   "turn": { "id": "b100-turn-missing", "index": 2, "kind": "SubmitPrompt", "triggerSource": "User", "inputInteractionId": "missing-i1", "outputInteractionIds": ["missing-c1"], "startedUtc": "2026-01-17T08:00:00Z", "completedUtc": "2026-01-17T08:00:02Z" },
-  "characters": [ { "id": "b100-character-dax", "name": "Dax", "role": "Depot Clerk", "gender": "Male", "description": "A clerk in a brown uniform jacket." } ],
+  "characters": [
+    { "id": "b100-character-dax", "name": "Dax", "role": "Depot Clerk", "gender": "Male", "description": "A clerk in a brown uniform jacket." },
+    { "id": "b100-persona-missing", "name": "Rhea", "role": "Courier", "gender": "Female", "description": "A courier waiting in a depot." }
+  ],
   "expectations": null,
   "expectedPreflightRejection": { "code": "missing_narrative", "reason": "Canonical catalogue snapshot creation requires exactly one authoritative Narrative interaction." }
 }

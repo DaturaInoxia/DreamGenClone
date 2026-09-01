@@ -117,12 +117,16 @@ public sealed class SceneBeatCatalogueContractTests
     }
 
     [Fact]
-    public void Parse_RejectsCompoundLocationAndConfiguredMaximumOverflow()
+    public void Parse_AcceptsHierarchicalAndEmptyLocationAndRejectsMaximumOverflow()
     {
-        var compound = ValidResponse.Replace("entry hall", "entry hall and kitchen");
-        var locationError = Assert.Throws<InvalidOperationException>(() =>
-            CreateContract().Parse("catalogue-1", compound, CreateSnapshot(), 6));
-        Assert.Contains("exactly one physical location", locationError.Message, StringComparison.Ordinal);
+        // A location may be a plain name, a parent location plus a specific spot, or empty.
+        var hierarchical = ValidResponse.Replace("entry hall", "Husband and Wife Trailer — Shared Private Space - the trailer deck");
+        var hierarchicalEntry = Assert.Single(CreateContract().Parse("catalogue-1", hierarchical, CreateSnapshot(), 6));
+        Assert.Equal("Husband and Wife Trailer — Shared Private Space - the trailer deck", hierarchicalEntry.PrimaryLocation);
+
+        var empty = ValidResponse.Replace("entry hall", "");
+        var emptyEntry = Assert.Single(CreateContract().Parse("catalogue-1", empty, CreateSnapshot(), 6));
+        Assert.Equal(string.Empty, emptyEntry.PrimaryLocation);
 
         using var document = JsonDocument.Parse(ValidResponse);
         var beat = document.RootElement.GetProperty("beats")[0].GetRawText();
@@ -172,5 +176,9 @@ public sealed class SceneBeatCatalogueContractTests
             [
                 new("p0", "character-becky", "Becky", "Wife", "Female", "", "", "", false, new string('E', 64)),
                 new("p1", "character-dean", "Dean", "Husband", "Male", "", "", "", true, new string('F', 64))
+            ],
+            [
+                "Husband and Wife Trailer — Shared Private Space",
+                "The Other Man's Trailer — Private Ground-Level Space"
             ]);
 }

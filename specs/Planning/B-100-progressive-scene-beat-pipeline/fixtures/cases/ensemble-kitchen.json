@@ -16,7 +16,8 @@
   "turn": { "id": "b100-turn-ensemble", "index": 4, "kind": "SubmitPrompt", "triggerSource": "User", "inputInteractionId": "ensemble-i1", "outputInteractionIds": ["ensemble-c1", "ensemble-c2", "ensemble-n1"], "startedUtc": "2026-01-11T18:30:00Z", "completedUtc": "2026-01-11T18:30:04Z" },
   "characters": [
     { "id": "b100-character-tomas", "name": "Tomas", "role": "Guest", "gender": "Male", "description": "A tall guest in a gray sweater." },
-    { "id": "b100-character-lian", "name": "Lian", "role": "Guest", "gender": "Nonbinary", "description": "A short guest in a blue shirt." }
+    { "id": "b100-character-lian", "name": "Lian", "role": "Guest", "gender": "Nonbinary", "description": "A short guest in a blue shirt." },
+    { "id": "b100-persona-ensemble", "name": "Nia", "role": "Host", "gender": "Female", "description": "An organized host wearing a green apron." }
   ],
   "expectations": {
     "beatBoundaries": [

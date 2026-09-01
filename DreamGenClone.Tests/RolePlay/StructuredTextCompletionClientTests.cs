@@ -140,6 +140,22 @@ public sealed class StructuredTextCompletionClientTests
         Assert.DoesNotContain("enc:secret", exception.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task GenerateAsync_TransportReadFailureIsTransient()
+    {
+        var client = BuildClient(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new FailingStream())
+        }));
+
+        var exception = await Assert.ThrowsAsync<StructuredTextCompletionException>(
+            () => client.GenerateAsync(CreateAnalyzer(), CreateRequest()));
+
+        Assert.Equal("structured_text_transport_failure", exception.ErrorCode);
+        Assert.True(exception.IsTransient);
+        Assert.IsType<IOException>(exception.InnerException);
+    }
+
     private static OpenAiStructuredTextCompletionClient BuildClient(
         Func<HttpRequestMessage, Task<HttpResponseMessage>> responder) => new(
             new FakeHttpClientFactory(new StubHttpMessageHandler(responder)),
@@ -222,5 +238,25 @@ public sealed class StructuredTextCompletionClientTests
             response.RequestMessage = request;
             return response;
         }
+    }
+
+    private sealed class FailingStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new IOException("simulated transport drop");
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => throw new IOException("simulated transport drop");
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

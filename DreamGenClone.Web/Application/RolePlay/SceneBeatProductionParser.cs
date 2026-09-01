@@ -130,7 +130,21 @@ public sealed class SceneBeatProductionParser
         Require(item.NormalizationVersion, $"Dialogue cue '{item.CueKey}' normalization version");
 
         string? speakerId = null;
-        if (item.ReviewStatus == ProductionReviewStatus.ReviewRequired)
+        if (item.Kind == SceneBeatDialogueKind.Narration)
+        {
+            if (item.SpeakerKey is not null)
+                throw new InvalidOperationException($"Narration cue '{item.CueKey}' must not declare a speaker.");
+            if (item.ReviewStatus == ProductionReviewStatus.ReviewRequired)
+            {
+                if (string.IsNullOrWhiteSpace(item.ReviewReason))
+                    throw new InvalidOperationException($"Review-required narration cue '{item.CueKey}' requires a review reason.");
+            }
+            else if (item.ReviewReason is not null)
+            {
+                throw new InvalidOperationException($"Validated narration cue '{item.CueKey}' must not carry a review reason.");
+            }
+        }
+        else if (item.ReviewStatus == ProductionReviewStatus.ReviewRequired)
         {
             if (item.SpeakerKey is not null || string.IsNullOrWhiteSpace(item.ReviewReason))
                 throw new InvalidOperationException($"Review-required dialogue cue '{item.CueKey}' must have no speaker and a reason.");
@@ -170,8 +184,8 @@ public sealed class SceneBeatProductionParser
     {
         Require(spoken, $"Dialogue cue '{cueKey}' normalized spoken text");
         static string SemanticText(string value) => new(value
-            .Where(character => char.IsLetterOrDigit(character) || char.IsWhiteSpace(character))
-            .Select(char.ToLowerInvariant).ToArray());
+            .Select(character => char.IsLetterOrDigit(character) ? char.ToLowerInvariant(character) : ' ')
+            .ToArray());
         var sourceWords = SemanticText(source).Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var spokenWords = SemanticText(spoken).Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (!sourceWords.SequenceEqual(spokenWords, StringComparer.Ordinal))

@@ -78,7 +78,8 @@ public sealed class SceneBeatProductionSnapshotBuilderTests
                 new("p0", "character-becky", "Becky", "Wife", "Female", "", "", "", false, new string('E', 64)),
                 new("p1", "character-dean", "Dean", "Husband", "Male", "", "", "", true, new string('F', 64)),
                 new("p2", "character-other", "Other", "Observer", "Male", "", "", "", false, new string('1', 64))
-            ]);
+            ],
+            []);
         var entry = new SceneBeatCatalogueEntry
         {
             CatalogueId = "catalogue-1",

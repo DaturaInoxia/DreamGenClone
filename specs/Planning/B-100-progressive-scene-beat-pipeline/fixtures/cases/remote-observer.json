@@ -13,7 +13,10 @@
     ]
   },
   "turn": { "id": "b100-turn-remote", "index": 12, "kind": "SubmitPrompt", "triggerSource": "User", "inputInteractionId": "remote-i1", "outputInteractionIds": ["remote-c1", "remote-n1"], "startedUtc": "2026-01-13T06:15:00Z", "completedUtc": "2026-01-13T06:15:03Z" },
-  "characters": [ { "id": "b100-character-pavel", "name": "Pavel", "role": "Field Technician", "gender": "Male", "description": "A field technician wearing an orange weather shell." } ],
+  "characters": [
+    { "id": "b100-character-pavel", "name": "Pavel", "role": "Field Technician", "gender": "Male", "description": "A field technician wearing an orange weather shell." },
+    { "id": "b100-persona-remote", "name": "Edda", "role": "Radio Operator", "gender": "Female", "description": "An operator seated at a communications desk." }
+  ],
   "expectations": {
     "beatBoundaries": [ { "label": "Remote cable repair", "evidenceInteractionIds": ["remote-i1", "remote-c1", "remote-n1"], "match": "subset" } ],
     "selectedBeatOrdinal": 1,

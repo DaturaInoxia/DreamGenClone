@@ -169,7 +169,7 @@ public sealed class SceneMomentEnrichmentContract
 
         Describe exactly one instant. Do not write a sequence, transition, before-and-after state, montage, shot list, or action progression. Include exactly the selected Moment cast, using each supplied profile key and exact profile name once. Use visibleCharacterNames only for supplied cast members visible to that character.
 
-        Use only supplied evidence, profile facts, Beat continuity, sound cue keys, and selected production roles. A sound cue may be selected only when it is instantaneous at the selected state. videoKeyState.roles must equal the selected Moment's Video roles exactly, and stateChangeAllowed must be false.
+        Use only supplied evidence, profile facts, Beat continuity, sound cue keys, and selected production roles. instantaneousSoundCueKeys must be empty unless the selected Moment's productionRoles includes SoundEventAnchor; when it does include SoundEventAnchor, list at least one instantaneous cue, and never list cues otherwise. videoKeyState.roles must equal the selected Moment's Video roles exactly, and stateChangeAllowed must be false.
 
         Never invent UUIDs, people, profile keys, cue keys, events, clothing, continuity, source facts, or media assets. Return only JSON matching the supplied schema. Do not use markdown fences, explanatory text, provider tags, prompts, model names, camera-provider syntax, generation settings, inferred missing fields, or alternate roots.
         """;

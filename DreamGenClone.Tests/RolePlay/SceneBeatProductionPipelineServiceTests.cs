@@ -98,7 +98,8 @@ public sealed class SceneBeatProductionPipelineServiceTests
             1, "session-1", "turn-1", 1, "SubmitPrompt", now.AddSeconds(-2), now,
             new string('A', 64),
             [new("n0", 0, "interaction-1", "Narrative", "System", "Alex enters the hall.", now, new string('B', 64))],
-            [new("p0", "character-alex", "Alex", "protagonist", "nonbinary", "", "", "", true, new string('C', 64))]);
+            [new("p0", "character-alex", "Alex", "protagonist", "nonbinary", "", "", "", true, new string('C', 64))],
+            []);
         var catalogue = new SceneBeatCatalogue
         {
             Id = id, SessionId = "session-1", TurnId = "turn-1", Version = version,

@@ -148,6 +148,14 @@ public sealed class SceneBeatCatalogueSnapshotBuilderTests
                     Role = "Wife",
                     Gender = "Female",
                     Description = "Scenario Becky"
+                },
+                new Character
+                {
+                    Id = "character-dean",
+                    Name = "Dean",
+                    Role = "Husband",
+                    Gender = "Male",
+                    Description = "Scenario Dean"
                 }
             ]
         };

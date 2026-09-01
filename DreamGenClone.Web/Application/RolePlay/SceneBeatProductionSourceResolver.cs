@@ -76,7 +76,8 @@ public sealed class SceneBeatProductionSourceResolver
                 $"Beat Production source span [{startOffset}, {endOffset}) is outside evidence '{evidenceKey}'.");
         Require(exactText, "Exact source text");
         var resolved = evidence.Content[startOffset..endOffset];
-        if (!string.Equals(resolved, exactText, StringComparison.Ordinal))
+        if (!string.Equals(resolved, exactText, StringComparison.Ordinal)
+            && !string.Equals(resolved.Trim(), exactText.Trim(), StringComparison.Ordinal))
             throw new InvalidOperationException(
                 $"Beat Production exact source text does not match evidence '{evidenceKey}' at [{startOffset}, {endOffset}).");
         return new ResolvedProductionSourceSpan(

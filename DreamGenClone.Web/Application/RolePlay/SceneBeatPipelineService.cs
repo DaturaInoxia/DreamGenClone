@@ -114,14 +114,16 @@ public sealed class SceneBeatPipelineService : ISceneBeatPipelineService
         };
 
         IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character>? characters = null;
+        IReadOnlyList<string>? locations = null;
         if (!string.IsNullOrWhiteSpace(session.ScenarioId))
         {
             characters = await _scenarioReader.GetCharactersAsync(session.ScenarioId)
                 ?? throw new InvalidOperationException($"Scenario '{session.ScenarioId}' was not found.");
+            locations = await _scenarioReader.GetLocationsAsync(session.ScenarioId);
         }
 
         var analyzer = await _analyzerResolver.ResolveAsync(cancellationToken);
-        var snapshot = _snapshotBuilder.Build(fullTurn, session, characters);
+        var snapshot = _snapshotBuilder.Build(fullTurn, session, characters, locations);
         var messages = _contract.BuildMessages(snapshot, analyzer.MaximumCatalogueEntries);
         var executionSnapshot = SceneBeatAnalyzerExecutionSnapshot.FromResolved(analyzer);
         var now = _timeProvider.GetUtcNow().UtcDateTime;

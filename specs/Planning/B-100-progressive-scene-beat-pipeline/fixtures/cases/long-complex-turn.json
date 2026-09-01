@@ -17,7 +17,8 @@
   "turn": { "id": "b100-turn-long", "index": 28, "kind": "Continue", "triggerSource": "User", "inputInteractionId": "long-i1", "outputInteractionIds": ["long-c1", "long-c2", "long-c3", "long-n1"], "startedUtc": "2026-01-16T23:05:00Z", "completedUtc": "2026-01-16T23:05:06Z" },
   "characters": [
     { "id": "b100-character-cal", "name": "Cal", "role": "Telescope Engineer", "gender": "Male", "description": "An engineer in blue coveralls and work gloves." },
-    { "id": "b100-character-imani", "name": "Imani", "role": "Dome Technician", "gender": "Female", "description": "A technician in a yellow safety vest over dark work clothes." }
+    { "id": "b100-character-imani", "name": "Imani", "role": "Dome Technician", "gender": "Female", "description": "A technician in a yellow safety vest over dark work clothes." },
+    { "id": "b100-persona-long", "name": "Vera", "role": "Observatory Director", "gender": "Female", "description": "The night director wearing a black field jacket over a silver-gray shirt." }
   ],
   "expectations": {
     "beatBoundaries": [

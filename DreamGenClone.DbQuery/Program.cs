@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Text.Json;
 
 if (args.Length == 0)
 {
@@ -14,7 +15,7 @@ if (!File.Exists(databasePath))
     return 2;
 }
 
-var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "b100-analyzer-configure" ? "ReadWrite" : "ReadOnly";
+var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "b100-analyzer-configure" or "biglust-image-configure" or "turn-membership-reconcile" or "b100-settle-plan" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -56,6 +57,9 @@ try
             RequireArgument(args, 2, "expectedCurrentTimeoutSeconds"),
             RequireArgument(args, 3, "newTimeoutSeconds")),
         "b100-analyzer-configure" => await ConfigureB100AnalyzerAsync(connection),
+        "biglust-image-configure" => await ConfigureBigLustImageAsync(connection),
+        "turn-membership-reconcile" => await ReconcileTurnMembershipsAsync(connection, RequireArgument(args, 1, "sessionId")),
+        "b100-settle-plan" => await SettleStaleProductionPlanAsync(connection, RequireArgument(args, 1, "planId")),
         "sql" => await PrintSqlFileAsync(connection, RequireArgument(args, 1, "sqlFile"), args.ElementAtOrDefault(2)),
         _ => throw new ArgumentException($"Unknown command '{args[0]}'.")
     };
@@ -376,6 +380,394 @@ static async Task<int> ConfigureB100AnalyzerAsync(SqliteConnection connection)
     return 0;
 }
 
+static async Task<int> ConfigureBigLustImageAsync(SqliteConnection connection)
+{
+    const string functionName = "RolePlaySceneImage";
+    const string providerName = "RunPod Serverless BigLust";
+    const string providerBaseUrl = "https://api.runpod.ai/v2/ovwnwol2o30grn";
+    const string modelIdentifier = "bigLust_v16.safetensors";
+    const string modelDisplayName = "BigLust v1.6 Serverless";
+    const string modelArtifact = "Civitai 575395 / 1081768 / SHA-256 4C1E096B9493DBB5C0AB84FD80FD20AA64817544E565DDA95A45C637FC839AAF";
+    const string providerNotes = "RunPod Serverless BigLust v1.6 endpoint img-biglust-serverless (worker-comfyui + IP-Adapter). API key resolved via CredentialReference 'runpod'.";
+    const string modelNotes = "BigLust v1.6 SDXL T2I via RunPod serverless endpoint; checkpoint on network volume xkslgh6xo0.";
+
+    var now = DateTime.UtcNow.ToString("o");
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    string providerId;
+    await using (var selectProvider = connection.CreateCommand())
+    {
+        selectProvider.Transaction = transaction;
+        selectProvider.CommandText = "SELECT Id FROM Providers WHERE Name = $name;";
+        selectProvider.Parameters.AddWithValue("$name", providerName);
+        var existingProviderId = await selectProvider.ExecuteScalarAsync();
+        if (existingProviderId is string foundProviderId)
+        {
+            providerId = foundProviderId;
+            await using var updateProvider = connection.CreateCommand();
+            updateProvider.Transaction = transaction;
+            updateProvider.CommandText = """
+                UPDATE Providers
+                SET BaseUrl = $baseUrl,
+                    ProviderType = 0,
+                    TimeoutSeconds = 900,
+                    ImageCapability = 2,
+                    ImageGenerationPath = '/v1/images/generations',
+                    ContentPolicy = 2,
+                    ImageProtocol = 2,
+                    CredentialReference = 'runpod',
+                    IsEnabled = 1,
+                    Notes = $notes,
+                    UpdatedUtc = $now
+                WHERE Id = $providerId;
+                """;
+            updateProvider.Parameters.AddWithValue("$baseUrl", providerBaseUrl);
+            updateProvider.Parameters.AddWithValue("$notes", providerNotes);
+            updateProvider.Parameters.AddWithValue("$now", now);
+            updateProvider.Parameters.AddWithValue("$providerId", providerId);
+            await updateProvider.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            providerId = Guid.NewGuid().ToString();
+            await using var insertProvider = connection.CreateCommand();
+            insertProvider.Transaction = transaction;
+            insertProvider.CommandText = """
+                INSERT INTO Providers (
+                    Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds,
+                    IsEnabled, CreatedUtc, UpdatedUtc, Notes, ImageCapability, ImageGenerationPath,
+                    ContentPolicy, ImageProtocol, CredentialReference)
+                VALUES (
+                    $id, $name, 0, $baseUrl, '/v1/chat/completions', 900,
+                    1, $now, $now, $notes, 2, '/v1/images/generations',
+                    2, 2, 'runpod');
+                """;
+            insertProvider.Parameters.AddWithValue("$id", providerId);
+            insertProvider.Parameters.AddWithValue("$name", providerName);
+            insertProvider.Parameters.AddWithValue("$baseUrl", providerBaseUrl);
+            insertProvider.Parameters.AddWithValue("$now", now);
+            insertProvider.Parameters.AddWithValue("$notes", providerNotes);
+            await insertProvider.ExecuteNonQueryAsync();
+        }
+    }
+
+    string modelId;
+    await using (var selectModel = connection.CreateCommand())
+    {
+        selectModel.Transaction = transaction;
+        selectModel.CommandText = "SELECT Id FROM RegisteredModels WHERE ProviderId = $providerId AND ModelIdentifier = $modelIdentifier;";
+        selectModel.Parameters.AddWithValue("$providerId", providerId);
+        selectModel.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
+        var existingModelId = await selectModel.ExecuteScalarAsync();
+        if (existingModelId is string foundModelId)
+        {
+            modelId = foundModelId;
+            await using var updateModel = connection.CreateCommand();
+            updateModel.Transaction = transaction;
+            updateModel.CommandText = """
+                UPDATE RegisteredModels
+                SET DisplayName = $displayName,
+                    ModelKind = 1,
+                    SceneImageModelFamily = 2,
+                    PromptDialect = 2,
+                    IdentityMechanism = 'IpAdapter',
+                    IdentityStrength = 0.8,
+                    IdentityAdapterRef = 'PLUS FACE (portraits)',
+                    ArtifactRevision = $artifact,
+                    Notes = $notes,
+                    IsEnabled = 1
+                WHERE Id = $modelId;
+                """;
+            updateModel.Parameters.AddWithValue("$displayName", modelDisplayName);
+            updateModel.Parameters.AddWithValue("$artifact", modelArtifact);
+            updateModel.Parameters.AddWithValue("$notes", modelNotes);
+            updateModel.Parameters.AddWithValue("$modelId", modelId);
+            await updateModel.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            modelId = Guid.NewGuid().ToString();
+            await using var insertModel = connection.CreateCommand();
+            insertModel.Transaction = transaction;
+            insertModel.CommandText = """
+                INSERT INTO RegisteredModels (
+                    Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, CreatedUtc,
+                    ContextWindowSize, Quantization, ParameterCount, Notes, SupportsThinkingControl,
+                    ModelKind, IdentityMechanism, IdentityStrength, IdentityAdapterRef, ArtifactRevision,
+                    SceneImageModelFamily, PromptDialect)
+                VALUES (
+                    $id, $providerId, $modelIdentifier, $displayName, 1, $now,
+                    0, '', '', $notes, 0,
+                    1, 'IpAdapter', 0.8, 'PLUS FACE (portraits)', $artifact,
+                    2, 2);
+                """;
+            insertModel.Parameters.AddWithValue("$id", modelId);
+            insertModel.Parameters.AddWithValue("$providerId", providerId);
+            insertModel.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
+            insertModel.Parameters.AddWithValue("$displayName", modelDisplayName);
+            insertModel.Parameters.AddWithValue("$now", now);
+            insertModel.Parameters.AddWithValue("$notes", modelNotes);
+            insertModel.Parameters.AddWithValue("$artifact", modelArtifact);
+            await insertModel.ExecuteNonQueryAsync();
+        }
+    }
+
+    await using (var upsertFunction = connection.CreateCommand())
+    {
+        upsertFunction.Transaction = transaction;
+        upsertFunction.CommandText = """
+            INSERT INTO FunctionModelDefaults (
+                Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, UpdatedUtc)
+            VALUES (
+                $id, $functionName, $modelId, 0.7, 0.9, 8000, 0, $now)
+            ON CONFLICT(FunctionName) DO UPDATE SET
+                ModelId = excluded.ModelId,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        upsertFunction.Parameters.AddWithValue("$id", Guid.NewGuid().ToString());
+        upsertFunction.Parameters.AddWithValue("$functionName", functionName);
+        upsertFunction.Parameters.AddWithValue("$modelId", modelId);
+        upsertFunction.Parameters.AddWithValue("$now", now);
+        if (await upsertFunction.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("BigLust image function upsert failed; no database changes were made.");
+    }
+
+    await using (var disableJuggernaut = connection.CreateCommand())
+    {
+        disableJuggernaut.Transaction = transaction;
+        disableJuggernaut.CommandText = "UPDATE RegisteredModels SET IsEnabled = 0 WHERE ModelIdentifier = 'juggernautXL_ragnarok.safetensors';";
+        await disableJuggernaut.ExecuteNonQueryAsync();
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"BigLust image configured: {functionName} | {providerName} | {modelIdentifier} (Sdxl / SdxlNaturalLanguage)");
+    return 0;
+}
+
+static async Task<int> SettleStaleProductionPlanAsync(SqliteConnection connection, string planId)
+{
+    planId = planId.Trim();
+    var now = DateTime.UtcNow.ToString("o");
+    const string code = "settled_unclassified_handler_failure";
+    const string message = "Settled: the durable handler failed before the attempt was marked failed.";
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    string? attemptId = null;
+    string? planStatus = null;
+    await using (var load = connection.CreateCommand())
+    {
+        load.Transaction = transaction;
+        load.CommandText = "SELECT CurrentAttemptId, Status FROM SceneBeatProductionPlans WHERE Id = $planId;";
+        load.Parameters.AddWithValue("$planId", planId);
+        await using var reader = await load.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            throw new InvalidOperationException($"Beat Production Plan '{planId}' was not found; no changes were made.");
+        attemptId = reader.IsDBNull(0) ? null : reader.GetString(0);
+        planStatus = reader.GetString(1);
+    }
+
+    if (string.IsNullOrWhiteSpace(attemptId))
+        throw new InvalidOperationException($"Beat Production Plan '{planId}' has no current attempt; no changes were made.");
+    if (planStatus is not ("Pending" or "Processing"))
+        throw new InvalidOperationException($"Beat Production Plan '{planId}' is '{planStatus}'; only Pending/Processing plans can be settled. No changes were made.");
+
+    await using (var failAttempt = connection.CreateCommand())
+    {
+        failAttempt.Transaction = transaction;
+        failAttempt.CommandText = """
+            UPDATE SceneBeatProductionAttempts
+            SET Status = 'Failed', ValidationCode = $code,
+                ValidationDetailsJson = json_object('message', $message),
+                CompletedUtc = $now, UpdatedUtc = $now
+            WHERE Id = $attemptId AND Status IN ('Queued', 'Processing');
+            """;
+        failAttempt.Parameters.AddWithValue("$code", code);
+        failAttempt.Parameters.AddWithValue("$message", message);
+        failAttempt.Parameters.AddWithValue("$attemptId", attemptId);
+        failAttempt.Parameters.AddWithValue("$now", now);
+        if (await failAttempt.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException($"Attempt '{attemptId}' is not Queued/Processing; no changes were made.");
+    }
+
+    await using (var failPlan = connection.CreateCommand())
+    {
+        failPlan.Transaction = transaction;
+        failPlan.CommandText = """
+            UPDATE SceneBeatProductionPlans
+            SET Status = 'Failed', ErrorCode = $code, ErrorMessage = $message,
+                CompletedUtc = $now, UpdatedUtc = $now
+            WHERE Id = $planId AND Status IN ('Pending', 'Processing');
+            """;
+        failPlan.Parameters.AddWithValue("$code", code);
+        failPlan.Parameters.AddWithValue("$message", message);
+        failPlan.Parameters.AddWithValue("$planId", planId);
+        failPlan.Parameters.AddWithValue("$now", now);
+        if (await failPlan.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException($"Plan '{planId}' failed to settle; no changes were made.");
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"Beat Production Plan settled: {planId} | attempt {attemptId} -> Failed ({code})");
+    return 0;
+}
+
+static async Task<int> ReconcileTurnMembershipsAsync(SqliteConnection connection, string sessionId)
+{
+    sessionId = sessionId.Trim();
+    var now = DateTime.UtcNow.ToString("o");
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    // Live interaction ids for the session.
+    var liveIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    await using (var live = connection.CreateCommand())
+    {
+        live.Transaction = transaction;
+        live.CommandText = """
+            SELECT json_extract(je.value, '$.id')
+            FROM Sessions s, json_each(s.PayloadJson, '$.interactions') je
+            WHERE s.Id = $sessionId;
+            """;
+        live.Parameters.AddWithValue("$sessionId", sessionId);
+        await using var reader = await live.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var id = reader.IsDBNull(0) ? null : reader.GetString(0);
+            if (!string.IsNullOrWhiteSpace(id)) liveIds.Add(id);
+        }
+    }
+    if (liveIds.Count == 0)
+        throw new InvalidOperationException($"Session '{sessionId}' has no persisted interactions; no changes were made.");
+
+    // Replacements derived from delete-and-promote debug events (originalId -> promotedId).
+    var replacements = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    await using (var promote = connection.CreateCommand())
+    {
+        promote.Transaction = transaction;
+        promote.CommandText = """
+            SELECT MetadataJson
+            FROM RolePlayDebugEvents
+            WHERE SessionId = $sessionId
+              AND EventKind = 'CommandExecuted'
+              AND Summary = 'Original interaction deleted; first alternative promoted';
+            """;
+        promote.Parameters.AddWithValue("$sessionId", sessionId);
+        await using var reader = await promote.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var json = reader.IsDBNull(0) ? null : reader.GetString(0);
+            if (string.IsNullOrWhiteSpace(json)) continue;
+            try
+            {
+                using var document = JsonDocument.Parse(json);
+                var root = document.RootElement;
+                if (root.TryGetProperty("originalId", out var original) && root.TryGetProperty("promotedId", out var promoted)
+                    && original.ValueKind == JsonValueKind.String && promoted.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(original.GetString()) && !string.IsNullOrWhiteSpace(promoted.GetString()))
+                {
+                    replacements[original.GetString()!] = promoted.GetString()!;
+                }
+            }
+            catch (JsonException)
+            {
+                // Ignore malformed metadata; the id simply has no replacement.
+            }
+        }
+    }
+
+    // Materialize turns first so the reader is closed before we issue UPDATE commands.
+    var turns = new List<(string TurnId, string? InputId, List<string> OutputIds)>();
+    await using (var load = connection.CreateCommand())
+    {
+        load.Transaction = transaction;
+        load.CommandText = """
+            SELECT TurnId, InputInteractionId, OutputInteractionIdsJson
+            FROM RolePlayV2Turns
+            WHERE SessionId = $sessionId;
+            """;
+        load.Parameters.AddWithValue("$sessionId", sessionId);
+        await using var reader = await load.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var outputJson = reader.GetString(2);
+            List<string> outputs;
+            try
+            {
+                outputs = JsonSerializer.Deserialize<List<string>>(outputJson) ?? [];
+            }
+            catch (JsonException)
+            {
+                outputs = [];
+            }
+            turns.Add((reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1), outputs));
+        }
+    }
+
+    var updated = 0;
+    foreach (var (turnId, inputId, outputs) in turns)
+    {
+        string? newInput = inputId;
+        var changed = false;
+        if (!string.IsNullOrWhiteSpace(newInput))
+        {
+            if (replacements.TryGetValue(newInput, out var promotedInput))
+            {
+                newInput = promotedInput;
+                changed = true;
+            }
+            else if (!liveIds.Contains(newInput))
+            {
+                newInput = null;
+                changed = true;
+            }
+        }
+
+        var newOutputs = new List<string>();
+        foreach (var id in outputs)
+        {
+            if (string.IsNullOrWhiteSpace(id)) continue;
+            if (replacements.TryGetValue(id, out var promotedOutput))
+            {
+                if (!newOutputs.Contains(promotedOutput)) newOutputs.Add(promotedOutput);
+                changed = true;
+            }
+            else if (liveIds.Contains(id))
+            {
+                newOutputs.Add(id);
+            }
+            else
+            {
+                changed = true; // stale reference -> drop
+            }
+        }
+
+        if (!changed) continue;
+
+        await using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = """
+            UPDATE RolePlayV2Turns
+            SET InputInteractionId = $inputId,
+                OutputInteractionIdsJson = $outputJson,
+                OutputInteractionCount = $count,
+                UpdatedUtc = $now
+            WHERE SessionId = $sessionId AND TurnId = $turnId;
+            """;
+        update.Parameters.AddWithValue("$inputId", (object?)newInput ?? DBNull.Value);
+        update.Parameters.AddWithValue("$outputJson", JsonSerializer.Serialize(newOutputs));
+        update.Parameters.AddWithValue("$count", newOutputs.Count);
+        update.Parameters.AddWithValue("$now", now);
+        update.Parameters.AddWithValue("$sessionId", sessionId);
+        update.Parameters.AddWithValue("$turnId", turnId);
+        await update.ExecuteNonQueryAsync();
+        updated++;
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"Turn membership reconciled for session '{sessionId}': {updated} turn(s) updated, {liveIds.Count} live interactions, {replacements.Count} replacement(s).");
+    return 0;
+}
+
 static async Task<int> PrintSchemaAsync(SqliteConnection connection, string? tableName)
 {
     if (!string.IsNullOrWhiteSpace(tableName))
@@ -459,5 +851,5 @@ static string FindDatabasePath()
 static void PrintUsage()
 {
     Console.Error.WriteLine("Usage: dotnet run --project DreamGenClone.DbQuery -- <command> [args]");
-    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, sql <file> [id]");
+    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, sql <file> [id]");
 }

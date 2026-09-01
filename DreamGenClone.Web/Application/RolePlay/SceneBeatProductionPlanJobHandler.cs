@@ -160,6 +160,12 @@ public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHan
                 await FailAttemptAsync(plan, attempt, code, ex.Message, cancellationToken);
             throw new DurableJobFailureException(code, "The structured text provider could not be reached.", isTransient);
         }
+        catch (Exception ex)
+        {
+            const string code = "durable_handler_unclassified_failure";
+            await FailAttemptAsync(plan, attempt, code, ex.Message, cancellationToken);
+            throw new DurableJobFailureException(code, "The Beat Production handler failed unexpectedly.", false);
+        }
 
         attempt.RawModelResponse = result.Content;
         attempt.FinishReason = result.FinishReason;

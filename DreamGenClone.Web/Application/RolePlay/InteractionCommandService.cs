@@ -2,21 +2,25 @@ using DreamGenClone.Web.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class InteractionCommandService : IInteractionCommandService
 {
     private readonly IRolePlayEngineService _engineService;
+    private readonly IRolePlayStateRepository _stateRepository;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<InteractionCommandService> _logger;
 
     public InteractionCommandService(
         IRolePlayEngineService engineService,
+        IRolePlayStateRepository stateRepository,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<InteractionCommandService> logger)
     {
         _engineService = engineService;
+        _stateRepository = stateRepository;
         _debugEventSink = debugEventSink;
         _logger = logger;
     }
@@ -133,6 +137,14 @@ public sealed class InteractionCommandService : IInteractionCommandService
         }
 
         var removedCount = session.Interactions.RemoveAll(i => allIdsToRemove.Contains(i.Id));
+
+        // Reconcile persisted turn memberships so turns no longer reference removed interactions.
+        var liveInteractionIds = session.Interactions.Select(i => i.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        await _stateRepository.ReconcileTurnMembershipsAsync(
+            session.Id,
+            liveInteractionIds,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            cancellationToken);
 
         await _engineService.SaveSessionAsync(session, cancellationToken);
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord
@@ -310,6 +322,16 @@ public sealed class InteractionCommandService : IInteractionCommandService
                 alternatives[i].AlternativeIndex = i;
             }
         }
+
+        // Reconcile persisted turn memberships: swap the deleted original for the promoted
+        // alternative (when one was promoted) and drop any other removed references.
+        var liveInteractionIds = session.Interactions.Select(i => i.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var replacements = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (alternatives.Count > 0)
+        {
+            replacements[original.Id] = alternatives[0].Id;
+        }
+        await _stateRepository.ReconcileTurnMembershipsAsync(session.Id, liveInteractionIds, replacements, cancellationToken);
 
         await _engineService.SaveSessionAsync(session, cancellationToken);
         await _debugEventSink.WriteAsync(new RolePlayDebugEventRecord

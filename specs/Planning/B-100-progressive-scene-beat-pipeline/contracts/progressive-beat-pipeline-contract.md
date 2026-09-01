@@ -96,7 +96,7 @@ Validation rules:
 - known participant names only;
 - known evidence keys only;
 - Narrative evidence key required for every entry;
-- one atomic primary location.
+- one physical location per entry, optionally a known canonical location plus a specific spot within it (e.g. `Husband and Wife Trailer — Shared Private Space - the trailer deck`); empty is allowed when no location applies (the user picks/enters one downstream).
 
 Application code resolves evidence keys to authoritative interaction IDs. Unknown keys fail the attempt; they are never dropped or guessed.
 

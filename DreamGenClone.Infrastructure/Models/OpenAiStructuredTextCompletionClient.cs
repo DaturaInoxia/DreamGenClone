@@ -94,6 +94,22 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
                 false,
                 ex);
         }
+        catch (IOException ex)
+        {
+            throw new StructuredTextCompletionException(
+                "structured_text_transport_failure",
+                "The structured text provider connection failed while reading the response.",
+                true,
+                ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new StructuredTextCompletionException(
+                "structured_text_transport_failure",
+                "The structured text provider connection failed while reading the response.",
+                true,
+                ex);
+        }
 
         if (parsed.Choices is not [{ Message.Content: { } content }]
             || string.IsNullOrWhiteSpace(content)

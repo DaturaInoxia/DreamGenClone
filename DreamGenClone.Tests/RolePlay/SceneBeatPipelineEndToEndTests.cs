@@ -206,6 +206,7 @@ public sealed class SceneBeatPipelineEndToEndTests
         public Task<IReadOnlyList<Character>?> GetCharactersAsync(string scenarioId) =>
             Task.FromResult<IReadOnlyList<Character>?>(
             [
+                new Character { Id = "character-becky", Name = "Becky", Role = "Wife", Gender = "Female" },
                 new Character { Id = "character-dean", Name = "Dean", Role = "Husband", Gender = "Male" }
             ]);
     }
