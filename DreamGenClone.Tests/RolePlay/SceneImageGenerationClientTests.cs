@@ -44,7 +44,10 @@ public sealed class SceneImageGenerationClientTests
         ModelIdentifier: "black-forest-labs/FLUX.1-schnell",
         ContentPolicy: ImageContentPolicy.SfwFiltered,
         ProviderName: "Together",
-        IsSessionOverride: false);
+        IsSessionOverride: false,
+        SceneImageModelFamily: SceneImageModelFamily.Sdxl,
+        PromptDialect: SceneImagePromptDialect.SdxlNaturalLanguage,
+        ImageProtocol: ImageProtocol.OpenAiImages);
 
     private static ImageGenerationClient BuildClient(Func<HttpRequestMessage, HttpResponseMessage> responder)
         => new(new FakeHttpClientFactory(new StubHttpMessageHandler(responder)), new FakeEncryption(), NullLogger<ImageGenerationClient>.Instance);

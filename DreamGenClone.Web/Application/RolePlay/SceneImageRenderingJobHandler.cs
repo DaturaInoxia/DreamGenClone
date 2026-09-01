@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
@@ -27,8 +28,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
     private readonly IIdentityConditionedImageClient _identityClient;
     private readonly ICharacterImageIdentityRepository _identityRepository;
     private readonly ICharacterImageAssetStorageService _identityStorage;
-    private readonly IPonySceneImagePromptBuilder _preprocessor;
-    private readonly ISdxlSceneImagePromptBuilder _sdxlPreprocessor;
+    private readonly ISceneImagePromptCompilerRegistry _compilerRegistry;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<SceneImageRenderingJobHandler> _logger;
 
@@ -40,8 +40,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         IIdentityConditionedImageClient identityClient,
         ICharacterImageIdentityRepository identityRepository,
         ICharacterImageAssetStorageService identityStorage,
-        IPonySceneImagePromptBuilder preprocessor,
-        ISdxlSceneImagePromptBuilder sdxlPreprocessor,
+        ISceneImagePromptCompilerRegistry compilerRegistry,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<SceneImageRenderingJobHandler> logger)
     {
@@ -52,8 +51,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         _identityClient = identityClient;
         _identityRepository = identityRepository;
         _identityStorage = identityStorage;
-        _preprocessor = preprocessor;
-        _sdxlPreprocessor = sdxlPreprocessor;
+        _compilerRegistry = compilerRegistry;
         _debugEventSink = debugEventSink;
         _logger = logger;
     }
@@ -91,22 +89,14 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         {
             // Resolve the image model + provider content policy (fail-fast, no fallback).
             var resolved = await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken);
-            var modelFamily = SceneImageModelFamilyResolver.Classify(resolved.ModelIdentifier);
-            if (modelFamily == SceneImageModelFamily.Unknown)
-            {
-                throw new InvalidOperationException(
-                    $"Unsupported scene-image model family for checkpoint '{resolved.ModelIdentifier}'. " +
-                    "Register a Pony or SDXL/Juggernaut model as the RolePlaySceneImage default in Model Manager.");
-            }
+            var compiler = _compilerRegistry.Resolve(resolved.SceneImageModelFamily, resolved.PromptDialect);
 
             var prompt = image.PromptSnapshot;
 
             // Hard content-policy guarantee: never send explicit content to a SFW-filtered provider.
             // Deterministic clamp, logged — never silently skipped, never auto-escalated. The clamp
             // suffix is model-family aware (Pony vs SDXL prose), never a silent default.
-            var sfwClampSuffix = modelFamily == SceneImageModelFamily.Sdxl
-                ? _sdxlPreprocessor.SfwClampSuffix
-                : PonySceneImagePromptBuilder.SfwClampSuffix;
+            var sfwClampSuffix = compiler.SfwClampSuffix;
             if (resolved.ContentPolicy == ImageContentPolicy.SfwFiltered
                 && !prompt.Contains(sfwClampSuffix, StringComparison.OrdinalIgnoreCase))
             {
@@ -118,7 +108,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
             }
 
             var stopwatch = Stopwatch.StartNew();
-            var negative = await ResolveNegativePromptAsync(image, modelFamily, cancellationToken);
+            var negative = await ResolveNegativePromptAsync(image, compiler, cancellationToken);
             var injectedPrompt = InjectPlaceholders(prompt, image.SettingsJson);
             var seed = ResolveSeed(image.SettingsJson);
 
@@ -165,6 +155,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
             image.ModelIdentifier = resolved.ModelIdentifier;
             image.ProviderName = resolved.ProviderName;
             image.ContentPolicy = resolved.ContentPolicy;
+            image.Sha256 = Convert.ToHexString(SHA256.HashData(bytes));
             image.Status = SceneImageStatus.Complete;
             image.CompletedUtc = DateTime.UtcNow;
             image.UpdatedUtc = DateTime.UtcNow;
@@ -438,11 +429,18 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
     /// snapshot takes precedence; otherwise the deterministic beat negative (beat snapshot + POV) is
     /// used. Returns null when neither is available so the client falls back to its baseline negative.
     /// </summary>
-    private async Task<string?> ResolveNegativePromptAsync(SceneImageRecord image, SceneImageModelFamily modelFamily, CancellationToken cancellationToken)
+    private async Task<string?> ResolveNegativePromptAsync(SceneImageRecord image, ISceneImagePromptCompiler compiler, CancellationToken cancellationToken)
     {
         var overrideNegative = ResolveNegativeOverride(image.SettingsJson);
         if (!string.IsNullOrWhiteSpace(overrideNegative))
             return overrideNegative;
+
+        if (!string.IsNullOrWhiteSpace(image.CompiledMediaBriefId))
+        {
+            if (string.IsNullOrWhiteSpace(image.ProductionGroupId))
+                throw new InvalidOperationException("A canonical production render has a compiled Still brief without a production group.");
+            return compiler.CanonicalNegativePrompt;
+        }
 
         if (string.IsNullOrWhiteSpace(image.BeatId) || string.IsNullOrWhiteSpace(image.Pov))
             return null;
@@ -469,10 +467,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
 
         try
         {
-            // Model-family aware negative: SDXL uses its heavier guard set, Pony its short set.
-            return modelFamily == SceneImageModelFamily.Sdxl
-                ? _sdxlPreprocessor.BuildDeterministicBeatNegativePrompt(beat, image.Pov)
-                : _preprocessor.BuildDeterministicBeatNegativePrompt(beat, image.Pov);
+            return compiler.BuildNegativePrompt(beat, image.Pov);
         }
         catch
         {

@@ -9,6 +9,11 @@ public interface ISceneBeatCatalogueRepository
         SceneBeatAnalysisAttempt attempt,
         CancellationToken cancellationToken = default);
 
+    Task<int> GetNextVersionAsync(
+        string sessionId,
+        string turnId,
+        CancellationToken cancellationToken = default);
+
     Task<SceneBeatCatalogue?> GetAsync(string catalogueId, CancellationToken cancellationToken = default);
 
     Task<SceneBeatCatalogue?> GetCurrentByTurnAsync(

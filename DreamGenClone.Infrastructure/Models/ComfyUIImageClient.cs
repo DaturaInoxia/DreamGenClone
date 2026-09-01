@@ -232,8 +232,8 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
 
             // Model-family aware baseline negative: SDXL/Juggernaut needs a heavier guard set than
             // Pony. When a deterministic per-scene negative is provided it takes precedence.
-            var family = SceneImageModelFamilyResolver.Classify(checkpoint);
-            var baselineNegative = family == SceneImageModelFamily.Sdxl
+            ValidatePromptMetadata(model);
+            var baselineNegative = model.SceneImageModelFamily == SceneImageModelFamily.Sdxl
                 ? "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin"
                 : "extra penis, multiple penises, two penises, duplicate anatomy, blurry, low quality, ugly, deformed, extra limbs, bad anatomy, watermark, text, censored, mosaic, airbrushed, plastic skin";
             var effectiveNegative = string.IsNullOrWhiteSpace(negativePrompt)
@@ -242,14 +242,14 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
 
             // Select the workflow by model family: Pony keeps its CLIP-skip workflow; SDXL/Juggernaut
             // uses the no-CLIP-skip workflow. Unknown families fail fast (no fallback model).
-            var workflow = family switch
+            var workflow = model.SceneImageModelFamily switch
             {
                 SceneImageModelFamily.Pony => BuildDefaultWorkflow(checkpoint, prompt, effectiveNegative, size, seed),
                 SceneImageModelFamily.Sdxl => BuildSdxlWorkflow(checkpoint, prompt, effectiveNegative, size, seed, options),
                 _ => throw new ImageGenerationException(
-                    $"Unsupported scene-image checkpoint '{checkpoint}'. Register a Pony or SDXL/Juggernaut model in Model Manager.",
+                        $"Unsupported scene-image family '{model.SceneImageModelFamily}'. Configure the model family and prompt dialect in Model Manager.",
                     model.ProviderName,
-                    reasonCode: "unsupported_checkpoint")
+                        reasonCode: "unsupported_image_family")
             };
 
             var payload = new JsonObject
@@ -412,4 +412,15 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
     private static bool LooksLikeFilename(string value)
         => value.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase)
            || value.EndsWith(".ckpt", StringComparison.OrdinalIgnoreCase);
+
+    private static void ValidatePromptMetadata(ResolvedImageModel model)
+    {
+        if (!SceneImagePromptMetadata.IsCompatible(model.SceneImageModelFamily, model.PromptDialect))
+        {
+            throw new ImageGenerationException(
+                $"Scene-image family '{model.SceneImageModelFamily}' is incompatible with prompt dialect '{model.PromptDialect}'. Configure both in Model Manager.",
+                model.ProviderName,
+                reasonCode: "invalid_image_prompt_metadata");
+        }
+    }
 }

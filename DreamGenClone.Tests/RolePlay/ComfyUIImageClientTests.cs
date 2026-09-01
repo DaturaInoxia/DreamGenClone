@@ -45,6 +45,8 @@ public sealed class ComfyUIImageClientTests
         ContentPolicy: ImageContentPolicy.AdultAllowed,
         ProviderName: "RunPod ComfyUI",
         IsSessionOverride: false,
+        SceneImageModelFamily: SceneImageModelFamily.Pony,
+        PromptDialect: SceneImagePromptDialect.PonyV6Tags,
         ImageProtocol: ImageProtocol.ComfyUi,
         ComfyUiUrl: "https://qguv5e029u58lb-3000.proxy.runpod.net");
 
@@ -199,7 +201,7 @@ public sealed class ComfyUIImageClientTests
     }
 
     [Fact]
-    public async Task GenerateAsync_SdxlCheckpoint_UsesSdxlWorkflow()
+    public async Task GenerateAsync_ExplicitSdxlMetadataWithOpaqueCheckpoint_UsesSdxlWorkflow()
     {
         var pngBytes = new byte[] { 137, 80, 78, 71, 1, 2, 3 };
         var promptId = "sdxl-1";
@@ -241,7 +243,12 @@ public sealed class ComfyUIImageClientTests
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         });
 
-        var model = Resolve() with { ModelIdentifier = "juggernautXL_ragnarok.safetensors" };
+        var model = Resolve() with
+        {
+            ModelIdentifier = "opaque-render-model-v42.safetensors",
+            SceneImageModelFamily = SceneImageModelFamily.Sdxl,
+            PromptDialect = SceneImagePromptDialect.SdxlNaturalLanguage
+        };
         var result = await client.GenerateAsync(model, "photorealistic couple", "1024x1024", null, seed: 1L, CancellationToken.None);
 
         Assert.NotNull(result);
@@ -250,7 +257,7 @@ public sealed class ComfyUIImageClientTests
         // SDXL workflow: no CLIP skip, Juggernaut sampler, correct checkpoint wired in.
         Assert.DoesNotContain("CLIPSetLastLayer", body, StringComparison.Ordinal);
         Assert.Contains("\"dpmpp_2m_sde\"", body, StringComparison.Ordinal);
-        Assert.Contains("juggernautXL_ragnarok.safetensors", body, StringComparison.Ordinal);
+        Assert.Contains("opaque-render-model-v42.safetensors", body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -268,16 +275,24 @@ public sealed class ComfyUIImageClientTests
     }
 
     [Fact]
-    public async Task GenerateAsync_UnknownCheckpoint_ThrowsUnsupported()
+    public async Task GenerateAsync_UnknownMetadata_ThrowsBeforeHttpCall()
     {
-        var client = BuildClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        var called = false;
+        var client = BuildClient(_ =>
         {
-            Content = new StringContent("{}")
+            called = true;
+            return new HttpResponseMessage(HttpStatusCode.OK);
         });
-        var model = Resolve() with { ModelIdentifier = "flux1-schnell-fp8.safetensors" };
+        var model = Resolve() with
+        {
+            ModelIdentifier = "opaque-render-model-v42.safetensors",
+            SceneImageModelFamily = SceneImageModelFamily.Unknown,
+            PromptDialect = SceneImagePromptDialect.Unknown
+        };
 
         var ex = await Assert.ThrowsAsync<ImageGenerationException>(() =>
             client.GenerateAsync(model, "prompt", null, null, null, CancellationToken.None));
-        Assert.Equal("unsupported_checkpoint", ex.ReasonCode);
+        Assert.Equal("invalid_image_prompt_metadata", ex.ReasonCode);
+        Assert.False(called);
     }
 }

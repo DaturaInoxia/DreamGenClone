@@ -744,6 +744,10 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 DisplayName TEXT NOT NULL,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 SupportsThinkingControl INTEGER NOT NULL DEFAULT 0,
+                SupportsStructuredJsonSchema INTEGER NOT NULL DEFAULT 0,
+                StructuredOutputMode INTEGER NOT NULL DEFAULT 0,
+                MaximumContextTokens INTEGER NULL,
+                MaximumOutputTokens INTEGER NULL,
                 CreatedUtc TEXT NOT NULL,
                 ContextWindowSize INTEGER NOT NULL DEFAULT 0,
                 Quantization TEXT NOT NULL DEFAULT '',
@@ -751,6 +755,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Notes TEXT,
                 ModelKind INTEGER NOT NULL DEFAULT 0,
                 ImageSizeSupported TEXT NULL,
+                SceneImageModelFamily INTEGER NOT NULL DEFAULT 0,
+                PromptDialect INTEGER NOT NULL DEFAULT 0,
                 SupportsImageInput INTEGER NOT NULL DEFAULT 0,
                 MaximumInputImages INTEGER NULL,
                 MaximumInputImageBytes INTEGER NULL,
@@ -787,6 +793,12 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 MaxTokens INTEGER NOT NULL DEFAULT 500,
                 ThinkingMode INTEGER NOT NULL DEFAULT 0,
                 MaxConcurrentJobs INTEGER NULL,
+                DurableJobLeaseSeconds INTEGER NULL,
+                DurableJobPollIntervalMilliseconds INTEGER NULL,
+                TransientRetryCount INTEGER NULL,
+                TransientRetryDelaysSecondsJson TEXT NULL,
+                DiagnosticsRetentionDays INTEGER NULL,
+                MaximumCatalogueEntries INTEGER NULL,
                 UpdatedUtc TEXT NOT NULL,
                 FOREIGN KEY (ModelId) REFERENCES RegisteredModels(Id)
             );
@@ -1397,6 +1409,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
         {
             ("ModelKind", "ALTER TABLE RegisteredModels ADD COLUMN ModelKind INTEGER NOT NULL DEFAULT 0"),
             ("ImageSizeSupported", "ALTER TABLE RegisteredModels ADD COLUMN ImageSizeSupported TEXT NULL"),
+            ("SceneImageModelFamily", "ALTER TABLE RegisteredModels ADD COLUMN SceneImageModelFamily INTEGER NOT NULL DEFAULT 0"),
+            ("PromptDialect", "ALTER TABLE RegisteredModels ADD COLUMN PromptDialect INTEGER NOT NULL DEFAULT 0"),
             ("SupportsImageInput", "ALTER TABLE RegisteredModels ADD COLUMN SupportsImageInput INTEGER NOT NULL DEFAULT 0"),
             ("MaximumInputImages", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImages INTEGER NULL"),
             ("MaximumInputImageBytes", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImageBytes INTEGER NULL"),
@@ -1420,6 +1434,28 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
             }
         }
+
+                // B-100 T142 reviewed mappings. Both the stable row ID and exact checkpoint identifier
+                // must match; renamed/replaced rows remain unconfigured for explicit Model Manager review.
+                var migrateReviewedImageFamilies = connection.CreateCommand();
+                migrateReviewedImageFamilies.CommandText = """
+                        UPDATE RegisteredModels
+                        SET SceneImageModelFamily = $sdxlFamily,
+                                PromptDialect = $sdxlDialect
+                        WHERE Id = 'e2ea5b23-a182-4cd9-a853-6b6632b839ee'
+                            AND ModelIdentifier = 'juggernautXL_ragnarok.safetensors';
+
+                        UPDATE RegisteredModels
+                        SET SceneImageModelFamily = $ponyFamily,
+                                PromptDialect = $ponyDialect
+                        WHERE Id = 'dbb08226-fe7d-4514-b247-6b208a525b7b'
+                            AND ModelIdentifier = 'ponyDiffusionV6XL_v6.safetensors';
+                        """;
+                migrateReviewedImageFamilies.Parameters.AddWithValue("$sdxlFamily", (int)DreamGenClone.Domain.ModelManager.SceneImageModelFamily.Sdxl);
+                migrateReviewedImageFamilies.Parameters.AddWithValue("$sdxlDialect", (int)SceneImagePromptDialect.SdxlNaturalLanguage);
+                migrateReviewedImageFamilies.Parameters.AddWithValue("$ponyFamily", (int)DreamGenClone.Domain.ModelManager.SceneImageModelFamily.Pony);
+                migrateReviewedImageFamilies.Parameters.AddWithValue("$ponyDialect", (int)SceneImagePromptDialect.PonyV6Tags);
+                await migrateReviewedImageFamilies.ExecuteNonQueryAsync(cancellationToken);
 
         var registeredModelEditorColumns = new (string Column, string Ddl)[]
         {
@@ -1468,6 +1504,35 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
             }
         }
+
+        var registeredModelStructuredOutputColumns = new (string Column, string Ddl)[]
+        {
+            ("SupportsStructuredJsonSchema", "ALTER TABLE RegisteredModels ADD COLUMN SupportsStructuredJsonSchema INTEGER NOT NULL DEFAULT 0"),
+            ("StructuredOutputMode", "ALTER TABLE RegisteredModels ADD COLUMN StructuredOutputMode INTEGER NOT NULL DEFAULT 0"),
+            ("MaximumContextTokens", "ALTER TABLE RegisteredModels ADD COLUMN MaximumContextTokens INTEGER NULL"),
+            ("MaximumOutputTokens", "ALTER TABLE RegisteredModels ADD COLUMN MaximumOutputTokens INTEGER NULL")
+        };
+        foreach (var (column, ddl) in registeredModelStructuredOutputColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";
+            if (Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0)
+                continue;
+
+            var alter = connection.CreateCommand();
+            alter.CommandText = ddl;
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
+        }
+
+                var migrateStructuredOutputMode = connection.CreateCommand();
+                migrateStructuredOutputMode.CommandText = """
+                        UPDATE RegisteredModels
+                        SET StructuredOutputMode = 1
+                        WHERE StructuredOutputMode = 0
+                            AND SupportsStructuredJsonSchema = 1;
+                        """;
+                await migrateStructuredOutputMode.ExecuteNonQueryAsync(cancellationToken);
 
         // SceneImagePrompts: add RefineInstruction column (US3 refine pass) if the table exists.
         // The table is created lazily by SceneImageRepository.EnsureSchemaAsync, so guard on table
@@ -2557,6 +2622,29 @@ public sealed class SqlitePersistence : ISqlitePersistence
             addMaxConcurrent.CommandText = "ALTER TABLE FunctionModelDefaults ADD COLUMN MaxConcurrentJobs INTEGER NULL";
             await addMaxConcurrent.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated FunctionModelDefaults: added MaxConcurrentJobs column");
+        }
+
+        var durablePolicyColumns = new (string Name, string SqlType)[]
+        {
+            ("DurableJobLeaseSeconds", "INTEGER NULL"),
+            ("DurableJobPollIntervalMilliseconds", "INTEGER NULL"),
+            ("TransientRetryCount", "INTEGER NULL"),
+            ("TransientRetryDelaysSecondsJson", "TEXT NULL"),
+            ("DiagnosticsRetentionDays", "INTEGER NULL"),
+            ("MaximumCatalogueEntries", "INTEGER NULL")
+        };
+        foreach (var (columnName, sqlType) in durablePolicyColumns)
+        {
+            var checkColumn = connection.CreateCommand();
+            checkColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('FunctionModelDefaults') WHERE name = $columnName";
+            checkColumn.Parameters.AddWithValue("$columnName", columnName);
+            if (Convert.ToInt64(await checkColumn.ExecuteScalarAsync(cancellationToken)) > 0)
+                continue;
+
+            var addColumn = connection.CreateCommand();
+            addColumn.CommandText = $"ALTER TABLE FunctionModelDefaults ADD COLUMN {columnName} {sqlType}";
+            await addColumn.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated FunctionModelDefaults: added {ColumnName} column", columnName);
         }
 
         // Migrate: ensure ScenarioEngineSettings table exists (for databases created before this table was added)

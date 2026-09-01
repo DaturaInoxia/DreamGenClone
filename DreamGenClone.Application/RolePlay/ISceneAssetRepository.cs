@@ -19,6 +19,8 @@ public interface ISceneAssetRepository
     /// <summary>Insert a new asset or update mutable fields (status, file metadata, error).</summary>
     Task UpsertAsync(SceneAsset asset, CancellationToken cancellationToken = default);
 
+    Task CreatePromotedAsync(SceneAsset asset, CancellationToken cancellationToken = default);
+
     Task DeleteAsync(string assetId, CancellationToken cancellationToken = default);
 
     /// <summary>Count assets that reference a file path (delete guard for shared files).</summary>

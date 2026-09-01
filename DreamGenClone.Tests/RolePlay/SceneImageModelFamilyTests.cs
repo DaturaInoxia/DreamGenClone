@@ -1,43 +1,46 @@
-using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.ModelManager;
 
 namespace DreamGenClone.Tests.RolePlay;
 
 public sealed class SceneImageModelFamilyTests
 {
     [Theory]
-    [InlineData("ponyDiffusionV6XL_v6.safetensors")]
-    [InlineData("PonyDiffusionV6XL_v6.safetensors")]
-    [InlineData("ponyxl.safetensors")]
-    public void Classify_PonyIdentifier_ReturnsPony(string checkpoint)
+    [InlineData(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags)]
+    [InlineData(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage)]
+    public void IsCompatible_RegisteredPair_ReturnsTrue(
+        SceneImageModelFamily family,
+        SceneImagePromptDialect dialect)
     {
-        Assert.Equal(SceneImageModelFamily.Pony, SceneImageModelFamilyResolver.Classify(checkpoint));
+        Assert.True(SceneImagePromptMetadata.IsCompatible(family, dialect));
     }
 
     [Theory]
-    [InlineData("juggernautXL_ragnarok.safetensors")]
-    [InlineData("sd_xl_base_1.0.safetensors")]
-    [InlineData("RealVisXL_V4.0.safetensors")]
-    [InlineData("lustifyNSFWCheckpoint_zenithV9.safetensors")]
-    [InlineData("lustifyNSFWCheckpoint_apexV8.safetensors")]
-    [InlineData("bigLust_v16.safetensors")]
-    public void Classify_SdxlIdentifier_ReturnsSdxl(string checkpoint)
+    [InlineData(SceneImageModelFamily.Pony, SceneImagePromptDialect.SdxlNaturalLanguage)]
+    [InlineData(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.PonyV6Tags)]
+    [InlineData(SceneImageModelFamily.Unknown, SceneImagePromptDialect.PonyV6Tags)]
+    [InlineData(SceneImageModelFamily.Pony, SceneImagePromptDialect.Unknown)]
+    public void IsCompatible_UnregisteredPair_ReturnsFalse(
+        SceneImageModelFamily family,
+        SceneImagePromptDialect dialect)
     {
-        Assert.Equal(SceneImageModelFamily.Sdxl, SceneImageModelFamilyResolver.Classify(checkpoint));
-    }
-
-    [Theory]
-    [InlineData("flux1-schnell-fp8.safetensors")]
-    [InlineData("v1-5-pruned-emaonly.safetensors")]
-    [InlineData("some-random-model.bin")]
-    [InlineData("")]
-    public void Classify_UnknownIdentifier_ReturnsUnknown(string checkpoint)
-    {
-        Assert.Equal(SceneImageModelFamily.Unknown, SceneImageModelFamilyResolver.Classify(checkpoint));
+        Assert.False(SceneImagePromptMetadata.IsCompatible(family, dialect));
     }
 
     [Fact]
-    public void Classify_Null_ReturnsUnknown()
+    public void IsUnconfigured_BothUnknown_ReturnsTrue()
     {
-        Assert.Equal(SceneImageModelFamily.Unknown, SceneImageModelFamilyResolver.Classify(null));
+        Assert.True(SceneImagePromptMetadata.IsUnconfigured(
+            SceneImageModelFamily.Unknown,
+            SceneImagePromptDialect.Unknown));
+    }
+
+    [Theory]
+    [InlineData(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags)]
+    [InlineData(SceneImageModelFamily.Unknown, SceneImagePromptDialect.PonyV6Tags)]
+    public void IsUnconfigured_AnyConfiguredValue_ReturnsFalse(
+        SceneImageModelFamily family,
+        SceneImagePromptDialect dialect)
+    {
+        Assert.False(SceneImagePromptMetadata.IsUnconfigured(family, dialect));
     }
 }

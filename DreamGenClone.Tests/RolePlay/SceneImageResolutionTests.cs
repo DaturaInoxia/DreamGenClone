@@ -106,6 +106,8 @@ public sealed class SceneImageResolutionTests
             ModelIdentifier = "black-forest-labs/FLUX.1-schnell",
             DisplayName = "FLUX",
             ModelKind = ModelKind.Image,
+            SceneImageModelFamily = SceneImageModelFamily.Sdxl,
+            PromptDialect = SceneImagePromptDialect.SdxlNaturalLanguage,
             IsEnabled = true
         };
         models.Add(model);
@@ -202,6 +204,54 @@ public sealed class SceneImageResolutionTests
         Assert.Equal(ImageContentPolicy.AdultAllowed, resolved.ContentPolicy);
         Assert.Equal("Together", resolved.ProviderName);
         Assert.False(resolved.IsSessionOverride);
+        Assert.Equal(SceneImageModelFamily.Sdxl, resolved.SceneImageModelFamily);
+        Assert.Equal(SceneImagePromptDialect.SdxlNaturalLanguage, resolved.PromptDialect);
+    }
+
+    [Fact]
+    public async Task ResolveImageModel_UnconfiguredPromptMetadata_FailsFast()
+    {
+        var (service, funcDefaults, models, providers) = Build();
+        SeedHappyPath(funcDefaults, models, providers);
+        models.Add(new RegisteredModel
+        {
+            Id = "model-1",
+            ProviderId = "prov-1",
+            ModelIdentifier = "opaque-image-model.safetensors",
+            DisplayName = "Unconfigured Image Model",
+            ModelKind = ModelKind.Image,
+            SceneImageModelFamily = SceneImageModelFamily.Unknown,
+            PromptDialect = SceneImagePromptDialect.Unknown,
+            IsEnabled = true
+        });
+
+        var exception = await Assert.ThrowsAsync<ModelResolutionException>(
+            () => service.ResolveImageModelAsync(null, CancellationToken.None));
+
+        Assert.Contains("missing or incompatible", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResolveImageModel_IncompatiblePromptMetadata_FailsFast()
+    {
+        var (service, funcDefaults, models, providers) = Build();
+        SeedHappyPath(funcDefaults, models, providers);
+        models.Add(new RegisteredModel
+        {
+            Id = "model-1",
+            ProviderId = "prov-1",
+            ModelIdentifier = "opaque-image-model.safetensors",
+            DisplayName = "Mismatched Image Model",
+            ModelKind = ModelKind.Image,
+            SceneImageModelFamily = SceneImageModelFamily.Pony,
+            PromptDialect = SceneImagePromptDialect.SdxlNaturalLanguage,
+            IsEnabled = true
+        });
+
+        var exception = await Assert.ThrowsAsync<ModelResolutionException>(
+            () => service.ResolveImageModelAsync(null, CancellationToken.None));
+
+        Assert.Contains("missing or incompatible", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -228,6 +278,8 @@ public sealed class SceneImageResolutionTests
             ModelIdentifier = "ponyDiffusionV6XL_v6.safetensors",
             DisplayName = "PonyV6",
             ModelKind = ModelKind.Image,
+            SceneImageModelFamily = SceneImageModelFamily.Pony,
+            PromptDialect = SceneImagePromptDialect.PonyV6Tags,
             IsEnabled = true
         });
         funcDefaults.Set(AppFunction.RolePlaySceneImage, new FunctionModelDefault
@@ -245,6 +297,8 @@ public sealed class SceneImageResolutionTests
         Assert.Equal(ImageProtocol.ComfyUi, resolved.ImageProtocol);
         Assert.Equal("https://qguv5e029u58lb-3000.proxy.runpod.net", resolved.ComfyUiUrl);
         Assert.Equal("ponyDiffusionV6XL_v6.safetensors", resolved.ModelIdentifier);
+        Assert.Equal(SceneImageModelFamily.Pony, resolved.SceneImageModelFamily);
+        Assert.Equal(SceneImagePromptDialect.PonyV6Tags, resolved.PromptDialect);
     }
 
     [Fact]
@@ -465,6 +519,8 @@ public sealed class SceneImageResolutionTests
             ModelIdentifier = "black-forest-labs/FLUX.1-schnell",
             DisplayName = "FLUX",
             ModelKind = ModelKind.Image,
+            SceneImageModelFamily = SceneImageModelFamily.Sdxl,
+            PromptDialect = SceneImagePromptDialect.SdxlNaturalLanguage,
             IsEnabled = true,
             IdentityMechanism = mechanism,
             IdentityStrength = strength,

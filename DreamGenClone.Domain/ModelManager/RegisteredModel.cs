@@ -8,6 +8,8 @@ public sealed class RegisteredModel
     public string DisplayName { get; set; } = string.Empty;
     public ModelKind ModelKind { get; set; } = ModelKind.Text;
     public string? ImageSizeSupported { get; set; }
+    public SceneImageModelFamily SceneImageModelFamily { get; set; }
+    public SceneImagePromptDialect PromptDialect { get; set; }
 
     /// <summary>Whether this model accepts image content in multimodal completion requests.</summary>
     public bool SupportsImageInput { get; set; }
@@ -56,6 +58,9 @@ public sealed class RegisteredModel
     public bool IsEnabled { get; set; } = true;
     /// <summary>Whether this model's chat template supports chat_template_kwargs.thinking.</summary>
     public bool SupportsThinkingControl { get; set; }
+    public StructuredOutputMode StructuredOutputMode { get; set; }
+    public int? MaximumContextTokens { get; set; }
+    public int? MaximumOutputTokens { get; set; }
     public string CreatedUtc { get; set; } = DateTime.UtcNow.ToString("o");
 
     /// <summary>Context window size in tokens (e.g. 4096, 8192, 32768, 131072). 0 = unknown.</summary>

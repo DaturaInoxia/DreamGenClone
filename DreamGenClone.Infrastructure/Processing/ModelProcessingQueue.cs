@@ -26,8 +26,8 @@ public sealed class ModelProcessingQueue : IModelProcessingQueue
         if (isDuplicate) return;
 
         _tasks[task.Id] = task;
-        _channel.Writer.TryWrite(task);
         OnStatusChanged?.Invoke(task);
+        _channel.Writer.TryWrite(task);
     }
 
     public void EnqueueStoryProcessing(string parsedStoryId, string? storyTitle, string? themeProfileId = null)

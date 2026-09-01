@@ -95,6 +95,24 @@ The semantic content of these tracks comes from B-100. B-101 adds presentation c
 8. Every cue and asset retains source `TurnId`; Beat/Moment-derived cues also retain `CatalogueId`, `BeatId`, `MomentSetId`, and `MomentId` where applicable.
 9. Timing is authored in logical sequence and relative offsets before assets exist. A resolved playback manifest contains concrete durations and timecodes after approved assets are selected.
 
+## Exact Import Contract
+
+B-101 imports only the current approved chain:
+
+`SceneBeatCatalogue -> SceneBeatProductionPlan -> SceneMomentSet -> SceneMomentEnrichment -> CompiledMediaBrief -> ApprovedMediaDerivative`
+
+For still images, the approved derivative is selected through the current
+`ApprovedSceneFrameDecision`; B-101 never selects an arbitrary completed `SceneImageRecord`.
+For every modality, `ApprovedMediaDerivative` must be current for its compiled brief and approval
+policy. Every imported placement retains the complete applicable `TurnId`, `CatalogueId`, `BeatId`,
+`BeatProductionPlanId` and version, `MomentSetId` and version, `MomentId`, `MomentEnrichmentId` and
+revision, `CompiledMediaBriefId`, approved derivative/decision ID, and immutable asset checksum.
+
+B-101 may arrange, time, hold, omit, or replace approved derivatives. It must not reread RP prose,
+legacy schema-v3 beat JSON, prompts, captions, or generated media to rediscover dialogue, cast,
+visual state, soundscape, action, coverage, or continuity. Missing or stale canonical lineage blocks
+import explicitly; semantic rediscovery and guessed conversion are prohibited.
+
 ## Authoring and Playback
 
 ### Storyboard Studio

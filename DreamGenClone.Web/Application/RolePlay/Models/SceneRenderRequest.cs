@@ -36,6 +36,12 @@ public sealed class SceneRenderRequest
     /// <summary>Parent image id when regenerating.</summary>
     public string? RegenerateOfId { get; set; }
 
+    /// <summary>Immutable production group for a normal Composition attempt. Null preserves the legacy render path.</summary>
+    public string? ProductionGroupId { get; set; }
+
+    /// <summary>Immutable compiled Still brief used by a production Composition attempt.</summary>
+    public string? CompiledMediaBriefId { get; set; }
+
     /// <summary>The beat id this render depicts (CR-006 P5).</summary>
     public string? BeatId { get; set; }
 

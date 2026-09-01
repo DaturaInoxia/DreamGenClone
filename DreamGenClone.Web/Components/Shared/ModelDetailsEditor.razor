@@ -95,6 +95,24 @@
             </div>
             @if (Model.ModelKind == ModelKind.Image)
             {
+                <div class="col-12"><hr class="my-1" /><strong>Scene Image Compilation</strong></div>
+                <div class="col-md-6">
+                    <label class="form-label">Image Family</label>
+                    <select class="form-select" @bind="Model.SceneImageModelFamily">
+                        <option value="Unknown">Not configured</option>
+                        <option value="Pony">Pony V6 XL</option>
+                        <option value="Sdxl">SDXL / Juggernaut</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Prompt Dialect</label>
+                    <select class="form-select" @bind="Model.PromptDialect">
+                        <option value="Unknown">Not configured</option>
+                        <option value="PonyV6Tags">Pony V6 tags</option>
+                        <option value="SdxlNaturalLanguage">SDXL natural language</option>
+                    </select>
+                    <div class="form-text">Pony requires Pony V6 tags. SDXL / Juggernaut requires SDXL natural language.</div>
+                </div>
                 <div class="col-12"><hr class="my-1" /><strong>Qwen Source-Image Editor Settings</strong></div>
                 <div class="col-md-4">
                     <label class="form-label">Diffusion Model</label>
@@ -430,6 +448,11 @@
             _formError = multimodalError;
             return;
         }
+        if (!ValidateImagePromptMetadata(Model, out var imagePromptError))
+        {
+            _formError = imagePromptError;
+            return;
+        }
 
         _isSaving = true;
         _formError = null;
@@ -463,6 +486,12 @@
 
     private async Task RunAnalysis()
     {
+        if (!ValidateImagePromptMetadata(Model, out var imagePromptError))
+        {
+            _analysisError = imagePromptError;
+            return;
+        }
+
         _isAnalysing = true;
         _analysisError = null;
         _analysisResult = null;
@@ -657,5 +686,19 @@
             return false;
         }
         return true;
+    }
+
+    private static bool ValidateImagePromptMetadata(RegisteredModel model, out string? error)
+    {
+        error = null;
+        if (model.ModelKind != ModelKind.Image
+            || SceneImagePromptMetadata.IsCompatible(model.SceneImageModelFamily, model.PromptDialect)
+            || SceneImagePromptMetadata.IsUnconfigured(model.SceneImageModelFamily, model.PromptDialect))
+        {
+            return true;
+        }
+
+        error = $"Image family '{model.SceneImageModelFamily}' is incompatible with prompt dialect '{model.PromptDialect}'. Pony requires Pony V6 tags; SDXL / Juggernaut requires SDXL natural language.";
+        return false;
     }
 }

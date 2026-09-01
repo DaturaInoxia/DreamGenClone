@@ -23,5 +23,6 @@ public enum AppFunction
     RolePlaySceneImage,
     RolePlaySceneImageEditor,
     RolePlaySceneImageEditPromptCompiler,
-    RolePlaySceneImageValidator
+    RolePlaySceneImageValidator,
+    RolePlaySceneBeatAnalyzer
 }

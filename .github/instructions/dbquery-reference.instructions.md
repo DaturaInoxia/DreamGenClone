@@ -68,7 +68,8 @@ Three tasks in `.vscode/tasks.json` also call the scripts (for manual runs):
 - **DO NOT rewrite Program.cs** for each task. It is a permanent dispatcher.
 - For ad-hoc SQL: write a `.sql` file in `DreamGenClone.DbQuery/queries/` and use the `sql` command.
 - Use `{{id}}` placeholder in .sql files; it is replaced by the second arg.
-- The dispatcher opens the development database read-only. Do not use it to seed or mutate data.
+- The dispatcher opens the development database read-only except for explicitly allowlisted, named mutation commands. Never use the generic `sql` command to mutate data.
+- Named mutation commands must validate their target, run transactionally, and fail without partial changes when required data is missing or ambiguous.
 - Each query uses a fresh SQLite command and reader, so no reader is reused across commands.
 
 ## Dispatcher Commands
@@ -92,6 +93,7 @@ Three tasks in `.vscode/tasks.json` also call the scripts (for manual runs):
 | `gate-rules <themeId>` | themeId | Gate rules for a theme |
 | `theme-profiles` | — | RPThemeProfiles + all theme assignments |
 | `rp-themes <profileId>` | profileId | Themes assigned to a profile |
+| `b100-analyzer-configure` | — | Idempotently assign direct DeepSeek Flash and complete settings to the B-100 scene-beat analyzer |
 | `sql <file> [id]` | file path, optional id | Run SQL file; `{{id}}` → arg |
 
 ## Key Tables & Columns

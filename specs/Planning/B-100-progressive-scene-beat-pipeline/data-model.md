@@ -302,10 +302,10 @@ Shared durable execution primitive. It should be generic enough for later B-032 
 
 | Field | Purpose |
 |---|---|
-| `SupportsStructuredJsonSchema` | Provider/model can enforce the required JSON Schema transport. |
+| `StructuredOutputMode` | Explicit provider/model transport: `None`, `StrictJsonSchema`, or `JsonObject`. |
 | `SupportsThinkingControl` | Existing capability retained. |
-| `MaximumContextTokens` | Validation and observability. |
-| `MaximumOutputTokens` | Prevent invalid function settings. |
+| `MaximumContextTokens` | Optional validation and observability capability. |
+| `MaximumOutputTokens` | Optional upper bound for the required function max-output setting. |
 | `SceneImageModelFamily` | Explicit renderer family metadata for image models. |
 | `PromptDialect` | Explicit prompt compiler key, independent of checkpoint filename. |
 

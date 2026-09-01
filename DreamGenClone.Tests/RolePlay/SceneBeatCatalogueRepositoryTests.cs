@@ -76,6 +76,91 @@ public sealed class SceneBeatCatalogueRepositoryTests
         }
     }
 
+    [Fact]
+    public async Task ReverseOrderCompletion_SupersededOlderAttemptCannotOverwriteNewerVersion()
+    {
+        var fixture = CreateFixture();
+        try
+        {
+            var (first, firstAttempt) = CreateVersion(1);
+            await fixture.Repository.CreateVersionAsync(first, firstAttempt);
+            Assert.True(await fixture.Repository.TryStartAttemptAsync(
+                first.Id, firstAttempt.Id, "model-1", "provider-1", "{}", DateTime.UtcNow));
+
+            var (second, secondAttempt) = CreateVersion(2);
+            await fixture.Repository.CreateVersionAsync(second, secondAttempt);
+            Assert.True(await fixture.Repository.TryStartAttemptAsync(
+                second.Id, secondAttempt.Id, "model-2", "provider-2", "{}", DateTime.UtcNow));
+            secondAttempt.RawModelResponse = "{\"beats\":[\"new\"]}";
+            secondAttempt.ValidationDetailsJson = "{}";
+            Assert.True(await fixture.Repository.TryCompleteAttemptAsync(
+                second.Id, secondAttempt, [CreateEntry(second.Id)], DateTime.UtcNow));
+
+            firstAttempt.RawModelResponse = "{\"beats\":[\"old\"]}";
+            firstAttempt.ValidationDetailsJson = "{}";
+            Assert.False(await fixture.Repository.TryCompleteAttemptAsync(
+                first.Id, firstAttempt, [CreateEntry(first.Id)], DateTime.UtcNow));
+
+            var current = await fixture.Repository.GetCurrentByTurnAsync(second.SessionId, second.TurnId);
+            Assert.Equal(second.Id, current!.Id);
+            Assert.Equal(SceneBeatCatalogueStatus.Complete, current.Status);
+            Assert.Equal("model-2", current.ModelIdentifier);
+        }
+        finally
+        {
+            Cleanup(fixture.DatabasePath);
+        }
+    }
+
+    [Fact]
+    public async Task GetNextVersion_IncludesTerminalAndSupersededHistory()
+    {
+        var fixture = CreateFixture();
+        try
+        {
+            var (first, firstAttempt) = CreateVersion(1);
+            await fixture.Repository.CreateVersionAsync(first, firstAttempt);
+            Assert.True(await fixture.Repository.TryCancelCurrentAsync(
+                first.Id, firstAttempt.Id, DateTime.UtcNow));
+
+            var (second, secondAttempt) = CreateVersion(2);
+            await fixture.Repository.CreateVersionAsync(second, secondAttempt);
+            var (third, thirdAttempt) = CreateVersion(3);
+            await fixture.Repository.CreateVersionAsync(third, thirdAttempt);
+
+            Assert.Equal(4, await fixture.Repository.GetNextVersionAsync("session-1", "turn-1"));
+            Assert.Equal(1, await fixture.Repository.GetNextVersionAsync("session-1", "turn-other"));
+        }
+        finally
+        {
+            Cleanup(fixture.DatabasePath);
+        }
+    }
+
+    [Fact]
+    public async Task CreateVersion_AllocatesNextVersionInsideRepositoryTransaction()
+    {
+        var fixture = CreateFixture();
+        try
+        {
+            var (first, firstAttempt) = CreateVersion(1);
+            await fixture.Repository.CreateVersionAsync(first, firstAttempt);
+            var (allocated, allocatedAttempt) = CreateVersion(0);
+            allocated.Id = "catalogue-allocated";
+            allocatedAttempt.OwnerRecordId = allocated.Id;
+            allocated.CurrentAttemptId = allocatedAttempt.Id;
+
+            await fixture.Repository.CreateVersionAsync(allocated, allocatedAttempt);
+
+            Assert.Equal(2, allocated.Version);
+            Assert.Equal(3, await fixture.Repository.GetNextVersionAsync("session-1", "turn-1"));
+        }
+        finally
+        {
+            Cleanup(fixture.DatabasePath);
+        }
+    }
+
     private static TestFixture CreateFixture()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"scene-beat-catalogue-{Guid.NewGuid():N}.db");

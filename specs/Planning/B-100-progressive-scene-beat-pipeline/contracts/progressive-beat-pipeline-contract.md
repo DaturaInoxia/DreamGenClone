@@ -253,8 +253,9 @@ Profile/cue keys are resolved to authoritative IDs by application code. Enrichme
 
 ## Structured Output Contract
 
-- All four stages require a registered analyzer whose selected provider/model path supports strict JSON Schema.
-- The request transport shall send the exact versioned schema, not only prose describing JSON.
+- All four stages require a registered analyzer with an explicit supported structured-output mode: `StrictJsonSchema` or `JsonObject`.
+- `StrictJsonSchema` transport sends the exact versioned schema as provider-enforced response metadata.
+- `JsonObject` transport sends `response_format.type=json_object` and includes the exact versioned schema in the system instruction. The same strict parser and semantic validator remain authoritative after completion.
 - Model capability validation happens before durable job acceptance.
 - Schema parsing uses structured APIs.
 - No JSON repair, control-character sanitizer, inferred missing fields, alternate root names, or reasoning-as-content substitution is allowed.
@@ -264,7 +265,8 @@ Profile/cue keys are resolved to authoritative IDs by application code. Enrichme
 
 - Source: `AppFunction.RolePlaySceneBeatAnalyzer` only.
 - A roleplay session `SessionModelId` is not an analyzer override.
-- Missing function default, disabled model/provider, unsupported structured output, incompatible token limits, or unspecified required thinking mode fails explicitly.
+- Missing function default, disabled model/provider, missing/unsupported structured-output mode, incompatible configured token limits, or unspecified required thinking mode fails explicitly.
+- Function `MaxTokens` is the required output limit. Optional model context/output capabilities constrain it when configured; their absence does not create a fallback value.
 - No model fallback or alternate provider path is allowed.
 - The resolved model and execution settings are snapshotted before the job is accepted.
 

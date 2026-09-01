@@ -369,6 +369,24 @@
                                     </div>
                                     <div class="form-text">Enable only when the provider supports chat_template_kwargs.thinking.</div>
                                 </div>
+                                <div class="col-12"><hr class="my-1" /><strong>Structured Output Contract</strong></div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Structured Output Mode</label>
+                                    <select class="form-select" @bind="_editingModel!.StructuredOutputMode">
+                                        <option value="None">Not supported</option>
+                                        <option value="StrictJsonSchema">Strict JSON Schema</option>
+                                        <option value="JsonObject">JSON Object</option>
+                                    </select>
+                                    <div class="form-text">Select the exact response format enforced by this provider/model path.</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Maximum Context Tokens</label>
+                                    <input type="number" class="form-control" @bind="_editingModel!.MaximumContextTokens" min="1" />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Maximum Output Tokens</label>
+                                    <input type="number" class="form-control" @bind="_editingModel!.MaximumOutputTokens" min="1" />
+                                </div>
                                 <div class="col-12"><hr class="my-1" /><strong>Multimodal Input Contract</strong></div>
                                 <div class="col-md-3">
                                     <label class="form-label">Image Input</label>
@@ -411,6 +429,24 @@
                                 </div>
                                 @if (_editingModel!.ModelKind == ModelKind.Image)
                                 {
+                                    <div class="col-12"><hr class="my-1" /><strong>Scene Image Compilation</strong></div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Image Family</label>
+                                        <select class="form-select" @bind="_editingModel.SceneImageModelFamily">
+                                            <option value="Unknown">Not configured</option>
+                                            <option value="Pony">Pony V6 XL</option>
+                                            <option value="Sdxl">SDXL / Juggernaut</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Prompt Dialect</label>
+                                        <select class="form-select" @bind="_editingModel.PromptDialect">
+                                            <option value="Unknown">Not configured</option>
+                                            <option value="PonyV6Tags">Pony V6 tags</option>
+                                            <option value="SdxlNaturalLanguage">SDXL natural language</option>
+                                        </select>
+                                        <div class="form-text">Pony requires Pony V6 tags. SDXL / Juggernaut requires SDXL natural language.</div>
+                                    </div>
                                     <div class="col-12"><hr class="my-1" /><strong>Qwen Source-Image Editor Settings</strong></div>
                                     <div class="col-md-4">
                                         <label class="form-label">Diffusion Model</label>
@@ -567,6 +603,7 @@
                                     <td>
                                         <strong>@FormatFunctionName(func)</strong>
                                         @if ((func == AppFunction.RolePlaySemanticAnalysis
+                                            || func == AppFunction.RolePlaySceneBeatAnalyzer
                                             || func == AppFunction.RolePlaySceneImage
                                             || func == AppFunction.RolePlaySceneImagePreprocessor
                                             || func == AppFunction.RolePlaySceneImageEditor
@@ -611,7 +648,7 @@
                                         </select>
                                     </td>
                                     <td>
-                                        @if (func == AppFunction.RolePlaySemanticAnalysis)
+                                        @if (func is AppFunction.RolePlaySemanticAnalysis or AppFunction.RolePlaySceneBeatAnalyzer)
                                         {
                                             <input type="number" class="form-control form-control-sm" min="1" max="16"
                                                    value="@state.MaxConcurrentJobs" @onchange="e => state.MaxConcurrentJobs = ParseNullableInt(e)" />
@@ -621,12 +658,55 @@
                                         <button class="btn btn-sm btn-outline-success" @onclick="() => SaveFunctionDefault(func)" disabled="@_isBusy">
                                             <i class="bi bi-check-lg me-1"></i> Save
                                         </button>
-                                        @if (func == AppFunction.RolePlaySemanticAnalysis && state.HasBeenSaved)
+                                        @if (func is AppFunction.RolePlaySemanticAnalysis or AppFunction.RolePlaySceneBeatAnalyzer && state.HasBeenSaved)
                                         {
                                             <div class="form-text text-muted mt-1" style="font-size:0.75em">Restart app to apply concurrency changes.</div>
                                         }
                                     </td>
                                 </tr>
+                                @if (func == AppFunction.RolePlaySceneBeatAnalyzer)
+                                {
+                                    <tr>
+                                        <td colspan="8" class="border-top-0 pt-0 pb-3">
+                                            <div class="row g-2 ms-1">
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">Lease Seconds</label>
+                                                    <input type="number" class="form-control form-control-sm" min="1" max="3600"
+                                                           value="@state.DurableJobLeaseSeconds" @onchange="e => state.DurableJobLeaseSeconds = ParseNullableInt(e)" />
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">Poll Milliseconds</label>
+                                                    <input type="number" class="form-control form-control-sm" min="10" max="60000"
+                                                           value="@state.DurableJobPollIntervalMilliseconds" @onchange="e => state.DurableJobPollIntervalMilliseconds = ParseNullableInt(e)" />
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">Retry Count</label>
+                                                    <input type="number" class="form-control form-control-sm" min="0" max="10"
+                                                           value="@state.TransientRetryCount" @onchange="e => state.TransientRetryCount = ParseNullableInt(e)" />
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small">Retry Delays Seconds (JSON)</label>
+                                                    <input type="text" class="form-control form-control-sm font-monospace"
+                                                           value="@state.TransientRetryDelaysSecondsJson" @onchange="e => state.TransientRetryDelaysSecondsJson = e.Value?.ToString()" />
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">Diagnostics Retention Days</label>
+                                                    <input type="number" class="form-control form-control-sm" min="1" max="3650"
+                                                           value="@state.DiagnosticsRetentionDays" @onchange="e => state.DiagnosticsRetentionDays = ParseNullableInt(e)" />
+                                                </div>
+                                                <div class="col-md-1">
+                                                    <label class="form-label small">Max Beats</label>
+                                                    <input type="number" class="form-control form-control-sm" min="1" max="12"
+                                                           value="@state.MaximumCatalogueEntries" @onchange="e => state.MaximumCatalogueEntries = ParseNullableInt(e)" />
+                                                </div>
+                                                @if (!string.IsNullOrWhiteSpace(state.ValidationError))
+                                                {
+                                                    <div class="col-12 text-danger small">@state.ValidationError</div>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
                             }
                         </tbody>
                     </table>
@@ -743,6 +823,12 @@
                     MaxTokens = fd?.MaxTokens ?? 500,
                     ThinkingMode = fd?.ThinkingMode ?? ThinkingMode.Default,
                     MaxConcurrentJobs = fd?.MaxConcurrentJobs,
+                    DurableJobLeaseSeconds = fd?.DurableJobLeaseSeconds,
+                    DurableJobPollIntervalMilliseconds = fd?.DurableJobPollIntervalMilliseconds,
+                    TransientRetryCount = fd?.TransientRetryCount,
+                    TransientRetryDelaysSecondsJson = fd?.TransientRetryDelaysSecondsJson,
+                    DiagnosticsRetentionDays = fd?.DiagnosticsRetentionDays,
+                    MaximumCatalogueEntries = fd?.MaximumCatalogueEntries,
                     HasBeenSaved = fd is not null,
                     ExistingId = fd?.Id
                 };
@@ -977,8 +1063,13 @@
             DisplayName = model.DisplayName,
             IsEnabled = model.IsEnabled,
             SupportsThinkingControl = model.SupportsThinkingControl,
+            StructuredOutputMode = model.StructuredOutputMode,
+            MaximumContextTokens = model.MaximumContextTokens,
+            MaximumOutputTokens = model.MaximumOutputTokens,
             ModelKind = model.ModelKind,
             ImageSizeSupported = model.ImageSizeSupported,
+            SceneImageModelFamily = model.SceneImageModelFamily,
+            PromptDialect = model.PromptDialect,
             SupportsImageInput = model.SupportsImageInput,
             MaximumInputImages = model.MaximumInputImages,
             MaximumInputImageBytes = model.MaximumInputImageBytes,
@@ -1026,6 +1117,16 @@
         if (!ValidateMultimodalModel(_editingModel, out var multimodalError))
         {
             _modelFormError = multimodalError;
+            return;
+        }
+        if (!ValidateStructuredOutputModel(_editingModel, out var structuredOutputError))
+        {
+            _modelFormError = structuredOutputError;
+            return;
+        }
+        if (!ValidateImagePromptMetadata(_editingModel, requireConfigured: false, out var imagePromptError))
+        {
+            _modelFormError = imagePromptError;
             return;
         }
 
@@ -1095,8 +1196,13 @@
             CreatedUtc = model.CreatedUtc,
             ProviderName = model.ProviderName,
             SupportsThinkingControl = model.SupportsThinkingControl,
+            StructuredOutputMode = model.StructuredOutputMode,
+            MaximumContextTokens = model.MaximumContextTokens,
+            MaximumOutputTokens = model.MaximumOutputTokens,
             ModelKind = model.ModelKind,
             ImageSizeSupported = model.ImageSizeSupported,
+            SceneImageModelFamily = model.SceneImageModelFamily,
+            PromptDialect = model.PromptDialect,
             SupportsImageInput = model.SupportsImageInput,
             MaximumInputImages = model.MaximumInputImages,
             MaximumInputImageBytes = model.MaximumInputImageBytes,
@@ -1178,12 +1284,26 @@
             return;
         }
 
-        // Validate ranges
-        state.Temperature = Math.Clamp(state.Temperature, 0.0, 2.0);
-        state.TopP = Math.Clamp(state.TopP, 0.0, 1.0);
-        state.MaxTokens = Math.Clamp(state.MaxTokens, 1, 16000);
-        if (state.MaxConcurrentJobs.HasValue)
-            state.MaxConcurrentJobs = Math.Clamp(state.MaxConcurrentJobs.Value, 1, 16);
+        if (func == AppFunction.RolePlaySceneImage)
+        {
+            var selectedModel = _modelsGrouped.Values.SelectMany(models => models)
+                .SingleOrDefault(model => model.Id == state.ModelId);
+            string? imagePromptError = null;
+            if (selectedModel is null || !ValidateImagePromptMetadata(selectedModel, requireConfigured: true, out imagePromptError))
+            {
+                state.ValidationError = imagePromptError ?? "The selected scene-image model could not be loaded.";
+                return;
+            }
+        }
+
+        if (func != AppFunction.RolePlaySceneBeatAnalyzer)
+        {
+            state.Temperature = Math.Clamp(state.Temperature, 0.0, 2.0);
+            state.TopP = Math.Clamp(state.TopP, 0.0, 1.0);
+            state.MaxTokens = Math.Clamp(state.MaxTokens, 1, 16000);
+            if (state.MaxConcurrentJobs.HasValue)
+                state.MaxConcurrentJobs = Math.Clamp(state.MaxConcurrentJobs.Value, 1, 16);
+        }
 
         _isBusy = true;
         try
@@ -1197,8 +1317,18 @@
                 TopP = state.TopP,
                 MaxTokens = state.MaxTokens,
                 ThinkingMode = state.ThinkingMode,
-                MaxConcurrentJobs = state.MaxConcurrentJobs
+                MaxConcurrentJobs = state.MaxConcurrentJobs,
+                DurableJobLeaseSeconds = state.DurableJobLeaseSeconds,
+                DurableJobPollIntervalMilliseconds = state.DurableJobPollIntervalMilliseconds,
+                TransientRetryCount = state.TransientRetryCount,
+                TransientRetryDelaysSecondsJson = state.TransientRetryDelaysSecondsJson,
+                DiagnosticsRetentionDays = state.DiagnosticsRetentionDays,
+                MaximumCatalogueEntries = state.MaximumCatalogueEntries
             };
+            state.ValidationError = fd.ValidateSceneBeatAnalyzerConfiguration();
+            if (state.ValidationError is not null)
+                return;
+
             await Facade.SaveFunctionDefaultAsync(fd);
             await LoadAllDataAsync();
         }
@@ -1258,6 +1388,7 @@
         AppFunction.RolePlaySceneImageEditor => "RP Scene Image Editor (Qwen)",
         AppFunction.RolePlaySceneImageEditPromptCompiler => "RP Scene Image Edit Prompt Compiler",
         AppFunction.RolePlaySceneImageValidator => "RP Scene Image Validator",
+        AppFunction.RolePlaySceneBeatAnalyzer => "RP Scene Beat Analyzer",
         _ => func.ToString()
     };
 
@@ -1394,6 +1525,45 @@
         return true;
     }
 
+    private static bool ValidateStructuredOutputModel(RegisteredModel model, out string? error)
+    {
+        error = null;
+        if (!Enum.IsDefined(model.StructuredOutputMode))
+        {
+            error = "Structured output mode is invalid.";
+            return false;
+        }
+        if (model.MaximumContextTokens is <= 0 || model.MaximumOutputTokens is <= 0)
+        {
+            error = "Configured context and output token limits must be positive.";
+            return false;
+        }
+        if (model.MaximumContextTokens.HasValue
+            && model.MaximumOutputTokens.HasValue
+            && model.MaximumOutputTokens > model.MaximumContextTokens)
+        {
+            error = "Maximum output tokens cannot exceed maximum context tokens.";
+            return false;
+        }
+        return true;
+    }
+
+    private static bool ValidateImagePromptMetadata(RegisteredModel model, bool requireConfigured, out string? error)
+    {
+        error = null;
+        if (model.ModelKind != ModelKind.Image)
+            return true;
+        if (SceneImagePromptMetadata.IsCompatible(model.SceneImageModelFamily, model.PromptDialect))
+            return true;
+        if (!requireConfigured && SceneImagePromptMetadata.IsUnconfigured(model.SceneImageModelFamily, model.PromptDialect))
+            return true;
+
+        error = SceneImagePromptMetadata.IsUnconfigured(model.SceneImageModelFamily, model.PromptDialect)
+            ? "Scene-image generation models require an image family and prompt dialect. Configure both before assigning this model to RP Scene Image."
+            : $"Image family '{model.SceneImageModelFamily}' is incompatible with prompt dialect '{model.PromptDialect}'. Pony requires Pony V6 tags; SDXL / Juggernaut requires SDXL natural language.";
+        return false;
+    }
+
     private sealed class FunctionEditState
     {
         public string ModelId { get; set; } = "";
@@ -1402,6 +1572,13 @@
         public int MaxTokens { get; set; } = 500;
         public ThinkingMode ThinkingMode { get; set; } = ThinkingMode.Default;
         public int? MaxConcurrentJobs { get; set; }
+        public int? DurableJobLeaseSeconds { get; set; }
+        public int? DurableJobPollIntervalMilliseconds { get; set; }
+        public int? TransientRetryCount { get; set; }
+        public string? TransientRetryDelaysSecondsJson { get; set; }
+        public int? DiagnosticsRetentionDays { get; set; }
+        public int? MaximumCatalogueEntries { get; set; }
+        public string? ValidationError { get; set; }
         public bool HasBeenSaved { get; set; }
         public string? ExistingId { get; set; }
     }

@@ -14,7 +14,7 @@ if (!File.Exists(databasePath))
     return 2;
 }
 
-var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" ? "ReadWrite" : "ReadOnly";
+var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "b100-analyzer-configure" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -55,6 +55,7 @@ try
             RequireArgument(args, 1, "providerId"),
             RequireArgument(args, 2, "expectedCurrentTimeoutSeconds"),
             RequireArgument(args, 3, "newTimeoutSeconds")),
+        "b100-analyzer-configure" => await ConfigureB100AnalyzerAsync(connection),
         "sql" => await PrintSqlFileAsync(connection, RequireArgument(args, 1, "sqlFile"), args.ElementAtOrDefault(2)),
         _ => throw new ArgumentException($"Unknown command '{args[0]}'.")
     };
@@ -280,6 +281,101 @@ static async Task<int> UpdateProviderTimeoutAsync(
     return 0;
 }
 
+static async Task<int> ConfigureB100AnalyzerAsync(SqliteConnection connection)
+{
+    const string functionName = "RolePlaySceneBeatAnalyzer";
+    const string providerName = "DeepSeek";
+    const string modelIdentifier = "deepseek-v4-flash";
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+    await using var columnCheck = connection.CreateCommand();
+    columnCheck.Transaction = transaction;
+    columnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name = 'StructuredOutputMode';";
+    if (Convert.ToInt64(await columnCheck.ExecuteScalarAsync()) == 0)
+    {
+        await using var alter = connection.CreateCommand();
+        alter.Transaction = transaction;
+        alter.CommandText = "ALTER TABLE RegisteredModels ADD COLUMN StructuredOutputMode INTEGER NOT NULL DEFAULT 0;";
+        await alter.ExecuteNonQueryAsync();
+
+        await using var migrateLegacy = connection.CreateCommand();
+        migrateLegacy.Transaction = transaction;
+        migrateLegacy.CommandText = "UPDATE RegisteredModels SET StructuredOutputMode = 1 WHERE SupportsStructuredJsonSchema = 1;";
+        await migrateLegacy.ExecuteNonQueryAsync();
+    }
+
+    await using var select = connection.CreateCommand();
+    select.Transaction = transaction;
+    select.CommandText = """
+        SELECT rm.Id
+        FROM RegisteredModels rm
+        INNER JOIN Providers p ON p.Id = rm.ProviderId
+        WHERE p.Name = $providerName
+          AND rm.ModelIdentifier = $modelIdentifier
+          AND p.IsEnabled = 1
+          AND rm.IsEnabled = 1;
+        """;
+    select.Parameters.AddWithValue("$providerName", providerName);
+    select.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
+
+    var modelIds = new List<string>();
+    await using (var reader = await select.ExecuteReaderAsync())
+    {
+        while (await reader.ReadAsync())
+            modelIds.Add(reader.GetString(0));
+    }
+
+    if (modelIds.Count != 1)
+    {
+        throw new InvalidOperationException(
+            $"Expected exactly one enabled '{providerName}' model '{modelIdentifier}', found {modelIds.Count}; no database changes were made.");
+    }
+
+    await using var configureModel = connection.CreateCommand();
+    configureModel.Transaction = transaction;
+    configureModel.CommandText = "UPDATE RegisteredModels SET StructuredOutputMode = 2 WHERE Id = $modelId;";
+    configureModel.Parameters.AddWithValue("$modelId", modelIds[0]);
+    if (await configureModel.ExecuteNonQueryAsync() != 1)
+        throw new InvalidOperationException("Scene-beat analyzer model capability update failed; no database changes were made.");
+
+    await using var upsert = connection.CreateCommand();
+    upsert.Transaction = transaction;
+    upsert.CommandText = """
+        INSERT INTO FunctionModelDefaults (
+            Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode,
+            MaxConcurrentJobs, DurableJobLeaseSeconds, DurableJobPollIntervalMilliseconds,
+            TransientRetryCount, TransientRetryDelaysSecondsJson, DiagnosticsRetentionDays,
+            MaximumCatalogueEntries, UpdatedUtc)
+        VALUES (
+            $id, $functionName, $modelId, 0.2, 0.9, 4000, 2,
+            3, 120, 250, 2, '[5,30]', 30, 8, $updatedUtc)
+        ON CONFLICT(FunctionName) DO UPDATE SET
+            ModelId = excluded.ModelId,
+            Temperature = excluded.Temperature,
+            TopP = excluded.TopP,
+            MaxTokens = excluded.MaxTokens,
+            ThinkingMode = excluded.ThinkingMode,
+            MaxConcurrentJobs = excluded.MaxConcurrentJobs,
+            DurableJobLeaseSeconds = excluded.DurableJobLeaseSeconds,
+            DurableJobPollIntervalMilliseconds = excluded.DurableJobPollIntervalMilliseconds,
+            TransientRetryCount = excluded.TransientRetryCount,
+            TransientRetryDelaysSecondsJson = excluded.TransientRetryDelaysSecondsJson,
+            DiagnosticsRetentionDays = excluded.DiagnosticsRetentionDays,
+            MaximumCatalogueEntries = excluded.MaximumCatalogueEntries,
+            UpdatedUtc = excluded.UpdatedUtc;
+        """;
+    upsert.Parameters.AddWithValue("$id", Guid.NewGuid().ToString());
+    upsert.Parameters.AddWithValue("$functionName", functionName);
+    upsert.Parameters.AddWithValue("$modelId", modelIds[0]);
+    upsert.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("o"));
+    if (await upsert.ExecuteNonQueryAsync() != 1)
+        throw new InvalidOperationException("Scene-beat analyzer upsert failed; no database changes were made.");
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"B-100 analyzer configured: {functionName} | {providerName} | {modelIdentifier}");
+    return 0;
+}
+
 static async Task<int> PrintSchemaAsync(SqliteConnection connection, string? tableName)
 {
     if (!string.IsNullOrWhiteSpace(tableName))
@@ -363,5 +459,5 @@ static string FindDatabasePath()
 static void PrintUsage()
 {
     Console.Error.WriteLine("Usage: dotnet run --project DreamGenClone.DbQuery -- <command> [args]");
-    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, sql <file> [id]");
+    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, sql <file> [id]");
 }

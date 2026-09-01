@@ -195,6 +195,8 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
                 $"Model '{model.DisplayName}' is not an image model (ModelKind={model.ModelKind}). Assign an image-kind model to '{AppFunction.RolePlaySceneImage}' in Model Manager (/model-manager).");
         }
 
+            ValidateSceneImagePromptMetadata(model);
+
         var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
         if (provider is null || !provider.IsEnabled)
         {
@@ -251,6 +253,8 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             ContentPolicy: provider.ContentPolicy,
             ProviderName: provider.Name,
             IsSessionOverride: !string.IsNullOrEmpty(sessionOverrideId),
+            SceneImageModelFamily: model.SceneImageModelFamily,
+            PromptDialect: model.PromptDialect,
             ImageProtocol: provider.ImageProtocol,
             ComfyUiUrl: provider.ImageProtocol is ImageProtocol.ComfyUi or ImageProtocol.ComfyUiServerless ? provider.BaseUrl : null);
     }
@@ -396,6 +400,24 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
         if (values.Count == 0 || values.Any(value => !value.StartsWith("image/", StringComparison.OrdinalIgnoreCase)))
             throw new ModelResolutionException($"Function '{function}' has invalid accepted input media types.");
         return values;
+    }
+
+    private static void ValidateSceneImagePromptMetadata(RegisteredModel model)
+    {
+        var compatible = (model.SceneImageModelFamily, model.PromptDialect) switch
+        {
+            (SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags) => true,
+            (SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage) => true,
+            _ => false
+        };
+
+        if (!compatible)
+        {
+            throw new ModelResolutionException(
+                $"Image model '{model.DisplayName}' has missing or incompatible scene-image family metadata " +
+                $"(Family={model.SceneImageModelFamily}, PromptDialect={model.PromptDialect}). " +
+                "Configure a compatible image family and prompt dialect in Model Manager (/model-manager).");
+        }
     }
 
     private static string Require(string? value, string name, AppFunction function) =>

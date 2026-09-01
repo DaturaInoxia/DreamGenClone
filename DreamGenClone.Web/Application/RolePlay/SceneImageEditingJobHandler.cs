@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
@@ -99,6 +100,7 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
             image.ModelIdentifier = resolved.ModelIdentifier;
             image.ProviderName = resolved.ProviderName;
             image.ContentPolicy = resolved.ContentPolicy;
+            image.Sha256 = Convert.ToHexString(SHA256.HashData(bytes));
             image.Status = SceneImageStatus.Complete;
             image.CompletedUtc = DateTime.UtcNow;
             image.UpdatedUtc = DateTime.UtcNow;

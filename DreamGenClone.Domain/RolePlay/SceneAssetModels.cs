@@ -18,7 +18,10 @@ public enum SceneAssetKind
     ProfilePackFront = 4,
 
     /// <summary>One of the four non-front views (3/4L, 3/4R, profL, profR) of a generated profile pack.</summary>
-    ProfilePackFace = 5
+    ProfilePackFace = 5,
+
+    /// <summary>An explicitly promoted approved production frame. The source file is shared.</summary>
+    PromotedApprovedFrame = 6
 }
 
 /// <summary>Async generation lifecycle for a scene asset.</summary>
@@ -32,6 +35,16 @@ public enum SceneAssetStatus
 
     /// <summary>Generation/editing failed; ErrorMessage holds the reason.</summary>
     Failed = 3
+}
+
+public enum SceneAssetType
+{
+    Location = 1,
+    Wardrobe = 2,
+    Prop = 3,
+    Style = 4,
+    CharacterFace = 5,
+    CharacterBody = 6
 }
 
 /// <summary>
@@ -49,6 +62,10 @@ public sealed class SceneAsset
     public SceneAssetKind Kind { get; set; } = SceneAssetKind.PromptGenerated;
 
     public SceneAssetStatus Status { get; set; } = SceneAssetStatus.Pending;
+
+    public SceneAssetType? Type { get; set; }
+
+    public string? AssociationMetadataJson { get; set; }
 
     /// <summary>The generation or edit prompt that produced this asset (empty for uploads).</summary>
     public string Prompt { get; set; } = string.Empty;
@@ -78,6 +95,14 @@ public sealed class SceneAsset
 
     /// <summary>Character the generated profile pack belongs to (characterProfileId).</summary>
     public string? CharacterProfileId { get; set; }
+
+    public string? SourceApprovalDecisionId { get; set; }
+
+    public string? SourceSceneImageId { get; set; }
+
+    public string? SourceSha256 { get; set; }
+
+    public string? SourceProvenanceJson { get; set; }
 
     public string? ErrorMessage { get; set; }
 

@@ -10,9 +10,6 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// </summary>
 public interface ISceneImageService
 {
-    Task<SceneImageBeatAnalysisRecord> EnqueueBeatAnalysisAsync(
-        SceneImageBeatGenerationRequest request, CancellationToken cancellationToken = default);
-
     Task<SceneImageBeatAnalysisRecord?> GetBeatAnalysisByTurnAsync(
         string sessionId, string turnId, CancellationToken cancellationToken = default);
 
@@ -48,6 +45,13 @@ public interface ISceneImageService
         string pov,
         CancellationToken cancellationToken = default);
 
+    Task<SceneImagePromptRecord?> GetLatestCompletedProductionPromptAsync(
+        string sessionId,
+        string interactionId,
+        string productionGroupId,
+        string compiledMediaBriefId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Persist the user-edited prompt text back to an existing prompt record's
     /// <c>OutputPrompt</c> so a later studio reopen shows the edited version. Fails fast if the
     /// record is not found or already Complete.</summary>
@@ -61,6 +65,18 @@ public interface ISceneImageService
     /// <summary>All images for a session (gallery page).</summary>
     Task<IReadOnlyList<SceneImageRecord>> ListImagesBySessionAsync(
         string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>All immutable attempts in one production group, newest first.</summary>
+    Task<IReadOnlyList<SceneImageRecord>> ListImagesByProductionGroupAsync(
+        string productionGroupId, CancellationToken cancellationToken = default);
+
+    /// <summary>Compare-and-set an attempt disposition without changing execution status.</summary>
+    Task SetDispositionAsync(
+        string imageId,
+        string productionGroupId,
+        SceneImageAttemptDisposition expectedDisposition,
+        SceneImageAttemptDisposition nextDisposition,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Interaction → image-count map for a session (workspace indicator). Counts Complete images only.</summary>
     Task<Dictionary<string, int>> CountImagesByInteractionAsync(

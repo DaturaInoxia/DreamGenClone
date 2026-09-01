@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Infrastructure.RolePlay;
 
-public sealed class RolePlayStateRepository : IRolePlayStateRepository
+public sealed class RolePlayStateRepository : IRolePlayStateRepository, IRolePlayTurnReader
 {
     private readonly string _connectionString;
 
@@ -206,6 +206,53 @@ public sealed class RolePlayStateRepository : IRolePlayStateRepository
 
         turns.Reverse();
         return turns;
+    }
+
+    public async Task<RolePlayTurn?> GetTurnAsync(
+        string sessionId,
+        string turnId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(turnId))
+            throw new InvalidOperationException("Session id and turn id are required to load a role-play turn.");
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureTurnSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT TurnId, SessionId, TurnIndex, TurnKind, TriggerSource, InitiatedByActorName,
+                   InputInteractionId, OutputInteractionIdsJson, StartedUtc, CompletedUtc, Status, FailureReason
+            FROM RolePlayV2Turns
+            WHERE SessionId = $sessionId AND TurnId = $turnId;
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId.Trim());
+        command.Parameters.AddWithValue("$turnId", turnId.Trim());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            return null;
+
+        var statusRaw = reader.GetString(10);
+        if (!Enum.TryParse<RolePlayTurnStatus>(statusRaw, out var status))
+            throw new InvalidOperationException($"Unknown role-play turn status '{statusRaw}' for turn '{turnId}'.");
+        var outputInteractionIds = JsonSerializer.Deserialize<List<string>>(reader.GetString(7))
+            ?? throw new InvalidOperationException($"Invalid output interaction payload for turn '{turnId}'.");
+        return new RolePlayTurn
+        {
+            TurnId = reader.GetString(0),
+            SessionId = reader.GetString(1),
+            TurnIndex = reader.GetInt32(2),
+            TurnKind = reader.GetString(3),
+            TriggerSource = reader.GetString(4),
+            InitiatedByActorName = reader.IsDBNull(5) ? null : reader.GetString(5),
+            InputInteractionId = reader.IsDBNull(6) ? null : reader.GetString(6),
+            OutputInteractionIds = outputInteractionIds,
+            StartedUtc = DateTime.Parse(reader.GetString(8), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            CompletedUtc = reader.IsDBNull(9)
+                ? null
+                : DateTime.Parse(reader.GetString(9), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            Status = status,
+            FailureReason = reader.IsDBNull(11) ? null : reader.GetString(11)
+        };
     }
 
     /// <summary>

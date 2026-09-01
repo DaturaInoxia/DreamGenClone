@@ -59,7 +59,17 @@ copy DreamGenClone.Web\data\dreamgenclone.snapshot.db DreamGenClone.Web\data\dre
 
 ---
 
-## 4. Build (must be 0 errors)
+## 4. Apply host-local data configuration
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\helpers\dbq.ps1 b100-analyzer-configure
+```
+
+This command is idempotent. It assigns the enabled direct `DeepSeek / deepseek-v4-flash` model to `RolePlaySceneBeatAnalyzer` and writes the complete required analyzer configuration. It fails without changing the database if the provider/model pair is missing or ambiguous.
+
+---
+
+## 5. Build (must be 0 errors)
 
 ```powershell
 dotnet build DreamGenClone.sln
@@ -67,7 +77,7 @@ dotnet build DreamGenClone.sln
 
 ---
 
-## 5. Start the app
+## 6. Start the app
 
 **Always start from the `DreamGenClone.Web` folder with `ASPNETCORE_ENVIRONMENT=Development`** — otherwise the app opens a different, empty database.
 
@@ -89,7 +99,7 @@ App: `http://localhost:5177`
 
 ---
 
-## 6. Re-enter provider API keys (one-time)
+## 7. Re-enter provider API keys (one-time)
 
 Web app → **Settings → Providers** → edit each provider (OpenRouter, TogetherAI, DeepSeek, Infermatic, LM Studio, Local) and re-enter the API key.
 
@@ -97,17 +107,18 @@ The snapshot blanks `ApiKeyEncrypted`, so keys are **not** in the repo — you m
 
 ---
 
-## 7. Verify the app is healthy
+## 8. Verify the app is healthy
 
 - [ ] `http://localhost:5177` loads
 - [ ] **Model Manager** (`/model-manager`) shows the image-capable TogetherAI provider and Seedream-4.0 (ModelKind = Image)
 - [ ] **Scene Image Studio** route renders: `/roleplay/studio/<sessionId>/<interactionId>`
 - [ ] **Gallery** route renders: `/roleplay/gallery/<sessionId>`
 - [ ] Run a quick Test Connection on a provider to confirm keys work
+- [ ] Verify `RolePlaySceneBeatAnalyzer` shows `DeepSeek / deepseek-v4-flash` in Model Manager
 
 ---
 
-## 8. Run the test suite (optional but recommended)
+## 9. Run the test suite (optional but recommended)
 
 ```powershell
 dotnet test DreamGenClone.Tests\DreamGenClone.Tests.csproj
@@ -147,11 +158,14 @@ git checkout 001-scene-image-generator
 # 2. working DB from snapshot
 copy DreamGenClone.Web\data\dreamgenclone.snapshot.db DreamGenClone.Web\data\dreamgenclone.dev.db
 
-# 3. build
+# 3. apply portable host-local configuration
+powershell -ExecutionPolicy Bypass -File .\helpers\dbq.ps1 b100-analyzer-configure
+
+# 4. build
 dotnet build DreamGenClone.sln
 
-# 4. run (Development, port 5177)
+# 5. run (Development, port 5177)
 powershell -ExecutionPolicy Bypass -File .\helpers\start-webapp-dev-clean.ps1
 
-# 5. then in the app: Settings -> Providers -> re-enter API keys
+# 6. then in the app: Settings -> Providers -> re-enter API keys
 ```

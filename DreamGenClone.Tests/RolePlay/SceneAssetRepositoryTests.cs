@@ -29,6 +29,12 @@ public sealed class SceneAssetRepositoryTests
                 FaceView = SceneImageReferenceFaceView.Front,
                 IdentityPackId = "pack-1",
                 CharacterProfileId = "char-1",
+                Type = SceneAssetType.CharacterFace,
+                AssociationMetadataJson = "{\"role\":\"lead\"}",
+                SourceApprovalDecisionId = "decision-1",
+                SourceSceneImageId = "image-1",
+                SourceSha256 = "ABCD",
+                SourceProvenanceJson = "{\"source\":\"approval\"}",
                 CompletedUtc = DateTime.UtcNow,
                 UpdatedUtc = DateTime.UtcNow
             };
@@ -44,6 +50,12 @@ public sealed class SceneAssetRepositoryTests
             Assert.Equal(SceneImageReferenceFaceView.Front, loaded.FaceView);
             Assert.Equal("pack-1", loaded.IdentityPackId);
             Assert.Equal("char-1", loaded.CharacterProfileId);
+            Assert.Equal(SceneAssetType.CharacterFace, loaded.Type);
+            Assert.Equal("{\"role\":\"lead\"}", loaded.AssociationMetadataJson);
+            Assert.Equal("decision-1", loaded.SourceApprovalDecisionId);
+            Assert.Equal("image-1", loaded.SourceSceneImageId);
+            Assert.Equal("ABCD", loaded.SourceSha256);
+            Assert.Equal("{\"source\":\"approval\"}", loaded.SourceProvenanceJson);
         }
         finally
         {

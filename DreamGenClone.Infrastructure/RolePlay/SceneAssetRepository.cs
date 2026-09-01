@@ -33,7 +33,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.CommandText = """
             SELECT Id, Name, Kind, Status, Prompt, SourceAssetId, ModelSnapshotJson, FileRelativePath,
                    MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
-                   ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+                     ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
+                     SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson
             FROM SceneAssets
             WHERE Id = $id;
             """;
@@ -58,7 +59,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.CommandText = """
             SELECT Id, Name, Kind, Status, Prompt, SourceAssetId, ModelSnapshotJson, FileRelativePath,
                    MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
-                   ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+                     ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
+                     SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson
             FROM SceneAssets
             ORDER BY CreatedUtc DESC;
             """;
@@ -86,7 +88,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.CommandText = """
             SELECT Id, Name, Kind, Status, Prompt, SourceAssetId, ModelSnapshotJson, FileRelativePath,
                    MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
-                   ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+                     ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
+                     SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson
             FROM SceneAssets
             WHERE IdentityPackId = $packId
             ORDER BY CreatedUtc ASC;
@@ -116,11 +119,13 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             INSERT OR REPLACE INTO SceneAssets (
                 Id, Name, Kind, Status, Prompt, SourceAssetId, ModelSnapshotJson, FileRelativePath,
                 MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
-                ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
+                ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
+                SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson)
             VALUES (
                 $id, $name, $kind, $status, $prompt, $sourceAssetId, $modelSnapshotJson, $fileRelativePath,
                 $mediaType, $width, $height, $byteLength, $sha256, $faceView, $identityPackId, $characterProfileId,
-                $errorMessage, $createdUtc, $startedUtc, $completedUtc, $updatedUtc);
+                $errorMessage, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $type, $associationMetadataJson,
+                $sourceApprovalDecisionId, $sourceSceneImageId, $sourceSha256, $sourceProvenanceJson);
             """;
         command.Parameters.AddWithValue("$id", asset.Id.Trim());
         command.Parameters.AddWithValue("$name", asset.Name ?? string.Empty);
@@ -143,8 +148,53 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.Parameters.AddWithValue("$startedUtc", asset.StartedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$completedUtc", asset.CompletedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$updatedUtc", asset.UpdatedUtc.ToString("O"));
+        AddPromotionParameters(command, asset);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task CreatePromotedAsync(SceneAsset asset, CancellationToken cancellationToken = default)
+    {
+        ValidatePromotedAsset(asset);
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO SceneAssets (
+                Id, Name, Kind, Status, Prompt, FileRelativePath, MediaType, Width, Height, ByteLength,
+                Sha256, CharacterProfileId, CreatedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
+                SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson)
+            VALUES ($id, $name, $kind, $status, $prompt, $fileRelativePath, $mediaType, $width, $height, $byteLength,
+                $sha256, $characterProfileId, $createdUtc, $completedUtc, $updatedUtc, $type, $associationMetadataJson,
+                $sourceApprovalDecisionId, $sourceSceneImageId, $sourceSha256, $sourceProvenanceJson);
+            """;
+        command.Parameters.AddWithValue("$id", asset.Id.Trim());
+        command.Parameters.AddWithValue("$name", asset.Name.Trim());
+        command.Parameters.AddWithValue("$kind", asset.Kind.ToString());
+        command.Parameters.AddWithValue("$status", asset.Status.ToString());
+        command.Parameters.AddWithValue("$prompt", asset.Prompt ?? string.Empty);
+        command.Parameters.AddWithValue("$fileRelativePath", asset.FileRelativePath!);
+        command.Parameters.AddWithValue("$mediaType", asset.MediaType ?? string.Empty);
+        command.Parameters.AddWithValue("$width", (object?)asset.Width ?? DBNull.Value);
+        command.Parameters.AddWithValue("$height", (object?)asset.Height ?? DBNull.Value);
+        command.Parameters.AddWithValue("$byteLength", asset.ByteLength);
+        command.Parameters.AddWithValue("$sha256", asset.Sha256);
+        command.Parameters.AddWithValue("$characterProfileId", (object?)asset.CharacterProfileId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$createdUtc", asset.CreatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$completedUtc", asset.CompletedUtc!.Value.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", asset.UpdatedUtc.ToString("O"));
+        AddPromotionParameters(command, asset);
+        try
+        {
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
+        {
+            throw new InvalidOperationException(
+                $"Approval decision '{asset.SourceApprovalDecisionId}' has already been promoted as {asset.Type} asset '{asset.Name}'.",
+                exception);
+        }
     }
 
     public async Task DeleteAsync(string assetId, CancellationToken cancellationToken = default)
@@ -201,7 +251,42 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             StartedUtc = reader.IsDBNull(18) ? null : ParseUtc(reader.GetString(18), id, "StartedUtc"),
             CompletedUtc = reader.IsDBNull(19) ? null : ParseUtc(reader.GetString(19), id, "CompletedUtc"),
             UpdatedUtc = ParseUtc(reader.GetString(20), id, "UpdatedUtc")
+            ,Type = reader.IsDBNull(21) ? null : ParseEnum<SceneAssetType>(reader.GetString(21), id, "SceneAssets")
+            ,AssociationMetadataJson = reader.IsDBNull(22) ? null : reader.GetString(22)
+            ,SourceApprovalDecisionId = reader.IsDBNull(23) ? null : reader.GetString(23)
+            ,SourceSceneImageId = reader.IsDBNull(24) ? null : reader.GetString(24)
+            ,SourceSha256 = reader.IsDBNull(25) ? null : reader.GetString(25)
+            ,SourceProvenanceJson = reader.IsDBNull(26) ? null : reader.GetString(26)
         };
+    }
+
+    private static void AddPromotionParameters(SqliteCommand command, SceneAsset asset)
+    {
+        command.Parameters.AddWithValue("$type", (object?)asset.Type?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$associationMetadataJson", (object?)asset.AssociationMetadataJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$sourceApprovalDecisionId", (object?)asset.SourceApprovalDecisionId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$sourceSceneImageId", (object?)asset.SourceSceneImageId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$sourceSha256", (object?)asset.SourceSha256 ?? DBNull.Value);
+        command.Parameters.AddWithValue("$sourceProvenanceJson", (object?)asset.SourceProvenanceJson ?? DBNull.Value);
+    }
+
+    private static void ValidatePromotedAsset(SceneAsset asset)
+    {
+        ArgumentNullException.ThrowIfNull(asset);
+        Require(asset.Id, "Asset id");
+        Require(asset.Name, "Asset name");
+        Require(asset.FileRelativePath, "Promoted asset file path");
+        Require(asset.Sha256, "Promoted asset SHA-256");
+        Require(asset.SourceApprovalDecisionId, "Source approval decision id");
+        Require(asset.SourceSceneImageId, "Source scene image id");
+        Require(asset.SourceSha256, "Source SHA-256");
+        Require(asset.SourceProvenanceJson, "Source provenance");
+        if (asset.Status != SceneAssetStatus.Complete || asset.CompletedUtc is null)
+            throw new InvalidOperationException("A promoted scene asset must be complete and finalized.");
+        if (asset.Type is null || !Enum.IsDefined(asset.Type.Value))
+            throw new InvalidOperationException("A promoted scene asset type is required.");
+        if (!string.Equals(asset.Sha256, asset.SourceSha256, StringComparison.Ordinal))
+            throw new InvalidOperationException("Promoted asset checksum must exactly match its source checksum.");
     }
 
     private static TEnum ParseEnum<TEnum>(string value, string id, string table) where TEnum : struct, Enum
@@ -255,6 +340,12 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 FaceView           TEXT NULL,
                 IdentityPackId     TEXT NULL,
                 CharacterProfileId TEXT NULL,
+                Type               TEXT NULL,
+                AssociationMetadataJson TEXT NULL,
+                SourceApprovalDecisionId TEXT NULL,
+                SourceSceneImageId TEXT NULL,
+                SourceSha256       TEXT NULL,
+                SourceProvenanceJson TEXT NULL,
                 ErrorMessage       TEXT NULL,
                 CreatedUtc         TEXT NOT NULL,
                 StartedUtc         TEXT NULL,
@@ -267,5 +358,29 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 ON SceneAssets (Status);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+        foreach (var (name, sql) in new[]
+        {
+            ("Type", "ALTER TABLE SceneAssets ADD COLUMN Type TEXT NULL"),
+            ("AssociationMetadataJson", "ALTER TABLE SceneAssets ADD COLUMN AssociationMetadataJson TEXT NULL"),
+            ("SourceApprovalDecisionId", "ALTER TABLE SceneAssets ADD COLUMN SourceApprovalDecisionId TEXT NULL"),
+            ("SourceSceneImageId", "ALTER TABLE SceneAssets ADD COLUMN SourceSceneImageId TEXT NULL"),
+            ("SourceSha256", "ALTER TABLE SceneAssets ADD COLUMN SourceSha256 TEXT NULL"),
+            ("SourceProvenanceJson", "ALTER TABLE SceneAssets ADD COLUMN SourceProvenanceJson TEXT NULL")
+        })
+        {
+            await using var check = connection.CreateCommand();
+            check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('SceneAssets') WHERE name = '{name}'";
+            if (Convert.ToInt32(await check.ExecuteScalarAsync(cancellationToken)) > 0) continue;
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = sql;
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using var unique = connection.CreateCommand();
+        unique.CommandText = """
+            CREATE UNIQUE INDEX IF NOT EXISTS UX_SceneAssets_Promotion
+            ON SceneAssets (SourceApprovalDecisionId, Type, Name COLLATE NOCASE)
+            WHERE SourceApprovalDecisionId IS NOT NULL;
+            """;
+        await unique.ExecuteNonQueryAsync(cancellationToken);
     }
 }

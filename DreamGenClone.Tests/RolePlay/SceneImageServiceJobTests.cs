@@ -70,6 +70,8 @@ public sealed class SceneImageServiceJobTests
             NullLogger<SqlitePersistence>.Instance).InitializeAsync().GetAwaiter().GetResult();
         var repo = new SceneImageRepository(persistenceOptions);
         var editRepository = new SceneImageEditRepository(persistenceOptions);
+        var productionGroupRepository = new SceneImageProductionGroupRepository(persistenceOptions);
+        var momentEnrichmentRepository = new SceneMomentEnrichmentRepository(persistenceOptions);
         var storage = new SceneImageStorageService(
             persistenceOptions,
             NullLogger<SceneImageStorageService>.Instance);
@@ -96,6 +98,9 @@ public sealed class SceneImageServiceJobTests
             storage,
             queue,
             new SceneImageTurnResolver(stateRepository),
+            productionGroupRepository,
+            momentEnrichmentRepository,
+            new CompiledMediaBriefRepository(persistenceOptions),
             NullLogger<SceneImageService>.Instance);
         return (service, queue, repo, storage, dbPath, root);
     }
@@ -221,6 +226,75 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
+    public async Task EnqueuePromptAsync_CanonicalGroupAndStillBrief_CreatesExclusiveCanonicalLineage()
+    {
+        var (service, queue, repo, _, dbPath, root) = Build(MakeSession());
+        try
+        {
+            var group = await CreateProductionGroupAsync(dbPath, "canonical-prompt", "moment-canonical-prompt");
+            var brief = await CreateStillBriefAsync(dbPath, group);
+
+            var record = await service.EnqueuePromptAsync(new ScenePromptRequest
+            {
+                SessionId = group.SessionId,
+                InteractionId = group.InteractionId,
+                ProductionGroupId = group.Id,
+                CompiledMediaBriefId = brief.Id,
+                Pov = group.Pov,
+                Settings = new SceneImageStudioSettings { Style = "cinematic" }
+            });
+
+            Assert.Equal(group.Id, record.ProductionGroupId);
+            Assert.Equal(brief.Id, record.CompiledMediaBriefId);
+            Assert.Equal(string.Empty, record.BeatAnalysisId);
+            Assert.Equal(string.Empty, record.BeatSnapshotJson);
+            Assert.Equal(SceneImagePromptStatus.Pending, record.Status);
+            Assert.Single(queue.Enqueued);
+            var persisted = await repo.GetPromptAsync(record.Id);
+            Assert.Equal(brief.Id, persisted!.CompiledMediaBriefId);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueuePromptAsync_CanonicalBriefFromDifferentGroup_FailsBeforeWriteOrQueue()
+    {
+        var (service, queue, repo, _, dbPath, root) = Build(MakeSession());
+        try
+        {
+            var group = await CreateProductionGroupAsync(dbPath, "canonical-mismatch", "moment-canonical-mismatch");
+            var otherGroup = new SceneImageProductionGroup
+            {
+                Id = "other-group", SessionId = group.SessionId, InteractionId = group.InteractionId,
+                CatalogueId = group.CatalogueId, BeatId = "other-beat", BeatProductionPlanId = group.BeatProductionPlanId,
+                BeatProductionPlanVersion = group.BeatProductionPlanVersion, MomentSetId = group.MomentSetId,
+                MomentSetVersion = group.MomentSetVersion, MomentId = group.MomentId,
+                MomentEnrichmentId = group.MomentEnrichmentId, MomentEnrichmentRevision = group.MomentEnrichmentRevision,
+                Pov = group.Pov, CreatedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow
+            };
+            var brief = await CreateStillBriefAsync(dbPath, otherGroup);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueuePromptAsync(new ScenePromptRequest
+            {
+                SessionId = group.SessionId, InteractionId = group.InteractionId,
+                ProductionGroupId = group.Id, CompiledMediaBriefId = brief.Id, Pov = group.Pov
+            }));
+
+            Assert.Contains("does not exactly match", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(queue.Enqueued);
+            Assert.Null(await repo.GetLatestCompletedProductionPromptAsync(
+                group.SessionId, group.InteractionId, group.Id, brief.Id));
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
     public async Task EnqueueRenderAsync_CreatesPendingRecordAndEnqueuesJob()
     {
         var session = MakeSession();
@@ -245,6 +319,125 @@ public sealed class SceneImageServiceJobTests
 
             Assert.Single(queue.Enqueued);
             Assert.Equal(BackgroundJobTypes.SceneImageRendering, queue.Enqueued[0].JobType);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_ProductionGroup_StampsCompositionLineageAndPreservesLegacyPath()
+    {
+        var (service, _, repo, _, dbPath, root) = Build(MakeSession());
+        try
+        {
+            var group = await CreateProductionGroupAsync(dbPath, "production-1", "moment-1");
+            var brief = await CreateStillBriefAsync(dbPath, group);
+            var prompt = CreateCanonicalPromptRecord(group, brief);
+            await repo.UpsertPromptAsync(prompt);
+
+            var production = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1", InteractionId = "i1", PromptRecordId = prompt.Id, Prompt = "composition",
+                ProductionGroupId = group.Id, CompiledMediaBriefId = brief.Id, Pov = group.Pov
+            });
+            var legacy = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1", InteractionId = "i1", PromptRecordId = prompt.Id, Prompt = "legacy"
+            });
+
+            Assert.Equal(group.Id, production.ProductionGroupId);
+            Assert.Equal(brief.Id, production.CompiledMediaBriefId);
+            Assert.Equal(SceneImageProductionStage.Composition, production.ProductionStage);
+            Assert.Equal(SceneImageAttemptDisposition.Active, production.Disposition);
+            Assert.Equal(group.BeatId, production.BeatId);
+            Assert.Equal(group.CatalogueId, production.CatalogueId);
+            Assert.Equal(group.BeatProductionPlanId, production.BeatProductionPlanId);
+            Assert.Equal(group.BeatProductionPlanVersion, production.BeatProductionPlanVersion);
+            Assert.Equal(group.MomentSetId, production.MomentSetId);
+            Assert.Equal(group.MomentSetVersion, production.MomentSetVersion);
+            Assert.Equal(group.MomentId, production.MomentId);
+            Assert.Equal(group.MomentEnrichmentId, production.MomentEnrichmentId);
+            Assert.Equal(group.MomentEnrichmentRevision, production.MomentEnrichmentRevision);
+            Assert.Equal("[{\"referenceId\":\"identity-1\",\"role\":\"CharacterIdentity\",\"required\":true}]", production.TypedReferenceSnapshotJson);
+            Assert.Null(legacy.ProductionGroupId);
+            Assert.Null(legacy.ProductionStage);
+            Assert.Null(legacy.Disposition);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_ProductionGroup_RejectsStaleEnrichmentAndIdentityControlledMode()
+    {
+        var (service, _, repo, _, dbPath, root) = Build(MakeSession());
+        try
+        {
+            var group = await CreateProductionGroupAsync(dbPath, "stale", "moment-stale");
+            var brief = await CreateStillBriefAsync(dbPath, group);
+            var prompt = CreateCanonicalPromptRecord(group, brief);
+            await repo.UpsertPromptAsync(prompt);
+            _ = await CreateCompletedEnrichmentAsync(dbPath, "replacement", "moment-stale");
+            var request = new SceneRenderRequest
+            {
+                SessionId = "s1", InteractionId = "i1", PromptRecordId = prompt.Id, Prompt = "composition",
+                ProductionGroupId = group.Id, CompiledMediaBriefId = brief.Id, Pov = group.Pov
+            };
+
+            var stale = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(request));
+            Assert.Contains("current completed", stale.Message, StringComparison.OrdinalIgnoreCase);
+
+            var currentGroup = await CreateProductionGroupAsync(dbPath, "identity", "moment-identity");
+            request.ProductionGroupId = currentGroup.Id;
+            request.Pov = currentGroup.Pov;
+            request.RenderMode = SceneImageRenderMode.IdentityControlled;
+            request.IdentityPackId = "legacy-pack";
+            var identity = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(request));
+            Assert.Contains("prompt-only", identity.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_ProductionRegeneration_AllowsSiblingAndRejectsCrossGroupParent()
+    {
+        var (service, _, repo, _, dbPath, root) = Build(MakeSession());
+        try
+        {
+            var group = await CreateProductionGroupAsync(dbPath, "branch", "moment-branch");
+            var brief = await CreateStillBriefAsync(dbPath, group);
+            var prompt = CreateCanonicalPromptRecord(group, brief);
+            await repo.UpsertPromptAsync(prompt);
+            var parent = new SceneImageRecord
+            {
+                SessionId = "s1", InteractionId = "i1", PromptRecordId = prompt.Id, PromptSnapshot = "parent",
+                Status = SceneImageStatus.Complete, ProductionGroupId = group.Id,
+                ProductionStage = SceneImageProductionStage.Composition, Disposition = SceneImageAttemptDisposition.Active
+            };
+            await repo.InsertImageAsync(parent);
+            var request = new SceneRenderRequest
+            {
+                SessionId = "s1", InteractionId = "i1", PromptRecordId = prompt.Id, Prompt = "sibling",
+                ProductionGroupId = group.Id, CompiledMediaBriefId = brief.Id, Pov = group.Pov, RegenerateOfId = parent.Id
+            };
+
+            var sibling = await service.EnqueueRenderAsync(request);
+            Assert.Equal(parent.Id, sibling.RegenerateOfId);
+            Assert.Equal(group.Id, sibling.ProductionGroupId);
+
+            parent.Id = Guid.NewGuid().ToString();
+            parent.ProductionGroupId = "other-group";
+            await repo.InsertImageAsync(parent);
+            request.RegenerateOfId = parent.Id;
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(request));
+            Assert.Contains("same production group", error.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -407,6 +600,58 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
+    public async Task EnqueueEditAsync_ProductionAttempt_InheritsExactLineageAsFinishAndRejectsPurgedSource()
+    {
+        var (service, _, repo, _, dbPath, root) = Build(MakeSession());
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+            var source = new SceneImageRecord
+            {
+                SessionId = "s1", InteractionId = "i1", PromptRecordId = prompt.Id, PromptSnapshot = "source",
+                Status = SceneImageStatus.Complete, FileRelativePath = "s1/source.png",
+                ProductionGroupId = "group-1", ProductionStage = SceneImageProductionStage.Composition,
+                Disposition = SceneImageAttemptDisposition.Shortlisted, CatalogueId = "catalogue-1", BeatId = "beat-1",
+                BeatProductionPlanId = "plan-1", BeatProductionPlanVersion = 3,
+                MomentSetId = "set-1", MomentSetVersion = 4, MomentId = "moment-1",
+                MomentEnrichmentId = "enrichment-1", MomentEnrichmentRevision = 2,
+                TypedReferenceSnapshotJson = "[{\"role\":\"CharacterIdentity\"}]"
+            };
+            await repo.InsertImageAsync(source);
+            var (editSession, attempt, revision) = await CreateReadyEditAsync(dbPath, source, "finish only");
+            var request = new SceneImageEditRequest
+            {
+                SessionId = "s1", InteractionId = "i1", SourceImageId = source.Id, EditSessionId = editSession.Id,
+                CompilationAttemptId = attempt.Id, PromptRevisionId = revision.Id,
+                SourceImageSha256 = editSession.SourceImageSha256, PromptSha256 = revision.PromptSha256
+            };
+
+            var edit = await service.EnqueueEditAsync(request);
+            Assert.Equal(source.Id, edit.SourceImageId);
+            Assert.Equal(SceneImageProductionStage.Finish, edit.ProductionStage);
+            Assert.Equal(SceneImageAttemptDisposition.Active, edit.Disposition);
+            Assert.Equal(source.ProductionGroupId, edit.ProductionGroupId);
+            Assert.Equal(source.CatalogueId, edit.CatalogueId);
+            Assert.Equal(source.BeatProductionPlanVersion, edit.BeatProductionPlanVersion);
+            Assert.Equal(source.MomentEnrichmentId, edit.MomentEnrichmentId);
+            Assert.Equal(source.MomentEnrichmentRevision, edit.MomentEnrichmentRevision);
+            Assert.Equal(source.TypedReferenceSnapshotJson, edit.TypedReferenceSnapshotJson);
+
+            source.Id = Guid.NewGuid().ToString();
+            source.BytesPurgedUtc = DateTime.UtcNow;
+            await repo.InsertImageAsync(source);
+            request.SourceImageId = source.Id;
+            var purged = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueEditAsync(request));
+            Assert.Contains("purged", purged.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
     public async Task EnqueueEditAsync_IncompleteSource_FailsFast()
     {
         var session = MakeSession();
@@ -548,6 +793,94 @@ public sealed class SceneImageServiceJobTests
         };
         await repository.CreateRevisionAsync(revision);
         return (session, attempt, revision);
+    }
+
+    private static async Task<SceneImageProductionGroup> CreateProductionGroupAsync(
+        string dbPath,
+        string suffix,
+        string momentId)
+    {
+        var options = Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath};Pooling=False" });
+        var enrichment = await CreateCompletedEnrichmentAsync(dbPath, suffix, momentId);
+        var group = new SceneImageProductionGroup
+        {
+            Id = $"group-{suffix}", SessionId = "s1", InteractionId = "i1",
+            CatalogueId = enrichment.CatalogueId, BeatId = enrichment.BeatId,
+            BeatProductionPlanId = enrichment.BeatProductionPlanId,
+            BeatProductionPlanVersion = enrichment.BeatProductionPlanVersion,
+            MomentSetId = enrichment.MomentSetId, MomentSetVersion = enrichment.MomentSetVersion,
+            MomentId = enrichment.MomentId, MomentEnrichmentId = enrichment.Id,
+            MomentEnrichmentRevision = enrichment.Revision, Pov = "Director",
+            Status = SceneImageProductionGroupStatus.Draft, IdentityPolicy = SceneImageIdentityPolicy.Required,
+            CreatedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow
+        };
+        await new SceneImageProductionGroupRepository(options).CreateAsync(group);
+        return group;
+    }
+
+    private static SceneImagePromptRecord CreateCanonicalPromptRecord(
+        SceneImageProductionGroup group,
+        CompiledMediaBrief brief) => new()
+    {
+        SessionId = group.SessionId,
+        InteractionId = group.InteractionId,
+        BeatAnalysisId = string.Empty,
+        BeatSnapshotJson = string.Empty,
+        ProductionGroupId = group.Id,
+        CompiledMediaBriefId = brief.Id,
+        Pov = group.Pov,
+        OutputPrompt = "canonical draft",
+        Status = SceneImagePromptStatus.Complete
+    };
+
+    private static async Task<CompiledMediaBrief> CreateStillBriefAsync(
+        string dbPath,
+        SceneImageProductionGroup group)
+    {
+        var now = DateTime.UtcNow;
+        var brief = new CompiledMediaBrief(
+            $"brief-{Guid.NewGuid():N}", MediaProductionKind.StillImage,
+            "still-profile", "1", "canonical", "deterministic", "1", "canonical-request-v1",
+            new CompiledMediaLineage(
+                group.CatalogueId, group.BeatId, group.BeatProductionPlanId, group.BeatProductionPlanVersion,
+                group.MomentSetId, group.MomentSetVersion, group.MomentId,
+                group.MomentEnrichmentId, group.MomentEnrichmentRevision),
+            [group.BeatProductionPlanId, group.MomentSetId, group.MomentId, group.MomentEnrichmentId],
+            "{\"typedReferences\":[{\"referenceId\":\"identity-1\",\"role\":\"CharacterIdentity\",\"required\":true}]}",
+            "{}", "{\"entries\":[]}", MediaCompilerStatus.Complete, null, null, now, now);
+        var options = Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath};Pooling=False" });
+        await new CompiledMediaBriefRepository(options).CreateAsync(brief);
+        return brief;
+    }
+
+    private static async Task<SceneMomentEnrichment> CreateCompletedEnrichmentAsync(
+        string dbPath,
+        string suffix,
+        string momentId)
+    {
+        var options = Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={dbPath};Pooling=False" });
+        var repository = new SceneMomentEnrichmentRepository(options);
+        var now = DateTime.UtcNow;
+        var enrichment = new SceneMomentEnrichment
+        {
+            Id = $"enrichment-{suffix}", CatalogueId = "catalogue-1", BeatId = "beat-1",
+            BeatProductionPlanId = "plan-1", BeatProductionPlanVersion = 3,
+            MomentSetId = $"set-{momentId}", MomentSetVersion = 4, MomentId = momentId,
+            SchemaVersion = 1, PromptContractVersion = "moment-enrichment-v1",
+            MomentSnapshotJson = "{}", TurnEvidenceSnapshotJson = "{}", ExecutionSettingsJson = "{}",
+            CreatedUtc = now, UpdatedUtc = now
+        };
+        var attempt = new SceneBeatAnalysisAttempt
+        {
+            Id = $"attempt-{suffix}", OwnerRecordId = enrichment.Id, AttemptNumber = 1, JobId = $"job-{suffix}",
+            SystemPrompt = "system", UserPrompt = "user", ValidationDetailsJson = "{}", InputCharacters = 1,
+            CreatedUtc = now, UpdatedUtc = now
+        };
+        enrichment.CurrentAttemptId = attempt.Id;
+        await repository.CreateRevisionAsync(enrichment, attempt);
+        Assert.True(await repository.TryStartAttemptAsync(enrichment.Id, attempt.Id, "model", "provider", DateTime.UtcNow));
+        Assert.True(await repository.TryCompleteAttemptAsync(enrichment.Id, attempt, new SceneMomentEnrichmentData("{}", "[]", "{}"), DateTime.UtcNow));
+        return (await repository.GetAsync(enrichment.Id))!;
     }
 
     [Fact]

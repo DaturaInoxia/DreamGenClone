@@ -39,6 +39,24 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
     public string SfwClampSuffix => DefaultSfwClampSuffix;
 
     public (string SystemPrompt, string UserPrompt) BuildMessages(
+        CompiledMediaBrief brief,
+        string pov,
+        SceneImageStudioSettings settings,
+        ImageContentPolicy resolvedPolicy,
+        string? refineInstruction)
+    {
+        CompiledMediaContractValidator.ValidateBrief(brief);
+        if (brief.MediaKind != MediaProductionKind.StillImage || brief.Status != MediaCompilerStatus.Complete)
+            throw new InvalidOperationException("Canonical scene-image prompt generation requires a complete compiled Still brief.");
+        if (string.IsNullOrWhiteSpace(pov))
+            throw new InvalidOperationException("Canonical scene-image prompt generation requires the production group POV.");
+
+        var systemPrompt = BuildCanonicalSystemPrompt(resolvedPolicy);
+        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction);
+        return (systemPrompt, userPrompt);
+    }
+
+    public (string SystemPrompt, string UserPrompt) BuildMessages(
         RolePlaySession session,
         RolePlayInteraction interaction,
         AdaptiveScenarioState scenarioState,
@@ -203,6 +221,38 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
             sb.AppendLine("- The provider allows adult content. Follow the explicitness level exactly; do not add explicitness beyond it.");
         }
 
+        return sb.ToString();
+    }
+
+    private static string BuildCanonicalSystemPrompt(ImageContentPolicy policy)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You are an expert prompt engineer for SDXL-based photorealistic image models.");
+        sb.AppendLine("Project the supplied immutable canonical Still brief into a concise 2-4 sentence photographic brief. Do not invent or rediscover story facts.");
+        sb.AppendLine("Include the exact visible people, appearance, wardrobe, frozen action, location, lighting, mood, production POV, and photographic camera cues.");
+        sb.AppendLine("Use natural language with realistic 35mm and natural skin texture cues. Never emit Pony vocabulary, score tags, rating tags, or danbooru count tags.");
+        sb.AppendLine("Keep the result under 800 characters. Return only the final prompt as plain text.");
+        if (policy == ImageContentPolicy.SfwFiltered)
+            sb.AppendLine($"Keep every person fully clothed and the result non-explicit; end verbatim with: {DefaultSfwClampSuffix}");
+        return sb.ToString();
+    }
+
+    private static string BuildCanonicalUserPrompt(
+        CompiledMediaBrief brief,
+        string pov,
+        SceneImageStudioSettings settings,
+        ImageContentPolicy policy,
+        string? refineInstruction)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("CANONICAL STILL BRIEF (immutable; this is the complete semantic source):");
+        sb.AppendLine(brief.SemanticInputSnapshotJson);
+        sb.AppendLine("CANONICAL PROVIDER REQUEST SNAPSHOT (immutable):");
+        sb.AppendLine(brief.ProviderRequestSnapshotJson);
+        sb.AppendLine($"PRODUCTION POV: {pov}");
+        sb.AppendLine($"IMAGE SETTINGS: style={settings.Style}; size={settings.ImageSize}; aspect={settings.AspectRatio}; policy={policy}");
+        if (!string.IsNullOrWhiteSpace(refineInstruction))
+            sb.AppendLine($"REFINE INSTRUCTION: {refineInstruction.Trim()}");
         return sb.ToString();
     }
 

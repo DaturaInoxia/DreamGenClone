@@ -25,11 +25,10 @@ The committed `snapshot.db` is a separate point-in-time copy, NOT the live DB. `
 4. App DB path is relative to cwd + environment: **Development → `data/dreamgenclone.dev.db`**, **Production → `data/dreamgenclone.db`**. Always start the app from `DreamGenClone.Web` with `ASPNETCORE_ENVIRONMENT=Development` (as `helpers/start-webapp-dev-clean.ps1` does). Starting it from the repo root, or without the env var, opens the WRONG near-empty DB.
 5. Never point the app at `snapshot.db` as its working DB; the snapshot is only for cloning/restoring on a fresh machine.
 
-## Refreshing the snapshot (when content changed)
-```
-python artifacts/tmp/dbquery/create_seed_db.py
-```
-Copies current `dev.db` → `snapshot.db`, then **automatically drops ALL session-runtime/debug data** (same table list as `prune_sessions.sql`), blanks `ApiKeyEncrypted`, and VACUUMs — so the snapshot stays small no matter how much session data has accumulated in `dev.db`. The working `dev.db` is never modified and keeps its sessions for debugging. Then commit `snapshot.db`.
+## Refreshing the snapshot
+There is currently no supported snapshot-refresh command. Do not copy `dev.db` over `snapshot.db`: the live database contains encrypted provider keys and session/debug data.
+
+Share portable configuration as reviewed, idempotent named commands in `DreamGenClone.DbQuery`, then run those commands on each host after copying the sanitized base snapshot. For B-100, run `helpers/dbq.ps1 b100-analyzer-configure`.
 
 ## Pruning the dev DB (only when explicitly asked)
 - Stop the web app first (it locks the DB).
@@ -40,8 +39,9 @@ Copies current `dev.db` → `snapshot.db`, then **automatically drops ALL sessio
 See `docs/db-snapshot-setup.md` (ships in the repo). Short version:
 1. `git clone <repo>` (gets `snapshot.db` + full content)
 2. `copy DreamGenClone.Web\data\dreamgenclone.snapshot.db DreamGenClone.Web\data\dreamgenclone.dev.db`
-3. Start via `helpers/start-webapp-dev-clean.ps1`
-4. Re-enter provider API keys once (Settings → Providers)
+3. Run `powershell -ExecutionPolicy Bypass -File helpers/dbq.ps1 b100-analyzer-configure`
+4. Start via `helpers/start-webapp-dev-clean.ps1`
+5. Re-enter provider API keys once (Settings → Providers)
 
 ## Tooling
 - Use `helpers/dbq.ps1` / `helpers/dbq-session.ps1` for all DB queries against `dreamgenclone.dev.db`. See `dbquery-reference.instructions.md`.

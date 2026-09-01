@@ -94,7 +94,7 @@ Required correction: dedicated beat-analyzer configuration with explicit thinkin
 
 The prompt asks for exact JSON, but the standard completion request does not declare a provider-native JSON Schema. Strict parsing correctly rejects malformed output, but prompting alone cannot guarantee transport conformance.
 
-Required correction: capability-negotiated structured output. A configured analyzer that cannot satisfy the required output contract must fail validation before enqueue. No regex repair, field guessing, or reasoning-as-content fallback is permitted.
+Required correction: capability-negotiated structured output using an explicitly configured strict JSON Schema or JSON Object transport. JSON Object mode carries the canonical schema in the system instruction and remains subject to the same strict parser and semantic validation. A configured analyzer that cannot satisfy a supported output contract must fail validation before enqueue. No regex repair, field guessing, or reasoning-as-content fallback is permitted.
 
 ### F-100-06 - Generic jobs are serial and volatile (high)
 

@@ -14,6 +14,13 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// </summary>
 public interface ISceneImageLLMPromptBuilder
 {
+    (string SystemPrompt, string UserPrompt) BuildMessages(
+        CompiledMediaBrief brief,
+        string pov,
+        SceneImageStudioSettings settings,
+        ImageContentPolicy resolvedPolicy,
+        string? refineInstruction);
+
     /// <summary>Compose the system + user messages for the pre-processor model.</summary>
     (string SystemPrompt, string UserPrompt) BuildMessages(
         RolePlaySession session,

@@ -26,6 +26,20 @@ public sealed class SceneBeatCatalogueRepository : ISceneBeatCatalogueRepository
         await using var connection = await OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
+        if (catalogue.Version == 0)
+        {
+            await using var allocateVersion = connection.CreateCommand();
+            allocateVersion.Transaction = (SqliteTransaction)transaction;
+            allocateVersion.CommandText = """
+                SELECT COALESCE(MAX(Version), 0) + 1
+                FROM SceneBeatCatalogues
+                WHERE SessionId = $sessionId AND TurnId = $turnId;
+                """;
+            allocateVersion.Parameters.AddWithValue("$sessionId", catalogue.SessionId.Trim());
+            allocateVersion.Parameters.AddWithValue("$turnId", catalogue.TurnId.Trim());
+            catalogue.Version = Convert.ToInt32(await allocateVersion.ExecuteScalarAsync(cancellationToken));
+        }
+
         await using (var supersede = connection.CreateCommand())
         {
             supersede.Transaction = (SqliteTransaction)transaction;
@@ -68,6 +82,25 @@ public sealed class SceneBeatCatalogueRepository : ISceneBeatCatalogueRepository
         Require(catalogueId, "Catalogue id");
         await using var connection = await OpenAsync(cancellationToken);
         return await LoadCatalogueAsync(connection, "Id = $value", catalogueId.Trim(), cancellationToken);
+    }
+
+    public async Task<int> GetNextVersionAsync(
+        string sessionId,
+        string turnId,
+        CancellationToken cancellationToken = default)
+    {
+        Require(sessionId, "Session id");
+        Require(turnId, "Turn id");
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COALESCE(MAX(Version), 0) + 1
+            FROM SceneBeatCatalogues
+            WHERE SessionId = $sessionId AND TurnId = $turnId;
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId.Trim());
+        command.Parameters.AddWithValue("$turnId", turnId.Trim());
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
     }
 
     public async Task<SceneBeatCatalogue?> GetCurrentByTurnAsync(
@@ -149,8 +182,8 @@ public sealed class SceneBeatCatalogueRepository : ISceneBeatCatalogueRepository
         CancellationToken cancellationToken = default)
     {
         ValidateTerminalAttempt(catalogueId, attempt);
-        if (entries.Count is < 1 or > 12)
-            throw new InvalidOperationException("A completed Beat Catalogue requires between 1 and 12 entries.");
+        if (entries.Count < 1)
+            throw new InvalidOperationException("A completed Beat Catalogue requires at least one entry.");
 
         await using var connection = await OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -219,11 +252,6 @@ public sealed class SceneBeatCatalogueRepository : ISceneBeatCatalogueRepository
 
         await using var connection = await OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-        if (!await OwnsProcessingAttemptAsync(connection, (SqliteTransaction)transaction, catalogueId, attempt.Id, cancellationToken))
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            return false;
-        }
 
         await using (var updateAttempt = connection.CreateCommand())
         {
@@ -235,10 +263,15 @@ public sealed class SceneBeatCatalogueRepository : ISceneBeatCatalogueRepository
                     ValidationCode = $validationCode, ValidationDetailsJson = $validationDetailsJson,
                     DurationMs = $durationMs, OutputCharacters = $outputCharacters,
                     CompletedUtc = $completedUtc, UpdatedUtc = $completedUtc
-                WHERE Id = $attemptId AND OwnerRecordId = $catalogueId AND Status = 'Processing';
+                WHERE Id = $attemptId AND OwnerRecordId = $catalogueId
+                  AND Status IN ('Queued', 'Processing');
                 """;
             AddTerminalAttemptParameters(updateAttempt, catalogueId, attempt, completedUtc);
-            await updateAttempt.ExecuteNonQueryAsync(cancellationToken);
+            if (await updateAttempt.ExecuteNonQueryAsync(cancellationToken) != 1)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return false;
+            }
         }
 
         await using (var updateCatalogue = connection.CreateCommand())
@@ -248,7 +281,8 @@ public sealed class SceneBeatCatalogueRepository : ISceneBeatCatalogueRepository
                 UPDATE SceneBeatCatalogues
                 SET Status = 'Failed', ErrorCode = $errorCode, ErrorMessage = $errorMessage,
                     CompletedUtc = $completedUtc, UpdatedUtc = $completedUtc
-                WHERE Id = $catalogueId AND CurrentAttemptId = $attemptId AND Status = 'Processing';
+                                WHERE Id = $catalogueId AND CurrentAttemptId = $attemptId
+                                    AND Status IN ('Pending', 'Processing');
                 """;
             updateCatalogue.Parameters.AddWithValue("$catalogueId", catalogueId.Trim());
             updateCatalogue.Parameters.AddWithValue("$attemptId", attempt.Id.Trim());
@@ -601,8 +635,8 @@ public sealed class SceneBeatCatalogueRepository : ISceneBeatCatalogueRepository
         Require(attempt.SystemPrompt, "System prompt");
         Require(attempt.UserPrompt, "User prompt");
         Require(attempt.ValidationDetailsJson, "Validation details JSON");
-        if (catalogue.Version < 1 || catalogue.SchemaVersion < 1)
-            throw new InvalidOperationException("Beat Catalogue version and schema version must be positive.");
+        if (catalogue.Version < 0 || catalogue.SchemaVersion < 1)
+            throw new InvalidOperationException("Beat Catalogue version cannot be negative and schema version must be positive.");
         if (catalogue.Status != SceneBeatCatalogueStatus.Pending || attempt.Status != SceneBeatAnalysisAttemptStatus.Queued)
             throw new InvalidOperationException("A new Beat Catalogue and attempt must be Pending and Queued.");
         if (!string.Equals(catalogue.CurrentAttemptId, attempt.Id, StringComparison.Ordinal)

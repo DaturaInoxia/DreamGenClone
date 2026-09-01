@@ -30,7 +30,7 @@ Do not infer status from older handoff files. This document and each phase's `ta
 
 ## 3. Implemented Baseline
 
-### 3.1 Current pipeline
+### 3.1 Current pipeline and B-100 migration
 
 ```mermaid
 flowchart LR
@@ -59,6 +59,13 @@ The active code path is:
    content-policy clamp when required, renders, stores the file, and records provenance.
 7. A completed image may be sent manually through `SceneImageEditingJobHandler`; Qwen remains a
    separate source-image editor resolved through `RolePlaySceneImageEditor`.
+
+The primary Studio **Generate Beats** command now writes the B-100 Catalogue through
+`SceneBeatPipelineService.EnqueueCatalogueAsync`. The schema-v3 path above remains a temporary,
+explicit **Prepare Legacy Prompt Input** command because current `SceneImagePromptRecord` creation,
+prompt compilation, and render-brief reconstruction still consume its selected `SceneImageBeat`.
+Historical schema-v3 analyses remain readable and are not rewritten. Remove that path only after a
+canonical Still `CompiledMediaBrief` feeds prompt and image execution end to end.
 
 ### 3.2 Existing ownership boundaries
 
@@ -167,17 +174,23 @@ flowchart LR
 
 ### 5.1 Source-of-truth hierarchy
 
-1. Story evidence: turn, selected beat, scenario state, character and location metadata.
-2. Approved reusable assets: identity pack and location profile versions.
-3. `SceneVisualPlan`: camera-independent cast, wardrobe, relationships, anchors, and boundaries.
-4. `SceneShotPlan`: one camera and visibility/crop projection of a visual plan version.
-5. `SceneControlManifest`: exact controls, masks, adapters, workflow, and checksums.
-6. `SceneRenderAttempt`: immutable execution provenance and image result.
-7. `SceneValidationReport`: findings against the source plan and shot.
-8. `ApprovedSceneFrame`: explicit user-approved continuity evidence.
+1. B-100 `SceneBeatCatalogue`: compact selectable developments from the authoritative Turn.
+2. B-100 `SceneBeatProductionPlan`: canonical events, timing, dialogue, sound, continuity, and video intent.
+3. B-100 `SceneMomentSet`: frozen-state candidates and production roles for one current Beat plan.
+4. B-100 `SceneMomentEnrichment`: complete provider-neutral frozen state for one selected Moment.
+5. B-100 Still `CompiledMediaBrief`: immutable semantic input, target capability coverage, provider request snapshot, and full Turn/Catalogue/Beat-plan/Moment-set/Moment/enrichment lineage.
+6. B-032 `SceneImageProductionGroup`: one intended approved frame for that exact enrichment and POV.
+7. B-032 `SceneImageAttempt`: immutable Composition/Identity/Finish execution provenance and image result.
+8. B-032 `ApprovedSceneFrameDecision`: append-only approval of one exact attempt and checksum.
+9. Explicit Scene Asset promotion: optional reusable identity/location/wardrobe/prop/style provenance.
 
 Downstream artifacts never mutate an upstream approved version. A correction creates a new
 version and records `SupersedesId`.
+
+B-100 owns semantic analysis and Still brief compilation. B-032 owns production groups, attempts,
+provider execution, review, approval, byte retention, and promotion. Image model-family selection is
+read only from persisted `RegisteredModel.SceneImageModelFamily` and `RegisteredModel.PromptDialect`;
+`SceneImagePromptMetadata` validates the exact pair. Checkpoint names are not a metadata source.
 
 ### 5.2 Modes
 

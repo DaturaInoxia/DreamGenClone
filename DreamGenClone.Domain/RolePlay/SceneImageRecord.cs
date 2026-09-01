@@ -118,6 +118,23 @@ public sealed class SceneImageRecord
     /// </summary>
     public string? IdentityPacksJson { get; set; }
 
+    public string? ProductionGroupId { get; set; }
+    public string? CompiledMediaBriefId { get; set; }
+    public SceneImageProductionStage? ProductionStage { get; set; }
+    public SceneImageAttemptDisposition? Disposition { get; set; }
+    public DateTime? DispositionUpdatedUtc { get; set; }
+    public string? CatalogueId { get; set; }
+    public string? BeatProductionPlanId { get; set; }
+    public int? BeatProductionPlanVersion { get; set; }
+    public string? MomentSetId { get; set; }
+    public int? MomentSetVersion { get; set; }
+    public string? MomentId { get; set; }
+    public string? MomentEnrichmentId { get; set; }
+    public int? MomentEnrichmentRevision { get; set; }
+    public string? TypedReferenceSnapshotJson { get; set; }
+    public string? Sha256 { get; set; }
+    public DateTime? BytesPurgedUtc { get; set; }
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? StartedUtc { get; set; }
     public DateTime? CompletedUtc { get; set; }

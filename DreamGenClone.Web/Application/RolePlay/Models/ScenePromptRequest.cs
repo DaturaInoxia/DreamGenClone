@@ -6,6 +6,8 @@ public sealed class ScenePromptRequest
     public string SessionId { get; set; } = string.Empty;
     public string InteractionId { get; set; } = string.Empty;
     public SceneImageStudioSettings Settings { get; set; } = new();
+    public string? ProductionGroupId { get; set; }
+    public string? CompiledMediaBriefId { get; set; }
     public string BeatAnalysisId { get; set; } = string.Empty;
     public string BeatSnapshotJson { get; set; } = string.Empty;
 

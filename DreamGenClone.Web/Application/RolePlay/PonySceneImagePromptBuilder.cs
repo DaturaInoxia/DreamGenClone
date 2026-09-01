@@ -33,6 +33,19 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
     public const string PonyQualityTags = "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up";
 
     public (string SystemPrompt, string UserPrompt) BuildMessages(
+        CompiledMediaBrief brief,
+        string pov,
+        SceneImageStudioSettings settings,
+        ImageContentPolicy resolvedPolicy,
+        string? refineInstruction)
+    {
+        ValidateCanonicalBrief(brief, pov);
+        var systemPrompt = BuildCanonicalSystemPrompt(resolvedPolicy);
+        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction);
+        return (systemPrompt, userPrompt);
+    }
+
+    public (string SystemPrompt, string UserPrompt) BuildMessages(
         RolePlaySession session,
         RolePlayInteraction interaction,
         AdaptiveScenarioState scenarioState,
@@ -600,6 +613,48 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         }
 
         return sb.ToString();
+    }
+
+    private static string BuildCanonicalSystemPrompt(ImageContentPolicy policy)
+    {
+        var ratingTag = ResolveRatingTag(policy);
+        var sb = new StringBuilder();
+        sb.AppendLine("You are an expert prompt engineer for the PONY DIFFUSION V6 XL image model.");
+        sb.AppendLine("Project the supplied immutable canonical Still brief into one short dense comma-separated prompt. Do not invent or rediscover story facts.");
+        sb.AppendLine($"Start verbatim with: {PonyQualityTags}, {ratingTag}");
+        sb.AppendLine("Then include the exact visible cast count, short visual identity/wardrobe/action tags, location, lighting, mood, one camera-view tag, and the {{style}} and {{size}} placeholders.");
+        sb.AppendLine("Keep the result under 800 characters and about 40 tags. Return only the final prompt as plain text.");
+        if (policy == ImageContentPolicy.SfwFiltered)
+            sb.AppendLine($"Keep every person fully clothed and the result non-explicit; end verbatim with: {SfwClampSuffix}");
+        return sb.ToString();
+    }
+
+    private static string BuildCanonicalUserPrompt(
+        CompiledMediaBrief brief,
+        string pov,
+        SceneImageStudioSettings settings,
+        ImageContentPolicy policy,
+        string? refineInstruction)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("CANONICAL STILL BRIEF (immutable; this is the complete semantic source):");
+        sb.AppendLine(brief.SemanticInputSnapshotJson);
+        sb.AppendLine("CANONICAL PROVIDER REQUEST SNAPSHOT (immutable):");
+        sb.AppendLine(brief.ProviderRequestSnapshotJson);
+        sb.AppendLine($"PRODUCTION POV: {pov}");
+        sb.AppendLine($"IMAGE SETTINGS: style={settings.Style}; size={settings.ImageSize}; aspect={settings.AspectRatio}; policy={policy}");
+        if (!string.IsNullOrWhiteSpace(refineInstruction))
+            sb.AppendLine($"REFINE INSTRUCTION: {refineInstruction.Trim()}");
+        return sb.ToString();
+    }
+
+    private static void ValidateCanonicalBrief(CompiledMediaBrief brief, string pov)
+    {
+        CompiledMediaContractValidator.ValidateBrief(brief);
+        if (brief.MediaKind != MediaProductionKind.StillImage || brief.Status != MediaCompilerStatus.Complete)
+            throw new InvalidOperationException("Canonical scene-image prompt generation requires a complete compiled Still brief.");
+        if (string.IsNullOrWhiteSpace(pov))
+            throw new InvalidOperationException("Canonical scene-image prompt generation requires the production group POV.");
     }
 
     private static string BuildUserPrompt(

@@ -45,6 +45,8 @@ public sealed class RunPodServerlessImageClientTests
         ContentPolicy: ImageContentPolicy.AdultAllowed,
         ProviderName: "BigLust Serverless",
         IsSessionOverride: false,
+        SceneImageModelFamily: SceneImageModelFamily.Sdxl,
+        PromptDialect: SceneImagePromptDialect.SdxlNaturalLanguage,
         ImageProtocol: ImageProtocol.ComfyUiServerless);
 
     private static RunPodServerlessImageClient BuildClient(Func<HttpRequestMessage, HttpResponseMessage> responder)

@@ -76,16 +76,16 @@ The feature does not modify RP continuation, narrative gates, phase transitions,
 ## Phase 5 - Analyzer Configuration and Structured Transport
 
 1. Add `AppFunction.RolePlaySceneBeatAnalyzer`.
-2. Add explicit registered-model structured-output, context, and output-limit capabilities.
+2. Add an explicit registered-model structured-output mode plus optional context and output-limit capabilities.
 3. Add Model Manager fields for analyzer assignment, thinking mode, limits, concurrency, retry policy, and diagnostics retention.
 4. Implement a dedicated resolver that does not accept `RolePlaySession.SessionModelId`.
-5. Generalize or add a text structured-completion client that sends strict JSON Schema for supported configured providers.
+5. Generalize or add a text structured-completion client that sends either provider-enforced strict JSON Schema or JSON Object mode with the canonical schema in the system instruction, according to configured model capability.
 6. Validate capability compatibility before job acceptance.
 7. Preserve exact resolved configuration in execution snapshots.
 
 **Important:** no hardcoded model, retry values, thinking mode, or hidden provider inference. Missing values fail with UI guidance.
 
-**Exit:** a contract test proves provider request JSON includes the exact schema, and incompatible models fail before enqueue.
+**Exit:** contract tests prove the exact configured response format is sent, the canonical schema accompanies both supported modes, and incompatible models fail before enqueue.
 
 ## Phase 6 - Beat Catalogue Vertical Slice
 

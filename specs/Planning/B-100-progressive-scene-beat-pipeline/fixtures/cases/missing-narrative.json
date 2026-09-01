@@ -1,0 +1,18 @@
+{
+  "id": "missing-narrative",
+  "category": "malformed-missing-narrative",
+  "description": "A complete turn membership intentionally lacks the required authoritative Narrative interaction.",
+  "session": {
+    "id": "b100-session-missing", "scenarioId": "b100-scenario-missing",
+    "personaCharacterId": "b100-persona-missing", "personaName": "Rhea", "personaRole": "Courier",
+    "personaGender": "Female", "personaDescription": "A courier waiting in a depot.",
+    "interactions": [
+      { "id": "missing-i1", "actorName": "Rhea", "interactionType": "User", "content": "I place the sealed parcel on the depot counter.", "createdUtc": "2026-01-17T08:00:00Z" },
+      { "id": "missing-c1", "actorName": "Dax", "interactionType": "Npc", "content": "Dax checks the label and nods once.", "createdUtc": "2026-01-17T08:00:01Z" }
+    ]
+  },
+  "turn": { "id": "b100-turn-missing", "index": 2, "kind": "SubmitPrompt", "triggerSource": "User", "inputInteractionId": "missing-i1", "outputInteractionIds": ["missing-c1"], "startedUtc": "2026-01-17T08:00:00Z", "completedUtc": "2026-01-17T08:00:02Z" },
+  "characters": [ { "id": "b100-character-dax", "name": "Dax", "role": "Depot Clerk", "gender": "Male", "description": "A clerk in a brown uniform jacket." } ],
+  "expectations": null,
+  "expectedPreflightRejection": { "code": "missing_narrative", "reason": "Canonical catalogue snapshot creation requires exactly one authoritative Narrative interaction." }
+}

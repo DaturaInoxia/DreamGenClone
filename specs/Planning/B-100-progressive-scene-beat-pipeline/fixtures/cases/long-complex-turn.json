@@ -1,0 +1,37 @@
+{
+  "id": "long-complex-turn",
+  "category": "long-complex-turn",
+  "description": "A materially long, multi-event observatory emergency with dialogue, movement, sound, and continuity changes.",
+  "session": {
+    "id": "b100-session-long", "scenarioId": "b100-scenario-long",
+    "personaCharacterId": "b100-persona-long", "personaName": "Vera", "personaRole": "Observatory Director",
+    "personaGender": "Female", "personaDescription": "The night director wearing a black field jacket over a silver-gray shirt.",
+    "interactions": [
+      { "id": "long-i1", "actorName": "Vera", "interactionType": "User", "content": "I hear the drive motor stutter, call for the dome to stop, and cross from the chart table toward the red emergency lever while asking Cal to secure the telescope and Imani to check the west shutter.", "createdUtc": "2026-01-16T23:05:00Z" },
+      { "id": "long-c1", "actorName": "Cal", "interactionType": "Npc", "content": "Cal grips the telescope brake wheel with both hands. \"Brake engaged,\" he says as the long instrument tube slows above him. He remains on the central platform and keeps watching the mount for movement.", "createdUtc": "2026-01-16T23:05:01Z" },
+      { "id": "long-c2", "actorName": "Imani", "interactionType": "Npc", "content": "Imani runs along the curved west walkway, finds the shutter guide vibrating, and presses the local stop switch. \"West shutter stopped. The lower guide is out of line,\" she reports over the room intercom without leaving the walkway.", "createdUtc": "2026-01-16T23:05:02Z" },
+      { "id": "long-c3", "actorName": "Vera", "interactionType": "Npc", "content": "Vera reaches the wall station and pulls the red emergency lever down. The drive motor cuts out. She answers, \"Hold positions. Nobody touches the guide until the backup lights are steady.\"", "createdUtc": "2026-01-16T23:05:03Z" },
+      { "id": "long-n1", "actorName": "Narrative", "interactionType": "System", "content": "The observatory begins with the dome drive turning above a lit chart table and the telescope tracking through the open roof slot. A sharp metallic stutter interrupts the steady motor hum. Vera leaves the chart table and moves across the main floor toward the wall-mounted red emergency lever. Cal stays on the raised central platform, catches the telescope brake wheel, and brings the instrument tube to a controlled stop. At the same time, Imani follows the curved west walkway to the shutter mechanism, where the lower guide shakes against its rail. She presses the local stop switch and reports the misalignment through the intercom. Vera pulls the red lever fully down; the main drive noise ends, leaving the click of relays and the fading ring of metal in the dome. The normal white work lights dim. A row of amber backup lamps comes on from east to west, first lighting Vera at the wall station, then Cal beneath the stationary telescope, and finally Imani beside the halted west shutter. Vera orders everyone to hold position. Cal keeps both hands on the brake wheel. Imani withdraws her hand from the guide and stands clear. No one repairs or realigns the mechanism during this turn. The final state has the dome, telescope, and west shutter stopped; the roof slot remains open; Vera is by the lowered red lever, Cal is on the central platform, and Imani is on the west walkway under the last amber lamp.", "createdUtc": "2026-01-16T23:05:04Z" }
+    ]
+  },
+  "turn": { "id": "b100-turn-long", "index": 28, "kind": "Continue", "triggerSource": "User", "inputInteractionId": "long-i1", "outputInteractionIds": ["long-c1", "long-c2", "long-c3", "long-n1"], "startedUtc": "2026-01-16T23:05:00Z", "completedUtc": "2026-01-16T23:05:06Z" },
+  "characters": [
+    { "id": "b100-character-cal", "name": "Cal", "role": "Telescope Engineer", "gender": "Male", "description": "An engineer in blue coveralls and work gloves." },
+    { "id": "b100-character-imani", "name": "Imani", "role": "Dome Technician", "gender": "Female", "description": "A technician in a yellow safety vest over dark work clothes." }
+  ],
+  "expectations": {
+    "beatBoundaries": [
+      { "label": "Drive stutter and response", "evidenceInteractionIds": ["long-i1", "long-n1"], "match": "subset" },
+      { "label": "Telescope and shutter stopped", "evidenceInteractionIds": ["long-c1", "long-c2", "long-n1"], "match": "subset" },
+      { "label": "Emergency shutdown and hold", "evidenceInteractionIds": ["long-c3", "long-n1"], "match": "subset" }
+    ],
+    "selectedBeatOrdinal": 3,
+    "moments": { "minimum": 2, "maximum": 4, "recommendedRequired": true, "requiredProductionRoles": ["StillCandidate"] },
+    "requiredSourceFacts": [
+      { "factKey": "lever-lowered", "evidenceInteractionId": "long-c3", "description": "Vera pulls the red emergency lever down." },
+      { "factKey": "all-machinery-stopped", "evidenceInteractionId": "long-n1", "description": "The dome, telescope, and west shutter are stopped in the final state." },
+      { "factKey": "no-repair-yet", "evidenceInteractionId": "long-n1", "description": "No repair or guide realignment occurs during this turn." }
+    ]
+  },
+  "expectedPreflightRejection": null
+}

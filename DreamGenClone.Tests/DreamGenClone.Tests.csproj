@@ -16,5 +16,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DreamGenClone.Web\DreamGenClone.csproj" />
+    <ProjectReference Include="..\DreamGenClone.CorpusRunner\DreamGenClone.CorpusRunner.csproj" />
   </ItemGroup>
 </Project>

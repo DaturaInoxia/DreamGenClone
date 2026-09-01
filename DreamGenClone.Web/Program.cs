@@ -38,6 +38,7 @@ using DreamGenClone.Infrastructure.PromptTester;
 using DreamGenClone.Web.Application.Administration;
 using DreamGenClone.Web.Application.ModelManager;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Infrastructure.RolePlay;
 using Microsoft.Extensions.FileProviders;
@@ -129,7 +130,9 @@ builder.Services.AddScoped<IThemeMachineAuthorizationService, ThemeMachineAuthor
 builder.Services.AddScoped<IThemeMachineResolutionService, ThemeMachineResolutionService>();
 builder.Services.AddScoped<IThemeMachineEvaluator, ThemeMachineEvaluator>();
 builder.Services.AddScoped<IRPThemeService, RPThemeService>();
-builder.Services.AddScoped<IRolePlayStateRepository, RolePlayStateRepository>();
+builder.Services.AddScoped<RolePlayStateRepository>();
+builder.Services.AddScoped<IRolePlayStateRepository>(sp => sp.GetRequiredService<RolePlayStateRepository>());
+builder.Services.AddScoped<IRolePlayTurnReader>(sp => sp.GetRequiredService<RolePlayStateRepository>());
 
 // RP Prompt Redesign (001-rp-prompt-redesign): new prompt architecture
 // Phase 1-2: Foundation
@@ -233,10 +236,13 @@ builder.Services.AddSingleton<IMultimodalCompletionClient, OpenAiMultimodalCompl
 builder.Services.AddSingleton<IClimaxBeatRepository, ClimaxBeatRepository>();
 builder.Services.AddHttpClient("CompletionClient");
 builder.Services.AddHttpClient("MultimodalCompletionClient");
+builder.Services.AddHttpClient("StructuredTextCompletionClient");
 builder.Services.AddScoped<IModelResolutionService, ModelResolutionService>();
 builder.Services.AddScoped<IMultimodalModelResolutionService>(serviceProvider =>
     serviceProvider.GetRequiredService<IModelResolutionService>() as ModelResolutionService
     ?? throw new InvalidOperationException("The configured model resolver does not support multimodal resolution."));
+builder.Services.AddScoped<ISceneBeatAnalyzerResolver, SceneBeatAnalyzerResolver>();
+builder.Services.AddSingleton<IStructuredTextCompletionClient, OpenAiStructuredTextCompletionClient>();
 builder.Services.AddScoped<IImageEditorModelResolver, ImageEditorModelResolver>();
 builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
 builder.Services.AddScoped<ModelManagerFacade>();
@@ -257,7 +263,6 @@ builder.Services.AddScoped<IBackgroundJobHandler, SemanticInteractionAnalysisJob
 builder.Services.AddScoped<IBackgroundJobHandler, EncounterSummaryJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, LocationDetectionJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SteerGenerationJobHandler>();
-builder.Services.AddScoped<IBackgroundJobHandler, SceneImageBeatGenerationJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImagePromptGenerationJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageRenderingJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditingJobHandler>();
@@ -268,6 +273,17 @@ builder.Services.AddScoped<IBackgroundJobHandler, SceneAssetEditingJobHandler>()
 builder.Services.AddScoped<IBackgroundJobHandler, SceneAssetProfilePackJobHandler>();
 builder.Services.AddScoped<SceneImageTurnResolver>();
 builder.Services.AddScoped<SceneImageBeatAnalysisService>();
+builder.Services.AddSingleton<SceneBeatCatalogueSnapshotBuilder>();
+builder.Services.AddSingleton<SceneBeatCatalogueContract>();
+builder.Services.AddSingleton<SceneBeatProductionSnapshotBuilder>();
+builder.Services.AddSingleton<SceneBeatProductionContract>();
+builder.Services.AddSingleton<SceneBeatProductionParser>();
+builder.Services.AddSingleton<SceneMomentDiscoverySnapshotBuilder>();
+builder.Services.AddSingleton<SceneMomentDiscoveryContract>();
+builder.Services.AddSingleton<SceneMomentDiscoveryParser>();
+builder.Services.AddSingleton<SceneMomentEnrichmentSnapshotBuilder>();
+builder.Services.AddSingleton<SceneMomentEnrichmentContract>();
+builder.Services.AddSingleton<SceneMomentEnrichmentParser>();
 builder.Services.AddHostedService<GenericBackgroundJobWorker>();
 builder.Services.AddSingleton<SemanticBackgroundJobQueue>();
 builder.Services.AddSingleton<ISemanticBackgroundJobQueue>(sp => sp.GetRequiredService<SemanticBackgroundJobQueue>());
@@ -285,6 +301,94 @@ builder.Services.AddSingleton<RunPodServerlessIdentityClient>();
 builder.Services.AddSingleton<IIdentityConditionedImageClient, IdentityConditionedImageClientDispatcher>();
 builder.Services.AddSingleton<ISceneImageRepository, SceneImageRepository>();
 builder.Services.AddSingleton<ISceneImageEditRepository, SceneImageEditRepository>();
+builder.Services.AddSingleton<ISceneBeatCatalogueRepository, SceneBeatCatalogueRepository>();
+builder.Services.AddSingleton<ISceneBeatDiagnosticsRepository, SceneBeatDiagnosticsRepository>();
+builder.Services.AddScoped<ISceneBeatDiagnosticsService, SceneBeatDiagnosticsService>();
+builder.Services.AddSingleton<ISceneBeatProductionPlanRepository, SceneBeatProductionPlanRepository>();
+builder.Services.AddSingleton<ISceneMomentSetRepository, SceneMomentSetRepository>();
+builder.Services.AddSingleton<ISceneMomentEnrichmentRepository, SceneMomentEnrichmentRepository>();
+builder.Services.AddSingleton<CompiledMediaBriefRepository>();
+builder.Services.AddSingleton<ICompiledMediaBriefRepository>(sp => sp.GetRequiredService<CompiledMediaBriefRepository>());
+builder.Services.AddSingleton<IApprovedMediaDerivativeRepository>(sp => sp.GetRequiredService<CompiledMediaBriefRepository>());
+builder.Services.AddSingleton<ISceneImageProductionGroupRepository, SceneImageProductionGroupRepository>();
+builder.Services.AddSingleton<IDurableBackgroundJobRepository, DurableBackgroundJobRepository>();
+builder.Services.AddSingleton<IDurableBackgroundJobQueue, DurableBackgroundJobQueue>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddHostedService<DurableBackgroundJobStartupRecovery>();
+builder.Services.AddScoped<ISceneBeatPipelineService, SceneBeatPipelineService>();
+builder.Services.AddScoped<ISceneBeatProductionPipelineService, SceneBeatProductionPipelineService>();
+builder.Services.AddScoped<ISceneMomentDiscoveryPipelineService, SceneMomentDiscoveryPipelineService>();
+builder.Services.AddScoped<ISceneMomentEnrichmentPipelineService, SceneMomentEnrichmentPipelineService>();
+builder.Services.AddSingleton<IMultimodalMediaCompiler>(new DeterministicMultimodalMediaCompiler(
+    new(MediaProductionKind.StillImage, "canonical", "deterministic", "1",
+        new HashSet<MediaCompilerCapability>
+        {
+            MediaCompilerCapability.FrozenVisualState,
+            MediaCompilerCapability.TypedMediaReferences
+        })));
+builder.Services.AddSingleton<IMultimodalMediaCompiler>(new DeterministicMultimodalMediaCompiler(
+    new(MediaProductionKind.Speech, "canonical", "deterministic", "1",
+        new HashSet<MediaCompilerCapability>
+        {
+            MediaCompilerCapability.SpeechText,
+            MediaCompilerCapability.SpeechPerformance
+        })));
+builder.Services.AddSingleton<IMultimodalMediaCompiler>(new DeterministicMultimodalMediaCompiler(
+    new(MediaProductionKind.AmbienceEffects, "canonical", "deterministic", "1",
+        new HashSet<MediaCompilerCapability>
+        {
+            MediaCompilerCapability.Ambience,
+            MediaCompilerCapability.SoundEffects
+        })));
+builder.Services.AddSingleton<IMultimodalMediaCompiler>(new DeterministicMultimodalMediaCompiler(
+    new(MediaProductionKind.Music, "canonical", "deterministic", "1",
+        new HashSet<MediaCompilerCapability>
+        {
+            MediaCompilerCapability.MusicSections,
+            MediaCompilerCapability.TypedMediaReferences
+        })));
+builder.Services.AddSingleton<IMultimodalMediaCompiler>(new DeterministicMultimodalMediaCompiler(
+    new(MediaProductionKind.Video, "canonical", "deterministic", "1",
+        new HashSet<MediaCompilerCapability>
+        {
+            MediaCompilerCapability.VideoKeyStates,
+            MediaCompilerCapability.VideoActionArc,
+            MediaCompilerCapability.VideoCameraMotion,
+            MediaCompilerCapability.TypedMediaReferences,
+            MediaCompilerCapability.ExternalAudioReferences
+        })));
+builder.Services.AddSingleton<IMultimodalMediaCompiler>(new DeterministicMultimodalMediaCompiler(
+    new(MediaProductionKind.VideoWithAudio, "canonical", "deterministic", "1",
+        new HashSet<MediaCompilerCapability>
+        {
+            MediaCompilerCapability.VideoKeyStates,
+            MediaCompilerCapability.VideoActionArc,
+            MediaCompilerCapability.VideoCameraMotion,
+            MediaCompilerCapability.TypedMediaReferences,
+            MediaCompilerCapability.ExternalAudioReferences,
+            MediaCompilerCapability.NativeVideoAudio
+        })));
+builder.Services.AddSingleton<IMultimodalMediaCompiler>(new DeterministicMultimodalMediaCompiler(
+    new(MediaProductionKind.LipSyncPerformance, "canonical", "deterministic", "1",
+        new HashSet<MediaCompilerCapability>
+        {
+            MediaCompilerCapability.LipSyncWindows,
+            MediaCompilerCapability.RealizedSpeechAlignment,
+            MediaCompilerCapability.SpeechPerformance,
+            MediaCompilerCapability.FrozenVisualState,
+            MediaCompilerCapability.TypedMediaReferences
+        })));
+builder.Services.AddSingleton<IMultimodalMediaCompilerRegistry, MultimodalMediaCompilerRegistry>();
+builder.Services.AddScoped<IMultimodalMediaCompilationService, MultimodalMediaCompilationService>();
+builder.Services.AddScoped<ISceneImageProductionService, SceneImageProductionService>();
+builder.Services.AddScoped<ISceneBeatSessionReader, SceneBeatSessionReader>();
+builder.Services.AddScoped<ISceneBeatScenarioReader, SceneBeatScenarioReader>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneBeatCatalogueJobHandler>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneBeatProductionPlanJobHandler>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneBeatMomentDiscoveryJobHandler>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneMomentEnrichmentJobHandler>();
+builder.Services.AddScoped<TextAnalysisDurableJobExecutor>();
+builder.Services.AddHostedService<TextAnalysisDurableWorker>();
 builder.Services.AddSingleton<ISceneImageStorageService, SceneImageStorageService>();
 builder.Services.AddSingleton<ICharacterImageIdentityRepository, CharacterImageIdentityRepository>();
 builder.Services.AddSingleton<ICharacterImageAssetStorageService, CharacterImageAssetStorageService>();
@@ -301,6 +405,9 @@ builder.Services.AddSingleton<ISceneImageLLMPromptBuilder>(sp => sp.GetRequiredS
 builder.Services.AddSingleton<ISceneImageEditPromptCompiler, QwenSceneImageEditPromptCompiler>();
 builder.Services.AddSingleton<SdxlSceneImagePromptBuilder>();
 builder.Services.AddSingleton<ISdxlSceneImagePromptBuilder>(sp => sp.GetRequiredService<SdxlSceneImagePromptBuilder>());
+builder.Services.AddSingleton<ISceneImagePromptCompiler, PonySceneImagePromptCompiler>();
+builder.Services.AddSingleton<ISceneImagePromptCompiler, SdxlSceneImagePromptCompiler>();
+builder.Services.AddSingleton<ISceneImagePromptCompilerRegistry, SceneImagePromptCompilerRegistry>();
 
 // Prompt-queue navigation resilience (B-027)
 builder.Services.AddSingleton<RolePlaySubmissionTracker>();

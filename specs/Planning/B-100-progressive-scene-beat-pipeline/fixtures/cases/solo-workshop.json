@@ -1,0 +1,23 @@
+{
+  "id": "solo-workshop",
+  "category": "solo",
+  "description": "One visible character notices and repairs a loose model bridge support.",
+  "session": {
+    "id": "b100-session-solo", "scenarioId": "b100-scenario-solo",
+    "personaCharacterId": "b100-persona-solo", "personaName": "Mara", "personaRole": "Restorer",
+    "personaGender": "Female", "personaDescription": "A patient craftsperson in a quiet workshop.",
+    "interactions": [
+      { "id": "solo-i1", "actorName": "Mara", "interactionType": "User", "content": "I set the brass support beneath the model bridge and test it with one fingertip.", "createdUtc": "2026-01-10T10:00:00Z" },
+      { "id": "solo-n1", "actorName": "Narrative", "interactionType": "System", "content": "In the sunlit workshop, Mara notices the miniature bridge sagging, slides a brass support beneath its center, and holds still as the span settles level.", "createdUtc": "2026-01-10T10:00:01Z" }
+    ]
+  },
+  "turn": { "id": "b100-turn-solo", "index": 1, "kind": "SubmitPrompt", "triggerSource": "User", "inputInteractionId": "solo-i1", "outputInteractionIds": ["solo-n1"], "startedUtc": "2026-01-10T10:00:00Z", "completedUtc": "2026-01-10T10:00:02Z" },
+  "characters": [],
+  "expectations": {
+    "beatBoundaries": [ { "label": "Bridge support placed", "evidenceInteractionIds": ["solo-i1", "solo-n1"], "match": "subset" } ],
+    "selectedBeatOrdinal": 1,
+    "moments": { "minimum": 2, "maximum": 4, "recommendedRequired": true, "requiredProductionRoles": ["StillCandidate"] },
+    "requiredSourceFacts": [ { "factKey": "support-under-center", "evidenceInteractionId": "solo-n1", "description": "The brass support is beneath the bridge center." } ]
+  },
+  "expectedPreflightRejection": null
+}

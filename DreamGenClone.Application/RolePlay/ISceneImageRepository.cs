@@ -25,6 +25,12 @@ public interface ISceneImageRepository
         string beatId,
         string pov,
         CancellationToken cancellationToken = default);
+    Task<SceneImagePromptRecord?> GetLatestCompletedProductionPromptAsync(
+        string sessionId,
+        string interactionId,
+        string productionGroupId,
+        string compiledMediaBriefId,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Persist the user-edited prompt text to a prompt record's OutputPrompt.</summary>
     Task UpdatePromptOutputAsync(
@@ -35,8 +41,27 @@ public interface ISceneImageRepository
     Task<SceneImageRecord?> GetImageAsync(string imageId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SceneImageRecord>> ListImagesByInteractionAsync(
         string sessionId, string interactionId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SceneImageRecord>> ListImagesByProductionGroupAsync(
+        string productionGroupId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SceneImageRecord>> ListImagesBySessionAsync(
         string sessionId, CancellationToken cancellationToken = default);
+    Task<bool> TrySetDispositionAsync(
+        string imageId,
+        string productionGroupId,
+        SceneImageAttemptDisposition expectedDisposition,
+        SceneImageAttemptDisposition nextDisposition,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default);
+    Task<SceneImageBytePurgeReservation> ReserveRejectedBytesPurgeAsync(
+        string imageId,
+        DateTime reservedUtc,
+        CancellationToken cancellationToken = default);
+    Task CompleteRejectedBytesPurgeAsync(
+        SceneImageBytePurgeReservation reservation,
+        CancellationToken cancellationToken = default);
+    Task ReleaseRejectedBytesPurgeAsync(
+        SceneImageBytePurgeReservation reservation,
+        CancellationToken cancellationToken = default);
     Task<Dictionary<string, int>> CountImagesByInteractionAsync(
         string sessionId, CancellationToken cancellationToken = default);
     Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default);

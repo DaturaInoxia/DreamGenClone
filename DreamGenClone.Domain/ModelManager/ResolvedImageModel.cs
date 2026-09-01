@@ -13,5 +13,7 @@ public sealed record ResolvedImageModel(
     ImageContentPolicy ContentPolicy,
     string ProviderName,
     bool IsSessionOverride,
-    ImageProtocol ImageProtocol = ImageProtocol.OpenAiImages,
+    SceneImageModelFamily SceneImageModelFamily,
+    SceneImagePromptDialect PromptDialect,
+    ImageProtocol ImageProtocol,
     string? ComfyUiUrl = null);
