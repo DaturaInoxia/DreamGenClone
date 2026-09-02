@@ -29,6 +29,10 @@ public sealed class SceneRenderRequest
 
     public string? ImageSize { get; set; }
 
+    /// <summary>Registered image model id the user pinned for this render. Null = resolve the
+    /// configured default for <c>RolePlaySceneImage</c>.</summary>
+    public string? RequestedModelId { get; set; }
+
     /// <summary>Full <c>SceneImageStudioSettings</c> snapshot (JSON) used for this render. Stored on
     /// the image record so the studio can restore the exact settings ("continue from this image").</summary>
     public string? SettingsJson { get; set; }

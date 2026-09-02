@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
@@ -175,6 +176,37 @@ public sealed class SceneAssetServiceJobTests
             Assert.Single(queue.Enqueued);
             Assert.Equal(BackgroundJobTypes.SceneAssetProfilePackGeneration, queue.Enqueued[0].JobType);
             Assert.Equal($"{BackgroundJobTypes.SceneAssetProfilePackGeneration}:char-1", queue.Enqueued[0].DedupeKey);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueProfilePack_PayloadRoundTripsThroughHandlerContract()
+    {
+        var (service, queue, _, _, dbPath, root) = Build();
+        try
+        {
+            await service.EnqueueProfilePackAsync(new SceneAssetProfilePackJobPayload
+            {
+                CharacterProfileId = "faee1ec0-1cf3-459e-97d2-ad59717c41ba",
+                CharacterName = "Dean",
+                FrontAssetId = "ce09a98859914aa985d205b814723ca9"
+            });
+
+            var json = Assert.Single(queue.Enqueued).PayloadJson;
+            // The service serializes with JsonSerializerDefaults.Web (camelCase). The profile-pack
+            // handler must deserialize with the same Web options; case-sensitive default matching
+            // silently drops CharacterProfileId (regression guard for that exact bug).
+            Assert.Contains("\"characterProfileId\"", json);
+
+            var roundTripped = JsonSerializer.Deserialize<SceneAssetProfilePackJobPayload>(
+                json, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            Assert.NotNull(roundTripped);
+            Assert.Equal("faee1ec0-1cf3-459e-97d2-ad59717c41ba", roundTripped.CharacterProfileId);
+            Assert.Equal("ce09a98859914aa985d205b814723ca9", roundTripped.FrontAssetId);
         }
         finally
         {

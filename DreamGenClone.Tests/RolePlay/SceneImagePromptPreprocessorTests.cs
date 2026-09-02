@@ -217,7 +217,7 @@ public sealed class SceneImagePromptPreprocessorTests
     }
 
     [Fact]
-    public void BuildMessages_CharacterAppearance_ExcludesMeasurementsAndIntimate()
+    public void BuildMessages_CharacterAppearance_IncludesFigureProportions_ExcludesIntimate()
     {
         var characters = new List<Character>
         {
@@ -230,7 +230,10 @@ public sealed class SceneImagePromptPreprocessorTests
                 {
                     HairColour = "black",
                     EyeColour = "brown",
-                    BustSize = "large",
+                    BustSize = "medium",
+                    WaistSize = "soft",
+                    HipSize = "wide",
+                    ButtSize = "plump",
                     EndowmentLength = "large",
                     VaginalTightness = "tight"
                 }
@@ -244,8 +247,12 @@ public sealed class SceneImagePromptPreprocessorTests
         // Visual identity present.
         Assert.Contains("black", user, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("brown", user, StringComparison.OrdinalIgnoreCase);
-        // Measurements + intimate fields must NOT leak into the image prompt.
-        Assert.DoesNotContain("Bust", user, StringComparison.OrdinalIgnoreCase);
+        // Figure proportions (prose scale terms) ARE included — renderable body build.
+        Assert.Contains("Figure", user, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("bust medium", user, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("hips wide", user, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("rear plump", user, StringComparison.OrdinalIgnoreCase);
+        // Intimate/sexual fields must NOT leak into the image prompt.
         Assert.DoesNotContain("Vaginal", user, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Endowment", user, StringComparison.OrdinalIgnoreCase);
     }

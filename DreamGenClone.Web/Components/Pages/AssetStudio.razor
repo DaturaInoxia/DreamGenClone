@@ -264,10 +264,23 @@
             {
                 _timer = new System.Threading.Timer(async _ =>
                 {
-                    await ReloadAssetsAsync();
-                    if (!_hasInFlight)
+                    try
                     {
-                        StopPolling();
+                        // System.Threading.Timer callbacks run on a threadpool thread — StateHasChanged
+                        // must be marshaled onto the Blazor Dispatcher or it throws "current thread is
+                        // not associated with the Dispatcher" and can crash the whole app.
+                        await InvokeAsync(async () =>
+                        {
+                            await ReloadAssetsAsync();
+                            if (!_hasInFlight)
+                            {
+                                StopPolling();
+                            }
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "Asset Studio asset-list polling reload failed.");
                     }
                 }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
             }

@@ -87,8 +87,11 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
 
         try
         {
-            // Resolve the image model + provider content policy (fail-fast, no fallback).
-            var resolved = await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken);
+            // Resolve the image model + provider content policy (fail-fast, no fallback). A user-pinned
+            // model (RequestedModelId) wins; otherwise the configured default for RolePlaySceneImage.
+            var resolved = string.IsNullOrWhiteSpace(image.RequestedModelId)
+                ? await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken)
+                : await _modelResolutionService.ResolveImageModelByIdAsync(image.RequestedModelId, cancellationToken);
             var compiler = _compilerRegistry.Resolve(resolved.SceneImageModelFamily, resolved.PromptDialect);
 
             var prompt = image.PromptSnapshot;
@@ -212,8 +215,11 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         }
 
         // Identity models are resolved through the identity path only: mechanism, strength and
-        // adapter ref are required configuration. Missing/invalid config fails fast here.
-        var identityModel = await _modelResolutionService.ResolveIdentityImageModelAsync(null, cancellationToken);
+        // adapter ref are required configuration. Missing/invalid config fails fast here. A user-pinned
+        // model (RequestedModelId) wins; otherwise the configured default identity model.
+        var identityModel = string.IsNullOrWhiteSpace(image.RequestedModelId)
+            ? await _modelResolutionService.ResolveIdentityImageModelAsync(null, cancellationToken)
+            : await _modelResolutionService.ResolveIdentityImageModelByIdAsync(image.RequestedModelId, cancellationToken);
 
         var references = new List<IdentityReferenceInput>();
         var packAudit = new List<object>();

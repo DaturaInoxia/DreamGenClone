@@ -238,13 +238,109 @@
 
 .scene-image-legacy-tools {
     display: block;
-    margin-top: 20px;
-    padding-top: 14px;
-    border-top: 2px solid #495057;
 }
 
-.scene-image-legacy-heading {
-    padding: 2px 0 6px;
+/* Collapsible panel header toggle (Story Moment, pipeline, studio, legacy tools). */
+.studio-collapse-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    line-height: inherit;
+}
+
+.studio-collapse-toggle:hover {
+    color: #78bdca;
+}
+
+.studio-collapse-toggle .bi {
+    color: #78bdca;
+    transition: transform 0.15s ease;
+}
+
+/* Full-width variant: chevron pushed to the far right (Story Moment, Legacy tools). */
+.studio-collapse-toggle-full {
+    width: 100%;
+}
+
+/* Story arc turn rows. */
+.scene-story-arc-row {
+    min-height: 56px;
+    padding: 8px 12px;
+    line-height: 1.35;
+    text-align: left;
+    white-space: normal;
+}
+
+.scene-story-arc-row .text-truncate {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Turns with beat-pipeline activity: emphasized to indicate activity. */
+.scene-story-arc-active {
+    border-color: #355b63 !important;
+    background: #182326;
+    box-shadow: inset 3px 0 0 #4a8592;
+}
+
+.scene-story-arc-active:hover {
+    border-color: #4a8592 !important;
+    background: #1d3034;
+}
+
+/* The turn currently open in the studio. */
+.scene-story-arc-current {
+    outline: 1px solid #78bdca;
+    outline-offset: -1px;
+}
+
+/* Story arc turn lists scroll inside the panel instead of overflowing it. */
+.scene-story-arc-scroll {
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+/* Pinned selected-turn area just below the Story arc heading (non-scrollable). */
+.scene-story-arc-selected {
+    padding: 8px;
+    border: 1px solid #355b63;
+    border-radius: 6px;
+    background: #121a1c;
+}
+
+/* Pinned selected-beat / selected-moment areas (non-scrollable, below panel header). */
+.scene-beat-catalogue-selected,
+.scene-moment-selected {
+    padding: 8px;
+    border: 1px solid #355b63;
+    border-radius: 6px;
+    background: #121a1c;
+}
+
+.scene-beat-catalogue-selected .scene-beat-catalogue-pinned-card {
+    min-height: 76px;
+    padding: 10px 12px;
+    line-height: 1.35;
+    text-align: left;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    background: #1b1b1b;
+    color: #e6e6e6;
+}
+
+.scene-beat-catalogue-selected .text-nowrap {
+    max-width: 42%;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 @media (max-width: 575.98px) {
@@ -254,6 +350,15 @@
     }
 
     .scene-beat-catalogue-list .text-nowrap {
+        max-width: 100%;
+    }
+
+    .scene-beat-catalogue-selected .d-flex {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .scene-beat-catalogue-selected .text-nowrap {
         max-width: 100%;
     }
 

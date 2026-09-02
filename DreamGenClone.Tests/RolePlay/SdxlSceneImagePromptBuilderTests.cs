@@ -1,9 +1,11 @@
 using System.Text.Json;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.Templates;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Domain.RolePlay;
+using DreamGenClone.Web.Domain.Scenarios;
 
 namespace DreamGenClone.Tests.RolePlay;
 
@@ -196,5 +198,219 @@ public sealed class SdxlSceneImagePromptBuilderTests
     {
         // The SDXL prose clamp is intentionally distinct from the Pony clamp suffix.
         Assert.NotEqual(PonySceneImagePromptBuilder.SfwClampSuffix, _preprocessor.SfwClampSuffix);
+    }
+
+    // ---- Canonical (B-100 CompiledMediaBrief) path — B-104 / B-103 part B ----
+
+    private static CompiledMediaBrief MakeCanonicalStillBrief() => new(
+        Id: "brief1",
+        MediaKind: MediaProductionKind.StillImage,
+        TargetProfileId: "sdxl-profile",
+        TargetProfileVersion: "1.0",
+        FamilyKey: "sdxl",
+        CompilerKey: "sdxl-natural-language",
+        CompilerVersion: "1.0",
+        ProviderRequestContractVersion: "still-v1",
+        Lineage: new CompiledMediaLineage("cat1", "beat1", "plan1", 1, "momset1", 1, "mom1", "enr1", 1),
+        CanonicalSourceIds: ["src1"],
+        SemanticInputSnapshotJson: """{"people":[{"name":"Becky","appearance":"dark hair in a loose bun, bare-legged","clothing":"unbuttoned pale-blue camp shirt"}],"location":"deck of a silver trailer at night","lighting":"blue TV light through warped blinds","frozenAction":"standing at the wooden railing, one hand beside a glass"}""",
+        ProviderRequestSnapshotJson: """{"contract":"still-v1"}""",
+        RequiredIntentCoverageJson: """{"entries":[]}""",
+        Status: MediaCompilerStatus.Complete,
+        ErrorCode: null,
+        ErrorMessage: null,
+        CreatedUtc: DateTime.UtcNow.AddMinutes(-1),
+        CompletedUtc: DateTime.UtcNow);
+
+    [Fact]
+    public void BuildCanonicalMessages_SystemPrompt_EnforcesResearchedCompilerRules()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var (system, user) = _preprocessor.BuildMessages(
+            MakeCanonicalStillBrief(), "Dean", settings, ImageContentPolicy.AdultAllowed, null);
+
+        // POV framing: never include the POV character in frame.
+        Assert.Contains("NEVER include the POV character in the frame", system, StringComparison.OrdinalIgnoreCase);
+        // No names / relations / ownership (grounded in model behavior).
+        Assert.Contains("do not know character names, relationships, or ownership", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("NO NAMES", system, StringComparison.OrdinalIgnoreCase);
+        // Renderable-only.
+        Assert.Contains("RENDERABLE-ONLY", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Omit narrative distance, intent, metaphor", system, StringComparison.OrdinalIgnoreCase);
+        // Distance/framing rule (SDXL cannot render faces at a distance — the B-103 failure class).
+        Assert.Contains("never rely on a distant figure the model will drop", system, StringComparison.OrdinalIgnoreCase);
+        // Gender + count in prose; clothing safety anchor; tight caption; concrete example.
+        Assert.Contains("GENDER AND COUNT", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("NO ATTRIBUTE BLEED", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CLOTHING IS A SAFETY ANCHOR", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("under 800 characters", system, StringComparison.OrdinalIgnoreCase);
+        // Externally-sourced primary example + internal secondary (POV-specific) example.
+        Assert.Contains("Young woman reading a book in a cozy coffee shop", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("a photorealistic view from twenty feet away", system, StringComparison.OrdinalIgnoreCase);
+        // No identity fluff — telling the model it is an expert carries no information.
+        Assert.DoesNotContain("You are an expert", system, StringComparison.OrdinalIgnoreCase);
+        // Never emits Pony vocabulary.
+        Assert.DoesNotContain("score_9", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("rating_explicit", system, StringComparison.Ordinal);
+
+        // The user prompt still carries the production POV and the immutable snapshots.
+        Assert.Contains("PRODUCTION POV: Dean", user, StringComparison.Ordinal);
+        Assert.Contains("CANONICAL STILL BRIEF", user, StringComparison.Ordinal);
+        Assert.Contains("CANONICAL PROVIDER REQUEST SNAPSHOT", user, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_SfwPolicy_ClampsExplicitness()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var (system, _) = _preprocessor.BuildMessages(
+            MakeCanonicalStillBrief(), "Dean", settings, ImageContentPolicy.SfwFiltered, null);
+
+        Assert.Contains(SdxlSceneImagePromptBuilder.DefaultSfwClampSuffix, system, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_AdultPolicy_NoSfwClamp()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var (system, _) = _preprocessor.BuildMessages(
+            MakeCanonicalStillBrief(), "Dean", settings, ImageContentPolicy.AdultAllowed, null);
+
+        Assert.DoesNotContain(SdxlSceneImagePromptBuilder.DefaultSfwClampSuffix, system, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_NonStillOrIncompleteBrief_Throws()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+
+        var speech = MakeCanonicalStillBrief() with { MediaKind = MediaProductionKind.Speech };
+        Assert.Throws<InvalidOperationException>(() => _preprocessor.BuildMessages(
+            speech, "Dean", settings, ImageContentPolicy.AdultAllowed, null));
+
+        var failed = MakeCanonicalStillBrief() with
+        {
+            Status = MediaCompilerStatus.Failed,
+            ErrorCode = "E1",
+            ErrorMessage = "boom"
+        };
+        Assert.Throws<InvalidOperationException>(() => _preprocessor.BuildMessages(
+            failed, "Dean", settings, ImageContentPolicy.AdultAllowed, null));
+    }
+
+    // ---- Canonical appearance injection (B-103 part B) ----
+
+    private static CompiledMediaBrief MakeCanonicalBriefWithFrozenCharacters() => new(
+        Id: "brief2",
+        MediaKind: MediaProductionKind.StillImage,
+        TargetProfileId: "sdxl-profile",
+        TargetProfileVersion: "1.0",
+        FamilyKey: "sdxl",
+        CompilerKey: "sdxl-natural-language",
+        CompilerVersion: "1.0",
+        ProviderRequestContractVersion: "still-v1",
+        Lineage: new CompiledMediaLineage("cat1", "beat1", "plan1", 1, "momset1", 1, "mom1", "enr1", 1),
+        CanonicalSourceIds: ["src1"],
+        SemanticInputSnapshotJson: """
+            {
+              "lineage": {},
+              "moment": {},
+              "frozenState": {
+                "visualDescription": "a woman at the deck railing of a trailer at night",
+                "characters": [
+                  { "profileKey": "becky", "characterId": "char-becky", "name": "Becky", "involvement": "active", "physicalLocation": "deck", "position": "standing at the railing", "actionOrObservation": "one hand beside a glass", "sightline": "toward the pines", "visibleCharacterNames": ["Dean"], "clothing": "unbuttoned pale-blue camp shirt" },
+                  { "profileKey": "dean", "characterId": "char-dean", "name": "Dean", "involvement": "active", "physicalLocation": "deck", "position": "beside the door", "actionOrObservation": "watches Becky", "sightline": "toward Becky", "visibleCharacterNames": ["Becky"], "clothing": "dark jacket" }
+                ],
+                "location": "deck of a silver trailer",
+                "timeOfDay": "night",
+                "lighting": "blue TV light through warped blinds",
+                "environment": "wooded clearing",
+                "mood": "quiet",
+                "objects": ["glass"],
+                "continuityState": "stable"
+              },
+              "continuity": {},
+              "typedReferences": [],
+              "videoKeyState": {}
+            }
+            """,
+        ProviderRequestSnapshotJson: """{"contract":"still-v1"}""",
+        RequiredIntentCoverageJson: """{"entries":[]}""",
+        Status: MediaCompilerStatus.Complete,
+        ErrorCode: null,
+        ErrorMessage: null,
+        CreatedUtc: DateTime.UtcNow.AddMinutes(-1),
+        CompletedUtc: DateTime.UtcNow);
+
+    private static Character MakeBecky() => new()
+    {
+        Id = "char-becky",
+        Name = "Becky",
+        Gender = "Female",
+        PhysicalAttributes = new PhysicalAttributes
+        {
+            Age = "30",
+            HairStyle = "long waves",
+            HairColour = "auburn",
+            EyeColour = "green",
+            SkinTone = "fair",
+            BodyType = "slender"
+        }
+    };
+
+    [Fact]
+    public void BuildCanonicalMessages_InjectsDepictedCharacterAppearanceAndExcludesPov()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var dean = new Character
+        {
+            Id = "char-dean",
+            Name = "Dean",
+            Gender = "Male",
+            PhysicalAttributes = new PhysicalAttributes { HairColour = "jet black", BodyType = "broad" }
+        };
+
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeCanonicalBriefWithFrozenCharacters(), "Dean", settings, ImageContentPolicy.AdultAllowed, null,
+            new List<Character> { MakeBecky(), dean });
+
+        Assert.Contains("DEPICTED CHARACTER APPEARANCE", user, StringComparison.Ordinal);
+        Assert.Contains("Becky", user, StringComparison.Ordinal);
+        Assert.Contains("auburn", user, StringComparison.Ordinal);
+        Assert.Contains("Hair", user, StringComparison.Ordinal);
+        // The POV character (Dean) is never in frame: his appearance must not be injected.
+        Assert.DoesNotContain("jet black", user, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_OmniscientPov_IncludesAllCharacters()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var dean = new Character
+        {
+            Id = "char-dean",
+            Name = "Dean",
+            Gender = "Male",
+            PhysicalAttributes = new PhysicalAttributes { HairColour = "jet black", BodyType = "broad" }
+        };
+
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeCanonicalBriefWithFrozenCharacters(), SceneImagePovFramer.Omniscient, settings, ImageContentPolicy.AdultAllowed, null,
+            new List<Character> { MakeBecky(), dean });
+
+        Assert.Contains("DEPICTED CHARACTER APPEARANCE", user, StringComparison.Ordinal);
+        Assert.Contains("auburn", user, StringComparison.Ordinal);
+        Assert.Contains("jet black", user, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_NoCharacters_OmitsAppearanceBlock()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeCanonicalBriefWithFrozenCharacters(), "Dean", settings, ImageContentPolicy.AdultAllowed, null, null);
+
+        Assert.DoesNotContain("DEPICTED CHARACTER APPEARANCE", user, StringComparison.Ordinal);
     }
 }

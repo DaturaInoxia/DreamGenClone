@@ -80,6 +80,11 @@ public sealed class SceneImageRecord
     public string? FileRelativePath { get; set; }
 
     public string? ModelIdentifier { get; set; }
+
+    /// <summary>Registered image model id the user pinned for this render. Null = resolve the
+    /// configured default for <c>RolePlaySceneImage</c>.</summary>
+    public string? RequestedModelId { get; set; }
+
     public string? ProviderName { get; set; }
     public ImageContentPolicy ContentPolicy { get; set; } = ImageContentPolicy.Unknown;
     public string? ImageSize { get; set; }

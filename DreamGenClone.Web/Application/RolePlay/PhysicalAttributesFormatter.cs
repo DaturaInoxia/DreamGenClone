@@ -94,9 +94,12 @@ internal static class PhysicalAttributesFormatter
     ///
     /// Unlike <see cref="FormatBlock"/>, this is limited to the stable visual anchors that make a
     /// character look like the SAME person in images: age, height, weight, ethnicity, hair, eyes,
-    /// skin, body type, and distinguishing marks/piercings/tattoos. Body measurements and all
-    /// intimate/sexual fields are intentionally EXCLUDED — they don't affect a face/portrait, add
-    /// noise for image models, and can trip content-policy clamps.
+    /// skin, body type, a figure line (bust/waist/hips/rear as prose scale terms), and
+    /// distinguishing marks/piercings/tattoos. Intimate/sexual fields are intentionally EXCLUDED —
+    /// they don't affect a still's appearance and can trip content-policy clamps. Body proportions
+    /// are kept (as prose, never numeric measurements) because they ARE renderable on a full-body
+    /// scene and SDXL-family models map adjectives like "wide hips"/"plump" reliably
+    /// (scene-image-prompt-compiler standards, §2.2 rule 5: more specific = more control).
     /// </summary>
     internal static string FormatVisualBlock(PhysicalAttributes? attrs)
     {
@@ -112,6 +115,7 @@ internal static class PhysicalAttributesFormatter
         Append(sb, "Iris color", attrs.EyeColour);
         Append(sb, "Skin", CombineNotEmpty(attrs.SkinTone, attrs.SkinTexture, separator: ", "));
         Append(sb, "Body type", attrs.BodyType);
+        Append(sb, "Figure", BuildFigure(attrs));
         Append(sb, "Marks", attrs.DistinguishingMarks);
         Append(sb, "Piercings", attrs.Piercings);
         Append(sb, "Tattoos", attrs.Tattoos);
@@ -119,6 +123,26 @@ internal static class PhysicalAttributesFormatter
         if (sb.Length == 0) return string.Empty;
 
         return "Appearance — " + sb.ToString();
+    }
+
+    /// <summary>
+    /// Builds the body-proportion "Figure" descriptor (bust, waist, hips, rear) from the prose
+    /// scale fields. Returns null when none are set so the line is omitted entirely.
+    /// </summary>
+    private static string? BuildFigure(PhysicalAttributes attrs)
+    {
+        var parts = new List<string>(4);
+        AddFigurePart(parts, "bust", attrs.BustSize);
+        AddFigurePart(parts, "waist", attrs.WaistSize);
+        AddFigurePart(parts, "hips", attrs.HipSize);
+        AddFigurePart(parts, "rear", attrs.ButtSize);
+        return parts.Count == 0 ? null : string.Join(", ", parts);
+    }
+
+    private static void AddFigurePart(List<string> parts, string label, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+            parts.Add($"{label} {value.Trim()}");
     }
 
     /// <summary>

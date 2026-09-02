@@ -131,6 +131,110 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
         };
     }
 
+    /// <summary>
+    /// Builds the Qwen-Image-Edit workflow for the merged AIO checkpoint
+    /// (e.g. <c>Qwen-Rapid-AIO-NSFW-v23.safetensors</c>) which bundles model+clip+vae in one file
+    /// (B-101 MODEL DECISION). Uses <c>CheckpointLoaderSimple</c> (model/clip/vae together) instead
+    /// of the pod split (<c>UNETLoader</c>+<c>CLIPLoader</c>+<c>VAELoader</c>) — the AIO serverless
+    /// worker validates/accepts only this graph. The checkpoint name comes from the resolved
+    /// <c>DiffusionModel</c> field; sampler settings come from the resolved model, never hardcoded.
+    /// </summary>
+    internal static JsonObject BuildAioMergedCheckpointWorkflow(ResolvedImageEditorModel model, string sourceImageName, string instruction)
+    {
+        return new JsonObject
+        {
+            ["1"] = new JsonObject
+            {
+                ["class_type"] = "LoadImage",
+                ["inputs"] = new JsonObject { ["image"] = sourceImageName }
+            },
+            ["2"] = new JsonObject
+            {
+                ["class_type"] = "FluxKontextImageScale",
+                ["inputs"] = new JsonObject { ["image"] = new JsonArray("1", 0) }
+            },
+            ["3"] = new JsonObject
+            {
+                ["class_type"] = "KSampler",
+                ["inputs"] = new JsonObject
+                {
+                    ["model"] = new JsonArray("14", 0),
+                    ["positive"] = new JsonArray("12", 0),
+                    ["negative"] = new JsonArray("13", 0),
+                    ["latent_image"] = new JsonArray("8", 0),
+                    ["seed"] = Random.Shared.NextInt64(long.MaxValue),
+                    ["steps"] = model.Steps,
+                    ["cfg"] = model.Cfg,
+                    ["sampler_name"] = model.Sampler,
+                    ["scheduler"] = model.Scheduler,
+                    ["denoise"] = model.Denoise
+                }
+            },
+            ["5"] = new JsonObject
+            {
+                ["class_type"] = "ModelSamplingAuraFlow",
+                ["inputs"] = new JsonObject { ["model"] = new JsonArray("16", 0), ["shift"] = model.AuraFlowShift }
+            },
+            ["6"] = new JsonObject
+            {
+                ["class_type"] = "TextEncodeQwenImageEditPlus",
+                ["inputs"] = new JsonObject
+                {
+                    ["clip"] = new JsonArray("16", 1),
+                    ["vae"] = new JsonArray("16", 2),
+                    ["image1"] = new JsonArray("2", 0),
+                    ["prompt"] = instruction
+                }
+            },
+            ["7"] = new JsonObject
+            {
+                ["class_type"] = "TextEncodeQwenImageEditPlus",
+                ["inputs"] = new JsonObject
+                {
+                    ["clip"] = new JsonArray("16", 1),
+                    ["vae"] = new JsonArray("16", 2),
+                    ["image1"] = new JsonArray("2", 0),
+                    ["prompt"] = string.Empty
+                }
+            },
+            ["8"] = new JsonObject
+            {
+                ["class_type"] = "VAEEncode",
+                ["inputs"] = new JsonObject { ["pixels"] = new JsonArray("2", 0), ["vae"] = new JsonArray("16", 2) }
+            },
+            ["9"] = new JsonObject
+            {
+                ["class_type"] = "SaveImage",
+                ["inputs"] = new JsonObject { ["images"] = new JsonArray("15", 0), ["filename_prefix"] = "dreamgen_app/qwen-edit" }
+            },
+            ["12"] = new JsonObject
+            {
+                ["class_type"] = "FluxKontextMultiReferenceLatentMethod",
+                ["inputs"] = new JsonObject { ["conditioning"] = new JsonArray("6", 0), ["reference_latents_method"] = "index_timestep_zero" }
+            },
+            ["13"] = new JsonObject
+            {
+                ["class_type"] = "FluxKontextMultiReferenceLatentMethod",
+                ["inputs"] = new JsonObject { ["conditioning"] = new JsonArray("7", 0), ["reference_latents_method"] = "index_timestep_zero" }
+            },
+            ["14"] = new JsonObject
+            {
+                ["class_type"] = "CFGNorm",
+                ["inputs"] = new JsonObject { ["model"] = new JsonArray("5", 0), ["strength"] = model.CfgNormStrength }
+            },
+            ["15"] = new JsonObject
+            {
+                ["class_type"] = "VAEDecode",
+                ["inputs"] = new JsonObject { ["samples"] = new JsonArray("3", 0), ["vae"] = new JsonArray("16", 2) }
+            },
+            ["16"] = new JsonObject
+            {
+                ["class_type"] = "CheckpointLoaderSimple",
+                ["inputs"] = new JsonObject { ["ckpt_name"] = model.DiffusionModel }
+            }
+        };
+    }
+
     public async Task<byte[]> EditAsync(
         ResolvedImageEditorModel model,
         Stream sourceImage,

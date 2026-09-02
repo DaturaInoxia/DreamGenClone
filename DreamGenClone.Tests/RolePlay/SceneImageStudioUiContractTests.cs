@@ -40,10 +40,12 @@ public sealed class SceneImageStudioUiContractTests
     }
 
     [Fact]
-    public void IdentityAndFinish_AreDisplayedAsUnavailableWithoutProductionHandlers()
+    public void Identity_IsSurfacedAsOnePassCompositionAndFinish_RemainsUnavailable()
     {
-        Assert.Contains("<strong>Identity</strong>", Source, StringComparison.Ordinal);
-        Assert.Contains("Unavailable: approved reference projection and source-image identity editing are not implemented", Source, StringComparison.Ordinal);
+        // B-103 part A: identity is surfaced as a one-pass option inside the Composition stage (not
+        // a separate Identity stage), and the Finish stage remains unavailable.
+        Assert.Contains("Character Identity (one-pass)", Source, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"GenerateProductionCompositionWithIdentityAsync\"", Source, StringComparison.Ordinal);
         Assert.Contains("<strong>Finish</strong>", Source, StringComparison.Ordinal);
         Assert.Contains("Unavailable: finish-stage source-image editing follows the identity boundary", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("GenerateProductionIdentityAsync", Source, StringComparison.Ordinal);

@@ -376,7 +376,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 ProductionGroupId, CompiledMediaBriefId, ProductionStage, Disposition, CatalogueId,
                 BeatProductionPlanId, BeatProductionPlanVersion, MomentSetId, MomentSetVersion,
                 MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson,
-                Sha256, BytesPurgedUtc, DispositionUpdatedUtc)
+                Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId)
             VALUES (
                 $id, $sessionId, $interactionId, $promptRecordId, $promptSnapshot, $status,
                 $operation, $sourceImageId, $editSessionId, $editCompilationAttemptId, $editPromptRevisionId, $editIntentSnapshot, $editCompilerProvenanceJson,
@@ -385,7 +385,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 $productionGroupId, $compiledMediaBriefId, $productionStage, $disposition, $catalogueId,
                 $beatProductionPlanId, $beatProductionPlanVersion, $momentSetId, $momentSetVersion,
                 $momentId, $momentEnrichmentId, $momentEnrichmentRevision, $typedReferenceSnapshotJson,
-                $sha256, $bytesPurgedUtc, $dispositionUpdatedUtc);
+                $sha256, $bytesPurgedUtc, $dispositionUpdatedUtc, $requestedModelId);
             """;
         command.Parameters.AddWithValue("$id", image.Id);
         command.Parameters.AddWithValue("$sessionId", image.SessionId.Trim());
@@ -402,6 +402,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$editCompilerProvenanceJson", (object?)image.EditCompilerProvenanceJson ?? DBNull.Value);
         command.Parameters.AddWithValue("$fileRelativePath", (object?)image.FileRelativePath ?? DBNull.Value);
         command.Parameters.AddWithValue("$modelIdentifier", (object?)image.ModelIdentifier ?? DBNull.Value);
+        command.Parameters.AddWithValue("$requestedModelId", (object?)image.RequestedModelId ?? DBNull.Value);
         command.Parameters.AddWithValue("$providerName", (object?)image.ProviderName ?? DBNull.Value);
         command.Parameters.AddWithValue("$contentPolicy", image.ContentPolicy.ToString());
         command.Parameters.AddWithValue("$imageSize", (object?)image.ImageSize ?? DBNull.Value);
@@ -457,7 +458,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                      ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId, IdentityPacksJson,
                      ProductionGroupId, CompiledMediaBriefId, ProductionStage, Disposition, CatalogueId,
                      BeatProductionPlanId, BeatProductionPlanVersion, MomentSetId, MomentSetVersion,
-                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc
+                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId
             FROM SceneImages
             WHERE Id = $id;
             """;
@@ -492,7 +493,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                      ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId, IdentityPacksJson,
                      ProductionGroupId, CompiledMediaBriefId, ProductionStage, Disposition, CatalogueId,
                      BeatProductionPlanId, BeatProductionPlanVersion, MomentSetId, MomentSetVersion,
-                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc
+                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId
             FROM SceneImages
             WHERE SessionId = $sessionId AND InteractionId = $interactionId
             ORDER BY CreatedUtc DESC;
@@ -530,7 +531,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                    ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId, IdentityPacksJson,
                    ProductionGroupId, CompiledMediaBriefId, ProductionStage, Disposition, CatalogueId,
                    BeatProductionPlanId, BeatProductionPlanVersion, MomentSetId, MomentSetVersion,
-                   MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc
+                   MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId
             FROM SceneImages
             WHERE ProductionGroupId = $productionGroupId
             ORDER BY CreatedUtc DESC, Id DESC;
@@ -567,7 +568,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                      ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId, IdentityPacksJson,
                      ProductionGroupId, CompiledMediaBriefId, ProductionStage, Disposition, CatalogueId,
                      BeatProductionPlanId, BeatProductionPlanVersion, MomentSetId, MomentSetVersion,
-                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc
+                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId
             FROM SceneImages
             WHERE SessionId = $sessionId
             ORDER BY CreatedUtc DESC;
@@ -998,7 +999,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
             TypedReferenceSnapshotJson = reader.IsDBNull(43) ? null : reader.GetString(43),
             Sha256 = reader.IsDBNull(44) ? null : reader.GetString(44),
             BytesPurgedUtc = reader.IsDBNull(45) ? null : ParseUtc(reader.GetString(45), sessionId, interactionId, "BytesPurgedUtc"),
-            DispositionUpdatedUtc = reader.IsDBNull(46) ? null : ParseUtc(reader.GetString(46), sessionId, interactionId, "DispositionUpdatedUtc")
+            DispositionUpdatedUtc = reader.IsDBNull(46) ? null : ParseUtc(reader.GetString(46), sessionId, interactionId, "DispositionUpdatedUtc"),
+            RequestedModelId = reader.IsDBNull(47) ? null : reader.GetString(47)
         };
     }
 
@@ -1096,7 +1098,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 TypedReferenceSnapshotJson TEXT NULL,
                 Sha256 TEXT NULL,
                 BytesPurgedUtc TEXT NULL,
-                DispositionUpdatedUtc TEXT NULL
+                DispositionUpdatedUtc TEXT NULL,
+                RequestedModelId TEXT NULL
             );
             CREATE INDEX IF NOT EXISTS IX_SceneImages_Session
                 ON SceneImages (SessionId);
@@ -1189,7 +1192,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
             ("TypedReferenceSnapshotJson", "ALTER TABLE SceneImages ADD COLUMN TypedReferenceSnapshotJson TEXT NULL"),
             ("Sha256", "ALTER TABLE SceneImages ADD COLUMN Sha256 TEXT NULL"),
             ("BytesPurgedUtc", "ALTER TABLE SceneImages ADD COLUMN BytesPurgedUtc TEXT NULL"),
-            ("DispositionUpdatedUtc", "ALTER TABLE SceneImages ADD COLUMN DispositionUpdatedUtc TEXT NULL")
+            ("DispositionUpdatedUtc", "ALTER TABLE SceneImages ADD COLUMN DispositionUpdatedUtc TEXT NULL"),
+            ("RequestedModelId", "ALTER TABLE SceneImages ADD COLUMN RequestedModelId TEXT NULL")
         })
         {
             await using var check = connection.CreateCommand();

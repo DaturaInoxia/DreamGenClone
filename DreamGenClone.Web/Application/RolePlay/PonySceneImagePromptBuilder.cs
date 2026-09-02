@@ -588,7 +588,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
     {
         var ratingTag = ResolveRatingTag(phase, policy);
         var sb = new StringBuilder();
-        sb.AppendLine("You are an expert prompt engineer for the PONY DIFFUSION V6 XL image model (a Stable Diffusion XL finetune).");
+        sb.AppendLine("Convert story prose into a dense comma-separated tag prompt for the PONY DIFFUSION V6 XL image model (a Stable Diffusion XL finetune).");
         sb.AppendLine("Pony reads DENSE, COMMA-SEPARATED TAGS — not prose, not sentences, not attribute metadata. Short prompts work; long ones degrade output into garbage.");
         sb.AppendLine("Rules:");
         sb.AppendLine("- ALWAYS start the prompt with the full quality tag string: score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up");
@@ -619,8 +619,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
     {
         var ratingTag = ResolveRatingTag(policy);
         var sb = new StringBuilder();
-        sb.AppendLine("You are an expert prompt engineer for the PONY DIFFUSION V6 XL image model.");
-        sb.AppendLine("Project the supplied immutable canonical Still brief into one short dense comma-separated prompt. Do not invent or rediscover story facts.");
+        sb.AppendLine("Convert the supplied immutable canonical Still brief into one short dense comma-separated prompt for the PONY DIFFUSION V6 XL image model. Do not invent or rediscover story facts.");
         sb.AppendLine($"Start verbatim with: {PonyQualityTags}, {ratingTag}");
         sb.AppendLine("Then include the exact visible cast count, short visual identity/wardrobe/action tags, location, lighting, mood, one camera-view tag, and the {{style}} and {{size}} placeholders.");
         sb.AppendLine("Keep the result under 800 characters and about 40 tags. Return only the final prompt as plain text.");

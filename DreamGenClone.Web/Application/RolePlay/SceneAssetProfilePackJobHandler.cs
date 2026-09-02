@@ -70,7 +70,7 @@ public sealed class SceneAssetProfilePackJobHandler : IBackgroundJobHandler
 
     public async Task HandleAsync(BackgroundJobEnvelope job, CancellationToken cancellationToken)
     {
-        var payload = JsonSerializer.Deserialize<SceneAssetProfilePackJobPayload>(job.PayloadJson)
+        var payload = JsonSerializer.Deserialize<SceneAssetProfilePackJobPayload>(job.PayloadJson, JsonOptions)
             ?? throw new InvalidOperationException("Profile pack generation payload is missing or invalid.");
         if (string.IsNullOrWhiteSpace(payload.CharacterProfileId))
             throw new InvalidOperationException("Profile pack generation requires a character profile id.");
@@ -99,6 +99,26 @@ public sealed class SceneAssetProfilePackJobHandler : IBackgroundJobHandler
             frontBytes = await _imageClient.GenerateAsync(model, prompt, "1024x1024", null, null, cancellationToken)
                 ?? throw new InvalidOperationException("The image model returned no front portrait bytes.");
             frontModelLabel = model.ModelIdentifier;
+        }
+
+        // Remove any carried-forward face reference assets in the draft so a fresh Generate Profile
+        // Pack REPLACES (not duplicates) the previous pack's faces. Supersede copies the prior
+        // approved pack's assets forward; without this the draft would keep both the old copied
+        // faces and the new generated ones (duplicate views, stale first-per-view in the UI).
+        // Full-body / wardrobe assets carried forward are intentionally kept - only the 5 face views
+        // that this job regenerates are cleared.
+        var carriedFaces = (await _identityService.ListAssetsAsync(packId, cancellationToken))
+            .Where(a => a.AssetKind == SceneImageReferenceAssetKind.Face)
+            .ToList();
+        foreach (var carried in carriedFaces)
+        {
+            await _identityService.DeleteAssetAsync(carried.Id, cancellationToken);
+        }
+        if (carriedFaces.Count > 0)
+        {
+            _logger.LogInformation(
+                "Profile pack generation cleared {Count} carried-forward face asset(s) from draft {PackId}",
+                carriedFaces.Count, packId);
         }
 
         // 3. Upload the front as the Front face view.
@@ -190,6 +210,9 @@ public sealed class SceneAssetProfilePackJobHandler : IBackgroundJobHandler
             Name = $"{payload.CharacterName} — {view}",
             Kind = kind,
             Status = SceneAssetStatus.Pending,
+            // Explicit valid type (never rely on the DB column default — a stale 'General' default
+            // would break ParseEnum<SceneAssetType> on read). Profile-pack views are character faces.
+            Type = SceneAssetType.CharacterFace,
             Prompt = kind == SceneAssetKind.ProfilePackFront ? payload.Description : string.Empty,
             SourceAssetId = payload.FrontAssetId,
             FaceView = view,

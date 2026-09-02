@@ -41,6 +41,30 @@ public sealed class SdxlSceneImagePromptCompiler : ISceneImagePromptCompiler
         _builder.BuildDeterministicBeatNegativePrompt(beat, pov);
 }
 
+/// <summary>
+/// Plain-request compiler for API-protocol image models (OpenAI-compatible images endpoint, e.g.
+/// TogetherAI GPT-Image-2 / Seedream / Imagen). These are natural-language image generators with no
+/// checkpoint-prompt dialect, so the compiler uses the LLM natural-language prompt builder, a neutral
+/// SFW clamp, and no deterministic negative prompt.
+/// </summary>
+public sealed class ApiSceneImagePromptCompiler : ISceneImagePromptCompiler
+{
+    private readonly ISceneImageLLMPromptBuilder _builder;
+
+    public ApiSceneImagePromptCompiler(ISceneImageLLMPromptBuilder builder)
+    {
+        _builder = builder;
+    }
+
+    public SceneImageModelFamily Family => SceneImageModelFamily.Api;
+    public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.NaturalLanguage;
+    public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
+    public string SfwClampSuffix => "keep fully clothed, non-explicit";
+    public string CanonicalNegativePrompt => string.Empty;
+
+    public string BuildNegativePrompt(SceneImageBeat beat, string pov) => string.Empty;
+}
+
 public sealed class SceneImagePromptCompilerRegistry : ISceneImagePromptCompilerRegistry
 {
     private readonly IReadOnlyList<ISceneImagePromptCompiler> _compilers;

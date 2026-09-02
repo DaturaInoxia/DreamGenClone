@@ -21,6 +21,10 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
     public const int OutputPromptMaxChars = 2000;
     public const int OutputPromptTargetChars = 800;
 
+    private const int CharacterAppearanceDescriptionMaxChars = 240;
+
+    private static readonly JsonSerializerOptions FrozenStateJsonOptions = new(JsonSerializerDefaults.Web);
+
     /// <summary>Deterministic SFW clamp appended to prompts sent to SFW-filtered providers.</summary>
     public const string DefaultSfwClampSuffix = "fully clothed, wholesome, non-explicit";
 
@@ -44,6 +48,15 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         SceneImageStudioSettings settings,
         ImageContentPolicy resolvedPolicy,
         string? refineInstruction)
+        => BuildMessages(brief, pov, settings, resolvedPolicy, refineInstruction, null);
+
+    public (string SystemPrompt, string UserPrompt) BuildMessages(
+        CompiledMediaBrief brief,
+        string pov,
+        SceneImageStudioSettings settings,
+        ImageContentPolicy resolvedPolicy,
+        string? refineInstruction,
+        IReadOnlyList<Character>? characters)
     {
         CompiledMediaContractValidator.ValidateBrief(brief);
         if (brief.MediaKind != MediaProductionKind.StillImage || brief.Status != MediaCompilerStatus.Complete)
@@ -52,7 +65,7 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
             throw new InvalidOperationException("Canonical scene-image prompt generation requires the production group POV.");
 
         var systemPrompt = BuildCanonicalSystemPrompt(resolvedPolicy);
-        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction);
+        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters);
         return (systemPrompt, userPrompt);
     }
 
@@ -198,8 +211,7 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
     {
         var explicitnessProse = ResolveExplicitnessProse(phase, policy);
         var sb = new StringBuilder();
-        sb.AppendLine("You are an expert prompt engineer for SDXL-based photorealistic image models (SDXL base 1.0 and Juggernaut XL).");
-        sb.AppendLine("You convert story prose into a short, NATURAL-LANGUAGE image prompt — not comma-tag soup, not danbooru tags, not attribute metadata blocks.");
+        sb.AppendLine("Convert story prose into a short, NATURAL-LANGUAGE image prompt for an SDXL-based photorealistic model (SDXL base 1.0, Juggernaut XL, Big Lust) — not comma-tag soup, not danbooru tags, not attribute metadata blocks.");
         sb.AppendLine("Rules:");
         sb.AppendLine("- Write 2-4 short natural sentences or phrases that describe the scene like a photography brief. The result must look realistic and photographic.");
         sb.AppendLine("- Describe each character's appearance (hair, eyes, body type, age) so the same character is recognizable every time. State each person's gender explicitly (e.g. 'a middle-aged man and a middle-aged woman') so the model never merges or miscounts people.");
@@ -226,14 +238,33 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
 
     private static string BuildCanonicalSystemPrompt(ImageContentPolicy policy)
     {
+        // Canonical composition-path prompt (B-104 / B-103 part B). No identity fluff: the model's
+        // behavior comes from (a) facts about the target SDXL-family checkpoint, (b) explicit
+        // rules, and (c) a concrete example showing the target shape. Research + rationale in
+        // .github/instructions/scene-image-prompt-compiler-standards.instructions.md and the
+        // B-103 failure analysis (Becky dropped from a wide, distant, shadowed shot).
         var sb = new StringBuilder();
-        sb.AppendLine("You are an expert prompt engineer for SDXL-based photorealistic image models.");
-        sb.AppendLine("Project the supplied immutable canonical Still brief into a concise 2-4 sentence photographic brief. Do not invent or rediscover story facts.");
-        sb.AppendLine("Include the exact visible people, appearance, wardrobe, frozen action, location, lighting, mood, production POV, and photographic camera cues.");
-        sb.AppendLine("Use natural language with realistic 35mm and natural skin texture cues. Never emit Pony vocabulary, score tags, rating tags, or danbooru count tags.");
-        sb.AppendLine("Keep the result under 800 characters. Return only the final prompt as plain text.");
+        sb.AppendLine("Convert the canonical Still brief below into ONE photographic text-to-image prompt for an SDXL-family photorealistic checkpoint (SDXL 1.0 / Juggernaut XL / Big Lust).");
+        sb.AppendLine("Facts about these models that shape the prompt:");
+        sb.AppendLine("- They read natural-language photographic descriptions and map only what is visually renderable: visible people, clothing, hair, pose, location, objects, lighting, camera.");
+        sb.AppendLine("- They do not know character names, relationships, or ownership (\"Dean\", \"Becky\", \"Ken's shirt\" carry no visual meaning). Describe people by appearance only.");
+        sb.AppendLine("- They cannot render faces at a distance; a far or shadowed subject is dropped — never rely on a distant figure the model will drop. Keep every required person near, clearly lit, and in focus.");
+        sb.AppendLine("- They are trained on NSFW data; describing each person's clothing anchors the output and prevents accidental nudity.");
+        sb.AppendLine("- They merge or miscount people, and confuse which attribute belongs to whom (hair, clothing), unless gender and number are stated and each person is described as one self-contained clause.");
+        sb.AppendLine("Rules:");
+        sb.AppendLine("1. POV FRAMING: Render the scene strictly from the PRODUCTION POV character's viewpoint — show only what that character sees and NEVER include the POV character in the frame. If the POV is Omniscient, show the full scene with all characters visible.");
+        sb.AppendLine("2. NO NAMES / RELATIONS / OWNERSHIP: appearance only (build, hair style/color, skin tone, clothing type+color, visible pose).");
+        sb.AppendLine("3. RENDERABLE-ONLY: include only the frozen, visually present instant. Omit narrative distance, intent, metaphor, and off-screen facts.");
+        sb.AppendLine("4. GENDER AND COUNT, NO ATTRIBUTE BLEED: state each person's gender and number, and describe each person as ONE self-contained clause (appearance + clothing together) — never interleave attributes across people.");
+        sb.AppendLine("5. CLOTHING IS A SAFETY ANCHOR: always describe each person's clothing unless the brief explicitly implies nudity.");
+        sb.AppendLine("6. TIGHT PHOTO CAPTION: lead with framing and the main subject in the first sentence; keep the ENTIRE caption under 800 characters; use photorealistic cues (35mm, natural skin texture, shallow depth of field).");
+        sb.AppendLine("Examples — target shape only, do not reuse their content:");
+        sb.AppendLine("- General caption shape (SDXL/Juggernaut prompting guides): \"Young woman reading a book in a cozy coffee shop, brunette hair cascading over her shoulders, style candid photography, mood relaxed, lighting natural light streaming through a nearby window, perspective over-the-shoulder, texture soft wool sweater and glossy wooden table.\"");
+        sb.AppendLine("- POV-scene shape (project reference, follows the same anatomy): \"a photorealistic view from twenty feet away across the grass at night: a woman with dark hair in a loose bun stands at the wooden deck railing of a silver trailer, wearing an unbuttoned pale-blue camp shirt, bare-legged, one hand resting beside a glass on the rail, her face turned toward the dark pines. She is lit only by thin strips of blue television light leaking through warped blinds. 35mm, shallow depth of field, natural skin texture.\" — the POV character is never in frame and people are described by appearance only.");
+        sb.AppendLine("Never emit Pony vocabulary, score tags, rating tags, danbooru tokens, or count tags.");
+        sb.AppendLine("Return ONLY the final image prompt as plain text. No commentary, quotes, or markdown.");
         if (policy == ImageContentPolicy.SfwFiltered)
-            sb.AppendLine($"Keep every person fully clothed and the result non-explicit; end verbatim with: {DefaultSfwClampSuffix}");
+            sb.AppendLine($"- CONTENT POLICY: keep every person fully clothed and the result non-explicit; end verbatim with: {DefaultSfwClampSuffix}");
         return sb.ToString();
     }
 
@@ -242,19 +273,120 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         string pov,
         SceneImageStudioSettings settings,
         ImageContentPolicy policy,
-        string? refineInstruction)
+        string? refineInstruction,
+        IReadOnlyList<Character>? characters)
     {
         var sb = new StringBuilder();
         sb.AppendLine("CANONICAL STILL BRIEF (immutable; this is the complete semantic source):");
         sb.AppendLine(brief.SemanticInputSnapshotJson);
         sb.AppendLine("CANONICAL PROVIDER REQUEST SNAPSHOT (immutable):");
         sb.AppendLine(brief.ProviderRequestSnapshotJson);
+        var appearanceBlock = BuildCanonicalCharacterAppearanceBlock(brief, pov, characters);
+        if (!string.IsNullOrWhiteSpace(appearanceBlock))
+        {
+            sb.AppendLine(appearanceBlock);
+            sb.AppendLine();
+        }
         sb.AppendLine($"PRODUCTION POV: {pov}");
         sb.AppendLine($"IMAGE SETTINGS: style={settings.Style}; size={settings.ImageSize}; aspect={settings.AspectRatio}; policy={policy}");
         if (!string.IsNullOrWhiteSpace(refineInstruction))
             sb.AppendLine($"REFINE INSTRUCTION: {refineInstruction.Trim()}");
         return sb.ToString();
     }
+
+    /// <summary>
+    /// Builds the AUTHORITATIVE FIXED IDENTITY appearance block for the canonical composition path.
+    /// Maps the compiled brief's frozen-state characters (keyed by CharacterId, then Name) to their
+    /// scenario <see cref="Character.PhysicalAttributes"/> and formats each via
+    /// <see cref="PhysicalAttributesFormatter.FormatVisualBlock"/> (visual-only — no measurements or
+    /// intimate fields). The POV character is excluded for a named observer POV (rule 1: never in
+    /// frame); an Omniscient POV includes every frozen character. Characters with no appearance data
+    /// are omitted entirely. This closes the B-100 design gap where the canonical compiler was told
+    /// to "describe by appearance" but the brief carried no appearance to describe ("one woman").
+    /// </summary>
+    private static string BuildCanonicalCharacterAppearanceBlock(
+        CompiledMediaBrief brief,
+        string pov,
+        IReadOnlyList<Character>? characters)
+    {
+        if (characters is null || characters.Count == 0)
+            return string.Empty;
+
+        var frozen = ReadFrozenCharacters(brief);
+        if (frozen.Count == 0)
+            return string.Empty;
+
+        var isOmniscient = string.Equals(pov, SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase);
+        var depicted = frozen
+            .Where(character => isOmniscient
+                || (!string.Equals(character.CharacterId, pov, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(character.Name, pov, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (depicted.Count == 0)
+            return string.Empty;
+
+        var charactersById = characters
+            .Where(character => !string.IsNullOrWhiteSpace(character.Id))
+            .ToDictionary(character => character.Id!, StringComparer.OrdinalIgnoreCase);
+        var charactersByName = characters
+            .Where(character => !string.IsNullOrWhiteSpace(character.Name))
+            .GroupBy(character => character.Name!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        var sb = new StringBuilder();
+        sb.AppendLine("DEPICTED CHARACTER APPEARANCE (AUTHORITATIVE FIXED IDENTITY — describe each person by these traits, never by name or relationship):");
+        var emittedAny = false;
+        foreach (var frozenCharacter in depicted)
+        {
+            var character = ResolveCharacter(frozenCharacter, charactersById, charactersByName);
+            var appearance = character is null
+                ? string.Empty
+                : PhysicalAttributesFormatter.FormatVisualBlock(character.PhysicalAttributes);
+            if (string.IsNullOrWhiteSpace(appearance) && character is not null && !string.IsNullOrWhiteSpace(character.Description))
+                appearance = "Description — " + Truncate(character.Description, CharacterAppearanceDescriptionMaxChars);
+            if (string.IsNullOrWhiteSpace(appearance))
+                continue;
+
+            var label = string.IsNullOrWhiteSpace(frozenCharacter.Name) ? frozenCharacter.CharacterId : frozenCharacter.Name;
+            sb.AppendLine($"- {label}: {appearance}");
+            emittedAny = true;
+        }
+
+        return emittedAny ? sb.ToString() : string.Empty;
+    }
+
+    private static Character? ResolveCharacter(
+        FrozenCharacterRef frozen,
+        IReadOnlyDictionary<string, Character> charactersById,
+        IReadOnlyDictionary<string, Character> charactersByName)
+    {
+        if (!string.IsNullOrWhiteSpace(frozen.CharacterId)
+            && charactersById.TryGetValue(frozen.CharacterId, out var byId))
+            return byId;
+        if (!string.IsNullOrWhiteSpace(frozen.Name)
+            && charactersByName.TryGetValue(frozen.Name.Trim(), out var byName))
+            return byName;
+        return null;
+    }
+
+    private static IReadOnlyList<FrozenCharacterRef> ReadFrozenCharacters(CompiledMediaBrief brief)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(brief.SemanticInputSnapshotJson);
+            if (!document.RootElement.TryGetProperty("frozenState", out var frozenState)
+                || !frozenState.TryGetProperty("characters", out var characters)
+                || characters.ValueKind != JsonValueKind.Array)
+                return [];
+            return characters.Deserialize<List<FrozenCharacterRef>>(FrozenStateJsonOptions) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private sealed record FrozenCharacterRef(string? CharacterId, string? Name);
 
     private static string BuildUserPrompt(
         RolePlaySession session,

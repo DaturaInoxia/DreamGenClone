@@ -22,6 +22,7 @@
 @inject ISceneBeatProductionPipelineService BeatProductionService
 @inject ISceneMomentDiscoveryPipelineService MomentDiscoveryService
 @inject ISceneMomentEnrichmentPipelineService MomentEnrichmentService
+@inject IRolePlayStateRepository StateRepository
 @inject ICharacterImageIdentityService IdentityService
 @inject IModelResolutionService ModelResolutionService
 @inject StoryAnalysisFacade StoryAnalysis
@@ -73,70 +74,204 @@
     }
     else
     {
-        <div class="row g-3">
-            @* ── Source + context ─────────────────────────────── *@
-            <div class="col-lg-5">
-                <div class="card mb-3">
-                    <div class="card-header">
-                        <strong>Story Moment</strong>
-                        <span class="text-muted ms-2 small">@_interaction?.ActorName</span>
-                    </div>
-                    <div class="card-body">
-                        <div class="scene-image-story-moment" style="max-height: 320px; overflow: auto; white-space: pre-wrap;">@_interaction?.Content</div>
-                    </div>
-                </div>
-
-                @if (_fullTurn is not null)
-                {
-                    <div class="card mb-3">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <strong>Full Turn Context</strong>
-                            @if (_fullTurn.Turn is not null)
+        @* ── Story Arc: session turn overview + beat-pipeline activity ── *@
+        <div class="card mb-3 scene-story-arc">
+            <div class="card-header p-0">
+                <button class="studio-collapse-toggle studio-collapse-toggle-full px-3 py-2" @onclick="ToggleStoryArc" type="button">
+                    <strong>Story arc</strong>
+                    <i class="bi @(_storyArcOpen ? "bi-chevron-up" : "bi-chevron-down") ms-auto"></i>
+                </button>
+            </div>
+            @if (_storyArcOpen)
+            {
+                var selectedTurn = _selectedArcTurn;
+                <div class="card-body small">
+                    @if (_storyArcTurns.Count == 0)
+                    {
+                        <span class="text-muted">No persisted turns in this session.</span>
+                    }
+                    else if (selectedTurn is not null)
+                    {
+                        <div class="scene-story-arc-selected mb-2">
+                            <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                                <span class="fw-semibold"><i class="bi bi-pin-angle-fill me-1 text-info"></i>Selected turn</span>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="ExpandStoryArc" type="button">
+                                        <i class="bi bi-arrows-expand me-1"></i> Expand list
+                                    </button>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => NavigateToTurn(selectedTurn)" type="button">
+                                        <i class="bi bi-box-arrow-up-right me-1"></i> Open in Studio
+                                    </button>
+                                </div>
+                            </div>
+                            <button class="btn text-start scene-story-arc-row @(selectedTurn.HasPipelineActivity ? "scene-story-arc-active" : "btn-outline-secondary") @(selectedTurn.IsCurrent ? "scene-story-arc-current" : "")"
+                                    @onclick="() => NavigateToTurn(selectedTurn)">
+                                <span class="d-flex justify-content-between gap-2">
+                                    <strong>Turn @selectedTurn.TurnNumber</strong>
+                                    <span class="text-nowrap small text-muted">@selectedTurn.Phase@(string.IsNullOrWhiteSpace(selectedTurn.Intensity) ? "" : $" · {selectedTurn.Intensity}")</span>
+                                </span>
+                                <span class="d-block small mt-1 text-muted">@selectedTurn.Characters</span>
+                                @if (selectedTurn.HasPipelineActivity)
+                                {
+                                    <span class="d-block mt-1">
+                                        <span class="badge @PipelineBadgeClass(selectedTurn.PipelineStage)">@selectedTurn.PipelineStage</span>
+                                        <span class="text-muted small ms-1">@selectedTurn.PipelineStatus</span>
+                                    </span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(selectedTurn.Label))
+                                {
+                                    <span class="d-block small mt-1 text-muted text-truncate">@selectedTurn.Label</span>
+                                }
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        var activeTurns = _storyArcTurns.Where(t => t.HasPipelineActivity).ToList();
+                        @if (activeTurns.Count > 0)
+                        {
+                            <div class="mb-3">
+                                <div class="fw-semibold mb-1"><i class="bi bi-activity me-1 text-info"></i>Active (@activeTurns.Count)</div>
+                                <div class="scene-story-arc-scroll d-grid gap-2">
+                                    @foreach (var t in activeTurns)
+                                    {
+                                        <button class="btn text-start scene-story-arc-row @(t.HasPipelineActivity ? "scene-story-arc-active" : "btn-outline-secondary") @(t.IsCurrent ? "scene-story-arc-current" : "")"
+                                                @onclick="() => SelectArcTurn(t)">
+                                            <span class="d-flex justify-content-between gap-2">
+                                                <strong>Turn @t.TurnNumber</strong>
+                                                <span class="text-nowrap small text-muted">@t.Phase@(string.IsNullOrWhiteSpace(t.Intensity) ? "" : $" · {t.Intensity}")</span>
+                                            </span>
+                                            <span class="d-block small mt-1 text-muted">@t.Characters</span>
+                                            <span class="d-block mt-1">
+                                                <span class="badge @PipelineBadgeClass(t.PipelineStage)">@t.PipelineStage</span>
+                                                <span class="text-muted small ms-1">@t.PipelineStatus</span>
+                                            </span>
+                                            @if (!string.IsNullOrWhiteSpace(t.Label))
+                                            {
+                                                <span class="d-block small mt-1 text-muted text-truncate">@t.Label</span>
+                                            }
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                        <div class="scene-story-arc-all">
+                            <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                                <span class="fw-semibold">All turns (@_storyArcTurns.Count)</span>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleAllTurns" type="button" title="Collapse / expand the turn list">
+                                    <i class="bi @(_allTurnsOpen ? "bi-chevron-up" : "bi-chevron-down") me-1"></i>@(_allTurnsOpen ? "Collapse" : "Expand")
+                                </button>
+                            </div>
+                            @if (_allTurnsOpen)
                             {
-                                <span class="text-muted small">Turn #@(_fullTurn.Turn.TurnIndex + 1)</span>
+                                <div class="scene-story-arc-scroll d-grid gap-2">
+                                    @foreach (var t in _storyArcTurns)
+                                    {
+                                        <button class="btn text-start scene-story-arc-row @(t.HasPipelineActivity ? "scene-story-arc-active" : "btn-outline-secondary") @(t.IsCurrent ? "scene-story-arc-current" : "")"
+                                                @onclick="() => SelectArcTurn(t)">
+                                            <span class="d-flex justify-content-between gap-2">
+                                                <strong>Turn @t.TurnNumber</strong>
+                                                <span class="text-nowrap small text-muted">@t.Phase@(string.IsNullOrWhiteSpace(t.Intensity) ? "" : $" · {t.Intensity}")</span>
+                                            </span>
+                                            <span class="d-block small mt-1 text-muted">@t.Characters</span>
+                                            @if (t.HasPipelineActivity)
+                                            {
+                                                <span class="d-block mt-1">
+                                                    <span class="badge @PipelineBadgeClass(t.PipelineStage)">@t.PipelineStage</span>
+                                                    <span class="text-muted small ms-1">@t.PipelineStatus</span>
+                                                </span>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(t.Label))
+                                            {
+                                                <span class="d-block small mt-1 text-muted text-truncate">@t.Label</span>
+                                            }
+                                        </button>
+                                    }
+                                </div>
                             }
                         </div>
-                        <div class="card-body py-2">
-                            <div class="text-muted small mb-2">
-                                @if (_fullTurn.Turn is not null)
-                                {
-                                    <span>Source: RolePlayV2Turns · @_fullTurn.Turn.TurnKind · @_fullTurn.Turn.TriggerSource</span>
-                                }
-                                else
-                                {
-                                    <span>Source: legacy context window</span>
-                                }
-                            </div>
-                            <div class="list-group list-group-flush scene-image-turn-context">
-                                @foreach (var turnInteraction in _fullTurn.Interactions)
-                                {
-                                    var isSelectedInteraction = string.Equals(turnInteraction.Id, interactionId, StringComparison.OrdinalIgnoreCase);
-                                    <div class="list-group-item px-0 @(isSelectedInteraction ? "scene-image-turn-selected" : "")">
-                                        <div class="d-flex justify-content-between gap-2 small">
-                                            <strong>@turnInteraction.ActorName</strong>
-                                            <span class="text-muted text-nowrap">@turnInteraction.InteractionType · @turnInteraction.CreatedAt.ToLocalTime().ToString("g")</span>
-                                        </div>
-                                        @if (isSelectedInteraction)
-                                        {
-                                            <div class="small text-info">Selected for this image</div>
-                                        }
-                                        <div class="small mt-1" style="white-space: pre-wrap;">@turnInteraction.Content</div>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    </div>
-                }
+                    }
+                </div>
+            }
+        </div>
 
-                <div class="card mb-3 scene-beat-catalogue">
+        @* ── Row 1: Story Moment (tabs; collapsible, collapsed by default) ── *@
+        <div class="card mb-3 scene-story-moment-panel">
+            <div class="card-header p-0">
+                <button class="studio-collapse-toggle studio-collapse-toggle-full px-3 py-2" @onclick="ToggleStoryMoment" type="button">
+                    <strong>Story Moment</strong>
+                    <i class="bi @(_storyMomentOpen ? "bi-chevron-up" : "bi-chevron-down") ms-auto"></i>
+                </button>
+            </div>
+            @if (_storyMomentOpen)
+            {
+                <div class="card-body">
+                    <ul class="nav nav-tabs small" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link @(_storyTab == StoryPanelTab.StoryMoment ? "active" : "")" type="button" @onclick="() => _storyTab = StoryPanelTab.StoryMoment">Story Moment</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(_storyTab == StoryPanelTab.FullTurnContext ? "active" : "")" type="button" @onclick="() => _storyTab = StoryPanelTab.FullTurnContext">Full Turn Context</button>
+                        </li>
+                    </ul>
+                    <div class="tab-content mt-2">
+                        @if (_storyTab == StoryPanelTab.StoryMoment)
+                        {
+                            <div class="scene-image-story-moment" style="max-height: 320px; overflow: auto; white-space: pre-wrap;">@_interaction?.Content</div>
+                        }
+                        else if (_storyTab == StoryPanelTab.FullTurnContext)
+                        {
+                            @if (_fullTurn is not null)
+                            {
+                                <div class="text-muted small mb-2">
+                                    @if (_fullTurn.Turn is not null)
+                                    {
+                                        <span>Turn #@(_fullTurn.Turn.TurnIndex + 1) · Source: RolePlayV2Turns · @_fullTurn.Turn.TurnKind · @_fullTurn.Turn.TriggerSource</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Source: legacy context window</span>
+                                    }
+                                </div>
+                                <div class="list-group list-group-flush scene-image-turn-context">
+                                    @foreach (var turnInteraction in _fullTurn.Interactions)
+                                    {
+                                        var isSelectedInteraction = string.Equals(turnInteraction.Id, interactionId, StringComparison.OrdinalIgnoreCase);
+                                        <div class="list-group-item px-0 @(isSelectedInteraction ? "scene-image-turn-selected" : "")">
+                                            <div class="d-flex justify-content-between gap-2 small">
+                                                <strong>@turnInteraction.ActorName</strong>
+                                                <span class="text-muted text-nowrap">@turnInteraction.InteractionType · @turnInteraction.CreatedAt.ToLocalTime().ToString("g")</span>
+                                            </div>
+                                            @if (isSelectedInteraction)
+                                            {
+                                                <div class="small text-info">Selected for this image</div>
+                                            }
+                                            <div class="small mt-1" style="white-space: pre-wrap;">@turnInteraction.Content</div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <span class="text-muted small">No full-turn context is available for this interaction.</span>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        @* ── Row 2: Beat Catalogue ── *@
+        <div class="card mb-3 scene-beat-catalogue">
                     <div class="card-header d-flex justify-content-between align-items-center gap-2">
-                        <div>
+                        <button class="studio-collapse-toggle" @onclick="ToggleBeatCatalogue" type="button">
+                            <i class="bi @(_beatCatalogueOpen ? "bi-chevron-up" : "bi-chevron-down") me-1"></i>
                             <strong>Beat Catalogue</strong>
                             @if (_catalogue is not null)
                             {
                                 <span class="badge text-bg-secondary ms-2">v@_catalogue.Version</span>
                             }
-                        </div>
+                        </button>
                         @if (_catalogue is null)
                         {
                             <button class="btn btn-sm btn-primary" disabled="@(_busy || _fullTurn?.Turn is null)" @onclick="GenerateCatalogueAsync">
@@ -156,6 +291,8 @@
                             </button>
                         }
                     </div>
+                    @if (_beatCatalogueOpen)
+                    {
                     <div class="card-body small">
                         @if (_fullTurn?.Turn is null)
                         {
@@ -191,278 +328,38 @@
                         }
                         else if (_catalogue.Status == SceneBeatCatalogueStatus.Complete)
                         {
-                            <div class="d-grid gap-2 scene-beat-catalogue-list">
-                                @foreach (var beat in _catalogue.Entries.OrderBy(entry => entry.Order))
-                                {
-                                    <button class="btn text-start @(_selectedCatalogueBeatId == beat.BeatId ? "btn-primary" : "btn-outline-secondary")"
-                                            @onclick="() => SelectCatalogueBeatAsync(beat.BeatId)">
-                                        <span class="d-flex justify-content-between gap-2">
-                                            <strong>@beat.Order. @beat.Label</strong>
-                                            <span class="text-nowrap small">@beat.PrimaryLocation</span>
-                                        </span>
-                                        <span class="d-block small mt-1">@beat.BeatSynopsis</span>
-                                    </button>
-                                }
-                            </div>
-                            @if (_selectedCatalogueBeat is not null)
+                            var selectedBeat = _selectedCatalogueBeat;
+                            @if (selectedBeat is not null && _cataloguePinned)
                             {
-                                <div class="scene-beat-production mt-3 pt-3 border-top">
-                                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-                                        <div>
-                                            <strong>Beat Production</strong>
-                                            <span class="d-block text-muted">@_selectedCatalogueBeat.Label</span>
-                                        </div>
-                                        @if (_productionPlan is not null)
-                                        {
-                                            <span class="badge @ProductionStatusBadgeClass(_productionPlan.Status)">v@_productionPlan.Version · @_productionPlan.Status</span>
-                                        }
+                                <div class="scene-beat-catalogue-selected mb-2">
+                                    <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                                        <span class="fw-semibold"><i class="bi bi-pin-angle-fill me-1 text-info"></i>Selected beat</span>
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="ExpandCatalogue" type="button">
+                                            <i class="bi bi-arrows-expand me-1"></i> Expand list
+                                        </button>
                                     </div>
-                                    @if (_replaceProductionRequested)
+                                    <div class="scene-beat-catalogue-pinned-card">
+                                        <span class="d-flex justify-content-between gap-2">
+                                            <strong>@selectedBeat.Order. @selectedBeat.Label</strong>
+                                            <span class="text-nowrap small">@selectedBeat.PrimaryLocation</span>
+                                        </span>
+                                        <span class="d-block small mt-1">@selectedBeat.BeatSynopsis</span>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="d-grid gap-2 scene-beat-catalogue-list">
+                                    @foreach (var beat in _catalogue.Entries.OrderBy(entry => entry.Order))
                                     {
-                                        <div class="alert alert-warning py-2 mb-0">
-                                            Create a new production version for this Beat?
-                                            <div class="mt-2 d-flex gap-2">
-                                                <button class="btn btn-sm btn-warning" disabled="@_busy" @onclick="GenerateProductionPlanAsync">Create Version</button>
-                                                <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceProductionRequested = false">Cancel</button>
-                                            </div>
-                                        </div>
-                                    }
-                                    else if (_productionPlan is null)
-                                    {
-                                        <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="GenerateProductionPlanAsync">
-                                            <i class="bi bi-diagram-3 me-1"></i> Produce Beat
+                                        <button class="btn text-start @(_selectedCatalogueBeatId == beat.BeatId ? "btn-primary" : "btn-outline-secondary")"
+                                                @onclick="() => SelectCatalogueBeatAsync(beat.BeatId)">
+                                            <span class="d-flex justify-content-between gap-2">
+                                                <strong>@beat.Order. @beat.Label</strong>
+                                                <span class="text-nowrap small">@beat.PrimaryLocation</span>
+                                            </span>
+                                            <span class="d-block small mt-1">@beat.BeatSynopsis</span>
                                         </button>
-                                    }
-                                    else if (_productionPlan.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing)
-                                    {
-                                        <div class="d-flex justify-content-between align-items-center gap-2">
-                                            <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Building production plan...</span>
-                                            <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="CancelProductionPlanAsync">
-                                                <i class="bi bi-x-circle me-1"></i> Cancel
-                                            </button>
-                                        </div>
-                                    }
-                                    else if (_productionPlan.Status == SceneBeatCatalogueStatus.Failed)
-                                    {
-                                        <div class="alert alert-danger py-2 mb-2">
-                                            <strong>@(_productionPlan.ErrorCode ?? "Production planning failed")</strong>
-                                            @if (!string.IsNullOrWhiteSpace(_productionPlan.ErrorMessage))
-                                            {
-                                                <span class="d-block mt-1">@_productionPlan.ErrorMessage</span>
-                                            }
-                                        </div>
-                                        <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceProductionRequested = true">
-                                            <i class="bi bi-arrow-repeat me-1"></i> Retry
-                                        </button>
-                                    }
-                                    else if (_productionPlan.Status == SceneBeatCatalogueStatus.Complete)
-                                    {
-                                        var reviewCount = ProductionReviewIssueCount(_productionPlan);
-                                        <div class="scene-beat-production-metrics mb-2">
-                                            <span><strong>@_productionPlan.DialogueCues.Count</strong> dialogue</span>
-                                            <span><strong>@_productionPlan.SoundCues.Count</strong> sound</span>
-                                            <span><strong>@_productionPlan.VideoCoveragePlans.Count</strong> video</span>
-                                            <span class="@(reviewCount == 0 ? "text-success" : "text-warning")"><strong>@reviewCount</strong> review</span>
-                                        </div>
-                                        @if (reviewCount > 0)
-                                        {
-                                            <div class="alert alert-warning py-2 mb-2">
-                                                <strong>Review required</strong>
-                                                @foreach (var issue in ProductionReviewIssues(_productionPlan))
-                                                {
-                                                    <span class="d-block mt-1">@issue</span>
-                                                }
-                                            </div>
-                                        }
-                                        <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceProductionRequested = true">
-                                            <i class="bi bi-arrow-repeat me-1"></i> Produce Again
-                                        </button>
-                                        <div class="scene-moment-discovery mt-3 pt-3 border-top">
-                                            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-                                                <div>
-                                                    <strong>Production Moments</strong>
-                                                    <span class="d-block text-muted">Choose a frozen state for still, video, and sound production.</span>
-                                                </div>
-                                                @if (_momentSet is not null)
-                                                {
-                                                    <span class="badge @ProductionStatusBadgeClass(_momentSet.Status)">v@_momentSet.Version · @_momentSet.Status</span>
-                                                }
-                                            </div>
-                                            @if (_replaceMomentsRequested)
-                                            {
-                                                <div class="alert alert-warning py-2 mb-0">
-                                                    Create a new Moment Set version for this production plan?
-                                                    <div class="mt-2 d-flex gap-2">
-                                                        <button class="btn btn-sm btn-warning" disabled="@_busy" @onclick="GenerateMomentsAsync">Create Version</button>
-                                                        <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceMomentsRequested = false">Cancel</button>
-                                                    </div>
-                                                </div>
-                                            }
-                                            else if (_momentSet is null)
-                                            {
-                                                <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="GenerateMomentsAsync">
-                                                    <i class="bi bi-camera-reels me-1"></i> Discover Moments
-                                                </button>
-                                            }
-                                            else if (_momentSet.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing)
-                                            {
-                                                <div class="d-flex justify-content-between align-items-center gap-2">
-                                                    <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Discovering production moments...</span>
-                                                    <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="CancelMomentsAsync">
-                                                        <i class="bi bi-x-circle me-1"></i> Cancel
-                                                    </button>
-                                                </div>
-                                            }
-                                            else if (_momentSet.Status == SceneBeatCatalogueStatus.Failed)
-                                            {
-                                                <div class="alert alert-danger py-2 mb-2">
-                                                    <strong>@(_momentSet.ErrorCode ?? "Moment discovery failed")</strong>
-                                                    @if (!string.IsNullOrWhiteSpace(_momentSet.ErrorMessage))
-                                                    {
-                                                        <span class="d-block mt-1">@_momentSet.ErrorMessage</span>
-                                                    }
-                                                </div>
-                                                <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceMomentsRequested = true">
-                                                    <i class="bi bi-arrow-repeat me-1"></i> Retry
-                                                </button>
-                                            }
-                                            else if (_momentSet.Status == SceneBeatCatalogueStatus.Complete)
-                                            {
-                                                <button class="btn btn-sm btn-outline-success mb-2" disabled="@_busy" @onclick="SelectRecommendedMomentAsync">
-                                                    <i class="bi bi-star-fill me-1"></i> Use Recommended Moment
-                                                </button>
-                                                <div class="scene-moment-list d-grid gap-2">
-                                                    @foreach (var moment in _momentSet.Moments.OrderBy(moment => moment.Order))
-                                                    {
-                                                        var isRecommended = moment.MomentId == _momentSet.RecommendedMomentId;
-                                                        <button class="scene-moment-choice text-start @(_selectedMomentId == moment.MomentId ? "is-selected" : "")"
-                                                            @onclick="() => SelectMomentAsync(moment)">
-                                                            <span class="d-flex justify-content-between align-items-start gap-2">
-                                                                <strong>@moment.Order. @moment.Label</strong>
-                                                                @if (isRecommended)
-                                                                {
-                                                                    <span class="badge text-bg-success"><i class="bi bi-star-fill me-1"></i>Recommended</span>
-                                                                }
-                                                            </span>
-                                                            <span class="d-block mt-1">@moment.FrozenState</span>
-                                                            <span class="d-block text-muted mt-1">@moment.TemporalAnchor</span>
-                                                            <span class="scene-moment-roles d-flex flex-wrap gap-1 mt-2">
-                                                                @foreach (var role in MomentRoles(moment))
-                                                                {
-                                                                    <span class="badge text-bg-secondary">@role</span>
-                                                                }
-                                                            </span>
-                                                        </button>
-                                                    }
-                                                </div>
-                                                <button class="btn btn-sm btn-outline-secondary mt-2" disabled="@_busy" @onclick="() => _replaceMomentsRequested = true">
-                                                    <i class="bi bi-arrow-repeat me-1"></i> Discover Again
-                                                </button>
-                                                @if (_selectedMoment is not null)
-                                                {
-                                                    <div class="scene-moment-enrichment mt-3 pt-3 border-top">
-                                                        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-                                                            <div>
-                                                                <strong>Moment Enrichment</strong>
-                                                                <span class="d-block text-muted">@_selectedMoment.Label</span>
-                                                            </div>
-                                                            @if (_momentEnrichment is not null)
-                                                            {
-                                                                <span class="badge @ProductionStatusBadgeClass(_momentEnrichment.Status)">r@_momentEnrichment.Revision · @_momentEnrichment.Status</span>
-                                                            }
-                                                        </div>
-                                                        @if (_replaceEnrichmentRequested)
-                                                        {
-                                                            <div class="alert alert-warning py-2 mb-0">
-                                                                Create a new enrichment revision for this Moment?
-                                                                <div class="mt-2 d-flex gap-2">
-                                                                    <button class="btn btn-sm btn-warning" disabled="@_busy" @onclick="ReplaceMomentEnrichmentAsync">Create Revision</button>
-                                                                    <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceEnrichmentRequested = false">Cancel</button>
-                                                                </div>
-                                                            </div>
-                                                        }
-                                                        else if (_momentEnrichment is null)
-                                                        {
-                                                            <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="() => SelectMomentAsync(_selectedMoment)">
-                                                                <i class="bi bi-bounding-box me-1"></i> Enrich Moment
-                                                            </button>
-                                                        }
-                                                        else if (_momentEnrichment.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing)
-                                                        {
-                                                            <div class="d-flex justify-content-between align-items-center gap-2">
-                                                                <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Resolving frozen production state...</span>
-                                                                <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="CancelMomentEnrichmentAsync">
-                                                                    <i class="bi bi-x-circle me-1"></i> Cancel
-                                                                </button>
-                                                            </div>
-                                                        }
-                                                        else if (_momentEnrichment.Status == SceneBeatCatalogueStatus.Failed)
-                                                        {
-                                                            <div class="alert alert-danger py-2 mb-2">
-                                                                <strong>@(_momentEnrichment.ErrorCode ?? "Moment enrichment failed")</strong>
-                                                                @if (!string.IsNullOrWhiteSpace(_momentEnrichment.ErrorMessage))
-                                                                {
-                                                                    <span class="d-block mt-1">@_momentEnrichment.ErrorMessage</span>
-                                                                }
-                                                            </div>
-                                                            <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceEnrichmentRequested = true">
-                                                                <i class="bi bi-arrow-repeat me-1"></i> Retry
-                                                            </button>
-                                                        }
-                                                        else if (_momentEnrichment.Status == SceneBeatCatalogueStatus.Complete)
-                                                        {
-                                                            var frozen = JsonSerializer.Deserialize<SceneMomentFrozenStateContract>(_momentEnrichment.FrozenStateContractJson, JsonOptions)
-                                                                ?? throw new InvalidOperationException("Completed Moment enrichment has no frozen-state contract.");
-                                                            var sounds = JsonSerializer.Deserialize<IReadOnlyList<SceneMomentInstantaneousSoundEvent>>(_momentEnrichment.InstantaneousSoundEventsJson, JsonOptions)
-                                                                ?? throw new InvalidOperationException("Completed Moment enrichment has no sound-event contract.");
-                                                            var video = JsonSerializer.Deserialize<SceneMomentVideoKeyState>(_momentEnrichment.VideoKeyStateJson, JsonOptions)
-                                                                ?? throw new InvalidOperationException("Completed Moment enrichment has no video key-state contract.");
-                                                            <div class="scene-moment-enrichment-summary">
-                                                                <strong class="d-block">@frozen.VisualDescription</strong>
-                                                                <span class="d-block text-muted mt-1">@frozen.Location · @frozen.TimeOfDay · @frozen.Lighting</span>
-                                                                <span class="d-block mt-1">@frozen.Environment</span>
-                                                                <span class="d-block text-muted">Mood: @frozen.Mood · Continuity: @frozen.ContinuityState</span>
-                                                                @foreach (var character in frozen.Characters)
-                                                                {
-                                                                    <div class="scene-moment-character mt-2">
-                                                                        <strong>@character.Name</strong>
-                                                                        <span class="d-block">@character.Position · @character.ActionOrObservation</span>
-                                                                        <span class="d-block text-muted">Looking @character.Sightline · @character.Clothing</span>
-                                                                    </div>
-                                                                }
-                                                                <div class="d-flex flex-wrap gap-1 mt-2">
-                                                                    @foreach (var sound in sounds)
-                                                                    {
-                                                                        <span class="badge text-bg-secondary"><i class="bi bi-volume-up me-1"></i>@sound.CueKey</span>
-                                                                    }
-                                                                    @foreach (var role in video.Roles)
-                                                                    {
-                                                                        <span class="badge text-bg-info"><i class="bi bi-camera-video me-1"></i>@role</span>
-                                                                    }
-                                                                </div>
-                                                            </div>
-                                                            <button class="btn btn-sm btn-outline-secondary mt-2" disabled="@_busy" @onclick="() => _replaceEnrichmentRequested = true">
-                                                                <i class="bi bi-arrow-repeat me-1"></i> Enrich Again
-                                                            </button>
-                                                        }
-                                                        @if (!IsSelectedMomentEnriched)
-                                                        {
-                                                            <div class="alert alert-secondary py-2 mt-2 mb-0">
-                                                                Media actions unlock when this Moment enrichment completes.
-                                                            </div>
-                                                        }
-                                                    </div>
-                                                }
-                                            }
-                                            else
-                                            {
-                                                <span class="text-muted">Moment discovery status: @_momentSet.Status</span>
-                                            }
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <span class="text-muted">Production status: @_productionPlan.Status</span>
                                     }
                                 </div>
                             }
@@ -472,91 +369,347 @@
                             <span class="text-muted">Catalogue status: @_catalogue.Status</span>
                         }
                     </div>
+                    }
                 </div>
 
-                <div class="card mb-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <strong>Historical Image Plan <span class="text-muted small">schema v3, read-only</span></strong>
-                    </div>
-                    <div class="card-body small">
-                        <div class="alert alert-secondary py-2 mb-2">
-                            Historical schema-v3 data remains visible for existing images. New production prompts use the canonical compiled Still brief.
-                        </div>
-                        @if (_fullTurn?.Turn is null)
-                        {
-                            <span class="text-muted">This legacy interaction has no persisted turn, so it cannot be analyzed into image beats.</span>
-                        }
-                        else if (_beatAnalysis is null)
-                        {
-                            <span class="text-muted">No historical schema-v3 plan is stored for this turn.</span>
-                        }
-                        else if (_beatAnalysis.Status == SceneImageBeatAnalysisStatus.Pending)
-                        {
-                            <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Analyzing the full turn into image beats...</span>
-                        }
-                        else if (_beatAnalysis.Status == SceneImageBeatAnalysisStatus.Failed)
-                        {
-                            <div class="alert alert-danger py-2 mb-0">Beat analysis failed: @_beatAnalysis.ErrorMessage</div>
-                        }
-                        else if (_requiresBeatRegeneration)
-                        {
-                            <div class="alert alert-warning py-2 mb-0">This historical plan uses an older schema and remains available for inspection only.</div>
-                        }
-                        else
-                        {
-                            <div class="d-grid gap-2 scene-image-beat-list">
-                                @foreach (var beat in _analysis?.Beats ?? [])
+                    @* ── Row 3: Beat Production ── *@
+                    @if (_catalogue?.Status == SceneBeatCatalogueStatus.Complete && _selectedCatalogueBeat is not null)
+                    {
+                        <div class="card mb-3 scene-beat-production-panel">
+                            <div class="card-header d-flex justify-content-between align-items-start gap-2">
+                                <button class="studio-collapse-toggle" @onclick="ToggleBeatProduction" type="button">
+                                    <i class="bi @(_beatProductionOpen ? "bi-chevron-up" : "bi-chevron-down") me-1"></i>
+                                    <span>
+                                        <strong>Beat Production</strong>
+                                        <span class="d-block text-muted">@_selectedCatalogueBeat.Label</span>
+                                    </span>
+                                </button>
+                                @if (_productionPlan is not null)
                                 {
-                                    <button class="btn text-start @(_selectedBeatId == beat.BeatId ? "btn-primary" : "btn-outline-secondary")" @onclick="() => SelectBeatAsync(beat.BeatId)">
-                                        <strong>@beat.Order. @beat.Label</strong>
-                                        <span class="d-block small">@beat.VisualDescription</span>
-                                        <span class="d-block small">@beat.Location · @beat.TimeOfDay</span>
-                                        <span class="d-block small">@beat.Lighting · @beat.Mood</span>
-                                        @foreach (var character in beat.Characters)
-                                        {
-                                            <span class="d-block small mt-1">
-                                                <strong>@character.Name</strong> · @character.Involvement · @character.Position<br />
-                                                @character.ActionOrObservation · looking @character.Sightline<br />
-                                                Clothing: @character.Clothing · Visible: @(character.VisibleCharacterNames.Count == 0 ? "none" : string.Join(", ", character.VisibleCharacterNames))
-                                            </span>
-                                        }
-                                    </button>
+                                    <span class="badge @ProductionStatusBadgeClass(_productionPlan.Status)">v@_productionPlan.Version · @_productionPlan.Status</span>
                                 }
                             </div>
-                        }
-                    </div>
-                </div>
+                            @if (_beatProductionOpen)
+                            {
+                            <div class="card-body small">
+                                @if (_replaceProductionRequested)
+                                {
+                                    <div class="alert alert-warning py-2 mb-0">
+                                        Create a new production version for this Beat?
+                                        <div class="mt-2 d-flex gap-2">
+                                            <button class="btn btn-sm btn-warning" disabled="@_busy" @onclick="GenerateProductionPlanAsync">Create Version</button>
+                                            <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceProductionRequested = false">Cancel</button>
+                                        </div>
+                                    </div>
+                                }
+                                else if (_productionPlan is null)
+                                {
+                                    <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="GenerateProductionPlanAsync">
+                                        <i class="bi bi-diagram-3 me-1"></i> Produce Beat
+                                    </button>
+                                }
+                                else if (_productionPlan.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing)
+                                {
+                                    <div class="d-flex justify-content-between align-items-center gap-2">
+                                        <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Building production plan...</span>
+                                        <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="CancelProductionPlanAsync">
+                                            <i class="bi bi-x-circle me-1"></i> Cancel
+                                        </button>
+                                    </div>
+                                }
+                                else if (_productionPlan.Status == SceneBeatCatalogueStatus.Failed)
+                                {
+                                    <div class="alert alert-danger py-2 mb-2">
+                                        <strong>@(_productionPlan.ErrorCode ?? "Production planning failed")</strong>
+                                        @if (!string.IsNullOrWhiteSpace(_productionPlan.ErrorMessage))
+                                        {
+                                            <span class="d-block mt-1">@_productionPlan.ErrorMessage</span>
+                                        }
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceProductionRequested = true">
+                                        <i class="bi bi-arrow-repeat me-1"></i> Retry
+                                    </button>
+                                }
+                                else if (_productionPlan.Status == SceneBeatCatalogueStatus.Complete)
+                                {
+                                    var reviewCount = ProductionReviewIssueCount(_productionPlan);
+                                    <div class="scene-beat-production-metrics mb-2">
+                                        <span><strong>@_productionPlan.DialogueCues.Count</strong> dialogue</span>
+                                        <span><strong>@_productionPlan.SoundCues.Count</strong> sound</span>
+                                        <span><strong>@_productionPlan.VideoCoveragePlans.Count</strong> video</span>
+                                        <span class="@(reviewCount == 0 ? "text-success" : "text-warning")"><strong>@reviewCount</strong> review</span>
+                                    </div>
+                                    @if (reviewCount > 0)
+                                    {
+                                        <div class="alert alert-warning py-2 mb-2">
+                                            <strong>Review required</strong>
+                                            @foreach (var issue in ProductionReviewIssues(_productionPlan))
+                                            {
+                                                <span class="d-block mt-1">@issue</span>
+                                            }
+                                        </div>
+                                    }
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceProductionRequested = true">
+                                        <i class="bi bi-arrow-repeat me-1"></i> Produce Again
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Production status: @_productionPlan.Status</span>
+                                }
+                            </div>
+                            }
+                        </div>
+                    }
 
-                <div class="card mb-3">
-                    <div class="card-header"><strong>Scene Context</strong></div>
-                    <ul class="list-group list-group-flush small">
-                        <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Phase</span><span>@_session.AdaptiveState.CurrentPhase</span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Intensity</span><span>@(_resolvedIntensityLabel ?? "unknown")</span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Setting</span><span>@(_session.AdaptiveState.CurrentSceneLocation ?? "unknown")</span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Time of day</span><span>@_session.AdaptiveState.CurrentTimeOfDay</span>
-                        </li>
-                    </ul>
-                </div>
-            </div>
+                    @* ── Row 4: Production Moments ── *@
+                    @if (_productionPlan?.Status == SceneBeatCatalogueStatus.Complete)
+                    {
+                        <div class="card mb-3 scene-production-moments-panel">
+                            <div class="card-header d-flex justify-content-between align-items-start gap-2">
+                                <button class="studio-collapse-toggle" @onclick="ToggleProductionMoments" type="button">
+                                    <i class="bi @(_productionMomentsOpen ? "bi-chevron-up" : "bi-chevron-down") me-1"></i>
+                                    <span>
+                                        <strong>Production Moments</strong>
+                                        <span class="d-block text-muted">Choose a frozen state for still, video, and sound production.</span>
+                                    </span>
+                                </button>
+                                @if (_momentSet is not null)
+                                {
+                                    <span class="badge @ProductionStatusBadgeClass(_momentSet.Status)">v@_momentSet.Version · @_momentSet.Status</span>
+                                }
+                            </div>
+                            @if (_productionMomentsOpen)
+                            {
+                            <div class="card-body small">
+                                @if (_replaceMomentsRequested)
+                                {
+                                    <div class="alert alert-warning py-2 mb-0">
+                                        Create a new Moment Set version for this production plan?
+                                        <div class="mt-2 d-flex gap-2">
+                                            <button class="btn btn-sm btn-warning" disabled="@_busy" @onclick="GenerateMomentsAsync">Create Version</button>
+                                            <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceMomentsRequested = false">Cancel</button>
+                                        </div>
+                                    </div>
+                                }
+                                else if (_momentSet is null)
+                                {
+                                    <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="GenerateMomentsAsync">
+                                        <i class="bi bi-camera-reels me-1"></i> Discover Moments
+                                    </button>
+                                }
+                                else if (_momentSet.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing)
+                                {
+                                    <div class="d-flex justify-content-between align-items-center gap-2">
+                                        <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Discovering production moments...</span>
+                                        <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="CancelMomentsAsync">
+                                            <i class="bi bi-x-circle me-1"></i> Cancel
+                                        </button>
+                                    </div>
+                                }
+                                else if (_momentSet.Status == SceneBeatCatalogueStatus.Failed)
+                                {
+                                    <div class="alert alert-danger py-2 mb-2">
+                                        <strong>@(_momentSet.ErrorCode ?? "Moment discovery failed")</strong>
+                                        @if (!string.IsNullOrWhiteSpace(_momentSet.ErrorMessage))
+                                        {
+                                            <span class="d-block mt-1">@_momentSet.ErrorMessage</span>
+                                        }
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceMomentsRequested = true">
+                                        <i class="bi bi-arrow-repeat me-1"></i> Retry
+                                    </button>
+                                }
+                                else if (_momentSet.Status == SceneBeatCatalogueStatus.Complete)
+                                {
+                                    var selectedMoment = _selectedMoment;
+                                    @if (selectedMoment is not null && _momentsPinned)
+                                    {
+                                        var isRecommended = selectedMoment.MomentId == _momentSet.RecommendedMomentId;
+                                        <div class="scene-moment-selected mb-2">
+                                            <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                                                <span class="fw-semibold"><i class="bi bi-pin-angle-fill me-1 text-info"></i>Selected moment</span>
+                                                <button class="btn btn-sm btn-outline-secondary" @onclick="ExpandMoments" type="button">
+                                                    <i class="bi bi-arrows-expand me-1"></i> Expand list
+                                                </button>
+                                            </div>
+                                            <div class="scene-moment-choice is-selected">
+                                                <span class="d-flex justify-content-between align-items-start gap-2">
+                                                    <strong>@selectedMoment.Order. @selectedMoment.Label</strong>
+                                                    @if (isRecommended)
+                                                    {
+                                                        <span class="badge text-bg-success"><i class="bi bi-star-fill me-1"></i>Recommended</span>
+                                                    }
+                                                </span>
+                                                <span class="d-block mt-1">@selectedMoment.FrozenState</span>
+                                                <span class="d-block text-muted mt-1">@selectedMoment.TemporalAnchor</span>
+                                                <span class="scene-moment-roles d-flex flex-wrap gap-1 mt-2">
+                                                    @foreach (var role in MomentRoles(selectedMoment))
+                                                    {
+                                                        <span class="badge text-bg-secondary">@role</span>
+                                                    }
+                                                </span>
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-success mb-2" disabled="@_busy" @onclick="SelectRecommendedMomentAsync">
+                                            <i class="bi bi-star-fill me-1"></i> Use Recommended Moment
+                                        </button>
+                                        <div class="scene-moment-list d-grid gap-2">
+                                            @foreach (var moment in _momentSet.Moments.OrderBy(moment => moment.Order))
+                                            {
+                                                var isRecommended = moment.MomentId == _momentSet.RecommendedMomentId;
+                                                <button class="scene-moment-choice text-start @(_selectedMomentId == moment.MomentId ? "is-selected" : "")"
+                                                    @onclick="() => SelectMomentAsync(moment)">
+                                                    <span class="d-flex justify-content-between align-items-start gap-2">
+                                                        <strong>@moment.Order. @moment.Label</strong>
+                                                        @if (isRecommended)
+                                                        {
+                                                            <span class="badge text-bg-success"><i class="bi bi-star-fill me-1"></i>Recommended</span>
+                                                        }
+                                                    </span>
+                                                    <span class="d-block mt-1">@moment.FrozenState</span>
+                                                    <span class="d-block text-muted mt-1">@moment.TemporalAnchor</span>
+                                                    <span class="scene-moment-roles d-flex flex-wrap gap-1 mt-2">
+                                                        @foreach (var role in MomentRoles(moment))
+                                                        {
+                                                            <span class="badge text-bg-secondary">@role</span>
+                                                        }
+                                                    </span>
+                                                </button>
+                                            }
+                                        </div>
+                                        <button class="btn btn-sm btn-outline-secondary mt-2" disabled="@_busy" @onclick="() => _replaceMomentsRequested = true">
+                                            <i class="bi bi-arrow-repeat me-1"></i> Discover Again
+                                        </button>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Moment discovery status: @_momentSet.Status</span>
+                                }
+                            </div>
+                            }
+                        </div>
+                    }
 
-            @* ── Settings + prompt + render ───────────────────── *@
-            <div class="col-lg-7">
+                    @* ── Row 5: Moment Enrichment ── *@
+                    @if (_momentSet?.Status == SceneBeatCatalogueStatus.Complete && _selectedMoment is not null)
+                    {
+                        <div class="card mb-3 scene-moment-enrichment-panel">
+                            <div class="card-header d-flex justify-content-between align-items-start gap-2">
+                                <button class="studio-collapse-toggle" @onclick="ToggleMomentEnrichment" type="button">
+                                    <i class="bi @(_momentEnrichmentOpen ? "bi-chevron-up" : "bi-chevron-down") me-1"></i>
+                                    <span>
+                                        <strong>Moment Enrichment</strong>
+                                        <span class="d-block text-muted">@_selectedMoment.Label</span>
+                                    </span>
+                                </button>
+                                @if (_momentEnrichment is not null)
+                                {
+                                    <span class="badge @ProductionStatusBadgeClass(_momentEnrichment.Status)">r@_momentEnrichment.Revision · @_momentEnrichment.Status</span>
+                                }
+                            </div>
+                            @if (_momentEnrichmentOpen)
+                            {
+                            <div class="card-body small">
+                                @if (_replaceEnrichmentRequested)
+                                {
+                                    <div class="alert alert-warning py-2 mb-0">
+                                        Create a new enrichment revision for this Moment?
+                                        <div class="mt-2 d-flex gap-2">
+                                            <button class="btn btn-sm btn-warning" disabled="@_busy" @onclick="ReplaceMomentEnrichmentAsync">Create Revision</button>
+                                            <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceEnrichmentRequested = false">Cancel</button>
+                                        </div>
+                                    </div>
+                                }
+                                else if (_momentEnrichment is null)
+                                {
+                                    <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="() => SelectMomentAsync(_selectedMoment)">
+                                        <i class="bi bi-bounding-box me-1"></i> Enrich Moment
+                                    </button>
+                                }
+                                else if (_momentEnrichment.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing)
+                                {
+                                    <div class="d-flex justify-content-between align-items-center gap-2">
+                                        <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Resolving frozen production state...</span>
+                                        <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="CancelMomentEnrichmentAsync">
+                                            <i class="bi bi-x-circle me-1"></i> Cancel
+                                        </button>
+                                    </div>
+                                }
+                                else if (_momentEnrichment.Status == SceneBeatCatalogueStatus.Failed)
+                                {
+                                    <div class="alert alert-danger py-2 mb-2">
+                                        <strong>@(_momentEnrichment.ErrorCode ?? "Moment enrichment failed")</strong>
+                                        @if (!string.IsNullOrWhiteSpace(_momentEnrichment.ErrorMessage))
+                                        {
+                                            <span class="d-block mt-1">@_momentEnrichment.ErrorMessage</span>
+                                        }
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceEnrichmentRequested = true">
+                                        <i class="bi bi-arrow-repeat me-1"></i> Retry
+                                    </button>
+                                }
+                                else if (_momentEnrichment.Status == SceneBeatCatalogueStatus.Complete)
+                                {
+                                    var frozen = JsonSerializer.Deserialize<SceneMomentFrozenStateContract>(_momentEnrichment.FrozenStateContractJson, JsonOptions)
+                                        ?? throw new InvalidOperationException("Completed Moment enrichment has no frozen-state contract.");
+                                    var sounds = JsonSerializer.Deserialize<IReadOnlyList<SceneMomentInstantaneousSoundEvent>>(_momentEnrichment.InstantaneousSoundEventsJson, JsonOptions)
+                                        ?? throw new InvalidOperationException("Completed Moment enrichment has no sound-event contract.");
+                                    var video = JsonSerializer.Deserialize<SceneMomentVideoKeyState>(_momentEnrichment.VideoKeyStateJson, JsonOptions)
+                                        ?? throw new InvalidOperationException("Completed Moment enrichment has no video key-state contract.");
+                                    <div class="scene-moment-enrichment-summary">
+                                        <strong class="d-block">@frozen.VisualDescription</strong>
+                                        <span class="d-block text-muted mt-1">@frozen.Location · @frozen.TimeOfDay · @frozen.Lighting</span>
+                                        <span class="d-block mt-1">@frozen.Environment</span>
+                                        <span class="d-block text-muted">Mood: @frozen.Mood · Continuity: @frozen.ContinuityState</span>
+                                        @foreach (var character in frozen.Characters)
+                                        {
+                                            <div class="scene-moment-character mt-2">
+                                                <strong>@character.Name</strong>
+                                                <span class="d-block">@character.Position · @character.ActionOrObservation</span>
+                                                <span class="d-block text-muted">Looking @character.Sightline · @character.Clothing</span>
+                                            </div>
+                                        }
+                                        <div class="d-flex flex-wrap gap-1 mt-2">
+                                            @foreach (var sound in sounds)
+                                            {
+                                                <span class="badge text-bg-secondary"><i class="bi bi-volume-up me-1"></i>@sound.CueKey</span>
+                                            }
+                                            @foreach (var role in video.Roles)
+                                            {
+                                                <span class="badge text-bg-info"><i class="bi bi-camera-video me-1"></i>@role</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-secondary mt-2" disabled="@_busy" @onclick="() => _replaceEnrichmentRequested = true">
+                                        <i class="bi bi-arrow-repeat me-1"></i> Enrich Again
+                                    </button>
+                                }
+                                @if (!IsSelectedMomentEnriched)
+                                {
+                                    <div class="alert alert-secondary py-2 mt-2 mb-0">
+                                        Media actions unlock when this Moment enrichment completes.
+                                    </div>
+                                }
+                            </div>
+                            }
+                        </div>
+                    }
+
                 <div class="card mb-3 scene-production-studio">
                     <div class="card-header d-flex justify-content-between align-items-center gap-2">
-                        <div>
+                        <button class="studio-collapse-toggle" @onclick="ToggleProductionStudio" type="button">
+                            <i class="bi @(_productionStudioOpen ? "bi-chevron-up" : "bi-chevron-down") me-1"></i>
                             <strong>Production Studio</strong>
                             @if (_productionGroup is not null)
                             {
                                 <span class="badge text-bg-info ms-2">@_productionGroup.Status</span>
                             }
-                        </div>
+                        </button>
                         @if (IsSelectedMomentEnriched)
                         {
                             <button class="btn btn-sm btn-primary"
@@ -566,6 +719,8 @@
                             </button>
                         }
                     </div>
+                    @if (_productionStudioOpen)
+                    {
                     <div class="card-body">
                         @if (!IsSelectedMomentEnriched)
                         {
@@ -640,10 +795,20 @@
                                     <div class="scene-production-stage-controls mt-3">
                                         <div class="d-flex flex-wrap align-items-center gap-2">
                                             <strong>Composition</strong>
+                                            <button class="btn btn-sm btn-primary"
+                                                    disabled="@(_busy || _productionGroup is null || _compiledMediaBrief is null)"
+                                                    @onclick="GeneratePromptAsync">
+                                                <i class="bi bi-magic me-1"></i> Generate Prompt
+                                            </button>
                                             <button class="btn btn-sm btn-success"
                                                     disabled="@(_busy || _productionGroup is null || _compiledMediaBrief is null || _activePrompt?.Status != SceneImagePromptStatus.Complete || string.IsNullOrWhiteSpace(_editablePrompt) || _productionAttempts.Any(attempt => attempt.Status is SceneImageStatus.Pending or SceneImageStatus.Generating))"
                                                     @onclick="GenerateProductionCompositionAsync">
                                                 <i class="bi bi-image me-1"></i> Generate Composition
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-success"
+                                                    disabled="@(_busy || _productionGroup is null || _compiledMediaBrief is null || _activePrompt?.Status != SceneImagePromptStatus.Complete || string.IsNullOrWhiteSpace(_editablePrompt) || !_productionIdentityPacks.Any(o => o.Selected) || _productionAttempts.Any(attempt => attempt.Status is SceneImageStatus.Pending or SceneImageStatus.Generating))"
+                                                    @onclick="GenerateProductionCompositionWithIdentityAsync">
+                                                <i class="bi bi-person-badge me-1"></i> + Identity
                                             </button>
                                             @if (_selectedProductionAttempt?.Status == SceneImageStatus.Complete
                                                 && _selectedProductionAttempt.ProductionStage == SceneImageProductionStage.Composition)
@@ -655,11 +820,64 @@
                                                 </button>
                                             }
                                         </div>
-                                        <div class="form-text">Uses the current completed prompt projected from this production group's immutable compiled Still brief.</div>
-                                        <div class="scene-production-unavailable mt-3">
-                                            <strong>Identity</strong>
-                                            <span>Unavailable: approved reference projection and source-image identity editing are not implemented in this boundary.</span>
+
+                                        <div class="mt-3">
+                                            <label class="form-label small fw-semibold mb-1">Image Prompt</label>
+                                            <textarea class="form-control font-monospace" rows="4" @bind="_editablePrompt"
+                                                      placeholder="Generate a prompt to project this compiled Still brief into an image caption."></textarea>
+                                            <div class="form-text">@WordCount(_editablePrompt) words · ~@EstimateTokens(_editablePrompt) tokens</div>
                                         </div>
+
+                                        <div class="mt-2">
+                                            <label class="form-label small fw-semibold mb-1">Image Model</label>
+                                            @if (_genericModelChoices.Count == 0)
+                                            {
+                                                <span class="text-muted d-block">No image models enabled.</span>
+                                            }
+                                            else
+                                            {
+                                                <select class="form-select form-select-sm" @bind="_selectedProductionModelId">
+                                                    @foreach (var choice in _genericModelChoices)
+                                                    {
+                                                        <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName</option>
+                                                    }
+                                                </select>
+                                            }
+                                        </div>
+
+                                        <div class="mt-2">
+                                            <label class="form-label small fw-semibold mb-1">Character Identity (one-pass)</label>
+                                            @if (_identityModelChoices.Count == 0)
+                                            {
+                                                <span class="text-muted d-block">No identity-capable image models enabled. Configure an identity mechanism (IP-Adapter/PuLid) in Model Manager.</span>
+                                            }
+                                            else
+                                            {
+                                                <select class="form-select form-select-sm mb-2" @bind="_selectedProductionIdentityModelId">
+                                                    @foreach (var choice in _identityModelChoices)
+                                                    {
+                                                        <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName</option>
+                                                    }
+                                                </select>
+                                            }
+                                            @if (_productionIdentityPacks.Count == 0)
+                                            {
+                                                <span class="text-muted d-block">No approved identity packs. Create and approve one in <a href="/characters/identity">Character Identity</a>.</span>
+                                            }
+                                            else
+                                            {
+                                                @foreach (var opt in _productionIdentityPacks)
+                                                {
+                                                    <div class="form-check form-check-inline">
+                                                        <input class="form-check-input" type="checkbox" @bind="opt.Selected" id="@("prod_idp_" + opt.PackId)" />
+                                                        <label class="form-check-label" for="@("prod_idp_" + opt.PackId)">@opt.Label</label>
+                                                    </div>
+                                                }
+                                            }
+                                        </div>
+
+                                        <div class="form-text mt-1">Composition renders prompt-only with the selected image model; "+ Identity" folds the selected identity packs into the same render in one generation.</div>
+
                                         <div class="scene-production-unavailable mt-2">
                                             <strong>Finish</strong>
                                             <span>Unavailable: finish-stage source-image editing follows the identity boundary.</span>
@@ -804,16 +1022,76 @@
                             </div>
                         }
                     </div>
+                    }
                 </div>
 
-                <section class="scene-image-legacy-tools" aria-label="Legacy and experimental image tools">
-                <div class="scene-image-legacy-heading mb-2">
-                    <strong>Legacy / Experimental Tools</strong>
-                    <span class="d-block small text-muted">Prompt compilation and identity-conditioned text-to-image remain available during production workflow migration.</span>
-                </div>
+                <div class="card mb-3 scene-image-legacy-tools">
+                    <div class="card-header p-0">
+                        <button class="studio-collapse-toggle studio-collapse-toggle-full px-3 py-2" @onclick="ToggleLegacyTools" type="button">
+                            <strong>Legacy / Experimental Tools</strong>
+                            <i class="bi @(_legacyToolsOpen ? "bi-chevron-up" : "bi-chevron-down") ms-auto"></i>
+                        </button>
+                    </div>
+                    @if (_legacyToolsOpen)
+                    {
+                        <div class="card-body">
+                            <div class="small text-muted mb-2">Prompt compilation and identity-conditioned text-to-image remain available during production workflow migration.</div>
 
-                <div class="card mb-3">
-                    <div class="card-header"><strong>Image Settings</strong></div>
+                            <div class="card mb-3">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <strong>Historical Image Plan <span class="text-muted small">schema v3, read-only</span></strong>
+                                </div>
+                                <div class="card-body small">
+                                    <div class="alert alert-secondary py-2 mb-2">
+                                        Historical schema-v3 data remains visible for existing images. New production prompts use the canonical compiled Still brief.
+                                    </div>
+                                    @if (_fullTurn?.Turn is null)
+                                    {
+                                        <span class="text-muted">This legacy interaction has no persisted turn, so it cannot be analyzed into image beats.</span>
+                                    }
+                                    else if (_beatAnalysis is null)
+                                    {
+                                        <span class="text-muted">No historical schema-v3 plan is stored for this turn.</span>
+                                    }
+                                    else if (_beatAnalysis.Status == SceneImageBeatAnalysisStatus.Pending)
+                                    {
+                                        <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Analyzing the full turn into image beats...</span>
+                                    }
+                                    else if (_beatAnalysis.Status == SceneImageBeatAnalysisStatus.Failed)
+                                    {
+                                        <div class="alert alert-danger py-2 mb-0">Beat analysis failed: @_beatAnalysis.ErrorMessage</div>
+                                    }
+                                    else if (_requiresBeatRegeneration)
+                                    {
+                                        <div class="alert alert-warning py-2 mb-0">This historical plan uses an older schema and remains available for inspection only.</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="d-grid gap-2 scene-image-beat-list">
+                                            @foreach (var beat in _analysis?.Beats ?? [])
+                                            {
+                                                <button class="btn text-start @(_selectedBeatId == beat.BeatId ? "btn-primary" : "btn-outline-secondary")" @onclick="() => SelectBeatAsync(beat.BeatId)">
+                                                    <strong>@beat.Order. @beat.Label</strong>
+                                                    <span class="d-block small">@beat.VisualDescription</span>
+                                                    <span class="d-block small">@beat.Location · @beat.TimeOfDay</span>
+                                                    <span class="d-block small">@beat.Lighting · @beat.Mood</span>
+                                                    @foreach (var character in beat.Characters)
+                                                    {
+                                                        <span class="d-block small mt-1">
+                                                            <strong>@character.Name</strong> · @character.Involvement · @character.Position<br />
+                                                            @character.ActionOrObservation · looking @character.Sightline<br />
+                                                            Clothing: @character.Clothing · Visible: @(character.VisibleCharacterNames.Count == 0 ? "none" : string.Join(", ", character.VisibleCharacterNames))
+                                                        </span>
+                                                    }
+                                                </button>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="card mb-3">
+                                <div class="card-header"><strong>Image Settings</strong></div>
                     <div class="card-body">
                         <div class="row g-2">
                             <div class="col-md-4">
@@ -1073,6 +1351,20 @@
                         </button>
                     </div>
                     <div class="card-body small">
+                        <label class="form-label mb-1">Image Model (identity-capable)</label>
+                        @if (_identityModelChoices.Count == 0)
+                        {
+                            <span class="text-muted d-block mb-2">No identity-capable image models enabled. Configure an identity mechanism (IP-Adapter/PuLid) on an image model in Model Manager.</span>
+                        }
+                        else
+                        {
+                            <select class="form-select form-select-sm mb-2" @bind="_selectedIdentityModelId">
+                                @foreach (var choice in _identityModelChoices)
+                                {
+                                    <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName</option>
+                                }
+                            </select>
+                        }
                         @if (_identityPackOptions.Count == 0)
                         {
                             <span class="text-muted">No approved identity packs yet. Create and approve one in
@@ -1107,6 +1399,20 @@
                         </button>
                     </div>
                     <div class="card-body">
+                        <label class="form-label mb-1">Image Model</label>
+                        @if (_genericModelChoices.Count == 0)
+                        {
+                            <span class="text-muted d-block mb-2">No image models enabled in Model Manager.</span>
+                        }
+                        else
+                        {
+                            <select class="form-select form-select-sm mb-2" @bind="_selectedGenericModelId">
+                                @foreach (var choice in _genericModelChoices)
+                                {
+                                    <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName</option>
+                                }
+                            </select>
+                        }
                         @if (!_legacyImages.Any())
                         {
                             <div class="text-muted small">No images yet. Generate a prompt, then render an image.</div>
@@ -1166,9 +1472,9 @@
                         }
                     </div>
                 </div>
-                </section>
             </div>
-        </div>
+        }
+    </div>
     }
 </div>
 
@@ -1224,17 +1530,18 @@
     private string? _pendingDeleteImageId;
     private bool _settingsSeeded;
     private string? _continueFromImageId;
-    private string? _resolvedIntensityLabel;
     private Dictionary<string, IntensityProfile> _intensityProfilesById = new(StringComparer.OrdinalIgnoreCase);
     private FullTurnContext? _fullTurn;
     private SceneBeatCatalogue? _catalogue;
     private bool _replaceCatalogueRequested;
     private string? _selectedCatalogueBeatId;
+    private bool _cataloguePinned;
     private SceneBeatProductionPlan? _productionPlan;
     private bool _replaceProductionRequested;
     private SceneMomentSet? _momentSet;
     private bool _replaceMomentsRequested;
     private string? _selectedMomentId;
+    private bool _momentsPinned;
     private SceneMomentEnrichment? _momentEnrichment;
     private bool _replaceEnrichmentRequested;
     private SceneImageProductionGroup? _productionGroup;
@@ -1253,6 +1560,48 @@
     private string? _selectedPov;
     private SceneImageRecord? _viewerImage;
 
+    // Studio layout: the Story Moment panel and the Legacy / Experimental Tools panel are
+    // collapsible and collapsed by default. The Story Moment panel hosts tabs for the story
+    // moment itself, the full turn context, and the scene context.
+    private bool _storyMomentOpen;
+    private bool _legacyToolsOpen;
+    private enum StoryPanelTab { StoryMoment, FullTurnContext }
+    private StoryPanelTab _storyTab = StoryPanelTab.StoryMoment;
+
+    // Per-panel collapse state. Story Moment and Legacy tools collapse by default; the
+    // pipeline + studio panels start expanded so their content is visible.
+    private bool _beatCatalogueOpen = true;
+    private bool _beatProductionOpen = true;
+    private bool _productionMomentsOpen = true;
+    private bool _momentEnrichmentOpen = true;
+    private bool _productionStudioOpen = true;
+
+    // Story arc panel: overview of session turns and their beat-pipeline stage.
+    private bool _storyArcOpen = true;
+    private bool _allTurnsOpen = true;
+    private string? _selectedArcTurnId;
+    private List<StoryArcTurn> _storyArcTurns = [];
+
+    private StoryArcTurn? _selectedArcTurn
+        => string.IsNullOrWhiteSpace(_selectedArcTurnId)
+            ? null
+            : _storyArcTurns.FirstOrDefault(t => string.Equals(t.TurnId, _selectedArcTurnId, StringComparison.OrdinalIgnoreCase));
+
+    private sealed class StoryArcTurn
+    {
+        public string TurnId { get; init; } = string.Empty;
+        public int TurnNumber { get; init; }
+        public string Phase { get; init; } = string.Empty;
+        public string Intensity { get; init; } = string.Empty;
+        public string Characters { get; init; } = string.Empty;
+        public string PipelineStage { get; init; } = string.Empty;
+        public string PipelineStatus { get; init; } = string.Empty;
+        public bool HasPipelineActivity => !string.IsNullOrWhiteSpace(PipelineStage);
+        public bool IsCurrent { get; init; }
+        public string NavigationInteractionId { get; init; } = string.Empty;
+        public string Label { get; init; } = string.Empty;
+    }
+
     private sealed class IdentityPackOption
     {
         public string PackId { get; set; } = string.Empty;
@@ -1261,6 +1610,19 @@
         public double? Strength { get; set; }
     }
     private List<IdentityPackOption> _identityPackOptions = [];
+
+    // Image model selectors for the legacy render cards: identity-capable models for the
+    // identity-conditioned render, all enabled image models for the generic render.
+    private List<SceneImageModelChoice> _identityModelChoices = [];
+    private List<SceneImageModelChoice> _genericModelChoices = [];
+    private string? _selectedIdentityModelId;
+    private string? _selectedGenericModelId;
+    private string? _resolvedDefaultImageModelId;
+
+    // Production Studio composition controls: model + identity selection independent of the legacy cards.
+    private string? _selectedProductionModelId;
+    private string? _selectedProductionIdentityModelId;
+    private List<IdentityPackOption> _productionIdentityPacks = [];
 
     private SceneImageBeat? _selectedBeat
         => _analysis?.Beats.FirstOrDefault(b => b.BeatId == _selectedBeatId);
@@ -1351,6 +1713,42 @@
 
     private void CloseViewer() => _viewerImage = null;
 
+    private void ToggleStoryMoment() => _storyMomentOpen = !_storyMomentOpen;
+
+    private void ToggleLegacyTools() => _legacyToolsOpen = !_legacyToolsOpen;
+
+    private void ToggleBeatCatalogue() => _beatCatalogueOpen = !_beatCatalogueOpen;
+
+    private void ToggleBeatProduction() => _beatProductionOpen = !_beatProductionOpen;
+
+    private void ToggleProductionMoments() => _productionMomentsOpen = !_productionMomentsOpen;
+
+    private void ToggleMomentEnrichment() => _momentEnrichmentOpen = !_momentEnrichmentOpen;
+
+    private void ToggleProductionStudio() => _productionStudioOpen = !_productionStudioOpen;
+
+    private void ToggleStoryArc() => _storyArcOpen = !_storyArcOpen;
+
+    private void ToggleAllTurns() => _allTurnsOpen = !_allTurnsOpen;
+
+    private void SelectArcTurn(StoryArcTurn turn) => _selectedArcTurnId = turn.TurnId;
+
+    private void ExpandStoryArc() => _selectedArcTurnId = null;
+
+    private void ExpandCatalogue() => _cataloguePinned = false;
+
+    private void ExpandMoments() => _momentsPinned = false;
+
+    private void NavigateToTurn(StoryArcTurn turn)
+    {
+        if (string.IsNullOrWhiteSpace(turn.NavigationInteractionId))
+        {
+            return;
+        }
+
+        Nav.NavigateTo($"/roleplay/studio/{sessionId}/{turn.NavigationInteractionId}");
+    }
+
     private void SelectBeatAsync(string beatId)
     {
         _selectedBeatId = beatId;
@@ -1418,6 +1816,8 @@
     private async Task SelectCatalogueBeatAsync(string beatId)
     {
         _selectedCatalogueBeatId = beatId;
+        _cataloguePinned = true;
+        _momentsPinned = false;
         _replaceProductionRequested = false;
         _replaceMomentsRequested = false;
         _selectedMomentId = null;
@@ -1515,6 +1915,7 @@
         await RunAsync(async () =>
         {
             _selectedMomentId = moment.MomentId;
+            _momentsPinned = true;
             _replaceEnrichmentRequested = false;
             ClearProductionState();
             _momentEnrichment = await MomentEnrichmentService.GetCurrentAsync(_momentSet.Id, moment.MomentId)
@@ -1539,6 +1940,7 @@
         await RunAsync(async () =>
         {
             _selectedMomentId = _momentSet.RecommendedMomentId;
+            _momentsPinned = true;
             _replaceEnrichmentRequested = false;
             ClearProductionState();
             _momentEnrichment = await MomentEnrichmentService.EnqueueRecommendedAsync(_momentSet.Id);
@@ -1584,10 +1986,16 @@
         });
     }
 
+    private string? _lastLoadedInteractionId;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        // Reload on the initial render and whenever the route's interaction changes (e.g. when
+        // navigating between turns from the Story arc "Open in Studio"), so the studio always
+        // reflects the requested interaction and its turn stays pinned in the Story arc.
+        if (firstRender || !string.Equals(_lastLoadedInteractionId, interactionId, StringComparison.OrdinalIgnoreCase))
         {
+            _lastLoadedInteractionId = interactionId;
             await LoadAsync();
             StateHasChanged();
         }
@@ -1619,13 +2027,15 @@
             }
 
             await LoadIntensityProfilesAsync();
-            ResolveIntensityLabel();
             await ResolvePolicyAsync();
             await LoadFullTurnContextAsync();
+            await LoadStoryArcAsync();
             await LoadCatalogueAsync();
             await RefreshAsync();
             await LoadBeatAnalysisAsync();
             await LoadIdentityPackOptionsAsync();
+            LoadProductionIdentityPackOptionsAsync();
+            await LoadModelChoicesAsync();
         }
         catch (Exception ex)
         {
@@ -1652,6 +2062,233 @@
             Logger.LogWarning(ex, "Failed to resolve full turn for studio: SessionId={SessionId}, InteractionId={InteractionId}", sessionId, interactionId);
         }
     }
+
+    private async Task LoadStoryArcAsync()
+    {
+        if (_session is null)
+        {
+            _storyArcTurns = [];
+            return;
+        }
+
+        try
+        {
+            var turns = await StateRepository.LoadTurnsAsync(_session.Id, take: 200);
+            var transitions = await StateRepository.LoadTransitionEventsAsync(_session.Id, take: 200);
+            var currentPhase = _session.AdaptiveState.CurrentPhase;
+
+            var result = new List<StoryArcTurn>();
+            foreach (var turn in turns.OrderBy(t => t.TurnIndex))
+            {
+                result.Add(await BuildStoryArcTurnAsync(turn, transitions, currentPhase));
+            }
+
+            _storyArcTurns = result;
+
+            // When the studio is opened for an interaction that belongs to a turn (e.g. from the
+            // workspace turn/command button or the Story arc "Open in Studio"), pin that turn so
+            // the Story arc shows it as the selected turn with the lists collapsed.
+            var currentTurnId = _fullTurn?.Turn?.TurnId;
+            _selectedArcTurnId = currentTurnId is null
+                ? null
+                : result.FirstOrDefault(t => string.Equals(t.TurnId, currentTurnId, StringComparison.OrdinalIgnoreCase))?.TurnId;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load story arc for studio: SessionId={SessionId}", sessionId);
+            _storyArcTurns = [];
+            _selectedArcTurnId = null;
+        }
+    }
+
+    private async Task<StoryArcTurn> BuildStoryArcTurnAsync(
+        RolePlayTurn turn,
+        IReadOnlyList<NarrativePhaseTransitionEvent> transitions,
+        DreamGenClone.Domain.RolePlay.NarrativePhase currentPhase)
+    {
+        var phase = ResolvePhaseAt(turn.StartedUtc, transitions, currentPhase);
+
+        var interactionIds = turn.OutputInteractionIds
+            .Concat(turn.InputInteractionId is null ? [] : [turn.InputInteractionId])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var turnInteractions = _session!.Interactions
+            .Where(x => interactionIds.Contains(x.Id))
+            .OrderBy(x => x.CreatedAt)
+            .ToList();
+
+        var characters = string.Join(", ", turnInteractions
+            .Select(x => x.ActorName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+
+        var narrative = turnInteractions.FirstOrDefault(IsNarrative);
+        var labelSource = narrative?.Content ?? turnInteractions.FirstOrDefault()?.Content ?? string.Empty;
+
+        var (stage, status) = await ResolvePipelineStageAsync(turn);
+        var intensity = ResolveTurnIntensityLabel(turn.StartedUtc);
+
+        return new StoryArcTurn
+        {
+            TurnId = turn.TurnId,
+            TurnNumber = turn.TurnIndex + 1,
+            Phase = phase.ToString(),
+            Intensity = intensity ?? string.Empty,
+            Characters = string.IsNullOrWhiteSpace(characters) ? "(no interactions)" : characters,
+            PipelineStage = stage,
+            PipelineStatus = status,
+            IsCurrent = _fullTurn?.Turn is not null
+                && string.Equals(_fullTurn.Turn.TurnId, turn.TurnId, StringComparison.OrdinalIgnoreCase),
+            NavigationInteractionId = narrative?.Id ?? turnInteractions.FirstOrDefault()?.Id ?? turn.InputInteractionId ?? string.Empty,
+            Label = TruncateForArc(labelSource)
+        };
+    }
+
+    private async Task<(string Stage, string Status)> ResolvePipelineStageAsync(RolePlayTurn turn)
+    {
+        var catalogue = await BeatPipelineService.GetCurrentCatalogueAsync(sessionId, turn.TurnId);
+        if (catalogue is null)
+        {
+            return ("", "");
+        }
+
+        if (catalogue.Status != SceneBeatCatalogueStatus.Complete)
+        {
+            return ("Beat Catalogue", catalogue.Status.ToString());
+        }
+
+        foreach (var entry in catalogue.Entries)
+        {
+            var plan = await BeatProductionService.GetCurrentAsync(catalogue.Id, entry.BeatId);
+            if (plan is null)
+            {
+                continue;
+            }
+
+            if (plan.Status != SceneBeatCatalogueStatus.Complete)
+            {
+                return ("Beat Production", plan.Status.ToString());
+            }
+
+            var momentSet = await MomentDiscoveryService.GetCurrentAsync(plan.Id);
+            if (momentSet is null)
+            {
+                return ("Beat Production", "Complete");
+            }
+
+            if (momentSet.Status != SceneBeatCatalogueStatus.Complete)
+            {
+                return ("Production Moments", momentSet.Status.ToString());
+            }
+
+            var momentId = momentSet.RecommendedMomentId ?? momentSet.Moments.FirstOrDefault()?.MomentId;
+            if (momentId is null)
+            {
+                return ("Production Moments", "Complete");
+            }
+
+            var enrichment = await MomentEnrichmentService.GetCurrentAsync(momentSet.Id, momentId);
+            if (enrichment is null)
+            {
+                return ("Production Moments", "Complete");
+            }
+
+            if (enrichment.Status != SceneBeatCatalogueStatus.Complete)
+            {
+                return ("Moment Enrichment", enrichment.Status.ToString());
+            }
+
+            return ("Moment Enrichment", "Complete");
+        }
+
+        return ("Beat Catalogue", "Complete");
+    }
+
+    private string? ResolveTurnIntensityLabel(DateTime occurredUtc)
+    {
+        if (_session is null)
+        {
+            return null;
+        }
+
+        string? adaptiveProfileId = _session.AdaptiveIntensityProfileId;
+        var transitions = _session.AdaptiveIntensityTransitions
+            .OrderBy(t => t.OccurredUtc)
+            .ToList();
+        if (transitions.Count > 0)
+        {
+            adaptiveProfileId = transitions[0].FromProfileId;
+            foreach (var transition in transitions)
+            {
+                if (occurredUtc >= transition.OccurredUtc)
+                {
+                    adaptiveProfileId = transition.ToProfileId;
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        IntensityLevel? selectedIntensityLevel = IntensityLevel.Emotional;
+        if (!string.IsNullOrWhiteSpace(_session.SelectedIntensityProfileId)
+            && _intensityProfilesById.TryGetValue(_session.SelectedIntensityProfileId, out var intensityProfile))
+        {
+            selectedIntensityLevel = intensityProfile.Intensity;
+        }
+
+        IntensityLevel? adaptiveIntensityLevel = null;
+        if (!string.IsNullOrWhiteSpace(adaptiveProfileId)
+            && _intensityProfilesById.TryGetValue(adaptiveProfileId, out var adaptiveProfile))
+        {
+            adaptiveIntensityLevel = adaptiveProfile.Intensity;
+        }
+
+        var (label, _) = RolePlayStyleResolver.ResolveEffectiveStyle(_session, selectedIntensityLevel, adaptiveIntensityLevel);
+        return label;
+    }
+
+    private static DreamGenClone.Domain.RolePlay.NarrativePhase ResolvePhaseAt(
+        DateTime occurredUtc,
+        IReadOnlyList<NarrativePhaseTransitionEvent> transitions,
+        DreamGenClone.Domain.RolePlay.NarrativePhase currentPhase)
+    {
+        var ordered = transitions.OrderBy(t => t.OccurredUtc).ToList();
+        if (ordered.Count == 0)
+        {
+            return currentPhase;
+        }
+
+        var phase = ordered[0].FromPhase;
+        foreach (var transition in ordered)
+        {
+            if (occurredUtc >= transition.OccurredUtc)
+            {
+                phase = transition.ToPhase;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        return phase;
+    }
+
+    private static bool IsNarrative(RolePlayInteraction interaction)
+        => string.Equals(interaction.ActorName, "Narrative", StringComparison.OrdinalIgnoreCase);
+
+    private static string TruncateForArc(string text, int max = 150)
+        => string.IsNullOrWhiteSpace(text) ? string.Empty : (text.Length <= max ? text : text[..max] + "…");
+
+    private static string PipelineBadgeClass(string stage) => stage switch
+    {
+        "Beat Catalogue" => "text-bg-secondary",
+        "Beat Production" => "text-bg-info",
+        "Production Moments" => "text-bg-warning",
+        "Moment Enrichment" => "text-bg-success",
+        _ => "text-bg-secondary"
+    };
 
     private void SeedSettingsFromWorkspace()
     {
@@ -1685,33 +2322,6 @@
         }
     }
 
-    private void ResolveIntensityLabel()
-    {
-        if (_session is null)
-        {
-            _resolvedIntensityLabel = null;
-            return;
-        }
-
-        IntensityLevel? selectedIntensityLevel = IntensityLevel.Emotional;
-        IntensityLevel? adaptiveIntensityLevel = null;
-
-        if (!string.IsNullOrWhiteSpace(_session.SelectedIntensityProfileId)
-            && _intensityProfilesById.TryGetValue(_session.SelectedIntensityProfileId, out var intensityProfile))
-        {
-            selectedIntensityLevel = intensityProfile.Intensity;
-        }
-
-        if (!string.IsNullOrWhiteSpace(_session.AdaptiveIntensityProfileId)
-            && _intensityProfilesById.TryGetValue(_session.AdaptiveIntensityProfileId, out var adaptiveProfile))
-        {
-            adaptiveIntensityLevel = adaptiveProfile.Intensity;
-        }
-
-        var (label, _) = RolePlayStyleResolver.ResolveEffectiveStyle(_session, selectedIntensityLevel, adaptiveIntensityLevel);
-        _resolvedIntensityLabel = label;
-    }
-
     private async Task ResolvePolicyAsync()
     {
         _resolvedPolicy = null;
@@ -1720,6 +2330,7 @@
         {
             var resolved = await ModelResolutionService.ResolveImageModelAsync(null);
             _resolvedPolicy = resolved.ContentPolicy;
+            _resolvedDefaultImageModelId = resolved.ModelIdentifier;
         }
         catch (Exception ex)
         {
@@ -1775,12 +2386,14 @@
         if (previousCatalogueId is not null
             && !string.Equals(previousCatalogueId, _catalogue?.Id, StringComparison.Ordinal))
         {
+            _cataloguePinned = false;
             ClearProductionState();
         }
         if (_selectedCatalogueBeatId is not null
             && (_catalogue is null || !_catalogue.Entries.Any(entry => entry.BeatId == _selectedCatalogueBeatId)))
         {
             _selectedCatalogueBeatId = null;
+            _cataloguePinned = false;
             _productionPlan = null;
             _replaceProductionRequested = false;
             _momentSet = null;
@@ -1816,12 +2429,14 @@
         if (previousMomentSetId is not null
             && !string.Equals(previousMomentSetId, _momentSet?.Id, StringComparison.Ordinal))
         {
+            _momentsPinned = false;
             ClearProductionState();
         }
         if (_selectedMomentId is not null
             && (_momentSet is null || !_momentSet.Moments.Any(moment => moment.MomentId == _selectedMomentId)))
         {
             _selectedMomentId = null;
+            _momentsPinned = false;
             ClearProductionState();
         }
         await LoadMomentEnrichmentAsync();
@@ -1995,6 +2610,7 @@
                 PromptRecordId = _activePrompt.Id,
                 Prompt = _editablePrompt.Trim(),
                 ImageSize = _settings.ImageSize,
+                RequestedModelId = _selectedProductionModelId,
                 SettingsJson = JsonSerializer.Serialize(_settings),
                 RegenerateOfId = regenerateOfId,
                 ProductionGroupId = _productionGroup.Id,
@@ -2007,6 +2623,59 @@
             _statusMessage = regenerateOfId is null
                 ? "Production Composition queued."
                 : "Sibling Production Composition queued.";
+            EnsurePolling();
+        });
+    }
+
+    private async Task GenerateProductionCompositionWithIdentityAsync()
+    {
+        if (_productionGroup is null
+            || _compiledMediaBrief is null
+            || _activePrompt?.Status != SceneImagePromptStatus.Complete
+            || string.IsNullOrWhiteSpace(_editablePrompt)
+            || string.IsNullOrWhiteSpace(_productionPov))
+        {
+            throw new InvalidOperationException("A production group and completed nonblank prompt are required for Composition.");
+        }
+        var selected = _productionIdentityPacks.Where(o => o.Selected).ToList();
+        if (selected.Count == 0)
+            throw new InvalidOperationException("Select at least one approved identity pack for one-pass identity Composition.");
+        EnsureProductionGroupMatchesSelection(_productionGroup);
+
+        await RunAsync(async () =>
+        {
+            await ImageService.UpdatePromptOutputAsync(sessionId, _activePrompt.Id, _editablePrompt.Trim());
+
+            var identityPacks = selected
+                .Select(o => new IdentityPackSelection
+                {
+                    PackId = o.PackId,
+                    CharacterLabel = o.Label,
+                    Strength = o.Strength
+                })
+                .ToList();
+
+            var record = await ImageService.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                PromptRecordId = _activePrompt.Id,
+                Prompt = _editablePrompt.Trim(),
+                ImageSize = _settings.ImageSize,
+                RequestedModelId = _selectedProductionIdentityModelId,
+                SettingsJson = JsonSerializer.Serialize(_settings),
+                RegenerateOfId = null,
+                ProductionGroupId = _productionGroup.Id,
+                CompiledMediaBriefId = _activePrompt.CompiledMediaBriefId,
+                BeatId = _productionGroup.BeatId,
+                Pov = _productionGroup.Pov,
+                RenderMode = SceneImageRenderMode.IdentityControlled,
+                IdentityPackId = identityPacks[0].PackId,
+                IdentityPacks = identityPacks
+            });
+            await LoadProductionGroupAsync();
+            _selectedProductionAttemptId = record.Id;
+            _statusMessage = "Production Composition with identity queued.";
             EnsurePolling();
         });
     }
@@ -2221,6 +2890,41 @@
         }
     }
 
+    private async Task LoadModelChoicesAsync()
+    {
+        try
+        {
+            _identityModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: true)).ToList();
+            _genericModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
+
+            if (string.IsNullOrWhiteSpace(_selectedIdentityModelId))
+            {
+                _selectedIdentityModelId = _identityModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelIdentifier, _resolvedDefaultImageModelId, StringComparison.Ordinal))?.ModelId
+                    ?? _identityModelChoices.FirstOrDefault()?.ModelId;
+            }
+            if (string.IsNullOrWhiteSpace(_selectedGenericModelId))
+            {
+                _selectedGenericModelId = _genericModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelIdentifier, _resolvedDefaultImageModelId, StringComparison.Ordinal))?.ModelId
+                    ?? _genericModelChoices.FirstOrDefault()?.ModelId;
+            }
+            if (string.IsNullOrWhiteSpace(_selectedProductionModelId))
+            {
+                _selectedProductionModelId = _genericModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelIdentifier, _resolvedDefaultImageModelId, StringComparison.Ordinal))?.ModelId
+                    ?? _genericModelChoices.FirstOrDefault()?.ModelId;
+            }
+            if (string.IsNullOrWhiteSpace(_selectedProductionIdentityModelId))
+            {
+                _selectedProductionIdentityModelId = _identityModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelIdentifier, _resolvedDefaultImageModelId, StringComparison.Ordinal))?.ModelId
+                    ?? _identityModelChoices.FirstOrDefault()?.ModelId;
+            }
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Failed to load image model choices: {ex.Message}";
+            Logger.LogWarning(ex, "Failed to load scene image model choices: SessionId={SessionId}", sessionId);
+        }
+    }
+
     private async Task LoadIdentityPackOptionsAsync()
     {
         _identityPackOptions = [];
@@ -2260,6 +2964,21 @@
         }
 
         _identityPackOptions = options;
+    }
+
+    private void LoadProductionIdentityPackOptionsAsync()
+    {
+        // Independent selection state for the Production Studio so its identity checkboxes never
+        // affect the legacy identity card.
+        _productionIdentityPacks = _identityPackOptions
+            .Select(option => new IdentityPackOption
+            {
+                PackId = option.PackId,
+                Label = option.Label,
+                Selected = false,
+                Strength = null
+            })
+            .ToList();
     }
 
     private async Task GeneratePromptAsync()
@@ -2337,6 +3056,7 @@
                 PromptRecordId = _activePrompt.Id,
                 Prompt = _editablePrompt.Trim(),
                 ImageSize = _settings.ImageSize,
+                RequestedModelId = _selectedGenericModelId,
                 SettingsJson = JsonSerializer.Serialize(_settings),
                 RegenerateOfId = _continueFromImageId,
                 BeatId = _selectedBeatId,
@@ -2378,6 +3098,7 @@
                 PromptRecordId = _activePrompt.Id,
                 Prompt = _editablePrompt.Trim(),
                 ImageSize = _settings.ImageSize,
+                RequestedModelId = _selectedIdentityModelId,
                 SettingsJson = JsonSerializer.Serialize(_settings),
                 RegenerateOfId = null,
                 BeatId = _selectedBeatId,

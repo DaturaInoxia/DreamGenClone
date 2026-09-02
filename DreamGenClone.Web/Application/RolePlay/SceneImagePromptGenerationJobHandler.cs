@@ -283,8 +283,20 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 resolvedImageModel.SceneImageModelFamily,
                 resolvedImageModel.PromptDialect);
             var resolvedTextModel = await _modelResolutionService.ResolveImagePromptModelAsync(null, cancellationToken);
+
+            // B-103 part B (appearance injection): load the scenario characters so the canonical
+            // builder can inject each depicted character's fixed physical appearance instead of a
+            // bare "one woman". If the session/scenario can't be loaded the block is omitted.
+            IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character>? characters = null;
+            var session = await _sessionService.LoadRolePlaySessionAsync(record.SessionId, cancellationToken);
+            if (session is not null && !string.IsNullOrWhiteSpace(session.ScenarioId))
+            {
+                var scenario = await _scenarioService.GetScenarioAsync(session.ScenarioId);
+                characters = scenario?.Characters;
+            }
+
             var (systemPrompt, userPrompt) = compiler.PromptBuilder.BuildMessages(
-                brief, group.Pov, settings, requestedPolicy, record.RefineInstruction);
+                brief, group.Pov, settings, requestedPolicy, record.RefineInstruction, characters);
 
             await WriteDebugEventAsync("SceneImagePromptProjected", record.SessionId, record.InteractionId, new
             {

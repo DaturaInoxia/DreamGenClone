@@ -1589,6 +1589,17 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 _logger.LogInformation("Migrated SceneImages table: added Pov column");
             }
 
+            // SceneImages: add RequestedModelId column (per-render model pinning).
+            var checkImageRequestedModelColumn = connection.CreateCommand();
+            checkImageRequestedModelColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='RequestedModelId'";
+            if (Convert.ToInt64(await checkImageRequestedModelColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterImageRequestedModel = connection.CreateCommand();
+                alterImageRequestedModel.CommandText = "ALTER TABLE SceneImages ADD COLUMN RequestedModelId TEXT NULL";
+                await alterImageRequestedModel.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImages table: added RequestedModelId column");
+            }
+
             var sceneImageEditColumns = new (string Column, string Ddl)[]
             {
                 ("Operation", "ALTER TABLE SceneImages ADD COLUMN Operation TEXT NOT NULL DEFAULT 'Generate'"),

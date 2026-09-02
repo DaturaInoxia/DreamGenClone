@@ -295,7 +295,9 @@ builder.Services.AddSingleton<ImageGenerationClient>();
 builder.Services.AddSingleton<ComfyUIImageClient>();
 builder.Services.AddSingleton<RunPodServerlessImageClient>();
 builder.Services.AddSingleton<IImageGenerationClient, ImageGenerationClientDispatcher>();
-builder.Services.AddSingleton<IImageEditingClient, ComfyUIImageEditingClient>();
+builder.Services.AddSingleton<ComfyUIImageEditingClient>();
+builder.Services.AddSingleton<RunPodServerlessEditingClient>();
+builder.Services.AddSingleton<IImageEditingClient, ImageEditingClientDispatcher>();
 builder.Services.AddSingleton<ComfyUIIdentityConditionedClient>();
 builder.Services.AddSingleton<RunPodServerlessIdentityClient>();
 builder.Services.AddSingleton<IIdentityConditionedImageClient, IdentityConditionedImageClientDispatcher>();
@@ -407,6 +409,7 @@ builder.Services.AddSingleton<SdxlSceneImagePromptBuilder>();
 builder.Services.AddSingleton<ISdxlSceneImagePromptBuilder>(sp => sp.GetRequiredService<SdxlSceneImagePromptBuilder>());
 builder.Services.AddSingleton<ISceneImagePromptCompiler, PonySceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, SdxlSceneImagePromptCompiler>();
+builder.Services.AddSingleton<ISceneImagePromptCompiler, ApiSceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompilerRegistry, SceneImagePromptCompilerRegistry>();
 
 // Prompt-queue navigation resilience (B-027)

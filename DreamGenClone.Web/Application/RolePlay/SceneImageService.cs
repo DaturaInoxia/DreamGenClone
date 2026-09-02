@@ -232,8 +232,10 @@ public sealed class SceneImageService : ISceneImageService
         string? typedReferenceSnapshotJson = null;
         if (!string.IsNullOrWhiteSpace(request.ProductionGroupId))
         {
-            if (request.RenderMode == SceneImageRenderMode.IdentityControlled)
-                throw new InvalidOperationException("Production Composition attempts must use prompt-only rendering; identity-after-composition is a separate future stage.");
+            // B-103 part A: one-pass identity is an explicit opt-in ("Generate Composition + Identity").
+            // This deliberately allows identity conditioning on a production Composition attempt, a
+            // documented deviation from FR-053/FR-054's strict Composition -> Identity stage split.
+            // The two-pass identity-after-composition stage remains future work.
             if (string.IsNullOrWhiteSpace(request.CompiledMediaBriefId))
                 throw new InvalidOperationException("A compiled Still brief id is required for a production Composition attempt.");
             var canonical = await ValidateCanonicalProductionAsync(
@@ -266,6 +268,7 @@ public sealed class SceneImageService : ISceneImageService
             PromptSnapshot = request.Prompt,
             Status = SceneImageStatus.Pending,
             ImageSize = request.ImageSize,
+            RequestedModelId = request.RequestedModelId,
             SettingsJson = settingsJson,
             RegenerateOfId = request.RegenerateOfId,
             RenderMode = request.RenderMode,

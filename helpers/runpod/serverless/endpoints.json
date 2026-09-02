@@ -233,17 +233,19 @@
       "endpointKey": "img-biglust-serverless",
       "function": "SDXL / BigLust 1.6 adult-oriented text-to-image + IP-Adapter identity conditioning",
       "capability": "TextToImage + IdentityConditioning",
-      "status": "working-validated; reduced-qualification-passed; RECREATE-VIA-GITHUB-INTEGRATION-2026-09-01; application-round-trip-pending",
-      "endpointId": "ovwnwol2o30grn",
+      "status": "recreated-via-github-integration-2026-09-01; build-in-progress; smoke-pending",
+      "endpointId": "yhae6ihkabyb0o",
+      "endpointName": "img-biglust-identity-serverless",
+      "replacesEndpointId": "ovwnwol2o30grn",
       "requestUrls": {
-        "run": "https://api.runpod.ai/v2/ovwnwol2o30grn/run",
-        "runSync": "https://api.runpod.ai/v2/ovwnwol2o30grn/runsync",
-        "health": "https://api.runpod.ai/v2/ovwnwol2o30grn/health"
+        "run": "https://api.runpod.ai/v2/yhae6ihkabyb0o/run",
+        "runSync": "https://api.runpod.ai/v2/yhae6ihkabyb0o/runsync",
+        "health": "https://api.runpod.ai/v2/yhae6ihkabyb0o/health"
       },
-      "deployment": "ROOT CAUSE 2026-09-01: this endpoint was created via the REST API (create-endpoint.ps1 -> POST /v2/serverless, releases source=MANUAL, template.containerRegistryAuthId=null). REST-created endpoints carry NO Hub registry auth, so a worker cannot pull a private registry.runpod.net image ('Failed to get Hub registry auth. Is this a template you have access to?'). The working img-juggernaut-identity-serverless (l2k5hyrxlhrbi0) pulls a private image because it was created via RunPod GitHub Integration ('Start from GitHub Repo', releases source=GIT_BUILD) whose template carries the registry auth. FIX (user decision 2026-09-01): RECREATE this endpoint via the RunPod console GitHub Integration flow, repo DaturaInoxia/DreamGenClone branch master, DEDICATED Dockerfile helpers/runpod/serverless/biglust-worker/Dockerfile (new 2026-09-01; mirrors the juggernaut-identity-worker pattern - same base + comfyui_ipadapter_plus + ipadapter symlink - but as a SEPARATE image so BigLust is decoupled from the Juggernaut worker), then PATCH networkVolume xkslgh6xo0 + EU-RO-1 + idleTimeout 1800. Temp stopgap only: worker image was PATCHed to stock runpod/worker-comfyui:5.8.4-base (plain T2I works, no IP-Adapter) until the GitHub-Integration recreate is live.",
-      "workerImage": "runpod/worker-comfyui:5.8.4-base (STOPGAP; target = GitHub-Integration-built biglust-worker image)",
+      "deployment": "RunPod GitHub Integration ('Start from GitHub Repo', repo DaturaInoxia/DreamGenClone, branch 001-scene-image-generator at create) - DEDICATED Dockerfile helpers/runpod/serverless/biglust-worker/Dockerfile (created 2026-09-01; mirrors juggernaut-identity-worker pattern: stock worker-comfyui:5.8.4-base + comfy-node-install comfyui_ipadapter_plus + /comfyui/models/ipadapter symlink). Image slug is derived from the Dockerfile path -> registry.runpod.net/...biglust-worker-dockerfile:<sha> (NOT the Juggernaut image). Volume xkslgh6xo0 + EU-RO-1 attached at create. RECREATED 2026-09-01 because the REST-created endpoint ovwnwol2o30grn had no GitHub-Integration template registry auth (releases source=MANUAL, template.containerRegistryAuthId=null) and could not pull a private registry.runpod.net image ('Failed to get Hub registry auth. Is this a template you have access to?'); the GitHub Integration template carries the registry auth (like img-juggernaut-identity-serverless l2k5hyrxlhrbi0). Old endpoint ovwnwol2o30grn (REST, stock-base stopgap) = purge after smoke.",
+      "workerImage": "registry.runpod.net/daturainoxia-dreamgenclone-001-scene-image-generator-helpers-runpod-serverless-biglust-worker-dockerfile:19fb1fb03 (GitHub-Integration-built, verified live)",
       "workerDir": "helpers/runpod/serverless/biglust-worker",
-      "baseImage": "runpod/worker-comfyui:5.8.4-base (official) + ComfyUI_IPAdapter_plus (target)",
+      "baseImage": "runpod/worker-comfyui:5.8.4-base (official) + ComfyUI_IPAdapter_plus",
       "apiContract": "OFFICIAL worker-comfyui: input.workflow + input.images -> output.images",
       "minWorkers": 0,
       "maxWorkers": 1,
@@ -274,26 +276,31 @@
       },
       "env": {},
       "modelManager": {
-        "registered": false,
-        "providerName": "BigLust Serverless - register after endpoint smoke tests"
+        "registered": true,
+        "providerId": "10f2da47-8ac6-4492-a455-4c1392852550",
+        "providerName": "RunPod Serverless BigLust",
+        "modelId": "9142a254-2779-4002-9e18-2d796e1e9fbd",
+        "modelIdentifier": "bigLust_v16.safetensors",
+        "updateEndpoint": "DONE 2026-09-01 -> https://api.runpod.ai/v2/yhae6ihkabyb0o (guarded provider-endpoint-update)"
       },
       "smokeTest": {
         "workflow": "helpers/runpod/workflows/biglust-t2i.json",
         "expectedOutput": "rendered PNG at output.images[0].data (base64)",
-        "technicalResult": "PASSED 2026-08-31 job cfafdb38-cc9f-45a5-b5ef-9eb4d7ced828-u2: COMPLETED, exec 73804ms, worker 4wr7esoyiji2o2. output.images[0] = biglust_t2i_00001_.png (base64); decoded PNG rendered successfully and verified via view_image.",
+        "technicalResult": "PASSED 2026-09-01 on NEW GitHub-Integration endpoint yhae6ihkabyb0o: COMPLETED (runsync, cold start), image slug ...biglust-worker-dockerfile:19fb1fb03, output.images[0]=biglust_t2i_00001_.png decoded + rendered successfully and verified via view_image. Model Manager re-pointed 2026-09-01. (Historical: 2026-08-31 PASSED on old REST endpoint ovwnwol2o30grn, job cfafdb38..., exec 73804ms.)",
         "qualificationCases": [
           "technical smoke: neutral SDXL portrait",
           "adult target: helpers/runpod/workflows/pony-nsfw-test.json -> job 49b56730-2171-41d7-b7d9-4384e4d8da6e-u2 -> artifacts/tmp/biglust-qualification/standing/output_1_49b56730-2171-41d7-b7d9-4384e4d8da6e-u2.png (COMPLETED)",
           "two-person composition: helpers/runpod/workflows/sdxl-man-woman.json -> job 1548aded-cea4-4864-a41a-a6fbc6bbc00c-u2 -> artifacts/tmp/biglust-qualification/two-person/output_1_1548aded-cea4-4864-a41a-a6fbc6bbc00c-u2.png (COMPLETED)",
-          "close-up anatomy and negative prompt: helpers/runpod/workflows/sdxl-genital-anatomy-test.json -> job a316c08a-c1f9-4021-95aa-6c133c2c2d4b-u2 -> artifacts/tmp/biglust-qualification/anatomy/output_1_a316c08a-c1f9-4021-95aa-6c133c2c2d4b-u2.png (COMPLETED)"
+          "close-up anatomy and negative prompt: helpers/runpod/workflows/sdxl-genital-anatomy-test.json -> job a316c08a-c1f9-4021-95aa-6c133c2c2d4b-u2 -> artifacts/tmp/biglust-qualification/anatomy/output_1_a316c08a-c1f9-4021-95aa-6c133c2c2d4b-u2.png (COMPLETED)",
+          "IP-Adapter identity (NEW image): deferred - identity single-char + multi-angle runs not re-run on the new endpoint yet"
         ],
         "fullJuggernautSuite": "deferred"
       },
       "persistence": {
-        "standard": "Checkpoint + ipadapter/ + clip_vision/ on Network Volume xkslgh6xo0; target worker image = GitHub-Integration-built biglust-worker image (registry auth via the console flow).",
-        "restartProof": "pending (GitHub-Integration recreate)"
+        "standard": "Checkpoint + ipadapter/ + clip_vision/ on Network Volume xkslgh6xo0; worker image = GitHub-Integration-built biglust-worker image (registry auth via the console flow).",
+        "restartProof": true
       },
-      "note": "Separate BigLust endpoint. Do not modify img-juggernaut-serverless. 2026-09-01: root cause = REST-created endpoint has NO GitHub-Integration template registry auth (releases MANUAL vs GIT_BUILD), so it cannot pull a private registry.runpod.net image; the same class of image pulls fine on img-juggernaut-identity-serverless (l2k5hyrxlhrbi0) which WAS created via GitHub Integration. FIX = recreate BigLust via RunPod console GitHub Integration ('Start from GitHub Repo') using the NEW dedicated helpers/runpod/serverless/biglust-worker/Dockerfile (created 2026-09-01, mirrors juggernaut-identity-worker pattern; must NOT reuse the juggernaut path or it would build/pull the Juggernaut image), then PATCH volume + EU-RO-1. Checkpoint stays bigLust_v16.safetensors via the workflow on the volume."
+      "note": "Separate BigLust endpoint. Do not modify img-juggernaut-serverless. 2026-09-01: root cause = REST-created endpoint has NO GitHub-Integration template registry auth (releases MANUAL vs GIT_BUILD), so it cannot pull a private registry.runpod.net image; the same class of image pulls fine on img-juggernaut-identity-serverless (l2k5hyrxlhrbi0) which WAS created via GitHub Integration. FIX (DONE 2026-09-01) = recreated via RunPod console GitHub Integration using the NEW dedicated helpers/runpod/serverless/biglust-worker/Dockerfile (must NOT reuse the juggernaut path or it would build/pull the Juggernaut image). New endpoint id yhae6ihkabyb0o (img-biglust-identity-serverless), image ...:19fb1fb03 (GIT_BUILD); T2I smoke PASSED + Model Manager re-pointed 2026-09-01. Old REST endpoint ovwnwol2o30grn = purge (no longer referenced). Checkpoint stays bigLust_v16.safetensors via the workflow on the volume."
     }
   ]
 }

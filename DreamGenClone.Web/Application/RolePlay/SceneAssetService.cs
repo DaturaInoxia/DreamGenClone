@@ -79,6 +79,9 @@ public sealed class SceneAssetService : ISceneAssetService
             Name = name.Trim(),
             Kind = SceneAssetKind.Uploaded,
             Status = SceneAssetStatus.Complete,
+            // Uploads are character-face assets in Asset Studio; always set an explicit valid type
+            // so a stale 'Type ... DEFAULT General' DB schema can never write an unparseable value.
+            Type = SceneAssetType.CharacterFace,
             FileRelativePath = stored.RelativePath,
             MediaType = stored.MediaType,
             Width = stored.Width,

@@ -71,7 +71,8 @@
                                 <td><span class="badge @StatusBadge(pack.Status)">@pack.Status</span></td>
                                 <td>@pack.CreatedUtc.ToLocalTime().ToString("g")</td>
                                 <td>@(pack.SupersedesId is null ? "" : "v" + _packs.FirstOrDefault(p => p.Id == pack.SupersedesId)?.Version)</td>
-                                <td class="text-end">
+                                <td class="text-end text-nowrap">
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenPackViewerAsync(pack)" disabled="@_busy" title="View this version's reference images">View</button>
                                     @if (pack.Status == CharacterImageIdentityPackStatus.Approved)
                                     {
                                         <button class="btn btn-sm btn-outline-primary" @onclick="() => SupersedeAsync(pack.Id)" disabled="@_busy">Supersede</button>
@@ -264,6 +265,105 @@
     }
 </div>
 
+@if (_viewerOpen && _viewingPack is not null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.5);">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Pack v@(_viewingPack.Version) — @_viewingPack.Status</h5>
+                    <button type="button" class="btn-close" @onclick="ClosePackViewer" title="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="small text-muted mb-3">
+                        <span>Created: @_viewingPack.CreatedUtc.ToLocalTime().ToString("g")</span>
+                        @if (_viewingPack.ApprovedUtc is not null)
+                        {
+                            <span class="ms-2">Approved: @_viewingPack.ApprovedUtc.Value.ToLocalTime().ToString("g")</span>
+                        }
+                        @if (!string.IsNullOrEmpty(_viewingPack.SupersedesId))
+                        {
+                            <span class="ms-2">Supersedes: v@(PackVersionFor(_viewingPack.SupersedesId))</span>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(DescriptorText(_viewingPack.DescriptorSnapshotJson)))
+                    {
+                        <div class="mb-3">
+                            <strong class="small">Visual descriptor</strong>
+                            <p class="mb-0 small">@DescriptorText(_viewingPack.DescriptorSnapshotJson)</p>
+                        </div>
+                    }
+
+                    @if (_viewingAssets.Count == 0)
+                    {
+                        <div class="alert alert-secondary mb-0">No reference images in this version.</div>
+                    }
+                    else
+                    {
+                        <h6 class="mb-2">Face reference images</h6>
+                        <div class="d-flex flex-wrap gap-3 mb-3">
+                            @foreach (var view in FaceViewOrder)
+                            {
+                                var face = ViewingFacesByView.TryGetValue(view, out var existing) ? existing : null;
+                                if (face is null)
+                                {
+                                    <div class="card" style="width: 150px; border: 1px dashed #adb5bd;">
+                                        <div class="card-header small py-1 px-2 text-center fw-semibold">@FaceViewPosition(view) · @FaceViewLabel(view)</div>
+                                        <div class="card-body p-2 text-center">
+                                            <div class="text-muted small" style="height: 150px; display: flex; align-items: center; justify-content: center;">Not uploaded</div>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="card" style="width: 150px;">
+                                        <div class="card-header small py-1 px-2 text-center fw-semibold">@FaceViewPosition(view) · @FaceViewLabel(view)@(IsCanonicalFace(face) ? " · Canonical" : "")</div>
+                                        <a href="/scene-images/@face.FileRelativePath" target="_blank" title="Open full size">
+                                            <img src="/scene-images/@face.FileRelativePath" class="card-img-top" style="height: 150px; object-fit: cover;" alt="@face.FaceView" />
+                                        </a>
+                                        <div class="card-body p-2 text-center">
+                                            <span class="badge @QualityBadgeClass(face.QualityRating)">@face.QualityRating</span>
+                                            <div class="small text-muted mt-1">@(face.Width)x@(face.Height) · @face.MediaType</div>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        </div>
+
+                        <h6 class="mb-2">Full-body &amp; wardrobe reference images</h6>
+                        @if (ViewingOtherAssets.Count == 0)
+                        {
+                            <div class="text-muted small mb-3">None in this version.</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-3 mb-3">
+                                @foreach (var asset in ViewingOtherAssets)
+                                {
+                                    <div class="card" style="width: 150px;">
+                                        <a href="/scene-images/@asset.FileRelativePath" target="_blank" title="Open full size">
+                                            <img src="/scene-images/@asset.FileRelativePath" class="card-img-top" style="height: 150px; object-fit: cover;" alt="@asset.AssetKind" />
+                                        </a>
+                                        <div class="card-body p-2 text-center">
+                                            <div class="small fw-semibold">@asset.AssetKind</div>
+                                            <div class="small text-muted">@(asset.Width)x@(asset.Height) · @asset.MediaType</div>
+                                            <span class="badge @QualityBadgeClass(asset.QualityRating)">@asset.QualityRating</span>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="ClosePackViewer">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private sealed record CharacterOption(string Id, string Label);
 
@@ -286,6 +386,10 @@
     private bool _busy;
     private string? _error;
     private string? _status;
+
+    private CharacterImageIdentityPack? _viewingPack;
+    private List<SceneImageReferenceAsset> _viewingAssets = [];
+    private bool _viewerOpen;
 
     protected override async Task OnInitializedAsync()
     {
@@ -583,4 +687,57 @@
         CharacterImageIdentityPackStatus.Superseded => "bg-dark",
         _ => "bg-light text-dark"
     };
+
+    private async Task OpenPackViewerAsync(CharacterImageIdentityPack pack)
+    {
+        await RunAsync(async () =>
+        {
+            _viewingAssets = (await IdentityService.ListAssetsAsync(pack.Id)).ToList();
+            _viewingPack = pack;
+            _viewerOpen = true;
+        });
+    }
+
+    private void ClosePackViewer()
+    {
+        _viewerOpen = false;
+        _viewingPack = null;
+        _viewingAssets = [];
+    }
+
+    private IReadOnlyDictionary<SceneImageReferenceFaceView, SceneImageReferenceAsset> ViewingFacesByView
+        => _viewingAssets.Where(a => a.AssetKind == SceneImageReferenceAssetKind.Face && a.FaceView is not null)
+                         .GroupBy(a => a.FaceView!.Value)
+                         .ToDictionary(g => g.Key, g => g.First());
+
+    private IReadOnlyList<SceneImageReferenceAsset> ViewingOtherAssets
+        => _viewingAssets.Where(a => a.AssetKind != SceneImageReferenceAssetKind.Face).ToList();
+
+    private bool IsCanonicalFace(SceneImageReferenceAsset asset)
+        => _viewingPack is not null
+           && !string.IsNullOrEmpty(_viewingPack.CanonicalFaceAssetId)
+           && string.Equals(_viewingPack.CanonicalFaceAssetId, asset.Id, StringComparison.OrdinalIgnoreCase);
+
+    private string PackVersionFor(string? packId)
+        => string.IsNullOrEmpty(packId)
+            ? string.Empty
+            : (_packs.FirstOrDefault(p => p.Id == packId)?.Version.ToString() ?? "?");
+
+    private static string DescriptorText(string descriptorJson)
+    {
+        if (string.IsNullOrWhiteSpace(descriptorJson))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(descriptorJson);
+            return doc.RootElement.TryGetProperty("descriptor", out var d) ? (d.GetString() ?? string.Empty) : string.Empty;
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
+        }
+    }
 }

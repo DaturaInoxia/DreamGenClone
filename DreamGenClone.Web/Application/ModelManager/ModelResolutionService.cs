@@ -173,8 +173,6 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
         string? sessionOverrideId = null,
         CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
-
         var funcDefault = await _functionDefaultRepository.GetByFunctionAsync(AppFunction.RolePlaySceneImage, cancellationToken);
         if (funcDefault is null)
         {
@@ -189,19 +187,50 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
                 $"The default image model for function '{AppFunction.RolePlaySceneImage}' is no longer available. Update the model assignment in Model Manager (/model-manager).");
         }
 
+        return await ResolveImageModelCoreAsync(model, sessionOverrideId, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<ResolvedImageModel> ResolveImageModelByIdAsync(
+        string modelId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+        {
+            throw new ModelResolutionException("A registered image model id is required to resolve a pinned image model.");
+        }
+
+        var model = await _modelRepository.GetByIdAsync(modelId, cancellationToken)
+            ?? throw new ModelResolutionException($"Image model '{modelId}' was not found. Select an enabled image model in the Studio or Model Manager (/model-manager).");
+        if (!model.IsEnabled)
+        {
+            throw new ModelResolutionException(
+                $"Image model '{model.DisplayName}' is disabled. Enable it in Model Manager (/model-manager).");
+        }
+
+        return await ResolveImageModelCoreAsync(model, sessionOverrideId: null, cancellationToken);
+    }
+
+    private async Task<ResolvedImageModel> ResolveImageModelCoreAsync(
+        RegisteredModel model,
+        string? sessionOverrideId,
+        CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
         if (model.ModelKind != ModelKind.Image)
         {
             throw new ModelResolutionException(
                 $"Model '{model.DisplayName}' is not an image model (ModelKind={model.ModelKind}). Assign an image-kind model to '{AppFunction.RolePlaySceneImage}' in Model Manager (/model-manager).");
         }
 
-            ValidateSceneImagePromptMetadata(model);
+        ValidateSceneImagePromptMetadata(model);
 
         var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
         if (provider is null || !provider.IsEnabled)
         {
             throw new ModelResolutionException(
-                $"The provider for function '{AppFunction.RolePlaySceneImage}' default model is disabled. Enable the provider in Model Manager (/model-manager).");
+                $"The provider for model '{model.DisplayName}' is disabled. Enable the provider in Model Manager (/model-manager).");
         }
 
         if (provider.ImageCapability == ImageProviderCapability.None)
@@ -273,6 +302,35 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
                 $"No identity model configured for function '{AppFunction.RolePlaySceneImage}'. Configure its identity mechanism in Model Manager (/model-manager).");
         }
 
+        return ResolveIdentityImageModelCore(resolved, model);
+    }
+
+    /// <inheritdoc />
+    public async Task<ResolvedIdentityImageModel> ResolveIdentityImageModelByIdAsync(
+        string modelId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+        {
+            throw new ModelResolutionException("A registered image model id is required to resolve a pinned identity image model.");
+        }
+
+        var model = await _modelRepository.GetByIdAsync(modelId, cancellationToken)
+            ?? throw new ModelResolutionException($"Identity image model '{modelId}' was not found. Select an identity-capable image model in the Studio.");
+        if (!model.IsEnabled)
+        {
+            throw new ModelResolutionException(
+                $"Identity image model '{model.DisplayName}' is disabled. Enable it in Model Manager (/model-manager).");
+        }
+
+        var resolved = await ResolveImageModelByIdAsync(modelId, cancellationToken);
+        return ResolveIdentityImageModelCore(resolved, model);
+    }
+
+    private ResolvedIdentityImageModel ResolveIdentityImageModelCore(
+        ResolvedImageModel resolved,
+        RegisteredModel model)
+    {
         if (!Enum.TryParse<SceneImageIdentityMechanism>(model.IdentityMechanism, ignoreCase: true, out var mechanism)
             || mechanism == SceneImageIdentityMechanism.Unknown)
         {
@@ -312,6 +370,29 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             IdentityStrength: strength,
             ApiKeyEncrypted: resolved.ApiKeyEncrypted,
             ImageProtocol: resolved.ImageProtocol);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SceneImageModelChoice>> ListSceneImageModelsAsync(
+        bool identityCapableOnly,
+        CancellationToken cancellationToken = default)
+    {
+        var models = await _modelRepository.GetAllEnabledAsync(cancellationToken);
+        var result = new List<SceneImageModelChoice>();
+        foreach (var model in models
+            .Where(item => item.ModelKind == ModelKind.Image)
+            .Where(item => !identityCapableOnly || !string.IsNullOrWhiteSpace(item.IdentityMechanism))
+            .OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
+            result.Add(new SceneImageModelChoice(
+                model.Id,
+                model.DisplayName,
+                model.ModelIdentifier,
+                provider?.Name ?? "Unknown",
+                HasIdentity: !string.IsNullOrWhiteSpace(model.IdentityMechanism)));
+        }
+        return result;
     }
 
     public async Task<ResolvedMultimodalModel> ResolveAsync(
@@ -408,6 +489,7 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
         {
             (SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags) => true,
             (SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage) => true,
+            (SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage) => true,
             _ => false
         };
 

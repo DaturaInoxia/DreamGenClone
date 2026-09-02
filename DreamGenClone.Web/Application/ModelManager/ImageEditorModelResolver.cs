@@ -9,15 +9,21 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
     private readonly IFunctionDefaultRepository _functionDefaultRepository;
     private readonly IRegisteredModelRepository _modelRepository;
     private readonly IProviderRepository _providerRepository;
+    private readonly IModelManagerSecretProvider _secretProvider;
+    private readonly IApiKeyEncryptionService _encryptionService;
 
     public ImageEditorModelResolver(
         IFunctionDefaultRepository functionDefaultRepository,
         IRegisteredModelRepository modelRepository,
-        IProviderRepository providerRepository)
+        IProviderRepository providerRepository,
+        IModelManagerSecretProvider secretProvider,
+        IApiKeyEncryptionService encryptionService)
     {
         _functionDefaultRepository = functionDefaultRepository;
         _modelRepository = modelRepository;
         _providerRepository = providerRepository;
+        _secretProvider = secretProvider;
+        _encryptionService = encryptionService;
     }
 
     public async Task<ResolvedImageEditorModel> ResolveAsync(CancellationToken cancellationToken = default)
@@ -53,10 +59,10 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
                 $"Provider '{provider.Name}' is not image-capable (ImageCapability=None). Set its image capability in Model Manager (/model-manager).");
         }
 
-        if (provider.ImageProtocol != ImageProtocol.ComfyUi)
+        if (provider.ImageProtocol is not (ImageProtocol.ComfyUi or ImageProtocol.ComfyUiServerless))
         {
             throw new ModelResolutionException(
-                $"Image editor provider '{provider.Name}' must use the ComfyUI image protocol. Set Image Protocol to ComfyUI in Model Manager (/model-manager).");
+                $"Image editor provider '{provider.Name}' must use the ComfyUI or RunPod Serverless image protocol. Set Image Protocol to ComfyUI or ComfyUI Serverless in Model Manager (/model-manager).");
         }
 
         if (provider.ContentPolicy == ImageContentPolicy.Unknown)
@@ -65,10 +71,27 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
                 $"Image content policy not configured for image editor provider '{provider.Name}'. Set its content policy in Model Manager (/model-manager).");
         }
 
+        // Serverless image editors need the RunPod API key. Prefer the DB-encrypted key; if the
+        // provider has none, fall back to the git-ignored ModelManagerSecrets (by CredentialReference,
+        // then provider name, then the default "RunPod" key) and encrypt it for the client path —
+        // mirroring ModelResolutionService for generation/identity. No fallback default is invented;
+        // if no key is configured anywhere, the serverless client fails fast with the RunPod 401.
+        var apiKeyEncrypted = provider.ApiKeyEncrypted;
+        if (string.IsNullOrEmpty(apiKeyEncrypted) && provider.ImageProtocol == ImageProtocol.ComfyUiServerless)
+        {
+            var secret = _secretProvider.Resolve(provider.CredentialReference)
+                         ?? _secretProvider.Resolve(provider.Name)
+                         ?? _secretProvider.Resolve("RunPod");
+            if (!string.IsNullOrEmpty(secret))
+            {
+                apiKeyEncrypted = _encryptionService.Encrypt(secret);
+            }
+        }
+
         return new ResolvedImageEditorModel(
             ComfyUiUrl: provider.BaseUrl,
             ProviderTimeoutSeconds: provider.TimeoutSeconds,
-            ApiKeyEncrypted: provider.ApiKeyEncrypted,
+            ApiKeyEncrypted: apiKeyEncrypted,
             ModelIdentifier: model.ModelIdentifier,
             ProviderName: provider.Name,
             ContentPolicy: provider.ContentPolicy,
@@ -81,7 +104,8 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
             Scheduler: RequiredText(model.ImageEditorScheduler, "scheduler", model),
             Denoise: RequiredNonNegative(model.ImageEditorDenoise, "denoise", model),
             AuraFlowShift: RequiredNonNegative(model.ImageEditorAuraFlowShift, "AuraFlow shift", model),
-            CfgNormStrength: RequiredNonNegative(model.ImageEditorCfgNormStrength, "CFGNorm strength", model));
+            CfgNormStrength: RequiredNonNegative(model.ImageEditorCfgNormStrength, "CFGNorm strength", model),
+            ImageProtocol: provider.ImageProtocol);
     }
 
     private static string RequiredText(string? value, string setting, RegisteredModel model) =>

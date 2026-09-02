@@ -8567,6 +8567,10 @@ private void CloseInteractionInfo()
             </div>
             <div class="rw-header-right">
                 <a class="rw-gallery-link" href="/roleplay/gallery/@sessionId" title="View all session images">Gallery</a>
+                @if (_session is not null && _session.Interactions.Count > 0)
+                {
+                    <a class="rw-gallery-link" href="@($"/roleplay/studio/{_session.Id}/{_session.Interactions.Last().Id}")" title="Open the Scene Image Studio for this session">Studio</a>
+                }
                 <button class="rw-debug-btn" @onclick="OpenDebugWindowAsync" @onclick:stopPropagation>Debug View</button>
             </div>
         </div>

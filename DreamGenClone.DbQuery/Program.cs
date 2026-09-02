@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 if (args.Length == 0)
 {
@@ -15,7 +16,7 @@ if (!File.Exists(databasePath))
     return 2;
 }
 
-var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "b100-analyzer-configure" or "biglust-image-configure" or "turn-membership-reconcile" or "b100-settle-plan" ? "ReadWrite" : "ReadOnly";
+var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "b100-analyzer-configure" or "biglust-image-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -58,8 +59,26 @@ try
             RequireArgument(args, 3, "newTimeoutSeconds")),
         "b100-analyzer-configure" => await ConfigureB100AnalyzerAsync(connection),
         "biglust-image-configure" => await ConfigureBigLustImageAsync(connection),
+        "set-identity-strength" => await SetIdentityStrengthAsync(
+            connection,
+            RequireArgument(args, 1, "modelIdentifier"),
+            RequireArgument(args, 2, "strength")),
+        "api-image-configure" => await ConfigureApiImageModelsAsync(connection),
+        "api-image-catalog" => await ConfigureApiImageCatalogAsync(connection),
         "turn-membership-reconcile" => await ReconcileTurnMembershipsAsync(connection, RequireArgument(args, 1, "sessionId")),
         "b100-settle-plan" => await SettleStaleProductionPlanAsync(connection, RequireArgument(args, 1, "planId")),
+        "scene-asset-retag" => await RetagSceneAssetAsync(
+            connection,
+            RequireArgument(args, 1, "assetId"),
+            RequireArgument(args, 2, "expectedCurrentType"),
+            RequireArgument(args, 3, "newType")),
+        "character-figure-update" => await UpdateCharacterFigureAsync(
+            connection,
+            RequireArgument(args, 1, "scenarioId"),
+            RequireArgument(args, 2, "characterName"),
+            RequireArgument(args, 3, "weight"),
+            RequireArgument(args, 4, "bustSize"),
+            RequireArgument(args, 5, "buttSize")),
         "sql" => await PrintSqlFileAsync(connection, RequireArgument(args, 1, "sqlFile"), args.ElementAtOrDefault(2)),
         _ => throw new ArgumentException($"Unknown command '{args[0]}'.")
     };
@@ -282,6 +301,72 @@ static async Task<int> UpdateProviderTimeoutAsync(
 
     await transaction.CommitAsync();
     Console.WriteLine($"Provider timeout updated: {providerId} | {providerName} | {currentTimeout}s -> {newTimeout}s");
+    return 0;
+}
+
+static async Task<int> RetagSceneAssetAsync(
+    SqliteConnection connection,
+    string assetId,
+    string expectedCurrentType,
+    string newType)
+{
+    var normalizedNewType = newType.Trim();
+    var allowedTypes = new[] { "Location", "Wardrobe", "Prop", "Style", "CharacterFace", "CharacterBody" };
+    var canonicalType = allowedTypes.FirstOrDefault(
+        t => string.Equals(t, normalizedNewType, StringComparison.OrdinalIgnoreCase));
+    if (canonicalType is null)
+    {
+        throw new ArgumentException(
+            $"newType must be one of: {string.Join(", ", allowedTypes)}.");
+    }
+
+    var normalizedExpected = expectedCurrentType.Trim();
+    if (string.Equals(normalizedExpected, canonicalType, StringComparison.OrdinalIgnoreCase))
+    {
+        Console.WriteLine($"Scene asset type already current: {assetId} | {canonicalType}");
+        return 0;
+    }
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+    await using var select = connection.CreateCommand();
+    select.Transaction = transaction;
+    select.CommandText = "SELECT Name, COALESCE(Type, '') FROM SceneAssets WHERE Id = $assetId;";
+    select.Parameters.AddWithValue("$assetId", assetId.Trim());
+
+    string assetName;
+    string currentType;
+    await using (var reader = await select.ExecuteReaderAsync())
+    {
+        if (!await reader.ReadAsync())
+            throw new InvalidOperationException($"Scene asset '{assetId}' was not found; no database changes were made.");
+        assetName = reader.GetString(0);
+        currentType = reader.GetString(1);
+    }
+
+    if (!string.Equals(currentType, normalizedExpected, StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            $"Scene asset '{assetName}' type changed concurrently. Expected '{expectedCurrentType}', found '{currentType}'; no database changes were made.");
+    }
+
+    await using var update = connection.CreateCommand();
+    update.Transaction = transaction;
+    update.CommandText = """
+        UPDATE SceneAssets
+        SET Type = $newType,
+            UpdatedUtc = $updatedUtc
+        WHERE Id = $assetId
+          AND COALESCE(Type, '') = $expectedCurrentType;
+        """;
+    update.Parameters.AddWithValue("$newType", canonicalType);
+    update.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("o"));
+    update.Parameters.AddWithValue("$assetId", assetId.Trim());
+    update.Parameters.AddWithValue("$expectedCurrentType", normalizedExpected);
+    if (await update.ExecuteNonQueryAsync() != 1)
+        throw new InvalidOperationException("Scene asset type compare-and-swap failed; no database changes were made.");
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"Scene asset type updated: {assetId} | {assetName} | {currentType} -> {canonicalType}");
     return 0;
 }
 
@@ -541,6 +626,274 @@ static async Task<int> ConfigureBigLustImageAsync(SqliteConnection connection)
 
     await transaction.CommitAsync();
     Console.WriteLine($"BigLust image configured: {functionName} | {providerName} | {modelIdentifier} (Sdxl / SdxlNaturalLanguage)");
+    return 0;
+}
+
+/// <summary>
+/// Sets the identity conditioning strength for an image model. Lowering the strength trades a little
+/// face fidelity for much stronger prompt adherence (scene/setting/wardrobe). Validates the target
+/// model exists and is an image model before updating; fails without changes otherwise.
+/// </summary>
+static async Task<int> SetIdentityStrengthAsync(
+    SqliteConnection connection,
+    string modelIdentifier,
+    string strengthArg)
+{
+    if (!double.TryParse(strengthArg, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var strength)
+        || strength < 0 || strength > 2)
+    {
+        throw new InvalidOperationException($"Identity strength must be a number between 0 and 2; got '{strengthArg}'.");
+    }
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    string? modelId;
+    await using (var select = connection.CreateCommand())
+    {
+        select.Transaction = transaction;
+        select.CommandText = "SELECT Id FROM RegisteredModels WHERE ModelIdentifier = $identifier AND ModelKind = 1;";
+        select.Parameters.AddWithValue("$identifier", modelIdentifier);
+        modelId = await select.ExecuteScalarAsync() as string;
+    }
+
+    if (string.IsNullOrWhiteSpace(modelId))
+        throw new InvalidOperationException($"No image model found for identifier '{modelIdentifier}'; no changes were made.");
+
+    await using (var update = connection.CreateCommand())
+    {
+        update.Transaction = transaction;
+        update.CommandText = "UPDATE RegisteredModels SET IdentityStrength = $strength WHERE Id = $modelId;";
+        update.Parameters.AddWithValue("$strength", strength);
+        update.Parameters.AddWithValue("$modelId", modelId);
+        if (await update.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("Identity strength update failed; no database changes were made.");
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"Identity strength updated: {modelIdentifier} -> {strength}");
+    return 0;
+}
+
+/// <summary>
+/// Updates a scenario character's body-figure fields (Weight, BustSize, ButtSize) inside the
+/// scenario's nested PayloadJson. Targeted, validated, transactional — fails with no changes if the
+/// scenario or character is missing. Keeps the legacy BustMeasurement alias in sync so it cannot
+/// clobber the canonical value on the next deserialization.
+/// </summary>
+static async Task<int> UpdateCharacterFigureAsync(
+    SqliteConnection connection,
+    string scenarioId,
+    string characterName,
+    string weight,
+    string bustSize,
+    string buttSize)
+{
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    string? payloadJson;
+    await using (var select = connection.CreateCommand())
+    {
+        select.Transaction = transaction;
+        select.CommandText = "SELECT PayloadJson FROM Scenarios WHERE Id = $scenarioId;";
+        select.Parameters.AddWithValue("$scenarioId", scenarioId);
+        payloadJson = await select.ExecuteScalarAsync() as string;
+    }
+
+    if (string.IsNullOrWhiteSpace(payloadJson))
+        throw new InvalidOperationException($"Scenario '{scenarioId}' was not found; no changes were made.");
+
+    var root = JsonNode.Parse(payloadJson)
+        ?? throw new InvalidOperationException("Scenario PayloadJson is not valid JSON; no changes were made.");
+    var characters = root["Characters"] as JsonArray
+        ?? throw new InvalidOperationException("Scenario PayloadJson has no Characters array; no changes were made.");
+
+    JsonObject? character = null;
+    foreach (var node in characters)
+    {
+        if (node is JsonObject obj
+            && string.Equals(obj["Name"]?.GetValue<string>(), characterName, StringComparison.OrdinalIgnoreCase))
+        {
+            character = obj;
+            break;
+        }
+    }
+    if (character is null)
+        throw new InvalidOperationException($"Character '{characterName}' was not found in scenario '{scenarioId}'; no changes were made.");
+
+    if (character["PhysicalAttributes"] is not JsonObject physical)
+    {
+        physical = new JsonObject();
+        character["PhysicalAttributes"] = physical;
+    }
+
+    physical["Weight"] = weight;
+    physical["BustSize"] = bustSize;
+    physical["ButtSize"] = buttSize;
+    physical["BustMeasurement"] = bustSize;
+
+    var updatedJson = root.ToJsonString();
+
+    await using (var update = connection.CreateCommand())
+    {
+        update.Transaction = transaction;
+        update.CommandText = "UPDATE Scenarios SET PayloadJson = $payload, UpdatedUtc = $now WHERE Id = $scenarioId;";
+        update.Parameters.AddWithValue("$payload", updatedJson);
+        update.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("o"));
+        update.Parameters.AddWithValue("$scenarioId", scenarioId);
+        if (await update.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("Character figure update failed; no database changes were made.");
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"Character figure updated: {characterName} in {scenarioId} -> weight={weight}, bust={bustSize}, butt={buttSize}");
+    return 0;
+}
+
+/// <summary>
+/// Configures the TogetherAI API image models (openai/gpt-image-2, Seedream-4.0,
+/// google/imagen-4.0-preview) as plain API natural-language scene-image models. These are
+/// OpenAI-compatible images-endpoint requests, not Pony/SDXL checkpoint models, so they get the
+/// explicit Api family + NaturalLanguage dialect (values 3/3) that the render pipeline routes as a
+/// simple image request.
+/// </summary>
+static async Task<int> ConfigureApiImageModelsAsync(SqliteConnection connection)
+{
+    var now = DateTime.UtcNow.ToString("o");
+    var targets = new (string Identifier, string Label)[]
+    {
+        ("openai/gpt-image-2", "GPT-Image-2"),
+        ("ByteDance-Seed/Seedream-4.0", "Seedream-4.0"),
+        ("google/imagen-4.0-preview", "Imagen-4.0-preview")
+    };
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+    foreach (var (identifier, label) in targets)
+    {
+        string? modelId;
+        await using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = "SELECT Id FROM RegisteredModels WHERE ModelIdentifier = $identifier AND ModelKind = 1;";
+            select.Parameters.AddWithValue("$identifier", identifier);
+            modelId = (await select.ExecuteScalarAsync()) as string;
+        }
+        if (modelId is null)
+            throw new InvalidOperationException($"API image model '{label}' ({identifier}) was not found; no database changes were made.");
+
+        await using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = """
+            UPDATE RegisteredModels
+            SET SceneImageModelFamily = 3,
+                PromptDialect = 3
+            WHERE Id = $modelId;
+            """;
+        update.Parameters.AddWithValue("$modelId", modelId);
+        if (await update.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException($"API image model '{label}' update failed; no database changes were made.");
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"API image models configured: SceneImageModelFamily=Api, PromptDialect=NaturalLanguage (gpt-image-2, Seedream-4.0, Imagen-4.0) | UpdatedUtc={now}");
+    return 0;
+}
+
+/// <summary>
+/// Verifies and repairs the TogetherAI API image-model catalog (2026-09-01).
+/// - Disables 'google/imagen-4.0-preview': TogetherAI rejects it with HTTP 400 "Invalid value for
+///   'model' parameter" on /v1/images/generations, so it can never render.
+/// - Upserts the TogetherAI image models verified to generate at 1024x1024: google/flash-image-3.1,
+///   Qwen/Qwen-Image-2.0-Pro, black-forest-labs/FLUX.1.1-pro (explicit Api / NaturalLanguage).
+/// Idempotent: re-running only re-asserts the same end state.
+/// </summary>
+static async Task<int> ConfigureApiImageCatalogAsync(SqliteConnection connection)
+{
+    const string providerName = "TogetherAI";
+    var disabledModelIdentifiers = new[] { "google/imagen-4.0-preview" };
+    var catalog = new (string Identifier, string DisplayName)[]
+    {
+        ("google/flash-image-3.1", "Google Flash Image 3.1"),
+        ("Qwen/Qwen-Image-2.0-Pro", "Qwen Image 2.0 Pro"),
+        ("black-forest-labs/FLUX.1.1-pro", "FLUX.1.1 Pro")
+    };
+
+    var now = DateTime.UtcNow.ToString("o");
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    string? providerId;
+    await using (var selectProvider = connection.CreateCommand())
+    {
+        selectProvider.Transaction = transaction;
+        selectProvider.CommandText = "SELECT Id FROM Providers WHERE Name = $name;";
+        selectProvider.Parameters.AddWithValue("$name", providerName);
+        providerId = (await selectProvider.ExecuteScalarAsync()) as string;
+    }
+    if (providerId is null)
+        throw new InvalidOperationException($"Provider '{providerName}' was not found; no database changes were made.");
+
+    foreach (var identifier in disabledModelIdentifiers)
+    {
+        await using var disable = connection.CreateCommand();
+        disable.Transaction = transaction;
+        disable.CommandText = "UPDATE RegisteredModels SET IsEnabled = 0 WHERE ModelIdentifier = $identifier AND ModelKind = 1;";
+        disable.Parameters.AddWithValue("$identifier", identifier);
+        if (await disable.ExecuteNonQueryAsync() == 0)
+            throw new InvalidOperationException($"Image model '{identifier}' was not found to disable; no database changes were made.");
+    }
+
+    foreach (var (identifier, displayName) in catalog)
+    {
+        string? modelId;
+        await using (var selectModel = connection.CreateCommand())
+        {
+            selectModel.Transaction = transaction;
+            selectModel.CommandText = "SELECT Id FROM RegisteredModels WHERE ProviderId = $providerId AND ModelIdentifier = $identifier;";
+            selectModel.Parameters.AddWithValue("$providerId", providerId);
+            selectModel.Parameters.AddWithValue("$identifier", identifier);
+            modelId = (await selectModel.ExecuteScalarAsync()) as string;
+        }
+
+        if (modelId is null)
+        {
+            modelId = Guid.NewGuid().ToString();
+            await using var insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO RegisteredModels (
+                    Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, CreatedUtc,
+                    ModelKind, SceneImageModelFamily, PromptDialect)
+                VALUES (
+                    $id, $providerId, $identifier, $displayName, 1, $now,
+                    1, 3, 3);
+                """;
+            insert.Parameters.AddWithValue("$id", modelId);
+            insert.Parameters.AddWithValue("$providerId", providerId);
+            insert.Parameters.AddWithValue("$identifier", identifier);
+            insert.Parameters.AddWithValue("$displayName", displayName);
+            insert.Parameters.AddWithValue("$now", now);
+            await insert.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            await using var update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE RegisteredModels
+                SET DisplayName = $displayName,
+                    ModelKind = 1,
+                    SceneImageModelFamily = 3,
+                    PromptDialect = 3,
+                    IsEnabled = 1
+                WHERE Id = $modelId;
+                """;
+            update.Parameters.AddWithValue("$displayName", displayName);
+            update.Parameters.AddWithValue("$modelId", modelId);
+            await update.ExecuteNonQueryAsync();
+        }
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine("API image catalog configured: disabled google/imagen-4.0-preview; added flash-image-3.1, Qwen-Image-2.0-Pro, FLUX.1.1-pro (Api / NaturalLanguage).");
     return 0;
 }
 
@@ -851,5 +1204,5 @@ static string FindDatabasePath()
 static void PrintUsage()
 {
     Console.Error.WriteLine("Usage: dotnet run --project DreamGenClone.DbQuery -- <command> [args]");
-    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, sql <file> [id]");
+    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <weight> <bustSize> <buttSize>, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, sql <file> [id]");
 }

@@ -27,6 +27,9 @@ public sealed class PhysicalAttributes
     public string? BustSize { get; set; }
     public string? WaistSize { get; set; }
     public string? HipSize { get; set; }
+    /// <summary>Rear/glute volume on a descriptive scale (e.g. Flat, Toned, Plump, Full, Huge).
+    /// Distinct from <see cref="HipSize"/> (skeletal hip width).</summary>
+    public string? ButtSize { get; set; }
 
     // ── Style & Misc ────────────────────────────────────────────────────────
     public string? ClothingStyle { get; set; }

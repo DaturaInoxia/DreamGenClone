@@ -372,7 +372,7 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
-    public async Task EnqueueRenderAsync_ProductionGroup_RejectsStaleEnrichmentAndIdentityControlledMode()
+    public async Task EnqueueRenderAsync_ProductionGroup_RejectsStaleEnrichment()
     {
         var (service, _, repo, _, dbPath, root) = Build(MakeSession());
         try
@@ -390,14 +390,37 @@ public sealed class SceneImageServiceJobTests
 
             var stale = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(request));
             Assert.Contains("current completed", stale.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
 
-            var currentGroup = await CreateProductionGroupAsync(dbPath, "identity", "moment-identity");
-            request.ProductionGroupId = currentGroup.Id;
-            request.Pov = currentGroup.Pov;
-            request.RenderMode = SceneImageRenderMode.IdentityControlled;
-            request.IdentityPackId = "legacy-pack";
-            var identity = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(request));
-            Assert.Contains("prompt-only", identity.Message, StringComparison.OrdinalIgnoreCase);
+    [Fact]
+    public async Task EnqueueRenderAsync_ProductionGroup_AllowsIdentityControlledComposition()
+    {
+        var (service, _, repo, _, dbPath, root) = Build(MakeSession());
+        try
+        {
+            var group = await CreateProductionGroupAsync(dbPath, "identity", "moment-identity");
+            var brief = await CreateStillBriefAsync(dbPath, group);
+            var prompt = CreateCanonicalPromptRecord(group, brief);
+            await repo.UpsertPromptAsync(prompt);
+
+            var record = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1", InteractionId = "i1", PromptRecordId = prompt.Id, Prompt = "composition",
+                ProductionGroupId = group.Id, CompiledMediaBriefId = brief.Id, Pov = group.Pov,
+                RenderMode = SceneImageRenderMode.IdentityControlled,
+                IdentityPackId = "identity-pack",
+                IdentityPacks = [new IdentityPackSelection { PackId = "identity-pack", CharacterLabel = "Wife — v1" }]
+            });
+
+            Assert.Equal(SceneImageRenderMode.IdentityControlled, record.RenderMode);
+            Assert.Equal(group.Id, record.ProductionGroupId);
+            Assert.Equal(SceneImageProductionStage.Composition, record.ProductionStage);
+            Assert.Equal("identity-pack", record.IdentityPackId);
         }
         finally
         {
