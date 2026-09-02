@@ -38,6 +38,11 @@ Items here are high-level ideas.  Each item must go through **Design â†’ Plan â†
 
 ## Backlog
 
+> **B-032 production override (2026-09-02):** Phase 2/3 are fully designed under
+> `specs/Planning/B-032-scene-image-generator/production-architecture.md`. New sessions are the
+> baseline; legacy backfill, dual-read/write, compatibility adapters, and old one-off fallbacks are
+> out of scope. Existing B-032 row notes below remain historical progress evidence.
+
 | # | Title | State | Priority | Scope | Notes |
 |---|---|---|---|---|---|
 | B-001 | Fix and enhance the Question/Decision prompt | `new` | medium | small | Decision prompts are not generating well-formed or contextually appropriate questions; needs redesign and testing |

@@ -4,6 +4,11 @@
 **Parent:** B-032 Scene Image Generator, Phase 3 Location and Multi-POV
 **Primary tasks:** P3-014 through P3-024
 
+**Production alignment (2026-09-02):** Pose import, rig editing, and pose-control export are asset
+and control preparation inside the shared Asset Manager/Production Studio. They do not submit a
+one-off image. A pose control is usable only in an exact qualified model/workflow/compiler +
+identity/location/control capability cell and is snapshotted into a durable shot workload item.
+
 ## Purpose
 
 Build a visual pose-authoring mode in Scene Image Studio so a user can initialize an actor from an

@@ -24,9 +24,48 @@ public interface IIdentityConditionedImageClient
 Names may be adjusted to existing namespace conventions, but generation and source-image editing
 remain separate interfaces.
 
+These POC interfaces are not the production dispatch boundary. Production code resolves a
+`MediaCapabilityProfile`, invokes its registered deterministic compiler, persists a canonical
+request, and dispatches through a provider adapter.
+
+## Production Compiler Contract
+
+```csharp
+public interface IMediaRequestCompiler
+{
+    string CompilerId { get; }
+    MediaOperation Operation { get; }
+
+    CompiledMediaRequest Compile(
+        ResolvedProductionIntent intent,
+        QualifiedMediaCapability capability);
+}
+```
+
+Compilers are registered by exact family/operation. They may not select providers, query mutable
+story state, call an LLM prompt polisher, inject unsupported fields, or supply missing values.
+
+## Workload Contract
+
+`IProductionWorkloadService` supports draft creation, deterministic readiness, submission,
+cancellation, retry-as-new-attempt, review, rejection, and approval. Submission persists workload,
+items, intent snapshots, compiled requests, and initial attempts before transport.
+
+`IProductionDispatchAdapter` submits one compatible dispatch group and returns provider job IDs.
+`IProductionReconciliationService` resumes submitted/running attempts from persisted IDs and
+captures transient results. Neither service recompiles intent during recovery.
+
+## Asset Contract
+
+`IProductionAssetRepository` exposes typed queries/pickers over one asset catalog while keeping
+face/body/wardrobe versions separate domain aggregates. Deletion checks approved versions,
+workloads, attempts, derivatives, and downstream publication references. Asset streams are opened
+by validated IDs; provider request snapshots contain roles/checksums, never unsafe paths or secrets.
+
 ## Controlled Request
 
-`IdentityControlledImageRequest` contains only resolved immutable values:
+The existing `IdentityControlledImageRequest` is a POC transport DTO and contains only resolved
+immutable values:
 
 - positive/negative prompt and image dimensions;
 - seed;
@@ -60,16 +99,16 @@ Deleting a DB row never deletes a file still referenced by an approved pack or r
 
 ## Job Contract
 
-Add `SceneImageIdentityRendering` and a payload containing `RenderAttemptId`. The handler:
+The current `SceneImageIdentityRendering` payload is retained only until the production workload
+slice replaces one-off submission. The production worker:
 
-1. exits when already complete;
-2. loads and validates exact pack/profile/region versions;
-3. marks generating;
-4. compiles the request;
-5. calls `IIdentityConditionedImageClient`;
-6. saves bytes and checksum;
-7. stores assignments and provenance;
-8. marks complete, or failed with an explicit diagnostic and debug event.
+1. claims a persisted ready item/attempt idempotently;
+2. verifies the snapshotted qualified profile is still enabled without changing it;
+3. submits the already-persisted compiled request and immediately records provider IDs;
+4. reconciles status/results without resubmitting after restart;
+5. copies provider bytes into owned storage and records checksum/cost/timing;
+6. marks transport success/failure while leaving review/approval separate;
+7. emits structured diagnostics with no secrets.
 
 ## Host Proof Contract
 

@@ -101,7 +101,8 @@ with B-100 Moment identity and lineage before they are frozen.
 3. Record this capability matrix and link each epic back to it.
 4. Treat B-032 Phase 1, Phase 1B, and Phase 2 as implemented-but-unaccepted where their exit evidence
    is incomplete.
-5. Freeze the legacy Generate Beats and image-path baseline before B-100 runtime changes.
+5. Preserve legacy proof fixtures for comparison, but require newly created sessions for the
+   production runtime. Do not build a legacy-session compatibility path.
 
 **Exit:** IDs are unique in the backlog, ownership conflicts are removed, and every active capability
 has one stated acceptance gate.
@@ -227,17 +228,18 @@ not own canonical prompt construction, provider clients, candidate validation, o
 **Exit:** text-only, still-only, and full-media revisions publish through the same deterministic
 manifest contract and play consistently on desktop/mobile.
 
-### Program Phase 8 - Migration and Retirement
+### Program Phase 8 - Clean Production Cutover
 
-1. Keep legacy schema-v3 Beat analyses and existing image provenance readable.
-2. Use dual-read/new-write during B-100 rollout; do not rewrite historical records.
-3. Remove legacy one-shot enqueue and checkpoint-name inference only after reference and call-site
-   audits pass.
-4. Preserve old published B-101 manifests when drafts, production records, or assets change.
+1. Require new sessions stamped with the production schema generation.
+2. Do not backfill schema-v3 Beats/images into production aggregates or implement dual reads/writes.
+3. Remove legacy one-shot enqueue and checkpoint-name inference from new-session navigation after
+   reference and call-site audits pass.
+4. Preserve source-controlled proof fixtures/reports; runtime legacy-session readability is not a
+   release requirement.
 5. Retire dedicated RunPod resources only after B-102 cutover and rollback evidence passes.
 
-**Exit:** no active producer depends on superseded paths, while historical records remain readable
-and reproducible.
+**Exit:** no active producer or UI path depends on superseded one-off behavior, and older sessions
+fail with explicit create-new-session guidance.
 
 ### Program Phase 9 - End-to-End Acceptance
 

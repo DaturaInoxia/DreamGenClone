@@ -1,13 +1,15 @@
 # Phase 3 - Location And Multi-POV
 
-**Status:** Planned
+**Status:** Designed and ready after the Phase 2 production exit gate
 **Epic:** B-032 Scene Image Generator
-**Prerequisite (2026-08-25 B-097 re-open):** ControlNet OpenPose + Depth conditioning is established
-in Phase 1B/2; camera-specific pose/depth controls derive from the canonical visual plan.
+**Baseline:** New production sessions with qualified Phase 2 character cells
+**Architecture:** [`../production-architecture.md`](../production-architecture.md)
+**Evidence:** [`../provider-evidence-matrix.md`](../provider-evidence-matrix.md)
 
 ## Goal
 
-Keep a detailed location, important object placement, and one frozen beat consistent while rendering multiple camera viewpoints.
+Prepare and approve coherent shot families from one frozen Moment/visual plan while preserving
+location state, cast, wardrobe, blocking, landmarks, props, lighting, and screen direction.
 
 ## Implementation Package
 
@@ -29,9 +31,12 @@ Keep a detailed location, important object placement, and one frozen beat consis
 - Generate camera-specific pose, depth, semantic, and character-region controls. Add edge/canny
 	only after a frozen proof demonstrates measurable value.
 - Derive omniscient and character POV shots by changing the camera/framing, not by reinterpreting the beat.
+- Prepare compatible shots as durable workloads and compare attempts in family context.
+- Expose approved derivatives to B-101 through immutable placement contracts.
 - Use Three.js for the first integrated blocking editor while persisting engine-neutral scene data;
 	Blender remains an optional later compiler, not a prerequisite.
 
 ## Exit Gate
 
-Multiple approved POV shots preserve the same cast assignments, wardrobe, required relationships, object anchors, and location identity unless the visual plan is explicitly versioned.
+A wide/medium/reverse-or-OTS/character-POV family passes exact combined capability cells and the
+application workload/recovery/review/approval path while preserving all required invariants.

@@ -4,6 +4,12 @@
 **Date:** 2026-08-27
 **Related:** B-032 (scene image engine), B-097 (pose/layout control), B-098/B-099 (Pony/SDXL paths)
 
+> **B-032 contract alignment (2026-09-02):** B-102 owns provider transport, worker/endpoint
+> deployment, polling/cancellation, and result transfer. It receives immutable compiled dispatch
+> groups from B-032, returns provider job/result data, and never constructs prompts, selects semantic
+> references, changes capability cells, or decides review/approval. B-032 persists provider IDs
+> immediately and copies transient results into application-owned storage.
+
 > **Identifier correction (2026-08-28):** B-101 is reserved for Story Presentation. This stream is
 > B-102. The folder keeps its old name temporarily to avoid disrupting active uncommitted work and
 > should be moved to `B-102-serverless-migration` in a dedicated clean rename after stabilization.

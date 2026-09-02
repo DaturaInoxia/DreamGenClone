@@ -24,20 +24,47 @@ required for Face assets, null for other kinds),
 `ConsentState` (`Unknown`, `Confirmed`, `NotApplicable`), `IsApproved`, `CreatedUtc`.
 
 `Unknown` consent cannot be approved. A referenced file is immutable; replacement creates a new
-asset. Paths use the existing scene-image storage safety rules. A pack may hold **multiple Face
-assets with different `FaceView`s** (multi-angle conditioning): the render compiler picks the
-reference whose angle matches the target head angle.
+asset. Paths use the existing scene-image storage safety rules. A pack may hold multiple classified
+face references. A compiler may use only the exact ordered reference layout permitted by its
+qualified capability cell; it never guesses a reference from target angle.
 
-### `IdentityConditioningProfile`
+### `CharacterBodyProfileVersion` and `CharacterWardrobeLookVersion`
 
-Persist as Model Manager image-model settings or a dedicated table if the existing registered
-model cannot express multiple named profiles. Fields: `Id`, `Name`, `Mechanism`, `CheckpointFamily`,
-`WorkflowRevision`, `NodeRevision`, `FaceAdapterArtifact`, `ImageEncoderArtifact`, optional
-`AdditionalArtifactJson`, `IdentityStrength`, `StructureStrength`, `SupportsRegionalMasks`,
-`Enabled`, `CreatedUtc`, `UpdatedUtc`.
+Immutable-on-approval aggregates owned by `CharacterProfileId`. Body versions reference approved
+full-body/silhouette/proportion assets. Wardrobe versions reference approved garment/detail/color
+assets and structured coverage facts. Attempts bind exact versions; supersession never rewrites
+lineage.
+
+### `MediaCapabilityProfile`
+
+Fields include `Id`, `ProviderKey`, `ModelId`, `ModelVersion`, `Operation`, `CompilerId`,
+`CompilerVersion`, `WorkflowRevision`, `NodeRevision`, `ArtifactManifestJson`,
+`SettingsSchemaJson`, `ReferenceLayoutJson`, `ControlLayoutJson`, `ContentPolicyKey`, `Enabled`,
+and timestamps. `MediaCapabilityCell` records actor count, angles, crop, pose/composition class,
+operation, reference/control tuple, qualification state, evidence run, and gate result.
 
 No field has a runtime default. Resolver validation supplies range rules but never substitutes a
 value.
+
+### `ProductionIntentSnapshot` and `CompiledMediaRequest`
+
+The intent snapshot stores resolved B-100 IDs/versions plus typed character, composition, camera,
+style, preservation/change, and policy facts. The compiled record stores exact compiler/profile,
+canonical provider request JSON, ordered reference bindings, content hash, and validation result.
+Neither stores secrets.
+
+### `ProductionWorkload` and `ProductionWorkloadItem`
+
+The workload is the durable user submission aggregate: session, status, goal, policy, cost/readiness
+snapshot, creation/submission timestamps, and item counts. Items bind one intent, selected profile,
+variation count, dependency/group key, state, and current-attempt pointer. Items exist before any
+provider call.
+
+### `ProductionAttempt` and `ProductionDerivative`
+
+Attempts are append-only executions with attempt number/type, exact request snapshot, provider ID,
+state, timing/cost, output/checksum, errors, review result, and supersession relation. A derivative is
+an immutable approved asset linked to exactly one successful attempt and all source lineage.
 
 ### `SceneIdentityAssignment`
 
@@ -75,7 +102,11 @@ Fields: `Id`, `IdentityPackId`, `EvaluationRunId`, `Decision` (`NotRequired`, `R
 erDiagram
     CharacterImageIdentityPack ||--o{ SceneImageReferenceAsset : contains
     CharacterImageIdentityPack ||--o{ SceneIdentityAssignment : binds
-    IdentityConditioningProfile ||--o{ SceneIdentityAssignment : configures
+    MediaCapabilityProfile ||--o{ MediaCapabilityCell : qualifies
+    MediaCapabilityProfile ||--o{ SceneIdentityAssignment : configures
+    ProductionWorkload ||--o{ ProductionWorkloadItem : contains
+    ProductionWorkloadItem ||--o{ ProductionAttempt : executes
+    ProductionAttempt ||--o| ProductionDerivative : approves
     SceneIdentityEvaluationCase ||--o{ SceneIdentityEvaluationResult : produces
     CharacterImageIdentityPack ||--o| CharacterLoraArtifact : may_train
     CharacterImageIdentityPack ||--o{ CharacterIdentityDecision : evaluated_by
@@ -87,11 +118,15 @@ erDiagram
 - Approval freezes the version and requires one approved canonical face.
 - Superseding creates a new draft; old records remain readable.
 - Evaluation cases become immutable once a run starts.
-- Render attempts move `Pending -> Generating -> Complete|Failed` only.
+- Workloads move `Draft -> Ready -> Submitted -> Running -> Reviewable -> Completed|Failed|Cancelled`.
+- Items move `Draft -> Ready -> Queued -> Submitted -> Running -> Reviewable -> Approved|Rejected|Failed|Cancelled`.
+- Attempts move `Created -> Submitted -> Running -> Succeeded|Failed|Cancelled|Expired` and never
+    transition backward. Review/approval is separate from transport success.
+- Capability cells move `Draft -> Proving -> Qualified|Rejected|Retired`; only `Qualified` dispatches.
 
-## Migration Strategy
+## Clean-Baseline Strategy
 
-Use additive `CREATE TABLE IF NOT EXISTS` statements and guarded column additions in
-`SqlitePersistence`. Add indexes for `CharacterProfileId`, pack/status, evaluation run, and render
-attempt. Do not write synthetic packs for existing characters. Existing prompt-only data remains
-valid with no controlled assignment rows.
+Create the production tables/schema and stamp newly created sessions with the required production
+schema generation. Do not backfill, synthesize, dual-write, or adapt prior session/image rows.
+Opening an older session for production fails with create-new-session guidance. Historical proof
+fixtures remain readable outside the runtime compatibility contract.

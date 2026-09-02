@@ -1,7 +1,7 @@
 # Phase 2 Research - Character Identity
 
-**Date:** 2026-08-24
-**Status:** Complete for implementation planning; host proof remains an execution task
+**Date:** 2026-08-24; revised 2026-09-02
+**Status:** External research complete; expanded qualification remains execution work
 
 ## Questions
 
@@ -33,13 +33,19 @@
 
 ## Selected Architecture
 
-Persist a provider-neutral identity pack and a resolved conditioning profile. Compare IP-Adapter and
-PuLID on the actual pinned ComfyUI/Juggernaut environment with the same references, prompts, masks,
-seeds, and scorecard. Select one mechanism from evidence, then integrate only that pinned workflow.
+Persist provider-neutral identity, body, and wardrobe assets plus exact model/workflow capability
+profiles. Qualification attaches to a matrix cell, not a mechanism name. A profile may be qualified
+for one near-frontal actor and rejected for angled or interacting actors at the same time.
 
-The application contract names capabilities (`FaceIdentity`, `FullBodyReference`, `RegionalMask`)
-rather than third-party node names. Provider settings persist the selected mechanism, artifacts,
-strengths, node/workflow revision, and checkpoint family.
+Generation-first identity conditioning and composition-first multi-reference editing are distinct
+candidate operations. IP-Adapter, PuLID, Qwen Edit 2511, FLUX.2 editing, and conditional character
+LoRAs are evaluated under the same frozen facts and scoring rules where capabilities overlap. No
+client, compiler, or dispatcher substitutes one operation for another.
+
+The application contract names semantic capabilities (`FaceIdentity`, `BodyReference`,
+`WardrobeReference`, `RegionalMask`, `MultipleIdentityReferences`, `SourcePreservation`) while a
+qualified profile pins artifacts, workflow/compiler revision, checkpoint/model, reference limits,
+and supported cells.
 
 ## Two-Character Ownership Strategy
 
@@ -87,3 +93,25 @@ or prompt compliance.
 - `https://github.com/QwenLM/Qwen-Image`
 - `https://github.com/Comfy-Org/ComfyUI`
 - Local Qwen proof manifest and `phase-0-architecture-and-evidence/controlnet-touch-proof.md`
+
+## 2026-09-02 External Challenge And Local Reconciliation
+
+The dated provider/model ledger is [`../provider-evidence-matrix.md`](../provider-evidence-matrix.md).
+Its controlling conclusions are:
+
+- FLUX.2 and Qwen Edit multi-reference consistency are candidate capabilities requiring local
+  composition-first identity matrices.
+- Together supports model-specific image references/variations, but current evidence does not
+  establish image generation through its JSONL Batch API.
+- InstantID explicitly lacks multi-person support and has unresolved production licensing limits.
+- IP-Adapter documents adherence/editability and center-crop tradeoffs. The local C2/C3 Dean
+  failures are capability limits, not prompt defects to hide.
+- PuLID SDXL and FLUX variants have different artifacts and fidelity evidence and require separate
+  profiles/matrices.
+- The near-frontal IP-Adapter cells remain candidates only. Multi-angle references and FACEID-v2
+  did not rescue the failed angled cells.
+
+Users select approved references and semantic intent; deterministic model-family compilers build
+provider requests. DeepSeek is not a media-prompt polishing stage. Workloads and attempts snapshot
+exact inputs, compiler/profile/model/workflow versions, provider IDs, and owned outputs. New sessions
+are the baseline; no legacy production-row migration is required.

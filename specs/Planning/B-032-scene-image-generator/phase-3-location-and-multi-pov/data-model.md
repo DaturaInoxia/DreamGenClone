@@ -8,6 +8,10 @@ Fields: `Id`, `LocationKey`, `Name`, `Version`, `Status`, `WidthCm`, `LengthCm`,
 `CoordinateConvention`, `Description`, `VisualStyleJson`, `LightingIntentJson`, `ExclusionsJson`,
 `SupersedesId`, timestamps.
 
+`LocationStateVersion` is a separately approved child/version that records time, weather, lighting,
+temporary dressing, active entrances/openings, palette, references, and supersession. It cannot
+rewrite structural landmarks in the owning profile.
+
 Children:
 
 - `LocationLandmark`: stable `LandmarkKey`, type, dimensions, transform, material/appearance JSON,
@@ -17,7 +21,8 @@ Children:
 ### `SceneVisualPlan`
 
 Fields: `Id`, `ScenarioId`, `SessionId`, `InteractionId`, `BeatAnalysisId`, `BeatKey`, `Version`,
-`Status`, `LocationProfileId`, `WorldStateJson`, `EvidenceSnapshotJson`, `SupersedesId`, timestamps.
+`Status`, `LocationProfileId`, `LocationStateVersionId`, `MomentId`, `MomentVersion`,
+`WorldStateJson`, `InvariantSetJson`, `EvidenceSnapshotJson`, `SupersedesId`, timestamps.
 
 Normalized child records are preferred for fields queried or referenced independently:
 
@@ -32,7 +37,9 @@ Normalized child records are preferred for fields queried or referenced independ
 
 Fields: `Id`, `SceneVisualPlanId`, `ShotKey`, `Version`, `Status`, `CameraTransformJson`,
 `ProjectionType`, `VerticalFovDegrees`, `NearCm`, `FarCm`, `AspectWidth`, `AspectHeight`,
-`CropIntent`, `VisibleKeysJson`, `OcclusionNotes`, `SupersedesId`, timestamps.
+`ShotType`, `Purpose`, `PovActorKey`, `SubjectPriorityJson`, `CropIntent`, `FocusIntentJson`,
+`VisibleKeysJson`, `OccludedKeysJson`, `ScreenDirectionJson`, `MovementIntentJson`,
+`PlacementIntentJson`, `SupersedesId`, timestamps.
 
 ### `SceneControlAsset`
 
@@ -45,6 +52,19 @@ Fields: `Id`, `SceneShotPlanId`, `ControlKind` (`Depth`, `Pose`, `ActorRegion`, 
 Fields: `Id`, `SceneShotPlanId`, `ManifestVersion`, `Status`, `CompilerVersion`, `InputHash`,
 `ManifestJson`, `CreatedUtc`. The manifest lists exact control IDs, dimensions, preprocessing,
 configured model artifacts/weights, and compatibility data.
+
+### `ShotFamily` and `ShotFamilyInvariant`
+
+`ShotFamily` binds one approved visual-plan version to ordered required/optional shot keys and one
+production goal. Invariants use typed subject/predicate/object or property/value facts with
+importance and validation mode. Reviews score family-invariant and shot-specific results separately.
+
+### Production workload relationship
+
+Phase 3 does not create a second queue model. Each shot version compiles to a Phase 2
+`ProductionIntentSnapshot` and `ProductionWorkloadItem`; attempts/derivatives retain exact location
+state, visual plan, shot, invariant set, and control manifest IDs/hashes. B-101 placement references
+the approved derivative and shot placement intent.
 
 ### `SceneSpatialControlProfile`
 
@@ -70,7 +90,7 @@ The editor converts to/from Three.js without changing the persisted convention.
 | New identity pack, actor/object/relationship/landmark/world transform | New visual-plan version; all shots/controls on old plan remain historical but are not current. |
 | Camera, crop, or visible-set change | New shot version; only its controls become stale. |
 | Compiler or configured control profile change | New manifest required for every affected shot. |
-| Prompt-only text edit | Does not mutate the source visual plan. |
+| Location-state version change | New visual-plan version; prior plan/shot/control lineage remains historical. |
 
 Staleness is computed by exact version IDs and `InputHash`, never by timestamps alone.
 
@@ -81,7 +101,8 @@ Staleness is computed by exact version IDs and `InputHash`, never by timestamps 
 - Manifest: `Pending -> Compiling -> Complete|Failed|Stale`.
 - Scene-controlled render attempt uses the Phase 2 monotonic attempt states.
 
-## Migration
+## Clean-Baseline Strategy
 
-Add tables and indexes without backfilling plans for existing Phase 1 images. Add nullable provenance
-foreign keys to render-attempt data only if needed; existing images stay `PromptOnly`.
+Create Phase 3 tables/indexes for new production sessions only. Do not backfill old images, create
+synthetic visual plans, add nullable compatibility provenance, dual-write, or retain prompt-only
+runtime modes. Older sessions fail before Phase 3 mutation with create-new-session guidance.

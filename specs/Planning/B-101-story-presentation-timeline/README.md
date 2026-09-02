@@ -18,7 +18,11 @@ Wrap B-100's canonical multimodal production data in an editable presentation ti
 
 "Storyboard" is the authoring experience. The durable domain is a **Story Presentation Timeline**, because audio and video require duration, overlap, cue timing, and synchronization that cannot belong to a zero-duration frozen Moment.
 
-This feature defines selection, sequencing, presentation timing, submission of already-compiled generation requests, approved-asset placement, publication, and playback contracts. It does not derive dialogue, soundscape, visual state, action arcs, or video coverage from RP prose; those are B-100 outputs. It does not own provider prompt compilation, generator clients, candidate validation, or asset approval, and it does not select image, speech, music, sound-effect, or video generation technology.
+This feature defines selection, sequencing, presentation timing, approved-asset placement,
+publication, and playback contracts. Production submission/review/approval remains in each media
+generator, including B-032's Production Studio. B-101 does not derive dialogue, soundscape, visual
+state, action arcs, or video coverage from RP prose; own provider prompt compilation/transport,
+candidate validation, or asset approval; or select generation technology.
 
 ## Core Hierarchy
 
@@ -60,7 +64,7 @@ flowchart LR
     RP[Roleplay Workspace] -->|authoritative turns and interactions| B100[B-100 Beat and Moment Analysis]
     B100 -->|complete multimodal production plans| TL[Story Presentation Timeline]
     TL --> SB[Storyboard Studio]
-    SB -->|selected B-100 compiler input| MG[Independent Media Generators]
+    SB -->|approved derivative references| MG[Independent Media Generators]
     MG -->|approved assets and provenance| SB
     SB -->|publish immutable revision| PUB[(Published Presentation Revision)]
     PUB --> VN[Visual Novel Player]

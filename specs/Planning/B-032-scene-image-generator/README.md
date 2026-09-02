@@ -1,11 +1,17 @@
 # B-032 — Scene Image Generator Engine
 
-**State:** `planned` (large epic; implementation and acceptance status reconciled below)
+**State:** `planned` (Phase 2/3 production redesign ready; implementation status reconciled below)
 **Program sequencing:** [Multimodal Production Program Roadmap](../multimodal-production-program-roadmap.md)
 **Priority:** low
 **Scope:** large
 **Plan author:** Copilot session 2026-08-19 (refined 2026-08-22)
 **Backlog ref:** `specs/Planning/backlog.md` → B-032
+
+> **2026-09-02 controlling production design:**
+> [`production-architecture.md`](production-architecture.md) and
+> [`provider-evidence-matrix.md`](provider-evidence-matrix.md) supersede legacy one-off assumptions
+> for Phase 2/3. New sessions are the runtime baseline. There is no migration/backfill, dual path,
+> compatibility adapter, prompt-only fallback, or requirement to retain legacy session data.
 
 > **2026-08-31 current-branch reconciliation:** Phase 1 is implemented with T068 manual acceptance
 > open. Phase 1B application infrastructure is implemented, while P1B-009/010 and P1B-036 through
@@ -19,9 +25,11 @@
 
 ## 1. Overview
 
-An engine that generates images for roleplay scenes. The user selects a narrative interaction in
-the RP workspace, clicks **Generate image**, and a dedicated **Image Studio** screen opens. The
-studio runs a **two-stage pipeline**:
+An image-production engine that consumes frozen B-100 Moments, approved production assets, and
+typed user intent; compiles exact model-native requests; prepares durable multi-item workloads;
+captures immutable attempts; and promotes reviewed outputs to approved derivatives for B-101.
+
+The following describes the implemented Phase 1 historical flow, not the Phase 2/3 target:
 
 1. **Pre-processor stage** — a text LLM (function `RolePlaySceneImagePreprocessor`) consumes the
    selected interaction, the scene's overall atmosphere (setting, time of day, phase, characters,
@@ -39,8 +47,8 @@ workspace, and a **fully separate per-session gallery viewer** lists all generat
 with a real image-capable provider. Later phases build out iteration polish, and eventually
 **character likeness** from photos/reference images associated with character profiles (D9).
 
-This document is the design + analysis for B-032: current-state analysis, agreed decisions, domain
-model, implementation phases, and blast radius.
+This document retains the historical design and analysis for B-032. The Phase 2/3 packages and the
+controlling production architecture define the implementation target.
 
 ## 1A. Consolidated Epic Status (2026-08-24)
 
@@ -740,14 +748,14 @@ Per the repo's hard rules (fail fast, no hidden defaults, UI-backed config):
 6. `ModelManager.razor` UI fields + two function-default rows (image filter).
 7. Tests: resolution fail-fast paths, client payload/parse, repo round-trip.
 
-### Phase 2 — Storage + persistence
+### Phase 2 — Storage + persistence (historical Phase 1 plan)
 1. `PersistenceOptions.SceneImageRoot` + appsettings entry.
 2. `SceneImageStorageService` (+ interface).
 3. `SceneImagePrompts` + `SceneImages` tables + `ISceneImageRepository` + impl (incl. counts).
 4. Static-file serving for `/scene-images`.
 5. Tests: storage save/open, repo CRUD, status transitions.
 
-### Phase 3 — Two-stage pipeline (D4, D5)
+### Phase 3 — Two-stage pipeline (historical Phase 1 plan)
 1. `SceneImagePromptPreprocessor` (LLM prompt builder + output parse + SFW clamp).
 2. `SceneImageService` (prompt + render enqueue/list/get/delete/counts) + DTOs.
 3. Two job payloads + `BackgroundJobTypes` consts + two handlers.

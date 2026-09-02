@@ -2,13 +2,14 @@
 
 ## Summary
 
-Add identity assets and immutable pack versions, prove one SDXL conditioning mechanism, then add a
-new controlled render path that compiles actor-scoped references and regions. Existing prompt-only
-and Qwen-edit paths remain unchanged.
+Build from the existing identity POC into a clean-session character production system: shared asset
+curation, separate identity/body/wardrobe versions, cell-qualified model capabilities,
+family-specific deterministic compilers, durable multi-item workloads, immutable attempts, and a
+context-preserving Production Studio.
 
-Phase 1B first establishes the multimodal transport, dedicated edit workbench, source-aware Qwen
-prompt compilation, and edit provenance. Phase 2 reuses those contracts where applicable but does
-not merge identity conditioning with edit compilation.
+Generation and source editing remain separate operations but share the asset, capability, workload,
+attempt, lineage, review, and approval architecture. New sessions are the only runtime baseline;
+there is no compatibility path for the existing one-off records.
 
 ## Change Surface
 
@@ -52,20 +53,30 @@ not merge identity conditioning with edit compilation.
 
 1. **Persistence slice:** records, schema, repository, safe files, approval rules.
 2. **Curation slice:** character identity-pack UI and provenance/consent workflow.
-3. **Proof slice:** frozen candidate workflows and 12-output scorecard.
-4. **Configuration slice:** selected mechanism fields, resolver, health diagnostics.
-5. **Rendering slice:** compiler, client, job, Studio action, provenance.
-6. **Decision slice:** evaluation UI/report and LoRA decision; implement LoRA only if required.
+3. **Production schema slice:** capability cells, intents, workloads, attempts, derivatives, clean
+  session-generation gate.
+4. **Compiler slice:** Pony, SDXL/Juggernaut/BigLust, FLUX.2, Qwen generation, and Qwen Edit
+  registries with exact schema validation.
+5. **Dispatch slice:** Together/RunPod adapters, grouping, immediate provider-ID persistence,
+  transient-result capture, and restart reconciliation.
+6. **Asset Manager slice:** shared catalog/pickers plus identity/body/wardrobe version workflows.
+7. **Production Studio slice:** persistent context, workload preparation, queue, attempts,
+  comparison, inspector, review, and approval.
+8. **Qualification slice:** cell-based matrix UI/report, composition-first candidates, LoRA
+  decision, and application-path reruns.
 
 Each slice receives narrow tests, solution build, and full tests before the next slice.
 
 ## Blast Radius
 
-Additive scene-image and character-profile surfaces. Existing sessions and image rows require no
-backfill. The greatest risk is ComfyUI dependency drift; mitigate it with pinned workflow/node/model
-revisions and contract tests. The RP generation engine is out of scope.
+Existing sessions are intentionally unsupported by the production surfaces. The greatest risks are
+provider/workflow drift, duplicate submission after interruption, transient provider output loss,
+and falsely broad qualification. Mitigate with exact versions/schemas, persisted provider IDs,
+owned storage, immutable snapshots, and cell-level gates. The RP generation engine is out of scope.
 
 ## Rollout
 
-Identity control is exposed as an explicit Studio mode only after a profile passes the proof gate.
-Prompt-only remains available as a separate mode. Do not feature-flag a hidden downgrade path.
+Create a new session, curate/approve assets, qualify exact capability cells, prepare a workload,
+dispatch compatible groups, review attempts, and approve derivatives. Remove the old one-off Studio
+path from the new-session workflow when its production replacement is complete; do not preserve it
+as a hidden downgrade.

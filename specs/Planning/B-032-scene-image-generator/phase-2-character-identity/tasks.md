@@ -135,3 +135,73 @@ evidence are recorded.
 - [ ] P2-031 If and only if `Required`, create an approved LoRA sub-plan and dataset manifest before
   any training; evaluate the artifact with the same matrix.
 - [ ] P2-032 Run affected tests, solution build, full test suite, and record the manual exit gate.
+
+## G. Clean Production Foundation
+
+- [ ] P2-033 Reconcile completed POC records with FR2-001 through FR2-045 and record the forward-only
+  replacement map; preserve proof history and add no legacy adapter.
+- [ ] P2-034 Add session production-schema generation and reject older sessions with create-new-session
+  guidance before any production mutation.
+- [ ] P2-035 Add body-profile and wardrobe-look version aggregates, repositories, approval rules,
+  provenance, consent/license, and in-use deletion guards.
+- [ ] P2-036 Add media capability profile/cell, production intent, compiled request, workload/item,
+  attempt, derivative, review, and ordered-reference-binding records and schema.
+- [ ] P2-037 [P] Add clean-baseline, migration/schema, immutability, state-transition, concurrency,
+  content-hash, and retention tests.
+
+## H. Model-Native Compilation And Qualification
+
+- [ ] P2-038 Reconcile the provider evidence ledger with the canonical compiler standards and
+  family instruction files before coding: add researched exact settings/rules for FLUX.2 and Qwen
+  generation, preserve current Pony/SDXL/Qwen Edit load-bearing rules, and record any deviation.
+- [ ] P2-039 [P] Implement Pony and SDXL/Juggernaut/BigLust compilers using the canonical model-family
+  standards and exact capability schemas.
+- [ ] P2-040 [P] Implement FLUX.2 generation/edit compilers with structured reference roles,
+  variant-specific validation, and no negative-prompt field.
+- [ ] P2-041 [P] Implement separate Qwen generation and Qwen Edit 2511 compilers with ordered
+  multi-image preservation/change contracts.
+- [ ] P2-042 Add compiler fixtures/golden request tests proving deterministic output, legal fields,
+  explicit ownership, no secret leakage, and fail-fast missing data.
+- [ ] P2-043 Add the strict compiler registry plus capability-cell persistence,
+  qualification/reporting, and dispatch guard; ambiguity or absence fails.
+- [ ] P2-044 Freeze and execute composition-first Qwen Edit/FLUX identity matrices against the
+  failed angled cells; retain all outputs and qualify only passing cells.
+- [ ] P2-045 Record per-character LoRA decisions; when `Required`, approve the dataset/training plan
+  before training and qualify exact inference cells with unchanged gates.
+
+## I. Durable Workloads And Provider Dispatch
+
+- [ ] P2-046 Add workload draft/readiness/submission service with source-version, policy, endpoint,
+  grouping, item/output-count, and cost diagnostics.
+- [ ] P2-047 Add compatible dispatch grouping and separate provider adapters; use Together image
+  variations only where supported and do not use Together JSONL Batch without official image support.
+- [ ] P2-048 Add RunPod queued dispatch with immediate provider-ID persistence and B-102 transport
+  contract integration.
+- [ ] P2-049 Add result reconciliation, transient URL capture, owned storage, stale/late result
+  handling, cancellation, and retry-as-new-attempt.
+- [ ] P2-050 [P] Add crash/restart, duplicate-suppression, late-result, multi-variation, partial-group,
+  timeout, and cost/accounting tests.
+
+## J. Asset Manager And Production Studio
+
+- [ ] P2-051 Read Razor instructions and full existing Asset/Scene Image Studio context; freeze the
+  new shared shell, responsive constraints, keyboard/focus, and context-state contract.
+- [ ] P2-052 Build shared Asset Manager browse/filter/preview/picker/provenance/lineage/approval
+  surfaces for face, body, and wardrobe assets.
+- [ ] P2-053 Build Production Studio context rail/media pool/canvas-inspector/attempt strip/queue
+  workspace with stable Moment/request/attempt switching.
+- [ ] P2-054 Add semantic intent editing, reference-role selection, readiness/cost/group preview,
+  prepare/submit/cancel/retry/review/approve actions, and exact request inspection.
+- [ ] P2-055 Remove the old one-off generation action from new-session production navigation after
+  feature parity; do not retain it as a fallback.
+- [ ] P2-056 [P] Add service/component tests, Razor diagnostics, accessibility checks, and Playwright
+  desktop/mobile workflow screenshots with no overlap or context loss.
+
+## K. Phase 2 Release Gate
+
+- [ ] P2-057 Run all historical and new qualification cells through the application path and verify
+  snapshots against standalone proofs without reclassifying failures.
+- [ ] P2-058 Run affected tests, solution build, full suite, Razor diagnostics, provider smoke tests,
+  restart recovery, and security/retention checks; record exact current results.
+- [ ] P2-059 Record the Phase 2 release decision, qualified/rejected cells, LoRA decisions, residual
+  risks, cost observations, and Phase 3 handoff.

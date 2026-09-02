@@ -1,7 +1,7 @@
 # Phase 3 Research - Location Continuity and Multi-POV
 
-**Date:** 2026-08-24
-**Status:** Complete for implementation planning
+**Date:** 2026-08-24; revised 2026-09-02
+**Status:** Complete for implementation planning; combined capability proof remains execution work
 
 ## Problem
 
@@ -62,6 +62,10 @@ Reusable location facts must be distinguished from one-scene temporary objects.
 5. Render without asking an LLM to reinterpret cast/layout per shot.
 6. Compare shots for invariant facts and record discrepancies in Phase 4.
 
+The production revision groups these shots into one durable workload, while each attempt remains
+immutable and independently reviewable. Shot-family invariants are scored separately from camera-
+specific facts. Fixed seeds are provenance, not continuity evidence.
+
 ## Alternatives Rejected
 
 | Alternative | Reason |
@@ -88,3 +92,11 @@ defines the validator/repair policy.
 - `https://docs.blender.org/manual/en/latest/advanced/command_line/render.html`
 - `https://github.com/lllyasviel/ControlNet`
 - Local Phase 0 control and inpainting proofs
+
+## 2026-09-02 Production Conclusions
+
+The cross-provider findings and source ledger are in
+[`../provider-evidence-matrix.md`](../provider-evidence-matrix.md). They require exact combined
+qualification for identity + location references + controls; deterministic model-native compilation
+without LLM prompt polishing; provider-specific grouping; owned output capture and restart recovery;
+explicit shot-family invariants and B-101 placement contracts; and a new-session runtime baseline.
