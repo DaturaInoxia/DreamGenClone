@@ -6,9 +6,15 @@ applyTo: DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs,D
 # SDXL / Juggernaut Prompting Rules (Scene Image Generator)
 
 > The photorealistic companion to `pony-v6-prompting.instructions.md`. SDXL-family checkpoints
-> (`sd_xl_base_1.0`, **Juggernaut XL**, RealVisXL, ...) read **natural-language photography briefs**,
-> NOT Pony's danbooru tag vocabulary. These rules were validated by live generation on the RunPod
-> pod 2026-08-23. The Pony code path is **untouched** — SDXL is a fully separate implementation.
+> (`sd_xl_base_1.0`, **Juggernaut XL**, RealVisXL, Big Lust, ...) read **natural-language photography
+> briefs**, NOT Pony's danbooru tag vocabulary. These rules were validated by live generation on the
+> RunPod pod 2026-08-23. The Pony code path is **untouched** — SDXL is a fully separate implementation.
+>
+> **GOVERNANCE — read first:** `scene-image-prompt-compiler-standards.instructions.md` is the
+> CANONICAL standards + research doc for all prompt compilers. It contains the externally-researched
+> prompting technique, the authoritative model-settings envelope (§3), and the HARD RULES that govern
+> every future compiler change (no "just get an image" tweaks). This file is the practical
+> pod-validated rule set; the standards file is the research + governance behind it.
 
 ## The model's real nature
 

@@ -4,6 +4,23 @@
 
 This record maps Phase 13 acceptance tasks to executable evidence. It does not close the configured-model corpus gates, final full-suite acceptance, legacy-removal audit, or backlog advancement.
 
+## Associated Backlog Items
+
+Backlog items tied to B-100's Phase 13 (Final Validation). This table is the anchor for
+session tracking; more B-100-related items are expected to be filed and appended here this
+session, and a plan update is pending once those items are added.
+
+| Backlog Item | State | Relationship to Phase 13 |
+|---|---|---|
+| B-100 | `planned` | Owning item. Phase 13 is its Final Validation; T177 records acceptance and advances this item's state only after T172 closes. |
+| B-101 | `designed` | Consumes B-100 production contracts. In-scope Phase 13 tasks: T175 (imports production facts without semantic rediscovery) and T154 (B-101 source-of-truth hierarchy in operator docs). |
+| B-103 | `new` | Production Studio Composition stage follow-on. Surfaces the B-100 Composition stage (Phase 9A) exact prompt / render controls / model selector. Not a Phase 13 gate; tracked alongside Phase 13 because it extends the same production surface. Related: B-100, B-097, B-102, B-032. |
+| B-104 | `new` | Scene image prompt compiler standards — formal external research + model settings + change governance. Canonical doc: `.github/instructions/scene-image-prompt-compiler-standards.instructions.md`. Research/governance prerequisite for B-103 part B (the `BuildCanonicalSystemPrompt` fix); not a Phase 13 gate. Related: B-100, B-103. |
+| B-102 | `debugging` | Explicitly **not** B-100-owned ("does not own B-100 canonical media semantics or B-101 presentation"). Listed for disambiguation only — out of Phase 13 scope. |
+
+Not Phase-13-associated (B-100 image-generation prerequisites/relatives, tracked in their
+own streams): B-032, B-097, B-098, B-099.
+
 ## Validation Matrix
 
 | Task | Status | Executable evidence | Result |
