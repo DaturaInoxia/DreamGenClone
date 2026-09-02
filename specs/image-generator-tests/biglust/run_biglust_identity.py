@@ -34,7 +34,7 @@ ID_SUITE = os.path.join(REPO, "specs", "image-generator-tests", "identity-two-ch
 REF_DIR = os.path.join(ID_SUITE, "refs", "multiangle")
 MASKS_DIR = os.path.join(ID_SUITE, "masks")
 
-ENDPOINT_ID = "ovwnwol2o30grn"
+ENDPOINT_ID = "yhae6ihkabyb0o"  # 2026-09-01: recreated via GitHub Integration (was ovwnwol2o30grn)
 BASE = f"https://api.runpod.ai/v2/{ENDPOINT_ID}"
 CHECKPOINT = "bigLust_v16.safetensors"
 

@@ -1,0 +1,70 @@
+{
+  "suite": "deanv6-front-focused",
+  "model": "bigLust_v16.safetensors",
+  "runDir": "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\biglust\\runs\\2026-09-02_132309-deanv6-front",
+  "generatedUtc": "2026-09-02T17:27:56.063892+00:00",
+  "endpointId": "yhae6ihkabyb0o",
+  "note": "Focused sfw-identity-1p-dean text-vs-ip after v6 front swap (dean_front = Real-ESRGAN upscaled clean PNG). Matched seed.",
+  "cells": [
+    {
+      "id": "sfw-identity-1p-dean-text",
+      "suite": "sfw-identity",
+      "pose": "neutral portrait",
+      "variant": "text",
+      "seed": 20260902,
+      "prompt": "photo (medium), 8k, high quality, cinematic, portrait of one adult man with short brown hair, stubble, blue eyes, and broad shoulders, wearing a t-shirt, standing facing the camera, neutral expression, soft studio lighting, 35mm lens, sharp focus, highly detailed",
+      "result": "PASS",
+      "jobId": "5471a167-5362-425c-8d08-1b2fd953a576-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-09-02_132309-deanv6-front/images/sfw-identity-1p-dean-text.png",
+      "sha256": "F3EAE758C46143D100AC8B8D70989DDA4C9721AC7D3648CDC439EB1C57A6DFDC"
+    },
+    {
+      "id": "sfw-identity-1p-dean-ip-w08",
+      "suite": "sfw-identity",
+      "pose": "neutral portrait (ip weight 0.8)",
+      "variant": "w08",
+      "seed": 20260902,
+      "prompt": "photo (medium), 8k, high quality, cinematic, portrait of one adult man with short brown hair, stubble, blue eyes, and broad shoulders, wearing a t-shirt, standing facing the camera, neutral expression, soft studio lighting, 35mm lens, sharp focus, highly detailed",
+      "result": "PASS",
+      "jobId": "31553559-e73f-4b4d-961e-1f6161023cd8-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-09-02_132309-deanv6-front/images/sfw-identity-1p-dean-ip-w08.png",
+      "sha256": "E5E48534F6828C90BD6FC08923F56F5BE8C910FC278315887A0E3BC0A20F95E9"
+    },
+    {
+      "id": "sfw-identity-1p-dean-ip-w07",
+      "suite": "sfw-identity",
+      "pose": "neutral portrait (ip weight 0.7)",
+      "variant": "w07",
+      "seed": 20260902,
+      "prompt": "photo (medium), 8k, high quality, cinematic, portrait of one adult man with short brown hair, stubble, blue eyes, and broad shoulders, wearing a t-shirt, standing facing the camera, neutral expression, soft studio lighting, 35mm lens, sharp focus, highly detailed",
+      "result": "PASS",
+      "jobId": "41315f23-0c21-4331-bdec-9c7910041a58-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-09-02_132309-deanv6-front/images/sfw-identity-1p-dean-ip-w07.png",
+      "sha256": "0C4F8AB8A01DDC2F23AFD5DFB221B1AA38E3E4B925595FB577E00A16C82CF55E"
+    },
+    {
+      "id": "sfw-identity-1p-dean-ip-w065",
+      "suite": "sfw-identity",
+      "pose": "neutral portrait (ip weight 0.65)",
+      "variant": "w065",
+      "seed": 20260902,
+      "prompt": "photo (medium), 8k, high quality, cinematic, portrait of one adult man with short brown hair, stubble, blue eyes, and broad shoulders, wearing a t-shirt, standing facing the camera, neutral expression, soft studio lighting, 35mm lens, sharp focus, highly detailed",
+      "result": "PASS",
+      "jobId": "3a86e69c-0b36-45f6-87c0-0529846e51fb-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-09-02_132309-deanv6-front/images/sfw-identity-1p-dean-ip-w065.png",
+      "sha256": "A26D351BD0B7A03AFED4C371EA25A3FFD12FB4839109CF9B36B2FB4AD6524F2F"
+    },
+    {
+      "id": "sfw-identity-1p-dean-ip-w06",
+      "suite": "sfw-identity",
+      "pose": "neutral portrait (ip weight 0.6)",
+      "variant": "w06",
+      "seed": 20260902,
+      "prompt": "photo (medium), 8k, high quality, cinematic, portrait of one adult man with short brown hair, stubble, blue eyes, and broad shoulders, wearing a t-shirt, standing facing the camera, neutral expression, soft studio lighting, 35mm lens, sharp focus, highly detailed",
+      "result": "PASS",
+      "jobId": "c1bb8798-2502-4803-b44b-8343817d3769-u2",
+      "image": "specs/image-generator-tests/biglust/runs/2026-09-02_132309-deanv6-front/images/sfw-identity-1p-dean-ip-w06.png",
+      "sha256": "E81A47EA948B48E74630801B1E42AD63F7918675F6E0A7EBA2C343D6D35F0D14"
+    }
+  ]
+}

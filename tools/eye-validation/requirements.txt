@@ -1,0 +1,9 @@
+# Eye validation tool — pinned dependencies
+# Install into the repo venv (d:/src/DreamGenClone/.venv):
+#   python -m pip install -r tools/eye-validation/requirements.txt
+#
+# mediapipe MUST stay 0.10.x: 1.x removed `mp.solutions` (the tasks API needs an
+# external .task model download and loses the simple iris-landmark workflow).
+mediapipe==0.10.21
+opencv-python-headless==4.10.0.84
+numpy

@@ -86,6 +86,11 @@ A permanent .NET 9 console project lives at `DreamGenClone.DbQuery/DreamGenClone
 - Full schema, all commands, and usage examples are in `.github/instructions/dbquery-reference.instructions.md`.
 - **Do not create ad-hoc query projects.** This first-class project is the supported query entry point.
 
+## Approved Agent Tools (MANDATORY — see tools/README.md)
+
+- **Approved developer/validation tools live in `tools/` (git-tracked), NOT in `artifacts/tmp/`** — `artifacts/` is git-ignored, so anything only in `artifacts/tmp/**` is ephemeral and not reproducible/committed. Promote a tool into `tools/<name>/` (script + README.md + pinned requirements.txt) and register it in `tools/README.md` before relying on it. Tools must write outputs to git-ignored paths.
+- **Face/eye validation** (identity refs, IP-Adapter renders, character faces) MUST use the canonical `tools/eye-validation/measure_iris.py` (MediaPipe iris landmarks). Haar box centers / dark-region centroids / Hough circles are KNOWN-BAD for pinpointing irises on photoreal faces — do not re-derive a checker from them. Agent rules: `.github/instructions/agent-tools.instructions.md`.
+
 ## DB Snapshot & Portable Database (IMPORTANT)
 
 - There are TWO databases in `DreamGenClone.Web/data/`:
