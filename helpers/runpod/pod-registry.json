@@ -4,8 +4,6 @@
   "purpose": "Fresh pod-creation registry for the runpod-pod-creation skill. Used when a pod cannot be started and RunPod manual migration fails (no available GPU). Fresh pods start with an EMPTY local volume, so each entry carries from-scratch provisioning steps (model re-download).",
   "cloudDefault": "SECURE",
   "notes": [
-    "B-101 (2026-08-27): Serverless migration IN PROGRESS. Plan: specs/Planning/B-101-serverless-migration/plan.md. Serverless endpoint registry + scaffold: helpers/runpod/serverless/ (README.md, endpoints.json, worker Dockerfiles/handlers, create-endpoint/smoke-test/build-on-pod helpers). Migration order: DWPose (infra proof) -> Juggernaut -> identity -> Qwen VL -> Qwen Edit. Pods are STOPPED-NOT-DELETED as rollback until each endpoint soaks green; deprovision (and this note) only after cutover.",
-    "B-101 QWEN EDIT MODEL DECISION (2026-08-28): the stock qwen_image_edit_2511_fp8mixed.safetensors is safety-aligned (breasts render, genital region blanks to a 'mannequin'). Pod-side fix with Scottzilla MCNL v1 NSFW LoRA FAILED proof (anatomy confusion - both figures got female anatomy); the LoRA-on-fp8-UNET path is dead. The serverless qwen-edit-worker MUST use the merged checkpoint Phr00t/Qwen-Image-Edit-Rapid-AIO-NSFW-v23 (26.48 GB FP8, ungated at huggingface.co/Phr00t/Qwen-Image-Edit-Rapid-AIO/resolve/main/v23/Qwen-Rapid-AIO-NSFW-v23.safetensors; SFW sibling Qwen-Rapid-AIO-SFW-v23.safetensors). No runtime LoRA needed (LoRAs baked). Requires CheckpointLoaderSimple workflow (not UNETLoader split) + ~4-8 steps / 1 CFG / euler_ancestral/beta. GGUF NVFP4 variants are a dead end (need Blackwell/CUDA 13+). Full detail in the B-101 plan.md MODEL DECISION block.",
     "There is no RunPod REST availability endpoint. create-pod.ps1 passes candidateGpuTypeIds in order with gpuTypePriority=custom; RunPod rents the FIRST GPU with current capacity. Cheapest-first ordering implements the 'cheaper when it still supports the workflow and is not too slow' policy.",
     "SECURE cloud = on-demand reserved (no preemption, guaranteed public IP, SSH TCP works). COMMUNITY cloud = cheaper spot capacity but preemptible and no public-IP guarantee; only use if the manifest tooling (SSH, proxy) is confirmed to work there.",
     "Fresh pod = empty /workspace. Every pod below re-downloads its models via its provision script. Model download size is noted per pod.",
@@ -100,15 +98,15 @@
         "NVIDIA RTX PRO 5000 Blackwell",
         "NVIDIA L40S"
       ],
-      "candidateNotes": "Qwen Image Edit 2511 fp8 requires ~48 GB VRAM (20.5 GB diffusion + 9.4 GB TE + VAE, fp8 scaling). 24 GB is NOT enough. A40 is the cheapest 48 GB; the preserved pod already proved Qwen Edit on A40. 2026-08-28: added MCNL v1 NSFW LoRA (ScottzillaSystems/qwen-image-edit-plus-nsfw-lora, 563 MB) for explicit-anatomy editing.",
-      "modelDownloadGb": 31,
+      "candidateNotes": "Qwen Image Edit 2511 fp8 requires ~48 GB VRAM (20.5 GB diffusion + 9.4 GB TE + VAE, fp8 scaling). 24 GB is NOT enough. A40 is the cheapest 48 GB; the preserved pod already proved Qwen Edit on A40.",
+      "modelDownloadGb": 30,
       "provision": [
         {
           "kind": "provision-script",
           "path": "helpers/runpod/qwen-image-edit-2511/provision-runtime.sh",
           "args": ["/workspace/comfyui-qwen-2511"],
           "env": {},
-          "note": "Clones pinned ComfyUI rev e4c61d7, venv, deps, downloads+verifies 3 models (~30 GB) AND MCNL v1 NSFW LoRA (563 MB) into models/loras/ (added 2026-08-28)."
+          "note": "Clones pinned ComfyUI rev e4c61d7, venv, deps, downloads+verifies all 3 models (~30 GB)."
         },
         {
           "kind": "prep-command",
@@ -133,15 +131,14 @@
         "providerId": "0b7fb8dc-a07e-44ee-9418-c613a8230253",
         "providerName": "RunPod Qwen Image Edit",
         "registeredModel": "qwen_image_edit_2511_fp8mixed.safetensors",
-        "nsfwLoRA": "qwen-image-edit-plus-nsfw-lora.safetensors (MCNL v1, ScottzillaSystems) - PROOF FAILED 2026-08-28 (anatomy confusion); do not use for app integration",
         "updateEndpoint": true
       },
       "persistence": {
         "standard": "helpers/runpod/POD-PERSISTENCE.md",
-        "persistentOnWorkspace": "comfyui-qwen-2511/ clone + models (incl. MCNL v1 NSFW LoRA) + .venv",
+        "persistentOnWorkspace": "comfyui-qwen-2511/ clone + models + .venv",
         "ephemeralRestoredByPreStart": "isolated ComfyUI process on 3002 (bound 0.0.0.0 for proxy)",
         "autoStartOnBoot": "DONE 2026-08-27: /pre_start.sh hook auto-starts ComfyUI on 0.0.0.0:3002",
-        "notes": "tokenizers fix documented in provision steps. Service verified reachable via RunPod proxy (comfyui 0.6.0). MCNL v1 NSFW LoRA added 2026-08-28 (download-models.sh verifies size+SHA); PROOF FAILED same day (male got female anatomy) -> pod LoRA path dead. Serverless qwen-edit-worker must use Phr00t Rapid-AIO-NSFW-v23 merged checkpoint instead - see B-101 plan.md MODEL DECISION + pod-registry notes."
+        "notes": "tokenizers fix documented in provision steps. Service verified reachable via RunPod proxy (comfyui 0.6.0)."
       },
       "recreateDefault": true
     },

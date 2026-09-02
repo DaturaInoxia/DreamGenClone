@@ -81,6 +81,10 @@ if ($entry.PSObject.Properties.Name -contains 'dataCenterIds' -and $entry.dataCe
 if ($entry.PSObject.Properties.Name -contains 'flashboot' -and $entry.flashboot) {
     $bodyObj.flashboot = [string]$entry.flashboot
 }
+if ($entry.PSObject.Properties.Name -contains 'env' -and $entry.env) {
+    $bodyObj.env = @{}
+    $entry.env.PSObject.Properties | ForEach-Object { $bodyObj.env[$_.Name] = [string]$_.Value }
+}
 $body = $bodyObj | ConvertTo-Json -Depth 8
 
 Write-Host "============================================================"

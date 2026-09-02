@@ -234,40 +234,6 @@ In **Model Manager**, assign this registered model as the sole active default fo
 Do not assign it to `RolePlaySceneImageEditor`; that function remains the separate Qwen Image Edit
 2511 ComfyUI deployment. Do not configure a fallback model for the compiler function.
 
-## BigLust Serverless Text-to-Image
-
-RunPod Serverless endpoint `img-biglust-serverless` was created and technically qualified on
-2026-08-31. It is a separate SDXL text-to-image endpoint; do not modify or repoint the
-Juggernaut Serverless provider. The canonical endpoint and artifact record is
-`helpers/runpod/serverless/endpoints.json`.
-
-### Another-Instance Model Manager Setup
-
-Create an enabled image-only provider and one enabled model. Store the RunPod API key through the
-instance's encrypted credential configuration only; do not place it in source-controlled notes,
-the provider name, or model provenance.
-
-| Field | Required value |
-|---|---|
-| Provider name | `RunPod Serverless BigLust` |
-| Base URL | `https://api.runpod.ai/v2/ovwnwol2o30grn` |
-| Image capability | `ImageOnly` |
-| Image protocol | `ComfyUiServerless` |
-| Image generation path | `/run` |
-| Content policy | `AdultAllowed` |
-| Credential | The configured RunPod API key for this account, stored encrypted on that instance |
-| Model display name | `BigLust v1.6 Serverless` |
-| Model identifier | `bigLust_v16.safetensors` |
-| Model kind | `Image` |
-| Artifact revision | Civitai model `575395`, version `1081768`, SHA-256 `4C1E096B9493DBB5C0AB84FD80FD20AA64817544E565DDA95A45C637FC839AAF` |
-| Provider/model notes | Endpoint key `img-biglust-serverless`; endpoint ID `ovwnwol2o30grn`; Network Volume `xkslgh6xo0`; worker image `runpod/worker-comfyui:5.8.4-base` |
-
-The resulting run URL is `https://api.runpod.ai/v2/ovwnwol2o30grn/run`; job status is resolved
-through the same base URL. Before assigning the model to any function, use **Test Connection** and
-perform the application image-generation round trip. The endpoint passed a technical smoke test and
-three reduced qualification cases, but the full Juggernaut suite and application round trip remain
-pending. Keep the current application default unchanged until those gates pass.
-
 ## Other Pods and Model Manager
 
 | Pod | Application role | Current Model Manager action |
@@ -275,7 +241,6 @@ pending. Keep the current application default unchanged until those gates pass.
 | Juggernaut | `RolePlaySceneImage` | Configure/retain the ComfyUI image provider and the enabled Juggernaut image model only after endpoint and workflow identity proof. |
 | Qwen Image Edit 2511 | `RolePlaySceneImageEditor` | Configure/retain the ComfyUI image provider, pinned editor artifacts/settings, and the editor function default only after the port `3002` endpoint is healthy. |
 | Qwen VL | `RolePlaySceneImageEditPromptCompiler` | Configure as described above after vLLM provisioning and proof. |
-| BigLust Serverless | Selectable `RolePlaySceneImage` candidate | Create the separate provider/model using the table above. It passed endpoint smoke and reduced qualification on 2026-08-31; do not change the function default until the application round trip and full qualification suite pass. |
 | DWPose | No Model Manager function assignment yet | Provisioned + service-proven 2026-08-26 on migration successor `bmcqknli61o49b` (endpoint `https://bmcqknli61o49b-3003.proxy.runpod.net`; repro: `deployments/pose-dwpose/provision-runtime.sh` + `README.md`). Still do not register as an image model or compiler until its dedicated service contract and application capability integration exist. |
 | Preserved Qwen A40 pod | None | Keep disabled and unassigned. |
 

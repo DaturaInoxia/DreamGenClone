@@ -1,15 +1,11 @@
-# BigLust worker (also identity-capable): stock runpod/worker-comfyui base + ComfyUI_IPAdapter_plus.
+# Juggernaut worker (also identity-capable): stock runpod/worker-comfyui base + ComfyUI_IPAdapter_plus.
 #
-# This is the worker for the img-biglust-serverless endpoint. It serves BOTH plain
-# SDXL/BigLust T2I AND identity-conditioned renders (IP-Adapter regional, single- or
-# multi-character) from ONE endpoint. It is the BigLust counterpart of
-# helpers/runpod/serverless/juggernaut-identity-worker/Dockerfile (same pattern, separate image).
-#
-# No models are baked here — the checkpoint (bigLust_v16.safetensors), IP-Adapter
-# (models/ipadapter/) and CLIP-vision (models/clip_vision/) files all live on the Network Volume
-# xkslgh6xo0 at /runpod-volume/models/*, which the official worker-comfyui base auto-detects.
-# The workflow selects the checkpoint via ckpt_name (bigLust_v16.safetensors) — the image itself
-# is checkpoint-agnostic and shared on the volume.
+# This is the worker for the img-juggernaut-serverless endpoint. It serves BOTH plain
+# SDXL/Juggernaut T2I AND identity-conditioned renders (IP-Adapter regional, single- or
+# multi-character) from ONE endpoint. No models are baked here — the checkpoint
+# (juggernautXL_ragnarok.safetensors), IP-Adapter (models/ipadapter/) and CLIP-vision
+# (models/clip_vision/) files all live on the Network Volume xkslgh6xo0 at /runpod-volume/models/*,
+# which the official worker-comfyui base auto-detects.
 #
 # IPAdapterUnifiedLoader "PLUS FACE (portraits)" resolves:
 #   - /runpod-volume/models/ipadapter/ip-adapter-plus-face_sdxl_vit-h.safetensors
@@ -18,9 +14,9 @@
 # DEPLOYMENT: RunPod GitHub Integration ("Start from GitHub Repo", repo DaturaInoxia/DreamGenClone,
 # branch master) — RunPod clones this repo, builds this Dockerfile, and updates the endpoint on
 # every push (a GitHub RELEASE is required for the rebuild to apply). See docs/deployment.md Method 2.
-# The Dockerfile PATH is what generates the private image slug (registry.runpod.net/...biglust-worker-dockerfile:<sha>),
-# so this endpoint MUST be created from this path — NOT from juggernaut-identity-worker/Dockerfile,
-# otherwise it would pull the Juggernaut image build.
+#
+# Proof of this image: helpers/runpod/serverless/run-all-proofs.ps1 (identity-2char proof = the
+# matrix c1 workflow + identity-2char-c1.images.json through endpoint img-juggernaut-serverless).
 FROM runpod/worker-comfyui:5.8.4-base
 
 # IP-Adapter custom node (regional identity conditioning). comfy-node-install is the official tooling
