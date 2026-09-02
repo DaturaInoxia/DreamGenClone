@@ -1,0 +1,65 @@
+{
+  "suite": "identity-single-character",
+  "purpose": "Single-character identity conditioning proof (Dean). Validated that a 1024x1024 render holds ONE character's identity from a single reference face via IP-Adapter PLUS FACE, before the two-character matrix was attempted.",
+  "mechanism": "IP-Adapter PLUS FACE (portraits), weight 0.8 (selected); PuLID smoke-tested",
+  "checkpoint": "juggernautXL_ragnarok.safetensors",
+  "sampler": {
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0
+  },
+  "size": {
+    "width": 1024,
+    "height": 1024
+  },
+  "proofPod": "7i2mutjmry5tkt (EXITED as of 2026-08-27)",
+  "character": "Dean",
+  "prompt": "a young man, head and shoulders portrait, looking at the camera, neutral expression, studio lighting, photorealistic, sharp focus",
+  "outcome": {
+    "date": "2026-08-26",
+    "result": "IP-Adapter PLUS FACE (0.8) validated end-to-end - face matches reference. PuLID smoke render captured. NSFW confirmed on proof pod.",
+    "decision": "IP-Adapter PLUS FACE selected as the mechanism; single-reference semantics (one face per render) established - multi-character requires regional conditioning (see identity-two-character suite)."
+  },
+  "seeds": {
+    "ipadapter": 20256,
+    "pulid": 20256
+  },
+  "assets": {
+    "prompts": {
+      "ipadapter-single-dean.json": {
+        "bytes": 1852,
+        "sha256": "d3698b2e5e540622483c2d68fcfc6fa0f9f4e99e23982e765e7fa1cc855b40d8"
+      },
+      "pulid-single-dean.json": {
+        "bytes": 2075,
+        "sha256": "30a4848f1fc7cacfcd73f4c7c5b0aba5f365f210fa454558877f381349fa74eb"
+      }
+    },
+    "imagesSmoke": {
+      "ipadapter-dean-single.png": {
+        "bytes": 964216,
+        "sha256": "930cf0ddaad165c8655676405d41715b89a9e27cd07b2056ce3a204101ae1e08"
+      },
+      "juggernaut-nsfw-baseline.png": {
+        "bytes": 1375182,
+        "sha256": "0b914ec4d3db710a33fa17590e2ed19daf12676f5d9fed4c5c0f75713ec5df91"
+      },
+      "pulid-dean-single.png": {
+        "bytes": 1379888,
+        "sha256": "31cf0a7e858237f776996ad7a7203cd8dfa7a606b25b5234b22668bf2fafe8eb"
+      }
+    },
+    "refs": {
+      "dean_face.png": {
+        "bytes": 607041,
+        "sha256": "e917d0fd52cd0392fc04c2530e7c8e78398106d207abc725049cb7336570433f"
+      },
+      "dean_fullbody.png": {
+        "bytes": 1382959,
+        "sha256": "93316bfc92092c4687c8c3ec83d36e2e56eae3f338a93d1c39ca373dde5eaa02"
+      }
+    }
+  }
+}

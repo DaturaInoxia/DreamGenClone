@@ -78,13 +78,18 @@ When working on pacing, scene tempo, beat advancement, or encounter pacing, read
 
 ## DB Query Tool
 
-A permanent .NET 9 console project lives at `artifacts/tmp/dbquery/dbquery.csproj` (part of the solution under `artifacts > tmp`).
+A permanent .NET 9 console project lives at `DreamGenClone.DbQuery/DreamGenClone.DbQuery.csproj` and is part of the solution.
 - **Use it for all SQLite database queries**, inspections, and data seeding tasks against `DreamGenClone.Web/data/dreamgenclone.dev.db`.
-- Run with: `dotnet run --project artifacts/tmp/dbquery -- <command> [args...]`
+- Run with: `dotnet run --project DreamGenClone.DbQuery -- <command> [args...]`
 - **Program.cs is a permanent named-command dispatcher — do NOT rewrite it per task.**
-- For ad-hoc SQL: write a `.sql` file and use the `sql` command: `dotnet run --project artifacts/tmp/dbquery -- sql myquery.sql [id]`
+- For ad-hoc SQL: write a `.sql` file and use the `sql` command: `dotnet run --project DreamGenClone.DbQuery -- sql myquery.sql [id]`
 - Full schema, all commands, and usage examples are in `.github/instructions/dbquery-reference.instructions.md`.
-- **Do not recreate this project.** It already exists in the solution and is ready to use.
+- **Do not create ad-hoc query projects.** This first-class project is the supported query entry point.
+
+## Approved Agent Tools (MANDATORY — see tools/README.md)
+
+- **Approved developer/validation tools live in `tools/` (git-tracked), NOT in `artifacts/tmp/`** — `artifacts/` is git-ignored, so anything only in `artifacts/tmp/**` is ephemeral and not reproducible/committed. Promote a tool into `tools/<name>/` (script + README.md + pinned requirements.txt) and register it in `tools/README.md` before relying on it. Tools must write outputs to git-ignored paths.
+- **Face/eye validation** (identity refs, IP-Adapter renders, character faces) MUST use the canonical `tools/eye-validation/measure_iris.py` (MediaPipe iris landmarks). Haar box centers / dark-region centroids / Hough circles are KNOWN-BAD for pinpointing irises on photoreal faces — do not re-derive a checker from them. Agent rules: `.github/instructions/agent-tools.instructions.md`.
 
 ## DB Snapshot & Portable Database (IMPORTANT)
 
@@ -98,6 +103,25 @@ A permanent .NET 9 console project lives at `artifacts/tmp/dbquery/dbquery.cspro
 - The dev DB balloons because `RolePlayDebugEvents.MetadataJson` stores full built LLM prompts (600 KB+ each); keep session data out of git via the snapshot model.
 - Full workflow (why the DB grows, pruning, snapshot refresh, other-machine setup) is in `.github/instructions/db-snapshot-workflow.instructions.md` and `docs/db-snapshot-setup.md`.
 
+## RunPod ComfyUI Checkpoint Outage (RECURRING — read before re-diagnosing)
+
+When the Juggernaut/ComfyUI pod returns `400: ckpt_name '...' not in [...]`, or when **"no
+prompt works in the app"** after a pod recycle/migrate, the cause is the lost
+`/ComfyUI/extra_model_paths.yaml` (container overlay wiped; the checkpoint is still on the
+persistent `/workspace` volume). This has recurred across pods `qguv5e029u58lb` →
+`emqmxptqdxu7pp` → `orknbkfc0pxktv`.
+
+Fix = run the idempotent provisioner ONCE over SSH (it also patches `/pre_start.sh` to
+self-heal on stop/resume):
+
+```bash
+ssh -i artifacts/runpod/ssh_ed25519 -p <SSH_PORT> root@<SSH_IP> \
+  'bash -s' < helpers/runpod/deployments/image-gen-juggernaut/provision-runtime.sh
+```
+
+Full runbook: `helpers/runpod/deployments/image-gen-juggernaut/README.md`. Do not tune prompts
+or settings to chase this — it is an infrastructure issue.
+
 ## Project Backlog
 
 The project backlog is at `specs/Planning/backlog.md`.
@@ -106,3 +130,30 @@ When the user refers to "the backlog", "backlog item", "add to the backlog", or 
 - Valid states: `new`, `designed`, `planned`, `implemented`, `debugging`, `done`, `done done`.
 - New ideas are added as `new`. Items progress through states as work advances.
 - Do not remove items from the backlog — change their state to `done done` when fully closed.
+
+## Hard Rule: RunPod Pod Changes Must Be Documented (MANDATORY)
+
+Applies to ALL work on DreamGenClone RunPod pods (`helpers/runpod/**`, deployment manifests, pod
+provisioning, Model Manager RunPod endpoints).
+
+- **Every change added to a pod** (a model/checkpoint, a ComfyUI custom node, a config file, a
+  system package, an installed service, an env var) **MUST be recorded** in
+  `helpers/runpod/pod-registry.json` (as an idempotent `provision` step) and reflected in the pod's
+  deployment manifest. A change is not "done" until it is documented AND reproducible from scratch
+  by the `runpod-pod-creation` skill.
+- **Pods must keep their changes across restart.** RunPod pods have a persistent `/workspace`
+  volume and an ephemeral container overlay (wiped on restart/recycle). Models, venvs, custom-node
+  clones, and config "masters" go on `/workspace`; anything that must live in the overlay
+  (e.g. `/ComfyUI/extra_model_paths.yaml`, `/pre_start.sh`, custom-node symlinks) MUST be restored
+  automatically on every boot via an idempotent `/pre_start.sh` patch. Services (ComfyUI, vLLM)
+  MUST auto-start on boot — never rely on a manual SSH start surviving a restart.
+- **Verify restart-proofness**: after provisioning, restart the pod and re-run the smoke test
+  before declaring the pod ready.
+- Read `helpers/runpod/POD-PERSISTENCE.md` (the standard) and use the `runpod-pod-creation` skill
+  (`.github/skills/runpod-pod-creation/SKILL.md`) and `helpers/runpod/pod-registry.json` as the
+  source of truth. If you add something to a pod and do NOT update the registry/provision script,
+  you are breaking this rule.
+- Also see the recurring checkpoint-outage note above: container-overlay loss after recycle is a
+  KNOWN cause of "missing after restart"; the fix is the documented provisioner + `/pre_start.sh`
+  self-heal, never re-diagnosing from scratch.
+

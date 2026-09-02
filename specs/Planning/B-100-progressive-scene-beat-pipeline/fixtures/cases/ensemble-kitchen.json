@@ -1,0 +1,35 @@
+{
+  "id": "ensemble-kitchen",
+  "category": "ensemble",
+  "description": "Three participants coordinate around a smoking oven tray.",
+  "session": {
+    "id": "b100-session-ensemble", "scenarioId": "b100-scenario-ensemble",
+    "personaCharacterId": "b100-persona-ensemble", "personaName": "Nia", "personaRole": "Host",
+    "personaGender": "Female", "personaDescription": "An organized host wearing a green apron.",
+    "interactions": [
+      { "id": "ensemble-i1", "actorName": "Nia", "interactionType": "User", "content": "I open the oven and ask Tomas to clear the counter while Lian finds the mitts.", "createdUtc": "2026-01-11T18:30:00Z" },
+      { "id": "ensemble-c1", "actorName": "Tomas", "interactionType": "Npc", "content": "Tomas sweeps the cutting boards aside and says, \"Counter is clear.\"", "createdUtc": "2026-01-11T18:30:01Z" },
+      { "id": "ensemble-c2", "actorName": "Lian", "interactionType": "Npc", "content": "Lian lifts two red oven mitts from the hook and holds them toward Nia.", "createdUtc": "2026-01-11T18:30:02Z" },
+      { "id": "ensemble-n1", "actorName": "Narrative", "interactionType": "System", "content": "Smoke curls from the open oven. Tomas clears the island, Lian offers the mitts, and Nia reaches toward the hot tray while all three focus on the same task.", "createdUtc": "2026-01-11T18:30:03Z" }
+    ]
+  },
+  "turn": { "id": "b100-turn-ensemble", "index": 4, "kind": "SubmitPrompt", "triggerSource": "User", "inputInteractionId": "ensemble-i1", "outputInteractionIds": ["ensemble-c1", "ensemble-c2", "ensemble-n1"], "startedUtc": "2026-01-11T18:30:00Z", "completedUtc": "2026-01-11T18:30:04Z" },
+  "characters": [
+    { "id": "b100-character-tomas", "name": "Tomas", "role": "Guest", "gender": "Male", "description": "A tall guest in a gray sweater." },
+    { "id": "b100-character-lian", "name": "Lian", "role": "Guest", "gender": "Nonbinary", "description": "A short guest in a blue shirt." },
+    { "id": "b100-persona-ensemble", "name": "Nia", "role": "Host", "gender": "Female", "description": "An organized host wearing a green apron." }
+  ],
+  "expectations": {
+    "beatBoundaries": [
+      { "label": "Counter cleared", "evidenceInteractionIds": ["ensemble-c1", "ensemble-n1"], "match": "subset" },
+      { "label": "Mitts offered", "evidenceInteractionIds": ["ensemble-c2", "ensemble-n1"], "match": "subset" }
+    ],
+    "selectedBeatOrdinal": 2,
+    "moments": { "minimum": 2, "maximum": 4, "recommendedRequired": true, "requiredProductionRoles": ["StillCandidate"] },
+    "requiredSourceFacts": [
+      { "factKey": "red-mitts", "evidenceInteractionId": "ensemble-c2", "description": "Lian holds two red oven mitts toward Nia." },
+      { "factKey": "open-oven", "evidenceInteractionId": "ensemble-n1", "description": "The oven is open and smoke is visible." }
+    ]
+  },
+  "expectedPreflightRejection": null
+}

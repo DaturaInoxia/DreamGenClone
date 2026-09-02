@@ -1,0 +1,27 @@
+{
+  "id": "juggernaut-nsfw-mmf-double-penetration-closeup-test",
+  "title": "mmf double penetration closeup",
+  "actors": "1F2M",
+  "closeup": true,
+  "neutralScene": "Three naked adults; extreme close-up of the contact point: the first man's erect penis entering her vagina while the second man's erect penis enters her anus, both deep inside, clear double penetration, correct anatomy, natural skin texture, soft warm light, sharp focus.",
+  "negative": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, fused bodies, merged bodies, extra people, misplaced genitals, penis on arm, penis on hand, detached penis, extra penis, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+  "variants": {
+    "sdxl-juggernaut": "Photorealistic explicit close-up of double penetration, one adult woman with two adult men on a bed, extreme close-up of the contact point, the first man's erect penis visibly entering her vagina while the second man's erect penis visibly enters her anus, both penises deep inside her, clear penetration, correct penis and vagina and anus anatomy, natural realistic body proportions, natural skin texture, soft warm bedroom lighting, 35mm macro lens, sharp focus, highly detailed",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl and 2boys, 3people, double penetration, extreme close-up, anal and vaginal penetration, nude, correct anatomy, soft lighting, sharp focus",
+    "qwen-edit": "Zoom to an extreme close-up of the double penetration. Keep all people's identity, skin, and lighting exactly unchanged."
+  },
+  "settings": {
+    "seed": 20304,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  },
+  "source": {
+    "suite": "juggernaut",
+    "workflow": "juggernaut/prompts/juggernaut-nsfw-mmf-double-penetration-closeup-test.json"
+  }
+}

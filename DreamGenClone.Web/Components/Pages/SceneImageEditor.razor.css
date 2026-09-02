@@ -1,0 +1,149 @@
+.scene-edit-media-panel,
+.scene-edit-workbench,
+.scene-edit-summary,
+.scene-edit-results {
+    border: 1px solid #2b2b2b;
+    border-radius: 8px;
+    background: #161616;
+    color: #e6e6e6;
+    overflow: hidden;
+}
+
+.scene-edit-workbench,
+.scene-edit-summary,
+.scene-edit-results {
+    padding: 16px;
+}
+
+.scene-edit-panel-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.scene-edit-panel-heading > div {
+    display: grid;
+    gap: 2px;
+}
+
+.scene-edit-kicker {
+    color: #91d6e4;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.scene-edit-media-panel .scene-edit-panel-heading {
+    padding: 14px 16px 0;
+}
+
+.scene-edit-image-stage {
+    display: grid;
+    min-height: 360px;
+    place-items: center;
+    background:
+        linear-gradient(45deg, #121212 25%, transparent 25%),
+        linear-gradient(-45deg, #121212 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #121212 75%),
+        linear-gradient(-45deg, transparent 75%, #121212 75%),
+        #1a1a1a;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+    background-size: 16px 16px;
+}
+
+.scene-edit-image {
+    display: block;
+    width: 100%;
+    max-height: 68vh;
+    object-fit: contain;
+}
+
+.scene-edit-progress,
+.scene-edit-clarification {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    border-left: 3px solid #4a8592;
+    background: #1b292c;
+}
+
+.scene-edit-clarification {
+    display: block;
+}
+
+.scene-edit-summary-group {
+    margin-top: 16px;
+}
+
+.scene-edit-summary-group > span,
+.scene-edit-compare-frame > span {
+    display: block;
+    margin-bottom: 6px;
+    color: #91d6e4;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.scene-edit-summary-group ul {
+    margin-bottom: 0;
+    padding-left: 20px;
+}
+
+.scene-edit-compare-frame {
+    height: 100%;
+    min-height: 320px;
+    padding: 10px;
+    border: 1px solid #303030;
+    background: #101010;
+}
+
+.scene-edit-compare-frame img {
+    display: block;
+    width: 100%;
+    height: min(52vh, 560px);
+    object-fit: contain;
+}
+
+.scene-edit-result-state {
+    display: flex;
+    min-height: 280px;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: #b8b8b8;
+}
+
+.scene-edit-lineage {
+    display: grid;
+    gap: 8px;
+}
+
+.scene-edit-lineage-item {
+    display: flex;
+    min-height: 42px;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid #303030;
+    background: #121212;
+}
+
+@media (max-width: 767.98px) {
+    .scene-edit-image-stage {
+        min-height: 240px;
+    }
+
+    .scene-edit-lineage-item {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .scene-edit-lineage-item .ms-auto {
+        width: 100%;
+        margin-left: 0 !important;
+    }
+}

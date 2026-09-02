@@ -1,0 +1,559 @@
+{
+  "suite": "identity-two-character",
+  "purpose": "Two-character identity conditioning proof for the scene image generator. Tests whether IP-Adapter regional conditioning can hold TWO distinct character identities (Dean + Becky) in a single 1024x1024 render, across poses.",
+  "mechanism": "IP-Adapter PLUS FACE (portraits), regional attn_mask per character",
+  "checkpoint": "juggernautXL_ragnarok.safetensors",
+  "sampler": {
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0
+  },
+  "size": {
+    "width": 1024,
+    "height": 1024
+  },
+  "proofPod": "7i2mutjmry5tkt (EXITED as of 2026-08-27)",
+  "characters": {
+    "Dean": {
+      "canonicalFace": "refs/dean_face.png"
+    },
+    "Becky": {
+      "canonicalFace": "refs/becky_face.jpg"
+    }
+  },
+  "subSuites": {
+    "matrix": {
+      "name": "Two-character identity matrix",
+      "description": "6 cells x 2 seeds = 12 cases, single frontal refs per character, regional IP-Adapter at weight 0.8.",
+      "gate": {
+        "criterion": "Median identity >= 4 for both actors, cross-contamination <= 2, no case below identity 3",
+        "result": "FAIL (strict gate) - Dean identity collapses 4/12 (C2/C3 angled cells). 10/12 pass. Mechanism viable WITH near-frontal composition guardrail.",
+        "decision": "Adopt IP-Adapter regional conditioning for P2-023 multi-actor compiler restricted to near-frontal arrangements; C2/C3-style excluded."
+      },
+      "scorecard": {
+        "cc1": {
+          "s1001": {
+            "identityA": 4,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 4,
+            "quality": 4,
+            "verdict": "PASS",
+            "note": ""
+          },
+          "s1002": {
+            "identityA": 4,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 5,
+            "quality": 4,
+            "verdict": "PASS",
+            "note": "better of the two"
+          }
+        },
+        "cc2": {
+          "s1001": {
+            "identityA": 2,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 3,
+            "quality": 4,
+            "verdict": "Dean identity FAIL",
+            "note": ""
+          },
+          "s1002": {
+            "identityA": 2,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 3,
+            "quality": 4,
+            "verdict": "Dean identity FAIL",
+            "note": ""
+          }
+        },
+        "cc3": {
+          "s1001": {
+            "identityA": 2,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 4,
+            "quality": 4,
+            "verdict": "Dean identity FAIL",
+            "note": ""
+          },
+          "s1002": {
+            "identityA": 2,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 4,
+            "quality": 4,
+            "verdict": "Dean identity FAIL",
+            "note": ""
+          }
+        },
+        "cc4": {
+          "s1001": {
+            "identityA": 4,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 4,
+            "quality": 4,
+            "verdict": "PASS",
+            "note": ""
+          },
+          "s1002": {
+            "identityA": 4,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 4,
+            "quality": 4,
+            "verdict": "PASS",
+            "note": ""
+          }
+        },
+        "cc5": {
+          "s1001": {
+            "identityA": 4,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 4,
+            "quality": 4,
+            "verdict": "PASS",
+            "note": "depth works"
+          },
+          "s1002": {
+            "identityA": 4,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 2,
+            "quality": 4,
+            "verdict": "Composition FAIL",
+            "note": "split-screen, not depth"
+          }
+        },
+        "cc6": {
+          "s1001": {
+            "identityA": 4,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 4,
+            "quality": 4,
+            "verdict": "PASS",
+            "note": ""
+          },
+          "s1002": {
+            "identityA": 4,
+            "identityB": 4,
+            "crossContamination": 2,
+            "composition": 4,
+            "quality": 4,
+            "verdict": "PASS",
+            "note": ""
+          }
+        }
+      }
+    },
+    "faceid": {
+      "name": "IPAdapterFaceID v2 probe",
+      "description": "6 cases (C1/C2/C3 x 2 seeds). Alternative mechanism probed to rescue the angled cells. Recorded FAIL: different face per angle, does not match PLUS FACE baseline.",
+      "gate": {
+        "result": "FAIL - not selected",
+        "reason": "Identity inconsistent across angles."
+      }
+    },
+    "multiangle": {
+      "name": "Multi-angle reference proof (Option 1)",
+      "description": "Each cell conditions with the angle-matched reference (3/4 refs for angled heads). Dean weight 0.8, Becky 0.6. 4x-UltraSharp upscale of low-res refs tested as enhancement.",
+      "gate": {
+        "result": "PENDING - not yet passed",
+        "reason": "Inconsistent across seeds on 2026-08-27; Becky identity drifts between renders. Pod EXITED before completion."
+      },
+      "reviewNotes": {
+        "c2": {
+          "1001": "Dean does not look like picture, Becky meh",
+          "1002": "Dean ok, Becky meh"
+        },
+        "c3": {
+          "1001": "both bad",
+          "1002": "both bad"
+        },
+        "c2m": {
+          "1001": "n/a - not part of recorded review"
+        },
+        "c3m": {
+          "1001": "ok"
+        },
+        "c1": {
+          "1001": "control - baseline",
+          "1002": "control - baseline"
+        }
+      }
+    }
+  },
+  "assets": {
+    "prompts": {
+      "matrix": {
+        "c1_s1001.json": {
+          "bytes": 3710,
+          "sha256": "aa13f89661cd53849b7a10a6a341897b6695bd3be10d825d8487c001d3f6ffd6"
+        },
+        "c1_s1002.json": {
+          "bytes": 3710,
+          "sha256": "2bac5422eb34672a766f556e18e81c2fedceb757ae965591d11e65d3c5246906"
+        },
+        "c2_s1001.json": {
+          "bytes": 3673,
+          "sha256": "18edec1362fc49a3596449860e1ca8b4de6646e4a783461d8e6fc71ce1762f69"
+        },
+        "c2_s1002.json": {
+          "bytes": 3673,
+          "sha256": "ab61b85a12b9ffd6114cadaac897a22f0a277721e1e2c29132aaf80b6711ba9e"
+        },
+        "c3_s1001.json": {
+          "bytes": 3657,
+          "sha256": "d0fd275bcd130885c4f14b2c490f7a59a4550c180a14323033b07b65bb2aea05"
+        },
+        "c3_s1002.json": {
+          "bytes": 3657,
+          "sha256": "e94869e6b6ad37b1d7b609a24525c64587595a119a71b1a654f92b68703abe20"
+        },
+        "c4_s1001.json": {
+          "bytes": 3663,
+          "sha256": "313eda6a2ed3c582eeb71d17adcc656dadc1c6ff069d5d185e61f107219d6526"
+        },
+        "c4_s1002.json": {
+          "bytes": 3663,
+          "sha256": "4482a25e165ba49041c57f0b68e498ab764be794c5d2de5f7164f711f7c7fa3c"
+        },
+        "c5_s1001.json": {
+          "bytes": 3670,
+          "sha256": "6040eb74202ecd53d21fc2b760f757683526240940a03042b7f733454e75e6d0"
+        },
+        "c5_s1002.json": {
+          "bytes": 3670,
+          "sha256": "7d6b281005c1de2f7636a6ca64d45a38179ac8bcd45005b6dfe7045805418b59"
+        },
+        "c6_s1001.json": {
+          "bytes": 3681,
+          "sha256": "b12776b38897979461ac553d7ea3b02da5f22cfdfa2340a5744dc6551397c74a"
+        },
+        "c6_s1002.json": {
+          "bytes": 3681,
+          "sha256": "fddaf8b52945e37ae983ed6cfe6ae540e54f046c9f37dc7c22ab4fdc5e0b858e"
+        }
+      },
+      "faceid": {
+        "c1_s1001.json": {
+          "bytes": 3986,
+          "sha256": "9bd6f1ff2a8ed331bf570b68c224fa346e6e830b978c34d0e7913a045014e96d"
+        },
+        "c1_s1002.json": {
+          "bytes": 3986,
+          "sha256": "e2d44403671be97a45e6b9d304655d8e1d12e557a7495569dda2b1ba6fee4d1c"
+        },
+        "c2_s1001.json": {
+          "bytes": 3949,
+          "sha256": "3d4c8a06bdb25158007fb9f27cb75a7eb20191e9842b62b277a72722c59da9c1"
+        },
+        "c2_s1002.json": {
+          "bytes": 3949,
+          "sha256": "29dbf72d4fcbddf46881af03663db581aecb8ba78c4c2d30b2b9a4c78e2c10ec"
+        },
+        "c3_s1001.json": {
+          "bytes": 3933,
+          "sha256": "83a3e647afd5de4d333bdcad2099258ea9e733bb8fe923479e590a2097728a68"
+        },
+        "c3_s1002.json": {
+          "bytes": 3933,
+          "sha256": "6ac390ed45449772e586deefbd562bb9ba91bf33c818f603df0168471b39c63a"
+        }
+      },
+      "multiangle": {
+        "c1_s1001.json": {
+          "bytes": 3708,
+          "sha256": "6b184d8ffbb3269c00c2fa44940b9e69fad6a5cd429ac6acbc34dc20bf8b6112"
+        },
+        "c1_s1002.json": {
+          "bytes": 3708,
+          "sha256": "46c916d4d561dbed1c2c5682d1ffcd346c2306c1516accca73e084fca4610aac"
+        },
+        "c2_s1001.json": {
+          "bytes": 3692,
+          "sha256": "199b42f6eb842940bf076ed5ecbc5c08572ecf644c69d2151ac4cc147e4d86d7"
+        },
+        "c2_s1002.json": {
+          "bytes": 3692,
+          "sha256": "a68a93e8db701d2b49a43d5bad326d5c31ff1d0b2cd55008b67cf1f8e4333131"
+        },
+        "c2m_s1001.json": {
+          "bytes": 3690,
+          "sha256": "512066f3e33f3d56d70c76f4b37b64163c31bdc5ebef2a02d75cc1f008013ddc"
+        },
+        "c2m_s1002.json": {
+          "bytes": 3690,
+          "sha256": "9c4e6f890902766877c4b8fbd5a1bc441eda080c733c8b0b7308c55d7a361218"
+        },
+        "c3_s1001.json": {
+          "bytes": 3676,
+          "sha256": "58664c9e3089e55966c70d4ec41943f7d8fa57121e10d320bd3a13685d77a202"
+        },
+        "c3_s1002.json": {
+          "bytes": 3676,
+          "sha256": "c385a5a7492ffc0dd2db6d9d548cdddc5daf37a424eab3965df28eae7ba594da"
+        },
+        "c3m_s1001.json": {
+          "bytes": 3678,
+          "sha256": "dafc2e4ab0a1da883054b2268525cb5ff7d79b91115b5c57c417de380e35e1dc"
+        },
+        "c3m_s1002.json": {
+          "bytes": 3678,
+          "sha256": "3ec925caa914168f05ff688a1b8fdd72402bdaac0482bc874d3914446c8fad9c"
+        },
+        "c4_s1001.json": {
+          "bytes": 3661,
+          "sha256": "d1181aec9d1357eecdadb986296753549695aafb7614fcfe57f7e7f3def1dd90"
+        },
+        "c4_s1002.json": {
+          "bytes": 3661,
+          "sha256": "eb5814dedd5a9c8fd6b66edfef476fd9d53b12689c903e7ae3f35aac559d6b20"
+        },
+        "c5_s1001.json": {
+          "bytes": 3668,
+          "sha256": "a4e10bb2915722e894a85f489d7dd0c0833fbe74697d9ede255065ea276ac9fc"
+        },
+        "c5_s1002.json": {
+          "bytes": 3668,
+          "sha256": "d1487212150fb4dc444d0c76beb4215eab7a2167609ee289e516f248fc98f6a9"
+        },
+        "c6_s1001.json": {
+          "bytes": 3678,
+          "sha256": "fd795459ebc7f35f0ac44f53833563ca363837341c492125ced1b31dc0f279f5"
+        },
+        "c6_s1002.json": {
+          "bytes": 3678,
+          "sha256": "5d327b23676f5e892792d6b922b729a73afcbf87ae743f2b4d246cd495f47904"
+        }
+      }
+    },
+    "images": {
+      "matrix": {
+        "c1_s1001.png": {
+          "bytes": 1456005,
+          "sha256": "368252502b460d825ee7f660c075bf467fafcbe9836d82f27f4d0eb161b85de4"
+        },
+        "c1_s1002.png": {
+          "bytes": 1467561,
+          "sha256": "1b993cc8edb2ed366fa1274e8733bb954a1312685614667d347b63061b0c7920"
+        },
+        "c2_s1001.png": {
+          "bytes": 1359732,
+          "sha256": "70fefb837bf81bde9244ae618ab2075511e7276949656a4b04569a4c0776315f"
+        },
+        "c2_s1002.png": {
+          "bytes": 1380864,
+          "sha256": "9325739e8122892bd07b41c743ff9e181cffd67edaaff31ce9fc1e0e3f75f808"
+        },
+        "c3_s1001.png": {
+          "bytes": 1414097,
+          "sha256": "6b0070616b7793c00a7413bd40b8f0fb2954cd8716d1c5548aa064c53c64bcdf"
+        },
+        "c3_s1002.png": {
+          "bytes": 1320426,
+          "sha256": "3baa9eda0f880cfe03d03f96c272e5691f27f0210d850eaeb175aaba8f45a584"
+        },
+        "c4_s1001.png": {
+          "bytes": 1326107,
+          "sha256": "d87642248125484b2eb142e811d5964b8febd48f432b2629183dc11ea46c61e8"
+        },
+        "c4_s1002.png": {
+          "bytes": 1295554,
+          "sha256": "f320f0263ff1ad514f216dd767ef1b9b2779d7d427d23c86925de07400c1cc96"
+        },
+        "c5_s1001.png": {
+          "bytes": 1420411,
+          "sha256": "b09c942e3e27e3d066c5e05eafc615debb86beea7226118005fd3095948b6e90"
+        },
+        "c5_s1002.png": {
+          "bytes": 1474718,
+          "sha256": "2d9e6a2e42c6030e50e7bab0f9f8d0ad6bdd5618c8b2f0dadc77dfbef7cc16a4"
+        },
+        "c6_s1001.png": {
+          "bytes": 1405489,
+          "sha256": "31389187727d2852f6b24905095cbadd2e553736d995c871ead023cb61d8c2ed"
+        },
+        "c6_s1002.png": {
+          "bytes": 1379908,
+          "sha256": "7c4997ca4953bfbe8fad3999010a6894fed8d95e4c0e00b9e5589792af8c4f3c"
+        }
+      },
+      "faceid": {
+        "c1_s1001.png": {
+          "bytes": 1504122,
+          "sha256": "837f5cea0dc430c46d7e96405678a5907b084fe2378d474206b4066db2de2d8a"
+        },
+        "c1_s1002.png": {
+          "bytes": 1549277,
+          "sha256": "f60570671ae55a5be54f0add3439492710d0d9f0631db17776177bc762b3954c"
+        },
+        "c2_s1001.png": {
+          "bytes": 1412539,
+          "sha256": "2cd05cb1f255cfa06a2e636f673f42f11b4858321f1bcbbb572fe59a19571c4e"
+        },
+        "c2_s1002.png": {
+          "bytes": 1406375,
+          "sha256": "18ec109e8b3a72f15b4e92dd855c66a310e98ff78420a708d8275fecc66f8e50"
+        },
+        "c3_s1001.png": {
+          "bytes": 1420903,
+          "sha256": "210b39522fc27ccf52970068760d5ad4277643a9e267f4e18d6967f43a17ca24"
+        },
+        "c3_s1002.png": {
+          "bytes": 1393411,
+          "sha256": "b3f77de117b7b8394b353310fb19dc7b32f3c0c59224e02c86f35d4cffdb1e77"
+        }
+      },
+      "multiangle": {
+        "c1_s1001.png": {
+          "bytes": 1430607,
+          "sha256": "5fccec23ffac18aa6234e0dced7e1dac06800ac8355744b747bf57132774bd29"
+        },
+        "c1_s1002.png": {
+          "bytes": 1501849,
+          "sha256": "75440d96b547b49317a78a85cde5b187ec70b0ae141581f97d95eaf397d739f6"
+        },
+        "c2_s1001.png": {
+          "bytes": 1389075,
+          "sha256": "a93e4a859b183e6dfef7c32548e9fb225f7eb438dfb2e32aee4fafefb8792324"
+        },
+        "c2_s1002.png": {
+          "bytes": 1415573,
+          "sha256": "894c52bdec0efcc67d1156602d469fa9b4fffc3b6aeecde316dc4e5ac062e6dd"
+        },
+        "c2m_s1001.png": {
+          "bytes": 1497531,
+          "sha256": "ddbc2870d84955070809160418bb09cafc6a1a3455115800e26ba0ea5ea1d468"
+        },
+        "c3_s1001.png": {
+          "bytes": 1349467,
+          "sha256": "5b6422faa6ed8cf679041345dd24473ad2aba636f0f63b5e9a69ac9f642d1cc9"
+        },
+        "c3_s1002.png": {
+          "bytes": 1366246,
+          "sha256": "bd53966729626e9be75307d0690dbbb5dd2ba00146c390c498b73612ebbe5afd"
+        },
+        "c3m_s1001.png": {
+          "bytes": 1488657,
+          "sha256": "79ed07ca58d70e7846bee9af0592d79ef37bf3b05a80bc4d6aa78ecff9d0c1ff"
+        }
+      }
+    },
+    "masks": {
+      "c1_left.png": {
+        "bytes": 3162,
+        "sha256": "85de4fe398cc1c907bfc945342c3ef07b35c66137ecdb974da6dc25925e088f1"
+      },
+      "c1_right.png": {
+        "bytes": 3161,
+        "sha256": "3673684396ba35bdb23a58d0d18429e305e409ffb6ea4e877dc61a85cd0a987f"
+      },
+      "c2_left.png": {
+        "bytes": 3163,
+        "sha256": "0cebdde3b37790485a68fd03f78afb43fff8849e20e2b03c2c24eb696355c133"
+      },
+      "c2_right.png": {
+        "bytes": 3162,
+        "sha256": "57ab876d9c36d6f416610d99e9a112aacba3e4ac93bbd65ebdfff0aa404ac18c"
+      },
+      "c3_left.png": {
+        "bytes": 3163,
+        "sha256": "c66de1c52298bf9b242c576654d0e546d2577f273590de765c6c38a89eb6f6d4"
+      },
+      "c3_right.png": {
+        "bytes": 3162,
+        "sha256": "e990c957a053ee47fa9fc8e9f6645bf4a5609423f0bfe41b4cd1c9b89f13dae1"
+      },
+      "c4_bottom.png": {
+        "bytes": 2240,
+        "sha256": "2175038709b7e453552ea941196096fdbc7ac45730862d3b1734220f82fa4481"
+      },
+      "c4_top.png": {
+        "bytes": 2026,
+        "sha256": "dde503eccf521ecb33e9731d5f07ac29b40f57e7874e5310787f21a991178e33"
+      },
+      "c5_left.png": {
+        "bytes": 3161,
+        "sha256": "3ae1ae5a478c4f575dc34f4a1d7764af0feea6c561c8f8876eeea8c74a6994ac"
+      },
+      "c5_right.png": {
+        "bytes": 3162,
+        "sha256": "28bb55c840c0861d889772868115f33cd8d79f4cba6ca1b1f063e2ed93da255b"
+      },
+      "c6_left.png": {
+        "bytes": 3162,
+        "sha256": "85de4fe398cc1c907bfc945342c3ef07b35c66137ecdb974da6dc25925e088f1"
+      },
+      "c6_right.png": {
+        "bytes": 3161,
+        "sha256": "3673684396ba35bdb23a58d0d18429e305e409ffb6ea4e877dc61a85cd0a987f"
+      },
+      "gen_masks.py": {
+        "bytes": 1181,
+        "sha256": "8213de9a21dd67aeb092ff28b62e7c6a3e1c1fa7feb6241be461df877ebbcc1e"
+      }
+    },
+    "refs": {
+      "becky_face.jpg": {
+        "bytes": 1259005,
+        "sha256": "e67fb45d1a2838ac39cc2653d8167a388e6e4d8fac9d6135073e3f896ebe9cdf"
+      },
+      "dean_face.png": {
+        "bytes": 607041,
+        "sha256": "e917d0fd52cd0392fc04c2530e7c8e78398106d207abc725049cb7336570433f"
+      }
+    },
+    "refsMultiangle": {
+      "becky_34l.jpg": {
+        "bytes": 180613,
+        "sha256": "3a96f8f7f90513f1ed235948d8fa06bdbb93b8c0013c09fd5d268767f04fabfe"
+      },
+      "becky_34r.png": {
+        "bytes": 3163360,
+        "sha256": "bb1499bd8870793c1adb2662593de8333897eea76427908cc1b97e8096290f3f"
+      },
+      "becky_front.png": {
+        "bytes": 1493860,
+        "sha256": "82ada0db9097430d3e6b2707f46f1eed7cb7cda50579af567caf59231e6ea822"
+      },
+      "becky_profl.jpg": {
+        "bytes": 222843,
+        "sha256": "facaa0d797d13ff9bbd95eeb248a6badbae732575345da19ba4f99f33ed46806"
+      },
+      "becky_profr.jpg": {
+        "bytes": 133436,
+        "sha256": "d7a9af905a3d563413731f3cbd37d958c2e610f1f1c69b1b47f65c3a9c597510"
+      },
+      "dean_34l.jpg": {
+        "bytes": 27870,
+        "sha256": "91778d920516a11079ccb7e7e45c31ad239d50a1adb0f8073c8c8a73f13aca9e"
+      },
+      "dean_34r.jpg": {
+        "bytes": 26369,
+        "sha256": "8c1484f8fe762d8beadd2c9654aa8d7044e694765e95a2fa0f82c621d4657ee5"
+      },
+      "dean_front.jpg": {
+        "bytes": 77128,
+        "sha256": "99300666e20206915c3e0351abcc61cf3a390449df197629d7512d45084c4f30"
+      },
+      "dean_profl.jpg": {
+        "bytes": 20953,
+        "sha256": "f1760825b4219c96c5fb9f600212a5dd084f105ff9357159a005102bc9c28818"
+      },
+      "dean_profr.jpg": {
+        "bytes": 51030,
+        "sha256": "601a1e2e4560e839a29ed2449725ef54607aec51e36d5c56e65c2ab1b2614331"
+      }
+    }
+  }
+}

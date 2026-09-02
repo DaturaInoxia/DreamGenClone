@@ -1,0 +1,36 @@
+{
+  "4": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "ponyDiffusionV6XL_v6.safetensors" } },
+  "10": { "class_type": "CLIPSetLastLayer", "inputs": { "stop_at_clip_layer": -2, "clip": ["4", 1] } },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "score_6_up, rating_explicit, photorealistic, candid amateur photo, close-up of a nude adult man's single erect penis and testicles entering a woman's vagina, one erect penis with visible glans and shaft, natural realistic genital anatomy, natural skin texture with pores and imperfections, soft natural lighting, slightly imperfect, realistic proportions, not airbrushed",
+      "clip": ["10", 0]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "blurry, low quality, ugly, deformed, extra limbs, extra penis, multiple penises, two penises, duplicate anatomy, bad anatomy, watermark, text, censored, mosaic, airbrushed, plastic skin",
+      "clip": ["10", 0]
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 24680,
+      "steps": 25,
+      "cfg": 7.0,
+      "sampler_name": "euler_ancestral",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "5": { "class_type": "EmptyLatentImage", "inputs": { "width": 1024, "height": 1024, "batch_size": 1 } },
+  "8": { "class_type": "VAEDecode", "inputs": { "samples": ["3", 0], "vae": ["4", 2] } },
+  "9": { "class_type": "SaveImage", "inputs": { "filename_prefix": "dreamgen_pony_nsfw", "images": ["8", 0] } }
+}

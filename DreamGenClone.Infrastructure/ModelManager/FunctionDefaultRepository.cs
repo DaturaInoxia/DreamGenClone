@@ -20,6 +20,10 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
 
     public async Task<FunctionModelDefault> SaveAsync(FunctionModelDefault functionDefault, CancellationToken cancellationToken = default)
     {
+        var validationError = functionDefault.ValidateSceneBeatAnalyzerConfiguration();
+        if (validationError is not null)
+            throw new InvalidOperationException($"RP Scene Beat Analyzer configuration is invalid: {validationError}");
+
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
@@ -27,8 +31,14 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
 
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO FunctionModelDefaults (Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, MaxConcurrentJobs, UpdatedUtc)
-            VALUES ($id, $funcName, $modelId, $temp, $topP, $maxTokens, $thinkingMode, $maxConcurrentJobs, $updated)
+            INSERT INTO FunctionModelDefaults (
+                Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, MaxConcurrentJobs,
+                DurableJobLeaseSeconds, DurableJobPollIntervalMilliseconds, TransientRetryCount,
+                TransientRetryDelaysSecondsJson, DiagnosticsRetentionDays, MaximumCatalogueEntries, UpdatedUtc)
+            VALUES (
+                $id, $funcName, $modelId, $temp, $topP, $maxTokens, $thinkingMode, $maxConcurrentJobs,
+                $durableJobLeaseSeconds, $durableJobPollIntervalMilliseconds, $transientRetryCount,
+                $transientRetryDelaysSecondsJson, $diagnosticsRetentionDays, $maximumCatalogueEntries, $updated)
             ON CONFLICT(Id) DO UPDATE SET
                 FunctionName = $funcName,
                 ModelId = $modelId,
@@ -37,6 +47,12 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
                 MaxTokens = $maxTokens,
                 ThinkingMode = $thinkingMode,
                 MaxConcurrentJobs = $maxConcurrentJobs,
+                DurableJobLeaseSeconds = $durableJobLeaseSeconds,
+                DurableJobPollIntervalMilliseconds = $durableJobPollIntervalMilliseconds,
+                TransientRetryCount = $transientRetryCount,
+                TransientRetryDelaysSecondsJson = $transientRetryDelaysSecondsJson,
+                DiagnosticsRetentionDays = $diagnosticsRetentionDays,
+                MaximumCatalogueEntries = $maximumCatalogueEntries,
                 UpdatedUtc = $updated
             """;
 
@@ -48,6 +64,12 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         command.Parameters.AddWithValue("$maxTokens", functionDefault.MaxTokens);
         command.Parameters.AddWithValue("$thinkingMode", (int)functionDefault.ThinkingMode);
         command.Parameters.AddWithValue("$maxConcurrentJobs", (object?)functionDefault.MaxConcurrentJobs ?? DBNull.Value);
+        command.Parameters.AddWithValue("$durableJobLeaseSeconds", (object?)functionDefault.DurableJobLeaseSeconds ?? DBNull.Value);
+        command.Parameters.AddWithValue("$durableJobPollIntervalMilliseconds", (object?)functionDefault.DurableJobPollIntervalMilliseconds ?? DBNull.Value);
+        command.Parameters.AddWithValue("$transientRetryCount", (object?)functionDefault.TransientRetryCount ?? DBNull.Value);
+        command.Parameters.AddWithValue("$transientRetryDelaysSecondsJson", (object?)functionDefault.TransientRetryDelaysSecondsJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$diagnosticsRetentionDays", (object?)functionDefault.DiagnosticsRetentionDays ?? DBNull.Value);
+        command.Parameters.AddWithValue("$maximumCatalogueEntries", (object?)functionDefault.MaximumCatalogueEntries ?? DBNull.Value);
         command.Parameters.AddWithValue("$updated", functionDefault.UpdatedUtc);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -61,7 +83,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, UpdatedUtc, MaxConcurrentJobs FROM FunctionModelDefaults WHERE FunctionName = $funcName";
+        command.CommandText = SelectColumns + " WHERE FunctionName = $funcName";
         command.Parameters.AddWithValue("$funcName", function.ToString());
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -79,7 +101,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, UpdatedUtc, MaxConcurrentJobs FROM FunctionModelDefaults ORDER BY FunctionName";
+        command.CommandText = SelectColumns + " ORDER BY FunctionName";
 
         var defaults = new List<FunctionModelDefault>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -97,7 +119,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, UpdatedUtc, MaxConcurrentJobs FROM FunctionModelDefaults WHERE ModelId = $modelId ORDER BY FunctionName";
+        command.CommandText = SelectColumns + " WHERE ModelId = $modelId ORDER BY FunctionName";
         command.Parameters.AddWithValue("$modelId", modelId);
 
         var defaults = new List<FunctionModelDefault>();
@@ -142,7 +164,21 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
             MaxTokens = reader.GetInt32(5),
             ThinkingMode = (ThinkingMode)thinkingModeValue,
             UpdatedUtc = reader.GetString(7),
-            MaxConcurrentJobs = reader.IsDBNull(8) ? null : reader.GetInt32(8)
+            MaxConcurrentJobs = reader.IsDBNull(8) ? null : reader.GetInt32(8),
+            DurableJobLeaseSeconds = reader.IsDBNull(9) ? null : reader.GetInt32(9),
+            DurableJobPollIntervalMilliseconds = reader.IsDBNull(10) ? null : reader.GetInt32(10),
+            TransientRetryCount = reader.IsDBNull(11) ? null : reader.GetInt32(11),
+            TransientRetryDelaysSecondsJson = reader.IsDBNull(12) ? null : reader.GetString(12),
+            DiagnosticsRetentionDays = reader.IsDBNull(13) ? null : reader.GetInt32(13),
+            MaximumCatalogueEntries = reader.IsDBNull(14) ? null : reader.GetInt32(14)
         };
     }
+
+    private const string SelectColumns = """
+        SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, UpdatedUtc,
+               MaxConcurrentJobs, DurableJobLeaseSeconds, DurableJobPollIntervalMilliseconds,
+               TransientRetryCount, TransientRetryDelaysSecondsJson, DiagnosticsRetentionDays,
+               MaximumCatalogueEntries
+        FROM FunctionModelDefaults
+        """;
 }

@@ -1,0 +1,30 @@
+{
+  "id": "remote-observer",
+  "category": "remote-observer",
+  "description": "A radio operator observes a field repair only through a fixed camera feed.",
+  "session": {
+    "id": "b100-session-remote", "scenarioId": "b100-scenario-remote",
+    "personaCharacterId": "b100-persona-remote", "personaName": "Edda", "personaRole": "Radio Operator",
+    "personaGender": "Female", "personaDescription": "An operator seated at a communications desk.",
+    "interactions": [
+      { "id": "remote-i1", "actorName": "Edda", "interactionType": "User", "content": "I watch the ridge camera and tell Pavel that the upper cable is still loose.", "createdUtc": "2026-01-13T06:15:00Z" },
+      { "id": "remote-c1", "actorName": "Pavel", "interactionType": "Npc", "content": "Over the radio Pavel answers, \"Copy, tightening it now,\" and reaches for the upper cable on the relay mast.", "createdUtc": "2026-01-13T06:15:01Z" },
+      { "id": "remote-n1", "actorName": "Narrative", "interactionType": "System", "content": "Edda remains inside the operations room, visible only at her desk. On the separate ridge camera feed, Pavel braces beside the relay mast and tightens the upper cable; neither character shares a physical location.", "createdUtc": "2026-01-13T06:15:02Z" }
+    ]
+  },
+  "turn": { "id": "b100-turn-remote", "index": 12, "kind": "SubmitPrompt", "triggerSource": "User", "inputInteractionId": "remote-i1", "outputInteractionIds": ["remote-c1", "remote-n1"], "startedUtc": "2026-01-13T06:15:00Z", "completedUtc": "2026-01-13T06:15:03Z" },
+  "characters": [
+    { "id": "b100-character-pavel", "name": "Pavel", "role": "Field Technician", "gender": "Male", "description": "A field technician wearing an orange weather shell." },
+    { "id": "b100-persona-remote", "name": "Edda", "role": "Radio Operator", "gender": "Female", "description": "An operator seated at a communications desk." }
+  ],
+  "expectations": {
+    "beatBoundaries": [ { "label": "Remote cable repair", "evidenceInteractionIds": ["remote-i1", "remote-c1", "remote-n1"], "match": "subset" } ],
+    "selectedBeatOrdinal": 1,
+    "moments": { "minimum": 2, "maximum": 4, "recommendedRequired": true, "requiredProductionRoles": ["StillCandidate"] },
+    "requiredSourceFacts": [
+      { "factKey": "separate-locations", "evidenceInteractionId": "remote-n1", "description": "Edda and Pavel do not share a physical location." },
+      { "factKey": "upper-cable", "evidenceInteractionId": "remote-c1", "description": "Pavel reaches for the upper cable." }
+    ]
+  },
+  "expectedPreflightRejection": null
+}

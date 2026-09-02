@@ -1,5 +1,8 @@
 # Setting up DreamGenClone on another machine (database)
 
+> **Complete step-by-step (clone → DB → build → run → keys → verify): see [`docs/setup-other-machine.md`](setup-other-machine.md).**
+> This file covers the database-specific details.
+
 ## What you get from git
 The repo tracks exactly **one** database file: `DreamGenClone.Web/data/dreamgenclone.snapshot.db`
 
@@ -17,12 +20,17 @@ The repo tracks exactly **one** database file: `DreamGenClone.Web/data/dreamgenc
    copy DreamGenClone.Web\data\dreamgenclone.snapshot.db DreamGenClone.Web\data\dreamgenclone.dev.db
    ```
    (macOS/Linux: `cp DreamGenClone.Web/data/dreamgenclone.snapshot.db DreamGenClone.Web/data/dreamgenclone.dev.db`)
-3. Start the app:
+3. Apply host-local data configuration commands:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\helpers\dbq.ps1 b100-analyzer-configure
+   ```
+   This idempotently assigns `DeepSeek / deepseek-v4-flash` to `RolePlaySceneBeatAnalyzer` and persists all required analyzer settings. It fails without changing the database if that enabled provider/model pair is unavailable or ambiguous.
+4. Start the app:
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\helpers\start-webapp-dev-clean.ps1
    ```
    Opens `http://localhost:5177` in Development mode.
-4. Re-enter your provider API keys once:
+5. Re-enter your provider API keys once:
    Web app → **Settings → Providers** (OpenRouter, TogetherAI, DeepSeek, Infermatic, etc.)
 
 ## Keeping your working DB safe
@@ -37,13 +45,9 @@ copy DreamGenClone.Web\data\dreamgenclone.snapshot.db DreamGenClone.Web\data\dre
 ```
 This overwrites `dev.db` with the snapshot content. Because the snapshot has no keys, re-enter your API keys afterward.
 
-## Creating a fresh snapshot (on the main machine)
-After making content changes you want to share:
-```powershell
-python artifacts\tmp\dbquery\create_seed_db.py   # copies dev.db -> snapshot.db, drops session/debug data, blanks keys
-# The snapshot automatically excludes ALL session/debug data (that's what makes the DB huge),
-# so it stays ~10 MB no matter how many sessions you've run. Your working dev.db is untouched.
-git add DreamGenClone.Web/data/dreamgenclone.snapshot.db
-git commit -m "Update DB snapshot"
-git push
-```
+## Sharing configuration changes
+Do not copy `dreamgenclone.dev.db` over the tracked snapshot. The live database contains encrypted provider API keys and session/debug data.
+
+Portable configuration changes must be implemented as reviewed, idempotent named commands in `DreamGenClone.DbQuery`, then run once on each host after its working database is created. The B-100 analyzer uses `b100-analyzer-configure` for this purpose.
+
+There is currently no supported snapshot-refresh command. Treat `dreamgenclone.snapshot.db` as the existing sanitized base until a sanitizer with explicit credential and session-data verification is added.

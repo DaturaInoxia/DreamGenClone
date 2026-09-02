@@ -1,0 +1,178 @@
+﻿{
+    "perPositionRefs":  {
+                            "reverse-cowgirl":  {
+                                                    "becky":  "becky_34r.png",
+                                                    "dean":  "dean_front.png"
+                                                },
+                            "cowgirl":  {
+                                            "becky":  "becky_front.jpg",
+                                            "dean":  "dean_front.png"
+                                        },
+                            "cumshot-on-body":  {
+                                                    "becky":  "becky_front.jpg",
+                                                    "dean":  "dean_front.png"
+                                                },
+                            "doggy":  {
+                                          "becky":  "becky_34r.png",
+                                          "dean":  "dean_front.png"
+                                      },
+                            "spooning":  {
+                                             "becky":  "becky_34l.png",
+                                             "dean":  "dean_34l.png"
+                                         },
+                            "reverse-cowgirl-penetration-closeup":  {
+                                                                        "becky":  "becky_34r.png",
+                                                                        "dean":  "dean_front.png"
+                                                                    },
+                            "doggy-penetration-closeup":  {
+                                                              "becky":  "becky_34r.png",
+                                                              "dean":  "dean_front.png"
+                                                          },
+                            "missionary":  {
+                                               "becky":  "becky_front.jpg",
+                                               "dean":  "dean_front.png"
+                                           },
+                            "69":  {
+                                       "becky":  "becky_34l.png",
+                                       "dean":  "dean_34l.png"
+                                   },
+                            "cumshot-in-mouth":  {
+                                                     "becky":  "becky_front.jpg",
+                                                     "dean":  "dean_front.png"
+                                                 },
+                            "missionary-penetration-closeup":  {
+                                                                   "becky":  "becky_front.jpg",
+                                                                   "dean":  "dean_front.png"
+                                                               },
+                            "cumshot-creampie":  {
+                                                     "becky":  "becky_front.jpg",
+                                                     "dean":  "dean_front.png"
+                                                 },
+                            "cumshot-facial":  {
+                                                   "becky":  "becky_front.jpg",
+                                                   "dean":  "dean_front.png"
+                                               },
+                            "fellatio":  {
+                                             "becky":  "becky_34l.png",
+                                             "dean":  "dean_front.png"
+                                         },
+                            "standing":  {
+                                             "becky":  "becky_front.jpg",
+                                             "dean":  "dean_front.png"
+                                         },
+                            "standing-penetration-closeup":  {
+                                                                 "becky":  "becky_front.jpg",
+                                                                 "dean":  "dean_front.png"
+                                                             },
+                            "cowgirl-penetration-closeup":  {
+                                                                "becky":  "becky_front.jpg",
+                                                                "dean":  "dean_front.png"
+                                                            },
+                            "spooning-penetration-closeup":  {
+                                                                 "becky":  "becky_34l.png",
+                                                                 "dean":  "dean_34l.png"
+                                                             }
+                        },
+    "createdUtc":  "2026-08-28T03:51:14Z",
+    "purpose":  "Baseline positions test using QWEN-CONSISTENT angle-matched packs (identity generated from ONE front anchor per character). 18 positions.",
+    "mechanism":  "IP-Adapter PLUS FACE regional, per-position masks + angle-matched Qwen-consistent pack refs",
+    "run":  "run4-qwenpacks-20260827",
+    "pod":  "ncsmze3anko7w2-3000",
+    "status":  "RENDERED — pending human identity review",
+    "renders":  [
+                    {
+                        "sha256":  "E523D096F84F915779D2E3DC26C44FCB46011555A9F3E7DB5FEFAE5D0F5746BF",
+                        "file":  "two_char_position_69_00002_.png",
+                        "bytes":  1116635
+                    },
+                    {
+                        "sha256":  "E002FE9A8DEF75693057567FACD15B9679A2FB99AF878A6880959D69F716EFC8",
+                        "file":  "two_char_position_cowgirl_00002_.png",
+                        "bytes":  1223094
+                    },
+                    {
+                        "sha256":  "12C8EFC1F59260C94D9E3BEEB908F700396DC061109EB6F929B59C30F7921675",
+                        "file":  "two_char_position_cowgirl-penetration-closeup_00002_.png",
+                        "bytes":  1251961
+                    },
+                    {
+                        "sha256":  "EE3291FA5822E1C5D4819BC37A8BB45E7768D8F3FF534D25D0B2C6871DEF2AF7",
+                        "file":  "two_char_position_cumshot-creampie_00002_.png",
+                        "bytes":  1217714
+                    },
+                    {
+                        "sha256":  "A087B0D035AA7FB689F0580926F0946F37EF76D2F39A6245E3BFB00B04566F58",
+                        "file":  "two_char_position_cumshot-facial_00002_.png",
+                        "bytes":  1366879
+                    },
+                    {
+                        "sha256":  "E5612BB93EC1EEB8A4E5C78E2A8F84403A1F41D7F7FC88717500DA3F73818207",
+                        "file":  "two_char_position_cumshot-in-mouth_00002_.png",
+                        "bytes":  1358183
+                    },
+                    {
+                        "sha256":  "0CF663DBB5D469CFDD38ED3339FB29D148FBF581A7C1E04EE8046E9F1AD577FF",
+                        "file":  "two_char_position_cumshot-on-body_00002_.png",
+                        "bytes":  1244535
+                    },
+                    {
+                        "sha256":  "F8032E4EF41B54D2C1F5E419733DA2816A32832BC24191781BBE990FF8F96A5F",
+                        "file":  "two_char_position_doggy_00002_.png",
+                        "bytes":  1297689
+                    },
+                    {
+                        "sha256":  "5AE59D827AB3EB815B92CBD0595BDA1F3D22D3E4218B675A5C202DED73D6C619",
+                        "file":  "two_char_position_doggy-penetration-closeup_00002_.png",
+                        "bytes":  1191775
+                    },
+                    {
+                        "sha256":  "599F511B35BFAD0DE92CDAB5BF0C5FCD59420F1793F3B7AC86FAF45B47A74333",
+                        "file":  "two_char_position_fellatio_00002_.png",
+                        "bytes":  1202466
+                    },
+                    {
+                        "sha256":  "A93EEAF32B19B25CCA1ABC1C1356FF676E0EC1C99423DA1CE589FE080E2BA250",
+                        "file":  "two_char_position_missionary_00002_.png",
+                        "bytes":  1068761
+                    },
+                    {
+                        "sha256":  "6D647913D6A02B11B95FC72FE56623DEF4D4983E3597BD07E1DCA3266A6F16CE",
+                        "file":  "two_char_position_missionary-penetration-closeup_00002_.png",
+                        "bytes":  1137852
+                    },
+                    {
+                        "sha256":  "349EF15AEA93A77FD2D8E43615F50CE4C81F39DF06C6E39854DC9615EF69FE25",
+                        "file":  "two_char_position_reverse-cowgirl_00002_.png",
+                        "bytes":  1325241
+                    },
+                    {
+                        "sha256":  "6188D61AAA152E68E9235853F5ED1E5438F2EBCC5768004AAE7BC744C50292E9",
+                        "file":  "two_char_position_reverse-cowgirl-penetration-closeup_00002_.png",
+                        "bytes":  1330075
+                    },
+                    {
+                        "sha256":  "CCE82A4B3E3BF37F7873CFEEDA03C56BB75D6EAE827606889479B39414D8BB39",
+                        "file":  "two_char_position_spooning_00002_.png",
+                        "bytes":  1105641
+                    },
+                    {
+                        "sha256":  "6D2EFAFA204B5E8AF91C71DA86F195F8729D224225386FE163D811C0348E8939",
+                        "file":  "two_char_position_spooning-penetration-closeup_00002_.png",
+                        "bytes":  1035209
+                    },
+                    {
+                        "sha256":  "431AE46646E84F05EDC0A9DBD5683E4680C6A07785B3B4B95676E80E1F54929E",
+                        "file":  "two_char_position_standing_00002_.png",
+                        "bytes":  1249072
+                    },
+                    {
+                        "sha256":  "BCBC270EFBF4442B5B7852D487FEDF546261C079DCB07D0D87FE0A80D2FA2473",
+                        "file":  "two_char_position_standing-penetration-closeup_00002_.png",
+                        "bytes":  1241671
+                    }
+                ],
+    "settings":  {
+                     "strengthBecky":  0.6,
+                     "strengthDean":  0.8
+                 }
+}

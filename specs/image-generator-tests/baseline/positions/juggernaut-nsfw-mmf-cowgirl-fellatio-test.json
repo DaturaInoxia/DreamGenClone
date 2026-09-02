@@ -1,0 +1,27 @@
+{
+  "id": "juggernaut-nsfw-mmf-cowgirl-fellatio-test",
+  "title": "mmf cowgirl fellatio",
+  "actors": "1F2M",
+  "closeup": false,
+  "neutralScene": "Three naked adults on a bed: the woman straddling the first man riding his erect penis while leaning forward to take the second man's erect penis into her mouth, cowgirl with fellatio; medium shot, correct anatomy, natural bodies and skin texture, soft warm light, sharp focus.",
+  "negative": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, fused bodies, merged bodies, extra people, misplaced genitals, penis on arm, penis on hand, detached penis, extra penis, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+  "variants": {
+    "sdxl-juggernaut": "Photorealistic explicit sex scene, one adult woman and two adult men on a bed, the woman straddling the first man on top riding his erect penis while leaning forward to take the second man's erect penis into her mouth, cowgirl with fellatio, medium shot, correct penis and vagina anatomy, all three fully nude, natural realistic body proportions, natural skin texture, soft warm bedroom lighting, 35mm lens, sharp focus, highly detailed",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl and 2boys, 3people, threesome, cowgirl, riding, fellatio, vaginal penetration, penis in vagina, penis in mouth, nude, medium shot, correct anatomy, soft lighting, sharp focus",
+    "qwen-edit": "Change the scene so the woman rides the first man's erect penis while taking the second man's erect penis into her mouth. Keep all people's faces, hair, identity, bodies, skin, and lighting exactly unchanged."
+  },
+  "settings": {
+    "seed": 20303,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  },
+  "source": {
+    "suite": "juggernaut",
+    "workflow": "juggernaut/prompts/juggernaut-nsfw-mmf-cowgirl-fellatio-test.json"
+  }
+}

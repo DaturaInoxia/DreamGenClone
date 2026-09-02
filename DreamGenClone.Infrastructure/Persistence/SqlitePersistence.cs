@@ -714,7 +714,22 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ProviderType INTEGER NOT NULL,
                 BaseUrl TEXT NOT NULL,
                 ChatCompletionsPath TEXT NOT NULL DEFAULT '/v1/chat/completions',
+                ImageCapability INTEGER NOT NULL DEFAULT 0,
+                ImageGenerationPath TEXT NOT NULL DEFAULT '/v1/images/generations',
+                ContentPolicy INTEGER NOT NULL DEFAULT 0,
+                ImageProtocol INTEGER NOT NULL DEFAULT 0,
                 TimeoutSeconds INTEGER NOT NULL DEFAULT 120,
+                LifecycleStrategyIdentifier TEXT NULL,
+                ReadinessPath TEXT NULL,
+                ReadinessSuccessContractJson TEXT NULL,
+                TransitionTimeoutSeconds INTEGER NULL,
+                TransitionMarginSeconds INTEGER NULL,
+                ShutdownDrainPolicyJson TEXT NULL,
+                MaximumActiveRequests INTEGER NULL,
+                QueueCapacity INTEGER NULL,
+                CredentialReference TEXT NULL,
+                ServerIdentityPolicyJson TEXT NULL,
+                AllowedNetworkBoundary TEXT NULL,
                 ApiKeyEncrypted TEXT,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 CreatedUtc TEXT NOT NULL,
@@ -729,11 +744,42 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 DisplayName TEXT NOT NULL,
                 IsEnabled INTEGER NOT NULL DEFAULT 1,
                 SupportsThinkingControl INTEGER NOT NULL DEFAULT 0,
+                SupportsStructuredJsonSchema INTEGER NOT NULL DEFAULT 0,
+                StructuredOutputMode INTEGER NOT NULL DEFAULT 0,
+                MaximumContextTokens INTEGER NULL,
+                MaximumOutputTokens INTEGER NULL,
                 CreatedUtc TEXT NOT NULL,
                 ContextWindowSize INTEGER NOT NULL DEFAULT 0,
                 Quantization TEXT NOT NULL DEFAULT '',
                 ParameterCount TEXT NOT NULL DEFAULT '',
                 Notes TEXT,
+                ModelKind INTEGER NOT NULL DEFAULT 0,
+                ImageSizeSupported TEXT NULL,
+                SceneImageModelFamily INTEGER NOT NULL DEFAULT 0,
+                PromptDialect INTEGER NOT NULL DEFAULT 0,
+                SupportsImageInput INTEGER NOT NULL DEFAULT 0,
+                MaximumInputImages INTEGER NULL,
+                MaximumInputImageBytes INTEGER NULL,
+                MaximumInputImagePixels INTEGER NULL,
+                MaximumInputImageDimension INTEGER NULL,
+                AcceptedInputMediaTypes TEXT NULL,
+                MaximumResponseBytes INTEGER NULL,
+                RuntimeRevision TEXT NULL,
+                ArtifactRevision TEXT NULL,
+                ImageEditorDiffusionModel TEXT NULL,
+                ImageEditorTextEncoder TEXT NULL,
+                ImageEditorVae TEXT NULL,
+                ImageEditorSteps INTEGER NULL,
+                ImageEditorCfg REAL NULL,
+                ImageEditorSampler TEXT NULL,
+                ImageEditorScheduler TEXT NULL,
+                ImageEditorDenoise REAL NULL,
+                ImageEditorAuraFlowShift REAL NULL,
+                ImageEditorCfgNormStrength REAL NULL,
+                IdentityMechanism TEXT NULL,
+                IdentityStrength REAL NULL,
+                IdentityAdapterRef TEXT NULL,
+                IdentityClipVisionRef TEXT NULL,
                 FOREIGN KEY (ProviderId) REFERENCES Providers(Id) ON DELETE CASCADE,
                 UNIQUE (ProviderId, ModelIdentifier)
             );
@@ -747,6 +793,12 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 MaxTokens INTEGER NOT NULL DEFAULT 500,
                 ThinkingMode INTEGER NOT NULL DEFAULT 0,
                 MaxConcurrentJobs INTEGER NULL,
+                DurableJobLeaseSeconds INTEGER NULL,
+                DurableJobPollIntervalMilliseconds INTEGER NULL,
+                TransientRetryCount INTEGER NULL,
+                TransientRetryDelaysSecondsJson TEXT NULL,
+                DiagnosticsRetentionDays INTEGER NULL,
+                MaximumCatalogueEntries INTEGER NULL,
                 UpdatedUtc TEXT NOT NULL,
                 FOREIGN KEY (ModelId) REFERENCES RegisteredModels(Id)
             );
@@ -1316,6 +1368,330 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterPositionEscalationTier.CommandText = "ALTER TABLE RPPositions ADD COLUMN EscalationTier TEXT NOT NULL DEFAULT 'Low'";
             await alterPositionEscalationTier.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated RPPositions table: added EscalationTier column");
+        }
+
+        // Scene Image Generator (B-032 / 001-scene-image-generator): additive image capability
+        // columns on Providers and RegisteredModels. Existing rows default to non-image / unknown
+        // policy (correct: chat-only providers are not image-capable until explicitly configured).
+        var providerImageColumns = new (string Column, string Ddl)[]
+        {
+            ("ImageCapability", "ALTER TABLE Providers ADD COLUMN ImageCapability INTEGER NOT NULL DEFAULT 0"),
+            ("ImageGenerationPath", "ALTER TABLE Providers ADD COLUMN ImageGenerationPath TEXT NOT NULL DEFAULT '/v1/images/generations'"),
+            ("ContentPolicy", "ALTER TABLE Providers ADD COLUMN ContentPolicy INTEGER NOT NULL DEFAULT 0"),
+            ("ImageProtocol", "ALTER TABLE Providers ADD COLUMN ImageProtocol INTEGER NOT NULL DEFAULT 0"),
+            ("LifecycleStrategyIdentifier", "ALTER TABLE Providers ADD COLUMN LifecycleStrategyIdentifier TEXT NULL"),
+            ("ReadinessPath", "ALTER TABLE Providers ADD COLUMN ReadinessPath TEXT NULL"),
+            ("ReadinessSuccessContractJson", "ALTER TABLE Providers ADD COLUMN ReadinessSuccessContractJson TEXT NULL"),
+            ("TransitionTimeoutSeconds", "ALTER TABLE Providers ADD COLUMN TransitionTimeoutSeconds INTEGER NULL"),
+            ("TransitionMarginSeconds", "ALTER TABLE Providers ADD COLUMN TransitionMarginSeconds INTEGER NULL"),
+            ("ShutdownDrainPolicyJson", "ALTER TABLE Providers ADD COLUMN ShutdownDrainPolicyJson TEXT NULL"),
+            ("MaximumActiveRequests", "ALTER TABLE Providers ADD COLUMN MaximumActiveRequests INTEGER NULL"),
+            ("QueueCapacity", "ALTER TABLE Providers ADD COLUMN QueueCapacity INTEGER NULL"),
+            ("CredentialReference", "ALTER TABLE Providers ADD COLUMN CredentialReference TEXT NULL"),
+            ("ServerIdentityPolicyJson", "ALTER TABLE Providers ADD COLUMN ServerIdentityPolicyJson TEXT NULL"),
+            ("AllowedNetworkBoundary", "ALTER TABLE Providers ADD COLUMN AllowedNetworkBoundary TEXT NULL"),
+        };
+        foreach (var (column, ddl) in providerImageColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('Providers') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated Providers table: added {Column} column", column);
+            }
+        }
+
+        var registeredModelImageColumns = new (string Column, string Ddl)[]
+        {
+            ("ModelKind", "ALTER TABLE RegisteredModels ADD COLUMN ModelKind INTEGER NOT NULL DEFAULT 0"),
+            ("ImageSizeSupported", "ALTER TABLE RegisteredModels ADD COLUMN ImageSizeSupported TEXT NULL"),
+            ("SceneImageModelFamily", "ALTER TABLE RegisteredModels ADD COLUMN SceneImageModelFamily INTEGER NOT NULL DEFAULT 0"),
+            ("PromptDialect", "ALTER TABLE RegisteredModels ADD COLUMN PromptDialect INTEGER NOT NULL DEFAULT 0"),
+            ("SupportsImageInput", "ALTER TABLE RegisteredModels ADD COLUMN SupportsImageInput INTEGER NOT NULL DEFAULT 0"),
+            ("MaximumInputImages", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImages INTEGER NULL"),
+            ("MaximumInputImageBytes", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImageBytes INTEGER NULL"),
+            ("MaximumInputImagePixels", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImagePixels INTEGER NULL"),
+            ("MaximumInputImageDimension", "ALTER TABLE RegisteredModels ADD COLUMN MaximumInputImageDimension INTEGER NULL"),
+            ("AcceptedInputMediaTypes", "ALTER TABLE RegisteredModels ADD COLUMN AcceptedInputMediaTypes TEXT NULL"),
+            ("MaximumResponseBytes", "ALTER TABLE RegisteredModels ADD COLUMN MaximumResponseBytes INTEGER NULL"),
+            ("RuntimeRevision", "ALTER TABLE RegisteredModels ADD COLUMN RuntimeRevision TEXT NULL"),
+            ("ArtifactRevision", "ALTER TABLE RegisteredModels ADD COLUMN ArtifactRevision TEXT NULL"),
+        };
+        foreach (var (column, ddl) in registeredModelImageColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
+            }
+        }
+
+                // B-100 T142 reviewed mappings. Both the stable row ID and exact checkpoint identifier
+                // must match; renamed/replaced rows remain unconfigured for explicit Model Manager review.
+                var migrateReviewedImageFamilies = connection.CreateCommand();
+                migrateReviewedImageFamilies.CommandText = """
+                        UPDATE RegisteredModels
+                        SET SceneImageModelFamily = $sdxlFamily,
+                                PromptDialect = $sdxlDialect
+                        WHERE Id = 'e2ea5b23-a182-4cd9-a853-6b6632b839ee'
+                            AND ModelIdentifier = 'juggernautXL_ragnarok.safetensors';
+
+                        UPDATE RegisteredModels
+                        SET SceneImageModelFamily = $ponyFamily,
+                                PromptDialect = $ponyDialect
+                        WHERE Id = 'dbb08226-fe7d-4514-b247-6b208a525b7b'
+                            AND ModelIdentifier = 'ponyDiffusionV6XL_v6.safetensors';
+                        """;
+                migrateReviewedImageFamilies.Parameters.AddWithValue("$sdxlFamily", (int)DreamGenClone.Domain.ModelManager.SceneImageModelFamily.Sdxl);
+                migrateReviewedImageFamilies.Parameters.AddWithValue("$sdxlDialect", (int)SceneImagePromptDialect.SdxlNaturalLanguage);
+                migrateReviewedImageFamilies.Parameters.AddWithValue("$ponyFamily", (int)DreamGenClone.Domain.ModelManager.SceneImageModelFamily.Pony);
+                migrateReviewedImageFamilies.Parameters.AddWithValue("$ponyDialect", (int)SceneImagePromptDialect.PonyV6Tags);
+                await migrateReviewedImageFamilies.ExecuteNonQueryAsync(cancellationToken);
+
+        var registeredModelEditorColumns = new (string Column, string Ddl)[]
+        {
+            ("ImageEditorDiffusionModel", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorDiffusionModel TEXT NULL"),
+            ("ImageEditorTextEncoder", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorTextEncoder TEXT NULL"),
+            ("ImageEditorVae", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorVae TEXT NULL"),
+            ("ImageEditorSteps", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorSteps INTEGER NULL"),
+            ("ImageEditorCfg", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorCfg REAL NULL"),
+            ("ImageEditorSampler", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorSampler TEXT NULL"),
+            ("ImageEditorScheduler", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorScheduler TEXT NULL"),
+            ("ImageEditorDenoise", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorDenoise REAL NULL"),
+            ("ImageEditorAuraFlowShift", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorAuraFlowShift REAL NULL"),
+            ("ImageEditorCfgNormStrength", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorCfgNormStrength REAL NULL")
+        };
+        foreach (var (column, ddl) in registeredModelEditorColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
+            }
+        }
+
+        var registeredModelIdentityColumns = new (string Column, string Ddl)[]
+        {
+            ("IdentityMechanism", "ALTER TABLE RegisteredModels ADD COLUMN IdentityMechanism TEXT NULL"),
+            ("IdentityStrength", "ALTER TABLE RegisteredModels ADD COLUMN IdentityStrength REAL NULL"),
+            ("IdentityAdapterRef", "ALTER TABLE RegisteredModels ADD COLUMN IdentityAdapterRef TEXT NULL"),
+            ("IdentityClipVisionRef", "ALTER TABLE RegisteredModels ADD COLUMN IdentityClipVisionRef TEXT NULL")
+        };
+        foreach (var (column, ddl) in registeredModelIdentityColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";
+            var present = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!present)
+            {
+                var alter = connection.CreateCommand();
+                alter.CommandText = ddl;
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
+            }
+        }
+
+        var registeredModelStructuredOutputColumns = new (string Column, string Ddl)[]
+        {
+            ("SupportsStructuredJsonSchema", "ALTER TABLE RegisteredModels ADD COLUMN SupportsStructuredJsonSchema INTEGER NOT NULL DEFAULT 0"),
+            ("StructuredOutputMode", "ALTER TABLE RegisteredModels ADD COLUMN StructuredOutputMode INTEGER NOT NULL DEFAULT 0"),
+            ("MaximumContextTokens", "ALTER TABLE RegisteredModels ADD COLUMN MaximumContextTokens INTEGER NULL"),
+            ("MaximumOutputTokens", "ALTER TABLE RegisteredModels ADD COLUMN MaximumOutputTokens INTEGER NULL")
+        };
+        foreach (var (column, ddl) in registeredModelStructuredOutputColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('RegisteredModels') WHERE name='{column}'";
+            if (Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0)
+                continue;
+
+            var alter = connection.CreateCommand();
+            alter.CommandText = ddl;
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated RegisteredModels table: added {Column} column", column);
+        }
+
+                var migrateStructuredOutputMode = connection.CreateCommand();
+                migrateStructuredOutputMode.CommandText = """
+                        UPDATE RegisteredModels
+                        SET StructuredOutputMode = 1
+                        WHERE StructuredOutputMode = 0
+                            AND SupportsStructuredJsonSchema = 1;
+                        """;
+                await migrateStructuredOutputMode.ExecuteNonQueryAsync(cancellationToken);
+
+        // SceneImagePrompts: add RefineInstruction column (US3 refine pass) if the table exists.
+        // The table is created lazily by SceneImageRepository.EnsureSchemaAsync, so guard on table
+        // existence before attempting the ALTER (a fresh DB with no scene-image activity has no table).
+        var checkPromptTableExists = connection.CreateCommand();
+        checkPromptTableExists.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='SceneImagePrompts'";
+        if (Convert.ToInt64(await checkPromptTableExists.ExecuteScalarAsync(cancellationToken)) > 0)
+        {
+            var checkPromptRefineColumn = connection.CreateCommand();
+            checkPromptRefineColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImagePrompts') WHERE name='RefineInstruction'";
+            if (Convert.ToInt64(await checkPromptRefineColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterPromptRefine = connection.CreateCommand();
+                alterPromptRefine.CommandText = "ALTER TABLE SceneImagePrompts ADD COLUMN RefineInstruction TEXT NULL";
+                await alterPromptRefine.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImagePrompts table: added RefineInstruction column");
+            }
+        }
+
+        // SceneImages: add SettingsJson column (CR-003 "continue from this image" settings snapshot)
+        // if the table exists. The table is created lazily by SceneImageRepository.EnsureSchemaAsync.
+        var checkSceneImagesTableExists = connection.CreateCommand();
+        checkSceneImagesTableExists.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='SceneImages'";
+        if (Convert.ToInt64(await checkSceneImagesTableExists.ExecuteScalarAsync(cancellationToken)) > 0)
+        {
+            var checkImageSettingsColumn = connection.CreateCommand();
+            checkImageSettingsColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='SettingsJson'";
+            if (Convert.ToInt64(await checkImageSettingsColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterImageSettings = connection.CreateCommand();
+                alterImageSettings.CommandText = "ALTER TABLE SceneImages ADD COLUMN SettingsJson TEXT NOT NULL DEFAULT '{}'";
+                await alterImageSettings.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImages table: added SettingsJson column");
+            }
+
+            // SceneImages: add BeatId + Pov columns (CR-006 P5 — beat + POV framing persistence).
+            var checkImageBeatColumn = connection.CreateCommand();
+            checkImageBeatColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='BeatId'";
+            if (Convert.ToInt64(await checkImageBeatColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterImageBeat = connection.CreateCommand();
+                alterImageBeat.CommandText = "ALTER TABLE SceneImages ADD COLUMN BeatId TEXT NULL";
+                await alterImageBeat.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImages table: added BeatId column");
+            }
+
+            var checkImagePovColumn = connection.CreateCommand();
+            checkImagePovColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='Pov'";
+            if (Convert.ToInt64(await checkImagePovColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterImagePov = connection.CreateCommand();
+                alterImagePov.CommandText = "ALTER TABLE SceneImages ADD COLUMN Pov TEXT NULL";
+                await alterImagePov.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImages table: added Pov column");
+            }
+
+            // SceneImages: add RequestedModelId column (per-render model pinning).
+            var checkImageRequestedModelColumn = connection.CreateCommand();
+            checkImageRequestedModelColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='RequestedModelId'";
+            if (Convert.ToInt64(await checkImageRequestedModelColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                var alterImageRequestedModel = connection.CreateCommand();
+                alterImageRequestedModel.CommandText = "ALTER TABLE SceneImages ADD COLUMN RequestedModelId TEXT NULL";
+                await alterImageRequestedModel.ExecuteNonQueryAsync(cancellationToken);
+                _logger.LogInformation("Migrated SceneImages table: added RequestedModelId column");
+            }
+
+            var sceneImageEditColumns = new (string Column, string Ddl)[]
+            {
+                ("Operation", "ALTER TABLE SceneImages ADD COLUMN Operation TEXT NOT NULL DEFAULT 'Generate'"),
+                ("SourceImageId", "ALTER TABLE SceneImages ADD COLUMN SourceImageId TEXT NULL"),
+                ("EditSessionId", "ALTER TABLE SceneImages ADD COLUMN EditSessionId TEXT NULL"),
+                ("EditCompilationAttemptId", "ALTER TABLE SceneImages ADD COLUMN EditCompilationAttemptId TEXT NULL"),
+                ("EditPromptRevisionId", "ALTER TABLE SceneImages ADD COLUMN EditPromptRevisionId TEXT NULL"),
+                ("EditIntentSnapshot", "ALTER TABLE SceneImages ADD COLUMN EditIntentSnapshot TEXT NULL"),
+                ("EditCompilerProvenanceJson", "ALTER TABLE SceneImages ADD COLUMN EditCompilerProvenanceJson TEXT NULL")
+            };
+            foreach (var (column, ddl) in sceneImageEditColumns)
+            {
+                var checkColumn = connection.CreateCommand();
+                checkColumn.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('SceneImages') WHERE name='{column}'";
+                if (Convert.ToInt64(await checkColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+                {
+                    var alterColumn = connection.CreateCommand();
+                    alterColumn.CommandText = ddl;
+                    await alterColumn.ExecuteNonQueryAsync(cancellationToken);
+                    _logger.LogInformation("Migrated SceneImages table: added {Column} column", column);
+                }
+            }
+        }
+
+        var sceneImageEditSchema = connection.CreateCommand();
+        sceneImageEditSchema.CommandText = """
+            CREATE TABLE IF NOT EXISTS SceneImageEditSessions (
+                Id TEXT PRIMARY KEY,
+                SourceImageId TEXT NOT NULL,
+                SourceImageSha256 TEXT NOT NULL,
+                SessionId TEXT NOT NULL,
+                InteractionId TEXT NOT NULL,
+                Status TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UpdatedUtc TEXT NOT NULL,
+                CompletedUtc TEXT NULL,
+                DescriptionText TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditSessions_Source
+                ON SceneImageEditSessions (SourceImageId);
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditSessions_Session
+                ON SceneImageEditSessions (SessionId, UpdatedUtc DESC);
+
+            CREATE TABLE IF NOT EXISTS SceneImageEditCompilationAttempts (
+                Id TEXT PRIMARY KEY,
+                EditSessionId TEXT NOT NULL,
+                Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                RawIntent TEXT NOT NULL,
+                ClarificationContextJson TEXT NULL,
+                SourceImageSha256 TEXT NOT NULL,
+                Status TEXT NOT NULL,
+                ResolvedModelSnapshotJson TEXT NOT NULL,
+                CompilerSchemaVersion TEXT NOT NULL,
+                SystemPromptVersion TEXT NOT NULL,
+                RawModelResponse TEXT NULL,
+                ParsedResultJson TEXT NULL,
+                Error TEXT NULL,
+                CreatedUtc TEXT NOT NULL,
+                StartedUtc TEXT NULL,
+                CompletedUtc TEXT NULL,
+                FOREIGN KEY (EditSessionId) REFERENCES SceneImageEditSessions(Id) ON DELETE RESTRICT,
+                UNIQUE (EditSessionId, Ordinal)
+            );
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditCompilationAttempts_SessionStatus
+                ON SceneImageEditCompilationAttempts (EditSessionId, Status, Ordinal DESC);
+
+            CREATE TABLE IF NOT EXISTS SceneImageEditPromptRevisions (
+                Id TEXT PRIMARY KEY,
+                CompilationAttemptId TEXT NOT NULL,
+                Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
+                Prompt TEXT NOT NULL,
+                RevisionKind TEXT NOT NULL,
+                PromptSha256 TEXT NOT NULL,
+                CreatedUtc TEXT NOT NULL,
+                FOREIGN KEY (CompilationAttemptId) REFERENCES SceneImageEditCompilationAttempts(Id) ON DELETE RESTRICT,
+                UNIQUE (CompilationAttemptId, Ordinal),
+                UNIQUE (CompilationAttemptId, PromptSha256)
+            );
+            CREATE INDEX IF NOT EXISTS IX_SceneImageEditPromptRevisions_Attempt
+                ON SceneImageEditPromptRevisions (CompilationAttemptId, Ordinal DESC);
+            """;
+        await sceneImageEditSchema.ExecuteNonQueryAsync(cancellationToken);
+
+        var checkSceneImageEditDescriptionColumn = connection.CreateCommand();
+        checkSceneImageEditDescriptionColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImageEditSessions') WHERE name='DescriptionText'";
+        var hasSceneImageEditDescriptionColumn = Convert.ToInt64(await checkSceneImageEditDescriptionColumn.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasSceneImageEditDescriptionColumn)
+        {
+            var alterSceneImageEditDescription = connection.CreateCommand();
+            alterSceneImageEditDescription.CommandText = "ALTER TABLE SceneImageEditSessions ADD COLUMN DescriptionText TEXT NULL";
+            await alterSceneImageEditDescription.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated SceneImageEditSessions table: added DescriptionText column");
         }
 
         var checkAdaptiveStateJsonColumn = connection.CreateCommand();
@@ -2257,6 +2633,29 @@ public sealed class SqlitePersistence : ISqlitePersistence
             addMaxConcurrent.CommandText = "ALTER TABLE FunctionModelDefaults ADD COLUMN MaxConcurrentJobs INTEGER NULL";
             await addMaxConcurrent.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated FunctionModelDefaults: added MaxConcurrentJobs column");
+        }
+
+        var durablePolicyColumns = new (string Name, string SqlType)[]
+        {
+            ("DurableJobLeaseSeconds", "INTEGER NULL"),
+            ("DurableJobPollIntervalMilliseconds", "INTEGER NULL"),
+            ("TransientRetryCount", "INTEGER NULL"),
+            ("TransientRetryDelaysSecondsJson", "TEXT NULL"),
+            ("DiagnosticsRetentionDays", "INTEGER NULL"),
+            ("MaximumCatalogueEntries", "INTEGER NULL")
+        };
+        foreach (var (columnName, sqlType) in durablePolicyColumns)
+        {
+            var checkColumn = connection.CreateCommand();
+            checkColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('FunctionModelDefaults') WHERE name = $columnName";
+            checkColumn.Parameters.AddWithValue("$columnName", columnName);
+            if (Convert.ToInt64(await checkColumn.ExecuteScalarAsync(cancellationToken)) > 0)
+                continue;
+
+            var addColumn = connection.CreateCommand();
+            addColumn.CommandText = $"ALTER TABLE FunctionModelDefaults ADD COLUMN {columnName} {sqlType}";
+            await addColumn.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated FunctionModelDefaults: added {ColumnName} column", columnName);
         }
 
         // Migrate: ensure ScenarioEngineSettings table exists (for databases created before this table was added)

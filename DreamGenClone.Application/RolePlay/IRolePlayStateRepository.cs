@@ -18,6 +18,21 @@ public interface IRolePlayStateRepository
         bool succeeded,
         string? failureReason = null,
         CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Reconciles persisted turn memberships against the session's current interactions after an
+    /// interaction deletion or replacement. Stale output ids are dropped (or replaced via
+    /// <paramref name="replacements"/>), stale input ids are cleared (or replaced), and
+    /// <c>OutputInteractionCount</c> is recomputed. Repositories that do not manage turns use the
+    /// no-op default.
+    /// </summary>
+    Task ReconcileTurnMembershipsAsync(
+        string sessionId,
+        IReadOnlySet<string> liveInteractionIds,
+        IReadOnlyDictionary<string, string> replacements,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
+    }
     Task<IReadOnlyList<RolePlayTurn>> LoadTurnsAsync(string sessionId, int take = 100, CancellationToken cancellationToken = default);
     Task SaveAdaptiveStateAsync(AdaptiveScenarioState state, CancellationToken cancellationToken = default);
     /// <summary>

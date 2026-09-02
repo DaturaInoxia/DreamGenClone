@@ -1,0 +1,28 @@
+{
+  "load_image": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "dwpose_ref_dean.png"
+    }
+  },
+  "dwpose": {
+    "class_type": "DWPreprocessor",
+    "inputs": {
+      "image": ["load_image", 0],
+      "detect_hand": "enable",
+      "detect_body": "enable",
+      "detect_face": "enable",
+      "resolution": 512,
+      "bbox_detector": "yolox_l.torchscript.pt",
+      "pose_estimator": "dw-ll_ucoco_384_bs5.torchscript.pt",
+      "scale_stick_for_xinsr_cn": "disable"
+    }
+  },
+  "save_pose": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": ["dwpose", 0],
+      "filename_prefix": "dwpose_extract_proof"
+    }
+  }
+}

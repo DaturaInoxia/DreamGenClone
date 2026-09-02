@@ -1,0 +1,27 @@
+{
+  "id": "juggernaut-nsfw-mff-cowgirl-cunnilingus-closeup-test",
+  "title": "mff cowgirl cunnilingus closeup",
+  "actors": "2F1M",
+  "closeup": true,
+  "neutralScene": "Three naked adults; close-up of the central contact: the man's erect penis deep inside the riding woman's vagina while the second woman's mouth is on her clitoris; clear penetration, correct anatomy, natural skin texture, soft warm light, sharp focus.",
+  "negative": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, fused bodies, merged bodies, extra people, misplaced genitals, penis on arm, penis on hand, detached penis, extra penis, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+  "variants": {
+    "sdxl-juggernaut": "Photorealistic explicit close-up of a threesome, one adult man and two adult women, close-up of the central contact, the man's erect penis visibly deep inside the riding woman's vagina while the second woman's mouth is on her clitoris, clear penetration, correct penis and vagina anatomy, natural realistic body proportions, natural skin texture, soft warm bedroom lighting, 35mm macro lens, sharp focus, highly detailed",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 2girls and 1boy, 3people, threesome, close-up, cunnilingus, penetration, penis in vagina, nude, correct anatomy, soft lighting, sharp focus",
+    "qwen-edit": "Zoom to a close-up of the threesome's central contact. Keep all people's identity, skin, and lighting exactly unchanged."
+  },
+  "settings": {
+    "seed": 20315,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  },
+  "source": {
+    "suite": "juggernaut",
+    "workflow": "juggernaut/prompts/juggernaut-nsfw-mff-cowgirl-cunnilingus-closeup-test.json"
+  }
+}

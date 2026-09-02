@@ -16,6 +16,11 @@ packages/
 # Logs and environment
 *.log
 .env*
+# RunPod automation local credentials (never commit)
+helpers/runpod/.runpod-env.ps1
+helpers/runpod/,addmodel-env.ps1
+# Local-only per-instance API keys for Model Manager (ModelManagerSecrets) - never commit
+DreamGenClone.Web/appsettings.Local.json
 
 # Application data (SQLite database with encrypted API keys)
 data/
@@ -23,6 +28,10 @@ data/
 !DreamGenClone.Web/data/
 DreamGenClone.Web/data/*
 !DreamGenClone.Web/data/dreamgenclone.snapshot.db
+
+# Python
+__pycache__/
+*.py[cod]
 
 # IDE/editor
 .vscode/

@@ -1,0 +1,27 @@
+{
+  "id": "juggernaut-nsfw-spooning-test",
+  "title": "spooning",
+  "actors": "1M1F",
+  "closeup": false,
+  "neutralScene": "Two naked adults lying on their sides on a bed in the spooning position, both facing the same direction, the man pressed close behind the woman, his erect penis deep inside her vagina from behind, his hand on her hip; medium shot, correct anatomy, natural bodies and skin texture, soft warm light, sharp focus.",
+  "negative": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+  "variants": {
+    "sdxl-juggernaut": "Photorealistic explicit sex scene, one adult man and one adult woman lying on their sides on a bed facing the same direction in the spooning position, the man's body pressed close behind the woman's, medium shot, his erect penis visibly deep inside her vagina from behind, his hand on her hip, correct penis and vagina anatomy, both fully nude, natural realistic body proportions, natural skin texture, soft warm bedroom lighting, 35mm lens, sharp focus, highly detailed",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl and 1boy, 2people, spooning, from behind, side position, vaginal penetration, penis in vagina, nude, medium shot, correct anatomy, soft lighting, sharp focus",
+    "qwen-edit": "Change the scene to spooning: both lying on their sides facing the same direction with the man behind penetrating her from behind. Keep both people's faces, hair, identity, bodies, skin, and lighting exactly unchanged."
+  },
+  "settings": {
+    "seed": 20242,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  },
+  "source": {
+    "suite": "juggernaut",
+    "workflow": "juggernaut/prompts/juggernaut-nsfw-spooning-test.json"
+  }
+}

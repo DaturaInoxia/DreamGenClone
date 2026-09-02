@@ -1,0 +1,476 @@
+/* ─── Scene Image Studio ─── */
+
+/* Story Moment narrative text: readable dark panel (high contrast vs. the app's light-grey
+   body text on a dark theme). The old Bootstrap .bg-light rendered white-on-light-grey. */
+.scene-image-story-moment {
+    border: 1px solid #2b2b2b;
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #161616;
+    color: #e6e6e6;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.scene-image-turn-context {
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.scene-image-turn-selected {
+    border-left: 3px solid #4a8592;
+    padding-left: 10px !important;
+}
+
+.scene-beat-catalogue-list {
+    max-height: 440px;
+    overflow-y: auto;
+}
+
+.scene-beat-catalogue-list .btn {
+    min-height: 76px;
+    padding: 10px 12px;
+    line-height: 1.35;
+}
+
+.scene-beat-catalogue-list .text-nowrap {
+    max-width: 42%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.scene-beat-production-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.scene-beat-production-metrics span {
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid #2b2b2b;
+    border-radius: 6px;
+    text-align: center;
+}
+
+.scene-moment-choice {
+    width: 100%;
+    min-height: 112px;
+    padding: 10px 12px;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    background: #1b1b1b;
+    color: #e6e6e6;
+    line-height: 1.35;
+}
+
+.scene-moment-choice:hover {
+    border-color: #4a8592;
+    background: #20292b;
+}
+
+.scene-moment-choice.is-selected {
+    border-color: #78bdca;
+    box-shadow: inset 3px 0 0 #78bdca;
+    background: #1d3034;
+}
+
+.scene-moment-choice > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.scene-moment-roles .badge {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.scene-moment-enrichment-summary {
+    padding: 10px 12px;
+    border: 1px solid #355b63;
+    border-radius: 6px;
+    background: #182326;
+    overflow-wrap: anywhere;
+}
+
+.scene-moment-character {
+    padding: 8px 10px;
+    border-left: 3px solid #4a8592;
+    background: #161c1e;
+}
+
+.scene-production-studio {
+    border-color: #355b63;
+}
+
+.scene-production-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.scene-production-main,
+.scene-production-inspector {
+    min-width: 0;
+}
+
+.scene-production-stage-stepper {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.scene-production-stage-stepper span {
+    min-width: 0;
+    padding: 7px 8px;
+    border-bottom: 3px solid #343a40;
+    color: #8f979e;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+}
+
+.scene-production-stage-stepper span.is-current {
+    border-color: #78bdca;
+    color: #e6e6e6;
+}
+
+.scene-production-canvas {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    min-height: 280px;
+    overflow: hidden;
+    border: 1px solid #2b2b2b;
+    border-radius: 6px;
+    background: #101010;
+}
+
+.scene-production-canvas-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    cursor: pointer;
+}
+
+.scene-production-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    padding: 20px;
+    text-align: center;
+}
+
+.scene-production-unavailable {
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px 10px;
+    border-left: 3px solid #495057;
+    background: #181a1c;
+    color: #8f979e;
+    font-size: 0.8rem;
+}
+
+.scene-production-inspector {
+    padding-left: 14px;
+    border-left: 1px solid #2b2b2b;
+    overflow-wrap: anywhere;
+}
+
+.scene-production-inspector dt {
+    color: #8f979e;
+    font-weight: 600;
+}
+
+.scene-production-inspector dd {
+    margin-bottom: 7px;
+}
+
+.scene-production-attempt-stage {
+    padding: 8px 0;
+}
+
+.scene-production-attempt-strip {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 180px;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+}
+
+.scene-production-attempt {
+    min-width: 0;
+    padding: 7px;
+    border: 1px solid #343a40;
+    border-radius: 6px;
+    background: #181a1c;
+}
+
+.scene-production-attempt.is-selected {
+    border-color: #78bdca;
+    box-shadow: inset 0 0 0 1px #78bdca;
+}
+
+.scene-production-attempt-select {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    border: 0;
+    border-radius: 4px;
+    background: #101010;
+    color: #8f979e;
+}
+
+.scene-production-attempt-select img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.scene-image-legacy-tools {
+    display: block;
+}
+
+/* Collapsible panel header toggle (Story Moment, pipeline, studio, legacy tools). */
+.studio-collapse-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    line-height: inherit;
+}
+
+.studio-collapse-toggle:hover {
+    color: #78bdca;
+}
+
+.studio-collapse-toggle .bi {
+    color: #78bdca;
+    transition: transform 0.15s ease;
+}
+
+/* Full-width variant: chevron pushed to the far right (Story Moment, Legacy tools). */
+.studio-collapse-toggle-full {
+    width: 100%;
+}
+
+/* Story arc turn rows. */
+.scene-story-arc-row {
+    min-height: 56px;
+    padding: 8px 12px;
+    line-height: 1.35;
+    text-align: left;
+    white-space: normal;
+}
+
+.scene-story-arc-row .text-truncate {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Turns with beat-pipeline activity: emphasized to indicate activity. */
+.scene-story-arc-active {
+    border-color: #355b63 !important;
+    background: #182326;
+    box-shadow: inset 3px 0 0 #4a8592;
+}
+
+.scene-story-arc-active:hover {
+    border-color: #4a8592 !important;
+    background: #1d3034;
+}
+
+/* The turn currently open in the studio. */
+.scene-story-arc-current {
+    outline: 1px solid #78bdca;
+    outline-offset: -1px;
+}
+
+/* Story arc turn lists scroll inside the panel instead of overflowing it. */
+.scene-story-arc-scroll {
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+/* Pinned selected-turn area just below the Story arc heading (non-scrollable). */
+.scene-story-arc-selected {
+    padding: 8px;
+    border: 1px solid #355b63;
+    border-radius: 6px;
+    background: #121a1c;
+}
+
+/* Pinned selected-beat / selected-moment areas (non-scrollable, below panel header). */
+.scene-beat-catalogue-selected,
+.scene-moment-selected {
+    padding: 8px;
+    border: 1px solid #355b63;
+    border-radius: 6px;
+    background: #121a1c;
+}
+
+.scene-beat-catalogue-selected .scene-beat-catalogue-pinned-card {
+    min-height: 76px;
+    padding: 10px 12px;
+    line-height: 1.35;
+    text-align: left;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    background: #1b1b1b;
+    color: #e6e6e6;
+}
+
+.scene-beat-catalogue-selected .text-nowrap {
+    max-width: 42%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (max-width: 575.98px) {
+    .scene-beat-catalogue-list .d-flex {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .scene-beat-catalogue-list .text-nowrap {
+        max-width: 100%;
+    }
+
+    .scene-beat-catalogue-selected .d-flex {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .scene-beat-catalogue-selected .text-nowrap {
+        max-width: 100%;
+    }
+
+    .scene-beat-production-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .scene-production-stage-stepper span {
+        padding-inline: 4px;
+        font-size: 0.72rem;
+    }
+
+    .scene-production-canvas {
+        min-height: 210px;
+    }
+
+    .scene-production-unavailable {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 991.98px) {
+    .scene-production-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .scene-production-inspector {
+        padding-top: 14px;
+        padding-left: 0;
+        border-top: 1px solid #2b2b2b;
+        border-left: 0;
+    }
+}
+
+.scene-image-preprocessor-prompt {
+    max-height: 420px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 1px solid #2b2b2b;
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: #161616;
+    color: #e6e6e6;
+    font-size: 0.8rem;
+}
+
+/* "Continue from this image" action */
+.scene-image-continue-btn {
+    border-color: #355b63;
+    color: #91d6e4;
+}
+
+.scene-image-continue-btn:hover {
+    background: #1b3338;
+    border-color: #4a8592;
+    color: #c0ebf5;
+}
+
+/* Clickable thumbnail */
+.scene-image-thumb {
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.scene-image-thumb:hover {
+    transform: scale(1.02);
+    box-shadow: 0 0 0 2px #355b63;
+}
+
+/* Full-window image viewer (lightbox) */
+.scene-image-viewer-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.scene-image-viewer {
+    background: #161616;
+    border: 1px solid #2b2b2b;
+    border-radius: 8px;
+    max-width: 95vw;
+    max-height: 95vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.scene-image-viewer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #2b2b2b;
+}
+
+.scene-image-viewer-img {
+    max-width: 92vw;
+    max-height: 82vh;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto;
+}
+
+.scene-image-viewer-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 8px 12px;
+    border-top: 1px solid #2b2b2b;
+}

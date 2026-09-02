@@ -11,9 +11,11 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\DreamGenClone.Web\DreamGenClone.csproj" />
+    <ProjectReference Include="..\DreamGenClone.CorpusRunner\DreamGenClone.CorpusRunner.csproj" />
   </ItemGroup>
 </Project>

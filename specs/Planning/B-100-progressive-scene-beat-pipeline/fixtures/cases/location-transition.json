@@ -1,0 +1,33 @@
+{
+  "id": "location-transition",
+  "category": "location-transition",
+  "description": "Two characters move from a station platform into a waiting room.",
+  "session": {
+    "id": "b100-session-location", "scenarioId": "b100-scenario-location",
+    "personaCharacterId": "b100-persona-location", "personaName": "Sela", "personaRole": "Traveler",
+    "personaGender": "Female", "personaDescription": "A traveler carrying a canvas satchel.",
+    "interactions": [
+      { "id": "location-i1", "actorName": "Sela", "interactionType": "User", "content": "I leave the windy platform and follow Arun through the waiting-room door.", "createdUtc": "2026-01-14T14:20:00Z" },
+      { "id": "location-c1", "actorName": "Arun", "interactionType": "Npc", "content": "Arun holds the glass door until Sela crosses the threshold, then points toward two empty chairs.", "createdUtc": "2026-01-14T14:20:01Z" },
+      { "id": "location-n1", "actorName": "Narrative", "interactionType": "System", "content": "They leave the exposed station platform and enter the enclosed waiting room. Arun remains beside the closing glass door while Sela stops near the empty chairs, her canvas satchel still over one shoulder.", "createdUtc": "2026-01-14T14:20:02Z" }
+    ]
+  },
+  "turn": { "id": "b100-turn-location", "index": 3, "kind": "SubmitPrompt", "triggerSource": "User", "inputInteractionId": "location-i1", "outputInteractionIds": ["location-c1", "location-n1"], "startedUtc": "2026-01-14T14:20:00Z", "completedUtc": "2026-01-14T14:20:03Z" },
+  "characters": [
+    { "id": "b100-character-arun", "name": "Arun", "role": "Guide", "gender": "Male", "description": "A station guide in a navy coat." },
+    { "id": "b100-persona-location", "name": "Sela", "role": "Traveler", "gender": "Female", "description": "A traveler carrying a canvas satchel." }
+  ],
+  "expectations": {
+    "beatBoundaries": [
+      { "label": "Platform departure", "evidenceInteractionIds": ["location-i1", "location-n1"], "match": "subset" },
+      { "label": "Waiting room arrival", "evidenceInteractionIds": ["location-c1", "location-n1"], "match": "subset" }
+    ],
+    "selectedBeatOrdinal": 2,
+    "moments": { "minimum": 2, "maximum": 4, "recommendedRequired": true, "requiredProductionRoles": ["StillCandidate"] },
+    "requiredSourceFacts": [
+      { "factKey": "start-platform", "evidenceInteractionId": "location-i1", "description": "The movement begins on the station platform." },
+      { "factKey": "end-waiting-room", "evidenceInteractionId": "location-n1", "description": "The movement ends inside the waiting room." }
+    ]
+  },
+  "expectedPreflightRejection": null
+}

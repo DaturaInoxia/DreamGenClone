@@ -87,6 +87,86 @@ internal static class PhysicalAttributesFormatter
         return "Appearance — " + sb.ToString();
     }
 
+    /// <summary>
+    /// Returns a compact, single-line labelled **visual identity** string for image-prompt
+    /// injection, or <see cref="string.Empty"/> when <paramref name="attrs"/> is null or all
+    /// visual fields are absent.
+    ///
+    /// Unlike <see cref="FormatBlock"/>, this is limited to the stable visual anchors that make a
+    /// character look like the SAME person in images: age, height, weight, ethnicity, hair, eyes,
+    /// skin, body type, a figure line (bust/waist/hips/rear as prose scale terms), and
+    /// distinguishing marks/piercings/tattoos. Intimate/sexual fields are intentionally EXCLUDED —
+    /// they don't affect a still's appearance and can trip content-policy clamps. Body proportions
+    /// are kept (as prose, never numeric measurements) because they ARE renderable on a full-body
+    /// scene and SDXL-family models map adjectives like "wide hips"/"plump" reliably
+    /// (scene-image-prompt-compiler standards, §2.2 rule 5: more specific = more control).
+    /// </summary>
+    internal static string FormatVisualBlock(PhysicalAttributes? attrs)
+    {
+        if (attrs is null) return string.Empty;
+
+        var sb = new StringBuilder();
+
+        Append(sb, "Age", attrs.Age);
+        Append(sb, "Height", attrs.Height);
+        Append(sb, "Weight", attrs.Weight);
+        Append(sb, "Ethnicity", attrs.Ethnicity);
+        Append(sb, "Hair", CombineNotEmpty(attrs.HairStyle, attrs.HairColour, separator: ", "));
+        Append(sb, "Iris color", attrs.EyeColour);
+        Append(sb, "Skin", CombineNotEmpty(attrs.SkinTone, attrs.SkinTexture, separator: ", "));
+        Append(sb, "Body type", attrs.BodyType);
+        Append(sb, "Figure", BuildFigure(attrs));
+        Append(sb, "Marks", attrs.DistinguishingMarks);
+        Append(sb, "Piercings", attrs.Piercings);
+        Append(sb, "Tattoos", attrs.Tattoos);
+
+        if (sb.Length == 0) return string.Empty;
+
+        return "Appearance — " + sb.ToString();
+    }
+
+    /// <summary>
+    /// Builds the body-proportion "Figure" descriptor (bust, waist, hips, rear) from the prose
+    /// scale fields. Returns null when none are set so the line is omitted entirely.
+    /// </summary>
+    private static string? BuildFigure(PhysicalAttributes attrs)
+    {
+        var parts = new List<string>(4);
+        AddFigurePart(parts, "bust", attrs.BustSize);
+        AddFigurePart(parts, "waist", attrs.WaistSize);
+        AddFigurePart(parts, "hips", attrs.HipSize);
+        AddFigurePart(parts, "rear", attrs.ButtSize);
+        return parts.Count == 0 ? null : string.Join(", ", parts);
+    }
+
+    private static void AddFigurePart(List<string> parts, string label, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+            parts.Add($"{label} {value.Trim()}");
+    }
+
+    /// <summary>
+    /// Returns the character's clothing/outfit for image-prompt injection, or
+    /// <see cref="string.Empty"/> when no clothing is configured. Prefers <c>ClothingStyle</c>
+    /// (the character's usual attire) and falls back to <c>DefaultClothing</c>.
+    ///
+    /// This is separate from <see cref="FormatVisualBlock"/> so clothing can be injected as its own
+    /// consistent block (CR-006 clothing consistency) rather than being mixed into the fixed
+    /// identity anchors.
+    /// </summary>
+    internal static string FormatVisualClothing(PhysicalAttributes? attrs)
+    {
+        if (attrs is null) return string.Empty;
+
+        var clothing = attrs.ClothingStyle;
+        if (string.IsNullOrWhiteSpace(clothing))
+        {
+            clothing = attrs.DefaultClothing;
+        }
+
+        return string.IsNullOrWhiteSpace(clothing) ? string.Empty : clothing!.Trim();
+    }
+
     private static string? CombineNotEmpty(string? a, string? b, string separator)
     {
         var hasA = !string.IsNullOrWhiteSpace(a);

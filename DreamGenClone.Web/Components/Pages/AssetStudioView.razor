@@ -1,0 +1,259 @@
+@page "/asset-studio/{assetId}"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Domain.RolePlay
+@implements IAsyncDisposable
+
+@inject ISceneAssetService AssetService
+@inject ILogger<AssetStudioView> Logger
+
+<PageTitle>Asset - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">Asset</h4>
+        <a href="/asset-studio" class="btn btn-outline-secondary btn-sm">Back to Asset Studio</a>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    @if (!string.IsNullOrEmpty(_status))
+    {
+        <div class="alert alert-info">@_status</div>
+    }
+
+    @if (_asset is null)
+    {
+        <div class="alert alert-warning">Asset not found.</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            <div class="col-lg-7">
+                <div class="card">
+                    <div class="card-body p-2 text-center">
+                        @if (_asset.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(_asset.FileRelativePath))
+                        {
+                            <img src="/scene-images/@_asset.FileRelativePath" class="img-fluid rounded" alt="@_asset.Name" />
+                        }
+                        else if (_asset.Status == SceneAssetStatus.Pending)
+                        {
+                            <div class="text-muted py-5">Generating… (this page refreshes automatically)</div>
+                        }
+                        else if (_asset.Status == SceneAssetStatus.Failed)
+                        {
+                            <div class="alert alert-danger mb-0">@_asset.ErrorMessage</div>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-5">
+                <div class="card mb-3">
+                    <div class="card-header"><strong>Details</strong></div>
+                    <div class="card-body p-0">
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                <tr><th class="w-40">Name</th><td>@_asset.Name</td></tr>
+                                <tr><th>Kind</th><td>@_asset.Kind</td></tr>
+                                <tr><th>Status</th><td><span class="badge @StatusBadge(_asset.Status)">@_asset.Status</span></td></tr>
+                                @if (_asset.FaceView is not null)
+                                {
+                                    <tr><th>Face view</th><td>@_asset.FaceView</td></tr>
+                                }
+                                @if (_asset.CharacterProfileId is not null)
+                                {
+                                    <tr><th>Character</th><td class="font-monospace small">@_asset.CharacterProfileId</td></tr>
+                                }
+                                @if (_asset.IdentityPackId is not null)
+                                {
+                                    <tr><th>Identity pack</th><td class="font-monospace small">@_asset.IdentityPackId</td></tr>
+                                }
+                                @if (_asset.SourceAssetId is not null)
+                                {
+                                    <tr><th>Source</th><td><a href="/asset-studio/@_asset.SourceAssetId" class="font-monospace small">@_asset.SourceAssetId</a></td></tr>
+                                }
+                                <tr><th>Dimensions</th><td>@(_asset.Width is null ? "—" : $"{_asset.Width}x{_asset.Height}")</td></tr>
+                                <tr><th>Bytes</th><td>@_asset.ByteLength</td></tr>
+                                <tr><th>Media type</th><td>@_asset.MediaType</td></tr>
+                                <tr><th>SHA-256</th><td class="font-monospace small">@_asset.Sha256</td></tr>
+                                <tr><th>Created</th><td>@_asset.CreatedUtc.ToLocalTime().ToString("g")</td></tr>
+                                @if (_asset.CompletedUtc is not null)
+                                {
+                                    <tr><th>Completed</th><td>@_asset.CompletedUtc.Value.ToLocalTime().ToString("g")</td></tr>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(_asset.Prompt))
+                                {
+                                    <tr><th>Prompt</th><td style="white-space:pre-wrap;">@_asset.Prompt</td></tr>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(_asset.ModelSnapshotJson))
+                                {
+                                    <tr><th>Model</th><td class="font-monospace small">@_asset.ModelSnapshotJson</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                @if (_asset.Status == SceneAssetStatus.Complete)
+                {
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <strong>Edit From This Asset</strong>
+                            <a class="btn btn-sm btn-outline-primary" href="/asset-studio/@_asset.Id/download">Download</a>
+                        </div>
+                        <div class="card-body small">
+                            <label class="form-label">New asset name</label>
+                            <input type="text" class="form-control" @bind="_editName" placeholder="e.g. @_asset.Name (edited)" />
+                            <label class="form-label mt-2">Edit instruction (Qwen source-image edit)</label>
+                            <textarea class="form-control" rows="3" @bind="_editPrompt" placeholder="e.g. Change the lighting to golden hour."></textarea>
+                            <button class="btn btn-primary mt-2" @onclick="RunEditAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_editPrompt))">Run Edit</button>
+                            @if (_resultAsset is not null)
+                            {
+                                <div class="alert alert-success mt-2 mb-0">
+                                    Edit queued — <a href="/asset-studio/@_resultAsset.Id">view new asset</a>.
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header"><strong>Danger Zone</strong></div>
+                        <div class="card-body small">
+                            @if (!string.IsNullOrWhiteSpace(_asset.IdentityPackId))
+                            {
+                                <span class="text-muted">This asset belongs to an identity pack; delete it from the Character Identity page instead.</span>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-danger" @onclick="DeleteAsync" disabled="@_busy">Delete Asset</button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? AssetId { get; set; }
+
+    private SceneAsset? _asset;
+    private string _editName = string.Empty;
+    private string _editPrompt = string.Empty;
+    private SceneAsset? _resultAsset;
+
+    private bool _busy;
+    private string? _error;
+    private string? _status;
+
+    private System.Threading.Timer? _timer;
+    private readonly object _timerLock = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+        EnsurePolling();
+    }
+
+    private async Task LoadAsync()
+    {
+        _asset = string.IsNullOrWhiteSpace(AssetId)
+            ? null
+            : await AssetService.GetAssetAsync(AssetId!);
+        StateHasChanged();
+    }
+
+    private async Task RunEditAsync()
+    {
+        if (_asset is null || string.IsNullOrWhiteSpace(_editPrompt)) return;
+
+        await RunAsync(async () =>
+        {
+            var name = string.IsNullOrWhiteSpace(_editName) ? $"{_asset!.Name} (edited)" : _editName.Trim();
+            _resultAsset = await AssetService.EnqueueEditAsync(_asset!.Id, name, _editPrompt);
+            _editName = string.Empty;
+            _editPrompt = string.Empty;
+            EnsurePolling();
+        });
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_asset is null) return;
+
+        await RunAsync(async () =>
+        {
+            await AssetService.DeleteAssetAsync(_asset!.Id);
+            _status = "Asset deleted.";
+            _asset = null;
+        });
+    }
+
+    private void EnsurePolling()
+    {
+        lock (_timerLock)
+        {
+            if (_timer is not null) return;
+            if (_asset is null || _asset.Status != SceneAssetStatus.Pending)
+            {
+                return;
+            }
+
+            _timer = new System.Threading.Timer(async _ =>
+            {
+                await LoadAsync();
+                if (_asset is null || _asset.Status != SceneAssetStatus.Pending)
+                {
+                    StopPolling();
+                }
+            }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        }
+    }
+
+    private void StopPolling()
+    {
+        lock (_timerLock)
+        {
+            _timer?.Dispose();
+            _timer = null;
+        }
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Asset Studio view operation failed.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string StatusBadge(SceneAssetStatus status) => status switch
+    {
+        SceneAssetStatus.Pending => "bg-secondary",
+        SceneAssetStatus.Complete => "bg-success",
+        SceneAssetStatus.Failed => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    public ValueTask DisposeAsync()
+    {
+        StopPolling();
+        return ValueTask.CompletedTask;
+    }
+}

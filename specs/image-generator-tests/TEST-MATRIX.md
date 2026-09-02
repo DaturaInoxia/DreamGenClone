@@ -1,0 +1,136 @@
+# Image Generator Test Matrix
+
+This is the navigation index for image-generation qualification. The existing suite folders remain
+canonical evidence packages; this matrix organizes them by the behavior being compared.
+
+## Dimensions
+
+| Dimension | Values |
+|---|---|
+| Content | SFW, NSFW |
+| Model path | Stock model, identity conditioning |
+| Subject count | One person, two people |
+| Identity | None, Becky, Dean, Dean + Becky |
+| Pose | Neutral portrait, standing, missionary, cowgirl, reverse cowgirl, spooning, doggy, fellatio, 69, close-up anatomy |
+
+## Matrix
+
+| Area | Subject | Identity | Content | Canonical source | Status |
+|---|---|---|---|---|---|
+| SFW stock smoke | One person | None | SFW | `helpers/runpod/workflows/sdxl-test.json` | Workflow exists; committed image evidence pending |
+| SFW stock composition | Two people | None | SFW | `helpers/runpod/workflows/sdxl-man-woman.json` | Workflow exists; committed image evidence pending |
+| NSFW stock positions | One man + one woman | None | NSFW | `juggernaut/prompts/` and `juggernaut/images/` | Committed; 1M1F position catalog |
+| NSFW stock positions | Multi-person | None | NSFW | `juggernaut/prompts/` and `juggernaut/images/` | Committed; 3- and 4-person catalog |
+| NSFW identity smoke | One person | Dean | NSFW | `identity-single-character/` | Committed; IP-Adapter and PuLID proof |
+| NSFW identity solo | One person | Becky | NSFW | `identity-single-character/` runner template + Becky ref | Planned; add Becky reference and frozen solo workflows |
+| NSFW identity solo | One person | Dean | NSFW | `identity-single-character/` runner template | Planned; add explicit solo-position workflows |
+| NSFW identity positions | Two people | Dean + Becky | NSFW | `identity-two-character/positions/` | Committed workflows; generated evidence varies by run |
+| NSFW identity mechanism | Two people | Dean + Becky | NSFW | `identity-two-character/prompts/matrix/`, `faceid/`, `multiangle/` | Committed proof package; mechanism scorecards included |
+
+## Simple prompt catalog
+
+Consolidated **simple positive prompts** for the matrix live in
+[`TEST-MATRIX-PROMPTS.json`](TEST-MATRIX-PROMPTS.json). Each cell has a single positive `prompt`
+written for **BigLust v1.6** (`bigLust_v16.safetensors`, SDXL text-to-image) — no image edits and
+no IP-Adapter/PuLID conditioning. Identity is baked into the prompt text as an inline physical
+description of Dean and Becky. Negatives, seed, sampler, and dimensions come from the BigLust
+workflow (`helpers/runpod/workflows/biglust-t2i.json`).
+
+Suite ids in the catalog:
+
+| Suite id | Coverage |
+|---|---|
+| `sfw-identity` | Basic SFW with identity (Becky, Dean, Dean + Becky) |
+| `stock-nsfw` | Stock NSFW 1M1F positions, no identity |
+| `stock-nsfw-identity` | Stock NSFW 1M1F positions with Dean + Becky identity |
+| `solo-nsfw-woman` | Becky solo NSFW (down top, upskirt, masturbation) |
+| `solo-nsfw-man` | Dean solo NSFW (sexy poses non-erect/erect, masturbation cumshot) |
+
+## Required qualification suites
+
+### 1. Basic SFW
+
+Use stock SDXL/Juggernaut without identity conditioning:
+
+- one adult person, neutral portrait
+- two adults, neutral clothed composition
+- anatomy and count check: exactly one person and exactly two people
+- no explicit sexual content in either prompt
+
+Identity-conditioned SFW coverage (Becky, Dean, Dean + Becky) is added in the catalog suite
+`sfw-identity` of [`TEST-MATRIX-PROMPTS.json`](TEST-MATRIX-PROMPTS.json).
+
+The current reusable starting workflows are `helpers/runpod/workflows/sdxl-test.json` and
+`helpers/runpod/workflows/sdxl-man-woman.json`. Their generated results should be stored as a
+small committed SFW stock suite with its own manifest.
+
+### 2. Stock NSFW positions
+
+Use the stock Juggernaut checkpoint with no identity conditioning. The existing suite is the
+reference catalog for different positions and close-ups:
+
+- standing and standing penetration close-up
+- missionary and missionary penetration close-up
+- cowgirl and reverse cowgirl, including close-ups
+- spooning and doggy, including close-ups
+- fellatio and 69
+- additional multi-person cases are retained, but should be treated as extended coverage rather
+  than the basic 1M1F qualification gate
+
+Source: `juggernaut/manifest.json`, `juggernaut/prompts/`, and `juggernaut/images/`.
+
+The basic 1M1F set — missionary, doggy, cowgirl, fellatio, and cunnilingus — has simple positive
+prompts in the catalog suite `stock-nsfw` of
+[`TEST-MATRIX-PROMPTS.json`](TEST-MATRIX-PROMPTS.json).
+
+### 3. NSFW positions with Dean + Becky identity
+
+Run the same 1M1F position set with regional identity conditioning applied to both characters.
+The comparison should use the same position prompt, dimensions, sampler, and seed wherever the
+runner permits it, so the variable is identity conditioning rather than scene composition.
+
+Source: `identity-two-character/positions/`, with references under
+`identity-two-character/refs/` and masks generated by its runner.
+
+Simple Dean + Becky prompts for the same 1M1F set are in the catalog suite
+`stock-nsfw-identity` of [`TEST-MATRIX-PROMPTS.json`](TEST-MATRIX-PROMPTS.json).
+
+### 4. NSFW solo identity
+
+Run two separate one-person suites. Do not combine them into the two-person identity package:
+
+- Becky solo: one adult woman, NSFW solo poses, Becky identity applied
+- Dean solo: one adult man, NSFW solo poses, Dean identity applied
+
+Each case needs a stock no-identity control with the same prompt and seed. The current Dean smoke
+proof establishes the runner and identity mechanism, but it is not yet a complete solo-position
+suite. Becky coverage is not yet committed and must be added before claiming this matrix complete.
+
+Simple solo prompts are in the catalog suites `solo-nsfw-woman` (Becky: down top, upskirt,
+masturbation full nudity) and `solo-nsfw-man` (Dean: sexy poses non-erect/erect, masturbation with
+cumshot) of [`TEST-MATRIX-PROMPTS.json`](TEST-MATRIX-PROMPTS.json).
+
+## Pass/fail recording
+
+Every generated case should record:
+
+- model/checkpoint and provider path
+- identity mode and reference files
+- subject count and requested pose
+- positive and negative prompts
+- seed, dimensions, sampler, scheduler, steps, and CFG
+- output image path and SHA-256
+- visual result: `pass`, `fail`, or `review`
+- a short failure reason when the requested count, identity, pose, or anatomy is not preserved
+
+Use ignored `artifacts/tmp/` for exploratory runs. Commit only frozen prompts, accepted images,
+and manifests under this directory.
+
+## Existing package map
+
+- `baseline/`: shared model-agnostic position catalog
+- `juggernaut/`: stock SDXL/Juggernaut NSFW text-to-image evidence
+- `biglust/`: BigLust v1.6 text-to-image + IP-Adapter identity matrix (dated runs)
+- `identity-single-character/`: one-character identity mechanism proof
+- `identity-two-character/`: Dean + Becky regional identity and position proof
+- `qwen/`: source-image editing proof; separate from text-to-image qualification

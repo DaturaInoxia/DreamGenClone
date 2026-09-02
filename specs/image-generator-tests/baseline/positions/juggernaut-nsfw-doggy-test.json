@@ -1,0 +1,27 @@
+{
+  "id": "juggernaut-nsfw-doggy-test",
+  "title": "doggy",
+  "actors": "1M1F",
+  "closeup": false,
+  "neutralScene": "Two naked adults on a bed: the woman on her hands and knees with her back arched, the man kneeling behind her, his erect penis entering her vagina from behind with clear penetration; medium shot, correct anatomy, natural bodies and skin texture, soft warm light, sharp focus.",
+  "negative": "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, misplaced genitals, penis on arm, penis on hand, detached penis, extra penis, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin",
+  "variants": {
+    "sdxl-juggernaut": "Photorealistic explicit sex scene, one adult man and one adult woman on a bed, the woman on her hands and knees with her back arched, the man kneeling behind her, medium shot, his erect penis visibly entering her vagina from behind, the head of his penis pushing into her vagina, clear penetration at the contact point, correct penis and vagina anatomy, both fully nude, natural realistic body proportions, natural skin texture, soft warm bedroom lighting, 35mm lens, sharp focus, highly detailed",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl and 1boy, 2people, doggy style, from behind, vaginal penetration, penis in vagina, woman on hands and knees, nude, medium shot, correct anatomy, soft lighting, sharp focus",
+    "qwen-edit": "Change the scene to doggy style: the woman on her hands and knees with the man kneeling behind her penetrating her vagina from behind. Keep both people's faces, hair, identity, bodies, skin, and lighting exactly unchanged."
+  },
+  "settings": {
+    "seed": 20245,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  },
+  "source": {
+    "suite": "juggernaut",
+    "workflow": "juggernaut/prompts/juggernaut-nsfw-doggy-test.json"
+  }
+}

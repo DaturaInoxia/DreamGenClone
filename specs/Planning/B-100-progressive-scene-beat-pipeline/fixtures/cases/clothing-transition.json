@@ -1,0 +1,30 @@
+{
+  "id": "clothing-transition",
+  "category": "clothing-transition",
+  "description": "A rain-soaked character removes only an outer coat and hangs it by the door.",
+  "session": {
+    "id": "b100-session-clothing", "scenarioId": "b100-scenario-clothing",
+    "personaCharacterId": "b100-persona-clothing", "personaName": "June", "personaRole": "Archivist",
+    "personaGender": "Female", "personaDescription": "An archivist wearing a cream shirt and dark trousers.",
+    "interactions": [
+      { "id": "clothing-i1", "actorName": "June", "interactionType": "User", "content": "I unfasten my wet red raincoat, keeping my cream shirt and dark trousers on, and reach for the wall hook.", "createdUtc": "2026-01-15T09:40:00Z" },
+      { "id": "clothing-c1", "actorName": "Miko", "interactionType": "Npc", "content": "Miko moves an umbrella aside to clear the hook and watches June hang the raincoat.", "createdUtc": "2026-01-15T09:40:01Z" },
+      { "id": "clothing-n1", "actorName": "Narrative", "interactionType": "System", "content": "Inside the archive entry, June removes the wet red outer raincoat and hangs it on the cleared hook. Her cream shirt and dark trousers remain unchanged, while Miko stands beside the umbrella rack.", "createdUtc": "2026-01-15T09:40:02Z" }
+    ]
+  },
+  "turn": { "id": "b100-turn-clothing", "index": 9, "kind": "SubmitPrompt", "triggerSource": "User", "inputInteractionId": "clothing-i1", "outputInteractionIds": ["clothing-c1", "clothing-n1"], "startedUtc": "2026-01-15T09:40:00Z", "completedUtc": "2026-01-15T09:40:03Z" },
+  "characters": [
+    { "id": "b100-character-miko", "name": "Miko", "role": "Assistant Archivist", "gender": "Nonbinary", "description": "An archivist in a charcoal cardigan." },
+    { "id": "b100-persona-clothing", "name": "June", "role": "Archivist", "gender": "Female", "description": "An archivist wearing a cream shirt and dark trousers." }
+  ],
+  "expectations": {
+    "beatBoundaries": [ { "label": "Raincoat hung", "evidenceInteractionIds": ["clothing-i1", "clothing-c1", "clothing-n1"], "match": "subset" } ],
+    "selectedBeatOrdinal": 1,
+    "moments": { "minimum": 2, "maximum": 4, "recommendedRequired": true, "requiredProductionRoles": ["StillCandidate"] },
+    "requiredSourceFacts": [
+      { "factKey": "raincoat-removed", "evidenceInteractionId": "clothing-n1", "description": "Only the wet red outer raincoat is removed." },
+      { "factKey": "base-clothes-unchanged", "evidenceInteractionId": "clothing-i1", "description": "The cream shirt and dark trousers remain worn." }
+    ]
+  },
+  "expectedPreflightRejection": null
+}

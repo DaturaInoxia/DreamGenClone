@@ -1,0 +1,66 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "ponyDiffusionV6XL_v6.safetensors"
+    }
+  },
+  "10": {
+    "class_type": "CLIPSetLastLayer",
+    "inputs": {
+      "stop_at_clip_layer": -2,
+      "clip": ["4", 1]
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1boy, 1girl, realistic, photorealistic, candid photo, natural skin texture, man, male, masculine, 50 year old man, short brown hair, short hair, stubble, beard, blue eyes, broad shoulders, average body, baseball cap, casual clothes, t-shirt and shorts, sitting on striped towel, leaning back on elbows, looking toward lake, cooler beside him, woman, female, 50 year old woman, brown hair in a bun, blue eyes, curvy, fair skin, tattoos on arms and legs, yellow sundress, lying on striped towel, knees drawn up, arms wrapped around herself, eyes closed, late morning, lakeside beach, bright golden sunlight, striped umbrella, folding chairs, dock, distant kayaks, peaceful mood, wide shot, 35mm photo",
+      "clip": ["10", 0]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "source_pony, source_furry, source_cartoon, source_anime, anime, cartoon, illustration, painting, sketch, 3d, two women, two girls, 2girls, extra woman, extra girl, wrong gender, lowres, bad anatomy, bad hands, extra digits, watermark, text, blurry, ugly, deformed",
+      "clip": ["10", 0]
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 24680,
+      "steps": 25,
+      "cfg": 7.0,
+      "sampler_name": "euler_ancestral",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["4", 2]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "dreamgen_realistic_man_woman",
+      "images": ["8", 0]
+    }
+  }
+}

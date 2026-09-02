@@ -1,0 +1,13 @@
+{
+  "version": "b100-corpus-v1",
+  "cases": [
+    { "id": "solo-workshop", "file": "cases/solo-workshop.json" },
+    { "id": "ensemble-kitchen", "file": "cases/ensemble-kitchen.json" },
+    { "id": "parallel-viewpoints", "file": "cases/parallel-viewpoints.json" },
+    { "id": "remote-observer", "file": "cases/remote-observer.json" },
+    { "id": "location-transition", "file": "cases/location-transition.json" },
+    { "id": "clothing-transition", "file": "cases/clothing-transition.json" },
+    { "id": "long-complex-turn", "file": "cases/long-complex-turn.json" },
+    { "id": "missing-narrative", "file": "cases/missing-narrative.json" }
+  ]
+}

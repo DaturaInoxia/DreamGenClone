@@ -23,8 +23,8 @@ param(
 
 Set-Location $PSScriptRoot/..
 
-$q   = 'artifacts/tmp/dbquery/queries'
-$dbq = 'artifacts/tmp/dbquery'
+$q   = 'DreamGenClone.DbQuery/queries'
+$dbq = 'DreamGenClone.DbQuery'
 
 # Ladder label lookup — matches IntensityLadder.cs
 $LadderLabels = @{

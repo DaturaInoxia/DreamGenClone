@@ -1,0 +1,277 @@
+{
+  "suite": "identity-two-character-positions",
+  "count": 18,
+  "note": "2-person pack position test using the FULL FACE PACKS with ANGLE-MATCHED refs per position (POSITION_REFS) — same pattern as run_multiangle.py. Dean+Becky regional IP-Adapter (PLUS FACE), Dean 0.8 / Becky 0.6. Masks and refs are starting defaults; validate per position on review.",
+  "positions": [
+    {
+      "id": "juggernaut-nsfw-69-test",
+      "actors": "1M1F",
+      "closeup": false,
+      "path": "positions/prompts/juggernaut-nsfw-69-test.json",
+      "seed": 20244,
+      "masks": [
+        "c4_bottom.png",
+        "c4_top.png"
+      ],
+      "refs": {
+        "dean": "dean_34l.png",
+        "becky": "becky_34l.png"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-cowgirl-penetration-closeup-test",
+      "actors": "1M1F",
+      "closeup": true,
+      "path": "positions/prompts/juggernaut-nsfw-cowgirl-penetration-closeup-test.json",
+      "seed": 20253,
+      "masks": [
+        "c4_bottom.png",
+        "c4_top.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-cowgirl-test",
+      "actors": "1M1F",
+      "closeup": false,
+      "path": "positions/prompts/juggernaut-nsfw-cowgirl-test.json",
+      "seed": 11223,
+      "masks": [
+        "c4_bottom.png",
+        "c4_top.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-cumshot-creampie-test",
+      "actors": "1M1F",
+      "closeup": true,
+      "path": "positions/prompts/juggernaut-nsfw-cumshot-creampie-test.json",
+      "seed": 20504,
+      "masks": [
+        "c1_right.png",
+        "c1_left.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-cumshot-facial-test",
+      "actors": "1M1F",
+      "closeup": true,
+      "path": "positions/prompts/juggernaut-nsfw-cumshot-facial-test.json",
+      "seed": 20501,
+      "masks": [
+        "c1_right.png",
+        "c1_left.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-cumshot-in-mouth-test",
+      "actors": "1M1F",
+      "closeup": true,
+      "path": "positions/prompts/juggernaut-nsfw-cumshot-in-mouth-test.json",
+      "seed": 20503,
+      "masks": [
+        "c1_right.png",
+        "c1_left.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-cumshot-on-body-test",
+      "actors": "1M1F",
+      "closeup": true,
+      "path": "positions/prompts/juggernaut-nsfw-cumshot-on-body-test.json",
+      "seed": 20502,
+      "masks": [
+        "c1_right.png",
+        "c1_left.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-doggy-penetration-closeup-test",
+      "actors": "1M1F",
+      "closeup": true,
+      "path": "positions/prompts/juggernaut-nsfw-doggy-penetration-closeup-test.json",
+      "seed": 20252,
+      "masks": [
+        "c1_right.png",
+        "c1_left.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_34r.png"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-doggy-test",
+      "actors": "1M1F",
+      "closeup": false,
+      "path": "positions/prompts/juggernaut-nsfw-doggy-test.json",
+      "seed": 20245,
+      "masks": [
+        "c1_right.png",
+        "c1_left.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_34r.png"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-fellatio-test",
+      "actors": "1M1F",
+      "closeup": false,
+      "path": "positions/prompts/juggernaut-nsfw-fellatio-test.json",
+      "seed": 66778,
+      "masks": [
+        "c4_top.png",
+        "c4_bottom.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_34l.png"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-missionary-penetration-closeup-test",
+      "actors": "1M1F",
+      "closeup": true,
+      "path": "positions/prompts/juggernaut-nsfw-missionary-penetration-closeup-test.json",
+      "seed": 20251,
+      "masks": [
+        "c4_top.png",
+        "c4_bottom.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-missionary-test",
+      "actors": "1M1F",
+      "closeup": false,
+      "path": "positions/prompts/juggernaut-nsfw-missionary-test.json",
+      "seed": 73190,
+      "masks": [
+        "c4_top.png",
+        "c4_bottom.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-reverse-cowgirl-penetration-closeup-test",
+      "actors": "1M1F",
+      "closeup": true,
+      "path": "positions/prompts/juggernaut-nsfw-reverse-cowgirl-penetration-closeup-test.json",
+      "seed": 20254,
+      "masks": [
+        "c4_bottom.png",
+        "c4_top.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_34r.png"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-reverse-cowgirl-test",
+      "actors": "1M1F",
+      "closeup": false,
+      "path": "positions/prompts/juggernaut-nsfw-reverse-cowgirl-test.json",
+      "seed": 20241,
+      "masks": [
+        "c4_bottom.png",
+        "c4_top.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_34r.png"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-spooning-penetration-closeup-test",
+      "actors": "1M1F",
+      "closeup": true,
+      "path": "positions/prompts/juggernaut-nsfw-spooning-penetration-closeup-test.json",
+      "seed": 20255,
+      "masks": [
+        "c1_right.png",
+        "c1_left.png"
+      ],
+      "refs": {
+        "dean": "dean_34l.png",
+        "becky": "becky_34l.png"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-spooning-test",
+      "actors": "1M1F",
+      "closeup": false,
+      "path": "positions/prompts/juggernaut-nsfw-spooning-test.json",
+      "seed": 20242,
+      "masks": [
+        "c1_right.png",
+        "c1_left.png"
+      ],
+      "refs": {
+        "dean": "dean_34l.png",
+        "becky": "becky_34l.png"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-standing-penetration-closeup-test",
+      "actors": "1M1F",
+      "closeup": true,
+      "path": "positions/prompts/juggernaut-nsfw-standing-penetration-closeup-test.json",
+      "seed": 20256,
+      "masks": [
+        "c1_right.png",
+        "c1_left.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
+      }
+    },
+    {
+      "id": "juggernaut-nsfw-standing-test",
+      "actors": "1M1F",
+      "closeup": false,
+      "path": "positions/prompts/juggernaut-nsfw-standing-test.json",
+      "seed": 20246,
+      "masks": [
+        "c1_right.png",
+        "c1_left.png"
+      ],
+      "refs": {
+        "dean": "dean_front.png",
+        "becky": "becky_front.jpg"
+      }
+    }
+  ]
+}

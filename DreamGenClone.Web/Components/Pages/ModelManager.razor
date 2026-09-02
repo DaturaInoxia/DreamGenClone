@@ -4,6 +4,7 @@
 @using DreamGenClone.Web.Application.ModelManager
 
 @inject ModelManagerFacade Facade
+@inject IModelManagerSecretProvider SecretProvider
 
 <PageTitle>Model Manager - DreamGenClone</PageTitle>
 
@@ -43,7 +44,7 @@
                 var healthyModels = modelResults.Count(r => r.IsHealthy);
                 var hasFailures = providerResults.Any(r => !r.IsHealthy) || modelResults.Any(r => !r.IsHealthy);
 
-                <div class="d-flex gap-3 mb-3">
+                <div class="d-flex flex-wrap gap-3 mb-3">
                     <span class="badge @(healthyProviders == providerResults.Count ? "bg-success" : "bg-warning text-dark") fs-6">
                         <i class="bi bi-hdd-network me-1"></i> @healthyProviders / @providerResults.Count providers healthy
                     </span>
@@ -137,24 +138,94 @@
                                 <label class="form-label">Chat Completions Path</label>
                                 <input type="text" class="form-control" @bind="_editingProvider!.ChatCompletionsPath" />
                             </div>
-                            @if (_editingProviderType != 0)
-                            {
-                                <div class="col-md-8">
-                                    <label class="form-label">
-                                        API Key
-                                        @if (_editingProviderType != 0)
-                                        {
-                                            <span class="text-danger">*</span>
-                                        }
-                                    </label>
-                                    <input type="password" class="form-control" @bind="_editingApiKey"
-                                           placeholder="@(_existingProviderIds.Contains(_editingProvider!.Id) ? "(unchanged — enter new key to replace)" : "Enter API key")" />
-                                    @if (_editingProviderType != 0 && string.IsNullOrEmpty(_editingApiKey) && !_existingProviderIds.Contains(_editingProvider!.Id))
-                                    {
-                                        <div class="text-warning small mt-1">API key is required for cloud providers</div>
-                                    }
-                                </div>
-                            }
+                            <div class="col-md-4">
+                                <label class="form-label">Image Capability</label>
+                                <select class="form-select" @bind="_editingProvider!.ImageCapability">
+                                    <option value="None">None (text only)</option>
+                                    <option value="TextAndImage">Text + Image</option>
+                                    <option value="ImageOnly">Image only</option>
+                                </select>
+                                <div class="form-text">Does this provider expose an image-generation endpoint?</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Image Generation Path</label>
+                                <input type="text" class="form-control" @bind="_editingProvider!.ImageGenerationPath" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Image Protocol</label>
+                                <select class="form-select" @bind="_editingProvider!.ImageProtocol">
+                                    <option value="OpenAiImages">OpenAI Images API</option>
+                                    <option value="ComfyUi">ComfyUI (pod HTTP)</option>
+                                    <option value="ComfyUiServerless">ComfyUI Serverless (RunPod)</option>
+                                </select>
+                                <div class="form-text">Wire protocol for image calls. ComfyUI uses /prompt + /history + /view; ComfyUI Serverless uses the RunPod job API (/run + /status, base64 output). Base URL for serverless = https://api.runpod.ai/v2/{endpointId}.</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Content Policy</label>
+                                <select class="form-select" @bind="_editingProvider!.ContentPolicy">
+                                    <option value="Unknown">-- Not configured --</option>
+                                    <option value="SfwFiltered">Safe-for-work (filtered)</option>
+                                    <option value="AdultAllowed">Adult allowed</option>
+                                    <option value="AdultAllowedConfigurable">Adult (configurable)</option>
+                                </select>
+                                <div class="form-text">Required before this provider can render images. Explicit content is only generated when adult-allowed.</div>
+                            </div>
+                            <div class="col-12"><hr class="my-1" /><strong>Multimodal Runtime Contract</strong></div>
+                            <div class="col-md-4">
+                                <label class="form-label">Lifecycle Strategy</label>
+                                <select class="form-select" @bind="_editingProvider!.LifecycleStrategyIdentifier">
+                                    <option value="">-- Not configured --</option>
+                                    <option value="ScheduledSinglePod">Scheduled single pod</option>
+                                    <option value="AlwaysOnSeparateProvider">Always-on separate provider</option>
+                                    <option value="ManagedDedicatedPod">Managed dedicated pod</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Readiness Path</label>
+                                <input type="text" class="form-control" @bind="_editingProvider!.ReadinessPath" placeholder="/v1/models" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Credential Reference</label>
+                                <input type="text" class="form-control" @bind="_editingProvider!.CredentialReference" placeholder="runpod:image-vision-qwen-vl-prod" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Transition Timeout (seconds)</label>
+                                <input type="number" class="form-control" @bind="_editingProvider!.TransitionTimeoutSeconds" min="1" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Transition Margin (seconds)</label>
+                                <input type="number" class="form-control" @bind="_editingProvider!.TransitionMarginSeconds" min="1" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Max Active</label>
+                                <input type="number" class="form-control" @bind="_editingProvider!.MaximumActiveRequests" min="1" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Queue Capacity</label>
+                                <input type="number" class="form-control" @bind="_editingProvider!.QueueCapacity" min="1" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Readiness Success Contract (JSON)</label>
+                                <textarea class="form-control font-monospace" rows="3" @bind="_editingProvider!.ReadinessSuccessContractJson"></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Server Identity Policy (JSON)</label>
+                                <textarea class="form-control font-monospace" rows="3" @bind="_editingProvider!.ServerIdentityPolicyJson"></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Shutdown / Drain Policy (JSON)</label>
+                                <textarea class="form-control font-monospace" rows="3" @bind="_editingProvider!.ShutdownDrainPolicyJson"></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Allowed Network Boundary</label>
+                                <input type="text" class="form-control" @bind="_editingProvider!.AllowedNetworkBoundary" placeholder="Configured private RunPod endpoint" />
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label">API Key</label>
+                                <input type="password" class="form-control" @bind="_editingApiKey"
+                                       placeholder="@(_existingProviderIds.Contains(_editingProvider!.Id) ? "(unchanged - enter new key to replace)" : "Enter API key")" />
+                                <div class="form-text">Required when a credential reference is configured. The key is encrypted before persistence.</div>
+                            </div>
                             <div class="col-12">
                                 <label class="form-label">Notes</label>
                                 <textarea class="form-control" rows="2" @bind="_editingProvider!.Notes" maxlength="1000"
@@ -186,7 +257,7 @@
             {
                 <div class="card mb-2 @(!provider.IsEnabled ? "border-secondary opacity-75" : "")">
                     <div class="card-body py-2">
-                        <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                             <div>
                                 <strong>@provider.Name</strong>
                                 <span class="badge ms-2 @(provider.ProviderType switch { ProviderType.LmStudio => "bg-success", ProviderType.TogetherAI => "bg-info", ProviderType.OpenRouter => "bg-warning text-dark", _ => "bg-secondary" })">
@@ -277,6 +348,20 @@
                                     <input type="text" class="form-control" @bind="_editingModel!.DisplayName" maxlength="200" />
                                 </div>
                                 <div class="col-md-4">
+                                    <label class="form-label">Model Kind</label>
+                                    <select class="form-select" @bind="_editingModel!.ModelKind">
+                                        <option value="Text">Text</option>
+                                        <option value="Image">Image</option>
+                                    </select>
+                                    <div class="form-text">Image models are selectable for scene-image rendering.</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Supported Image Size</label>
+                                    <input type="text" class="form-control" @bind="_editingModel!.ImageSizeSupported"
+                                           placeholder="e.g., 1024x1024" />
+                                    <div class="form-text">Optional, informational (image models only).</div>
+                                </div>
+                                <div class="col-md-4">
                                     <label class="form-label">Thinking Control</label>
                                     <div class="form-check form-switch mt-2">
                                         <input class="form-check-input" type="checkbox" @bind="_editingModel!.SupportsThinkingControl" id="model-thinking-control" />
@@ -284,6 +369,129 @@
                                     </div>
                                     <div class="form-text">Enable only when the provider supports chat_template_kwargs.thinking.</div>
                                 </div>
+                                <div class="col-12"><hr class="my-1" /><strong>Structured Output Contract</strong></div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Structured Output Mode</label>
+                                    <select class="form-select" @bind="_editingModel!.StructuredOutputMode">
+                                        <option value="None">Not supported</option>
+                                        <option value="StrictJsonSchema">Strict JSON Schema</option>
+                                        <option value="JsonObject">JSON Object</option>
+                                    </select>
+                                    <div class="form-text">Select the exact response format enforced by this provider/model path.</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Maximum Context Tokens</label>
+                                    <input type="number" class="form-control" @bind="_editingModel!.MaximumContextTokens" min="1" />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Maximum Output Tokens</label>
+                                    <input type="number" class="form-control" @bind="_editingModel!.MaximumOutputTokens" min="1" />
+                                </div>
+                                <div class="col-12"><hr class="my-1" /><strong>Multimodal Input Contract</strong></div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Image Input</label>
+                                    <div class="form-check form-switch mt-2">
+                                        <input class="form-check-input" type="checkbox" @bind="_editingModel!.SupportsImageInput" id="model-image-input" />
+                                        <label class="form-check-label" for="model-image-input">Accepts source images</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Max Images</label>
+                                    <input type="number" class="form-control" @bind="_editingModel!.MaximumInputImages" min="1" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Max Image Bytes</label>
+                                    <input type="number" class="form-control" @bind="_editingModel!.MaximumInputImageBytes" min="1" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Max Response Bytes</label>
+                                    <input type="number" class="form-control" @bind="_editingModel!.MaximumResponseBytes" min="1" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Max Image Pixels</label>
+                                    <input type="number" class="form-control" @bind="_editingModel!.MaximumInputImagePixels" min="1" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Max Image Dimension</label>
+                                    <input type="number" class="form-control" @bind="_editingModel!.MaximumInputImageDimension" min="1" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Accepted Media Types</label>
+                                    <input type="text" class="form-control" @bind="_editingModel!.AcceptedInputMediaTypes" placeholder="image/png,image/jpeg,image/webp" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Runtime Revision</label>
+                                    <input type="text" class="form-control" @bind="_editingModel!.RuntimeRevision" placeholder="vllm-0.27.1-python-3.13.2-torch-2.13.0+cu130" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Artifact Revision</label>
+                                    <input type="text" class="form-control" @bind="_editingModel!.ArtifactRevision" placeholder="Pinned repository commit" />
+                                </div>
+                                @if (_editingModel!.ModelKind == ModelKind.Image)
+                                {
+                                    <div class="col-12"><hr class="my-1" /><strong>Scene Image Compilation</strong></div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Image Family</label>
+                                        <select class="form-select" @bind="_editingModel.SceneImageModelFamily">
+                                            <option value="Unknown">Not configured</option>
+                                            <option value="Pony">Pony V6 XL</option>
+                                            <option value="Sdxl">SDXL / Juggernaut</option>
+                                            <option value="Api">API / natural language</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Prompt Dialect</label>
+                                        <select class="form-select" @bind="_editingModel.PromptDialect">
+                                            <option value="Unknown">Not configured</option>
+                                            <option value="PonyV6Tags">Pony V6 tags</option>
+                                            <option value="SdxlNaturalLanguage">SDXL natural language</option>
+                                            <option value="NaturalLanguage">Natural language</option>
+                                        </select>
+                                        <div class="form-text">Pony requires Pony V6 tags. SDXL / Juggernaut requires SDXL natural language. API models use plain natural language.</div>
+                                    </div>
+                                    <div class="col-12"><hr class="my-1" /><strong>Qwen Source-Image Editor Settings</strong></div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Diffusion Model</label>
+                                        <input type="text" class="form-control" @bind="_editingModel.ImageEditorDiffusionModel" placeholder="qwen_image_edit_2511_fp8mixed.safetensors" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Text Encoder</label>
+                                        <input type="text" class="form-control" @bind="_editingModel.ImageEditorTextEncoder" placeholder="qwen_2.5_vl_7b_fp8_scaled.safetensors" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">VAE</label>
+                                        <input type="text" class="form-control" @bind="_editingModel.ImageEditorVae" placeholder="qwen_image_vae.safetensors" />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Steps</label>
+                                        <input type="number" class="form-control" @bind="_editingModel.ImageEditorSteps" min="1" />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">CFG</label>
+                                        <input type="number" class="form-control" @bind="_editingModel.ImageEditorCfg" min="0" step="0.1" />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Sampler</label>
+                                        <input type="text" class="form-control" @bind="_editingModel.ImageEditorSampler" placeholder="euler" />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Scheduler</label>
+                                        <input type="text" class="form-control" @bind="_editingModel.ImageEditorScheduler" placeholder="simple" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Denoise</label>
+                                        <input type="number" class="form-control" @bind="_editingModel.ImageEditorDenoise" min="0" step="0.1" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">AuraFlow Shift</label>
+                                        <input type="number" class="form-control" @bind="_editingModel.ImageEditorAuraFlowShift" min="0" step="0.1" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">CFGNorm Strength</label>
+                                        <input type="number" class="form-control" @bind="_editingModel.ImageEditorCfgNormStrength" min="0" step="0.1" />
+                                    </div>
+                                    <div class="col-12"><div class="form-text">Required only when this image model is assigned to RP Scene Image Editor. Missing values fail explicitly when an edit is requested.</div></div>
+                                }
                             </div>
                             @if (!string.IsNullOrEmpty(_modelFormError))
                             {
@@ -316,7 +524,7 @@
                     {
                         <div class="card mb-1 ms-3 @(!model.IsEnabled ? "border-secondary opacity-75" : "")">
                             <div class="card-body py-2">
-                                <div class="d-flex justify-content-between align-items-center">
+                                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                                     <div>
                                         <strong>@model.DisplayName</strong>
                                         @if (!model.IsEnabled) { <span class="badge bg-secondary ms-1">Disabled</span> }
@@ -362,6 +570,13 @@
             <h4 class="mb-0"><i class="bi bi-gear"></i> Function Defaults</h4>
         </div>
         <div class="card-body">
+            @if (_functionStates.TryGetValue(AppFunction.RolePlaySceneImage, out var _imageFnState) && string.IsNullOrEmpty(_imageFnState.ModelId))
+            {
+                <div class="alert alert-warning">
+                    <i class="bi bi-image me-1"></i>
+                    No image model configured for scene-image rendering. Assign an image-kind model to <strong>RP Scene Image (Render)</strong> to enable image generation.
+                </div>
+            }
             @if (_enabledModelsDropdown.Count == 0)
             {
                 <div class="alert alert-info">Register and enable a model first to assign function defaults.</div>
@@ -389,7 +604,14 @@
                                 <tr>
                                     <td>
                                         <strong>@FormatFunctionName(func)</strong>
-                                        @if (func == AppFunction.RolePlaySemanticAnalysis && string.IsNullOrEmpty(state.ModelId))
+                                        @if ((func == AppFunction.RolePlaySemanticAnalysis
+                                            || func == AppFunction.RolePlaySceneBeatAnalyzer
+                                            || func == AppFunction.RolePlaySceneImage
+                                            || func == AppFunction.RolePlaySceneImagePreprocessor
+                                            || func == AppFunction.RolePlaySceneImageEditor
+                                            || func == AppFunction.RolePlaySceneImageEditPromptCompiler
+                                            || func == AppFunction.RolePlaySceneImageValidator)
+                                            && string.IsNullOrEmpty(state.ModelId))
                                         {
                                             <span class="badge bg-warning text-dark ms-1">No model</span>
                                         }
@@ -397,7 +619,7 @@
                                     <td>
                                         <select class="form-select form-select-sm" value="@state.ModelId" @onchange="e => OnFunctionModelChange(func, e)">
                                             <option value="">-- Not Assigned --</option>
-                                            @foreach (var group in _enabledModelsDropdown)
+                                            @foreach (var group in GetFunctionModelDropdown(func))
                                             {
                                                 <optgroup label="@group.Provider.Name">
                                                     @foreach (var m in group.Models)
@@ -428,7 +650,7 @@
                                         </select>
                                     </td>
                                     <td>
-                                        @if (func == AppFunction.RolePlaySemanticAnalysis)
+                                        @if (func is AppFunction.RolePlaySemanticAnalysis or AppFunction.RolePlaySceneBeatAnalyzer)
                                         {
                                             <input type="number" class="form-control form-control-sm" min="1" max="16"
                                                    value="@state.MaxConcurrentJobs" @onchange="e => state.MaxConcurrentJobs = ParseNullableInt(e)" />
@@ -438,12 +660,55 @@
                                         <button class="btn btn-sm btn-outline-success" @onclick="() => SaveFunctionDefault(func)" disabled="@_isBusy">
                                             <i class="bi bi-check-lg me-1"></i> Save
                                         </button>
-                                        @if (func == AppFunction.RolePlaySemanticAnalysis && state.HasBeenSaved)
+                                        @if (func is AppFunction.RolePlaySemanticAnalysis or AppFunction.RolePlaySceneBeatAnalyzer && state.HasBeenSaved)
                                         {
                                             <div class="form-text text-muted mt-1" style="font-size:0.75em">Restart app to apply concurrency changes.</div>
                                         }
                                     </td>
                                 </tr>
+                                @if (func == AppFunction.RolePlaySceneBeatAnalyzer)
+                                {
+                                    <tr>
+                                        <td colspan="8" class="border-top-0 pt-0 pb-3">
+                                            <div class="row g-2 ms-1">
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">Lease Seconds</label>
+                                                    <input type="number" class="form-control form-control-sm" min="1" max="3600"
+                                                           value="@state.DurableJobLeaseSeconds" @onchange="e => state.DurableJobLeaseSeconds = ParseNullableInt(e)" />
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">Poll Milliseconds</label>
+                                                    <input type="number" class="form-control form-control-sm" min="10" max="60000"
+                                                           value="@state.DurableJobPollIntervalMilliseconds" @onchange="e => state.DurableJobPollIntervalMilliseconds = ParseNullableInt(e)" />
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">Retry Count</label>
+                                                    <input type="number" class="form-control form-control-sm" min="0" max="10"
+                                                           value="@state.TransientRetryCount" @onchange="e => state.TransientRetryCount = ParseNullableInt(e)" />
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small">Retry Delays Seconds (JSON)</label>
+                                                    <input type="text" class="form-control form-control-sm font-monospace"
+                                                           value="@state.TransientRetryDelaysSecondsJson" @onchange="e => state.TransientRetryDelaysSecondsJson = e.Value?.ToString()" />
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">Diagnostics Retention Days</label>
+                                                    <input type="number" class="form-control form-control-sm" min="1" max="3650"
+                                                           value="@state.DiagnosticsRetentionDays" @onchange="e => state.DiagnosticsRetentionDays = ParseNullableInt(e)" />
+                                                </div>
+                                                <div class="col-md-1">
+                                                    <label class="form-label small">Max Beats</label>
+                                                    <input type="number" class="form-control form-control-sm" min="1" max="12"
+                                                           value="@state.MaximumCatalogueEntries" @onchange="e => state.MaximumCatalogueEntries = ParseNullableInt(e)" />
+                                                </div>
+                                                @if (!string.IsNullOrWhiteSpace(state.ValidationError))
+                                                {
+                                                    <div class="col-12 text-danger small">@state.ValidationError</div>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
                             }
                         </tbody>
                     </table>
@@ -560,6 +825,12 @@
                     MaxTokens = fd?.MaxTokens ?? 500,
                     ThinkingMode = fd?.ThinkingMode ?? ThinkingMode.Default,
                     MaxConcurrentJobs = fd?.MaxConcurrentJobs,
+                    DurableJobLeaseSeconds = fd?.DurableJobLeaseSeconds,
+                    DurableJobPollIntervalMilliseconds = fd?.DurableJobPollIntervalMilliseconds,
+                    TransientRetryCount = fd?.TransientRetryCount,
+                    TransientRetryDelaysSecondsJson = fd?.TransientRetryDelaysSecondsJson,
+                    DiagnosticsRetentionDays = fd?.DiagnosticsRetentionDays,
+                    MaximumCatalogueEntries = fd?.MaximumCatalogueEntries,
                     HasBeenSaved = fd is not null,
                     ExistingId = fd?.Id
                 };
@@ -609,7 +880,22 @@
             ProviderType = provider.ProviderType,
             BaseUrl = provider.BaseUrl,
             ChatCompletionsPath = provider.ChatCompletionsPath,
+            ImageCapability = provider.ImageCapability,
+            ImageGenerationPath = provider.ImageGenerationPath,
+            ContentPolicy = provider.ContentPolicy,
+            ImageProtocol = provider.ImageProtocol,
             TimeoutSeconds = provider.TimeoutSeconds,
+            LifecycleStrategyIdentifier = provider.LifecycleStrategyIdentifier,
+            ReadinessPath = provider.ReadinessPath,
+            ReadinessSuccessContractJson = provider.ReadinessSuccessContractJson,
+            TransitionTimeoutSeconds = provider.TransitionTimeoutSeconds,
+            TransitionMarginSeconds = provider.TransitionMarginSeconds,
+            ShutdownDrainPolicyJson = provider.ShutdownDrainPolicyJson,
+            MaximumActiveRequests = provider.MaximumActiveRequests,
+            QueueCapacity = provider.QueueCapacity,
+            CredentialReference = provider.CredentialReference,
+            ServerIdentityPolicyJson = provider.ServerIdentityPolicyJson,
+            AllowedNetworkBoundary = provider.AllowedNetworkBoundary,
             ApiKeyEncrypted = provider.ApiKeyEncrypted,
             IsEnabled = provider.IsEnabled,
             CreatedUtc = provider.CreatedUtc,
@@ -651,9 +937,39 @@
             _providerFormError = "Timeout must be between 1 and 600 seconds.";
             return;
         }
-        if (_editingProviderType != 0 && string.IsNullOrEmpty(_editingApiKey) && !_existingProviderIds.Contains(_editingProvider.Id))
+        // A blank API key is allowed when a matching local secret resolves from the git-ignored
+        // appsettings.Local.json (ModelManagerSecrets) — by CredentialReference, then provider name,
+        // then the default "RunPod" entry. The runtime falls back to that secret for serverless
+        // providers, so operators can keep instance keys out of git and out of the DB.
+        var localSecretAvailable = !string.IsNullOrWhiteSpace(
+            SecretProvider.Resolve(_editingProvider.CredentialReference)
+            ?? SecretProvider.Resolve(_editingProvider.Name)
+            ?? SecretProvider.Resolve("RunPod"));
+
+        if (_editingProviderType != 0
+            && string.IsNullOrEmpty(_editingApiKey)
+            && !_existingProviderIds.Contains(_editingProvider.Id)
+            && !localSecretAvailable)
         {
-            _providerFormError = "API key is required for cloud providers.";
+            _providerFormError = "API key is required for cloud providers (or provide a local secret in appsettings.Local.json matching the Credential Reference).";
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(_editingProvider.CredentialReference)
+            && string.IsNullOrEmpty(_editingApiKey)
+            && string.IsNullOrWhiteSpace(_editingProvider.ApiKeyEncrypted)
+            && !localSecretAvailable)
+        {
+            _providerFormError = "An API key is required when a credential reference is configured (or provide a matching local secret in appsettings.Local.json).";
+            return;
+        }
+        if (!ValidateMultimodalProvider(_editingProvider, out var multimodalError))
+        {
+            _providerFormError = multimodalError;
+            return;
+        }
+        if (_editingProvider.ImageCapability != ImageProviderCapability.None && _editingProvider.ContentPolicy == ImageContentPolicy.Unknown)
+        {
+            _providerFormError = "An image-capable provider requires an explicit content policy (safe-for-work or adult-allowed).";
             return;
         }
 
@@ -749,6 +1065,32 @@
             DisplayName = model.DisplayName,
             IsEnabled = model.IsEnabled,
             SupportsThinkingControl = model.SupportsThinkingControl,
+            StructuredOutputMode = model.StructuredOutputMode,
+            MaximumContextTokens = model.MaximumContextTokens,
+            MaximumOutputTokens = model.MaximumOutputTokens,
+            ModelKind = model.ModelKind,
+            ImageSizeSupported = model.ImageSizeSupported,
+            SceneImageModelFamily = model.SceneImageModelFamily,
+            PromptDialect = model.PromptDialect,
+            SupportsImageInput = model.SupportsImageInput,
+            MaximumInputImages = model.MaximumInputImages,
+            MaximumInputImageBytes = model.MaximumInputImageBytes,
+            MaximumInputImagePixels = model.MaximumInputImagePixels,
+            MaximumInputImageDimension = model.MaximumInputImageDimension,
+            AcceptedInputMediaTypes = model.AcceptedInputMediaTypes,
+            MaximumResponseBytes = model.MaximumResponseBytes,
+            RuntimeRevision = model.RuntimeRevision,
+            ArtifactRevision = model.ArtifactRevision,
+            ImageEditorDiffusionModel = model.ImageEditorDiffusionModel,
+            ImageEditorTextEncoder = model.ImageEditorTextEncoder,
+            ImageEditorVae = model.ImageEditorVae,
+            ImageEditorSteps = model.ImageEditorSteps,
+            ImageEditorCfg = model.ImageEditorCfg,
+            ImageEditorSampler = model.ImageEditorSampler,
+            ImageEditorScheduler = model.ImageEditorScheduler,
+            ImageEditorDenoise = model.ImageEditorDenoise,
+            ImageEditorAuraFlowShift = model.ImageEditorAuraFlowShift,
+            ImageEditorCfgNormStrength = model.ImageEditorCfgNormStrength,
             CreatedUtc = model.CreatedUtc
         };
         _modelFormError = null;
@@ -772,6 +1114,21 @@
         if (string.IsNullOrWhiteSpace(_editingModel.DisplayName))
         {
             _modelFormError = "Display name is required.";
+            return;
+        }
+        if (!ValidateMultimodalModel(_editingModel, out var multimodalError))
+        {
+            _modelFormError = multimodalError;
+            return;
+        }
+        if (!ValidateStructuredOutputModel(_editingModel, out var structuredOutputError))
+        {
+            _modelFormError = structuredOutputError;
+            return;
+        }
+        if (!ValidateImagePromptMetadata(_editingModel, requireConfigured: false, out var imagePromptError))
+        {
+            _modelFormError = imagePromptError;
             return;
         }
 
@@ -841,6 +1198,32 @@
             CreatedUtc = model.CreatedUtc,
             ProviderName = model.ProviderName,
             SupportsThinkingControl = model.SupportsThinkingControl,
+            StructuredOutputMode = model.StructuredOutputMode,
+            MaximumContextTokens = model.MaximumContextTokens,
+            MaximumOutputTokens = model.MaximumOutputTokens,
+            ModelKind = model.ModelKind,
+            ImageSizeSupported = model.ImageSizeSupported,
+            SceneImageModelFamily = model.SceneImageModelFamily,
+            PromptDialect = model.PromptDialect,
+            SupportsImageInput = model.SupportsImageInput,
+            MaximumInputImages = model.MaximumInputImages,
+            MaximumInputImageBytes = model.MaximumInputImageBytes,
+            MaximumInputImagePixels = model.MaximumInputImagePixels,
+            MaximumInputImageDimension = model.MaximumInputImageDimension,
+            AcceptedInputMediaTypes = model.AcceptedInputMediaTypes,
+            MaximumResponseBytes = model.MaximumResponseBytes,
+            RuntimeRevision = model.RuntimeRevision,
+            ArtifactRevision = model.ArtifactRevision,
+            ImageEditorDiffusionModel = model.ImageEditorDiffusionModel,
+            ImageEditorTextEncoder = model.ImageEditorTextEncoder,
+            ImageEditorVae = model.ImageEditorVae,
+            ImageEditorSteps = model.ImageEditorSteps,
+            ImageEditorCfg = model.ImageEditorCfg,
+            ImageEditorSampler = model.ImageEditorSampler,
+            ImageEditorScheduler = model.ImageEditorScheduler,
+            ImageEditorDenoise = model.ImageEditorDenoise,
+            ImageEditorAuraFlowShift = model.ImageEditorAuraFlowShift,
+            ImageEditorCfgNormStrength = model.ImageEditorCfgNormStrength,
             ContextWindowSize = model.ContextWindowSize,
             Quantization = model.Quantization,
             ParameterCount = model.ParameterCount,
@@ -903,12 +1286,26 @@
             return;
         }
 
-        // Validate ranges
-        state.Temperature = Math.Clamp(state.Temperature, 0.0, 2.0);
-        state.TopP = Math.Clamp(state.TopP, 0.0, 1.0);
-        state.MaxTokens = Math.Clamp(state.MaxTokens, 1, 16000);
-        if (state.MaxConcurrentJobs.HasValue)
-            state.MaxConcurrentJobs = Math.Clamp(state.MaxConcurrentJobs.Value, 1, 16);
+        if (func == AppFunction.RolePlaySceneImage)
+        {
+            var selectedModel = _modelsGrouped.Values.SelectMany(models => models)
+                .SingleOrDefault(model => model.Id == state.ModelId);
+            string? imagePromptError = null;
+            if (selectedModel is null || !ValidateImagePromptMetadata(selectedModel, requireConfigured: true, out imagePromptError))
+            {
+                state.ValidationError = imagePromptError ?? "The selected scene-image model could not be loaded.";
+                return;
+            }
+        }
+
+        if (func != AppFunction.RolePlaySceneBeatAnalyzer)
+        {
+            state.Temperature = Math.Clamp(state.Temperature, 0.0, 2.0);
+            state.TopP = Math.Clamp(state.TopP, 0.0, 1.0);
+            state.MaxTokens = Math.Clamp(state.MaxTokens, 1, 16000);
+            if (state.MaxConcurrentJobs.HasValue)
+                state.MaxConcurrentJobs = Math.Clamp(state.MaxConcurrentJobs.Value, 1, 16);
+        }
 
         _isBusy = true;
         try
@@ -922,8 +1319,18 @@
                 TopP = state.TopP,
                 MaxTokens = state.MaxTokens,
                 ThinkingMode = state.ThinkingMode,
-                MaxConcurrentJobs = state.MaxConcurrentJobs
+                MaxConcurrentJobs = state.MaxConcurrentJobs,
+                DurableJobLeaseSeconds = state.DurableJobLeaseSeconds,
+                DurableJobPollIntervalMilliseconds = state.DurableJobPollIntervalMilliseconds,
+                TransientRetryCount = state.TransientRetryCount,
+                TransientRetryDelaysSecondsJson = state.TransientRetryDelaysSecondsJson,
+                DiagnosticsRetentionDays = state.DiagnosticsRetentionDays,
+                MaximumCatalogueEntries = state.MaximumCatalogueEntries
             };
+            state.ValidationError = fd.ValidateSceneBeatAnalyzerConfiguration();
+            if (state.ValidationError is not null)
+                return;
+
             await Facade.SaveFunctionDefaultAsync(fd);
             await LoadAllDataAsync();
         }
@@ -978,8 +1385,37 @@
         AppFunction.ModelAnalysis => "Model Analysis",
         AppFunction.RolePlaySemanticAnalysis => "RP Semantic Analysis (Background)",
         AppFunction.RolePlaySummaryEnhancement => "RP Summary Enhancement (Background)",
+        AppFunction.RolePlaySceneImagePreprocessor => "RP Scene Image Preprocessor (Background)",
+        AppFunction.RolePlaySceneImage => "RP Scene Image (Render)",
+        AppFunction.RolePlaySceneImageEditor => "RP Scene Image Editor (Qwen)",
+        AppFunction.RolePlaySceneImageEditPromptCompiler => "RP Scene Image Edit Prompt Compiler",
+        AppFunction.RolePlaySceneImageValidator => "RP Scene Image Validator",
+        AppFunction.RolePlaySceneBeatAnalyzer => "RP Scene Beat Analyzer",
         _ => func.ToString()
     };
+
+    private List<(Provider Provider, List<RegisteredModel> Models)> GetFunctionModelDropdown(AppFunction func)
+    {
+        if (func == AppFunction.RolePlaySceneImage || func == AppFunction.RolePlaySceneImageEditor)
+        {
+            // Image render function: only image-kind models are valid. Fail-fast at the UI by
+            // not offering text models (resolution also enforces this).
+            return _enabledModelsDropdown
+                .Select(g => (g.Provider, Models: g.Models.Where(m => m.ModelKind == ModelKind.Image).ToList()))
+                .Where(g => g.Models.Count > 0)
+                .ToList();
+        }
+
+            if (func is AppFunction.RolePlaySceneImageEditPromptCompiler or AppFunction.RolePlaySceneImageValidator)
+            {
+                return _enabledModelsDropdown
+                .Select(g => (g.Provider, Models: g.Models.Where(m => m.SupportsImageInput).ToList()))
+                .Where(g => g.Models.Count > 0)
+                .ToList();
+            }
+
+        return _enabledModelsDropdown;
+    }
 
     private static double ParseDouble(ChangeEventArgs e, double fallback)
     {
@@ -1011,6 +1447,125 @@
             : isoTimestamp;
     }
 
+    private static bool ValidateMultimodalProvider(Provider provider, out string? error)
+    {
+        error = null;
+        var configured = !string.IsNullOrWhiteSpace(provider.LifecycleStrategyIdentifier)
+            || !string.IsNullOrWhiteSpace(provider.ReadinessPath)
+            || !string.IsNullOrWhiteSpace(provider.ReadinessSuccessContractJson)
+            || provider.TransitionTimeoutSeconds.HasValue
+            || provider.TransitionMarginSeconds.HasValue
+            || provider.MaximumActiveRequests.HasValue
+            || provider.QueueCapacity.HasValue
+            || !string.IsNullOrWhiteSpace(provider.CredentialReference)
+            || !string.IsNullOrWhiteSpace(provider.ServerIdentityPolicyJson)
+            || !string.IsNullOrWhiteSpace(provider.AllowedNetworkBoundary);
+        if (!configured)
+            return true;
+        if (string.IsNullOrWhiteSpace(provider.LifecycleStrategyIdentifier)
+            || string.IsNullOrWhiteSpace(provider.ReadinessPath)
+            || string.IsNullOrWhiteSpace(provider.ReadinessSuccessContractJson)
+            || provider.TransitionTimeoutSeconds is null or <= 0
+            || provider.TransitionMarginSeconds is null or <= 0
+            || provider.MaximumActiveRequests is null or <= 0
+            || provider.QueueCapacity is null or <= 0
+            || string.IsNullOrWhiteSpace(provider.CredentialReference)
+            || string.IsNullOrWhiteSpace(provider.ServerIdentityPolicyJson)
+            || string.IsNullOrWhiteSpace(provider.AllowedNetworkBoundary))
+        {
+            error = "Multimodal runtime configuration requires lifecycle, readiness, transition timing, capacity, credential reference, identity policy, and network boundary values.";
+            return false;
+        }
+        try
+        {
+            using var readiness = System.Text.Json.JsonDocument.Parse(provider.ReadinessSuccessContractJson);
+            using var identity = System.Text.Json.JsonDocument.Parse(provider.ServerIdentityPolicyJson);
+            if (readiness.RootElement.ValueKind is not (System.Text.Json.JsonValueKind.Object or System.Text.Json.JsonValueKind.Array)
+                || identity.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                error = "Readiness and server identity policies must be JSON objects or arrays as indicated.";
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(provider.ShutdownDrainPolicyJson))
+            {
+                using var drain = System.Text.Json.JsonDocument.Parse(provider.ShutdownDrainPolicyJson);
+                if (drain.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+                {
+                    error = "Shutdown / drain policy must be a JSON object.";
+                    return false;
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            error = "Multimodal readiness, identity, and drain policies must contain valid JSON.";
+            return false;
+        }
+        return true;
+    }
+
+    private static bool ValidateMultimodalModel(RegisteredModel model, out string? error)
+    {
+        error = null;
+        if (!model.SupportsImageInput)
+            return true;
+        if (model.MaximumInputImages is null or <= 0
+            || model.MaximumInputImageBytes is null or <= 0
+            || model.MaximumInputImagePixels is null or <= 0
+            || model.MaximumInputImageDimension is null or <= 0
+            || model.MaximumResponseBytes is null or <= 0)
+        {
+            error = "Image-input models require positive image count, byte, pixel, dimension, and response byte limits.";
+            return false;
+        }
+        var mediaTypes = model.AcceptedInputMediaTypes?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
+        if (mediaTypes.Length == 0 || mediaTypes.Any(value => !value.StartsWith("image/", StringComparison.OrdinalIgnoreCase)))
+        {
+            error = "Image-input models require one or more comma-separated image/* media types.";
+            return false;
+        }
+        return true;
+    }
+
+    private static bool ValidateStructuredOutputModel(RegisteredModel model, out string? error)
+    {
+        error = null;
+        if (!Enum.IsDefined(model.StructuredOutputMode))
+        {
+            error = "Structured output mode is invalid.";
+            return false;
+        }
+        if (model.MaximumContextTokens is <= 0 || model.MaximumOutputTokens is <= 0)
+        {
+            error = "Configured context and output token limits must be positive.";
+            return false;
+        }
+        if (model.MaximumContextTokens.HasValue
+            && model.MaximumOutputTokens.HasValue
+            && model.MaximumOutputTokens > model.MaximumContextTokens)
+        {
+            error = "Maximum output tokens cannot exceed maximum context tokens.";
+            return false;
+        }
+        return true;
+    }
+
+    private static bool ValidateImagePromptMetadata(RegisteredModel model, bool requireConfigured, out string? error)
+    {
+        error = null;
+        if (model.ModelKind != ModelKind.Image)
+            return true;
+        if (SceneImagePromptMetadata.IsCompatible(model.SceneImageModelFamily, model.PromptDialect))
+            return true;
+        if (!requireConfigured && SceneImagePromptMetadata.IsUnconfigured(model.SceneImageModelFamily, model.PromptDialect))
+            return true;
+
+        error = SceneImagePromptMetadata.IsUnconfigured(model.SceneImageModelFamily, model.PromptDialect)
+            ? "Scene-image generation models require an image family and prompt dialect. Configure both before assigning this model to RP Scene Image."
+            : $"Image family '{model.SceneImageModelFamily}' is incompatible with prompt dialect '{model.PromptDialect}'. Pony requires Pony V6 tags; SDXL / Juggernaut requires SDXL natural language; API models use natural language.";
+        return false;
+    }
+
     private sealed class FunctionEditState
     {
         public string ModelId { get; set; } = "";
@@ -1019,6 +1574,13 @@
         public int MaxTokens { get; set; } = 500;
         public ThinkingMode ThinkingMode { get; set; } = ThinkingMode.Default;
         public int? MaxConcurrentJobs { get; set; }
+        public int? DurableJobLeaseSeconds { get; set; }
+        public int? DurableJobPollIntervalMilliseconds { get; set; }
+        public int? TransientRetryCount { get; set; }
+        public string? TransientRetryDelaysSecondsJson { get; set; }
+        public int? DiagnosticsRetentionDays { get; set; }
+        public int? MaximumCatalogueEntries { get; set; }
+        public string? ValidationError { get; set; }
         public bool HasBeenSaved { get; set; }
         public string? ExistingId { get; set; }
     }

@@ -7,7 +7,22 @@ public sealed class Provider
     public ProviderType ProviderType { get; set; }
     public string BaseUrl { get; set; } = string.Empty;
     public string ChatCompletionsPath { get; set; } = "/v1/chat/completions";
+    public ImageProviderCapability ImageCapability { get; set; } = ImageProviderCapability.None;
+    public string ImageGenerationPath { get; set; } = "/v1/images/generations";
+    public ImageContentPolicy ContentPolicy { get; set; } = ImageContentPolicy.Unknown;
+    public ImageProtocol ImageProtocol { get; set; } = ImageProtocol.OpenAiImages;
     public int TimeoutSeconds { get; set; } = 120;
+    public string? LifecycleStrategyIdentifier { get; set; }
+    public string? ReadinessPath { get; set; }
+    public string? ReadinessSuccessContractJson { get; set; }
+    public int? TransitionTimeoutSeconds { get; set; }
+    public int? TransitionMarginSeconds { get; set; }
+    public string? ShutdownDrainPolicyJson { get; set; }
+    public int? MaximumActiveRequests { get; set; }
+    public int? QueueCapacity { get; set; }
+    public string? CredentialReference { get; set; }
+    public string? ServerIdentityPolicyJson { get; set; }
+    public string? AllowedNetworkBoundary { get; set; }
     public string? ApiKeyEncrypted { get; set; }
     public bool IsEnabled { get; set; } = true;
     public string CreatedUtc { get; set; } = DateTime.UtcNow.ToString("o");

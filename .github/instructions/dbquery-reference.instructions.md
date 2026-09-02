@@ -35,8 +35,8 @@ Outputs: session overview, turns, adaptive state, character snapshots, stat delt
 
 #### Ad-hoc SQL against a session ID
 Pre-baked queries live in `artifacts/tmp/dbquery/queries/` and use `{{id}}` for the session ID placeholder. Pass it as the second arg to `sql`:
-```powershell
 powershell -ExecutionPolicy RemoteSigned -File helpers/dbq.ps1 sql artifacts/tmp/dbquery/queries/evals.sql <sessionId>
+applyTo: 'DreamGenClone.DbQuery/**'
 ```
 
 ### Pre-baked query files (`artifacts/tmp/dbquery/queries/`)
@@ -66,11 +66,11 @@ Three tasks in `.vscode/tasks.json` also call the scripts (for manual runs):
 
 ## CRITICAL RULES
 - **DO NOT rewrite Program.cs** for each task. It is a permanent dispatcher.
-- For ad-hoc SQL: write a `.sql` file in `artifacts/tmp/dbquery/` and use the `sql` command.
+- For ad-hoc SQL: write a `.sql` file in `DreamGenClone.DbQuery/queries/` and use the `sql` command.
 - Use `{{id}}` placeholder in .sql files; it is replaced by the second arg.
-- Program.cs uses named tuples: `("@id", value)` syntax in Q() calls.
-- Never reuse a SqliteCommand while a reader is open — Q() creates a fresh command each time.
-- **When editing Program.cs**: the file already has a complete `Q()` static function at the bottom. Never add another one. Previous sessions have caused a duplicate `Q` compile error (CS0128) by leaving the old helper behind after partial rewrites. Verify there is exactly one `Q` definition before saving.
+- The dispatcher opens the development database read-only except for explicitly allowlisted, named mutation commands. Never use the generic `sql` command to mutate data.
+- Named mutation commands must validate their target, run transactionally, and fail without partial changes when required data is missing or ambiguous.
+- Each query uses a fresh SQLite command and reader, so no reader is reused across commands.
 
 ## Dispatcher Commands
 
@@ -93,21 +93,13 @@ Three tasks in `.vscode/tasks.json` also call the scripts (for manual runs):
 | `gate-rules <themeId>` | themeId | Gate rules for a theme |
 | `theme-profiles` | — | RPThemeProfiles + all theme assignments |
 | `rp-themes <profileId>` | profileId | Themes assigned to a profile |
+| `b100-analyzer-configure` | — | Idempotently assign direct DeepSeek Flash and complete settings to the B-100 scene-beat analyzer |
 | `sql <file> [id]` | file path, optional id | Run SQL file; `{{id}}` → arg |
 
 ## Key Tables & Columns
 
-### Sessions
-```
-Id TEXT PK | SessionType TEXT | Name TEXT | SchemaVersion TEXT | UpdatedUtc TEXT
 ```
 
-### RolePlayV2AdaptiveStates  (PK: SessionId)
-```
-SessionId | ActiveScenarioId | CurrentPhase | InteractionCountInPhase
-ConsecutiveLeadCount | CycleIndex | CompletedScenarios
-CurrentBeatCode | TurnsInCurrentBeat
-PhaseOverrideFloor | PhaseOverrideScenarioId | PhaseOverrideCycleIndex | PhaseOverrideSource | PhaseOverrideAppliedUtc
 SelectedNarrativeGateProfileId | SelectedWillingnessProfileId | HusbandAwarenessProfileId
 ActiveScenarioId | ActiveVariantId
 SemanticStepSucceeded | SemanticDeltaBreakdownsJson | SemanticStatDeltaBreakdownsJson

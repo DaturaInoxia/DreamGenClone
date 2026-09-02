@@ -27,9 +27,17 @@ public sealed class PhysicalAttributes
     public string? BustSize { get; set; }
     public string? WaistSize { get; set; }
     public string? HipSize { get; set; }
+    /// <summary>Rear/glute volume on a descriptive scale (e.g. Flat, Toned, Plump, Full, Huge).
+    /// Distinct from <see cref="HipSize"/> (skeletal hip width).</summary>
+    public string? ButtSize { get; set; }
 
     // ── Style & Misc ────────────────────────────────────────────────────────
     public string? ClothingStyle { get; set; }
+    /// <summary>
+    /// Default clothing/outfit for this character, used when the turn data does not describe what
+    /// they are wearing. Ensures consistent clothing across images (CR-006 clothing consistency).
+    /// </summary>
+    public string? DefaultClothing { get; set; }
     public string? DistinguishingMarks { get; set; }
     public string? Piercings { get; set; }
     public string? Tattoos { get; set; }

@@ -83,4 +83,48 @@ public class PhysicalAttributesFormatterTests
         Assert.Contains(striking, female);
         Assert.Contains(striking, unknown);
     }
+
+    [Fact]
+    public void FormatVisualBlock_LabelsEyeColourAsIrisColor()
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualBlock(new PhysicalAttributes { EyeColour = "blue" });
+
+        Assert.Contains("Iris color: blue", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Eyes: blue", output, StringComparison.Ordinal);
+    }
+
+    // ── Figure line (B-103 body proportions) ──────────────────────────────
+
+    [Fact]
+    public void FormatVisualBlock_RendersFigureLine_AsProseScaleTerms()
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualBlock(new PhysicalAttributes
+        {
+            BustSize = "Medium",
+            WaistSize = "Soft",
+            HipSize = "Wide",
+            ButtSize = "Plump"
+        });
+
+        Assert.Contains("Figure: bust Medium, waist Soft, hips Wide, rear Plump", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatVisualBlock_OmitsFigureLine_WhenNoProportionsSet()
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualBlock(new PhysicalAttributes { EyeColour = "blue" });
+
+        Assert.DoesNotContain("Figure:", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatVisualBlock_OmitsUnsetFigureParts()
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualBlock(new PhysicalAttributes { ButtSize = "Plump" });
+
+        Assert.Contains("Figure: rear Plump", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("bust", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("waist", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("hips", output, StringComparison.Ordinal);
+    }
 }

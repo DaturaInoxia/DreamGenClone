@@ -1,0 +1,190 @@
+{
+  "suite": "test-matrix-prompts",
+  "model": "BigLust v1.6 (bigLust_v16.safetensors, SDXL text-to-image, no edits)",
+  "purpose": "Consolidated SIMPLE positive prompts for the image-generator qualification matrix, targeting ONLY the BigLust v1.6 text-to-image model. Each cell has a single positive `prompt` following BigLust v1.6 best practices (photo (medium) + quality tags + natural language). Positive-only: no negative prompt. Sampler/settings come from the BigLust workflow (helpers/runpod/workflows/biglust-t2i.json: dpmpp_2m_sde/sgm_uniform, 50 steps, cfg 7.0, 832x1216).",
+  "identityMechanism": "Identity is carried ONLY by an inline physical description in the prompt text (man = short brown hair, stubble, blue eyes, broad shoulders; woman = brown hair in a bun, blue eyes, fair skin, a curvy figure, tattoos on her arms and legs). Character NAMES (Becky/Dean) are NOT used in the prompt text — they are metadata keys that map to reference images for the identity-conditioned suites. No IP-Adapter/PuLID reference conditioning in the T2I cells, and no image edits.",
+  "suites": [
+    {
+      "id": "sfw-identity",
+      "title": "Basic SFW with identity",
+      "cells": [
+        {
+          "id": "sfw-identity-1p-becky",
+          "title": "Becky neutral portrait",
+          "subjectCount": "1F",
+          "identity": "becky",
+          "pose": "neutral portrait",
+          "prompt": "photo (medium), 8k, high quality, cinematic, portrait of one adult woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, wearing a casual top, standing facing the camera, neutral expression, soft studio lighting, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "sfw-identity-1p-dean",
+          "title": "Dean neutral portrait",
+          "subjectCount": "1M",
+          "identity": "dean",
+          "pose": "neutral portrait",
+          "prompt": "photo (medium), 8k, high quality, cinematic, portrait of one adult man with short brown hair, stubble, blue eyes, and broad shoulders, wearing a t-shirt, standing facing the camera, neutral expression, soft studio lighting, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "sfw-identity-2p",
+          "title": "Dean and Becky neutral clothed composition",
+          "subjectCount": "1M1F",
+          "identity": "dean+becky",
+          "pose": "neutral clothed composition",
+          "prompt": "photo (medium), 8k, high quality, cinematic, photo of a man and a woman standing side by side facing the camera, the man with short brown hair, stubble, blue eyes, and broad shoulders wearing a t-shirt and shorts, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs wearing a sundress, both fully clothed, neutral expressions, bright daylight, 35mm lens, sharp focus, highly detailed"
+        }
+      ]
+    },
+    {
+      "id": "stock-nsfw",
+      "title": "Stock NSFW positions (no identity, 1 man + 1 woman)",
+      "cells": [
+        {
+          "id": "stock-nsfw-missionary",
+          "title": "missionary",
+          "subjectCount": "1M1F",
+          "identity": null,
+          "pose": "missionary",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit sex scene, one adult man and one adult woman on a bed, the man on top face to face in missionary position, his erect penis penetrating her vagina, full genital contact, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "stock-nsfw-doggy",
+          "title": "doggy",
+          "subjectCount": "1M1F",
+          "identity": null,
+          "pose": "doggy",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit sex scene, one adult man and one adult woman on a bed, the woman on her hands and knees with her back arched, the man kneeling behind her, his erect penis visibly entering her vagina from behind, clear penetration, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "stock-nsfw-cowgirl",
+          "title": "cowgirl (girl on top)",
+          "subjectCount": "1M1F",
+          "identity": null,
+          "pose": "cowgirl",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit sex scene, one adult man and one adult woman on a bed, the man lying on his back, the woman straddling him on top facing him in cowgirl position, lowering herself onto his erect penis, full genital contact, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "stock-nsfw-fellatio",
+          "title": "fellatio (oral on man)",
+          "subjectCount": "1M1F",
+          "identity": null,
+          "pose": "fellatio",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit sex scene, one adult man and one adult woman, the woman kneeling in front of the standing man taking his erect penis into her mouth, fellatio oral sex, clear oral contact, correct penis anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "stock-nsfw-cunnilingus",
+          "title": "cunnilingus (oral on woman)",
+          "subjectCount": "1M1F",
+          "identity": null,
+          "pose": "cunnilingus",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit sex scene, one adult man and one adult woman, the woman lying on her back with her legs open, the man positioned between her legs performing cunnilingus on her vagina, clear oral contact, correct anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        }
+      ]
+    },
+    {
+      "id": "stock-nsfw-identity",
+      "title": "Stock NSFW positions with identity (Dean + Becky)",
+      "cells": [
+        {
+          "id": "stock-nsfw-identity-missionary",
+          "title": "missionary (identity)",
+          "subjectCount": "1M1F",
+          "identity": "dean+becky",
+          "pose": "missionary",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit sex scene of a man and a woman on a bed, the man with short brown hair, stubble, blue eyes, and broad shoulders, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, the man lying on top of the woman face to face in missionary position, his erect penis penetrating her vagina, full genital contact, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "stock-nsfw-identity-doggy",
+          "title": "doggy (identity)",
+          "subjectCount": "1M1F",
+          "identity": "dean+becky",
+          "pose": "doggy",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit sex scene of a man and a woman on a bed, the man with short brown hair, stubble, blue eyes, and broad shoulders, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, the woman on her hands and knees with her back arched, the man kneeling behind her, his erect penis visibly entering her vagina from behind, clear penetration, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "stock-nsfw-identity-cowgirl",
+          "title": "cowgirl (identity)",
+          "subjectCount": "1M1F",
+          "identity": "dean+becky",
+          "pose": "cowgirl",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit sex scene of a man and a woman on a bed, the man with short brown hair, stubble, blue eyes, and broad shoulders, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, the man lying on his back, the woman straddling him on top facing him in cowgirl position, lowering herself onto his erect penis, full genital contact, correct penis and vagina anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "stock-nsfw-identity-fellatio",
+          "title": "fellatio (identity)",
+          "subjectCount": "1M1F",
+          "identity": "dean+becky",
+          "pose": "fellatio",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit sex scene of a man and a woman, the man with short brown hair, stubble, blue eyes, and broad shoulders, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, the woman kneeling in front of the standing man taking his erect penis into her mouth, fellatio oral sex, clear oral contact, correct penis anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "stock-nsfw-identity-cunnilingus",
+          "title": "cunnilingus (identity)",
+          "subjectCount": "1M1F",
+          "identity": "dean+becky",
+          "pose": "cunnilingus",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit sex scene of a man and a woman, the man with short brown hair, stubble, blue eyes, and broad shoulders, the woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, the woman lying on her back with her legs open, the man positioned between her legs performing cunnilingus on her vagina, clear oral contact, correct anatomy, both fully nude, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        }
+      ]
+    },
+    {
+      "id": "solo-nsfw-woman",
+      "title": "Solo identity NSFW — woman (Becky)",
+      "cells": [
+        {
+          "id": "solo-woman-down-top",
+          "title": "down top (breasts exposed)",
+          "subjectCount": "1F",
+          "identity": "becky",
+          "pose": "down top",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit scene of one adult woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, wearing a pulled-down top that exposes her bare breasts, facing the camera, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "solo-woman-upskirt",
+          "title": "upskirt",
+          "subjectCount": "1F",
+          "identity": "becky",
+          "pose": "upskirt",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit scene of one adult woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, in a short skirt, viewed from a low angle with her skirt lifted to reveal her pelvis and underwear, looking over her shoulder, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "solo-woman-masturbation",
+          "title": "masturbation (full nudity)",
+          "subjectCount": "1F",
+          "identity": "becky",
+          "pose": "masturbation",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit scene of one fully nude adult woman with brown hair in a bun, blue eyes, fair skin, a curvy figure, and tattoos on her arms and legs, lying on her back with her legs parted, touching herself with one hand between her legs, masturbation, correct anatomy, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        }
+      ]
+    },
+    {
+      "id": "solo-nsfw-man",
+      "title": "Solo identity NSFW — man (Dean)",
+      "cells": [
+        {
+          "id": "solo-man-pose-non-erect",
+          "title": "sexy pose (non-erect)",
+          "subjectCount": "1M",
+          "identity": "dean",
+          "pose": "standing nude, non-erect",
+          "prompt": "photo (medium), 8k, high quality, cinematic, nude scene of one adult man with short brown hair, stubble, blue eyes, and broad shoulders, standing in a confident full-body pose with a flaccid non-erect penis, correct anatomy, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "solo-man-pose-erect",
+          "title": "sexy pose (erect)",
+          "subjectCount": "1M",
+          "identity": "dean",
+          "pose": "standing nude, erect",
+          "prompt": "photo (medium), 8k, high quality, cinematic, nude scene of one adult man with short brown hair, stubble, blue eyes, and broad shoulders, standing in a confident full-body pose with an erect penis, correct anatomy, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        },
+        {
+          "id": "solo-man-masturbation-cumshot",
+          "title": "masturbation with cumshot",
+          "subjectCount": "1M",
+          "identity": "dean",
+          "pose": "masturbation, cumshot",
+          "prompt": "photo (medium), 8k, high quality, cinematic, explicit scene of one fully nude adult man with short brown hair, stubble, blue eyes, and broad shoulders, masturbating with his hand on his erect penis, ejaculating with a visible cumshot, correct anatomy, natural skin texture, soft warm light, 35mm lens, sharp focus, highly detailed"
+        }
+      ]
+    }
+  ]
+}

@@ -18,5 +18,11 @@ public enum AppFunction
     RolePlayLocationDetection,
     RolePlayActorSelection,
     RolePlaySteering,
-    RolePlayEncounterDetection
+    RolePlayEncounterDetection,
+    RolePlaySceneImagePreprocessor,
+    RolePlaySceneImage,
+    RolePlaySceneImageEditor,
+    RolePlaySceneImageEditPromptCompiler,
+    RolePlaySceneImageValidator,
+    RolePlaySceneBeatAnalyzer
 }
