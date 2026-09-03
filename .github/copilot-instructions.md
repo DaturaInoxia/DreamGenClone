@@ -79,10 +79,11 @@ When working on pacing, scene tempo, beat advancement, or encounter pacing, read
 ## DB Query Tool
 
 A permanent .NET 9 console project lives at `DreamGenClone.DbQuery/DreamGenClone.DbQuery.csproj` and is part of the solution.
-- **Use it for all SQLite database queries**, inspections, and data seeding tasks against `DreamGenClone.Web/data/dreamgenclone.dev.db`.
+- **Use it for all SQLite database queries**, inspections, data seeding, and data updates against `DreamGenClone.Web/data/dreamgenclone.dev.db`.
 - Run with: `dotnet run --project DreamGenClone.DbQuery -- <command> [args...]`
-- **Program.cs is a permanent named-command dispatcher — do NOT rewrite it per task.**
+- **Program.cs is a permanent named-command dispatcher — do NOT rewrite it per task.** (Permanent capability additions to the dispatcher are fine.)
 - For ad-hoc SQL: write a `.sql` file and use the `sql` command: `dotnet run --project DreamGenClone.DbQuery -- sql myquery.sql [id]`
+- **Data updates are allowed.** Agents may run `UPDATE`/`INSERT`/`DELETE` against the dev DB through this tool — via the `sql` command (single-statement `.sql` file; runs transactionally and reports rows affected) or the allowlisted named mutation commands. Only mutate `dreamgenclone.dev.db` (the tool targets it); never the git-tracked `dreamgenclone.snapshot.db`. For destructive/bulk changes, back the dev DB up first.
 - Full schema, all commands, and usage examples are in `.github/instructions/dbquery-reference.instructions.md`.
 - **Do not create ad-hoc query projects.** This first-class project is the supported query entry point.
 

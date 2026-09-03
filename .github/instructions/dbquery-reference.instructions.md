@@ -65,10 +65,15 @@ Three tasks in `.vscode/tasks.json` also call the scripts (for manual runs):
 - **`dbq-session`** — prompts for session GUID → runs `helpers/dbq-session.ps1`
 
 ## CRITICAL RULES
-- **DO NOT rewrite Program.cs** for each task. It is a permanent dispatcher.
+- **DO NOT rewrite Program.cs** for each task. It is a permanent dispatcher. (Permanent capability additions to the dispatcher are fine.)
 - For ad-hoc SQL: write a `.sql` file in `DreamGenClone.DbQuery/queries/` and use the `sql` command.
 - Use `{{id}}` placeholder in .sql files; it is replaced by the second arg.
-- The dispatcher opens the development database read-only except for explicitly allowlisted, named mutation commands. Never use the generic `sql` command to mutate data.
+- **Agents ARE allowed to run data updates** against the dev DB. The `sql` command opens the dev database **ReadWrite**. Write a single-statement `.sql` file and run it:
+  - `SELECT` / `WITH` / `PRAGMA` / `EXPLAIN` / `VALUES` → prints result rows (read path).
+  - `UPDATE` / `INSERT` / `DELETE` / `REPLACE` (and DDL) → executes **transactionally** and prints `Rows affected: N`.
+  - One statement per `.sql` file.
+- When a purpose-built named mutation command exists for the change (they validate their target and guard against concurrent edits), prefer it over raw `sql`.
+- Only ever mutate `dreamgenclone.dev.db` — the tool targets it. Never write to the git-tracked `dreamgenclone.snapshot.db`. For destructive or bulk changes, back up the dev DB (copy to a `.bak`) first and confirm the target row set with a `SELECT` before the `UPDATE`/`DELETE`.
 - Named mutation commands must validate their target, run transactionally, and fail without partial changes when required data is missing or ambiguous.
 - Each query uses a fresh SQLite command and reader, so no reader is reused across commands.
 
@@ -94,7 +99,7 @@ Three tasks in `.vscode/tasks.json` also call the scripts (for manual runs):
 | `theme-profiles` | — | RPThemeProfiles + all theme assignments |
 | `rp-themes <profileId>` | profileId | Themes assigned to a profile |
 | `b100-analyzer-configure` | — | Idempotently assign direct DeepSeek Flash and complete settings to the B-100 scene-beat analyzer |
-| `sql <file> [id]` | file path, optional id | Run SQL file; `{{id}}` → arg |
+| `sql <file> [id]` | file path, optional id | Run a single-statement SQL file (dev DB ReadWrite); `{{id}}` → arg. SELECT/WITH/PRAGMA prints rows; UPDATE/INSERT/DELETE runs transactionally and reports rows affected |
 
 ## Key Tables & Columns
 

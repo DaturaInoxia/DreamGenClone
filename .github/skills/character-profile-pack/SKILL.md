@@ -22,7 +22,7 @@ rebuild (2026-09-02). Trigger phrases: "rebuild the pack", "better front",
 
 | Purpose | Tool / command |
 |---|---|
-| Front generation (gpt-image-2, TogetherAI) | `artifacts/tmp/dean-new-front/generate_front_v7.py <count> <outdir>` (adapt for other characters) |
+| Front generation (gpt-image-2, TogetherAI) | `d:/src/DreamGenClone/.venv/Scripts/python.exe tools/character-front-generator/generate_front.py --count <n> --outdir <dir>` (built-in `--character dean`; other characters via `--name`/`--appearance` or `--prompt` — see `tools/character-front-generator/README.md`) |
 | **Eye validation (ONLY trustworthy method)** | `d:/src/DreamGenClone/.venv/Scripts/python.exe tools/eye-validation/measure_iris.py <img...>` |
 | 4× upscale | `artifacts/tmp/realesrgan/realesrgan-ncnn-vulkan.exe -i in.png -o out4x.png` |
 | Downscale to clean 1024 | PIL LANCZOS (`Image.resize((1024,1024), Image.LANCZOS)`) |
@@ -35,7 +35,7 @@ Agent rules: `.github/instructions/agent-tools.instructions.md` · eye tool docs
 ## Process
 
 ### 1. Generate front candidates
-- Run `generate_front_v7.py <count> <outdir>` (gpt-image-2). Use the eye-symmetry-hardened prompt
+- Run `d:/src/DreamGenClone/.venv/Scripts/python.exe tools/character-front-generator/generate_front.py --count <n> --outdir <dir>` (gpt-image-2; defaults to Dean's proven prompt). Use the eye-symmetry-hardened prompt
   ("both eyes perfectly level, identical size… no asymmetry").
 - **Always save TRUE PNGs** — gpt-image-2 returns JPEG bytes; the generator converts via PIL.
   A JPEG hidden under a `.png` name produces a bad conditioning file (~120 KB vs ~1.3 MB).

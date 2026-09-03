@@ -17,8 +17,10 @@ Cells:
   - position: regional IP-Adapter, Dean+Becky front refs + masks, NSFW positions (A/B vs stock).
   - solo: IP-Adapter PLUS FACE, one ref, one person NSFW solo poses (Becky=female, Dean=male).
 
-Refs are the DB-pulled latest identity packs (refs/multiangle/); masks live in
-identity-two-character/masks/. See pull_latest_refs.py for the ref source.
+Refs come from the VERSIONED identity-pack archive (refs/<char>/<version>/) resolved by
+identity_refs.py — the active pack per character is pinned in specs/image-generator-tests/refs/versions.json,
+so changing one value re-points the whole run at a different approved pack. Masks live in
+identity-two-character/masks/.
 
 Usage:
   python run_biglust_identity.py --dry-run
@@ -27,11 +29,15 @@ Usage:
 import argparse, base64, datetime, hashlib, json, os, random, re, sys, time, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))       # .../biglust
+TESTS_ROOT = os.path.dirname(HERE)                       # .../specs/image-generator-tests
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))  # repo root
 RUN_ROOT = os.path.join(HERE, "runs")
 
+if TESTS_ROOT not in sys.path:
+    sys.path.insert(0, TESTS_ROOT)
+import identity_refs as REF  # noqa: E402  (versioned identity-pack source; refs/versions.json)
+
 ID_SUITE = os.path.join(REPO, "specs", "image-generator-tests", "identity-two-character")
-REF_DIR = os.path.join(ID_SUITE, "refs", "multiangle")
 MASKS_DIR = os.path.join(ID_SUITE, "masks")
 
 ENDPOINT_ID = "yhae6ihkabyb0o"  # 2026-09-01: recreated via GitHub Integration (was ovwnwol2o30grn)
@@ -78,12 +84,20 @@ VIEW_STEM_TO_NAME = {
 }
 
 
-def find_local(ref_dir, stem):
-    for ext in (".png", ".jpg", ".jpeg", ".webp"):
-        p = os.path.join(ref_dir, stem + ext)
-        if os.path.exists(p):
-            return p
-    return None
+# When set (a real run), each resolved ref is flattened to a unique '<char>_<view>'
+# copy so multi-character uploads keep distinct LoadImage names (the versioned pack
+# folders all use the same view filename, e.g. front.png, under dean/ and becky/).
+_STAGE_DIR = None
+
+
+def resolve(stem):
+    """Resolve a '<char>_<view>' identity ref to the ACTIVE pack file; exit on missing."""
+    try:
+        p = REF.resolve_ref(stem)
+        return REF.stage(stem, _STAGE_DIR) if _STAGE_DIR else p
+    except RuntimeError as e:
+        print("MISSING REF:", e)
+        sys.exit(1)
 
 
 def read_api_key():
@@ -187,6 +201,7 @@ def rseed():
 
 
 def main():
+    global _STAGE_DIR
     ap = argparse.ArgumentParser()
     ap.add_argument("--label", default="")
     ap.add_argument("--dry-run", action="store_true")
@@ -195,17 +210,30 @@ def main():
     api_key = read_api_key()
     headers = {"Authorization": f"Bearer {api_key}"}
 
+    ref_src = REF.source_report()
+    print("Identity ref source (refs/versions.json):")
+    for _char, _info in ref_src.items():
+        print(f"  {_char} -> {_info['dir']}  (pack {_info['version']})")
+
     stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
     run_name = f"{stamp}-identity" + (f"-{args.label}" if args.label else "")
     run_dir = os.path.join(RUN_ROOT, run_name)
     images_out = os.path.join(run_dir, "images")
     prompts_out = os.path.join(run_dir, "prompts")
 
+    # On a real run, flatten refs to unique '<char>_<view>' names under an ignored
+    # scratch dir (committed runs/ holds only images+prompts+manifest, not ref bytes).
+    if not args.dry_run:
+        _STAGE_DIR = os.path.join(
+            os.environ.get("DG_TMP", os.path.join(REPO, "artifacts", "tmp")),
+            "biglust-refs", stamp)
+        os.makedirs(_STAGE_DIR, exist_ok=True)
+
     # ---- define the cells ----
     cells = []
     # single-character (one ref, one person)
-    dean_front = find_local(REF_DIR, "dean_front")
-    becky_front = find_local(REF_DIR, "becky_front")
+    dean_front = resolve("dean_front")
+    becky_front = resolve("becky_front")
     sd_dean = rseed()
     cells.append(("identity-1p-dean", "single", sd_dean,
                   build_single_workflow("identity-1p-dean", sd_dean, os.path.basename(dean_front),
@@ -228,11 +256,8 @@ def main():
         left_mask, right_mask = f"{base_cell}_left.png", f"{base_cell}_right.png"
         if base_cell == "c4":
             left_mask, right_mask = "c4_top.png", "c4_bottom.png"
-        dl = find_local(REF_DIR, dean_stem)
-        bl = find_local(REF_DIR, becky_stem)
-        if not dl or not bl:
-            print(f"MISSING ref for {cell}: {dean_stem}/{becky_stem}")
-            sys.exit(1)
+        dl = resolve(dean_stem)
+        bl = resolve(becky_stem)
         cell_id = f"identity-ma-{cell}"
         sa, sb = STRENGTH_OVERRIDES.get(cell, (0.8, 0.6))
         sd = rseed()
@@ -242,20 +267,19 @@ def main():
                       [dl, bl, os.path.join(MASKS_DIR, left_mask), os.path.join(MASKS_DIR, right_mask)]))
 
     # extra: waist-up SIDE-VIEW fellatio, both faces visible (profile refs, Dean upper / Becky lower).
-    dl_f = find_local(REF_DIR, "dean_profl")
-    bl_f = find_local(REF_DIR, "becky_profl")
-    if dl_f and bl_f:
-        sd_f = rseed()
-        wf_f = build_multi_workflow(
-            "identity-ma-fellatio-side", sd_f, dl_f, bl_f,
-            "c4_top.png", "c4_bottom.png",
-            "photo (medium), 8k, high quality, cinematic, 35mm waist-up shot, single continuous image, "
-            "a man standing in profile and a woman kneeling in front of him performing fellatio on him, "
-            "both faces clearly visible, correct anatomy, natural skin texture, soft warm light, "
-            "sharp focus, highly detailed",
-            strength_a=0.8, strength_b=0.7)
-        cells.append(("identity-ma-fellatio-side", "multiangle", sd_f, wf_f,
-                      [dl_f, bl_f, os.path.join(MASKS_DIR, "c4_top.png"), os.path.join(MASKS_DIR, "c4_bottom.png")]))
+    dl_f = resolve("dean_profl")
+    bl_f = resolve("becky_profl")
+    sd_f = rseed()
+    wf_f = build_multi_workflow(
+        "identity-ma-fellatio-side", sd_f, dl_f, bl_f,
+        "c4_top.png", "c4_bottom.png",
+        "photo (medium), 8k, high quality, cinematic, 35mm waist-up shot, single continuous image, "
+        "a man standing in profile and a woman kneeling in front of him performing fellatio on him, "
+        "both faces clearly visible, correct anatomy, natural skin texture, soft warm light, "
+        "sharp focus, highly detailed",
+        strength_a=0.8, strength_b=0.7)
+    cells.append(("identity-ma-fellatio-side", "multiangle", sd_f, wf_f,
+                  [dl_f, bl_f, os.path.join(MASKS_DIR, "c4_top.png"), os.path.join(MASKS_DIR, "c4_bottom.png")]))
 
     # NSFW identity positions (Dean+Becky IP-Adapter). Same prompts as the stock T2I positions,
     # so identity vs non-identity is a clean A/B (only the refs differ). Masks are starting
@@ -281,17 +305,14 @@ def main():
     # kneeling woman's head is in profile; cunnilingus -> the man's head is down in profile.)
     pos_refs = {  # (dean_ref, becky_ref)
         "missionary":  (dean_front, becky_front),
-        "doggy":       (dean_front, find_local(REF_DIR, "becky_profl")),
+        "doggy":       (dean_front, resolve("becky_profl")),
         "cowgirl":     (dean_front, becky_front),
-        "fellatio":    (dean_front, find_local(REF_DIR, "becky_profl")),
-        "cunnilingus": (find_local(REF_DIR, "dean_profl"), becky_front),
+        "fellatio":    (dean_front, resolve("becky_profl")),
+        "cunnilingus": (resolve("dean_profl"), becky_front),
     }
     for pos in ("missionary", "doggy", "cowgirl", "fellatio", "cunnilingus"):
         dm, bm = pos_masks[pos]
         dr, br = pos_refs[pos]
-        if not dr or not br:
-            print(f"MISSING position ref for {pos}")
-            sys.exit(1)
         cid = f"identity-pos-{pos}"
         sd = rseed()
         wf = build_multi_workflow(cid, sd, dr, br, dm, bm, pos_prompts[pos],
@@ -304,7 +325,7 @@ def main():
         ("identity-solo-becky-down-top", becky_front,
          "photo (medium), 8k, high quality, cinematic, one adult woman, top pulled down to expose her "
          "bare breasts, facing the camera, natural skin texture, soft warm light"),
-        ("identity-solo-becky-upskirt", find_local(REF_DIR, "becky_34r"),
+        ("identity-solo-becky-upskirt", resolve("becky_34r"),
          "photo (medium), 8k, high quality, cinematic, one adult woman in a short skirt, low-angle "
          "upskirt view revealing her pelvis, looking over her shoulder, soft warm light"),
         ("identity-solo-becky-masturbation", becky_front,
@@ -382,6 +403,7 @@ def main():
         "model": f"BigLust v1.6 ({CHECKPOINT}, IP-Adapter PLUS FACE)",
         "runDir": os.path.relpath(run_dir, REPO).replace("\\", "/"),
         "generatedUtc": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "refSource": ref_src,
         "cells": results,
     }
     with open(os.path.join(run_dir, "manifest.json"), "w", encoding="utf-8") as f:

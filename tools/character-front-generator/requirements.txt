@@ -1,0 +1,4 @@
+# tools/character-front-generator — pinned dependencies
+# Run with the repo venv: d:/src/DreamGenClone/.venv/Scripts/python.exe
+# Pillow is used only to re-encode gpt-image-2's JPEG bytes into TRUE PNGs.
+Pillow==12.3.0

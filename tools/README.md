@@ -23,8 +23,14 @@ Agents: prefer these tools over ad-hoc `artifacts/tmp` scripts. See
 | Tool | Location | Purpose | Run |
 |---|---|---|---|
 | **eye-validation** | `tools/eye-validation/` | Measure face eye level / symmetry with real iris landmarks (MediaPipe FaceMesh). Canonical eye check — Haar/centroid/Hough are known-bad for this. | `d:/src/DreamGenClone/.venv/Scripts/python.exe tools/eye-validation/measure_iris.py <img...>` |
+| **e2e** | `tools/e2e/` | Playwright E2E harness for the live Blazor Server UI (LLM-free, non-destructive; captures the SignalR circuit-attach probe-retry + suite snapshot/restore patterns). | `cd tools/e2e; npm test` (Node ≥18 + chromium; webapp on `http://localhost:5177`) |
+| **character-front-generator** | `tools/character-front-generator/` | Generate near-frontal character face candidates (gpt-image-2/TogetherAI) with the eye-symmetry-hardened prompt; TRUE-PNG output. | `d:/src/DreamGenClone/.venv/Scripts/python.exe tools/character-front-generator/generate_front.py --count 6` |
 
 ## Notes
 - The first approved tool (`eye-validation/measure_iris.py`) was promoted out of
   `artifacts/tmp/eyemeasure/` (2026-09-02). The exploratory dead-end checkers
   (Haar/Hough) intentionally stayed in tmp and were not promoted.
+- Also promoted 2026-09-02 (to git-tracked homes outside `tools/`): the
+  `runpod-billing-query.ps1` RunPod cost CLI went to `helpers/runpod/` (see
+  `helpers/runpod/README.md`), and the e2e override-restore verification query
+  went to `DreamGenClone.DbQuery/queries/e2e-override-restore.sql`.

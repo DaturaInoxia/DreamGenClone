@@ -232,7 +232,7 @@ running webapp process can stay up.)
 3. Next day, re-run the spend query and confirm the compiler endpoint (`n09tv90559x2cu`) is ~$0.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File artifacts/tmp/runpod-billing-query.ps1 -StartTime "<yesterday>T00:00:00Z" -EndTime "<today>T00:00:00Z" -BucketSize day
+powershell -NoProfile -ExecutionPolicy Bypass -File helpers/runpod/runpod-billing-query.ps1 -StartTime "<yesterday>T00:00:00Z" -EndTime "<today>T00:00:00Z" -BucketSize day
 ```
 
 ---
@@ -289,9 +289,11 @@ In Model Manager, revert the same fields:
 
 ## Appendix — scripted SQL (for an agent; UI is preferred)
 
-The built-in DB query tool's write commands are HTTPS-only and the `sql` command is read-only, so a
-scripted re-point needs a small direct writer. The API key must be **DPAPI-encrypted on WOODGAME**
-(same Windows user that runs the webapp), which only PowerShell does easily.
+The built-in DB query tool's `sql` command now opens the dev DB **ReadWrite**, so an agent can apply
+the re-point with these UPDATEs (run each statement as its own `.sql` file via `dbq sql`, or the
+equivalent). The API key must be **DPAPI-encrypted on WOODGAME** (same Windows user that runs the
+webapp), which only PowerShell does easily — so step 1 stays PowerShell, then paste the base64 into
+the UPDATE.
 
 1. Encrypt a dummy key (run on WOODGAME, as the webapp's user):
 

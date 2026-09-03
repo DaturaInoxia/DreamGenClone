@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """Focused Dean 1-person validation driver.
 
-Runs the sfw-identity-1p-dean cell (text + ip, matched seed) against the current
-refs/multiangle/dean_front.png so we can verify IP-Adapter output matches the
-clean v6 front without paying for the full 39-variant consolidated suite.
+Runs the sfw-identity-1p-dean cell (text + ip, matched seed) against Dean's
+ACTIVE identity pack front — resolved by identity_refs from refs/versions.json
+-> refs/dean/<version>/front.png — so we can verify the IP-Adapter output
+matches the clean approved front without paying for the full consolidated suite.
+The run folder name and manifest carry the pack version used.
 
 Supports an IP-Adapter WEIGHT A/B: pass --weights w1,w2,... to render the ip
 variant at several face weights with the SAME seed so only weight varies
 (0.8 is the PLUS FACE default that showed asymmetric/too-wide eyes).
 
-Outputs to runs/<stamp>-deanv6-front/ (images + prompts).
+To validate a DIFFERENT Dean pack, change the version in refs/versions.json
+(e.g. "v7" -> "v8"); no runner code change is needed.
+
+Outputs to runs/<stamp>-dean-<version>-front/ (images + prompts).
 
 Usage:
   python run_dean_1p_focused.py [--dry-run]
@@ -17,8 +22,10 @@ Usage:
 """
 import argparse, datetime, json, os, random, sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))                    # biglust dir (run_biglust_ab)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests root (identity_refs)
 import run_biglust_ab as R  # noqa: E402  (reuse proven builders/executor)
+import identity_refs as REF  # noqa: E402  (versioned identity-pack source; refs/versions.json)
 
 DEAN_PROMPT = (
     "photo (medium), 8k, high quality, cinematic, portrait of one adult man with "
@@ -39,14 +46,12 @@ def main():
 
     headers = {"Authorization": "Bearer " + R.read_api_key()}
 
-    ref = R.find_local(R.REF_DIR, "dean_front")
-    if not ref:
-        print("MISSING dean_front ref in refs/multiangle")
-        sys.exit(1)
-    print(f"using ref: {ref} ({os.path.getsize(ref)} bytes)")
+    ref = REF.resolve_ref("dean_front")
+    print(f"using ref: {ref} ({os.path.getsize(ref)} bytes)  [dean pack {REF.version_for('dean')}]")
 
     stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    run_name = f"{stamp}-deanv7-front"
+    dean_ver = REF.version_for("dean")
+    run_name = f"{stamp}-dean-{dean_ver}-front"
     run_dir = os.path.join(R.RUN_ROOT, run_name)
     images_out = os.path.join(run_dir, "images")
     prompts_out = os.path.join(run_dir, "prompts")
@@ -81,13 +86,14 @@ def main():
     for r in results:
         print(f"  {r['result']} {r['id']} (seed {r['seed']})")
     manifest = {
-        "suite": "deanv6-front-focused",
+        "suite": f"dean-{dean_ver}-front-focused",
         "model": R.CHECKPOINT,
         "runDir": run_dir,
         "generatedUtc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "endpointId": R.ENDPOINT_ID,
-        "note": "Focused sfw-identity-1p-dean text-vs-ip after v6 front swap "
-                "(dean_front = Real-ESRGAN upscaled clean PNG). Matched seed.",
+        "refSource": REF.source_report(),
+        "note": f"Focused sfw-identity-1p-dean text-vs-ip against dean pack {dean_ver} "
+                f"({REF.version_dir('dean')}). Matched seed.",
         "cells": results,
     }
     with open(os.path.join(run_dir, "manifest.json"), "w", encoding="utf-8") as f:

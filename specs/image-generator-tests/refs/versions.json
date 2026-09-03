@@ -1,0 +1,5 @@
+{
+  "_comment": "Identity pack VERSION folder per character under specs/image-generator-tests/refs/<character>/<version>/. This is the SINGLE pointer every identity proof runner resolves its reference images from. To switch a character to a different approved pack for the next test run, change ONLY the version value here (e.g. \"v7\" -> \"v8\") — no runner code changes needed. Latest approved packs as of 2026-09-02: dean = v7, becky = v4.",
+  "dean": "v7",
+  "becky": "v4"
+}

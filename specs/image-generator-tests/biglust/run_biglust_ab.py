@@ -13,8 +13,10 @@ Non-identity cells (stock-nsfw: identity == null) run only the -text variant (th
 is no identity to condition on). Identity cells get both variants with a MATCHED seed,
 so any difference between -text and -ip is attributable to the identity mechanism.
 
-Refs are the DB-pulled latest identity packs (refs/multiangle/); masks live in
-identity-two-character/masks/. See pull_latest_refs.py for the ref source.
+Refs come from the VERSIONED identity-pack archive (refs/<char>/<version>/) resolved by
+identity_refs.py — the active pack per character is pinned in specs/image-generator-tests/refs/versions.json,
+so changing one value re-points the whole run at a different approved pack. Masks live in
+identity-two-character/masks/.
 
 Outputs are SOURCE-CONTROLLED (specs/image-generator-tests/), dated for cross-run
 comparison:
@@ -31,12 +33,16 @@ Usage:
 import argparse, base64, datetime, hashlib, json, os, random, re, sys, time, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))                 # .../biglust
+TESTS_ROOT = os.path.dirname(HERE)                                 # .../specs/image-generator-tests
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))    # repo root
 RUN_ROOT = os.path.join(HERE, "runs")
 
+if TESTS_ROOT not in sys.path:
+    sys.path.insert(0, TESTS_ROOT)
+import identity_refs as REF  # noqa: E402  (versioned identity-pack source; refs/versions.json)
+
 PROMPTS_JSON = os.path.join(REPO, "specs", "image-generator-tests", "TEST-MATRIX-PROMPTS.json")
 ID_SUITE = os.path.join(REPO, "specs", "image-generator-tests", "identity-two-character")
-REF_DIR = os.path.join(ID_SUITE, "refs", "multiangle")
 MASKS_DIR = os.path.join(ID_SUITE, "masks")
 
 ENDPOINT_ID = "yhae6ihkabyb0o"   # GitHub-Integration BigLust endpoint (was ovwnwol2o30grn)
@@ -98,12 +104,20 @@ MA_CELLS = [
 ]
 
 
-def find_local(ref_dir, stem):
-    for ext in (".png", ".jpg", ".jpeg", ".webp"):
-        p = os.path.join(ref_dir, stem + ext)
-        if os.path.exists(p):
-            return p
-    return None
+# When set (a real run), each resolved ref is flattened to a unique '<char>_<view>'
+# copy so multi-character uploads keep distinct LoadImage names (the versioned pack
+# folders all use the same view filename, e.g. front.png, under dean/ and becky/).
+_STAGE_DIR = None
+
+
+def resolve(stem):
+    """Resolve a '<char>_<view>' identity ref to the ACTIVE pack file; exit on missing."""
+    try:
+        p = REF.resolve_ref(stem)
+        return REF.stage(stem, _STAGE_DIR) if _STAGE_DIR else p
+    except RuntimeError as e:
+        print("MISSING REF:", e)
+        sys.exit(1)
 
 
 def read_api_key():
@@ -270,12 +284,18 @@ def rseed():
 
 
 def main():
+    global _STAGE_DIR
     ap = argparse.ArgumentParser()
     ap.add_argument("--label", default="")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     headers = {"Authorization": "Bearer " + read_api_key()}
+
+    ref_src = REF.source_report()
+    print("Identity ref source (refs/versions.json):")
+    for _char, _info in ref_src.items():
+        print(f"  {_char} -> {_info['dir']}  (pack {_info['version']})")
 
     stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
     run_name = f"{stamp}-ab" + (f"-{args.label}" if args.label else "")
@@ -289,6 +309,10 @@ def main():
     if not args.dry_run:
         os.makedirs(images_out, exist_ok=True)
         os.makedirs(prompts_out, exist_ok=True)
+        _STAGE_DIR = os.path.join(
+            os.environ.get("DG_TMP", os.path.join(REPO, "artifacts", "tmp")),
+            "biglust-refs", stamp)
+        os.makedirs(_STAGE_DIR, exist_ok=True)
 
     results = []
 
@@ -322,10 +346,8 @@ def main():
                             print(f"WARN: no pose map for {cid}, defaulting to c1"); pname = "missionary"
                         dr_s, br_s = POS_REFS[pname]
                         dm, bm = POS_MASKS[pname]
-                    dr = find_local(REF_DIR, dr_s)
-                    br = find_local(REF_DIR, br_s)
-                    if not dr or not br:
-                        print(f"MISSING 2p ref for {cid}: {dr_s}/{br_s}"); sys.exit(1)
+                    dr = resolve(dr_s)
+                    br = resolve(br_s)
                     wf = build_multi_ip_workflow(cid, seed, dr, br, dm, bm, prompt)
                     files = [dr, br,
                              os.path.join(MASKS_DIR, dm), os.path.join(MASKS_DIR, bm)]
@@ -336,9 +358,7 @@ def main():
                         if solo_stem in cid:
                             stem = override
                             break
-                    ref = find_local(REF_DIR, stem)
-                    if not ref:
-                        print(f"MISSING 1p ref for {cid}: {stem}"); sys.exit(1)
+                    ref = resolve(stem)
                     wf = build_single_ip_workflow(cid, seed, os.path.basename(ref), prompt)
                     files = [ref]
                 variants.append(("ip", wf, files))
@@ -351,11 +371,8 @@ def main():
     # Multi-angle SFW cells (the unique identity-ma set, c1-c6 only): angle-matched Dean/Becky refs
     # + per-cell regional masks, IP-Adapter only (no -text; SFW 2-person text is sfw-identity-2p-text).
     for cid, dean_stem, becky_stem, dm, bm, sa, sb, ma_prompt in MA_CELLS:
-        dr = find_local(REF_DIR, dean_stem)
-        br = find_local(REF_DIR, becky_stem)
-        if not dr or not br:
-            print(f"MISSING ma ref for {cid}: {dean_stem}/{becky_stem}")
-            sys.exit(1)
+        dr = resolve(dean_stem)
+        br = resolve(becky_stem)
         v_id = f"{cid}-ip"
         seed = rseed()
         wf = build_multi_ip_workflow(v_id, seed, dr, br, dm, bm, ma_prompt,
@@ -376,6 +393,7 @@ def main():
         "runDir": run_dir,
         "generatedUtc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "endpointId": ENDPOINT_ID,
+        "refSource": ref_src,
         "note": "text = prose-only identity (no refs); ip = same prompt + same seed + IP-Adapter refs. Matched seeds make text-vs-ip a clean A/B.",
         "cells": results,
     }

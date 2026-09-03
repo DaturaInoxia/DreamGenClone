@@ -16,7 +16,7 @@ if (!File.Exists(databasePath))
     return 2;
 }
 
-var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "b100-analyzer-configure" or "biglust-image-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" ? "ReadWrite" : "ReadOnly";
+var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "b100-analyzer-configure" or "biglust-image-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "sql" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -1159,7 +1159,67 @@ static async Task<int> PrintSqlFileAsync(SqliteConnection connection, string sql
     if (!string.IsNullOrWhiteSpace(id))
         sql = sql.Replace("{{id}}", id.Replace("'", "''", StringComparison.Ordinal), StringComparison.Ordinal);
 
-    return await PrintQueryAsync(connection, sql);
+    return await ExecuteSqlTextAsync(connection, sql, Path.GetFileName(sqlFile));
+}
+
+/// <summary>
+/// Runs a single-statement .sql file's text. Read statements (SELECT/WITH/PRAGMA/EXPLAIN/VALUES)
+/// print their result rows; write statements (UPDATE/INSERT/DELETE/REPLACE and DDL) execute
+/// transactionally and report the number of rows affected.
+/// </summary>
+static async Task<int> ExecuteSqlTextAsync(SqliteConnection connection, string sql, string sourceName)
+{
+    if (IsReadStatement(sql))
+        return await PrintQueryAsync(connection, sql);
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+    try
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        var rowsAffected = await command.ExecuteNonQueryAsync();
+        await transaction.CommitAsync();
+        Console.WriteLine($"OK: {sourceName} applied. Rows affected: {rowsAffected}");
+        return 0;
+    }
+    catch
+    {
+        await transaction.RollbackAsync();
+        throw;
+    }
+}
+
+/// <summary>Classifies a statement by its first keyword, skipping whitespace and SQL comments.</summary>
+static bool IsReadStatement(string sql)
+{
+    var i = 0;
+    while (i < sql.Length)
+    {
+        while (i < sql.Length && char.IsWhiteSpace(sql[i])) i++;
+        if (i >= sql.Length) break;
+
+        if (sql[i] == '-' && i + 1 < sql.Length && sql[i + 1] == '-')
+        {
+            while (i < sql.Length && sql[i] != '\n') i++;
+            continue;
+        }
+
+        if (sql[i] == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
+        {
+            i += 2;
+            while (i + 1 < sql.Length && !(sql[i] == '*' && sql[i + 1] == '/')) i++;
+            i = Math.Min(i + 2, sql.Length);
+            continue;
+        }
+
+        var start = i;
+        while (i < sql.Length && !char.IsWhiteSpace(sql[i]) && sql[i] != '(' && sql[i] != ';') i++;
+        var token = sql[start..i].ToUpperInvariant();
+        return token is "SELECT" or "WITH" or "PRAGMA" or "EXPLAIN" or "VALUES";
+    }
+
+    return true; // empty or comment-only — treat as a no-op read
 }
 
 static async Task<int> PrintQueryAsync(SqliteConnection connection, string sql)

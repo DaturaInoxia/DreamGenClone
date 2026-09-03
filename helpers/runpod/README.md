@@ -28,6 +28,7 @@ Make sure `.runpod-env.ps1` is covered by `.gitignore`.
 - `deployment.ps1` — validate/preview one manifest-defined deployment and operate its assigned pod.
 - `ssh.ps1` — SSH maintenance through the local `artifacts/runpod/.ssh-env.ps1` connection file.
 - `install-model-remote.ps1` — authenticated checkpoint download to the persistent `/workspace` volume.
+- `runpod-billing-query.ps1` — RunPod `GET /v2/billing` cost query (`-StartTime`/`-EndTime`/`-BucketSize hour|day|month`). Promoted from `artifacts/tmp/` (2026-09-02).
 
 ## Usage
 
