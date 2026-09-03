@@ -2,10 +2,13 @@
 @rendermode InteractiveServer
 
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
 @implements IAsyncDisposable
 
 @inject ISceneAssetService AssetService
+@inject IImageEditorModelResolver ImageEditorModelResolver
 @inject ILogger<AssetStudioView> Logger
 
 <PageTitle>Asset - DreamGenClone</PageTitle>
@@ -109,11 +112,26 @@
                             <input type="text" class="form-control" @bind="_editName" placeholder="e.g. @_asset.Name (edited)" />
                             <label class="form-label mt-2">Edit instruction (Qwen source-image edit)</label>
                             <textarea class="form-control" rows="3" @bind="_editPrompt" placeholder="e.g. Change the lighting to golden hour."></textarea>
-                            <button class="btn btn-primary mt-2" @onclick="RunEditAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_editPrompt))">Run Edit</button>
-                            @if (_resultAsset is not null)
+                            <label class="form-label mt-2">Image editor model</label>
+                            <select class="form-select" @bind="_selectedEditorModelId">
+                                <option value="">Select an image editor…</option>
+                                @foreach (var choice in _editorModelChoices)
+                                {
+                                    <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName@(choice.ModelId == _defaultEditorModelId ? " (Default)" : "")</option>
+                                }
+                            </select>
+                            <label class="form-label mt-2">Outputs</label>
+                            <input type="number" class="form-control" style="max-width:8rem" min="1" max="8" @bind="_editOutputCount" />
+                            <button class="btn btn-primary mt-2" @onclick="RunEditAsync"
+                                    disabled="@(_busy || string.IsNullOrWhiteSpace(_editName) || string.IsNullOrWhiteSpace(_editPrompt) || string.IsNullOrWhiteSpace(_selectedEditorModelId))">Run Edit</button>
+                            @if (_resultAssets.Count > 0)
                             {
                                 <div class="alert alert-success mt-2 mb-0">
-                                    Edit queued — <a href="/asset-studio/@_resultAsset.Id">view new asset</a>.
+                                    @_resultAssets.Count edit output@(_resultAssets.Count == 1 ? "" : "s") queued.
+                                    @foreach (var result in _resultAssets)
+                                    {
+                                        <a class="d-block" href="/asset-studio/@result.Id">View @result.Name</a>
+                                    }
                                 </div>
                             }
                         </div>
@@ -144,7 +162,11 @@
     private SceneAsset? _asset;
     private string _editName = string.Empty;
     private string _editPrompt = string.Empty;
-    private SceneAsset? _resultAsset;
+    private List<SceneAsset> _resultAssets = [];
+    private List<SceneImageModelChoice> _editorModelChoices = [];
+    private string? _selectedEditorModelId;
+    private string? _defaultEditorModelId;
+    private int _editOutputCount = 1;
 
     private bool _busy;
     private string? _error;
@@ -155,8 +177,18 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        await LoadEditorModelsAsync();
         await LoadAsync();
         EnsurePolling();
+    }
+
+    private async Task LoadEditorModelsAsync()
+    {
+        _editorModelChoices = (await ImageEditorModelResolver.ListImageEditorModelsAsync()).ToList();
+        var resolvedDefault = await ImageEditorModelResolver.ResolveAsync();
+        _defaultEditorModelId = _editorModelChoices
+            .SingleOrDefault(choice => string.Equals(choice.ModelIdentifier, resolvedDefault.ModelIdentifier, StringComparison.Ordinal))?.ModelId;
+        _selectedEditorModelId ??= _defaultEditorModelId;
     }
 
     private async Task LoadAsync()
@@ -169,14 +201,24 @@
 
     private async Task RunEditAsync()
     {
-        if (_asset is null || string.IsNullOrWhiteSpace(_editPrompt)) return;
+        if (_asset is null
+            || string.IsNullOrWhiteSpace(_editName)
+            || string.IsNullOrWhiteSpace(_editPrompt)
+            || string.IsNullOrWhiteSpace(_selectedEditorModelId)) return;
 
         await RunAsync(async () =>
         {
-            var name = string.IsNullOrWhiteSpace(_editName) ? $"{_asset!.Name} (edited)" : _editName.Trim();
-            _resultAsset = await AssetService.EnqueueEditAsync(_asset!.Id, name, _editPrompt);
+            _resultAssets = [];
+            var outputCount = Math.Clamp(_editOutputCount, 1, 8);
+            for (var output = 1; output <= outputCount; output++)
+            {
+                var name = outputCount == 1 ? _editName.Trim() : $"{_editName.Trim()} {output}";
+                _resultAssets.Add(await AssetService.EnqueueEditAsync(
+                    _asset!.Id, name, _editPrompt, _selectedEditorModelId));
+            }
             _editName = string.Empty;
             _editPrompt = string.Empty;
+            _editOutputCount = 1;
             EnsurePolling();
         });
     }
@@ -205,11 +247,14 @@
 
             _timer = new System.Threading.Timer(async _ =>
             {
-                await LoadAsync();
-                if (_asset is null || _asset.Status != SceneAssetStatus.Pending)
+                await InvokeAsync(async () =>
                 {
-                    StopPolling();
-                }
+                    await LoadAsync();
+                    if (_asset is null || _asset.Status != SceneAssetStatus.Pending)
+                    {
+                        StopPolling();
+                    }
+                });
             }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
         }
     }

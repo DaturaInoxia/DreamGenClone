@@ -10,13 +10,26 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public interface ISceneAssetService
 {
     Task<SceneAsset> CreateFromPromptAsync(
-        string name, string prompt, string? size = null, CancellationToken cancellationToken = default);
+        string name,
+        string prompt,
+        SceneAssetType type,
+        string modelId,
+        string imageSize,
+        CancellationToken cancellationToken = default);
 
     Task<SceneAsset> CreateFromUploadAsync(
-        string name, string fileName, Stream content, CancellationToken cancellationToken = default);
+        string name,
+        SceneAssetType type,
+        string fileName,
+        Stream content,
+        CancellationToken cancellationToken = default);
 
     Task<SceneAsset> EnqueueEditAsync(
-        string sourceAssetId, string name, string editPrompt, CancellationToken cancellationToken = default);
+        string sourceAssetId,
+        string name,
+        string editPrompt,
+        string modelId,
+        CancellationToken cancellationToken = default);
 
     Task EnqueueProfilePackAsync(SceneAssetProfilePackJobPayload payload, CancellationToken cancellationToken = default);
 

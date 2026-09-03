@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -90,5 +91,68 @@ public sealed class SceneImagePromptCompilerRegistry : ISceneImagePromptCompiler
             _ => throw new InvalidOperationException(
                 $"Multiple scene-image prompt compilers are registered for family '{family}' and dialect '{promptDialect}'. Exactly one registration is required.")
         };
+    }
+}
+
+public sealed record SceneAssetPromptCompilation(
+    string CompilerId,
+    string CompilerVersion,
+    string Prompt);
+
+public static class SceneAssetPromptCompiler
+{
+    public static SceneAssetPromptCompilation Compile(
+        string description,
+        SceneAssetType assetType,
+        ResolvedImageModel model)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+            throw new InvalidOperationException("An asset description is required for prompt compilation.");
+
+        var semanticDescription = description.Trim();
+        return (model.SceneImageModelFamily, model.PromptDialect) switch
+        {
+            (SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags) => new(
+                "scene-asset-pony-v6",
+                "1",
+                CompilePony(semanticDescription, assetType, model.ContentPolicy)),
+            (SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage) => new(
+                "scene-asset-sdxl-natural-language",
+                "1",
+                semanticDescription),
+            (SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage) => new(
+                "scene-asset-api-natural-language",
+                "1",
+                semanticDescription),
+            _ => throw new InvalidOperationException(
+                $"No asset prompt compiler matches family '{model.SceneImageModelFamily}' and dialect '{model.PromptDialect}'.")
+        };
+    }
+
+    private static string CompilePony(
+        string description,
+        SceneAssetType assetType,
+        ImageContentPolicy contentPolicy)
+    {
+        var rating = contentPolicy == ImageContentPolicy.SfwFiltered
+            ? "rating_safe"
+            : "rating_explicit";
+        var subjectCount = assetType is SceneAssetType.CharacterFace or SceneAssetType.CharacterBody
+            ? "1person"
+            : null;
+        var semanticTags = description
+            .Replace(";", ",", StringComparison.Ordinal)
+            .Trim()
+            .TrimEnd('.');
+        var terms = new List<string>
+        {
+            "score_9", "score_8_up", "score_7_up", "score_6_up", "score_5_up", "score_4_up", rating
+        };
+        if (subjectCount is not null) terms.Add(subjectCount);
+        terms.Add(semanticTags);
+        var prompt = string.Join(", ", terms);
+        if (prompt.Length > 800)
+            throw new InvalidOperationException("Compiled Pony asset prompt exceeds the qualified 800-character limit.");
+        return prompt;
     }
 }

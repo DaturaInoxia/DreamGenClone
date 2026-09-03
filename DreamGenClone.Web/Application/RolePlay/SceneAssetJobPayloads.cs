@@ -4,12 +4,15 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed class SceneAssetGenerationJobPayload
 {
     public string AssetId { get; set; } = string.Empty;
+    public string ModelId { get; set; } = string.Empty;
+    public string ImageSize { get; set; } = string.Empty;
 }
 
 /// <summary>Payload for a Qwen source-image edit that produces a new scene asset revision.</summary>
 public sealed class SceneAssetEditingJobPayload
 {
     public string AssetId { get; set; } = string.Empty;
+    public string ModelId { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -24,11 +27,17 @@ public sealed class SceneAssetProfilePackJobPayload
 
     public string CharacterName { get; set; } = string.Empty;
 
-    /// <summary>Visual description used when no <see cref="FrontAssetId"/> is supplied (Juggernaut front portrait).</summary>
+    /// <summary>Visual description used when no <see cref="FrontAssetId"/> is supplied.</summary>
     public string Description { get; set; } = string.Empty;
 
     /// <summary>An existing complete asset to use as the front (identity anchor); skips front generation.</summary>
     public string? FrontAssetId { get; set; }
+
+    /// <summary>Exact generation model used when the front image is generated.</summary>
+    public string? FrontModelId { get; set; }
+
+    /// <summary>Exact source-image editor model used for the four angle views.</summary>
+    public string EditorModelId { get; set; } = string.Empty;
 
     /// <summary>Optional target draft pack; when null the job ensures a draft for the character.</summary>
     public string? IdentityPackId { get; set; }

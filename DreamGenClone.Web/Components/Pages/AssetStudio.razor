@@ -2,13 +2,17 @@
 @rendermode InteractiveServer
 
 @using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Application.ModelManager
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.Scenarios
 @using DreamGenClone.Web.Domain.Scenarios
 @using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Domain.ModelManager
 @implements IAsyncDisposable
 
 @inject ISceneAssetService AssetService
+@inject IModelResolutionService ModelResolutionService
+@inject IImageEditorModelResolver ImageEditorModelResolver
 @inject ICharacterAssetCatalogService CharacterAssetCatalog
 @inject IScenarioService ScenarioService
 @inject NavigationManager Navigation
@@ -26,6 +30,20 @@
         </div>
     </div>
     <p class="text-muted small mb-3">Curate the shared production asset catalog for character identity, body, wardrobe, locations, and controls.</p>
+
+    <div class="btn-group mb-3" role="group" aria-label="Asset creation commands">
+        <button class="btn @(_createMode == AssetCreateMode.Asset ? "btn-primary" : "btn-outline-primary")" type="button"
+                @onclick="() => _createMode = AssetCreateMode.Asset">
+            <i class="bi bi-plus-square me-1"></i> Create Asset
+        </button>
+        <button class="btn @(_createMode == AssetCreateMode.IdentityPack ? "btn-primary" : "btn-outline-primary")" type="button"
+                @onclick="() => _createMode = AssetCreateMode.IdentityPack">
+            <i class="bi bi-person-bounding-box me-1"></i> Create Identity Pack
+        </button>
+        <a class="btn btn-outline-primary" href="/asset-studio/lora-datasets/new">
+            <i class="bi bi-layers me-1"></i> Create LoRA
+        </a>
+    </div>
 
     @if (PickerMode)
     {
@@ -46,14 +64,47 @@
 
     <div class="row g-3">
         <div class="col-lg-6">
+            @if (_createMode == AssetCreateMode.Asset)
+            {
             <div class="card mb-3">
                 <div class="card-header"><strong>Create From Prompt</strong></div>
                 <div class="card-body">
                     <label class="form-label">Asset name</label>
                     <input type="text" class="form-control" @bind="_promptName" placeholder="e.g. Forest clearing location" />
-                    <label class="form-label mt-2">Prompt</label>
-                    <textarea class="form-control" rows="3" @bind="_promptText" placeholder="Describe the image to generate…"></textarea>
-                    <button class="btn btn-primary mt-2" @onclick="GenerateFromPromptAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_promptText))">Generate Asset</button>
+                    <label class="form-label mt-2">Asset type</label>
+                    <select class="form-select" @bind="_promptType">
+                        <option value="">Select an asset type…</option>
+                        @foreach (var type in Enum.GetValues<SceneAssetType>())
+                        {
+                            <option value="@type">@type</option>
+                        }
+                    </select>
+                    <label class="form-label mt-2">Description</label>
+                    <textarea class="form-control" rows="3" @bind="_promptText" placeholder="Describe what the asset should look like in ordinary language."></textarea>
+                    <div class="row g-2 mt-1">
+                        <div class="col-sm-8">
+                            <label class="form-label">Image model</label>
+                            <select class="form-select" @bind="_selectedGenerationModelId">
+                                <option value="">Select an image model…</option>
+                                @foreach (var choice in _generationModelChoices)
+                                {
+                                    <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName@(choice.ModelId == _defaultGenerationModelId ? " (Default)" : "")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-sm-4">
+                            <label class="form-label">Image size</label>
+                            <select class="form-select" @bind="_generationImageSize">
+                                <option value="1024x1024">1024 × 1024</option>
+                                <option value="768x768">768 × 768</option>
+                                <option value="512x512">512 × 512</option>
+                            </select>
+                        </div>
+                    </div>
+                    <label class="form-label mt-2">Outputs</label>
+                    <input type="number" class="form-control" style="max-width:8rem" min="1" max="8" @bind="_generationOutputCount" />
+                    <button class="btn btn-primary mt-2" @onclick="GenerateFromPromptAsync"
+                            disabled="@(_busy || string.IsNullOrWhiteSpace(_promptName) || _promptType is null || string.IsNullOrWhiteSpace(_promptText) || string.IsNullOrWhiteSpace(_selectedGenerationModelId))">Generate Asset</button>
                 </div>
             </div>
 
@@ -62,14 +113,27 @@
                 <div class="card-body">
                     <label class="form-label">Asset name</label>
                     <input type="text" class="form-control" @bind="_uploadName" placeholder="e.g. Becky front photo" />
+                    <label class="form-label mt-2">Asset type</label>
+                    <select class="form-select" @bind="_uploadType">
+                        <option value="">Select an asset type…</option>
+                        @foreach (var type in Enum.GetValues<SceneAssetType>())
+                        {
+                            <option value="@type">@type</option>
+                        }
+                    </select>
                     <label class="form-label mt-2">Image</label>
                     <InputFile OnChange="OnUploadPicked" accept="image/png,image/jpeg,image/webp" />
-                    <button class="btn btn-primary mt-2" @onclick="UploadAssetAsync" disabled="@(_busy || _pendingUploadFile is null)">Upload Asset</button>
+                    <button class="btn btn-primary mt-2" @onclick="UploadAssetAsync"
+                            disabled="@(_busy || string.IsNullOrWhiteSpace(_uploadName) || _uploadType is null || _pendingUploadFile is null)">Upload Asset</button>
                 </div>
             </div>
 
+            }
+
+            @if (_createMode == AssetCreateMode.IdentityPack)
+            {
             <div class="card">
-                <div class="card-header"><strong>Generate Profile Pack</strong></div>
+                <div class="card-header"><strong>Create Identity Pack</strong></div>
                 <div class="card-body small">
                     <p class="text-muted mb-2">Creates the 5 face views (front, 3/4 left, 3/4 right, profile left, profile right) for one character and saves them into the character's identity pack plus the asset library. The front is your chosen photo, or is generated from the description; the other four views use the canned Qwen edits.</p>
                     <label class="form-label">Character</label>
@@ -90,12 +154,32 @@
                     </select>
                     <label class="form-label mt-2">Character description (when generating the front)</label>
                     <textarea class="form-control" rows="2" @bind="_packDescription" placeholder="Short stable description of the character's look."></textarea>
+                    @if (string.IsNullOrWhiteSpace(_packFrontAssetId))
+                    {
+                        <label class="form-label mt-2">Front image model</label>
+                        <select class="form-select" @bind="_packFrontModelId">
+                            <option value="">Select an image model…</option>
+                            @foreach (var choice in _generationModelChoices)
+                            {
+                                <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName@(choice.ModelId == _defaultGenerationModelId ? " (Default)" : "")</option>
+                            }
+                        </select>
+                    }
+                    <label class="form-label mt-2">Angle editor model</label>
+                    <select class="form-select" @bind="_packEditorModelId">
+                        <option value="">Select an image editor…</option>
+                        @foreach (var choice in _editorModelChoices)
+                        {
+                            <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName@(choice.ModelId == _defaultEditorModelId ? " (Default)" : "")</option>
+                        }
+                    </select>
                     <button class="btn btn-success mt-2" @onclick="GenerateProfilePackAsync"
-                            disabled="@(_busy || string.IsNullOrWhiteSpace(_packCharacterId) || (string.IsNullOrWhiteSpace(_packFrontAssetId) && string.IsNullOrWhiteSpace(_packDescription)))">
+                            disabled="@(_busy || string.IsNullOrWhiteSpace(_packCharacterId) || string.IsNullOrWhiteSpace(_packEditorModelId) || (string.IsNullOrWhiteSpace(_packFrontAssetId) && (string.IsNullOrWhiteSpace(_packDescription) || string.IsNullOrWhiteSpace(_packFrontModelId))))">
                         Generate Profile Pack Now
                     </button>
                 </div>
             </div>
+            }
 
             <section class="mt-3" aria-label="Typed character asset versions">
                 <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
@@ -380,6 +464,7 @@
     public string? PickerReturnContext { get; set; }
 
     private sealed record CharacterOption(string Id, string Label);
+    private enum AssetCreateMode { None, Asset, IdentityPack }
 
     private readonly List<CharacterOption> _characterOptions = [];
     private List<SceneAsset> _assets = [];
@@ -387,10 +472,21 @@
 
     private string _promptName = string.Empty;
     private string _promptText = string.Empty;
+    private SceneAssetType? _promptType;
+    private List<SceneImageModelChoice> _generationModelChoices = [];
+    private string? _selectedGenerationModelId;
+    private string? _defaultGenerationModelId;
+    private string _generationImageSize = "1024x1024";
+    private int _generationOutputCount = 1;
     private string _uploadName = string.Empty;
+    private SceneAssetType? _uploadType;
     private string _packCharacterId = string.Empty;
     private string _packFrontAssetId = string.Empty;
     private string _packDescription = string.Empty;
+    private string? _packFrontModelId;
+    private List<SceneImageModelChoice> _editorModelChoices = [];
+    private string? _packEditorModelId;
+    private string? _defaultEditorModelId;
     private string _assetSearch = string.Empty;
     private string _assetTypeFilter = string.Empty;
     private string _assetApprovalFilter = string.Empty;
@@ -406,6 +502,7 @@
     private string _approvalUseScope = string.Empty;
     private string _approvalContentPolicyKey = string.Empty;
     private string _approvalCompatibilityJson = string.Empty;
+    private AssetCreateMode _createMode;
 
     private bool _busy;
     private bool _hasInFlight;
@@ -461,20 +558,51 @@
             Logger.LogWarning(ex, "Failed to load scenario characters in Asset Studio.");
         }
 
+        await LoadGenerationModelsAsync();
+        await LoadEditorModelsAsync();
         await ReloadAssetsAsync();
+    }
+
+    private async Task LoadGenerationModelsAsync()
+    {
+        _generationModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
+        var resolvedDefault = await ModelResolutionService.ResolveImageModelAsync(null);
+        _defaultGenerationModelId = _generationModelChoices
+            .SingleOrDefault(choice => string.Equals(choice.ModelIdentifier, resolvedDefault.ModelIdentifier, StringComparison.Ordinal))?.ModelId;
+        _selectedGenerationModelId = _defaultGenerationModelId;
+        _packFrontModelId = _defaultGenerationModelId;
+    }
+
+    private async Task LoadEditorModelsAsync()
+    {
+        _editorModelChoices = (await ImageEditorModelResolver.ListImageEditorModelsAsync()).ToList();
+        var resolvedDefault = await ImageEditorModelResolver.ResolveAsync();
+        _defaultEditorModelId = _editorModelChoices
+            .SingleOrDefault(choice => string.Equals(choice.ModelIdentifier, resolvedDefault.ModelIdentifier, StringComparison.Ordinal))?.ModelId;
+        _packEditorModelId = _defaultEditorModelId;
     }
 
     private async Task GenerateFromPromptAsync()
     {
-        if (string.IsNullOrWhiteSpace(_promptText)) return;
+        if (string.IsNullOrWhiteSpace(_promptName)
+            || _promptType is null
+            || string.IsNullOrWhiteSpace(_promptText)
+            || string.IsNullOrWhiteSpace(_selectedGenerationModelId)) return;
 
         await RunAsync(async () =>
         {
-            var name = string.IsNullOrWhiteSpace(_promptName) ? "Generated asset" : _promptName.Trim();
-            var asset = await AssetService.CreateFromPromptAsync(name, _promptText);
+            var outputCount = Math.Clamp(_generationOutputCount, 1, 8);
+            for (var output = 1; output <= outputCount; output++)
+            {
+                var name = outputCount == 1 ? _promptName.Trim() : $"{_promptName.Trim()} {output}";
+                await AssetService.CreateFromPromptAsync(
+                    name, _promptText, _promptType.Value, _selectedGenerationModelId, _generationImageSize);
+            }
             _promptName = string.Empty;
             _promptText = string.Empty;
-            _status = "Asset generation queued.";
+            _promptType = null;
+            _generationOutputCount = 1;
+            _status = outputCount == 1 ? "Asset generation queued." : $"{outputCount} asset variations queued.";
             await ReloadAssetsAsync();
             EnsurePolling();
         });
@@ -561,14 +689,15 @@
     private async Task UploadAssetAsync()
     {
         var file = _pendingUploadFile;
-        if (file is null) return;
+        if (file is null || string.IsNullOrWhiteSpace(_uploadName) || _uploadType is null) return;
 
         await RunAsync(async () =>
         {
-            var name = string.IsNullOrWhiteSpace(_uploadName) ? "Uploaded asset" : _uploadName.Trim();
             await using var stream = file.OpenReadStream(20 * 1024 * 1024);
-            var asset = await AssetService.CreateFromUploadAsync(name, file.Name, stream);
+            var asset = await AssetService.CreateFromUploadAsync(
+                _uploadName.Trim(), _uploadType.Value, file.Name, stream);
             _uploadName = string.Empty;
+            _uploadType = null;
             _pendingUploads.Clear();
             _status = $"Uploaded '{asset.Name}'.";
             await ReloadAssetsAsync();
@@ -587,7 +716,9 @@
                 CharacterProfileId = _packCharacterId,
                 CharacterName = option?.Label ?? _packCharacterId,
                 Description = _packDescription.Trim(),
-                FrontAssetId = string.IsNullOrWhiteSpace(_packFrontAssetId) ? null : _packFrontAssetId
+                FrontAssetId = string.IsNullOrWhiteSpace(_packFrontAssetId) ? null : _packFrontAssetId,
+                FrontModelId = string.IsNullOrWhiteSpace(_packFrontAssetId) ? _packFrontModelId : null,
+                EditorModelId = _packEditorModelId ?? string.Empty
             });
             _status = "Profile pack generation queued — the 5 face views will appear here as they complete.";
             await ReloadAssetsAsync();

@@ -76,6 +76,10 @@ public sealed class SceneAssetProfilePackJobHandler : IBackgroundJobHandler
             throw new InvalidOperationException("Profile pack generation requires a character profile id.");
         if (string.IsNullOrWhiteSpace(payload.FrontAssetId) && string.IsNullOrWhiteSpace(payload.Description))
             throw new InvalidOperationException("Profile pack generation requires a front photo or a character description.");
+        if (string.IsNullOrWhiteSpace(payload.FrontAssetId) && string.IsNullOrWhiteSpace(payload.FrontModelId))
+            throw new InvalidOperationException("Profile pack generation requires an exact front image model when no front asset is supplied.");
+        if (string.IsNullOrWhiteSpace(payload.EditorModelId))
+            throw new InvalidOperationException("Profile pack generation requires an exact image editor model.");
 
         // 1. Ensure an editable draft identity pack for the character.
         var packId = await EnsureDraftPackAsync(payload.CharacterProfileId, payload.IdentityPackId, cancellationToken);
@@ -94,9 +98,10 @@ public sealed class SceneAssetProfilePackJobHandler : IBackgroundJobHandler
         }
         else
         {
-            var model = await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken);
-            var prompt = BuildFrontPortraitPrompt(payload.CharacterName, payload.Description);
-            frontBytes = await _imageClient.GenerateAsync(model, prompt, "1024x1024", null, null, cancellationToken)
+            var model = await _modelResolutionService.ResolveImageModelByIdAsync(payload.FrontModelId!, cancellationToken);
+            var semanticPrompt = BuildFrontPortraitPrompt(payload.CharacterName, payload.Description);
+            var compilation = SceneAssetPromptCompiler.Compile(semanticPrompt, SceneAssetType.CharacterFace, model);
+            frontBytes = await _imageClient.GenerateAsync(model, compilation.Prompt, "1024x1024", null, null, cancellationToken)
                 ?? throw new InvalidOperationException("The image model returned no front portrait bytes.");
             frontModelLabel = model.ModelIdentifier;
         }
@@ -125,7 +130,7 @@ public sealed class SceneAssetProfilePackJobHandler : IBackgroundJobHandler
         await UploadFaceAsync(packId, payload, SceneImageReferenceFaceView.Front, SceneAssetKind.ProfilePackFront, frontBytes, "front.png", cancellationToken);
 
         // 4. Produce the four angle views via the canned Qwen edits from the front.
-        var editor = await _editorModelResolver.ResolveAsync(cancellationToken);
+        var editor = await _editorModelResolver.ResolveByIdAsync(payload.EditorModelId, cancellationToken);
         foreach (var (view, prompt) in AngleEdits)
         {
             var pending = await CreatePendingFaceAsync(payload, view, SceneAssetKind.ProfilePackFace, cancellationToken);

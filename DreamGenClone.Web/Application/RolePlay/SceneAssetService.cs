@@ -34,31 +34,50 @@ public sealed class SceneAssetService : ISceneAssetService
     }
 
     public async Task<SceneAsset> CreateFromPromptAsync(
-        string name, string prompt, string? size = null, CancellationToken cancellationToken = default)
+        string name,
+        string prompt,
+        SceneAssetType type,
+        string modelId,
+        string imageSize,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new InvalidOperationException("An asset name is required.");
         if (string.IsNullOrWhiteSpace(prompt))
-            throw new InvalidOperationException("An image prompt is required.");
+            throw new InvalidOperationException("An asset description is required.");
+        if (string.IsNullOrWhiteSpace(modelId))
+            throw new InvalidOperationException("An exact image model is required.");
+        if (string.IsNullOrWhiteSpace(imageSize))
+            throw new InvalidOperationException("An image size is required.");
 
         var asset = new SceneAsset
         {
             Name = name.Trim(),
             Kind = SceneAssetKind.PromptGenerated,
             Status = SceneAssetStatus.Pending,
+            Type = type,
             Prompt = prompt.Trim()
         };
         await _repository.UpsertAsync(asset, cancellationToken);
         _backgroundJobQueue.Enqueue(
             BackgroundJobTypes.SceneAssetGeneration,
-            JsonSerializer.Serialize(new SceneAssetGenerationJobPayload { AssetId = asset.Id }, JsonOptions),
+            JsonSerializer.Serialize(new SceneAssetGenerationJobPayload
+            {
+                AssetId = asset.Id,
+                ModelId = modelId.Trim(),
+                ImageSize = imageSize.Trim()
+            }, JsonOptions),
             dedupeKey: $"{BackgroundJobTypes.SceneAssetGeneration}:{asset.Id}");
         _logger.LogInformation("Enqueued scene asset generation: AssetId={AssetId}, Name={Name}", asset.Id, asset.Name);
         return asset;
     }
 
     public async Task<SceneAsset> CreateFromUploadAsync(
-        string name, string fileName, Stream content, CancellationToken cancellationToken = default)
+        string name,
+        SceneAssetType type,
+        string fileName,
+        Stream content,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new InvalidOperationException("An asset name is required.");
@@ -79,9 +98,7 @@ public sealed class SceneAssetService : ISceneAssetService
             Name = name.Trim(),
             Kind = SceneAssetKind.Uploaded,
             Status = SceneAssetStatus.Complete,
-            // Uploads are character-face assets in Asset Studio; always set an explicit valid type
-            // so a stale 'Type ... DEFAULT General' DB schema can never write an unparseable value.
-            Type = SceneAssetType.CharacterFace,
+            Type = type,
             FileRelativePath = stored.RelativePath,
             MediaType = stored.MediaType,
             Width = stored.Width,
@@ -97,7 +114,11 @@ public sealed class SceneAssetService : ISceneAssetService
     }
 
     public async Task<SceneAsset> EnqueueEditAsync(
-        string sourceAssetId, string name, string editPrompt, CancellationToken cancellationToken = default)
+        string sourceAssetId,
+        string name,
+        string editPrompt,
+        string modelId,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(sourceAssetId))
             throw new InvalidOperationException("A source asset is required to edit.");
@@ -105,6 +126,8 @@ public sealed class SceneAssetService : ISceneAssetService
             throw new InvalidOperationException("An asset name is required.");
         if (string.IsNullOrWhiteSpace(editPrompt))
             throw new InvalidOperationException("An edit instruction is required.");
+        if (string.IsNullOrWhiteSpace(modelId))
+            throw new InvalidOperationException("An exact image editor model is required.");
 
         var source = await _repository.GetAsync(sourceAssetId, cancellationToken)
             ?? throw new InvalidOperationException($"Source scene asset '{sourceAssetId}' was not found.");
@@ -116,13 +139,18 @@ public sealed class SceneAssetService : ISceneAssetService
             Name = name.Trim(),
             Kind = SceneAssetKind.Edited,
             Status = SceneAssetStatus.Pending,
+            Type = source.Type,
             Prompt = editPrompt.Trim(),
             SourceAssetId = source.Id
         };
         await _repository.UpsertAsync(asset, cancellationToken);
         _backgroundJobQueue.Enqueue(
             BackgroundJobTypes.SceneAssetEditing,
-            JsonSerializer.Serialize(new SceneAssetEditingJobPayload { AssetId = asset.Id }, JsonOptions),
+            JsonSerializer.Serialize(new SceneAssetEditingJobPayload
+            {
+                AssetId = asset.Id,
+                ModelId = modelId.Trim()
+            }, JsonOptions),
             dedupeKey: $"{BackgroundJobTypes.SceneAssetEditing}:{asset.Id}");
         _logger.LogInformation("Enqueued scene asset edit: AssetId={AssetId}, Source={SourceId}", asset.Id, source.Id);
         return asset;
@@ -135,6 +163,10 @@ public sealed class SceneAssetService : ISceneAssetService
             throw new InvalidOperationException("A scenario character is required to generate a profile pack.");
         if (string.IsNullOrWhiteSpace(payload.FrontAssetId) && string.IsNullOrWhiteSpace(payload.Description))
             throw new InvalidOperationException("Provide a front photo or a character description to generate a profile pack.");
+        if (string.IsNullOrWhiteSpace(payload.FrontAssetId) && string.IsNullOrWhiteSpace(payload.FrontModelId))
+            throw new InvalidOperationException("An exact front image model is required when generating the front portrait.");
+        if (string.IsNullOrWhiteSpace(payload.EditorModelId))
+            throw new InvalidOperationException("An exact image editor model is required for profile-pack angles.");
 
         _backgroundJobQueue.Enqueue(
             BackgroundJobTypes.SceneAssetProfilePackGeneration,
