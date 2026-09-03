@@ -75,6 +75,7 @@
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenPackViewerAsync(pack)" disabled="@_busy" title="View this version's reference images">View</button>
                                     @if (pack.Status == CharacterImageIdentityPackStatus.Approved)
                                     {
+                                        <a class="btn btn-sm btn-outline-success" href="@LoraDatasetUrl(pack)">Create LoRA dataset</a>
                                         <button class="btn btn-sm btn-outline-primary" @onclick="() => SupersedeAsync(pack.Id)" disabled="@_busy">Supersede</button>
                                     }
                                     @if (pack.Status == CharacterImageIdentityPackStatus.Draft)
@@ -367,6 +368,14 @@
 @code {
     private sealed record CharacterOption(string Id, string Label);
 
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "characterId")]
+    public string? CharacterId { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "packId")]
+    public string? PackId { get; set; }
+
     private List<Scenario> _scenarios = [];
     private List<CharacterOption> _characterOptions = [];
     private string? _selectedCharacterId;
@@ -397,7 +406,21 @@
         _characterOptions = _scenarios
             .SelectMany(s => s.Characters.Select(c => new CharacterOption(c.Id, $"{s.Name} — {c.Name ?? "Unnamed"}")))
             .ToList();
+        if (!string.IsNullOrWhiteSpace(CharacterId)
+            && _characterOptions.Any(option => string.Equals(option.Id, CharacterId, StringComparison.Ordinal)))
+        {
+            _selectedCharacterId = CharacterId;
+            await ReloadPacksAsync();
+            if (!string.IsNullOrWhiteSpace(PackId))
+            {
+                var requestedPack = _packs.FirstOrDefault(pack => string.Equals(pack.Id, PackId, StringComparison.Ordinal));
+                if (requestedPack is not null) await OpenPackViewerAsync(requestedPack);
+            }
+        }
     }
+
+    private string LoraDatasetUrl(CharacterImageIdentityPack pack)
+        => $"/asset-studio/lora-datasets/new?characterId={Uri.EscapeDataString(pack.CharacterProfileId)}&packId={Uri.EscapeDataString(pack.Id)}";
 
     private async Task OnCharacterChanged(ChangeEventArgs e)
     {

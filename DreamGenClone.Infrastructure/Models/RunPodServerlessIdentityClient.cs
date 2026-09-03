@@ -85,7 +85,7 @@ public sealed class RunPodServerlessIdentityClient : IIdentityConditionedImageCl
                 {
                     var reference = request.References[i];
                     var refName = $"ref-{i}.png";
-                    var maskBytes = reference.MaskBytes ?? ComfyUIIdentityConditionedClient.SynthesizeBandMask(width, height, i, request.References.Count);
+                    var maskBytes = ComfyUIIdentityConditionedClient.ResolveMaskBytes(reference, width, height);
                     var maskName = $"mask-{i}.png";
                     AddImage(images, refName, reference.ReferenceImageBytes);
                     AddImage(images, maskName, maskBytes);

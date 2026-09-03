@@ -19,6 +19,17 @@ public interface ISceneAssetRepository
     /// <summary>Insert a new asset or update mutable fields (status, file metadata, error).</summary>
     Task UpsertAsync(SceneAsset asset, CancellationToken cancellationToken = default);
 
+    Task<SceneAsset> ApproveForProductionAsync(
+        string assetId,
+        string sourceProvenanceJson,
+        SceneAssetConsentState consentState,
+        SceneAssetLicenseState licenseState,
+        string licenseLabel,
+        SceneAssetApprovedUseScope approvedUseScope,
+        string contentPolicyKey,
+        string compatibilityMetadataJson,
+        CancellationToken cancellationToken = default);
+
     Task CreatePromotedAsync(SceneAsset asset, CancellationToken cancellationToken = default);
 
     Task DeleteAsync(string assetId, CancellationToken cancellationToken = default);

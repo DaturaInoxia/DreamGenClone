@@ -15,8 +15,8 @@ there is no compatibility path for the existing one-off records.
 
 ### Domain
 
-- Add identity pack, reference asset, evaluation, assignment, decision, and optional LoRA records
-  under `DreamGenClone.Domain/RolePlay`.
+- Add identity pack, reference asset, evaluation, assignment, synthetic LoRA dataset/training,
+  artifact, and request-strategy records under `DreamGenClone.Domain/RolePlay`.
 - Add enums for statuses, asset kinds, mechanisms, and decisions.
 - Add `ResolvedIdentityImageModel` under `DreamGenClone.Domain/ModelManager`.
 
@@ -62,8 +62,10 @@ there is no compatibility path for the existing one-off records.
 6. **Asset Manager slice:** shared catalog/pickers plus identity/body/wardrobe version workflows.
 7. **Production Studio slice:** persistent context, workload preparation, queue, attempts,
   comparison, inspector, review, and approval.
-8. **Qualification slice:** cell-based matrix UI/report, composition-first candidates, LoRA
-  decision, and application-path reruns.
+8. **Synthetic LoRA slice:** Asset Manager identity bootstrap, coverage generation, curation,
+  captioning, immutable dataset versions, configured training, attempt recovery, and artifacts.
+9. **Qualification slice:** cell-based matrix UI/report, composition-first candidates,
+  reference-only/LoRA-only/combined strategy cells, and application-path reruns.
 
 Each slice receives narrow tests, solution build, and full tests before the next slice.
 

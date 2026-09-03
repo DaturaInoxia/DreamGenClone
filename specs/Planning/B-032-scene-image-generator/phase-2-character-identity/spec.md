@@ -16,7 +16,7 @@ They never need to author model-native prompts.
 - Guaranteeing exact hand/contact geometry from a prompt or identity mechanism.
 - Location continuity and multi-camera blocking, delivered in Phase 3.
 - Automatic aesthetic acceptance; qualification and approval remain explicit gates.
-- Automatic creation of identity references from story text.
+- Import-only LoRA datasets that bypass Asset Manager generation, provenance, curation, or approval.
 - Migration or runtime compatibility for sessions created before the Phase 2 schema.
 - Audio/video generation; the shared asset/workload model only preserves future extensibility.
 
@@ -43,11 +43,17 @@ visible actor to exact face, body, and wardrobe versions and preserves immutable
 The user can inspect a frozen qualification matrix, record per-constraint scores, and qualify only
 the exact capability cells whose gates pass.
 
-### US2.5 - Record a LoRA decision
+### US2.5 - Create and train a synthetic character LoRA
 
-The system records `NotRequired`, `Required`, or `Deferred` with evidence for each evaluated
-principal character. Required LoRAs retain dataset consent, training provenance, exact base/model
-compatibility, artifacts, triggers, and inference qualification.
+The user bootstraps a fictional identity from generated candidates, expands it through a planned
+coverage matrix, curates and captions immutable shared assets, freezes a dataset version, launches
+an explicitly configured training job, and registers the resulting versioned artifact. No external
+source photograph is assumed.
+
+### US2.5a - Select an identity strategy per request
+
+The user selects a qualified reference-conditioning, LoRA, or combined strategy for the exact
+request. A model's supported strategies are capabilities, not one globally locked mechanism.
 
 ### US2.6 - Prepare a production workload
 
@@ -156,12 +162,37 @@ quality/cost goal. A versioned model-native compiler constructs and validates th
   to start a new session and create no Phase 2 production records.
 - **FR2-042:** Do not implement legacy backfill, synthetic production rows, dual reads/writes,
   compatibility adapters, or an old one-off fallback.
-- **FR2-043:** LoRA training may address failed identity-likeness cells only; it cannot claim pose,
-  contact, wardrobe, location, or ownership correction without separate proof.
-- **FR2-044:** A LoRA artifact is usable only with exact approved dataset provenance, trigger,
-  base/model version, training recipe, checksum, storage, and passed inference cells.
+- **FR2-043:** LoRA dataset creation and training are first-class Phase 2 capabilities and are not
+  conditional on a reference-conditioning failure or a per-character `Required` decision.
+- **FR2-044:** A LoRA artifact is usable only with exact approved dataset version, trigger,
+  base/model version and checksum, trainer/recipe/environment snapshot, artifact checksum, storage,
+  and passed inference cells.
 - **FR2-045:** Historical proof artifacts and source-controlled fixtures remain evidence and are
   never rewritten to imply a passing gate.
+- **FR2-046:** Asset Manager creates a canonical synthetic identity seed by generating candidates,
+  retaining full generation provenance, and recording an explicit operator approval.
+- **FR2-047:** Dataset expansion uses a persisted coverage plan over face angle, crop, expression,
+  body framing, pose, wardrobe state, lighting, background, and aspect ratio; generated candidates
+  are not approved automatically.
+- **FR2-048:** Dataset curation records acceptance/rejection, identity-drift and quality findings,
+  duplicate/near-duplicate findings, permanent-trait consistency, and the exact shared asset version.
+- **FR2-049:** Every accepted dataset member has a versioned caption containing the dataset trigger
+  and visible changeable attributes according to the selected family recipe. Operator caption edits
+  remain auditable.
+- **FR2-050:** Freezing a dataset makes membership, captions, roles, splits, checksums, coverage,
+  and approval immutable. Any change creates a new dataset version.
+- **FR2-051:** Training jobs and attempts persist the exact dataset, base family/model/checksum,
+  trainer/version, complete recipe, seed, environment, status, logs, samples, checkpoints, timing,
+  failure diagnostics, and resulting artifact checksum without secrets.
+- **FR2-052:** Recipe values including image count/coverage, resolution buckets, repeats, rank,
+  alpha, learning rates, steps/epochs, caption dropout, prior preservation, checkpoint cadence,
+  and precision are explicit UI-backed qualified configuration; none has a hidden runtime default.
+- **FR2-053:** The application qualifies reference-only, LoRA-only, and combined strategies as
+  distinct exact cells, including artifact version and inference strength. No strategy falls back
+  to another.
+- **FR2-054:** LoRA qualification scores identity, ownership, prompt compliance, diversity,
+  anatomy, and wardrobe/background/style leakage on frozen prompts/seeds and held-out compositions.
+  LoRA does not establish pose, contact, location geometry, or actor ownership without those gates.
 
 ## Acceptance Scenarios
 
@@ -185,6 +216,15 @@ quality/cost goal. A versioned model-native compiler constructs and validates th
 16. A late provider result is retained but does not replace a newer or approved output.
 17. The user prepares multiple compatible items, sees grouping/cost/readiness, and submits once.
 18. No generated request or diagnostic contains an API key or secret.
+19. A dataset cannot freeze with a missing trigger, caption, split, checksum, provenance, coverage
+  disposition, or unresolved duplicate/drift finding.
+20. Editing a frozen member or caption creates a new dataset version and leaves the trained
+  artifact's original lineage unchanged.
+21. Restarting a training worker resumes/reconciles the recorded attempt or fails explicitly; it
+  never creates a second hidden training run.
+22. The same character can retain separately qualified LoRA artifacts for SDXL and FLUX families.
+23. Selecting LoRA-only, reference-only, or combined identity produces the exact selected request;
+  an unavailable strategy blocks readiness instead of substituting another.
 
 ## Exit Gate
 
@@ -196,7 +236,10 @@ quality/cost goal. A versioned model-native compiler constructs and validates th
 - Generation-first and composition-first candidates have separate evidence and activation.
 - No controlled request has a prompt-only, alternate-reference, adapter, model, provider, or
   operation fallback.
-- The LoRA decision and evidence are persisted for each evaluated principal character.
+- Synthetic dataset generation/curation, freeze, training, artifact registration, and qualification
+  are complete for at least one fictional character and one exact base-family cell.
+- Reference-only, LoRA-only, and combined strategies remain independently selectable wherever each
+  exact cell is qualified; no global identity lock or strategy fallback exists.
 - Request snapshots, restart recovery, transient-result capture, attempt immutability, and asset
   retention tests pass.
 - Narrow, solution, full, Razor, and manual application matrices pass with current recorded output.

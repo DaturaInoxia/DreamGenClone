@@ -1,0 +1,367 @@
+@page "/asset-studio/lora-datasets/{DatasetId}/training"
+@rendermode InteractiveServer
+
+@using System.Text.Json
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Infrastructure.Models
+
+@inject ICharacterLoraRepository LoraRepository
+@inject ICharacterLoraTrainingService TrainingService
+@inject IProviderRepository ProviderRepository
+@inject ILogger<LoraDatasetTraining> Logger
+
+<PageTitle>LoRA Training - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h4 class="mb-1">LoRA Training</h4>
+            <div class="font-monospace small text-muted text-break">@DatasetId</div>
+        </div>
+        <a href="/asset-studio/lora-datasets/@DatasetId" class="btn btn-outline-secondary btn-sm">Back to Dataset</a>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_status))
+    {
+        <div class="alert alert-info">@_status</div>
+    }
+    @if (!_loaded)
+    {
+        <div class="text-muted">Loading training workflow...</div>
+    }
+    else if (_dataset is null)
+    {
+        <div class="alert alert-warning">The requested LoRA dataset was not found.</div>
+    }
+    else if (_dataset.Status != CharacterLoraDatasetStatus.Frozen)
+    {
+        <div class="alert alert-warning">This dataset must be frozen before training can be prepared.</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            <div class="col-xl-5">
+                <section class="card mb-3" aria-label="Training preparation">
+                    <div class="card-header"><strong>Preparation</strong></div>
+                    <div class="card-body">
+                        <div class="small mb-3">
+                            <strong>Manifest</strong>
+                            <div class="font-monospace text-break">@_dataset.ManifestSha256</div>
+                        </div>
+                        <label class="form-label small" for="training-profile">Qualified training profile</label>
+                        <select id="training-profile" class="form-select form-select-sm" disabled="@(_busy || _job is not null)" @bind="_profileId">
+                            <option value="">Select a qualified profile</option>
+                            @foreach (var profile in _profiles)
+                            {
+                                <option value="@profile.Id">@profile.Name v@profile.Version / @profile.BaseModelId @profile.BaseModelVersion</option>
+                            }
+                        </select>
+                        <button type="button" class="btn btn-primary btn-sm mt-3" disabled="@(_busy || _job is not null)" @onclick="PrepareAsync">Prepare Durable Job</button>
+                    </div>
+                </section>
+
+                <section class="card mb-3" aria-label="Training provider endpoint">
+                    <div class="card-header"><strong>Provider Endpoint Snapshot</strong></div>
+                    <div class="card-body">
+                        <label class="form-label small" for="training-provider">Enabled provider</label>
+                        <select id="training-provider" class="form-select form-select-sm" value="@_providerId" @onchange="OnProviderChangedAsync">
+                            <option value="">Select a provider</option>
+                            @foreach (var provider in _providers)
+                            {
+                                <option value="@provider.Id">@provider.Name / @provider.BaseUrl</option>
+                            }
+                        </select>
+                        <label class="form-label small mt-2" for="training-adapter">Adapter key</label>
+                        <input id="training-adapter" class="form-control form-control-sm" @bind="_adapterKey" />
+                        <div class="row g-2 mt-1">
+                            <div class="col-md-4"><label class="form-label small" for="training-submit">Submit path</label><input id="training-submit" class="form-control form-control-sm" @bind="_submitPath" /></div>
+                            <div class="col-md-4"><label class="form-label small" for="training-status">Status path</label><input id="training-status" class="form-control form-control-sm" @bind="_statusPath" /></div>
+                            <div class="col-md-4"><label class="form-label small" for="training-cancel">Cancel path</label><input id="training-cancel" class="form-control form-control-sm" @bind="_cancelPath" /></div>
+                            <div class="col-md-6"><label class="form-label small" for="training-seed">Seed</label><input id="training-seed" type="number" class="form-control form-control-sm" @bind="_seed" /></div>
+                            <div class="col-md-6"><label class="form-label small" for="training-artifact-version">Artifact version</label><input id="training-artifact-version" type="number" min="1" class="form-control form-control-sm" @bind="_artifactVersion" /></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="col-xl-7">
+                <section class="card mb-3" aria-label="Durable training job">
+                    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <strong>Durable Job</strong>
+                        @if (_job is not null)
+                        {
+                            <span class="badge text-bg-secondary">@_job.Status</span>
+                        }
+                    </div>
+                    <div class="card-body">
+                        @if (_job is null)
+                        {
+                            <div class="text-muted small">No training job has been prepared for this dataset.</div>
+                        }
+                        else
+                        {
+                            <dl class="row small mb-3">
+                                <dt class="col-4">Job</dt><dd class="col-8 font-monospace text-break">@_job.Id</dd>
+                                <dt class="col-4">Profile</dt><dd class="col-8 font-monospace text-break">@_job.TrainingProfileId v@_job.TrainingProfileVersion</dd>
+                                <dt class="col-4">Base model</dt><dd class="col-8">@_job.BaseModelId @_job.BaseModelVersion</dd>
+                                <dt class="col-4">Trainer</dt><dd class="col-8">@_job.TrainerId @_job.TrainerVersion</dd>
+                            </dl>
+                            <div class="d-flex flex-wrap gap-2">
+                                @if (_job.Status == CharacterLoraTrainingJobStatus.Ready)
+                                {
+                                    <button type="button" class="btn btn-primary btn-sm" disabled="@_busy" @onclick="SubmitAsync">Submit</button>
+                                }
+                                @if (_job.Status == CharacterLoraTrainingJobStatus.Running && LatestAttempt?.Status is CharacterLoraTrainingAttemptStatus.Submitted or CharacterLoraTrainingAttemptStatus.Running)
+                                {
+                                    <button type="button" class="btn btn-outline-primary btn-sm" disabled="@_busy" @onclick="ReconcileAsync">Reconcile</button>
+                                }
+                                @if (_job.Status == CharacterLoraTrainingJobStatus.Running && LatestAttempt?.Status is CharacterLoraTrainingAttemptStatus.Failed or CharacterLoraTrainingAttemptStatus.Cancelled or CharacterLoraTrainingAttemptStatus.Indeterminate)
+                                {
+                                    <button type="button" class="btn btn-outline-danger btn-sm" disabled="@_busy" @onclick="RetryAsync">Retry As New Attempt</button>
+                                }
+                            </div>
+                        }
+                    </div>
+                </section>
+
+                <section class="card" aria-label="Training attempts">
+                    <div class="card-header"><strong>Attempts</strong></div>
+                    @if (_attempts.Count == 0)
+                    {
+                        <div class="card-body text-muted small">No attempts have been created.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead><tr><th>#</th><th>Status</th><th>Provider request</th><th>Seed</th><th>Result</th></tr></thead>
+                                <tbody>
+                                    @foreach (var attempt in _attempts.OrderByDescending(value => value.AttemptNumber))
+                                    {
+                                        <tr>
+                                            <td>@attempt.AttemptNumber</td>
+                                            <td><span class="badge text-bg-secondary">@attempt.Status</span></td>
+                                            <td class="font-monospace small text-break">@(attempt.ProviderRequestId ?? "Not submitted")</td>
+                                            <td>@attempt.Seed</td>
+                                            <td class="small text-break">@(attempt.OutputFileRelativePath ?? attempt.FailureDiagnostic ?? "Pending")</td>
+                                        </tr>
+                                        @if (attempt.Status == CharacterLoraTrainingAttemptStatus.Succeeded)
+                                        {
+                                            <tr><td colspan="5" class="small"><strong>Logs</strong> @attempt.LogManifestJson<br /><strong>Samples</strong> @attempt.SampleManifestJson<br /><strong>Checkpoints</strong> @attempt.CheckpointManifestJson</td></tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+
+                <section class="card mt-3" aria-label="LoRA artifact review">
+                    <div class="card-header"><strong>Artifact Review</strong></div>
+                    <div class="card-body">
+                        @if (_artifacts.Count == 0)
+                        {
+                            <div class="text-muted small">A candidate artifact appears here after a training attempt succeeds.</div>
+                        }
+                        else
+                        {
+                            <label class="form-label small" for="artifact-evidence">Decision evidence JSON</label>
+                            <textarea id="artifact-evidence" class="form-control form-control-sm font-monospace" rows="4" @bind="_artifactDecisionEvidenceJson"></textarea>
+                            <div class="form-text mb-3">Record the frozen evaluation run, prompts, seeds, held-out cells, scores, and pass/fail result used for this decision.</div>
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead><tr><th>Version</th><th>Base model</th><th>Trigger</th><th>Checksum</th><th>Status</th><th class="text-end">Decision</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var artifact in _artifacts)
+                                        {
+                                            <tr>
+                                                <td>v@artifact.Version</td>
+                                                <td>@artifact.BaseModelId @artifact.BaseModelVersion</td>
+                                                <td class="font-monospace">@artifact.TriggerToken</td>
+                                                <td class="font-monospace small text-break">@artifact.Sha256</td>
+                                                <td><span class="badge text-bg-secondary">@artifact.Status</span></td>
+                                                <td class="text-end text-nowrap">
+                                                    @if (artifact.Status == CharacterLoraArtifactStatus.Candidate)
+                                                    {
+                                                        <button type="button" class="btn btn-success btn-sm" disabled="@_busy" @onclick="() => DecideArtifactAsync(artifact.Id, CharacterLoraArtifactStatus.Qualified)">Qualify</button>
+                                                        <button type="button" class="btn btn-outline-danger btn-sm" disabled="@_busy" @onclick="() => DecideArtifactAsync(artifact.Id, CharacterLoraArtifactStatus.Rejected)">Reject</button>
+                                                    }
+                                                </td>
+                                            </tr>
+                                            @if (!string.IsNullOrWhiteSpace(artifact.DecisionEvidenceJson))
+                                            {
+                                                <tr><td colspan="6" class="small"><strong>Decision evidence</strong><pre class="font-monospace text-wrap mb-0">@artifact.DecisionEvidenceJson</pre></td></tr>
+                                            }
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </section>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string DatasetId { get; set; } = string.Empty;
+
+    private CharacterLoraDataset? _dataset;
+    private List<CharacterLoraTrainingProfile> _profiles = [];
+    private List<Provider> _providers = [];
+    private CharacterLoraTrainingJob? _job;
+    private List<CharacterLoraTrainingAttempt> _attempts = [];
+    private List<CharacterLoraArtifact> _artifacts = [];
+    private string _profileId = string.Empty;
+    private string _providerId = string.Empty;
+    private string _adapterKey = string.Empty;
+    private string _submitPath = string.Empty;
+    private string _statusPath = string.Empty;
+    private string _cancelPath = string.Empty;
+    private long _seed;
+    private int _artifactVersion;
+    private string _artifactDecisionEvidenceJson = string.Empty;
+    private bool _busy;
+    private bool _loaded;
+    private string? _error;
+    private string? _status;
+    private CharacterLoraTrainingAttempt? LatestAttempt => _attempts.OrderBy(value => value.AttemptNumber).LastOrDefault();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await ReloadAsync();
+        _loaded = true;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _dataset = await LoraRepository.GetDatasetAsync(DatasetId);
+        _profiles = _dataset is null
+            ? []
+            : (await LoraRepository.ListTrainingProfilesAsync())
+                .Where(profile => profile.Enabled
+                    && profile.Status == CharacterLoraTrainingProfileStatus.Qualified
+                    && string.Equals(profile.TargetModelFamily, _dataset.TargetModelFamily, StringComparison.Ordinal))
+                .ToList();
+        _providers = (await ProviderRepository.GetAllAsync()).Where(provider => provider.IsEnabled).ToList();
+        var jobs = await LoraRepository.ListTrainingJobsAsync(DatasetId);
+        _job = jobs.LastOrDefault();
+        _attempts = _job is null ? [] : (await LoraRepository.ListTrainingAttemptsAsync(_job.Id)).ToList();
+        _artifacts = _dataset is null
+            ? []
+            : (await LoraRepository.ListArtifactsAsync(_dataset.CharacterProfileId))
+                .Where(artifact => string.Equals(artifact.DatasetId, DatasetId, StringComparison.Ordinal))
+                .ToList();
+    }
+
+    private Task OnProviderChangedAsync(ChangeEventArgs args)
+    {
+        _providerId = args.Value?.ToString() ?? string.Empty;
+        return Task.CompletedTask;
+    }
+
+    private async Task PrepareAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var profile = _profiles.SingleOrDefault(value => string.Equals(value.Id, _profileId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException("An enabled qualified training profile is required.");
+            _job = await TrainingService.PrepareAsync(new CharacterLoraTrainingJob
+            {
+                DatasetId = DatasetId,
+                TrainingProfileId = profile.Id,
+                BaseModelId = profile.BaseModelId,
+                BaseModelVersion = profile.BaseModelVersion,
+                BaseModelSha256 = profile.BaseModelSha256,
+                TrainerId = profile.TrainerId,
+                TrainerVersion = profile.TrainerVersion,
+                RecipeJson = profile.RecipeJson,
+                EnvironmentManifestJson = profile.EnvironmentRequirementsJson,
+                Status = CharacterLoraTrainingJobStatus.Draft,
+                ConcurrencyVersion = 1,
+                CreatedUtc = DateTime.UtcNow
+            });
+            _status = $"Prepared durable training job {_job.Id}.";
+        });
+    }
+
+    private async Task SubmitAsync()
+    {
+        await RunAsync(async () =>
+        {
+            if (_job is null) throw new InvalidOperationException("A prepared training job is required.");
+            await TrainingService.SubmitAsync(_job.Id, Endpoint(), _seed, _artifactVersion);
+            _status = "Training submitted and provider request ID persisted.";
+        });
+    }
+
+    private async Task ReconcileAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var attempt = LatestAttempt ?? throw new InvalidOperationException("A submitted training attempt is required.");
+            await TrainingService.ReconcileAsync(attempt.Id);
+            _status = "Training attempt reconciled from its persisted provider request.";
+        });
+    }
+
+    private async Task RetryAsync()
+    {
+        await RunAsync(async () =>
+        {
+            if (_job is null) throw new InvalidOperationException("A running training job is required.");
+            await TrainingService.RetryAsync(_job.Id, Endpoint(), _seed, _artifactVersion);
+            _status = "Retry submitted as a new durable attempt.";
+        });
+    }
+
+    private async Task DecideArtifactAsync(string artifactId, CharacterLoraArtifactStatus status)
+    {
+        await RunAsync(async () =>
+        {
+            using var evidence = JsonDocument.Parse(_artifactDecisionEvidenceJson);
+            if (evidence.RootElement.ValueKind != JsonValueKind.Object)
+                throw new InvalidOperationException("Artifact decision evidence must be a JSON object.");
+            await LoraRepository.SetArtifactStatusAsync(
+                artifactId, status, evidence.RootElement.GetRawText(), DateTime.UtcNow);
+            _status = $"Artifact {artifactId} marked {status}.";
+        });
+    }
+
+    private CharacterLoraTrainingEndpoint Endpoint()
+    {
+        var provider = _providers.SingleOrDefault(value => string.Equals(value.Id, _providerId, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("An enabled provider is required.");
+        return new CharacterLoraTrainingEndpoint(
+            _adapterKey, provider.Name, provider.Id, provider.BaseUrl, _submitPath,
+            _statusPath, _cancelPath, provider.TimeoutSeconds);
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            await action();
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            Logger.LogWarning(exception, "LoRA training operation failed.");
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+}

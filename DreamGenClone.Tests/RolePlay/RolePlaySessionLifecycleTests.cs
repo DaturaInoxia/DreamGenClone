@@ -18,6 +18,16 @@ namespace DreamGenClone.Tests.RolePlay;
 public sealed class RolePlaySessionLifecycleTests
 {
     [Fact]
+    public async Task CreateSession_StampsCurrentSceneImageProductionSchemaGeneration()
+    {
+        var (service, _) = CreateService();
+
+        var created = await service.CreateSessionAsync("Production Session");
+
+        Assert.Equal(SceneImageProductionSchema.CurrentGeneration, created.SceneImageProductionSchemaGeneration);
+    }
+
+    [Fact]
     public async Task OpenSession_Start_TransitionsStatusToInProgress()
     {
         var (service, _) = CreateService();

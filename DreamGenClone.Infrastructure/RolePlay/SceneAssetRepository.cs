@@ -34,7 +34,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             SELECT Id, Name, Kind, Status, Prompt, SourceAssetId, ModelSnapshotJson, FileRelativePath,
                    MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
                      ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
-                     SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson
+                                         SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson,
+                                         ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
+                                         ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc
             FROM SceneAssets
             WHERE Id = $id;
             """;
@@ -60,7 +62,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             SELECT Id, Name, Kind, Status, Prompt, SourceAssetId, ModelSnapshotJson, FileRelativePath,
                    MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
                      ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
-                     SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson
+                                         SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson,
+                                         ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
+                                         ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc
             FROM SceneAssets
             ORDER BY CreatedUtc DESC;
             """;
@@ -89,7 +93,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             SELECT Id, Name, Kind, Status, Prompt, SourceAssetId, ModelSnapshotJson, FileRelativePath,
                    MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
                      ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
-                     SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson
+                                         SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson,
+                                         ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
+                                         ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc
             FROM SceneAssets
             WHERE IdentityPackId = $packId
             ORDER BY CreatedUtc ASC;
@@ -114,18 +120,35 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, cancellationToken);
 
+        await using (var immutableCheck = connection.CreateCommand())
+        {
+            immutableCheck.CommandText = "SELECT ProductionApprovalStatus FROM SceneAssets WHERE Id = $id;";
+            immutableCheck.Parameters.AddWithValue("$id", asset.Id.Trim());
+            var status = await immutableCheck.ExecuteScalarAsync(cancellationToken);
+            if (status is string persistedStatus
+                && !string.Equals(persistedStatus, SceneAssetProductionApprovalStatus.Draft.ToString(), StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Scene asset '{asset.Id}' is {persistedStatus} for production and is immutable; create a new asset version instead.");
+            }
+        }
+
         await using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT OR REPLACE INTO SceneAssets (
                 Id, Name, Kind, Status, Prompt, SourceAssetId, ModelSnapshotJson, FileRelativePath,
                 MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
                 ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
-                SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson)
+                SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson,
+                ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
+                ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc)
             VALUES (
                 $id, $name, $kind, $status, $prompt, $sourceAssetId, $modelSnapshotJson, $fileRelativePath,
                 $mediaType, $width, $height, $byteLength, $sha256, $faceView, $identityPackId, $characterProfileId,
                 $errorMessage, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $type, $associationMetadataJson,
-                $sourceApprovalDecisionId, $sourceSceneImageId, $sourceSha256, $sourceProvenanceJson);
+                $sourceApprovalDecisionId, $sourceSceneImageId, $sourceSha256, $sourceProvenanceJson,
+                $productionApprovalStatus, $consentState, $licenseState, $licenseLabel, $approvedUseScope,
+                $contentPolicyKey, $compatibilityMetadataJson, $productionVersion, $supersedesAssetId, $productionApprovedUtc);
             """;
         command.Parameters.AddWithValue("$id", asset.Id.Trim());
         command.Parameters.AddWithValue("$name", asset.Name ?? string.Empty);
@@ -149,8 +172,83 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.Parameters.AddWithValue("$completedUtc", asset.CompletedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$updatedUtc", asset.UpdatedUtc.ToString("O"));
         AddPromotionParameters(command, asset);
+        AddProductionGovernanceParameters(command, asset);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<SceneAsset> ApproveForProductionAsync(
+        string assetId,
+        string sourceProvenanceJson,
+        SceneAssetConsentState consentState,
+        SceneAssetLicenseState licenseState,
+        string licenseLabel,
+        SceneAssetApprovedUseScope approvedUseScope,
+        string contentPolicyKey,
+        string compatibilityMetadataJson,
+        CancellationToken cancellationToken = default)
+    {
+        Require(assetId, "Asset id");
+        Require(sourceProvenanceJson, "Source provenance");
+        Require(licenseLabel, "License label");
+        Require(contentPolicyKey, "Content policy key");
+        Require(compatibilityMetadataJson, "Compatibility metadata");
+        if (consentState == SceneAssetConsentState.Unknown)
+            throw new InvalidOperationException("Production asset consent must be Confirmed or NotApplicable.");
+        if (licenseState == SceneAssetLicenseState.Unknown)
+            throw new InvalidOperationException("Production asset license state must be Confirmed or NotApplicable.");
+        ValidateUseScope(approvedUseScope);
+
+        var asset = await GetAsync(assetId, cancellationToken)
+            ?? throw new InvalidOperationException($"Scene asset '{assetId}' was not found.");
+        if (asset.Status != SceneAssetStatus.Complete
+            || string.IsNullOrWhiteSpace(asset.FileRelativePath)
+            || asset.ByteLength <= 0
+            || !IsSha256(asset.Sha256))
+        {
+            throw new InvalidOperationException(
+                $"Scene asset '{assetId}' must be complete with stored bytes and a SHA-256 checksum before production approval.");
+        }
+        if (asset.ProductionApprovalStatus is not null
+            && asset.ProductionApprovalStatus != SceneAssetProductionApprovalStatus.Draft)
+        {
+            throw new InvalidOperationException(
+                $"Scene asset '{assetId}' is already {asset.ProductionApprovalStatus} for production and cannot be approved again.");
+        }
+
+        var approvedUtc = DateTime.UtcNow;
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneAssets
+            SET SourceProvenanceJson = $sourceProvenanceJson,
+                ProductionApprovalStatus = 'Approved',
+                ConsentState = $consentState,
+                LicenseState = $licenseState,
+                LicenseLabel = $licenseLabel,
+                ApprovedUseScope = $approvedUseScope,
+                ContentPolicyKey = $contentPolicyKey,
+                CompatibilityMetadataJson = $compatibilityMetadataJson,
+                ProductionVersion = COALESCE(ProductionVersion, 1),
+                ProductionApprovedUtc = $approvedUtc,
+                UpdatedUtc = $approvedUtc
+            WHERE Id = $id AND (ProductionApprovalStatus IS NULL OR ProductionApprovalStatus = 'Draft');
+            """;
+        command.Parameters.AddWithValue("$sourceProvenanceJson", sourceProvenanceJson.Trim());
+        command.Parameters.AddWithValue("$consentState", consentState.ToString());
+        command.Parameters.AddWithValue("$licenseState", licenseState.ToString());
+        command.Parameters.AddWithValue("$licenseLabel", licenseLabel.Trim());
+        command.Parameters.AddWithValue("$approvedUseScope", (int)approvedUseScope);
+        command.Parameters.AddWithValue("$contentPolicyKey", contentPolicyKey.Trim());
+        command.Parameters.AddWithValue("$compatibilityMetadataJson", compatibilityMetadataJson.Trim());
+        command.Parameters.AddWithValue("$approvedUtc", approvedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$id", assetId.Trim());
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException($"Scene asset '{assetId}' changed before production approval completed.");
+
+        return (await GetAsync(assetId, cancellationToken))!;
     }
 
     public async Task CreatePromotedAsync(SceneAsset asset, CancellationToken cancellationToken = default)
@@ -205,6 +303,34 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, cancellationToken);
 
+        await using (var guard = connection.CreateCommand())
+        {
+            guard.CommandText = "SELECT ProductionApprovalStatus FROM SceneAssets WHERE Id = $id;";
+            guard.Parameters.AddWithValue("$id", assetId.Trim());
+            var status = await guard.ExecuteScalarAsync(cancellationToken);
+            if (status is string persistedStatus
+                && !string.Equals(persistedStatus, SceneAssetProductionApprovalStatus.Draft.ToString(), StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Scene asset '{assetId}' is {persistedStatus} for production and cannot be deleted.");
+            }
+        }
+
+        foreach (var table in new[]
+        {
+            "CharacterBodyAssetBindings",
+            "CharacterWardrobeAssetBindings",
+            "CharacterLoraDatasetMembers"
+        })
+        {
+            if (!await TableExistsAsync(connection, table, cancellationToken)) continue;
+            await using var referenceCheck = connection.CreateCommand();
+            referenceCheck.CommandText = $"SELECT COUNT(*) FROM {table} WHERE SceneAssetId = $id;";
+            referenceCheck.Parameters.AddWithValue("$id", assetId.Trim());
+            if (Convert.ToInt32(await referenceCheck.ExecuteScalarAsync(cancellationToken)) > 0)
+                throw new InvalidOperationException($"Scene asset '{assetId}' is in use and cannot be deleted.");
+        }
+
         await using var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM SceneAssets WHERE Id = $id;";
         command.Parameters.AddWithValue("$id", assetId.Trim());
@@ -257,6 +383,16 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ,SourceSceneImageId = reader.IsDBNull(24) ? null : reader.GetString(24)
             ,SourceSha256 = reader.IsDBNull(25) ? null : reader.GetString(25)
             ,SourceProvenanceJson = reader.IsDBNull(26) ? null : reader.GetString(26)
+            ,ProductionApprovalStatus = reader.IsDBNull(27) ? null : ParseEnum<SceneAssetProductionApprovalStatus>(reader.GetString(27), id, "SceneAssets")
+            ,ConsentState = reader.IsDBNull(28) ? null : ParseEnum<SceneAssetConsentState>(reader.GetString(28), id, "SceneAssets")
+            ,LicenseState = reader.IsDBNull(29) ? null : ParseEnum<SceneAssetLicenseState>(reader.GetString(29), id, "SceneAssets")
+            ,LicenseLabel = reader.IsDBNull(30) ? null : reader.GetString(30)
+            ,ApprovedUseScope = reader.IsDBNull(31) ? null : (SceneAssetApprovedUseScope)reader.GetInt32(31)
+            ,ContentPolicyKey = reader.IsDBNull(32) ? null : reader.GetString(32)
+            ,CompatibilityMetadataJson = reader.IsDBNull(33) ? null : reader.GetString(33)
+            ,ProductionVersion = reader.IsDBNull(34) ? null : reader.GetInt32(34)
+            ,SupersedesAssetId = reader.IsDBNull(35) ? null : reader.GetString(35)
+            ,ProductionApprovedUtc = reader.IsDBNull(36) ? null : ParseUtc(reader.GetString(36), id, "ProductionApprovedUtc")
         };
     }
 
@@ -268,6 +404,46 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.Parameters.AddWithValue("$sourceSceneImageId", (object?)asset.SourceSceneImageId ?? DBNull.Value);
         command.Parameters.AddWithValue("$sourceSha256", (object?)asset.SourceSha256 ?? DBNull.Value);
         command.Parameters.AddWithValue("$sourceProvenanceJson", (object?)asset.SourceProvenanceJson ?? DBNull.Value);
+    }
+
+    private static void AddProductionGovernanceParameters(SqliteCommand command, SceneAsset asset)
+    {
+        command.Parameters.AddWithValue("$productionApprovalStatus", (object?)asset.ProductionApprovalStatus?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$consentState", (object?)asset.ConsentState?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$licenseState", (object?)asset.LicenseState?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$licenseLabel", (object?)asset.LicenseLabel ?? DBNull.Value);
+        command.Parameters.AddWithValue("$approvedUseScope", asset.ApprovedUseScope is null ? DBNull.Value : (int)asset.ApprovedUseScope.Value);
+        command.Parameters.AddWithValue("$contentPolicyKey", (object?)asset.ContentPolicyKey ?? DBNull.Value);
+        command.Parameters.AddWithValue("$compatibilityMetadataJson", (object?)asset.CompatibilityMetadataJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$productionVersion", (object?)asset.ProductionVersion ?? DBNull.Value);
+        command.Parameters.AddWithValue("$supersedesAssetId", (object?)asset.SupersedesAssetId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$productionApprovedUtc", asset.ProductionApprovedUtc?.ToString("O") ?? (object)DBNull.Value);
+    }
+
+    private static void ValidateUseScope(SceneAssetApprovedUseScope useScope)
+    {
+        const SceneAssetApprovedUseScope allScopes =
+            SceneAssetApprovedUseScope.CharacterIdentity
+            | SceneAssetApprovedUseScope.CharacterBody
+            | SceneAssetApprovedUseScope.CharacterWardrobe
+            | SceneAssetApprovedUseScope.Location
+            | SceneAssetApprovedUseScope.Control
+            | SceneAssetApprovedUseScope.ProductionSource
+            | SceneAssetApprovedUseScope.CharacterLoraTraining;
+        if (useScope == 0 || (useScope & ~allScopes) != 0)
+            throw new InvalidOperationException("At least one valid production asset use scope is required.");
+    }
+
+    private static bool IsSha256(string value) =>
+        value.Length == 64 && value.All(character => char.IsAsciiHexDigit(character));
+
+    private static async Task<bool> TableExistsAsync(
+        SqliteConnection connection, string tableName, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $name;";
+        command.Parameters.AddWithValue("$name", tableName);
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) > 0;
     }
 
     private static void ValidatePromotedAsset(SceneAsset asset)
@@ -346,6 +522,16 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 SourceSceneImageId TEXT NULL,
                 SourceSha256       TEXT NULL,
                 SourceProvenanceJson TEXT NULL,
+                ProductionApprovalStatus TEXT NULL,
+                ConsentState       TEXT NULL,
+                LicenseState       TEXT NULL,
+                LicenseLabel       TEXT NULL,
+                ApprovedUseScope   INTEGER NULL,
+                ContentPolicyKey   TEXT NULL,
+                CompatibilityMetadataJson TEXT NULL,
+                ProductionVersion INTEGER NULL,
+                SupersedesAssetId  TEXT NULL,
+                ProductionApprovedUtc TEXT NULL,
                 ErrorMessage       TEXT NULL,
                 CreatedUtc         TEXT NOT NULL,
                 StartedUtc         TEXT NULL,
@@ -365,7 +551,17 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ("SourceApprovalDecisionId", "ALTER TABLE SceneAssets ADD COLUMN SourceApprovalDecisionId TEXT NULL"),
             ("SourceSceneImageId", "ALTER TABLE SceneAssets ADD COLUMN SourceSceneImageId TEXT NULL"),
             ("SourceSha256", "ALTER TABLE SceneAssets ADD COLUMN SourceSha256 TEXT NULL"),
-            ("SourceProvenanceJson", "ALTER TABLE SceneAssets ADD COLUMN SourceProvenanceJson TEXT NULL")
+            ("SourceProvenanceJson", "ALTER TABLE SceneAssets ADD COLUMN SourceProvenanceJson TEXT NULL"),
+            ("ProductionApprovalStatus", "ALTER TABLE SceneAssets ADD COLUMN ProductionApprovalStatus TEXT NULL"),
+            ("ConsentState", "ALTER TABLE SceneAssets ADD COLUMN ConsentState TEXT NULL"),
+            ("LicenseState", "ALTER TABLE SceneAssets ADD COLUMN LicenseState TEXT NULL"),
+            ("LicenseLabel", "ALTER TABLE SceneAssets ADD COLUMN LicenseLabel TEXT NULL"),
+            ("ApprovedUseScope", "ALTER TABLE SceneAssets ADD COLUMN ApprovedUseScope INTEGER NULL"),
+            ("ContentPolicyKey", "ALTER TABLE SceneAssets ADD COLUMN ContentPolicyKey TEXT NULL"),
+            ("CompatibilityMetadataJson", "ALTER TABLE SceneAssets ADD COLUMN CompatibilityMetadataJson TEXT NULL"),
+            ("ProductionVersion", "ALTER TABLE SceneAssets ADD COLUMN ProductionVersion INTEGER NULL"),
+            ("SupersedesAssetId", "ALTER TABLE SceneAssets ADD COLUMN SupersedesAssetId TEXT NULL"),
+            ("ProductionApprovedUtc", "ALTER TABLE SceneAssets ADD COLUMN ProductionApprovedUtc TEXT NULL")
         })
         {
             await using var check = connection.CreateCommand();

@@ -15,6 +15,9 @@ public sealed class IdentityPackSelection
 
     /// <summary>Optional per-character conditioning strength override.</summary>
     public double? Strength { get; set; }
+
+    /// <summary>Required normalized ownership region for multi-character renders.</summary>
+    public SceneImageEditTargetRegion? Region { get; set; }
 }
 
 /// <summary>Request to render an image from a prompt.</summary>

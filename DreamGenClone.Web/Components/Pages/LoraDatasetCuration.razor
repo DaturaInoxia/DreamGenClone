@@ -1,0 +1,236 @@
+@page "/asset-studio/lora-datasets/{DatasetId}"
+@rendermode InteractiveServer
+
+@using System.Text.Json
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.RolePlay
+
+@inject ICharacterLoraRepository LoraRepository
+@inject ISceneAssetRepository AssetRepository
+@inject ILogger<LoraDatasetCuration> Logger
+
+<PageTitle>Curate LoRA Dataset - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h4 class="mb-1">Curate LoRA Dataset</h4>
+            <div class="font-monospace small text-muted text-break">@DatasetId</div>
+        </div>
+        <a href="/asset-studio" class="btn btn-outline-secondary btn-sm">Back to Asset Manager</a>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_status))
+    {
+        <div class="alert alert-info">@_status</div>
+    }
+    @if (_dataset is null)
+    {
+        <div class="text-muted">Loading dataset...</div>
+    }
+    else
+    {
+        <section class="card mb-3" aria-label="Dataset manifest">
+            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <strong>Dataset v@_dataset.Version</strong>
+                <span class="badge @(_dataset.Status == CharacterLoraDatasetStatus.Frozen ? "text-bg-success" : "text-bg-secondary")">@_dataset.Status</span>
+            </div>
+            <div class="card-body small">
+                <div class="row g-2">
+                    <div class="col-md-3"><strong>Character</strong><div class="font-monospace text-break">@_dataset.CharacterProfileId</div></div>
+                    <div class="col-md-3">
+                        <strong>Identity pack</strong>
+                        <div class="font-monospace text-break">@_dataset.IdentityPackId</div>
+                        <a href="/characters/identity?characterId=@Uri.EscapeDataString(_dataset.CharacterProfileId)&amp;packId=@Uri.EscapeDataString(_dataset.IdentityPackId)">View source pack</a>
+                    </div>
+                    <div class="col-md-3"><strong>Trigger token</strong><div class="font-monospace text-break">@_dataset.TriggerToken</div></div>
+                    <div class="col-md-3"><strong>Target family</strong><div class="font-monospace text-break">@_dataset.TargetModelFamily</div></div>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_dataset.ManifestSha256))
+                {
+                    <div class="mt-2"><strong>Manifest SHA-256</strong><div class="font-monospace text-break">@_dataset.ManifestSha256</div></div>
+                    <a class="btn btn-primary btn-sm mt-3" href="/asset-studio/lora-datasets/@DatasetId/training">Open Training Workflow</a>
+                }
+            </div>
+        </section>
+
+        @if (_members.Count == 0)
+        {
+            <div class="alert alert-secondary">No generated candidates have been registered for this dataset yet.</div>
+        }
+        @foreach (var editor in _members)
+        {
+            <section class="card mb-3" aria-label="Dataset member @editor.Member.Ordinal">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <strong>Candidate @(editor.Member.Ordinal + 1)</strong>
+                    <span class="badge @(editor.Member.CurationStatus == CharacterLoraCurationStatus.Accepted ? "text-bg-success" : editor.Member.CurationStatus == CharacterLoraCurationStatus.Rejected ? "text-bg-danger" : "text-bg-secondary")">@editor.Member.CurationStatus</span>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-lg-4">
+                            @if (editor.Asset is not null && !string.IsNullOrWhiteSpace(editor.Asset.FileRelativePath))
+                            {
+                                <img src="/scene-images/@editor.Asset.FileRelativePath" class="img-fluid w-100 mb-2" style="max-height:360px;object-fit:contain;background:#101010;" alt="Candidate @(editor.Member.Ordinal + 1)" />
+                            }
+                            <dl class="row small mb-0">
+                                <dt class="col-4">Asset</dt><dd class="col-8 font-monospace text-break">@editor.Member.SceneAssetId</dd>
+                                <dt class="col-4">Version</dt><dd class="col-8">@editor.Member.SceneAssetVersion</dd>
+                                <dt class="col-4">Attempt</dt><dd class="col-8 font-monospace text-break">@editor.Member.GenerationAttemptId</dd>
+                                <dt class="col-4">SHA-256</dt><dd class="col-8 font-monospace text-break">@editor.Member.AssetSha256</dd>
+                            </dl>
+                        </div>
+                        <div class="col-lg-8">
+                            <label class="form-label small" for="caption-@editor.Member.Id">Caption</label>
+                            <textarea id="caption-@editor.Member.Id" class="form-control form-control-sm" rows="3" disabled="@IsFrozen" @bind="editor.Member.Caption"></textarea>
+                            <div class="row g-2 mt-1">
+                                <div class="col-md-6">
+                                    <label class="form-label small" for="role-@editor.Member.Id">Role</label>
+                                    <select id="role-@editor.Member.Id" class="form-select form-select-sm" disabled="@IsFrozen" @bind="editor.Member.Role">
+                                        @foreach (var role in Enum.GetValues<CharacterLoraDatasetMemberRole>())
+                                        {
+                                            <option value="@role">@role</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small" for="split-@editor.Member.Id">Split</label>
+                                    <select id="split-@editor.Member.Id" class="form-select form-select-sm" disabled="@IsFrozen" @bind="editor.Member.Split">
+                                        @foreach (var split in Enum.GetValues<CharacterLoraDatasetSplit>())
+                                        {
+                                            <option value="@split">@split</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                            <fieldset class="mt-3" disabled="@IsFrozen">
+                                <legend class="fs-6">Curation findings</legend>
+                                <div class="row g-2 small">
+                                    <div class="col-sm-6"><div class="form-check"><input id="drift-@editor.Member.Id" class="form-check-input" type="checkbox" @bind="editor.IdentityDrift" /><label class="form-check-label" for="drift-@editor.Member.Id">Identity drift</label></div></div>
+                                    <div class="col-sm-6"><div class="form-check"><input id="duplicate-@editor.Member.Id" class="form-check-input" type="checkbox" @bind="editor.NearDuplicate" /><label class="form-check-label" for="duplicate-@editor.Member.Id">Near duplicate</label></div></div>
+                                    <div class="col-sm-6"><div class="form-check"><input id="anatomy-@editor.Member.Id" class="form-check-input" type="checkbox" @bind="editor.AnatomyIssue" /><label class="form-check-label" for="anatomy-@editor.Member.Id">Anatomy issue</label></div></div>
+                                    <div class="col-sm-6"><div class="form-check"><input id="leakage-@editor.Member.Id" class="form-check-input" type="checkbox" @bind="editor.Leakage" /><label class="form-check-label" for="leakage-@editor.Member.Id">Identity or wardrobe leakage</label></div></div>
+                                    <div class="col-sm-6"><div class="form-check"><input id="traits-@editor.Member.Id" class="form-check-input" type="checkbox" @bind="editor.PermanentTraitsVerified" /><label class="form-check-label" for="traits-@editor.Member.Id">Permanent traits verified</label></div></div>
+                                </div>
+                            </fieldset>
+                            <div class="d-flex flex-wrap gap-2 mt-3">
+                                <button type="button" class="btn btn-success btn-sm" disabled="@(_busy || IsFrozen)" @onclick="() => CurateAsync(editor, CharacterLoraCurationStatus.Accepted)">Accept</button>
+                                <button type="button" class="btn btn-outline-danger btn-sm" disabled="@(_busy || IsFrozen)" @onclick="() => CurateAsync(editor, CharacterLoraCurationStatus.Rejected)">Reject</button>
+                                <a class="btn btn-outline-secondary btn-sm" href="/asset-studio/@editor.Member.SceneAssetId">Inspect asset</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        }
+
+        <section class="card mb-4" aria-label="Freeze dataset">
+            <div class="card-header"><strong>Freeze Dataset</strong></div>
+            <div class="card-body">
+                <label class="form-label small" for="curator-id">Curator ID</label>
+                <input id="curator-id" class="form-control form-control-sm" disabled="@IsFrozen" @bind="_reviewedBy" />
+                <button type="button" class="btn btn-primary btn-sm mt-3" disabled="@(_busy || IsFrozen || _members.Count == 0)" @onclick="FreezeAsync">Freeze Exact Manifest</button>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string DatasetId { get; set; } = string.Empty;
+
+    private sealed class MemberEditor
+    {
+        public required CharacterLoraDatasetMember Member { get; init; }
+        public SceneAsset? Asset { get; init; }
+        public bool IdentityDrift { get; set; }
+        public bool NearDuplicate { get; set; }
+        public bool AnatomyIssue { get; set; }
+        public bool Leakage { get; set; }
+        public bool PermanentTraitsVerified { get; set; }
+    }
+
+    private CharacterLoraDataset? _dataset;
+    private readonly List<MemberEditor> _members = [];
+    private string _reviewedBy = string.Empty;
+    private bool _busy;
+    private string? _error;
+    private string? _status;
+    private bool IsFrozen => _dataset?.Status != CharacterLoraDatasetStatus.Draft;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        _dataset = await LoraRepository.GetDatasetAsync(DatasetId);
+        if (_dataset is null)
+        {
+            _error = $"LoRA dataset '{DatasetId}' was not found.";
+            return;
+        }
+        _members.Clear();
+        foreach (var member in await LoraRepository.ListDatasetMembersAsync(DatasetId))
+        {
+            _members.Add(new MemberEditor
+            {
+                Member = member,
+                Asset = await AssetRepository.GetAsync(member.SceneAssetId)
+            });
+        }
+    }
+
+    private async Task CurateAsync(MemberEditor editor, CharacterLoraCurationStatus status)
+    {
+        await RunAsync(async () =>
+        {
+            if (string.IsNullOrWhiteSpace(_reviewedBy)) throw new InvalidOperationException("Curator ID is required.");
+            var expectedRevision = editor.Member.CaptionRevision;
+            editor.Member.CaptionRevision++;
+            editor.Member.CurationStatus = status;
+            editor.Member.CurationFindingsJson = JsonSerializer.Serialize(new
+            {
+                identityDrift = editor.IdentityDrift,
+                nearDuplicate = editor.NearDuplicate,
+                anatomyIssue = editor.AnatomyIssue,
+                leakage = editor.Leakage,
+                permanentTraitsVerified = editor.PermanentTraitsVerified
+            });
+            editor.Member.ReviewedBy = _reviewedBy.Trim();
+            editor.Member.ReviewedUtc = DateTime.UtcNow;
+            await LoraRepository.CurateDatasetMemberAsync(editor.Member, expectedRevision);
+            _status = $"Candidate {editor.Member.Ordinal + 1} saved as {status}.";
+        });
+    }
+
+    private async Task FreezeAsync()
+    {
+        await RunAsync(async () =>
+        {
+            if (string.IsNullOrWhiteSpace(_reviewedBy)) throw new InvalidOperationException("Curator ID is required.");
+            _dataset = await LoraRepository.FreezeDatasetAsync(DatasetId, _reviewedBy, DateTime.UtcNow);
+            _status = $"Dataset frozen with manifest {_dataset.ManifestSha256}.";
+        });
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try { await action(); }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            Logger.LogWarning(exception, "LoRA dataset curation operation failed.");
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+}

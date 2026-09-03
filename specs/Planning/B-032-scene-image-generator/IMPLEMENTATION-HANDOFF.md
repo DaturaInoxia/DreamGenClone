@@ -22,7 +22,7 @@ relationships between actors while producing multiple camera views and bounded r
 | 0 - Architecture and evidence | Complete | Prompt-only generation and exact-contact ControlNet/inpaint proofs established the limits of the baseline. |
 | 1 - Prompt-to-image MVP | Implemented, manual acceptance open | Beat analysis, Pony and SDXL/Juggernaut generation, persistence, Studio/Gallery, and manual Qwen editing exist. T068 remains open. |
 | 1B - Vision-aware image editing | Planned, next | Add source-aware Qwen prompt compilation, clarification, dedicated edit UI, provenance, and the pod vision runtime. |
-| 2 - Character identity | Planned after Phase 1B | Add persisted identity packs and prove two-character assignment before deciding on LoRA training. |
+| 2 - Character identity | Partially implemented | Add persisted identity packs, synthetic LoRA dataset/training workflows, and request-selectable qualified identity strategies. |
 | 3 - Location and multi-POV | Planned | Add location profiles, canonical visual plans, blocking, controls, and shot plans derived from one plan version. |
 | 4 - Validation and repair | Planned | Add constraint reports, policy-driven bounded repair, approval, and continuity anchors. |
 
@@ -270,7 +270,9 @@ rows to be recorded. Phase 1B automated work may begin because it uses separate 
 3. Run provider-neutral host proofs for candidate SDXL identity conditioning.
 4. Select and pin one mechanism.
 5. Implement the controlled-render compiler/client path.
-6. Pass the identity matrix and record the LoRA decision.
+6. Generate, curate, caption, and freeze a synthetic fictional-character LoRA dataset in Asset Manager.
+7. Train/register exact-family LoRA artifacts and qualify reference-only, LoRA-only, and combined
+   request strategies independently.
 
 ### Gate D - Phase 3 frozen-scene proof
 
@@ -321,7 +323,7 @@ After each implementation task group:
 | Existing proofs and architecture history | `phase-0-architecture-and-evidence/` |
 | Implemented MVP and remaining T068 acceptance | `phase-1-prompt-to-image-mvp/` |
 | Vision-aware Qwen compilation, dedicated editor, pod migration | `phase-1b-vision-aware-image-editing/` |
-| Identity packs, conditioning proof, LoRA decision | `phase-2-character-identity/` |
+| Identity packs, conditioning proof, synthetic LoRA workflow, identity strategies | `phase-2-character-identity/` |
 | Locations, visual plans, blocking, multi-POV | `phase-3-location-and-multi-pov/` |
 | Validation, bounded repair, approval, anchors | `phase-4-validation-and-repair/` |
 

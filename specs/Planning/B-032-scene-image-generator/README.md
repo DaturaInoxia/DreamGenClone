@@ -65,14 +65,15 @@ blocking, multi-POV shots, validation, repair, and approved continuity frames.
   Image Studio. The preserved proof remains incomplete for adult-content editing.
 - The OpenPose and Juggernaut inpainting exact-contact proofs are preserved as rejected evidence;
   do not resume prompt/mask tuning for that route.
-- Character identity packs, reference conditioning, optional character LoRAs, location visual
+- Character identity packs, reference conditioning, first-class synthetic character LoRAs, location visual
   profiles, canonical visual plans, shared blocking, multi-POV shot plans, structured validation,
   and bounded repair are designed but not yet implemented.
 - The next implementation slice is Phase 1B: a dedicated vision-aware edit workbench, grounded
   Qwen prompt compilation, strict clarification/provenance, and a one-pod vision runtime. It
   becomes shared infrastructure for identity work and later validation.
 - The identity vertical slice follows Phase 1B: two recurring characters, persisted references,
-  controlled edits/renders, and an evidence-based decision on whether LoRA training is needed.
+  controlled edits/renders, synthetic LoRA dataset creation/training, and exact per-request identity
+  strategy qualification.
 - **2026-08-25 rework (B-097 re-opened):** Community + creator research confirms position/anatomy
   failures (e.g. doggy style) happen because text is low-bandwidth for pose — geometry needs a
   control input, not prose. ControlNet **OpenPose + Depth** conditioning is now a hard requirement
@@ -92,7 +93,7 @@ B-032-scene-image-generator/
 ├── phase-0-architecture-and-evidence/   # architecture, host inventory, proofs, handoffs
 ├── phase-1-prompt-to-image-mvp/          # formal spec, implementation plan, tasks, contracts
 ├── phase-1b-vision-aware-image-editing/  # source analysis, prompt compiler, dedicated editor
-├── phase-2-character-identity/           # references, identity packs, adapters, LoRA decision
+├── phase-2-character-identity/           # references, identity packs, synthetic LoRAs, strategies
 ├── phase-3-location-and-multi-pov/       # location profiles, anchors, blocking, camera shots
 └── phase-4-validation-and-repair/        # validation, bounded repair, continuity anchors
 ```

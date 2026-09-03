@@ -1,5 +1,10 @@
 # Phase 2 — Decisions & State (2026-08-26)
 
+> Historical evidence notice (2026-09-03): the matrix observations and tested mechanism results in
+> this document remain valid evidence. Its product-level `LoRA stays Deferred` conclusion is
+> superseded by `DECISIONS-2026-09-03-LORA.md`: LoRA support and synthetic dataset creation are
+> mandatory capabilities, while each inference strategy is qualified and selected per exact request.
+
 Session decisions for the single-character (Dean) identity-controlled render path.
 
 ## What was built — single-character identity render path (end-to-end)
@@ -85,12 +90,12 @@ sampler, on proof pod `7i2mutjmry5tkt`.
 - `c5_s1002` drifted to a split-screen composition instead of the intended depth arrangement
   ("Dean behind, Becky in front") — a seed-1002 composition miss, not an identity issue.
 
-**Decision (P2-016):** IP-Adapter regional conditioning is **adopted for the multi-actor compiler
+**Historical decision (P2-016):** IP-Adapter regional conditioning was **adopted for the multi-actor compiler
 (P2-023) with a composition guardrail** — two-actor cells are restricted to near-frontal
 arrangements (side-by-side, seated/standing, one-behind, two-shot); face-to-face/embrace
 (C2/C3-style) are excluded (single-actor + text or future work). This passes 10/12 and keeps the
-feature shippable. LoRA (P2-030) stays `Deferred`; revisit only if angled/embrace compositions
-become required.
+feature shippable. The former `LoRA stays Deferred` product conclusion is superseded; these results
+now qualify/reject only the tested reference-conditioning cells.
 
 **Recommended fast-follows (not blocking P2-023):**
 - Multi-angle reference support (front + 3/4) to harden Dean in angled poses.

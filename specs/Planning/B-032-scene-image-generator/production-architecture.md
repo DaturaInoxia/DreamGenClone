@@ -220,6 +220,8 @@ Capabilities include:
 - qualified face angles, crops, shot distances, and composition classes;
 - body and wardrobe preservation support;
 - mask, region, pose, depth, semantic control, and LoRA support;
+- exact identity strategies (`ReferenceConditioning`, `Lora`, or a qualified `Combined` binding),
+  including artifact/reference versions and strengths;
 - legal request parameters and ranges;
 - output dimensions and total megapixel constraints;
 - policy and license restrictions;
@@ -470,7 +472,10 @@ Phase 2 exits only when:
 - single- and multi-character supported cells pass ownership and continuity gates;
 - unsupported cells are blocked explicitly;
 - workload preparation, dispatch, attempt capture, review, and approval work end to end;
-- LoRA decisions are evidence-backed and persisted;
+- Asset Manager can generate and curate a versioned synthetic fictional-character LoRA dataset;
+- configured LoRA training produces a versioned artifact with exact dataset/base/recipe provenance;
+- reference-only, LoRA-only, and combined strategies are independently cell-qualified and selected
+  explicitly per request without fallback;
 - tests and current-session manual acceptance pass.
 
 Phase 3 exits only when:

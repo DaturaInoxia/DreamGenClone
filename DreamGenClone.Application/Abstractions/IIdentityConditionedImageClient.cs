@@ -20,9 +20,20 @@ public sealed class IdentityReferenceInput
 
     /// <summary>
     /// Regional mask bytes (white = the character's conditioned region). When null for a
-    /// multi-character render, the client synthesizes a default band mask.
+    /// multi-character render, <see cref="Region"/> must be present.
     /// </summary>
     public byte[]? MaskBytes { get; set; }
+
+    /// <summary>Exact normalized ownership region used when no approved mask bytes are supplied.</summary>
+    public IdentityReferenceRegion? Region { get; set; }
+}
+
+public sealed class IdentityReferenceRegion
+{
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Width { get; set; }
+    public double Height { get; set; }
 }
 
 /// <summary>

@@ -13,6 +13,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
     private readonly ISceneImageRepository _imageRepository;
     private readonly ISceneAssetRepository _assetRepository;
     private readonly ISceneImageStorageService _storage;
+    private readonly ISceneImageProductionSessionGuard _sessionGuard;
     private readonly TimeProvider _timeProvider;
     private readonly ISceneBeatProductionPlanRepository? _plans;
     private readonly ISceneMomentSetRepository? _momentSets;
@@ -26,9 +27,10 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         ISceneImageRepository imageRepository,
         ISceneAssetRepository assetRepository,
         ISceneImageStorageService storage,
+        ISceneImageProductionSessionGuard sessionGuard,
         TimeProvider timeProvider,
         ILogger<SceneImageProductionService> logger)
-        : this(productionRepository, imageRepository, assetRepository, storage, timeProvider,
+        : this(productionRepository, imageRepository, assetRepository, storage, sessionGuard, timeProvider,
             null, null, null, null, null, logger)
     {
     }
@@ -38,6 +40,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         ISceneImageRepository imageRepository,
         ISceneAssetRepository assetRepository,
         ISceneImageStorageService storage,
+        ISceneImageProductionSessionGuard sessionGuard,
         TimeProvider timeProvider,
         ISceneBeatProductionPlanRepository plans,
         ISceneMomentSetRepository momentSets,
@@ -50,6 +53,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         _imageRepository = imageRepository;
         _assetRepository = assetRepository;
         _storage = storage;
+        _sessionGuard = sessionGuard;
         _timeProvider = timeProvider;
         _plans = plans;
         _momentSets = momentSets;
@@ -72,6 +76,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
 
         var group = await _productionRepository.GetAsync(productionGroupId.Trim(), cancellationToken)
             ?? throw new InvalidOperationException($"Production group '{productionGroupId}' was not found.");
+        await _sessionGuard.RequireCurrentAsync(group.SessionId, cancellationToken);
         if (group.Status == SceneImageProductionGroupStatus.Archived)
             throw new InvalidOperationException($"Production group '{group.Id}' is archived.");
         var plan = await plans.GetCurrentAsync(group.CatalogueId, group.BeatId, cancellationToken);
@@ -161,6 +166,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         Require(request.MomentEnrichmentId, "Moment Enrichment id");
         Require(request.Pov, "POV");
         ValidateOptionalJson(request.CameraIntentSnapshotJson, "Camera intent snapshot");
+        await _sessionGuard.RequireCurrentAsync(request.SessionId, cancellationToken);
 
         var current = await _productionRepository.GetCurrentAsync(
             request.MomentEnrichmentId.Trim(), request.Pov.Trim(), cancellationToken);
@@ -220,6 +226,9 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         SceneImageAttemptDisposition nextDisposition,
         CancellationToken cancellationToken = default)
     {
+        var group = await _productionRepository.GetAsync(groupId, cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{groupId}' was not found.");
+        await _sessionGuard.RequireCurrentAsync(group.SessionId, cancellationToken);
         var changed = await _imageRepository.TrySetDispositionAsync(
             imageId, groupId, expectedDisposition, nextDisposition, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
         if (!changed)
@@ -229,15 +238,20 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         }
     }
 
-    public Task<ApprovedSceneFrameDecision> ApproveAsync(
+    public async Task<ApprovedSceneFrameDecision> ApproveAsync(
         string groupId,
         string imageId,
         string sha256,
         string decidedBy,
         string? note,
         CancellationToken cancellationToken = default)
-        => _productionRepository.ApproveAsync(
+    {
+        var group = await _productionRepository.GetAsync(groupId, cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{groupId}' was not found.");
+        await _sessionGuard.RequireCurrentAsync(group.SessionId, cancellationToken);
+        return await _productionRepository.ApproveAsync(
             groupId, imageId, sha256, decidedBy, note, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+    }
 
     public Task<SceneImageAttemptRetentionPolicy?> GetRetentionPolicyAsync(
         CancellationToken cancellationToken = default)
@@ -256,6 +270,9 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
     {
         Require(imageId, "Scene image id");
         Require(requestedBy, "Purge actor");
+        var image = await _imageRepository.GetImageAsync(imageId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Scene image '{imageId}' was not found.");
+        await _sessionGuard.RequireCurrentAsync(image.SessionId, cancellationToken);
         if (await _productionRepository.GetRetentionPolicyAsync(cancellationToken) is null)
             throw new InvalidOperationException("Scene image attempt retention policy is not configured.");
 
@@ -296,6 +313,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
 
         var group = await _productionRepository.GetAsync(groupId.Trim(), cancellationToken)
             ?? throw new InvalidOperationException($"Production group '{groupId}' was not found.");
+        await _sessionGuard.RequireCurrentAsync(group.SessionId, cancellationToken);
         if (string.IsNullOrWhiteSpace(group.CurrentApprovedDecisionId))
             throw new InvalidOperationException($"Production group '{group.Id}' has no current approved frame.");
         var decision = await _productionRepository.GetApprovalDecisionAsync(

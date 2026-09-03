@@ -86,7 +86,28 @@ The position prompts and their per-position masks are generated from the baselin
 
 Outputs should land under `positions/images/` (pending pod availability).
 
-## 4. Regenerate committed artifacts
+## 4. Composition-first Qwen identity matrix (6 cases)
+
+The C1 control and failed angled C2/C3 cases use each committed matrix image as the source
+composition, followed by Dean and Becky identity references in fixed order. This suite uses the
+existing `img-qwen-edit-serverless` endpoint (`79wkn5jz5d5txx`) and the RunPod Serverless
+`input.workflow + input.images` contract. It does not use or require a Qwen pod.
+
+```powershell
+# Offline structure/input validation
+python specs/image-generator-tests/identity-two-character/runners/run_qwen_composition_identity.py --validate-only
+
+# Live execution requires RUNPOD_API_KEY in the environment
+python specs/image-generator-tests/identity-two-character/runners/run_qwen_composition_identity.py `
+  --out artifacts/tmp/qwen-composition-identity/<run-id>
+```
+
+The runner submits authenticated `/run` jobs, polls `/status/{jobId}`, and records job IDs plus
+request, workflow, input, reference, and output hashes in `run-manifest.json`. See
+`composition-first/SPEC.md` for the frozen Rapid-AIO v23 settings, scoring gate, reference roles,
+and the separate unqualified FLUX.2 candidate.
+
+## 5. Regenerate committed artifacts
 
 After any change to runner logic, regenerate the committed workflow JSONs and the manifest so the
 records stay truthful:

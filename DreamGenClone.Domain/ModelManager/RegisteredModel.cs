@@ -55,6 +55,9 @@ public sealed class RegisteredModel
     /// Null for PuLID (EVA02-CLIP is loaded by the node).</summary>
     public string? IdentityClipVisionRef { get; set; }
 
+    /// <summary>Broad identity strategies this model can support. Exact use still requires a qualified capability cell.</summary>
+    public string SupportedIdentityStrategiesJson { get; set; } = "[]";
+
     public bool IsEnabled { get; set; } = true;
     /// <summary>Whether this model's chat template supports chat_template_kwargs.thinking.</summary>
     public bool SupportsThinkingControl { get; set; }

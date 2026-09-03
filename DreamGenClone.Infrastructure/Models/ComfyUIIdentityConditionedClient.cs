@@ -372,7 +372,7 @@ public sealed class ComfyUIIdentityConditionedClient : IIdentityConditionedImage
                 var reference = request.References[i];
                 var refName = await UploadReferenceImageAsync(
                     client, baseUrl, reference.ReferenceImageBytes, $"{request.CorrelationId}-ref{i}", cancellationToken);
-                var maskBytes = reference.MaskBytes ?? SynthesizeBandMask(width, height, i, request.References.Count);
+                var maskBytes = ResolveMaskBytes(reference, width, height);
                 var maskName = await UploadReferenceImageAsync(
                     client, baseUrl, maskBytes, $"{request.CorrelationId}-mask{i}", cancellationToken);
                 uploaded.Add((refName, maskName, reference));
@@ -497,18 +497,26 @@ public sealed class ComfyUIIdentityConditionedClient : IIdentityConditionedImage
     }
 
     /// <summary>
-    /// Synthesizes a default regional mask (white = conditioned region) for one character in a
-    /// multi-character render: character <paramref name="index"/> of <paramref name="count"/> gets a
-    /// vertical band. Returns a grayscale PNG suitable for ComfyUI LoadImageMask.
+    /// Rasterizes an explicit normalized ownership region as a grayscale PNG suitable for
+    /// ComfyUI LoadImageMask.
     /// </summary>
-    internal static byte[] SynthesizeBandMask(int width, int height, int index, int count)
+    internal static byte[] SynthesizeRegionMask(int width, int height, IdentityReferenceRegion region)
     {
-        if (count < 2) throw new ArgumentOutOfRangeException(nameof(count), "At least two characters are required for a band mask.");
-        if (index < 0 || index >= count) throw new ArgumentOutOfRangeException(nameof(index));
         if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width));
+        if (!double.IsFinite(region.X) || !double.IsFinite(region.Y)
+            || !double.IsFinite(region.Width) || !double.IsFinite(region.Height)
+            || region.X < 0 || region.Y < 0 || region.Width <= 0 || region.Height <= 0
+            || region.X + region.Width > 1 || region.Y + region.Height > 1)
+        {
+            throw new ArgumentException("Identity reference region must be normalized and contained within the image.", nameof(region));
+        }
 
-        var startX = (int)((long)index * width / count);
-        var endX = (int)((long)(index + 1) * width / count);
+        var startX = (int)Math.Floor(region.X * width);
+        var endX = (int)Math.Floor((region.X + region.Width) * width);
+        var startY = (int)Math.Floor(region.Y * height);
+        var endY = (int)Math.Floor((region.Y + region.Height) * height);
+        if (endX <= startX || endY <= startY)
+            throw new ArgumentException("Identity reference region does not cover any output pixels.", nameof(region));
 
         var stride = 1 + width;
         var raw = new byte[height * stride];
@@ -518,11 +526,21 @@ public sealed class ComfyUIIdentityConditionedClient : IIdentityConditionedImage
             raw[row] = 0; // filter: None
             for (var x = 0; x < width; x++)
             {
-                raw[row + 1 + x] = (x >= startX && x < endX) ? (byte)255 : (byte)0;
+                raw[row + 1 + x] = (x >= startX && x < endX && y >= startY && y < endY) ? (byte)255 : (byte)0;
             }
         }
 
         return EncodeGrayPng(raw, width, height);
+    }
+
+    internal static byte[] ResolveMaskBytes(IdentityReferenceInput reference, int width, int height)
+    {
+        if (reference.MaskBytes is { Length: > 0 })
+            return reference.MaskBytes;
+        if (reference.Region is not null)
+            return SynthesizeRegionMask(width, height, reference.Region);
+        throw new InvalidOperationException(
+            $"Identity reference '{reference.CharacterLabel}' requires approved mask bytes or an explicit normalized region.");
     }
 
     private static byte[] EncodeGrayPng(byte[] rawWithFilterBytes, int width, int height)

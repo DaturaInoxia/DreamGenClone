@@ -15,12 +15,16 @@ readiness instead of falling back.
 ## Implementation Package
 
 - [`research.md`](research.md) - candidate mechanisms, primary evidence, two-character matrix, and
-	LoRA decision rule.
+  synthetic character LoRA dataset findings.
 - [`spec.md`](spec.md) - requirements, acceptance scenarios, and exit gate.
 - [`data-model.md`](data-model.md) - identity packs, assets, assignments, evaluations, and decisions.
 - [`contracts.md`](contracts.md) - repositories, resolver/client/job, storage, and host-proof contract.
 - [`plan.md`](plan.md) - layered change surface, slices, blast radius, and rollout.
 - [`tasks.md`](tasks.md) - dependency-ordered implementation ledger.
+- [`poc-production-reconciliation.md`](poc-production-reconciliation.md) - P2-033 forward-only map
+  from implemented POC/Scene Asset records to production ownership and replacement boundaries.
+- [`production-ui-contract.md`](production-ui-contract.md) - P2-051 frozen Asset Manager and
+  Production Studio shell, responsive, keyboard/focus, and stable context-state contract.
 
 Completed P2-001 through P2-026 remain historical implementation evidence. P2-023 and P2-027
 through P2-032 remain open. Expanded production work starts at P2-033.
@@ -37,11 +41,13 @@ through P2-032 remain open. Expanded production work starts at P2-033.
 - Prepare Moments/shots as durable workloads, dispatch compatible bounded groups, persist every
   provider attempt, and review/approve outputs in one production surface.
 - Provide a unified Asset Manager for reference curation, provenance, lineage, approval, and reuse.
+- Generate, curate, caption, validate, and freeze versioned synthetic character LoRA datasets in
+  Asset Manager; fictional characters have no assumed external source images.
+- Train and register versioned LoRA artifacts against exact base-model families and qualify LoRA,
+  reference-conditioning, and combined identity strategies as separate request-selectable cells.
 - **ControlNet pose/layout control (B-097 re-open 2026-08-25):** add ControlNet OpenPose + Depth
   conditioning remains a candidate pose/layout control. Exact artifacts and strengths are
   configuration and qualification data; this specification does not hardcode a universal range.
-- Decide from measured results whether principal characters require checkpoint-compatible LoRAs.
-- If LoRAs are justified, define dataset curation, trigger tokens, training provenance, checkpoint family, versioning, and inference strength as persisted configuration.
 
 ## Evidence
 

@@ -1,0 +1,840 @@
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.RolePlay
+@inject IProductionWorkloadService WorkloadService
+@inject IProductionStudioService StudioService
+@implements IAsyncDisposable
+
+<section class="production-workspace" aria-label="Durable production workspace">
+    <div class="production-workspace-toolbar">
+        <div>
+            <strong>Durable Workloads</strong>
+            <span class="text-muted small ms-2">@_snapshots.Count revision(s)</span>
+        </div>
+        <div class="d-flex gap-2">
+            @if (_selectedWorkload is not null && IsReconcilable(_selectedWorkload.Workload.Status))
+            {
+                <button class="btn btn-sm btn-outline-primary" type="button" disabled="@_loading"
+                        @onclick="ReconcileSelectedAsync">
+                    <i class="bi bi-cloud-arrow-down me-1"></i> Reconcile
+                </button>
+            }
+            <button class="btn btn-sm btn-outline-secondary" type="button" disabled="@_loading"
+                    title="Refresh workload status" aria-label="Refresh workload status" @onclick="RefreshAsync">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger py-2" role="alert">@_errorMessage</div>
+    }
+    else if (_loading)
+    {
+        <div class="production-workspace-empty text-muted">
+            <span class="spinner-border spinner-border-sm me-2"></span>Loading durable workloads...
+        </div>
+    }
+    else if (_snapshots.Count == 0)
+    {
+        <div class="production-workspace-empty text-muted">
+            No durable production workload exists for this session.
+        </div>
+    }
+    else
+    {
+        <div class="production-workbench">
+            <aside class="production-context-rail" aria-label="Workload context">
+                <h6>Moments</h6>
+                <div class="production-context-list">
+                    @foreach (var moment in MomentItems)
+                    {
+                        <button type="button"
+                                class="production-context-choice @(_selectedWorkloadItemId == moment.Item.Id ? "is-selected" : "")"
+                                @onclick="() => SelectMoment(moment)">
+                            <strong>@moment.Intent.MomentId</strong>
+                            <span class="d-block small text-muted mt-1">@moment.Intent.Pov · @moment.Intent.Operation</span>
+                        </button>
+                    }
+                </div>
+
+                <h6>Workloads</h6>
+                <div class="production-context-list">
+                    @foreach (var snapshot in _snapshots)
+                    {
+                        <button type="button"
+                                class="production-context-choice @(_selectedWorkloadId == snapshot.Workload.Id ? "is-selected" : "")"
+                                @onclick="() => SelectWorkload(snapshot)">
+                            <span class="d-flex justify-content-between gap-2">
+                                <strong>Revision @snapshot.Workload.Revision</strong>
+                                <span class="badge text-bg-secondary">@snapshot.Workload.Status</span>
+                            </span>
+                            <span class="d-block small text-muted mt-1">@snapshot.Workload.Goal</span>
+                        </button>
+                    }
+                </div>
+
+                <h6 class="mt-3">Media Pool</h6>
+                @if (_selectedWorkload is null)
+                {
+                    <div class="small text-muted">Select a workload.</div>
+                }
+                else
+                {
+                    <div class="production-context-list">
+                        @foreach (var item in _selectedWorkload.Items)
+                        {
+                            <button type="button"
+                                    class="production-context-choice @(_selectedWorkloadItemId == item.Item.Id ? "is-selected" : "")"
+                                    @onclick="() => SelectItem(item)">
+                                <span class="d-flex justify-content-between gap-2">
+                                    <strong>Item @(item.Item.Ordinal + 1)</strong>
+                                    <span class="badge text-bg-secondary">@item.Item.Status</span>
+                                </span>
+                                <span class="d-block small text-muted mt-1">@item.Intent.MomentId · @item.Item.VariationCount output(s)</span>
+                            </button>
+                        }
+                    </div>
+                }
+            </aside>
+
+            <main class="production-primary" aria-label="Selected production output">
+                <div class="production-media-canvas">
+                    @if (_selectedAttempt is null)
+                    {
+                        <div class="production-workspace-empty text-muted">Select an attempt to inspect its output.</div>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(_selectedAttempt.OutputFileRelativePath))
+                    {
+                        <img src="/scene-images/@_selectedAttempt.OutputFileRelativePath"
+                             alt="Selected durable production output" />
+                    }
+                    else
+                    {
+                        <div class="production-workspace-empty text-muted">
+                            Attempt @_selectedAttempt.AttemptNumber is @_selectedAttempt.Status.
+                        </div>
+                    }
+                </div>
+                @if (ComparedAttempts.Count > 0)
+                {
+                    <div class="production-comparison mt-3" aria-label="Compared attempts">
+                        @foreach (var attempt in ComparedAttempts)
+                        {
+                            <figure>
+                                @if (!string.IsNullOrWhiteSpace(attempt.OutputFileRelativePath))
+                                {
+                                    <img src="/scene-images/@attempt.OutputFileRelativePath" alt="Compared attempt @attempt.AttemptNumber" />
+                                }
+                                <figcaption>#@attempt.AttemptNumber · @attempt.Status</figcaption>
+                            </figure>
+                        }
+                    </div>
+                }
+            </main>
+
+            <aside class="production-durable-inspector" aria-label="Durable production inspector">
+                <div class="production-inspector-tabs" role="tablist" aria-label="Production inspector views">
+                    @foreach (var tab in Enum.GetValues<InspectorTab>())
+                    {
+                        <button type="button" role="tab" aria-selected="@(_inspectorTab == tab)"
+                                class="@(_inspectorTab == tab ? "is-selected" : "")"
+                                @onclick="() => _inspectorTab = tab" @onkeydown="args => MoveInspectorTab(args, tab)">@tab</button>
+                    }
+                </div>
+                @if (_selectedWorkload is null)
+                {
+                    <div class="small text-muted">No workload selected.</div>
+                }
+                else if (_inspectorTab == InspectorTab.Selection)
+                {
+                    <h6>Selection</h6>
+                    <dl class="small mb-0">
+                        <dt>Workload</dt><dd class="font-monospace">@_selectedWorkload.Workload.Id</dd>
+                        <dt>Revision / status</dt><dd>@_selectedWorkload.Workload.Revision / @_selectedWorkload.Workload.Status</dd>
+                        <dt>Policy</dt><dd>@_selectedWorkload.Workload.ContentPolicyKey</dd>
+                        <dt>Outputs / groups</dt><dd>@_selectedWorkload.Workload.OutputCount / @_selectedWorkload.Workload.CompatibilityGroupCount</dd>
+                        @if (_selectedItem is not null)
+                        {
+                            <dt>Intent</dt><dd class="font-monospace">@_selectedItem.Item.IntentSnapshotId</dd>
+                            <dt>Request</dt><dd class="font-monospace">@_selectedItem.Item.CompiledRequestId</dd>
+                            <dt>Moment / POV</dt><dd>@_selectedItem.Intent.MomentId / @_selectedItem.Intent.Pov</dd>
+                            <dt>Compiler</dt><dd>@_selectedItem.Request.CompilerId v@_selectedItem.Request.CompilerVersion</dd>
+                        }
+                        @if (_selectedAttempt is not null)
+                        {
+                            <dt>Attempt</dt><dd class="font-monospace">@_selectedAttempt.Id</dd>
+                            <dt>Provider</dt><dd>@(_selectedAttempt.ProviderKey ?? "Not submitted")</dd>
+                            <dt>Provider request</dt><dd class="font-monospace">@(_selectedAttempt.ProviderRequestId ?? "Not submitted")</dd>
+                            <dt>Seed</dt><dd>@_selectedAttempt.Seed</dd>
+                            <dt>Checksum</dt><dd class="font-monospace">@(_selectedAttempt.OutputSha256 ?? "Pending")</dd>
+                        }
+                    </dl>
+                }
+                else if (_selectedItem is null)
+                {
+                    <div class="small text-muted">Select a workload item.</div>
+                }
+                else if (_inspectorTab == InspectorTab.Request)
+                {
+                    <h6>Exact Request</h6>
+                    <pre class="production-request-json">@_selectedItem.Request.CanonicalProviderRequestJson</pre>
+                    <h6>References</h6>
+                    @if (_selectedItem.ReferenceBindings.Count == 0)
+                    {
+                        <div class="small text-muted">No references are bound.</div>
+                    }
+                    else
+                    {
+                        @foreach (var binding in _selectedItem.ReferenceBindings)
+                        {
+                            <div class="small mb-2">
+                                <strong>@binding.Ordinal · @binding.SemanticRole</strong>
+                                <span class="d-block font-monospace text-break">@binding.SceneAssetId · v@binding.SceneAssetVersion</span>
+                                <span class="d-block font-monospace text-break">@binding.SceneAssetSha256</span>
+                            </div>
+                        }
+                    }
+                }
+                else if (_inspectorTab == InspectorTab.Intent)
+                {
+                    <h6>Semantic Intent Revision</h6>
+                    <label class="form-label small" for="production-visible-actors">Visible actors JSON</label>
+                    <textarea id="production-visible-actors" class="form-control form-control-sm font-monospace" rows="2" @bind="_visibleActorsJson"></textarea>
+                    <label class="form-label small mt-2" for="production-composition-intent">Composition intent JSON</label>
+                    <textarea id="production-composition-intent" class="form-control form-control-sm font-monospace" rows="2" @bind="_compositionIntentJson"></textarea>
+                    <label class="form-label small mt-2" for="production-camera-intent">Camera intent JSON</label>
+                    <textarea id="production-camera-intent" class="form-control form-control-sm font-monospace" rows="2" @bind="_cameraIntentJson"></textarea>
+                    <label class="form-label small mt-2" for="production-style-intent">Style intent JSON</label>
+                    <textarea id="production-style-intent" class="form-control form-control-sm font-monospace" rows="2" @bind="_styleIntentJson"></textarea>
+                    <label class="form-label small mt-2" for="production-preservation-intent">Preservation constraints JSON</label>
+                    <textarea id="production-preservation-intent" class="form-control form-control-sm font-monospace" rows="2" @bind="_preservationJson"></textarea>
+                    <label class="form-label small mt-2" for="production-change-intent">Change intent JSON</label>
+                    <textarea id="production-change-intent" class="form-control form-control-sm font-monospace" rows="2" @bind="_changeIntentJson"></textarea>
+                    <label class="form-label small mt-2" for="production-content-policy">Content policy JSON</label>
+                    <textarea id="production-content-policy" class="form-control form-control-sm font-monospace" rows="2" @bind="_contentPolicyJson"></textarea>
+
+                    <h6 class="mt-3">Exact References</h6>
+                    @foreach (var reference in _prepareReferences)
+                    {
+                        <div class="small border-bottom pb-2 mb-2">
+                            <strong>@reference.SemanticRole</strong>
+                            <span class="d-block font-monospace text-break">@reference.SceneAssetId · v@reference.SceneAssetVersion</span>
+                            <span class="d-block font-monospace text-break">@reference.SceneAssetSha256</span>
+                        </div>
+                    }
+                    <label class="form-label small" for="prepare-reference-role">Semantic role</label>
+                    <input id="prepare-reference-role" class="form-control form-control-sm" @bind="_referenceRole" />
+                    <label class="form-label small mt-2" for="prepare-reference-actor">Actor key</label>
+                    <input id="prepare-reference-actor" class="form-control form-control-sm" @bind="_referenceActorKey" />
+                    <label class="form-label small mt-2" for="prepare-reference-asset">Scene Asset ID</label>
+                    <input id="prepare-reference-asset" class="form-control form-control-sm" @bind="_referenceAssetId" />
+                    <div class="row g-2 mt-1">
+                        <div class="col-4">
+                            <label class="form-label small" for="prepare-reference-version">Version</label>
+                            <input id="prepare-reference-version" type="number" class="form-control form-control-sm" @bind="_referenceAssetVersion" />
+                        </div>
+                        <div class="col-8">
+                            <label class="form-label small" for="prepare-reference-sha">SHA-256</label>
+                            <input id="prepare-reference-sha" class="form-control form-control-sm font-monospace" @bind="_referenceAssetSha256" />
+                        </div>
+                    </div>
+                    <label class="form-label small mt-2" for="prepare-reference-binding">Binding snapshot JSON</label>
+                    <textarea id="prepare-reference-binding" class="form-control form-control-sm font-monospace" rows="2" @bind="_referenceBindingJson"></textarea>
+                    <button class="btn btn-sm btn-outline-primary mt-2" disabled="@(!CanAddReference)" @onclick="AddPrepareReference">
+                        <i class="bi bi-plus-lg me-1"></i> Add Exact Reference
+                    </button>
+
+                    <h6 class="mt-3">Readiness And Cost</h6>
+                    <label class="form-label small" for="prepare-capability">Qualified capability cell</label>
+                    <select id="prepare-capability" class="form-select form-select-sm" @bind="_selectedCapabilityKey">
+                        <option value="">Select exact profile and cell</option>
+                        @foreach (var capability in _capabilities)
+                        {
+                            <option value="@CapabilityKey(capability)">@capability.ProviderKey · @capability.ModelId @capability.ModelVersion · @capability.CellLabel</option>
+                        }
+                    </select>
+                    <label class="form-label small mt-2" for="prepare-settings">Compiler settings JSON</label>
+                    <textarea id="prepare-settings" class="form-control form-control-sm font-monospace" rows="3" @bind="_settingsJson"></textarea>
+                    <label class="form-label small mt-2" for="prepare-goal">Goal</label>
+                    <input id="prepare-goal" class="form-control form-control-sm" @bind="_prepareGoal" />
+                    <label class="form-label small mt-2" for="prepare-retry">Retry policy JSON</label>
+                    <textarea id="prepare-retry" class="form-control form-control-sm font-monospace" rows="2" @bind="_retryPolicyJson"></textarea>
+                    <div class="row g-2 mt-1">
+                        <div class="col-6">
+                            <label class="form-label small" for="prepare-variations">Outputs</label>
+                            <input id="prepare-variations" type="number" class="form-control form-control-sm" @bind="_variationCount" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small" for="prepare-unit-cost">Unit cost</label>
+                            <input id="prepare-unit-cost" type="number" step="0.0001" class="form-control form-control-sm" @bind="_unitCost" />
+                        </div>
+                    </div>
+                    <label class="form-label small mt-2" for="prepare-currency">Currency</label>
+                    <input id="prepare-currency" class="form-control form-control-sm" @bind="_currency" />
+                    <label class="form-label small mt-2" for="prepare-provider">Provider key</label>
+                    <input id="prepare-provider" class="form-control form-control-sm" @bind="_providerKey" />
+                    <label class="form-label small mt-2" for="prepare-endpoint-id">Endpoint ID</label>
+                    <input id="prepare-endpoint-id" class="form-control form-control-sm" @bind="_endpointId" />
+                    <label class="form-label small mt-2" for="prepare-base-url">Base URL</label>
+                    <input id="prepare-base-url" class="form-control form-control-sm" @bind="_endpointBaseUrl" />
+                    <label class="form-label small mt-2" for="prepare-submit-path">Submit path</label>
+                    <input id="prepare-submit-path" class="form-control form-control-sm" @bind="_submitPath" />
+                    <label class="form-label small mt-2" for="prepare-status-path">Status path template</label>
+                    <input id="prepare-status-path" class="form-control form-control-sm" @bind="_statusPath" />
+                    <label class="form-label small mt-2" for="prepare-cancel-path">Cancel path template</label>
+                    <input id="prepare-cancel-path" class="form-control form-control-sm" @bind="_cancelPath" />
+                    <label class="form-label small mt-2" for="prepare-protocol">Protocol key</label>
+                    <input id="prepare-protocol" class="form-control form-control-sm" @bind="_protocolKey" />
+                    <label class="form-label small mt-2" for="prepare-timeout">Endpoint timeout seconds</label>
+                    <input id="prepare-timeout" type="number" class="form-control form-control-sm" @bind="_endpointTimeoutSeconds" />
+                    <label class="form-label small mt-2" for="prepare-readiness">Endpoint readiness JSON</label>
+                    <textarea id="prepare-readiness" class="form-control form-control-sm font-monospace" rows="2" @bind="_endpointReadinessJson"></textarea>
+                    <label class="form-label small mt-2" for="prepare-adapter">Dispatch adapter key</label>
+                    <input id="prepare-adapter" class="form-control form-control-sm" @bind="_adapterKey" />
+                    <div class="form-check mt-2">
+                        <input id="prepare-native-variations" class="form-check-input" type="checkbox" @bind="_supportsNativeVariations" />
+                        <label class="form-check-label small" for="prepare-native-variations">Provider supports native variations</label>
+                    </div>
+                    <label class="form-label small mt-2" for="prepare-maximum-outputs">Maximum outputs per request</label>
+                    <input id="prepare-maximum-outputs" type="number" class="form-control form-control-sm" @bind="_maximumOutputsPerRequest" />
+                    <label class="form-label small mt-2" for="prepare-worker">Worker image</label>
+                    <input id="prepare-worker" class="form-control form-control-sm" @bind="_workerImage" />
+                    <label class="form-label small mt-2" for="prepare-artifacts">Artifact set</label>
+                    <input id="prepare-artifacts" class="form-control form-control-sm" @bind="_artifactSet" />
+                    <label class="form-label small mt-2" for="prepare-accessibility">Reference accessibility</label>
+                    <input id="prepare-accessibility" class="form-control form-control-sm" @bind="_referenceAccessibility" />
+                    <label class="form-label small mt-2" for="prepare-retention">Result retention seconds</label>
+                    <input id="prepare-retention" type="number" class="form-control form-control-sm" @bind="_resultRetentionSeconds" />
+                    <button class="btn btn-sm btn-primary mt-3" disabled="@(!CanPrepare)" @onclick="PrepareRevisionAsync">
+                        <i class="bi bi-check2-square me-1"></i> Prepare Revision
+                    </button>
+                }
+                else
+                {
+                    <h6>Review History</h6>
+                    @if (_selectedItem.ReviewDecisions.Count == 0)
+                    {
+                        <div class="small text-muted mb-3">No review decisions.</div>
+                    }
+                    else
+                    {
+                        @foreach (var review in _selectedItem.ReviewDecisions)
+                        {
+                            <div class="small mb-2">
+                                <strong>v@review.Version · @review.Decision</strong>
+                                <span class="d-block">@review.ReasonCode · @review.DecidedBy</span>
+                                <span class="d-block text-muted">@review.Notes</span>
+                            </div>
+                        }
+                    }
+
+                    @if (_selectedAttempt is not null && _selectedAttempt.Status == ProductionAttemptStatus.Succeeded)
+                    {
+                        <label class="form-label small" for="production-reviewer">Reviewer</label>
+                        <input id="production-reviewer" class="form-control form-control-sm" @bind="_reviewer" />
+                        <label class="form-label small mt-2" for="production-reason">Reason code</label>
+                        <input id="production-reason" class="form-control form-control-sm" @bind="_reviewReason" />
+                        <label class="form-label small mt-2" for="production-notes">Notes</label>
+                        <textarea id="production-notes" class="form-control form-control-sm" rows="2" @bind="_reviewNotes"></textarea>
+                        <div class="d-flex flex-wrap gap-2 mt-2">
+                            <button class="btn btn-sm btn-outline-warning" disabled="@(!CanReview)"
+                                    @onclick="() => ReviewSelectedAsync(ProductionReviewDecisionValue.Shortlisted)">Shortlist</button>
+                            <button class="btn btn-sm btn-outline-danger" disabled="@(!CanReview || _selectedItem.Item.Status != ProductionWorkloadItemStatus.Reviewable)"
+                                    @onclick="() => ReviewSelectedAsync(ProductionReviewDecisionValue.Rejected)">Reject</button>
+                        </div>
+
+                        @if (_selectedItem.Item.Status == ProductionWorkloadItemStatus.Reviewable)
+                        {
+                            <hr />
+                            <h6>Approve Exact Output</h6>
+                            <label class="form-label small" for="production-provenance">Source provenance JSON</label>
+                            <textarea id="production-provenance" class="form-control form-control-sm font-monospace" rows="2" @bind="_approvalProvenanceJson"></textarea>
+                            <label class="form-label small mt-2" for="production-consent">Consent</label>
+                            <select id="production-consent" class="form-select form-select-sm" @bind="_approvalConsent">
+                                <option value="">Select consent</option>
+                                @foreach (var value in Enum.GetValues<SceneAssetConsentState>())
+                                {
+                                    <option value="@value.ToString()">@value</option>
+                                }
+                            </select>
+                            <label class="form-label small mt-2" for="production-license">License</label>
+                            <select id="production-license" class="form-select form-select-sm" @bind="_approvalLicense">
+                                <option value="">Select license</option>
+                                @foreach (var value in Enum.GetValues<SceneAssetLicenseState>())
+                                {
+                                    <option value="@value.ToString()">@value</option>
+                                }
+                            </select>
+                            <label class="form-label small mt-2" for="production-license-label">License label</label>
+                            <input id="production-license-label" class="form-control form-control-sm" @bind="_approvalLicenseLabel" />
+                            <label class="form-label small mt-2" for="production-policy">Content policy key</label>
+                            <input id="production-policy" class="form-control form-control-sm" @bind="_approvalPolicy" />
+                            <label class="form-label small mt-2" for="production-compatibility">Compatibility JSON</label>
+                            <textarea id="production-compatibility" class="form-control form-control-sm font-monospace" rows="2" @bind="_approvalCompatibilityJson"></textarea>
+                            <label class="form-label small mt-2" for="production-use-scope">Use scope key</label>
+                            <input id="production-use-scope" class="form-control form-control-sm" @bind="_approvalUseScopeKey" />
+                            <button class="btn btn-sm btn-success mt-2" disabled="@(!CanApprove)" @onclick="ApproveSelectedAsync">
+                                <i class="bi bi-check2-circle me-1"></i> Approve Output
+                            </button>
+                        }
+                    }
+                }
+            </aside>
+        </div>
+
+        <section class="production-attempt-queue" aria-label="Attempt queue">
+            <h6>Attempts</h6>
+            @if (_selectedItem is null || _selectedItem.Attempts.Count == 0)
+            {
+                <div class="small text-muted">No attempts for the selected item.</div>
+            }
+            else
+            {
+                <div class="production-attempt-strip">
+                    @foreach (var attempt in _selectedItem.Attempts)
+                    {
+                        <button type="button"
+                                class="production-attempt-choice @(_selectedAttemptId == attempt.Id ? "is-selected" : "")"
+                                @onclick="() => SelectAttempt(attempt)">
+                            @if (!string.IsNullOrWhiteSpace(attempt.OutputFileRelativePath))
+                            {
+                                <img src="/scene-images/@attempt.OutputFileRelativePath" alt="Attempt @attempt.AttemptNumber output" />
+                            }
+                            else
+                            {
+                                <span class="production-attempt-placeholder">@attempt.Status</span>
+                            }
+                            <span class="d-flex justify-content-between gap-1 mt-1 small">
+                                <strong>#@attempt.AttemptNumber</strong>
+                                <span>@attempt.Status</span>
+                            </span>
+                        </button>
+                        <button type="button" class="production-compare-toggle"
+                                aria-pressed="@_comparisonAttemptIds.Contains(attempt.Id)"
+                                @onclick="() => ToggleComparison(attempt.Id)">
+                            <i class="bi @(_comparisonAttemptIds.Contains(attempt.Id) ? "bi-check-square" : "bi-square") me-1"></i> Compare
+                        </button>
+                    }
+                </div>
+            }
+        </section>
+
+        @if (_selectedWorkload is not null)
+        {
+            <div class="production-command-bar mt-3">
+                @if (_selectedWorkload.Workload.Status == ProductionWorkloadStatus.Ready)
+                {
+                    <button class="btn btn-sm btn-primary" disabled="@_loading" @onclick="SubmitSelectedAsync">
+                        <i class="bi bi-send me-1"></i> Submit
+                    </button>
+                }
+                @if (IsCancellable(_selectedWorkload.Workload.Status))
+                {
+                    <button class="btn btn-sm btn-outline-danger" disabled="@_loading" @onclick="CancelSelectedAsync">
+                        <i class="bi bi-x-circle me-1"></i> Cancel
+                    </button>
+                }
+                @if (_selectedItem is not null && _selectedAttempt is not null && IsRetryable(_selectedAttempt.Status))
+                {
+                    <button class="btn btn-sm btn-outline-primary" disabled="@_loading" @onclick="RetrySelectedAsync">
+                        <i class="bi bi-arrow-repeat me-1"></i> Retry as New Attempt
+                    </button>
+                }
+            </div>
+        }
+    }
+</section>
+
+@code {
+    private enum InspectorTab { Selection, Intent, Request, Review }
+
+    [Parameter]
+    public string SessionId { get; set; } = string.Empty;
+
+    private IReadOnlyList<ProductionWorkloadSnapshot> _snapshots = [];
+    private string? _loadedSessionId;
+    private string? _selectedWorkloadId;
+    private string? _selectedWorkloadItemId;
+    private string? _selectedAttemptId;
+    private string? _errorMessage;
+    private bool _loading;
+    private InspectorTab _inspectorTab;
+    private readonly HashSet<string> _comparisonAttemptIds = new(StringComparer.Ordinal);
+    private IReadOnlyList<ProductionStudioCapability> _capabilities = [];
+    private readonly List<ProductionPrepareReference> _prepareReferences = [];
+    private string _draftSourceIntentId = string.Empty;
+    private string _visibleActorsJson = string.Empty;
+    private string _compositionIntentJson = string.Empty;
+    private string _cameraIntentJson = string.Empty;
+    private string _styleIntentJson = string.Empty;
+    private string _preservationJson = string.Empty;
+    private string _changeIntentJson = string.Empty;
+    private string _contentPolicyJson = string.Empty;
+    private string _referenceRole = string.Empty;
+    private string _referenceActorKey = string.Empty;
+    private string _referenceAssetId = string.Empty;
+    private int _referenceAssetVersion;
+    private string _referenceAssetSha256 = string.Empty;
+    private string _referenceBindingJson = string.Empty;
+    private string _selectedCapabilityKey = string.Empty;
+    private string _settingsJson = string.Empty;
+    private string _prepareGoal = string.Empty;
+    private string _retryPolicyJson = string.Empty;
+    private int _variationCount;
+    private decimal _unitCost;
+    private string _currency = string.Empty;
+    private string _providerKey = string.Empty;
+    private string _endpointId = string.Empty;
+    private string _endpointBaseUrl = string.Empty;
+    private string _submitPath = string.Empty;
+    private string _statusPath = string.Empty;
+    private string _cancelPath = string.Empty;
+    private int _endpointTimeoutSeconds;
+    private string _protocolKey = string.Empty;
+    private string _endpointReadinessJson = string.Empty;
+    private string _adapterKey = string.Empty;
+    private bool _supportsNativeVariations;
+    private int _maximumOutputsPerRequest;
+    private string _workerImage = string.Empty;
+    private string _artifactSet = string.Empty;
+    private string _referenceAccessibility = string.Empty;
+    private int _resultRetentionSeconds;
+    private string _reviewer = string.Empty;
+    private string _reviewReason = string.Empty;
+    private string _reviewNotes = string.Empty;
+    private string _approvalProvenanceJson = string.Empty;
+    private string _approvalConsent = string.Empty;
+    private string _approvalLicense = string.Empty;
+    private string _approvalLicenseLabel = string.Empty;
+    private string _approvalPolicy = string.Empty;
+    private string _approvalCompatibilityJson = string.Empty;
+    private string _approvalUseScopeKey = string.Empty;
+    private System.Threading.Timer? _pollTimer;
+    private readonly object _pollLock = new();
+
+    private ProductionWorkloadSnapshot? _selectedWorkload
+        => _snapshots.FirstOrDefault(snapshot => snapshot.Workload.Id == _selectedWorkloadId);
+
+    private ProductionWorkloadItemSnapshot? _selectedItem
+        => _selectedWorkload?.Items.FirstOrDefault(item => item.Item.Id == _selectedWorkloadItemId);
+
+    private ProductionAttempt? _selectedAttempt
+        => _selectedItem?.Attempts.FirstOrDefault(attempt => attempt.Id == _selectedAttemptId);
+
+    private IReadOnlyList<ProductionWorkloadItemSnapshot> MomentItems => _snapshots
+        .SelectMany(snapshot => snapshot.Items)
+        .OrderByDescending(item => item.Intent.BeatProductionPlanVersion)
+        .ThenByDescending(item => item.Intent.MomentSetVersion)
+        .ThenBy(item => item.Intent.MomentId, StringComparer.Ordinal)
+        .ToList();
+
+    private IReadOnlyList<ProductionAttempt> ComparedAttempts => _snapshots
+        .SelectMany(snapshot => snapshot.Items)
+        .SelectMany(item => item.Attempts)
+        .Where(attempt => _comparisonAttemptIds.Contains(attempt.Id))
+        .ToList();
+
+    private bool CanReview => !_loading && _selectedItem is not null && _selectedAttempt is not null
+        && !string.IsNullOrWhiteSpace(_reviewer) && !string.IsNullOrWhiteSpace(_reviewReason);
+
+    private bool CanApprove => CanReview
+        && !string.IsNullOrWhiteSpace(_approvalProvenanceJson)
+        && !string.IsNullOrWhiteSpace(_approvalConsent)
+        && _approvalConsent != SceneAssetConsentState.Unknown.ToString()
+        && !string.IsNullOrWhiteSpace(_approvalLicense)
+        && _approvalLicense != SceneAssetLicenseState.Unknown.ToString()
+        && !string.IsNullOrWhiteSpace(_approvalLicenseLabel)
+        && !string.IsNullOrWhiteSpace(_approvalPolicy)
+        && !string.IsNullOrWhiteSpace(_approvalCompatibilityJson)
+        && !string.IsNullOrWhiteSpace(_approvalUseScopeKey);
+
+    private bool CanAddReference => !string.IsNullOrWhiteSpace(_referenceRole)
+        && !string.IsNullOrWhiteSpace(_referenceAssetId) && _referenceAssetVersion > 0
+        && _referenceAssetSha256.Length == 64 && !string.IsNullOrWhiteSpace(_referenceBindingJson);
+
+    private bool CanPrepare => !_loading && _selectedItem is not null && SelectedCapability is not null
+        && _variationCount > 0 && _endpointTimeoutSeconds > 0 && _maximumOutputsPerRequest > 0
+        && _resultRetentionSeconds > 0 && !string.IsNullOrWhiteSpace(_prepareGoal)
+        && !string.IsNullOrWhiteSpace(_settingsJson) && !string.IsNullOrWhiteSpace(_retryPolicyJson)
+        && !string.IsNullOrWhiteSpace(_currency) && !string.IsNullOrWhiteSpace(_providerKey)
+        && !string.IsNullOrWhiteSpace(_endpointId) && !string.IsNullOrWhiteSpace(_endpointBaseUrl)
+        && !string.IsNullOrWhiteSpace(_submitPath) && !string.IsNullOrWhiteSpace(_statusPath)
+        && !string.IsNullOrWhiteSpace(_cancelPath) && !string.IsNullOrWhiteSpace(_protocolKey)
+        && !string.IsNullOrWhiteSpace(_endpointReadinessJson) && !string.IsNullOrWhiteSpace(_adapterKey)
+        && !string.IsNullOrWhiteSpace(_workerImage) && !string.IsNullOrWhiteSpace(_artifactSet)
+        && !string.IsNullOrWhiteSpace(_referenceAccessibility);
+
+    private ProductionStudioCapability? SelectedCapability =>
+        _capabilities.FirstOrDefault(capability => CapabilityKey(capability) == _selectedCapabilityKey);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.Equals(_loadedSessionId, SessionId, StringComparison.Ordinal))
+        {
+            _loadedSessionId = SessionId;
+            _selectedWorkloadId = null;
+            _selectedWorkloadItemId = null;
+            _selectedAttemptId = null;
+            await LoadAsync(selectInitial: true);
+        }
+    }
+
+    private Task RefreshAsync() => LoadAsync(selectInitial: false);
+
+    private async Task LoadAsync(bool selectInitial)
+    {
+        _loading = true;
+        _errorMessage = null;
+        try
+        {
+            _snapshots = await WorkloadService.LoadSessionAsync(SessionId);
+            _capabilities = await StudioService.ListCapabilitiesAsync();
+            if (selectInitial && _snapshots.Count > 0)
+            {
+                SelectWorkload(_snapshots[0]);
+                if (_selectedWorkload?.Items.Count > 0)
+                {
+                    SelectItem(_selectedWorkload.Items[0]);
+                    if (_selectedItem?.Attempts.Count > 0)
+                    {
+                        SelectAttempt(_selectedItem.Attempts[^1]);
+                    }
+                }
+            }
+            else
+            {
+                PreserveValidSelection();
+            }
+            UpdatePolling();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void PreserveValidSelection()
+    {
+        if (_selectedWorkload is null)
+        {
+            _selectedWorkloadId = null;
+            _selectedWorkloadItemId = null;
+            _selectedAttemptId = null;
+        }
+        else if (_selectedItem is null)
+        {
+            _selectedWorkloadItemId = null;
+            _selectedAttemptId = null;
+        }
+        else if (_selectedAttempt is null)
+        {
+            _selectedAttemptId = null;
+        }
+    }
+
+    private void SelectWorkload(ProductionWorkloadSnapshot snapshot)
+    {
+        _selectedWorkloadId = snapshot.Workload.Id;
+        if (!snapshot.Items.Any(item => item.Item.Id == _selectedWorkloadItemId))
+        {
+            _selectedWorkloadItemId = null;
+            _selectedAttemptId = null;
+        }
+    }
+
+    private void SelectItem(ProductionWorkloadItemSnapshot item)
+    {
+        _selectedWorkloadItemId = item.Item.Id;
+        if (!item.Attempts.Any(attempt => attempt.Id == _selectedAttemptId))
+        {
+            _selectedAttemptId = null;
+        }
+        SeedIntentDraft(item);
+    }
+
+    private void SelectMoment(ProductionWorkloadItemSnapshot item)
+    {
+        var workload = _snapshots.Single(snapshot => snapshot.Items.Any(candidate => candidate.Item.Id == item.Item.Id));
+        SelectWorkload(workload);
+        SelectItem(item);
+    }
+
+    private void SelectAttempt(ProductionAttempt attempt) => _selectedAttemptId = attempt.Id;
+
+    private void SeedIntentDraft(ProductionWorkloadItemSnapshot item)
+    {
+        if (_draftSourceIntentId == item.Intent.Id) return;
+        _draftSourceIntentId = item.Intent.Id;
+        _visibleActorsJson = item.Intent.VisibleActorsJson;
+        _compositionIntentJson = item.Intent.CompositionIntentJson;
+        _cameraIntentJson = item.Intent.CameraIntentJson;
+        _styleIntentJson = item.Intent.StyleIntentJson;
+        _preservationJson = item.Intent.PreservationConstraintsJson;
+        _changeIntentJson = item.Intent.ChangeIntentJson;
+        _contentPolicyJson = item.Intent.ContentPolicyJson;
+        _prepareReferences.Clear();
+        _prepareReferences.AddRange(item.ReferenceBindings.Select(binding => new ProductionPrepareReference(
+            binding.SemanticRole, binding.ActorKey, binding.SceneAssetId, binding.SceneAssetVersion,
+            binding.SceneAssetSha256, binding.IdentityVersionId, binding.BodyProfileVersionId,
+            binding.WardrobeLookVersionId, binding.BindingSnapshotJson)));
+    }
+
+    private void AddPrepareReference()
+    {
+        if (!CanAddReference) return;
+        _prepareReferences.Add(new ProductionPrepareReference(
+            _referenceRole, string.IsNullOrWhiteSpace(_referenceActorKey) ? null : _referenceActorKey,
+            _referenceAssetId, _referenceAssetVersion, _referenceAssetSha256,
+            null, null, null, _referenceBindingJson));
+        _referenceRole = string.Empty;
+        _referenceActorKey = string.Empty;
+        _referenceAssetId = string.Empty;
+        _referenceAssetVersion = 0;
+        _referenceAssetSha256 = string.Empty;
+        _referenceBindingJson = string.Empty;
+    }
+
+    private async Task PrepareRevisionAsync() => await RunCommandAsync(async () =>
+    {
+        var capability = SelectedCapability
+            ?? throw new InvalidOperationException("Select an exact qualified capability cell.");
+        var readiness = await StudioService.PrepareAsync(new ProductionPrepareCommand(
+            _selectedItem!.Item.Id, _visibleActorsJson, _compositionIntentJson, _cameraIntentJson,
+            _styleIntentJson, _preservationJson, _changeIntentJson, _contentPolicyJson,
+            capability.ProfileId, capability.CellId, _settingsJson, _prepareReferences,
+            _variationCount, _prepareGoal, _retryPolicyJson,
+            new ProductionProviderEndpoint(
+                _providerKey, _endpointId, _endpointBaseUrl, _submitPath, _statusPath, _cancelPath,
+                _endpointTimeoutSeconds, _protocolKey, _endpointReadinessJson),
+            new ProductionDispatchPolicy(
+                _adapterKey, _supportsNativeVariations, _maximumOutputsPerRequest,
+                _workerImage, _artifactSet, _referenceAccessibility, _resultRetentionSeconds),
+            new ProductionCostBasis(_currency, _unitCost), DateTime.UtcNow));
+        _selectedWorkloadId = readiness.Workload.Id;
+        _selectedWorkloadItemId = readiness.Items.Single().Id;
+        _selectedAttemptId = null;
+    });
+
+    private static string CapabilityKey(ProductionStudioCapability capability) =>
+        $"{capability.ProfileId}|{capability.CellId}";
+
+    private void ToggleComparison(string attemptId)
+    {
+        if (!_comparisonAttemptIds.Remove(attemptId)) _comparisonAttemptIds.Add(attemptId);
+    }
+
+    private async Task SubmitSelectedAsync() => await RunCommandAsync(async () =>
+    {
+        await WorkloadService.SubmitAsync(_selectedWorkload!.Workload.Id);
+    });
+
+    private async Task CancelSelectedAsync() => await RunCommandAsync(async () =>
+    {
+        await WorkloadService.CancelAsync(_selectedWorkload!.Workload.Id);
+    });
+
+    private async Task ReconcileSelectedAsync() => await RunCommandAsync(async () =>
+    {
+        await WorkloadService.ReconcileAsync(_selectedWorkload!.Workload.Id);
+    });
+
+    private async Task RetrySelectedAsync() => await RunCommandAsync(async () =>
+    {
+        var retry = await WorkloadService.RetryAsync(
+            _selectedItem!.Item.Id, _selectedAttempt!.Id, DateTime.UtcNow);
+        _selectedAttemptId = retry.Id;
+    });
+
+    private async Task ReviewSelectedAsync(ProductionReviewDecisionValue decision) => await RunCommandAsync(async () =>
+    {
+        await WorkloadService.ReviewAsync(new ProductionReviewCommand(
+            _selectedItem!.Item.Id, _selectedAttempt!.Id, decision, _reviewReason,
+            string.IsNullOrWhiteSpace(_reviewNotes) ? null : _reviewNotes, _reviewer, DateTime.UtcNow));
+    });
+
+    private async Task ApproveSelectedAsync() => await RunCommandAsync(async () =>
+    {
+        await WorkloadService.ApproveAsync(new ProductionApprovalCommand(
+            _selectedItem!.Item.Id, _selectedAttempt!.Id, _reviewReason,
+            string.IsNullOrWhiteSpace(_reviewNotes) ? null : _reviewNotes, _reviewer,
+            _approvalProvenanceJson, Enum.Parse<SceneAssetConsentState>(_approvalConsent),
+            Enum.Parse<SceneAssetLicenseState>(_approvalLicense), _approvalLicenseLabel,
+            SceneAssetApprovedUseScope.ProductionSource, _approvalPolicy,
+            _approvalCompatibilityJson, _approvalUseScopeKey, DateTime.UtcNow));
+    });
+
+    private async Task RunCommandAsync(Func<Task> command)
+    {
+        _loading = true;
+        _errorMessage = null;
+        try
+        {
+            await command();
+            await LoadAsync(selectInitial: false);
+        }
+        catch (Exception exception)
+        {
+            _errorMessage = exception.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void MoveInspectorTab(KeyboardEventArgs args, InspectorTab tab)
+    {
+        var tabs = Enum.GetValues<InspectorTab>();
+        var index = Array.IndexOf(tabs, tab);
+        if (args.Key == "ArrowRight") _inspectorTab = tabs[(index + 1) % tabs.Length];
+        if (args.Key == "ArrowLeft") _inspectorTab = tabs[(index - 1 + tabs.Length) % tabs.Length];
+    }
+
+    private void UpdatePolling()
+    {
+        var shouldPoll = _snapshots.Any(snapshot => IsReconcilable(snapshot.Workload.Status));
+        lock (_pollLock)
+        {
+            if (!shouldPoll)
+            {
+                _pollTimer?.Dispose();
+                _pollTimer = null;
+            }
+            else if (_pollTimer is null)
+            {
+                _pollTimer = new System.Threading.Timer(async _ =>
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        if (!_loading) await LoadAsync(selectInitial: false);
+                    });
+                }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+            }
+        }
+    }
+
+    private static bool IsReconcilable(ProductionWorkloadStatus status) =>
+        status is ProductionWorkloadStatus.Queued or ProductionWorkloadStatus.Running or ProductionWorkloadStatus.PartiallyComplete;
+
+    private static bool IsCancellable(ProductionWorkloadStatus status) =>
+        status is ProductionWorkloadStatus.Draft or ProductionWorkloadStatus.Ready or ProductionWorkloadStatus.Queued
+            or ProductionWorkloadStatus.Running or ProductionWorkloadStatus.PartiallyComplete;
+
+    private static bool IsRetryable(ProductionAttemptStatus status) =>
+        status is ProductionAttemptStatus.Failed or ProductionAttemptStatus.Cancelled or ProductionAttemptStatus.Indeterminate;
+
+    public ValueTask DisposeAsync()
+    {
+        lock (_pollLock)
+        {
+            _pollTimer?.Dispose();
+            _pollTimer = null;
+        }
+        return ValueTask.CompletedTask;
+    }
+}

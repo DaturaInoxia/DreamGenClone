@@ -1,0 +1,313 @@
+@page "/asset-studio/lora-training-profiles"
+@rendermode InteractiveServer
+
+@using System.Text.Json
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.RolePlay
+
+@inject ICharacterLoraRepository LoraRepository
+@inject ILogger<LoraTrainingProfiles> Logger
+
+<PageTitle>LoRA Training Profiles - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">LoRA Training Profiles</h4>
+        <a href="/asset-studio" class="btn btn-outline-secondary btn-sm">Back to Asset Manager</a>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    @if (!string.IsNullOrEmpty(_status))
+    {
+        <div class="alert alert-info">@_status</div>
+    }
+
+    <div class="row g-3">
+        <div class="col-xl-7">
+            <section class="card" aria-label="Create LoRA training profile">
+                <div class="card-header"><strong>New Versioned Profile</strong></div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-md-8">
+                            <label class="form-label small" for="lora-profile-name">Name</label>
+                            <input id="lora-profile-name" class="form-control form-control-sm" @bind="_name" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-profile-version">Version</label>
+                            <input id="lora-profile-version" type="number" min="1" class="form-control form-control-sm" @bind="_version" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-model-family">Model family</label>
+                            <input id="lora-model-family" class="form-control form-control-sm" @bind="_targetModelFamily" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-base-model">Base model ID</label>
+                            <input id="lora-base-model" class="form-control form-control-sm" @bind="_baseModelId" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-base-version">Base version</label>
+                            <input id="lora-base-version" class="form-control form-control-sm" @bind="_baseModelVersion" />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small" for="lora-base-sha">Base model SHA-256</label>
+                            <input id="lora-base-sha" class="form-control form-control-sm font-monospace" maxlength="64" @bind="_baseModelSha256" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small" for="lora-trainer-id">Trainer ID</label>
+                            <input id="lora-trainer-id" class="form-control form-control-sm" @bind="_trainerId" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small" for="lora-trainer-version">Trainer version</label>
+                            <input id="lora-trainer-version" class="form-control form-control-sm" @bind="_trainerVersion" />
+                        </div>
+                    </div>
+
+                    <h6 class="mt-3">Dataset And Resolution</h6>
+                    <div class="row g-2">
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-image-count">Image count</label>
+                            <input id="lora-image-count" type="number" min="1" class="form-control form-control-sm" @bind="_imageCount" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-repeats">Repeats</label>
+                            <input id="lora-repeats" type="number" min="1" class="form-control form-control-sm" @bind="_repeats" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-buckets">Resolution buckets</label>
+                            <input id="lora-buckets" class="form-control form-control-sm" placeholder="512, 768, 1024" @bind="_resolutionBuckets" />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small" for="lora-coverage">Coverage JSON</label>
+                            <textarea id="lora-coverage" class="form-control form-control-sm font-monospace" rows="2" @bind="_coverageJson"></textarea>
+                        </div>
+                    </div>
+
+                    <h6 class="mt-3">Optimization</h6>
+                    <div class="row g-2">
+                        <div class="col-md-3">
+                            <label class="form-label small" for="lora-rank">Rank</label>
+                            <input id="lora-rank" type="number" min="1" class="form-control form-control-sm" @bind="_rank" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small" for="lora-alpha">Alpha</label>
+                            <input id="lora-alpha" type="number" min="0" step="any" class="form-control form-control-sm" @bind="_alpha" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small" for="lora-steps">Steps</label>
+                            <input id="lora-steps" type="number" min="1" class="form-control form-control-sm" @bind="_steps" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small" for="lora-epochs">Epochs</label>
+                            <input id="lora-epochs" type="number" min="1" class="form-control form-control-sm" @bind="_epochs" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-unet-rate">UNet learning rate</label>
+                            <input id="lora-unet-rate" type="number" min="0" step="any" class="form-control form-control-sm" @bind="_unetLearningRate" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-text-rate">Text encoder learning rate</label>
+                            <input id="lora-text-rate" type="number" min="0" step="any" class="form-control form-control-sm" @bind="_textEncoderLearningRate" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-caption-dropout">Caption dropout</label>
+                            <input id="lora-caption-dropout" type="number" min="0" max="1" step="any" class="form-control form-control-sm" @bind="_captionDropout" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small" for="lora-precision">Precision</label>
+                            <input id="lora-precision" class="form-control form-control-sm" @bind="_precision" />
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end pb-1">
+                            <div class="form-check">
+                                <input id="lora-prior-preservation" type="checkbox" class="form-check-input" @bind="_priorPreservation" />
+                                <label class="form-check-label small" for="lora-prior-preservation">Prior preservation</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h6 class="mt-3">Environment And Cadence</h6>
+                    <label class="form-label small" for="lora-environment">Environment requirements JSON</label>
+                    <textarea id="lora-environment" class="form-control form-control-sm font-monospace" rows="2" @bind="_environmentJson"></textarea>
+                    <div class="row g-2 mt-1">
+                        <div class="col-md-6">
+                            <label class="form-label small" for="lora-checkpoint-cadence">Checkpoint every steps</label>
+                            <input id="lora-checkpoint-cadence" type="number" min="1" class="form-control form-control-sm" @bind="_checkpointEverySteps" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small" for="lora-sample-cadence">Sample every steps</label>
+                            <input id="lora-sample-cadence" type="number" min="1" class="form-control form-control-sm" @bind="_sampleEverySteps" />
+                        </div>
+                    </div>
+                    <button class="btn btn-primary btn-sm mt-3" type="button" disabled="@_busy" @onclick="CreateProfileAsync">
+                        Create Draft Profile
+                    </button>
+                </div>
+            </section>
+        </div>
+
+        <div class="col-xl-5">
+            <section class="card" aria-label="Persisted LoRA training profiles">
+                <div class="card-header"><strong>Persisted Profiles</strong></div>
+                <div class="card-body">
+                    <label class="form-label small" for="lora-qualification-evidence">Qualification evidence JSON</label>
+                    <textarea id="lora-qualification-evidence" class="form-control form-control-sm font-monospace mb-3" rows="2" @bind="_qualificationEvidenceJson"></textarea>
+                    @if (_profiles.Count == 0)
+                    {
+                        <div class="text-muted small">No LoRA training profiles have been created.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr><th>Name</th><th>Base</th><th>Status</th><th class="text-end">Action</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var profile in _profiles)
+                                    {
+                                        <tr>
+                                            <td>@profile.Name <span class="text-muted">v@profile.Version</span></td>
+                                            <td><span class="d-block">@profile.TargetModelFamily</span><span class="small text-muted">@profile.BaseModelId @profile.BaseModelVersion</span></td>
+                                            <td><span class="badge @(profile.Enabled ? "bg-success" : "bg-secondary")">@profile.Status</span></td>
+                                            <td class="text-end">
+                                                @if (profile.Status == CharacterLoraTrainingProfileStatus.Draft)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-success" type="button" title="Qualify profile"
+                                                            aria-label="Qualify @profile.Name version @profile.Version"
+                                                            disabled="@(_busy || string.IsNullOrWhiteSpace(_qualificationEvidenceJson))"
+                                                            @onclick="() => QualifyProfileAsync(profile.Id)">
+                                                        <i class="bi bi-check2-circle"></i>
+                                                    </button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<CharacterLoraTrainingProfile> _profiles = [];
+    private string _name = string.Empty;
+    private int _version;
+    private string _targetModelFamily = string.Empty;
+    private string _baseModelId = string.Empty;
+    private string _baseModelVersion = string.Empty;
+    private string _baseModelSha256 = string.Empty;
+    private string _trainerId = string.Empty;
+    private string _trainerVersion = string.Empty;
+    private int _imageCount;
+    private string _coverageJson = string.Empty;
+    private string _resolutionBuckets = string.Empty;
+    private int _repeats;
+    private int _rank;
+    private double _alpha;
+    private double _unetLearningRate;
+    private double _textEncoderLearningRate;
+    private int _steps;
+    private int _epochs;
+    private double _captionDropout;
+    private bool _priorPreservation;
+    private string _precision = string.Empty;
+    private string _environmentJson = string.Empty;
+    private int _checkpointEverySteps;
+    private int _sampleEverySteps;
+    private string _qualificationEvidenceJson = string.Empty;
+    private bool _busy;
+    private string? _error;
+    private string? _status;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task CreateProfileAsync()
+    {
+        await RunAsync(async () =>
+        {
+            using var coverageDocument = JsonDocument.Parse(_coverageJson);
+            using var environmentDocument = JsonDocument.Parse(_environmentJson);
+            var buckets = _resolutionBuckets.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(value => int.Parse(value, System.Globalization.CultureInfo.InvariantCulture))
+                .ToArray();
+            var recipeJson = JsonSerializer.Serialize(new
+            {
+                imageCount = _imageCount,
+                coverage = coverageDocument.RootElement.Clone(),
+                resolutionBuckets = buckets,
+                repeats = _repeats,
+                rank = _rank,
+                alpha = _alpha,
+                unetLearningRate = _unetLearningRate,
+                textEncoderLearningRate = _textEncoderLearningRate,
+                steps = _steps,
+                epochs = _epochs,
+                captionDropout = _captionDropout,
+                priorPreservation = _priorPreservation,
+                precision = _precision
+            });
+            await LoraRepository.CreateTrainingProfileAsync(new CharacterLoraTrainingProfile
+            {
+                Name = _name,
+                Version = _version,
+                Status = CharacterLoraTrainingProfileStatus.Draft,
+                Enabled = false,
+                TargetModelFamily = _targetModelFamily,
+                BaseModelId = _baseModelId,
+                BaseModelVersion = _baseModelVersion,
+                BaseModelSha256 = _baseModelSha256,
+                TrainerId = _trainerId,
+                TrainerVersion = _trainerVersion,
+                RecipeJson = recipeJson,
+                EnvironmentRequirementsJson = environmentDocument.RootElement.GetRawText(),
+                CheckpointCadenceJson = JsonSerializer.Serialize(new { everySteps = _checkpointEverySteps }),
+                SampleCadenceJson = JsonSerializer.Serialize(new { everySteps = _sampleEverySteps }),
+                CreatedUtc = DateTime.UtcNow
+            });
+            _status = $"Created LoRA training profile '{_name}' version {_version}.";
+            await ReloadAsync();
+        });
+    }
+
+    private async Task QualifyProfileAsync(string profileId)
+    {
+        await RunAsync(async () =>
+        {
+            await LoraRepository.QualifyTrainingProfileAsync(
+                profileId, _qualificationEvidenceJson, DateTime.UtcNow);
+            _status = "LoRA training profile qualified and enabled.";
+            await ReloadAsync();
+        });
+    }
+
+    private async Task ReloadAsync()
+    {
+        _profiles = (await LoraRepository.ListTrainingProfilesAsync()).ToList();
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            Logger.LogWarning(exception, "LoRA training profile operation failed.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

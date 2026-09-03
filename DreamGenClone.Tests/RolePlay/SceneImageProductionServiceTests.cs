@@ -48,6 +48,18 @@ public sealed class SceneImageProductionServiceTests
     }
 
     [Fact]
+    public async Task GetOrCreateGroup_UnsupportedSession_FailsBeforeCreatingProductionRecord()
+    {
+        await using var fixture = await Fixture.CreateAsync(new RejectingSessionGuard());
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.GetOrCreateGroupAsync(CreateGroupRequest()));
+
+        Assert.Contains("Create a new role-play session", error.Message, StringComparison.Ordinal);
+        Assert.Null(await fixture.Groups.GetCurrentAsync("enrichment", "Director"));
+    }
+
+    [Fact]
     public async Task DispositionAndQueries_UsePersistedCasAttemptsAndApprovalHistory()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -272,7 +284,10 @@ public sealed class SceneImageProductionServiceTests
 
     private sealed class Fixture : IAsyncDisposable
     {
-        private Fixture(string databasePath, FixedTimeProvider timeProvider)
+        private Fixture(
+            string databasePath,
+            FixedTimeProvider timeProvider,
+            ISceneImageProductionSessionGuard sessionGuard)
         {
             DatabasePath = databasePath;
             var options = Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={databasePath};Pooling=False" });
@@ -281,7 +296,7 @@ public sealed class SceneImageProductionServiceTests
             Assets = new SceneAssetRepository(options);
             Storage = new RecordingStorage();
             Service = new SceneImageProductionService(
-                Groups, Images, Assets, Storage, timeProvider, NullLogger<SceneImageProductionService>.Instance);
+                Groups, Images, Assets, Storage, sessionGuard, timeProvider, NullLogger<SceneImageProductionService>.Instance);
         }
 
         public string DatabasePath { get; }
@@ -291,11 +306,12 @@ public sealed class SceneImageProductionServiceTests
         public RecordingStorage Storage { get; }
         public SceneImageProductionService Service { get; }
 
-        public static async Task<Fixture> CreateAsync()
+        public static async Task<Fixture> CreateAsync(ISceneImageProductionSessionGuard? sessionGuard = null)
         {
             var fixture = new Fixture(
                 Path.Combine(Path.GetTempPath(), $"scene-image-production-service-{Guid.NewGuid():N}.db"),
-                new FixedTimeProvider(Now));
+            new FixedTimeProvider(Now),
+            sessionGuard ?? new AcceptingSessionGuard());
             _ = await fixture.Groups.GetRetentionPolicyAsync();
             _ = await fixture.Images.GetImageAsync("schema-probe");
             _ = await fixture.Assets.GetAsync("schema-probe");
@@ -436,5 +452,17 @@ public sealed class SceneImageProductionServiceTests
     private sealed class FixedTimeProvider(DateTime utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => new(utcNow);
+    }
+
+    private sealed class AcceptingSessionGuard : ISceneImageProductionSessionGuard
+    {
+        public Task RequireCurrentAsync(string sessionId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
+
+    private sealed class RejectingSessionGuard : ISceneImageProductionSessionGuard
+    {
+        public Task RequireCurrentAsync(string sessionId, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Create a new role-play session to use Production Studio.");
     }
 }

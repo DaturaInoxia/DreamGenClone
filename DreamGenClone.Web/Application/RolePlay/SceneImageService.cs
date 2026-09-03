@@ -227,6 +227,7 @@ public sealed class SceneImageService : ISceneImageService
         {
             throw new InvalidOperationException("At least one approved identity pack is required for identity-controlled rendering.");
         }
+        ValidateIdentitySelections(request);
 
         SceneImageProductionGroup? productionGroup = null;
         string? typedReferenceSnapshotJson = null;
@@ -338,6 +339,55 @@ public sealed class SceneImageService : ISceneImageService
             record.Id);
 
         return record;
+    }
+
+    private static void ValidateIdentitySelections(SceneRenderRequest request)
+    {
+        if (request.RenderMode != SceneImageRenderMode.IdentityControlled
+            || request.IdentityPacks is not { Count: > 1 } selections)
+        {
+            return;
+        }
+
+        if (selections.Any(selection => string.IsNullOrWhiteSpace(selection.PackId)))
+            throw new InvalidOperationException("Every identity actor requires an exact identity pack id.");
+        if (selections.Any(selection => string.IsNullOrWhiteSpace(selection.CharacterLabel)))
+            throw new InvalidOperationException("Every identity actor requires a character label for ownership.");
+        if (selections.Select(selection => selection.PackId).Distinct(StringComparer.Ordinal).Count() != selections.Count)
+            throw new InvalidOperationException("Multi-actor identity rendering requires a distinct identity pack for each actor.");
+        if (selections.Select(selection => selection.CharacterLabel).Distinct(StringComparer.OrdinalIgnoreCase).Count() != selections.Count)
+            throw new InvalidOperationException("Multi-actor identity rendering requires a distinct character label for each actor.");
+
+        foreach (var selection in selections)
+        {
+            var region = selection.Region
+                ?? throw new InvalidOperationException($"Identity actor '{selection.CharacterLabel}' requires an explicit normalized region.");
+            if (!double.IsFinite(region.X) || !double.IsFinite(region.Y)
+                || !double.IsFinite(region.Width) || !double.IsFinite(region.Height)
+                || region.X < 0 || region.Y < 0 || region.Width <= 0 || region.Height <= 0
+                || region.X + region.Width > 1 || region.Y + region.Height > 1)
+            {
+                throw new InvalidOperationException($"Identity actor '{selection.CharacterLabel}' has an invalid normalized region.");
+            }
+        }
+
+        for (var leftIndex = 0; leftIndex < selections.Count - 1; leftIndex++)
+        {
+            var left = selections[leftIndex].Region!;
+            for (var rightIndex = leftIndex + 1; rightIndex < selections.Count; rightIndex++)
+            {
+                var right = selections[rightIndex].Region!;
+                var overlaps = left.X < right.X + right.Width
+                    && right.X < left.X + left.Width
+                    && left.Y < right.Y + right.Height
+                    && right.Y < left.Y + left.Height;
+                if (overlaps)
+                {
+                    throw new InvalidOperationException(
+                        $"Identity actor regions for '{selections[leftIndex].CharacterLabel}' and '{selections[rightIndex].CharacterLabel}' overlap.");
+                }
+            }
+        }
     }
 
     public async Task<SceneImageRecord> EnqueueEditAsync(SceneImageEditRequest request, CancellationToken cancellationToken = default)

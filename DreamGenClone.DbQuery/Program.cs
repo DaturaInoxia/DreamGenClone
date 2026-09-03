@@ -16,7 +16,7 @@ if (!File.Exists(databasePath))
     return 2;
 }
 
-var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "b100-analyzer-configure" or "biglust-image-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "sql" ? "ReadWrite" : "ReadOnly";
+var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "b100-analyzer-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -59,6 +59,7 @@ try
             RequireArgument(args, 3, "newTimeoutSeconds")),
         "b100-analyzer-configure" => await ConfigureB100AnalyzerAsync(connection),
         "biglust-image-configure" => await ConfigureBigLustImageAsync(connection),
+        "qwen-edit-serverless-configure" => await ConfigureQwenEditServerlessAsync(connection),
         "set-identity-strength" => await SetIdentityStrengthAsync(
             connection,
             RequireArgument(args, 1, "modelIdentifier"),
@@ -626,6 +627,113 @@ static async Task<int> ConfigureBigLustImageAsync(SqliteConnection connection)
 
     await transaction.CommitAsync();
     Console.WriteLine($"BigLust image configured: {functionName} | {providerName} | {modelIdentifier} (Sdxl / SdxlNaturalLanguage)");
+    return 0;
+}
+
+static async Task<int> ConfigureQwenEditServerlessAsync(SqliteConnection connection)
+{
+    const string functionName = "RolePlaySceneImageEditor";
+    const string providerName = "RunPod Qwen Edit Serverless";
+    const string providerBaseUrl = "https://api.runpod.ai/v2/79wkn5jz5d5txx";
+    const string modelIdentifier = "qwen-image-edit-rapid-aio-nsfw-v23";
+    const string modelDisplayName = "Qwen Image Edit Rapid-AIO NSFW v23";
+    const string diffusionModel = "Qwen-Rapid-AIO-NSFW-v23.safetensors";
+    const string providerNotes = "RunPod Serverless Qwen Edit endpoint img-qwen-edit-serverless. API key resolved through CredentialReference 'runpod'.";
+    const string modelNotes = "Phr00t Qwen Image Edit Rapid-AIO NSFW v23 merged checkpoint using the proven serverless ComfyUI workflow.";
+
+    var now = DateTime.UtcNow.ToString("o");
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+    await using var select = connection.CreateCommand();
+    select.Transaction = transaction;
+    select.CommandText = """
+        SELECT f.ModelId, rm.ProviderId, p.BaseUrl
+        FROM FunctionModelDefaults f
+        INNER JOIN RegisteredModels rm ON rm.Id = f.ModelId
+        INNER JOIN Providers p ON p.Id = rm.ProviderId
+        WHERE f.FunctionName = $functionName;
+        """;
+    select.Parameters.AddWithValue("$functionName", functionName);
+
+    string modelId;
+    string providerId;
+    string currentBaseUrl;
+    await using (var reader = await select.ExecuteReaderAsync())
+    {
+        if (!await reader.ReadAsync())
+            throw new InvalidOperationException(
+                $"Function '{functionName}' has no configured provider/model; no database changes were made.");
+        modelId = reader.GetString(0);
+        providerId = reader.GetString(1);
+        currentBaseUrl = reader.GetString(2);
+    }
+
+    var alreadyServerless = string.Equals(currentBaseUrl, providerBaseUrl, StringComparison.Ordinal);
+    if (!alreadyServerless && !string.Equals(currentBaseUrl, "http://127.0.0.1:3002", StringComparison.Ordinal))
+        throw new InvalidOperationException(
+            $"Qwen editor endpoint changed concurrently. Expected the legacy local endpoint or '{providerBaseUrl}', found '{currentBaseUrl}'; no database changes were made.");
+
+    await using (var updateProvider = connection.CreateCommand())
+    {
+        updateProvider.Transaction = transaction;
+        updateProvider.CommandText = """
+            UPDATE Providers
+            SET Name = $name,
+                BaseUrl = $baseUrl,
+                ProviderType = 0,
+                ImageCapability = 2,
+                ContentPolicy = 2,
+                ImageProtocol = 2,
+                TimeoutSeconds = 900,
+                LifecycleStrategyIdentifier = 'Serverless',
+                CredentialReference = 'runpod',
+                IsEnabled = 1,
+                Notes = $notes,
+                UpdatedUtc = $now
+            WHERE Id = $providerId;
+            """;
+        updateProvider.Parameters.AddWithValue("$name", providerName);
+        updateProvider.Parameters.AddWithValue("$baseUrl", providerBaseUrl);
+        updateProvider.Parameters.AddWithValue("$notes", providerNotes);
+        updateProvider.Parameters.AddWithValue("$now", now);
+        updateProvider.Parameters.AddWithValue("$providerId", providerId);
+        if (await updateProvider.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("Qwen serverless provider update failed; no database changes were made.");
+    }
+
+    await using (var updateModel = connection.CreateCommand())
+    {
+        updateModel.Transaction = transaction;
+        updateModel.CommandText = """
+            UPDATE RegisteredModels
+            SET ModelIdentifier = $modelIdentifier,
+                DisplayName = $displayName,
+                ModelKind = 1,
+                ImageEditorDiffusionModel = $diffusionModel,
+                ImageEditorSteps = 8,
+                ImageEditorCfg = 1.0,
+                ImageEditorSampler = 'euler_ancestral',
+                ImageEditorScheduler = 'beta',
+                ImageEditorDenoise = 1.0,
+                ImageEditorAuraFlowShift = 3.1,
+                ImageEditorCfgNormStrength = 1.0,
+                Notes = $notes,
+                IsEnabled = 1
+            WHERE Id = $modelId
+              AND ProviderId = $providerId;
+            """;
+        updateModel.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
+        updateModel.Parameters.AddWithValue("$displayName", modelDisplayName);
+        updateModel.Parameters.AddWithValue("$diffusionModel", diffusionModel);
+        updateModel.Parameters.AddWithValue("$notes", modelNotes);
+        updateModel.Parameters.AddWithValue("$modelId", modelId);
+        updateModel.Parameters.AddWithValue("$providerId", providerId);
+        if (await updateModel.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("Qwen serverless model update failed; no database changes were made.");
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine(
+        $"Qwen editor configured: {functionName} | {providerName} | {modelIdentifier} | {providerBaseUrl} | ExistingIdsPreserved={providerId}/{modelId}");
     return 0;
 }
 
@@ -1264,5 +1372,5 @@ static string FindDatabasePath()
 static void PrintUsage()
 {
     Console.Error.WriteLine("Usage: dotnet run --project DreamGenClone.DbQuery -- <command> [args]");
-    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <weight> <bustSize> <buttSize>, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, sql <file> [id]");
+    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, qwen-edit-serverless-configure, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <weight> <bustSize> <buttSize>, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, sql <file> [id]");
 }

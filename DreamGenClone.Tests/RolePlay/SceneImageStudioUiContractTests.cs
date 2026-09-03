@@ -11,12 +11,14 @@ public sealed class SceneImageStudioUiContractTests
 {
     private static readonly string Source = File.ReadAllText(Path.Combine(
         FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageStudio.razor"));
+    private static readonly string ProductionWorkspaceSource = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "ProductionWorkspace.razor"));
 
     [Fact]
     public void ProductionCommands_AreProgressivelyGatedAndUseExactCompositionContract()
     {
         var studioStart = IndexOf("<div class=\"card mb-3 scene-production-studio\">");
-        var createBranch = IndexOf("@if (IsSelectedMomentEnriched)", studioStart);
+        var createBranch = IndexOf("@if (!IsCurrentProductionSession && IsSelectedMomentEnriched)", studioStart);
         var createCommand = IndexOf("@onclick=\"CreateOrLoadProductionAsync\"", createBranch);
         var productionBody = IndexOf("<div class=\"card-body\">", createCommand);
         Assert.True(createBranch < createCommand && createCommand < productionBody,
@@ -37,6 +39,35 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("ProductionGroupId = _productionGroup.Id", request, StringComparison.Ordinal);
         Assert.Contains("CompiledMediaBriefId = _activePrompt.CompiledMediaBriefId", request, StringComparison.Ordinal);
         Assert.DoesNotContain("TypedReferenceSnapshotJson", request, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CurrentGeneration_UsesDurableWorkspaceAndHidesTransitionalGenerationSurfaces()
+    {
+        Assert.Contains("<ProductionWorkspace SessionId=\"@sessionId\" />", Source, StringComparison.Ordinal);
+        Assert.Contains("SceneImageProductionSchema.CurrentGeneration", Source, StringComparison.Ordinal);
+        Assert.Contains("<div hidden=\"@IsCurrentProductionSession\">", Source, StringComparison.Ordinal);
+        Assert.Contains("scene-image-legacy-tools\" hidden=\"@IsCurrentProductionSession\"", Source, StringComparison.Ordinal);
+        Assert.Contains("This session predates the current production schema. Create a new session", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DurableWorkspace_PreservesSelectionAndExposesExactOperationalWorkflow()
+    {
+        Assert.Contains("_selectedWorkloadId", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("_selectedWorkloadItemId", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("_selectedAttemptId", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("new System.Threading.Timer", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("UpdatePolling();", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("_comparisonAttemptIds", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("_selectedItem.Request.CanonicalProviderRequestJson", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("_selectedItem.ReferenceBindings", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"PrepareRevisionAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"SubmitSelectedAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"CancelSelectedAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"RetrySelectedAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("ReviewSelectedAsync", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"ApproveSelectedAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
     }
 
     [Fact]

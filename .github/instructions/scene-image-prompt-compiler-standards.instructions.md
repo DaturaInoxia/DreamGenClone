@@ -256,7 +256,30 @@ steps / CFG 5.0 / 1024×1024 (per `ComfyUIImageClient.BuildSdxlWorkflow` and the
 | **SDXL / Juggernaut / Big Lust** | natural-language photography brief | none — state gender+number in prose | name it (`wide shot`, `from behind`, distance) | DPM++ 2M SDE / 30–40 / 3–6 | minimal-ish; anatomy guards for NSFW | this doc + `sdxl-juggernaut-prompting.instructions.md` |
 | **Pony V6 XL** | dense comma tags | `score_9…score_4_up` (full string, first) + `rating_*` + `1boy/1girl/2people` | explicit (`front view, eye level`) | `euler_ancestral` / 25 / 7 · CLIP skip 2 | short (~6 terms) | `pony-v6-prompting.instructions.md` |
 | **Qwen Image Edit** | edit instruction over a source image | n/a | n/a (edit) | see its doc | see its doc | `qwen-image-edit-2511.instructions.md` |
+| **FLUX.2** | natural language or structured JSON | explicit ordered subjects | explicit structured camera | variant/profile-specific | **unsupported; field forbidden** | `flux2-prompting.instructions.md` |
+| **Qwen Image 2512** | descriptive natural language | explicit subject clauses | explicit framing/lighting | 50 steps / true CFG 4 in official recipe | persisted profile value | `qwen-image-generation.instructions.md` |
+| **Qwen Image Edit 2511** | explicit transformation/preservation instruction | ordered input-image roles | preserve/change contract | 40 steps / true CFG 4 / guidance 1 | persisted profile value | `qwen-image-edit-2511.instructions.md` |
 | **API image models** (GPT-Image-2 / Seedream / Imagen) | natural language | n/a | n/a | n/a | n/a (neutral SFW clamp) | `SceneImagePromptCompilers.cs` (`ApiSceneImagePromptCompiler`) |
+
+### 4.1 FLUX.2 exact production boundary
+
+- BFL documents 64px minimum dimensions, dimensions divisible by 16, and at most 4MP output.
+- FLUX.2 has no negative prompt; the compiler rejects that field at any nesting level.
+- `[flex]` guidance is 1.5-10 and steps are at most 50. `[pro]`/`[max]` must not inherit those
+   fields unless the exact selected provider profile documents them.
+- BFL `[pro]` permits at most 9MP total input plus output and up to eight API references at 1MP
+   output. API reference counts remain provider/variant-specific; playground limits never transfer.
+- Production uses pinned fixed endpoints, ordered role-bearing references, and deterministic
+   structured prompts. Prompt upsampling is not part of compilation.
+
+### 4.2 Qwen exact production boundary
+
+- `Qwen/Qwen-Image-2512` generation uses `QwenImagePipeline`; the official recipe uses 50 steps,
+   `true_cfg_scale = 4.0`, and seven exact published aspect-ratio dimensions.
+- `Qwen/Qwen-Image-Edit-2511` uses `QwenImageEditPlusPipeline`; the official recipe uses 40 steps,
+   `true_cfg_scale = 4.0`, `guidance_scale = 1.0`, one output, and an ordered image list.
+- Generation and edit have different compiler/profile identities. Official prompt-enhancement
+   utilities are not runtime dependencies; compilation consumes validated structured facts only.
 
 ---
 

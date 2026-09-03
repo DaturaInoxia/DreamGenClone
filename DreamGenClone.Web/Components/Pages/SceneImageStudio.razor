@@ -710,7 +710,7 @@
                                 <span class="badge text-bg-info ms-2">@_productionGroup.Status</span>
                             }
                         </button>
-                        @if (IsSelectedMomentEnriched)
+                        @if (!IsCurrentProductionSession && IsSelectedMomentEnriched)
                         {
                             <button class="btn btn-sm btn-primary"
                                     disabled="@(_busy || string.IsNullOrWhiteSpace(_productionPov))"
@@ -722,6 +722,18 @@
                     @if (_productionStudioOpen)
                     {
                     <div class="card-body">
+                        @if (IsCurrentProductionSession)
+                        {
+                            <ProductionWorkspace SessionId="@sessionId" />
+                        }
+                        else
+                        {
+                            <div class="alert alert-warning mb-0">
+                                This session predates the current production schema. Create a new session to use Production Studio.
+                            </div>
+                        }
+                        <div hidden="@IsCurrentProductionSession">
+                        <hr class="my-4" />
                         @if (!IsSelectedMomentEnriched)
                         {
                             <div class="scene-production-empty text-muted">
@@ -1021,11 +1033,12 @@
                                 }
                             </div>
                         }
+                        </div>
                     </div>
                     }
                 </div>
 
-                <div class="card mb-3 scene-image-legacy-tools">
+                <div class="card mb-3 scene-image-legacy-tools" hidden="@IsCurrentProductionSession">
                     <div class="card-header p-0">
                         <button class="studio-collapse-toggle studio-collapse-toggle-full px-3 py-2" @onclick="ToggleLegacyTools" type="button">
                             <strong>Legacy / Experimental Tools</strong>
@@ -1559,6 +1572,9 @@
     private string? _selectedBeatId;
     private string? _selectedPov;
     private SceneImageRecord? _viewerImage;
+
+    private bool IsCurrentProductionSession =>
+        _session?.SceneImageProductionSchemaGeneration == SceneImageProductionSchema.CurrentGeneration;
 
     // Studio layout: the Story Moment panel and the Legacy / Experimental Tools panel are
     // collapsible and collapsed by default. The Story Moment panel hosts tabs for the story

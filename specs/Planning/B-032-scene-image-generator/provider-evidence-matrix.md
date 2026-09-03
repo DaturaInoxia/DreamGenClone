@@ -35,7 +35,7 @@ Download counts, stars, rankings, and popularity never select a mechanism.
 | PuLID v1.1 SDXL | Official project reports improved compatibility, editability, facial naturalness, and similarity over v1; Juggernaut-XL is a documented base option. Apache-2.0 code; ComfyUI implementation is community maintained. | Exact checkpoint/node/workflow compatibility must be pinned. Project’s FLUX table reports variant-specific fidelity gaps. | Candidate, not selected by reputation. Must run the same frozen matrix. |
 | PuLID FLUX 0.9.x | Official project supports FLUX and reports 0.9.0 male-fidelity weakness and improved 0.9.1 similarity. | Not equivalent to PuLID SDXL; checkpoint and workflow differ. Multi-person route cited by project is a third-party regional implementation. | Separate candidate profile and matrix. |
 | InstantID | Official project is tuning-free, single-reference, SDXL-based identity generation. It explicitly states multi-person is unsupported and uses only the largest detected face. Checkpoints/InsightFace assets have research-use constraints documented by the project. | Not suitable for initial multi-person commercial product cells without license resolution and a different mechanism. | Excluded from Phase 2 production candidates. May be reconsidered only by a new evidence decision. |
-| Character LoRA | Model-family/community practice supports recurring concepts when trained and invoked against compatible bases. | Requires consent/licensing, curated dataset, training provenance, trigger governance, exact base compatibility, and inference qualification. It cannot repair pose, contact, or location geometry. | Conditional branch only after a qualified reference/edit route fails identity cells for a principal character. |
+| Character LoRA | Diffusers provides DreamBooth LoRA trainers for SDXL, FLUX, FLUX.2, and related families with instance/custom captions, validation, checkpoints, exact base binding, and optional prior preservation. Maintained AI Toolkit and sd-scripts implementations add trigger substitution, caption controls, aspect-ratio buckets, validation splits/samples, and explicit recipes. | Synthetic datasets can amplify generator-correlated identity drift, wardrobe/background leakage, duplicates, or anatomy defects. Requires Asset Manager curation, immutable dataset versions, exact base/trainer/recipe provenance, and inference qualification. It cannot repair pose, contact, location geometry, or ownership without separate gates. | Required product capability. Qualify LoRA-only and any reference+LoRA combination as separate exact cells; no global mechanism selection or fallback. |
 
 ## 4. Provider Transport And Retention
 
@@ -58,6 +58,11 @@ Download counts, stars, rankings, and popularity never select a mechanism.
 - Associate precise colors with exact subjects/objects.
 - Describe desired positive state; do not generate a negative prompt.
 - Apply variant-specific dimensions, reference count, guidance, steps, and megapixel validation.
+- Exact API baseline: width/height are at least 64, divisible by 16, and no more than 4MP output.
+  BFL `[pro]` limits input+output to 9MP and documents up to eight API references at 1MP output;
+  `[flex]` guidance is 1.5-10 and steps are at most 50. Fixed endpoints are required for production.
+- Together exposes ordered `reference_images` for FLUX.2 pro/dev/flex, `n` from 1-4, seed, and
+  base64 output. Its compatibility table forbids `negative_prompt` for every FLUX.2 variant.
 
 ### 5.2 Qwen generation/edit
 
@@ -66,6 +71,10 @@ Download counts, stars, rankings, and popularity never select a mechanism.
 - The exact Qwen version, pipeline, settings, negative, and input list are snapshotted.
 - Official Qwen prompt-enhancement tools are research evidence, not the runtime architecture.
   DreamGenClone compiles from validated structured facts without generic LLM polishing.
+- Qwen Image 2512 generation uses `QwenImagePipeline`, 50 steps, true CFG 4, and the official
+  dimension set: 1328x1328, 1664x928, 928x1664, 1472x1104, 1104x1472, 1584x1056, 1056x1584.
+- Qwen Image Edit 2511 uses `QwenImageEditPlusPipeline`; the official example uses an ordered image
+  list, 40 steps, true CFG 4, guidance 1, one output, and a blank negative string.
 
 ### 5.3 SDXL/Juggernaut/BigLust
 
@@ -155,6 +164,9 @@ These are implementation/proof tasks, not accepted requirements of model behavio
   a composition-first base render across the required angles.
 - A character LoRA can improve failed angled identity cells without reducing ownership or prompt
   compliance.
+- A wholly synthetic, coverage-controlled Asset Manager dataset can preserve one fictional identity
+  across held-out angles and compositions without learning generator-correlated wardrobe,
+  background, style, or anatomy defects.
 - Depth plus actor regions can preserve Phase 3 location/blocking better than depth alone.
 - Approved stills are sufficiently consistent to serve as future video first/last frames.
 - Warm-window grouping materially lowers RunPod cost/latency for the selected worker images.
@@ -176,6 +188,13 @@ Official/primary sources consulted on or before 2026-09-02:
 - PuLID official repository: https://github.com/ToTheBeginning/PuLID
 - InstantID official repository: https://github.com/instantX-research/InstantID
 - ComfyUI official repository: https://github.com/Comfy-Org/ComfyUI
+- Hugging Face Diffusers DreamBooth trainers: https://github.com/huggingface/diffusers/tree/main/examples/dreambooth
+- Diffusers SDXL LoRA trainer: https://github.com/huggingface/diffusers/blob/main/examples/dreambooth/train_dreambooth_lora_sdxl.py
+- Diffusers FLUX LoRA trainer: https://github.com/huggingface/diffusers/blob/main/examples/dreambooth/train_dreambooth_lora_flux.py
+- Diffusers FLUX.2 LoRA trainers: https://github.com/huggingface/diffusers/tree/main/examples/dreambooth
+- AI Toolkit training/dataset documentation: https://github.com/ostris/ai-toolkit
+- sd-scripts dataset and validation documentation: https://github.com/kohya-ss/sd-scripts
+- BFL FLUX.2 model overview and base-model guidance: https://docs.bfl.ai/flux_2/flux2_overview
 - ComfyUI partial execution: https://docs.comfy.org/interface/features/partial-execution
 - ElevenLabs TTS best practices: https://elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices
 - ElevenLabs music best practices: https://elevenlabs.io/docs/overview/capabilities/music/best-practices
@@ -183,8 +202,8 @@ Official/primary sources consulted on or before 2026-09-02:
 - Google Veo prompt guide: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/video-gen-prompt-guide
 - Midjourney Edit Model: https://docs.midjourney.com/hc/en-us/articles/48495453462797-Edit-Model
 
-The model-family instruction files remain the practical source for already validated exact current
-strings/settings. FLUX.2 and Qwen generation are not implementation-ready compiler families until
-their exact researched envelopes/rules are added to the canonical compiler standards and dedicated
-family instructions. A compiler implementation must reconcile this ledger, those instructions, and
-a current official API schema before coding.
+The model-family instruction files remain the practical source for exact current strings/settings.
+The 2026-09-02 refresh added `flux2-prompting.instructions.md` and
+`qwen-image-generation.instructions.md`, reconciled their exact official envelopes into the
+canonical compiler standards, and made both families implementation-ready as candidate compilers.
+This does not qualify any production cell; local frozen matrix evidence remains mandatory.

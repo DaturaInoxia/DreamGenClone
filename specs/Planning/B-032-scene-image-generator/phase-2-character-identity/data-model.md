@@ -84,17 +84,45 @@ Cases persist matrix coordinates: character pair, pose key, view key, seed, prom
 and expected constraints. Results reference an output and store each scored dimension as
 `Pass`, `Fail`, or `NotScored`, plus notes and reviewer timestamp.
 
+### `CharacterLoraDataset`
+
+Versioned aggregate owned by one character: `Id`, `CharacterProfileId`, `IdentityPackId`, `Version`,
+`Status` (`Draft`, `Frozen`, `Superseded`), `TriggerToken`, `TargetModelFamily`, `CoveragePlanJson`,
+`CurationPolicyJson`, `ManifestSha256`, `SupersedesId`, `CreatedUtc`, `FrozenUtc`, and `FrozenBy`.
+
+The initial draft records the approved canonical synthetic identity seed and its generation
+attempt. Freezing computes a manifest hash over ordered membership, captions, roles, splits,
+asset checksums, and policy/coverage dispositions. Frozen datasets never change.
+
+### `CharacterLoraDatasetMember`
+
+Fields: `Id`, `DatasetId`, `Ordinal`, `SceneAssetId`, `AssetSha256`, `Role` (`IdentitySeed`,
+`Training`, `Validation`), `Split` (`Train`, `Validation`), `Caption`, `CaptionRevision`,
+`CoverageJson`, `GenerationAttemptId`, `CurationStatus`, `CurationFindingsJson`, `ReviewedBy`, and
+`ReviewedUtc`. A member uses the shared asset catalog; it does not introduce another byte store.
+
+### `CharacterLoraTrainingJob` and `CharacterLoraTrainingAttempt`
+
+The job binds one frozen dataset to one exact configured recipe and target base:
+`Id`, `DatasetId`, `BaseModelId`, `BaseModelVersion`, `BaseModelSha256`, `TrainerId`,
+`TrainerVersion`, `RecipeJson`, `EnvironmentManifestJson`, `Status`, and timestamps. Attempts are
+append-only and store provider/worker ID, attempt number, seed, status history, logs/samples/
+checkpoint manifests, timing, failure diagnostics, and output metadata. Provider IDs are persisted
+before polling; recovery never silently resubmits.
+
 ### `CharacterLoraArtifact`
 
-Created only when the LoRA decision is `Required`: `Id`, `IdentityPackId`, `CheckpointFamily`,
-`TriggerToken`, `FileRelativePath`, `Sha256`, `TrainingManifestJson`, `DefaultStrength`, `Status`,
-and timestamps. `DefaultStrength` is configuration metadata selected by the user, not a hardcoded
-runtime fallback.
+Versioned training output: `Id`, `CharacterProfileId`, `DatasetId`, `TrainingAttemptId`, `Version`,
+`BaseModelId`, `BaseModelVersion`, `BaseModelSha256`, `TriggerToken`, `FileRelativePath`, `Sha256`,
+`TrainingManifestJson`, `Status` (`Candidate`, `Qualified`, `Rejected`, `Superseded`), and timestamps.
+Inference strengths belong to exact qualified capability cells, not an artifact-wide default.
 
-### `CharacterIdentityDecision`
+### `IdentityStrategyBinding`
 
-Fields: `Id`, `IdentityPackId`, `EvaluationRunId`, `Decision` (`NotRequired`, `Required`,
-`Deferred`), `Rationale`, `CreatedUtc`.
+Immutable request binding with `StrategyKind` (`ReferenceConditioning`, `Lora`, `Combined`), ordered
+reference bindings where applicable, exact LoRA artifact IDs/checksums and strengths where
+applicable, and the exact qualified capability profile/cell. Required fields depend on the strategy;
+missing or extra fields fail compilation.
 
 ## Relationships
 
@@ -108,8 +136,12 @@ erDiagram
     ProductionWorkloadItem ||--o{ ProductionAttempt : executes
     ProductionAttempt ||--o| ProductionDerivative : approves
     SceneIdentityEvaluationCase ||--o{ SceneIdentityEvaluationResult : produces
-    CharacterImageIdentityPack ||--o| CharacterLoraArtifact : may_train
-    CharacterImageIdentityPack ||--o{ CharacterIdentityDecision : evaluated_by
+    CharacterImageIdentityPack ||--o{ CharacterLoraDataset : bootstraps
+    CharacterLoraDataset ||--o{ CharacterLoraDatasetMember : contains
+    CharacterLoraDataset ||--o{ CharacterLoraTrainingJob : trains
+    CharacterLoraTrainingJob ||--o{ CharacterLoraTrainingAttempt : attempts
+    CharacterLoraTrainingAttempt ||--o| CharacterLoraArtifact : produces
+    CharacterLoraArtifact ||--o{ IdentityStrategyBinding : invokes
 ```
 
 ## State Rules
@@ -123,6 +155,11 @@ erDiagram
 - Attempts move `Created -> Submitted -> Running -> Succeeded|Failed|Cancelled|Expired` and never
     transition backward. Review/approval is separate from transport success.
 - Capability cells move `Draft -> Proving -> Qualified|Rejected|Retired`; only `Qualified` dispatches.
+- LoRA datasets move `Draft -> Frozen -> Superseded`; only `Frozen` datasets may train.
+- LoRA training jobs move `Draft -> Ready -> Queued -> Running -> Succeeded|Failed|Cancelled`.
+- LoRA attempts are append-only; retry creates another attempt and never overwrites prior evidence.
+- LoRA artifacts move `Candidate -> Qualified|Rejected -> Superseded`; only exact qualified
+    artifact/profile/cell combinations may compile.
 
 ## Clean-Baseline Strategy
 

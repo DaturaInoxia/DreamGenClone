@@ -27,6 +27,17 @@ public interface ISceneAssetService
     Task<IReadOnlyList<SceneAsset>> ListAssetsByPackAsync(
         string identityPackId, CancellationToken cancellationToken = default);
 
+    Task<SceneAsset> ApproveForProductionAsync(
+        string assetId,
+        string sourceProvenanceJson,
+        SceneAssetConsentState consentState,
+        SceneAssetLicenseState licenseState,
+        string licenseLabel,
+        SceneAssetApprovedUseScope approvedUseScope,
+        string contentPolicyKey,
+        string compatibilityMetadataJson,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Open a complete asset's stored bytes for viewing/downloading.</summary>
     Task<(SceneAsset Asset, Stream Stream)> OpenForDownloadAsync(
         string assetId, CancellationToken cancellationToken = default);

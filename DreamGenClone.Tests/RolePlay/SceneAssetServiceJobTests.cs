@@ -103,6 +103,38 @@ public sealed class SceneAssetServiceJobTests
     }
 
     [Fact]
+    public async Task ApproveForProduction_PersistsExplicitGovernanceWithoutDefaults()
+    {
+        var (service, _, repo, _, dbPath, root) = Build();
+        try
+        {
+            await using var stream = new MemoryStream(MinimalPng());
+            var asset = await service.CreateFromUploadAsync("Dean face", "dean.png", stream);
+
+            var approved = await service.ApproveForProductionAsync(
+                asset.Id,
+                "{\"source\":\"curator upload\"}",
+                SceneAssetConsentState.Confirmed,
+                SceneAssetLicenseState.Confirmed,
+                "owned reference",
+                SceneAssetApprovedUseScope.CharacterIdentity,
+                "local-adult-production",
+                "{\"families\":[\"sdxl\"]}");
+
+            Assert.Equal(SceneAssetProductionApprovalStatus.Approved, approved.ProductionApprovalStatus);
+            Assert.Equal(1, approved.ProductionVersion);
+            Assert.Equal(SceneAssetApprovedUseScope.CharacterIdentity, approved.ApprovedUseScope);
+            Assert.Equal("local-adult-production", approved.ContentPolicyKey);
+            Assert.Equal("owned reference", approved.LicenseLabel);
+            Assert.Equal(approved.ProductionApprovalStatus, (await repo.GetAsync(asset.Id))!.ProductionApprovalStatus);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
     public async Task EnqueueEdit_RequiresCompleteSource()
     {
         var (service, _, repo, _, dbPath, root) = Build();

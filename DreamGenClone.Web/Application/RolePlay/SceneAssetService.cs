@@ -154,6 +154,26 @@ public sealed class SceneAssetService : ISceneAssetService
         string identityPackId, CancellationToken cancellationToken = default)
         => _repository.ListByPackAsync(identityPackId, cancellationToken);
 
+    public async Task<SceneAsset> ApproveForProductionAsync(
+        string assetId,
+        string sourceProvenanceJson,
+        SceneAssetConsentState consentState,
+        SceneAssetLicenseState licenseState,
+        string licenseLabel,
+        SceneAssetApprovedUseScope approvedUseScope,
+        string contentPolicyKey,
+        string compatibilityMetadataJson,
+        CancellationToken cancellationToken = default)
+    {
+        var approved = await _repository.ApproveForProductionAsync(
+            assetId, sourceProvenanceJson, consentState, licenseState, licenseLabel,
+            approvedUseScope, contentPolicyKey, compatibilityMetadataJson, cancellationToken);
+        _logger.LogInformation(
+            "Approved scene asset for production: AssetId={AssetId}, Version={Version}, UseScope={UseScope}, ContentPolicy={ContentPolicy}",
+            approved.Id, approved.ProductionVersion, approved.ApprovedUseScope, approved.ContentPolicyKey);
+        return approved;
+    }
+
     public async Task<(SceneAsset Asset, Stream Stream)> OpenForDownloadAsync(
         string assetId, CancellationToken cancellationToken = default)
     {

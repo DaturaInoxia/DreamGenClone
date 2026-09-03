@@ -425,6 +425,7 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         {
             Title = string.IsNullOrWhiteSpace(request.Title) ? "Untitled Role-Play" : request.Title.Trim(),
             ScenarioId = request.ScenarioId,
+            SceneImageProductionSchemaGeneration = SceneImageProductionSchema.CurrentGeneration,
             PersonaCharacterId = request.PersonaCharacterId,
             PersonaName = string.IsNullOrWhiteSpace(request.PersonaName) ? string.Empty : request.PersonaName.Trim(),
             PersonaDescription = request.PersonaDescription ?? string.Empty,

@@ -546,8 +546,16 @@ public sealed class SceneImageServiceJobTests
                 IdentityPackId = "pack-1",
                 IdentityPacks =
                 [
-                    new IdentityPackSelection { PackId = "pack-1", CharacterLabel = "Dean — v1", Strength = 0.8 },
-                    new IdentityPackSelection { PackId = "pack-2", CharacterLabel = "Becky — v1" }
+                    new IdentityPackSelection
+                    {
+                        PackId = "pack-1", CharacterLabel = "Dean — v1", Strength = 0.8,
+                        Region = new SceneImageEditTargetRegion { X = 0, Y = 0, Width = 0.5, Height = 1 }
+                    },
+                    new IdentityPackSelection
+                    {
+                        PackId = "pack-2", CharacterLabel = "Becky — v1",
+                        Region = new SceneImageEditTargetRegion { X = 0.5, Y = 0, Width = 0.5, Height = 1 }
+                    }
                 ]
             });
 
@@ -563,6 +571,80 @@ public sealed class SceneImageServiceJobTests
             Assert.Equal("pack-2", persisted[1].PackId);
             Assert.Null(persisted[1].Strength);
             Assert.Single(queue.Enqueued);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_IdentityMode_MultiPackWithoutRegions_FailsBeforeEnqueue()
+    {
+        var session = MakeSession();
+        var (service, queue, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "two people",
+                RenderMode = SceneImageRenderMode.IdentityControlled,
+                IdentityPacks =
+                [
+                    new IdentityPackSelection { PackId = "pack-1", CharacterLabel = "Dean" },
+                    new IdentityPackSelection { PackId = "pack-2", CharacterLabel = "Becky" }
+                ]
+            }));
+
+            Assert.Contains("region", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(queue.Enqueued);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_IdentityMode_OverlappingRegions_FailsBeforeEnqueue()
+    {
+        var session = MakeSession();
+        var (service, queue, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "two people",
+                RenderMode = SceneImageRenderMode.IdentityControlled,
+                IdentityPacks =
+                [
+                    new IdentityPackSelection
+                    {
+                        PackId = "pack-1", CharacterLabel = "Dean",
+                        Region = new SceneImageEditTargetRegion { X = 0, Y = 0, Width = 0.6, Height = 1 }
+                    },
+                    new IdentityPackSelection
+                    {
+                        PackId = "pack-2", CharacterLabel = "Becky",
+                        Region = new SceneImageEditTargetRegion { X = 0.5, Y = 0, Width = 0.5, Height = 1 }
+                    }
+                ]
+            }));
+
+            Assert.Contains("overlap", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(queue.Enqueued);
         }
         finally
         {

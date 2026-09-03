@@ -1,4 +1,5 @@
 using DreamGenClone.Application.StoryAnalysis;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Story;
 using Microsoft.Extensions.Logging;
@@ -43,6 +44,7 @@ public sealed class SessionCloneForkService : ISessionCloneForkService
         {
             Title = $"{rolePlay.Title} (Clone)",
             ScenarioId = rolePlay.ScenarioId,
+            SceneImageProductionSchemaGeneration = SceneImageProductionSchema.CurrentGeneration,
             BehaviorMode = rolePlay.BehaviorMode,
             ParentSessionId = rolePlay.ParentSessionId,
             PersonaName = rolePlay.PersonaName,
@@ -94,6 +96,7 @@ public sealed class SessionCloneForkService : ISessionCloneForkService
         {
             Title = $"{rolePlay.Title} (Fork)",
             ScenarioId = rolePlay.ScenarioId,
+            SceneImageProductionSchemaGeneration = SceneImageProductionSchema.CurrentGeneration,
             BehaviorMode = rolePlay.BehaviorMode,
             ParentSessionId = rolePlay.Id,
             PersonaName = rolePlay.PersonaName,

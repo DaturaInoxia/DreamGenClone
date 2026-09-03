@@ -1,6 +1,7 @@
 @page "/asset-studio"
 @rendermode InteractiveServer
 
+@using DreamGenClone.Application.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.Scenarios
 @using DreamGenClone.Web.Domain.Scenarios
@@ -8,17 +9,31 @@
 @implements IAsyncDisposable
 
 @inject ISceneAssetService AssetService
+@inject ICharacterAssetCatalogService CharacterAssetCatalog
 @inject IScenarioService ScenarioService
+@inject NavigationManager Navigation
 @inject ILogger<AssetStudio> Logger
 
-<PageTitle>Asset Studio - DreamGenClone</PageTitle>
+<PageTitle>Asset Manager - DreamGenClone</PageTitle>
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-2">
-        <h4 class="mb-0">Asset Studio</h4>
-        <a href="/" class="btn btn-outline-secondary btn-sm">Back to Home</a>
+        <h4 class="mb-0">Asset Manager</h4>
+        <div class="d-flex gap-2">
+            <a href="/asset-studio/lora-datasets/new" class="btn btn-outline-primary btn-sm">Generate LoRA Dataset</a>
+            <a href="/asset-studio/lora-training-profiles" class="btn btn-outline-primary btn-sm">LoRA Training Profiles</a>
+            <a href="/" class="btn btn-outline-secondary btn-sm">Back to Home</a>
+        </div>
     </div>
-    <p class="text-muted small mb-3">Generate and manage reusable images for the application — character profile packs, locations, clothing, and more. Created assets are persisted, viewable, and downloadable. <strong>Generate Profile Pack</strong> is the special multi-view character identity function.</p>
+    <p class="text-muted small mb-3">Curate the shared production asset catalog for character identity, body, wardrobe, locations, and controls.</p>
+
+    @if (PickerMode)
+    {
+        <div class="alert alert-secondary py-2">
+            <strong>Picker:</strong> @PickerRole for actor @PickerActorKey.
+            Select an exact approved versioned asset below.
+        </div>
+    }
 
     @if (!string.IsNullOrEmpty(_error))
     {
@@ -81,21 +96,132 @@
                     </button>
                 </div>
             </div>
+
+            <section class="mt-3" aria-label="Typed character asset versions">
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                    <h5 class="mb-0">Character Versions</h5>
+                    <a href="/characters/identity" class="btn btn-sm btn-outline-secondary">Manage Identity Packs</a>
+                </div>
+                <label class="form-label small" for="version-character">Character</label>
+                <div class="input-group input-group-sm mb-2">
+                    <select id="version-character" class="form-select" @bind="_versionCharacterId">
+                        <option value="">Select a character</option>
+                        @foreach (var option in _characterOptions)
+                        {
+                            <option value="@option.Id">@option.Label</option>
+                        }
+                    </select>
+                    <button class="btn btn-outline-primary" type="button" disabled="@(_busy || string.IsNullOrWhiteSpace(_versionCharacterId))"
+                            @onclick="LoadCharacterVersionsAsync">Load Versions</button>
+                </div>
+                @if (_characterVersions.Count == 0)
+                {
+                    <div class="small text-muted">No typed versions loaded.</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead><tr><th>Type</th><th>Version</th><th>Status</th><th>Assets</th></tr></thead>
+                            <tbody>
+                                @foreach (var version in _characterVersions)
+                                {
+                                    <tr>
+                                        <td>@version.Kind</td>
+                                        <td>
+                                            <span class="font-monospace">@version.Id</span>
+                                            <span class="d-block small text-muted">v@version.Version · from @(version.SupersedesId ?? "root")</span>
+                                        </td>
+                                        <td><span class="badge text-bg-secondary">@version.Status</span></td>
+                                        <td>
+                                            @if (version.Assets.Count == 0)
+                                            {
+                                                <span class="text-muted small">No production-version assets</span>
+                                            }
+                                            else
+                                            {
+                                                @foreach (var option in version.Assets)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-primary me-1 mb-1" type="button"
+                                                            disabled="@(version.Status != "Approved")"
+                                                            title="Select exact @option.SemanticRole asset"
+                                                            @onclick="() => SelectPickerAsset(option)">
+                                                        @option.SemanticRole · asset v@option.SceneAssetVersion
+                                                    </button>
+                                                }
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                @if (_selectedPickerAsset is not null)
+                {
+                    <div class="small border-top pt-2">
+                        <strong>Exact picker result</strong>
+                        <span class="d-block font-monospace text-break">@_selectedPickerAsset.VersionKind · @_selectedPickerAsset.VersionId · v@_selectedPickerAsset.Version</span>
+                        <span class="d-block font-monospace text-break">@_selectedPickerAsset.SceneAssetId · asset v@_selectedPickerAsset.SceneAssetVersion</span>
+                        <span class="d-block font-monospace text-break">@_selectedPickerAsset.SceneAssetSha256</span>
+                    </div>
+                }
+            </section>
         </div>
 
         <div class="col-lg-6">
-            <div class="card">
+            <div class="card mb-3">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <strong>Asset Library (@_assets.Count)</strong>
+                    <strong>Asset Library (@_filteredAssets.Count / @_assets.Count)</strong>
                     @if (_hasInFlight)
                     {
                         <span class="text-muted small">updating…</span>
                     }
                 </div>
+                <div class="card-body border-bottom py-2">
+                    <div class="row g-2">
+                        <div class="col-sm-4">
+                            <label class="form-label small mb-1" for="asset-search">Search</label>
+                            <input id="asset-search" type="search" class="form-control form-control-sm"
+                                   @bind="_assetSearch" @bind:event="oninput" placeholder="Name, ID, character, or pack" />
+                        </div>
+                        <div class="col-sm-3">
+                            <label class="form-label small mb-1" for="asset-type-filter">Type</label>
+                            <select id="asset-type-filter" class="form-select form-select-sm" @bind="_assetTypeFilter">
+                                <option value="">All types</option>
+                                @foreach (var type in Enum.GetValues<SceneAssetType>())
+                                {
+                                    <option value="@type.ToString()">@type</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-sm-2">
+                            <label class="form-label small mb-1" for="asset-approval-filter">Approval</label>
+                            <select id="asset-approval-filter" class="form-select form-select-sm" @bind="_assetApprovalFilter">
+                                <option value="">All</option>
+                                <option value="Unreviewed">Unreviewed</option>
+                                @foreach (var status in Enum.GetValues<SceneAssetProductionApprovalStatus>())
+                                {
+                                    <option value="@status.ToString()">@status</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-sm-3">
+                            <label class="form-label small mb-1" for="asset-character-filter">Character</label>
+                            <select id="asset-character-filter" class="form-select form-select-sm" @bind="_assetCharacterFilter">
+                                <option value="">All characters</option>
+                                @foreach (var option in _characterOptions)
+                                {
+                                    <option value="@option.Id">@option.Label</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                </div>
                 <div class="card-body p-0">
-                    @if (_assets.Count == 0)
+                    @if (_filteredAssets.Count == 0)
                     {
-                        <div class="p-3 text-muted">No assets yet. Generate from a prompt or upload an image to begin.</div>
+                        <div class="p-3 text-muted">No assets match the current filters.</div>
                     }
                     else
                     {
@@ -112,9 +238,9 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var asset in _assets)
+                                    @foreach (var asset in _filteredAssets)
                                     {
-                                        <tr>
+                                        <tr class="@(_selectedAssetId == asset.Id ? "table-active" : "")">
                                             <td>
                                                 @if (asset.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(asset.FileRelativePath))
                                                 {
@@ -129,9 +255,19 @@
                                                 }
                                             </td>
                                             <td>@asset.Kind</td>
-                                            <td><span class="badge @StatusBadge(asset.Status)">@asset.Status</span></td>
+                                            <td>
+                                                <span class="badge @StatusBadge(asset.Status)">@asset.Status</span>
+                                                @if (asset.ProductionApprovalStatus is not null)
+                                                {
+                                                    <span class="badge text-bg-info d-block mt-1">@asset.ProductionApprovalStatus</span>
+                                                }
+                                            </td>
                                             <td class="text-nowrap">@asset.CreatedUtc.ToLocalTime().ToString("g")</td>
                                             <td class="text-end text-nowrap">
+                                                <button class="btn btn-sm btn-outline-primary" type="button" title="Preview asset"
+                                                        aria-label="Preview @asset.Name" @onclick="() => SelectAsset(asset.Id)">
+                                                    <i class="bi bi-eye"></i>
+                                                </button>
                                                 <a class="btn btn-sm btn-outline-secondary" href="/asset-studio/@asset.Id">View</a>
                                             </td>
                                         </tr>
@@ -142,11 +278,107 @@
                     }
                 </div>
             </div>
+
+            @if (_selectedAsset is not null)
+            {
+                <section class="card" aria-label="Selected asset inspector">
+                    <div class="card-header d-flex justify-content-between align-items-center gap-2">
+                        <strong class="text-truncate">@_selectedAsset.Name</strong>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" title="Close inspector"
+                                aria-label="Close asset inspector" @onclick="ClearAssetSelection">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                    <div class="card-body small">
+                        @if (_selectedAsset.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(_selectedAsset.FileRelativePath))
+                        {
+                            <img src="/scene-images/@_selectedAsset.FileRelativePath" class="img-fluid mb-3"
+                                 style="max-height:320px;width:100%;object-fit:contain;background:#101010;" alt="@_selectedAsset.Name" />
+                        }
+                        <dl class="row mb-3">
+                            <dt class="col-4">Asset</dt><dd class="col-8 font-monospace text-break">@_selectedAsset.Id</dd>
+                            <dt class="col-4">Type</dt><dd class="col-8">@(_selectedAsset.Type?.ToString() ?? "Unclassified")</dd>
+                            <dt class="col-4">Version</dt><dd class="col-8">@(_selectedAsset.ProductionVersion?.ToString() ?? "Not approved")</dd>
+                            <dt class="col-4">Character</dt><dd class="col-8 font-monospace text-break">@(_selectedAsset.CharacterProfileId ?? "Not assigned")</dd>
+                            <dt class="col-4">Identity pack</dt><dd class="col-8 font-monospace text-break">@(_selectedAsset.IdentityPackId ?? "Not assigned")</dd>
+                            <dt class="col-4">Source</dt><dd class="col-8 font-monospace text-break">@(_selectedAsset.SourceAssetId ?? _selectedAsset.SourceSceneImageId ?? "Original")</dd>
+                            <dt class="col-4">Supersedes</dt><dd class="col-8 font-monospace text-break">@(_selectedAsset.SupersedesAssetId ?? "None")</dd>
+                            <dt class="col-4">SHA-256</dt><dd class="col-8 font-monospace text-break">@_selectedAsset.Sha256</dd>
+                        </dl>
+
+                        @if (_selectedAsset.ProductionApprovalStatus is null or SceneAssetProductionApprovalStatus.Draft)
+                        {
+                            <h6>Production Approval</h6>
+                            <label class="form-label small" for="asset-provenance">Source provenance JSON</label>
+                            <textarea id="asset-provenance" class="form-control form-control-sm font-monospace" rows="2" @bind="_approvalProvenanceJson"></textarea>
+                            <div class="row g-2 mt-1">
+                                <div class="col-sm-6">
+                                    <label class="form-label small" for="asset-consent">Consent</label>
+                                    <select id="asset-consent" class="form-select form-select-sm" @bind="_approvalConsent">
+                                        <option value="">Select consent</option>
+                                        <option value="Confirmed">Confirmed</option>
+                                        <option value="NotApplicable">Not applicable</option>
+                                    </select>
+                                </div>
+                                <div class="col-sm-6">
+                                    <label class="form-label small" for="asset-license">License</label>
+                                    <select id="asset-license" class="form-select form-select-sm" @bind="_approvalLicense">
+                                        <option value="">Select license</option>
+                                        <option value="Confirmed">Confirmed</option>
+                                        <option value="NotApplicable">Not applicable</option>
+                                    </select>
+                                </div>
+                                <div class="col-sm-6">
+                                    <label class="form-label small" for="asset-license-label">License label</label>
+                                    <input id="asset-license-label" class="form-control form-control-sm" @bind="_approvalLicenseLabel" />
+                                </div>
+                                <div class="col-sm-6">
+                                    <label class="form-label small" for="asset-use-scope">Use scope</label>
+                                    <select id="asset-use-scope" class="form-select form-select-sm" @bind="_approvalUseScope">
+                                        <option value="">Select scope</option>
+                                        @foreach (var scope in Enum.GetValues<SceneAssetApprovedUseScope>())
+                                        {
+                                            <option value="@scope.ToString()">@scope</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                            <label class="form-label small mt-2" for="asset-policy">Content policy key</label>
+                            <input id="asset-policy" class="form-control form-control-sm" @bind="_approvalContentPolicyKey" />
+                            <label class="form-label small mt-2" for="asset-compatibility">Compatibility metadata JSON</label>
+                            <textarea id="asset-compatibility" class="form-control form-control-sm font-monospace" rows="2" @bind="_approvalCompatibilityJson"></textarea>
+                            <button class="btn btn-sm btn-success mt-2" type="button" disabled="@(_busy || !CanApproveSelectedAsset)"
+                                    @onclick="ApproveSelectedAssetAsync">
+                                <i class="bi bi-check2-circle me-1"></i> Approve Exact Asset
+                            </button>
+                        }
+                        else
+                        {
+                            <h6>Production Provenance</h6>
+                            <div class="font-monospace text-break mb-2">@_selectedAsset.SourceProvenanceJson</div>
+                            <div><strong>Consent:</strong> @_selectedAsset.ConsentState</div>
+                            <div><strong>License:</strong> @_selectedAsset.LicenseState · @_selectedAsset.LicenseLabel</div>
+                            <div><strong>Use scope:</strong> @_selectedAsset.ApprovedUseScope</div>
+                            <div><strong>Policy:</strong> @_selectedAsset.ContentPolicyKey</div>
+                            <div class="font-monospace text-break mt-2">@_selectedAsset.CompatibilityMetadataJson</div>
+                        }
+                    </div>
+                </section>
+            }
         </div>
     </div>
 </div>
 
 @code {
+    [SupplyParameterFromQuery(Name = "pickerRole")]
+    public string? PickerRole { get; set; }
+
+    [SupplyParameterFromQuery(Name = "pickerActorKey")]
+    public string? PickerActorKey { get; set; }
+
+    [SupplyParameterFromQuery(Name = "pickerReturnContext")]
+    public string? PickerReturnContext { get; set; }
+
     private sealed record CharacterOption(string Id, string Label);
 
     private readonly List<CharacterOption> _characterOptions = [];
@@ -159,6 +391,21 @@
     private string _packCharacterId = string.Empty;
     private string _packFrontAssetId = string.Empty;
     private string _packDescription = string.Empty;
+    private string _assetSearch = string.Empty;
+    private string _assetTypeFilter = string.Empty;
+    private string _assetApprovalFilter = string.Empty;
+    private string _assetCharacterFilter = string.Empty;
+    private string _versionCharacterId = string.Empty;
+    private IReadOnlyList<CharacterAssetVersionSnapshot> _characterVersions = [];
+    private CharacterAssetPickerOption? _selectedPickerAsset;
+    private string? _selectedAssetId;
+    private string _approvalProvenanceJson = string.Empty;
+    private string _approvalConsent = string.Empty;
+    private string _approvalLicense = string.Empty;
+    private string _approvalLicenseLabel = string.Empty;
+    private string _approvalUseScope = string.Empty;
+    private string _approvalContentPolicyKey = string.Empty;
+    private string _approvalCompatibilityJson = string.Empty;
 
     private bool _busy;
     private bool _hasInFlight;
@@ -169,6 +416,36 @@
     private readonly object _timerLock = new();
 
     private IBrowserFile? _pendingUploadFile => _pendingUploads.FirstOrDefault();
+
+    private SceneAsset? _selectedAsset => _assets.FirstOrDefault(asset => asset.Id == _selectedAssetId);
+
+    private bool PickerMode => !string.IsNullOrWhiteSpace(PickerRole)
+        || !string.IsNullOrWhiteSpace(PickerActorKey)
+        || !string.IsNullOrWhiteSpace(PickerReturnContext);
+
+    private List<SceneAsset> _filteredAssets => _assets.Where(asset =>
+        (string.IsNullOrWhiteSpace(_assetSearch)
+            || asset.Name.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase)
+            || asset.Id.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase)
+            || (asset.CharacterProfileId?.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (asset.IdentityPackId?.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase) ?? false))
+        && (string.IsNullOrWhiteSpace(_assetTypeFilter)
+            || string.Equals(asset.Type?.ToString(), _assetTypeFilter, StringComparison.Ordinal))
+        && (string.IsNullOrWhiteSpace(_assetApprovalFilter)
+            || (_assetApprovalFilter == "Unreviewed" && asset.ProductionApprovalStatus is null)
+            || string.Equals(asset.ProductionApprovalStatus?.ToString(), _assetApprovalFilter, StringComparison.Ordinal))
+        && (string.IsNullOrWhiteSpace(_assetCharacterFilter)
+            || string.Equals(asset.CharacterProfileId, _assetCharacterFilter, StringComparison.Ordinal)))
+        .ToList();
+
+    private bool CanApproveSelectedAsset => _selectedAsset?.Status == SceneAssetStatus.Complete
+        && !string.IsNullOrWhiteSpace(_approvalProvenanceJson)
+        && !string.IsNullOrWhiteSpace(_approvalConsent)
+        && !string.IsNullOrWhiteSpace(_approvalLicense)
+        && !string.IsNullOrWhiteSpace(_approvalLicenseLabel)
+        && !string.IsNullOrWhiteSpace(_approvalUseScope)
+        && !string.IsNullOrWhiteSpace(_approvalContentPolicyKey)
+        && !string.IsNullOrWhiteSpace(_approvalCompatibilityJson);
 
     protected override async Task OnInitializedAsync()
     {
@@ -200,6 +477,75 @@
             _status = "Asset generation queued.";
             await ReloadAssetsAsync();
             EnsurePolling();
+        });
+    }
+
+    private void SelectAsset(string assetId)
+    {
+        _selectedAssetId = assetId;
+        _approvalProvenanceJson = string.Empty;
+        _approvalConsent = string.Empty;
+        _approvalLicense = string.Empty;
+        _approvalLicenseLabel = string.Empty;
+        _approvalUseScope = string.Empty;
+        _approvalContentPolicyKey = string.Empty;
+        _approvalCompatibilityJson = string.Empty;
+    }
+
+    private void ClearAssetSelection() => _selectedAssetId = null;
+
+    private async Task LoadCharacterVersionsAsync()
+    {
+        await RunAsync(async () =>
+        {
+            _characterVersions = await CharacterAssetCatalog.LoadVersionsAsync(_versionCharacterId);
+            _selectedPickerAsset = null;
+        });
+    }
+
+    private void SelectPickerAsset(CharacterAssetPickerOption option)
+    {
+        _selectedPickerAsset = option;
+        if (!PickerMode) return;
+        if (string.IsNullOrWhiteSpace(PickerRole)
+            || string.IsNullOrWhiteSpace(PickerActorKey)
+            || string.IsNullOrWhiteSpace(PickerReturnContext))
+        {
+            _error = "Picker role, actor key, and return context are all required.";
+            return;
+        }
+        if (!Uri.TryCreate(PickerReturnContext, UriKind.Relative, out _)
+            || PickerReturnContext.StartsWith("//", StringComparison.Ordinal))
+        {
+            _error = "Picker return context must be a local relative application route.";
+            return;
+        }
+
+        var separator = PickerReturnContext.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        Navigation.NavigateTo(
+            $"{PickerReturnContext}{separator}pickerRole={Uri.EscapeDataString(PickerRole)}"+
+            $"&pickerActorKey={Uri.EscapeDataString(PickerActorKey)}"+
+            $"&versionKind={option.VersionKind}&versionId={Uri.EscapeDataString(option.VersionId)}"+
+            $"&version={option.Version}&sceneAssetId={Uri.EscapeDataString(option.SceneAssetId)}"+
+            $"&sceneAssetVersion={option.SceneAssetVersion}&sceneAssetSha256={option.SceneAssetSha256}"+
+            $"&semanticRole={Uri.EscapeDataString(option.SemanticRole)}");
+    }
+
+    private async Task ApproveSelectedAssetAsync()
+    {
+        if (_selectedAsset is null || !CanApproveSelectedAsset) return;
+
+        await RunAsync(async () =>
+        {
+            var consent = Enum.Parse<SceneAssetConsentState>(_approvalConsent, false);
+            var license = Enum.Parse<SceneAssetLicenseState>(_approvalLicense, false);
+            var useScope = Enum.Parse<SceneAssetApprovedUseScope>(_approvalUseScope, false);
+            var approved = await AssetService.ApproveForProductionAsync(
+                _selectedAsset.Id, _approvalProvenanceJson, consent, license, _approvalLicenseLabel,
+                useScope, _approvalContentPolicyKey, _approvalCompatibilityJson);
+            await ReloadAssetsAsync();
+            _selectedAssetId = approved.Id;
+            _status = $"Approved '{approved.Name}' as production version {approved.ProductionVersion}.";
         });
     }
 

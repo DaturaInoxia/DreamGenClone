@@ -44,7 +44,42 @@ public enum SceneAssetType
     Prop = 3,
     Style = 4,
     CharacterFace = 5,
-    CharacterBody = 6
+    CharacterBody = 6,
+    ProductionFrame = 7
+}
+
+public enum SceneAssetProductionApprovalStatus
+{
+    Draft = 1,
+    Approved = 2,
+    Superseded = 3,
+    Revoked = 4
+}
+
+public enum SceneAssetConsentState
+{
+    Unknown = 1,
+    Confirmed = 2,
+    NotApplicable = 3
+}
+
+public enum SceneAssetLicenseState
+{
+    Unknown = 1,
+    Confirmed = 2,
+    NotApplicable = 3
+}
+
+[Flags]
+public enum SceneAssetApprovedUseScope
+{
+    CharacterIdentity = 1,
+    CharacterBody = 2,
+    CharacterWardrobe = 4,
+    Location = 8,
+    Control = 16,
+    ProductionSource = 32,
+    CharacterLoraTraining = 64
 }
 
 /// <summary>
@@ -103,6 +138,29 @@ public sealed class SceneAsset
     public string? SourceSha256 { get; set; }
 
     public string? SourceProvenanceJson { get; set; }
+
+    /// <summary>
+    /// Production governance is nullable so historical assets never acquire implicit approval.
+    /// </summary>
+    public SceneAssetProductionApprovalStatus? ProductionApprovalStatus { get; set; }
+
+    public SceneAssetConsentState? ConsentState { get; set; }
+
+    public SceneAssetLicenseState? LicenseState { get; set; }
+
+    public string? LicenseLabel { get; set; }
+
+    public SceneAssetApprovedUseScope? ApprovedUseScope { get; set; }
+
+    public string? ContentPolicyKey { get; set; }
+
+    public string? CompatibilityMetadataJson { get; set; }
+
+    public int? ProductionVersion { get; set; }
+
+    public string? SupersedesAssetId { get; set; }
+
+    public DateTime? ProductionApprovedUtc { get; set; }
 
     public string? ErrorMessage { get; set; }
 

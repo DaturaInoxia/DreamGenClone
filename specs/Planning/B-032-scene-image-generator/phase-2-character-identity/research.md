@@ -1,13 +1,13 @@
 # Phase 2 Research - Character Identity
 
-**Date:** 2026-08-24; revised 2026-09-02
-**Status:** External research complete; expanded qualification remains execution work
+**Date:** 2026-08-24; revised 2026-09-03
+**Status:** External research complete; synthetic LoRA implementation and qualification remain execution work
 
 ## Questions
 
 1. What mechanism should preserve recurring identities without training first?
 2. How can two identities remain assigned to the correct actor?
-3. What evidence justifies LoRA training?
+3. How does Asset Manager create and govern a wholly synthetic character LoRA dataset?
 4. How should Qwen participate without replacing text-to-image generation?
 
 ## Existing Evidence
@@ -28,7 +28,7 @@
 | IP-Adapter SDXL / face variants | Official project supports SDXL, text plus image prompts, ControlNet composition, face-focused variants, and Apache-2.0 code. Identity strength trades against prompt freedom. | Include in frozen host comparison. |
 | PuLID v1.1 SDXL | Official project provides an SDXL identity model and documents Juggernaut-XL as a usable base. Apache-2.0 code; ComfyUI integration is community maintained. | Include in frozen host comparison. |
 | InstantID | Official project is single-image and tuning-free, but explicitly says multi-person is unsupported and documents research-only checkpoint/face-model constraints. | Exclude from first product slice. |
-| Character LoRA | Strong recurring concept mechanism but needs curated data, training provenance, versioning, and checkpoint compatibility. | Conditional Phase 2 branch only after matrix failure. |
+| Character LoRA | Official and maintained trainers support character/concept LoRA training with per-image captions, trigger tokens, aspect-ratio bucketing, validation prompts/images, checkpoints, and exact base-model binding. | Required product capability. Dataset creation, training, artifact registration, and inference are separately versioned and qualified. |
 | Qwen edit | Official 2511 materials describe improved character and multi-person consistency; local proof confirms covered edits. It edits source images rather than supplying generator identity conditioning. | Use for explicit manual or bounded source-image corrections, not as hidden generator fallback. |
 
 ## Selected Architecture
@@ -37,10 +37,11 @@ Persist provider-neutral identity, body, and wardrobe assets plus exact model/wo
 profiles. Qualification attaches to a matrix cell, not a mechanism name. A profile may be qualified
 for one near-frontal actor and rejected for angled or interacting actors at the same time.
 
-Generation-first identity conditioning and composition-first multi-reference editing are distinct
-candidate operations. IP-Adapter, PuLID, Qwen Edit 2511, FLUX.2 editing, and conditional character
-LoRAs are evaluated under the same frozen facts and scoring rules where capabilities overlap. No
-client, compiler, or dispatcher substitutes one operation for another.
+Generation-first identity conditioning, composition-first multi-reference editing, and LoRA-backed
+generation are distinct candidate operations. IP-Adapter, PuLID, Qwen Edit 2511, FLUX.2 editing,
+character LoRAs, and specifically qualified combinations are evaluated under the same frozen facts
+and scoring rules where capabilities overlap. No client, compiler, or dispatcher substitutes one
+operation or identity strategy for another.
 
 The application contract names semantic capabilities (`FaceIdentity`, `BodyReference`,
 `WardrobeReference`, `RegionalMask`, `MultipleIdentityReferences`, `SourcePreservation`) while a
@@ -73,17 +74,50 @@ Score every output:
 The selected mechanism must pass at least 10 of 12 outputs overall, both identities in at least 5
 of 6 composition cells, and all 12 ownership checks. Any identity swap is a hard failure.
 
-## LoRA Decision
+## Synthetic Character LoRA Findings
 
-Do not train a LoRA when the selected reference path passes the matrix. Consider character LoRAs
-only when the reference path fails identity likeness while ownership, composition, and workflow
-stability are otherwise acceptable. Do not use LoRA training to repair pose, contact, clothing, or
-location failures.
+DreamGenClone characters have no source photographs. Asset Manager therefore owns a synthetic
+identity-bootstrap workflow rather than an upload-only training path:
 
-The training branch requires a separate approved dataset manifest, licensing/consent review,
-checkpoint family, trigger token, training recipe, artifact checksum, and the same evaluation
-matrix. A LoRA is accepted only if it improves the failed identity cells without reducing ownership
-or prompt compliance.
+1. Create and approve a canonical identity seed from generated candidates. The seed records its
+  generator, model/version, exact request, seed, output checksum, policy, and operator decision.
+2. Generate a planned coverage matrix from that seed using an explicitly selected qualified
+  reference/edit capability. Coverage records face angle, crop, expression, body framing, pose,
+  wardrobe state, lighting, background, and aspect ratio. The generation mechanism is provenance,
+  not an assumed identity guarantee.
+3. Curate candidates in Asset Manager. Reject identity drift, duplicate/near-duplicate frames,
+  malformed anatomy, leakage, inconsistent permanent traits, and unplanned style/background
+  repetition. Every accepted member references an immutable shared `SceneAsset` version.
+4. Caption each accepted image with its trigger plus only visible, changeable attributes that the
+  trainer should disentangle from identity. Captions and operator edits are versioned. A trainer
+  may use one instance prompt only when the selected recipe explicitly requires it.
+5. Freeze train and validation membership before training. Validation members and prompts are not
+  silently moved into training, and any membership/caption change creates a new dataset version.
+6. Train with an exact family recipe and base-model checksum. Persist all configured values,
+  trainer/version, environment, checkpoints, logs, samples, and final artifact checksum.
+7. Qualify the artifact at explicit inference strengths against frozen prompts/seeds and held-out
+  compositions. Score identity, ownership, prompt compliance, diversity, anatomy, wardrobe and
+  background leakage, and comparison with reference-only and qualified combined strategies.
+
+Primary implementations establish the supported controls, not universal values. Diffusers and
+maintained training tools support custom per-image captions, instance/class prompts, optional prior
+preservation, repeats, validation prompts/images or held-out subsets, periodic samples/checkpoints,
+and model-family-specific resolution/bucketing. AI Toolkit documents paired image/text captions,
+`[trigger]` replacement, automatic downscaling and aspect-ratio buckets, while sd-scripts exposes
+explicit validation splits and SDXL high-resolution bucketing. These facts require the application
+to persist those choices; they do not justify hidden defaults for image count, rank, learning rate,
+steps, caption dropout, prior preservation, or inference strength.
+
+Synthetic origin increases correlated-error risk: a generator can repeat one face, wardrobe,
+lighting, background, or defect until the LoRA learns that correlation as identity. Consequently,
+dataset approval requires operator-visible coverage and duplicate/drift findings. Augmentation is
+not a substitute for genuinely distinct approved views, and a generated image is never accepted
+only because it came from the canonical seed workflow.
+
+LoRA cannot by itself prove pose, contact, location geometry, or per-actor ownership. Those remain
+separate capability axes. A character may have LoRA artifacts for multiple base families, and each
+request explicitly selects reference conditioning, LoRA, or a specifically qualified combination.
+There is no product-wide identity-mechanism selection and no runtime fallback between strategies.
 
 ## Sources Consulted
 
@@ -92,6 +126,14 @@ or prompt compliance.
 - `https://github.com/InstantID/InstantID`
 - `https://github.com/QwenLM/Qwen-Image`
 - `https://github.com/Comfy-Org/ComfyUI`
+- `https://github.com/huggingface/diffusers/tree/main/examples/dreambooth`
+- `https://github.com/huggingface/diffusers/blob/main/examples/dreambooth/train_dreambooth_lora_sdxl.py`
+- `https://github.com/huggingface/diffusers/blob/main/examples/dreambooth/train_dreambooth_lora_flux.py`
+- `https://github.com/huggingface/diffusers/blob/main/examples/dreambooth/train_dreambooth_lora_flux2.py`
+- `https://github.com/huggingface/diffusers/blob/main/examples/dreambooth/train_dreambooth_lora_flux2_klein.py`
+- `https://github.com/ostris/ai-toolkit`
+- `https://github.com/kohya-ss/sd-scripts`
+- `https://docs.bfl.ai/flux_2/flux2_overview`
 - Local Qwen proof manifest and `phase-0-architecture-and-evidence/controlnet-touch-proof.md`
 
 ## 2026-09-02 External Challenge And Local Reconciliation

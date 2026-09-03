@@ -157,28 +157,26 @@
                     <input type="number" class="form-control" @bind="Model.ImageEditorCfgNormStrength" min="0" step="0.1" />
                 </div>
                 <div class="col-12"><div class="form-text">These values are used only when this model is assigned to RP Scene Image Editor. Missing values fail explicitly when an edit is requested.</div></div>
-                <div class="col-12"><hr class="my-1" /><strong>Character Identity Conditioning</strong></div>
-                <div class="col-md-3">
-                    <label class="form-label">Mechanism</label>
-                    <select class="form-select" @bind="Model.IdentityMechanism">
-                        <option value="">Not configured</option>
-                        <option value="IpAdapter">IP-Adapter</option>
-                        <option value="PuLid">PuLID</option>
-                    </select>
+                <div class="col-12"><hr class="my-1" /><strong>Character Identity Strategies</strong></div>
+                <div class="col-md-4">
+                    <div class="form-check">
+                        <input id="identity-reference-capability" class="form-check-input" type="checkbox" @bind="_supportsReferenceConditioning" />
+                        <label class="form-check-label" for="identity-reference-capability">Reference conditioning</label>
+                    </div>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label">Strength</label>
-                    <input type="number" class="form-control" @bind="Model.IdentityStrength" min="0" step="0.05" />
+                <div class="col-md-4">
+                    <div class="form-check">
+                        <input id="identity-lora-capability" class="form-check-input" type="checkbox" @bind="_supportsLora" />
+                        <label class="form-check-label" for="identity-lora-capability">LoRA</label>
+                    </div>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label">Adapter Ref</label>
-                    <input type="text" class="form-control" @bind="Model.IdentityAdapterRef" placeholder="PLUS FACE (portraits)" />
+                <div class="col-md-4">
+                    <div class="form-check">
+                        <input id="identity-combined-capability" class="form-check-input" type="checkbox" @bind="_supportsCombined" />
+                        <label class="form-check-label" for="identity-combined-capability">Combined references + LoRA</label>
+                    </div>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label">Clip Vision Ref (optional)</label>
-                    <input type="text" class="form-control" @bind="Model.IdentityClipVisionRef" />
-                </div>
-                <div class="col-12"><div class="form-text">Used for identity-controlled scene rendering (IP-Adapter or PuLID face conditioning). Missing or invalid values fail explicitly when an identity render is requested.</div></div>
+                <div class="col-12"><div class="form-text">These declarations make the model selectable for compatible identity work. Every request still requires an exact qualified capability cell; unavailable combinations fail without changing model or strategy.</div></div>
             }
             <div class="col-12">
                 <label class="form-label">Notes</label>
@@ -402,6 +400,9 @@
     private string _displayName = "";
     private bool _isEnabled;
     private bool _supportsThinkingControl;
+    private bool _supportsReferenceConditioning;
+    private bool _supportsLora;
+    private bool _supportsCombined;
     private int _contextWindowSize;
     private string _parameterCount = "";
     private string _quantization = "";
@@ -429,6 +430,10 @@
         _parameterCount = Model.ParameterCount;
         _quantization = Model.Quantization;
         _notes = Model.Notes;
+        var identityStrategies = System.Text.Json.JsonSerializer.Deserialize<string[]>(Model.SupportedIdentityStrategiesJson) ?? [];
+        _supportsReferenceConditioning = identityStrategies.Contains("ReferenceConditioning", StringComparer.OrdinalIgnoreCase);
+        _supportsLora = identityStrategies.Contains("Lora", StringComparer.OrdinalIgnoreCase);
+        _supportsCombined = identityStrategies.Contains("Combined", StringComparer.OrdinalIgnoreCase);
         _formError = null;
         _analysisError = null;
     }
@@ -468,6 +473,7 @@
             Model.ParameterCount = _parameterCount.Trim();
             Model.Quantization = _quantization.Trim();
             Model.Notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim();
+            ApplyIdentityCapabilities();
             await Facade.SaveModelAsync(Model);
             await OnSaved.InvokeAsync();
         }
@@ -510,6 +516,7 @@
             Model.ParameterCount = _parameterCount.Trim();
             Model.Quantization = _quantization.Trim();
             Model.Notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim();
+            ApplyIdentityCapabilities();
             await Facade.SaveModelAsync(Model);
 
             _analysisResult = await Facade.AnalyseModelAsync(Model.Id, AnalysisService);
@@ -659,6 +666,15 @@
         return DateTime.TryParse(isoTimestamp, out var dt)
             ? dt.ToLocalTime().ToString("g")
             : isoTimestamp;
+    }
+
+    private void ApplyIdentityCapabilities()
+    {
+        var strategies = new List<string>();
+        if (_supportsReferenceConditioning) strategies.Add("ReferenceConditioning");
+        if (_supportsLora) strategies.Add("Lora");
+        if (_supportsCombined) strategies.Add("Combined");
+        Model.SupportedIdentityStrategiesJson = System.Text.Json.JsonSerializer.Serialize(strategies);
     }
 
     private static string FormatFunctionName(string name)

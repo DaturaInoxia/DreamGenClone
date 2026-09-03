@@ -250,6 +250,12 @@ public sealed class RolePlaySession
     public string RolePlayV2SchemaVersion { get; set; } = "v2";
 
     /// <summary>
+    /// B-032 production schema generation stamped only by current session-creation paths.
+    /// Null identifies a session created before the production baseline.
+    /// </summary>
+    public int? SceneImageProductionSchemaGeneration { get; set; }
+
+    /// <summary>
     /// Per-character turn overrides keyed by character name (case-insensitive).
     /// Persona ("You") is excluded from this dictionary.
     /// </summary>

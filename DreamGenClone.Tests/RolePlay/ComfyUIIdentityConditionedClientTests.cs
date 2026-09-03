@@ -123,19 +123,27 @@ public sealed class ComfyUIIdentityConditionedClientTests
     }
 
     [Fact]
-    public void SynthesizeBandMask_ProducesValidRegionPng()
+    public void SynthesizeRegionMask_ProducesExactNormalizedRegionPng()
     {
-        var left = ComfyUIIdentityConditionedClient.SynthesizeBandMask(4, 4, 0, 2);
-        using var leftImage = Image.Load<Rgba32>(left);
-        Assert.Equal(4, leftImage.Width);
-        Assert.Equal(4, leftImage.Height);
-        // Character 0 is the left band: white on the left half, black on the right half.
-        Assert.Equal(255, leftImage[0, 0].R);
-        Assert.Equal(0, leftImage[3, 0].R);
+        var mask = ComfyUIIdentityConditionedClient.SynthesizeRegionMask(
+            4, 4, new IdentityReferenceRegion { X = 0, Y = 0.25, Width = 0.5, Height = 0.5 });
+        using var image = Image.Load<Rgba32>(mask);
+        Assert.Equal(4, image.Width);
+        Assert.Equal(4, image.Height);
+        Assert.Equal(0, image[0, 0].R);
+        Assert.Equal(255, image[0, 1].R);
+        Assert.Equal(255, image[1, 2].R);
+        Assert.Equal(0, image[2, 2].R);
+        Assert.Equal(0, image[0, 3].R);
+    }
 
-        var right = ComfyUIIdentityConditionedClient.SynthesizeBandMask(4, 4, 1, 2);
-        using var rightImage = Image.Load<Rgba32>(right);
-        Assert.Equal(0, rightImage[0, 0].R);
-        Assert.Equal(255, rightImage[3, 0].R);
+    [Fact]
+    public void ResolveMaskBytes_MissingMaskAndRegion_FailsExplicitly()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ComfyUIIdentityConditionedClient.ResolveMaskBytes(
+                new IdentityReferenceInput { CharacterLabel = "Dean" }, 1024, 1024));
+
+        Assert.Contains("region", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

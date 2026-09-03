@@ -1,0 +1,553 @@
+@page "/asset-studio/lora-datasets/new"
+@rendermode InteractiveServer
+
+@using System.Text.Json
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.Scenarios
+
+@inject ICharacterLoraRepository LoraRepository
+@inject ICharacterImageIdentityService IdentityService
+@inject ICharacterAssetGenerationService GenerationService
+@inject IProductionMediaRepository ProductionRepository
+@inject IProductionWorkloadService WorkloadService
+@inject IProductionReconciliationService ReconciliationService
+@inject ISceneAssetRepository AssetRepository
+@inject IScenarioService ScenarioService
+@inject ILogger<LoraDatasetGeneration> Logger
+
+<PageTitle>Generate LoRA Dataset - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">Generate LoRA Dataset</h4>
+        <a href="/asset-studio" class="btn btn-outline-secondary btn-sm">Back to Asset Manager</a>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_status))
+    {
+        <div class="alert alert-info">
+            @_status
+            @if (!string.IsNullOrWhiteSpace(_createdDatasetId))
+            {
+                <a class="alert-link ms-2" href="/asset-studio/lora-datasets/@_createdDatasetId">Curate dataset</a>
+            }
+        </div>
+    }
+
+    <div class="row g-3">
+        <div class="col-xl-5">
+            <section class="card mb-3" aria-label="Dataset identity">
+                <div class="card-header"><strong>Dataset Identity</strong></div>
+                <div class="card-body">
+                    <label class="form-label small" for="dataset-character">Character</label>
+                    <select id="dataset-character" class="form-select form-select-sm" value="@_characterProfileId" @onchange="OnCharacterChangedAsync">
+                        <option value="">Select a character</option>
+                        @foreach (var character in _characters)
+                        {
+                            <option value="@character.Id">@character.Label</option>
+                        }
+                    </select>
+                    <div class="row g-2 mt-1">
+                        <div class="col-md-8">
+                            <label class="form-label small" for="dataset-pack">Approved identity pack</label>
+                            <select id="dataset-pack" class="form-select form-select-sm" value="@_identityPackId" @onchange="OnPackChanged">
+                                <option value="">Select an approved pack</option>
+                                @foreach (var pack in _approvedPacks)
+                                {
+                                    <option value="@pack.Id">v@pack.Version · approved @pack.ApprovedUtc?.ToLocalTime().ToString("g")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="dataset-version">Version</label>
+                            <input id="dataset-version" type="number" min="1" class="form-control form-control-sm" @bind="_datasetVersion" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small" for="dataset-token">Trigger token</label>
+                            <input id="dataset-token" class="form-control form-control-sm" @bind="_triggerToken" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small" for="dataset-family">Target model family</label>
+                            <input id="dataset-family" class="form-control form-control-sm" @bind="_targetModelFamily" />
+                        </div>
+                    </div>
+                    @if (SelectedPack is not null)
+                    {
+                        <div class="small mt-2">
+                            <a href="/characters/identity?characterId=@Uri.EscapeDataString(_characterProfileId)&amp;packId=@Uri.EscapeDataString(_identityPackId)">View source identity pack</a>
+                            <span class="text-muted ms-2">@PackDescriptor(SelectedPack)</span>
+                        </div>
+                    }
+                    <label class="form-label small mt-2" for="dataset-coverage">Coverage plan JSON</label>
+                    <textarea id="dataset-coverage" class="form-control form-control-sm font-monospace" rows="3" @bind="_coveragePlanJson"></textarea>
+                    <label class="form-label small mt-2" for="dataset-curation">Curation policy JSON</label>
+                    <textarea id="dataset-curation" class="form-control form-control-sm font-monospace" rows="3" @bind="_curationPolicyJson"></textarea>
+                </div>
+            </section>
+
+            <section class="card" aria-label="Qualified production capability">
+                <div class="card-header"><strong>Qualified Production Capability</strong></div>
+                <div class="card-body">
+                    <label class="form-label small" for="dataset-profile">Profile</label>
+                    <select id="dataset-profile" class="form-select form-select-sm" value="@_capabilityProfileId" @onchange="OnProfileChangedAsync">
+                        <option value="">Select a qualified profile</option>
+                        @foreach (var profile in _profiles)
+                        {
+                            <option value="@profile.Id">@profile.ProviderKey / @profile.ModelId @profile.ModelVersion / @profile.CompilerId @profile.CompilerVersion</option>
+                        }
+                    </select>
+                    <label class="form-label small mt-2" for="dataset-cell">Qualified cell</label>
+                    <select id="dataset-cell" class="form-select form-select-sm" @bind="_capabilityCellId">
+                        <option value="">Select a qualified cell</option>
+                        @foreach (var cell in _cells)
+                        {
+                            <option value="@cell.Id">@cell.IdentityStrategyKind · @cell.FaceAngleKey / @cell.CropKey / @cell.PoseClassKey / @cell.CompositionClassKey</option>
+                        }
+                    </select>
+                    <label class="form-label small mt-2" for="dataset-strategy">Coverage identity strategy</label>
+                    <select id="dataset-strategy" class="form-select form-select-sm" value="@_identityStrategyKind" @onchange="OnStrategyChanged">
+                        <option value="">Select a strategy for coverage candidates</option>
+                        @foreach (var strategy in Enum.GetValues<CharacterIdentityStrategyKind>())
+                        {
+                            <option value="@strategy">@strategy</option>
+                        }
+                    </select>
+                    <label class="form-label small mt-2" for="dataset-actor">Actor key</label>
+                    <input id="dataset-actor" class="form-control form-control-sm" @bind="_actorKey" />
+                    @if (_identityStrategyKind is CharacterIdentityStrategyKind.Lora or CharacterIdentityStrategyKind.Combined)
+                    {
+                        <label class="form-label small mt-2" for="dataset-artifact">Qualified LoRA artifact</label>
+                        <select id="dataset-artifact" class="form-select form-select-sm" @bind="_loraArtifactId">
+                            <option value="">Select an exact qualified artifact</option>
+                            @foreach (var artifact in AvailableArtifacts)
+                            {
+                                <option value="@artifact.Id">v@artifact.Version · @artifact.BaseModelId @artifact.BaseModelVersion · @artifact.TriggerToken</option>
+                            }
+                        </select>
+                        <label class="form-label small mt-2" for="dataset-strength">LoRA strength</label>
+                        <input id="dataset-strength" type="number" min="0.01" step="0.01" class="form-control form-control-sm" @bind="_loraStrength" />
+                    }
+                </div>
+            </section>
+        </div>
+
+        <div class="col-xl-7">
+            <section class="card mb-3" aria-label="Candidate plan">
+                <div class="card-header"><strong>Identity Seed And Coverage Candidates</strong></div>
+                <div class="card-body">
+                    <label class="form-label small" for="candidate-plan">Candidate plan JSON</label>
+                    <textarea id="candidate-plan" class="form-control form-control-sm font-monospace" rows="14" @bind="_candidatePlanJson"></textarea>
+                    <div class="form-text">Each entry requires assetName, assetType, kind, coverageKey, pov, all semantic JSON objects, settings, and an explicit referenceBindings array.</div>
+                </div>
+            </section>
+
+            <section class="card mb-3" aria-label="Provider dispatch snapshot">
+                <div class="card-header"><strong>Provider Dispatch Snapshot</strong></div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-md-4"><label class="form-label small" for="endpoint-provider">Provider key</label><input id="endpoint-provider" class="form-control form-control-sm" @bind="_providerKey" /></div>
+                        <div class="col-md-4"><label class="form-label small" for="endpoint-id">Provider ID</label><input id="endpoint-id" class="form-control form-control-sm" @bind="_endpointId" /></div>
+                        <div class="col-md-4"><label class="form-label small" for="endpoint-protocol">Protocol/adapter key</label><input id="endpoint-protocol" class="form-control form-control-sm" @bind="_adapterKey" /></div>
+                        <div class="col-12"><label class="form-label small" for="endpoint-url">Base URL</label><input id="endpoint-url" class="form-control form-control-sm" @bind="_baseUrl" /></div>
+                        <div class="col-md-4"><label class="form-label small" for="endpoint-submit">Submit path</label><input id="endpoint-submit" class="form-control form-control-sm" @bind="_submitPath" /></div>
+                        <div class="col-md-4"><label class="form-label small" for="endpoint-status">Status path</label><input id="endpoint-status" class="form-control form-control-sm" @bind="_statusPath" /></div>
+                        <div class="col-md-4"><label class="form-label small" for="endpoint-cancel">Cancel path</label><input id="endpoint-cancel" class="form-control form-control-sm" @bind="_cancelPath" /></div>
+                        <div class="col-md-3"><label class="form-label small" for="endpoint-timeout">Timeout seconds</label><input id="endpoint-timeout" type="number" min="1" class="form-control form-control-sm" @bind="_timeoutSeconds" /></div>
+                        <div class="col-md-3"><label class="form-label small" for="endpoint-max">Maximum outputs</label><input id="endpoint-max" type="number" min="1" class="form-control form-control-sm" @bind="_maximumOutputs" /></div>
+                        <div class="col-md-3"><label class="form-label small" for="endpoint-retention">Retention seconds</label><input id="endpoint-retention" type="number" min="1" class="form-control form-control-sm" @bind="_retentionSeconds" /></div>
+                        <div class="col-md-3 d-flex align-items-end pb-1"><div class="form-check"><input id="endpoint-native" type="checkbox" class="form-check-input" @bind="_nativeVariations" /><label class="form-check-label small" for="endpoint-native">Native variations</label></div></div>
+                        <div class="col-md-4"><label class="form-label small" for="endpoint-worker">Worker image</label><input id="endpoint-worker" class="form-control form-control-sm" @bind="_workerImage" /></div>
+                        <div class="col-md-4"><label class="form-label small" for="endpoint-artifacts">Artifact set</label><input id="endpoint-artifacts" class="form-control form-control-sm" @bind="_artifactSet" /></div>
+                        <div class="col-md-4"><label class="form-label small" for="endpoint-access">Reference accessibility</label><input id="endpoint-access" class="form-control form-control-sm" @bind="_referenceAccessibility" /></div>
+                    </div>
+                    <label class="form-label small mt-2" for="endpoint-readiness">Readiness snapshot JSON</label>
+                    <textarea id="endpoint-readiness" class="form-control form-control-sm font-monospace" rows="2" @bind="_readinessJson"></textarea>
+                    <div class="row g-2 mt-1">
+                        <div class="col-md-3"><label class="form-label small" for="cost-currency">Currency</label><input id="cost-currency" class="form-control form-control-sm" @bind="_currency" /></div>
+                        <div class="col-md-3"><label class="form-label small" for="cost-unit">Unit cost</label><input id="cost-unit" type="number" min="0" step="any" class="form-control form-control-sm" @bind="_unitCost" /></div>
+                        <div class="col-md-6"><label class="form-label small" for="content-policy">Content policy key</label><input id="content-policy" class="form-control form-control-sm" @bind="_contentPolicyKey" /></div>
+                    </div>
+                    <label class="form-label small mt-2" for="source-snapshot">Source version snapshot JSON</label>
+                    <textarea id="source-snapshot" class="form-control form-control-sm font-monospace" rows="2" @bind="_sourceVersionJson"></textarea>
+                    <label class="form-label small mt-2" for="retry-policy">Retry policy JSON</label>
+                    <textarea id="retry-policy" class="form-control form-control-sm font-monospace" rows="2" @bind="_retryPolicyJson"></textarea>
+                    <div class="d-flex gap-2 mt-3">
+                        <button type="button" class="btn btn-primary btn-sm" disabled="@_busy" @onclick="CreateAndSubmitAsync">Create And Submit Batch</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@(_busy || _workloadIds.Count == 0)" @onclick="ReconcileAsync">Reconcile Submitted Jobs</button>
+                    </div>
+                </div>
+            </section>
+
+            @if (_workloadIds.Count > 0)
+            {
+                <section class="card" aria-label="Created workload identifiers">
+                    <div class="card-header"><strong>Created Workloads</strong></div>
+                    <ul class="list-group list-group-flush">
+                        @foreach (var workloadId in _workloadIds)
+                        {
+                            <li class="list-group-item py-2 font-monospace small">@workloadId</li>
+                        }
+                    </ul>
+                </section>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private sealed record CharacterOption(string Id, string Label);
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "characterId")]
+    public string? CharacterId { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "packId")]
+    public string? PackId { get; set; }
+
+    private sealed class CandidateInput
+    {
+        public string AssetName { get; set; } = string.Empty;
+        public string AssetType { get; set; } = string.Empty;
+        public string Kind { get; set; } = string.Empty;
+        public string CoverageKey { get; set; } = string.Empty;
+        public string Pov { get; set; } = string.Empty;
+        public JsonElement VisibleActors { get; set; }
+        public JsonElement CompositionIntent { get; set; }
+        public JsonElement CameraIntent { get; set; }
+        public JsonElement StyleIntent { get; set; }
+        public JsonElement PreservationConstraints { get; set; }
+        public JsonElement ChangeIntent { get; set; }
+        public JsonElement Settings { get; set; }
+        public List<ReferenceInput> ReferenceBindings { get; set; } = [];
+    }
+    private sealed class ReferenceInput
+    {
+        public string SemanticRole { get; set; } = string.Empty;
+        public string SceneAssetId { get; set; } = string.Empty;
+    }
+
+    private readonly List<CharacterOption> _characters = [];
+    private List<CharacterImageIdentityPack> _approvedPacks = [];
+    private List<MediaCapabilityProfile> _profiles = [];
+    private List<MediaCapabilityCell> _cells = [];
+    private List<CharacterLoraArtifact> _qualifiedArtifacts = [];
+    private readonly List<string> _workloadIds = [];
+    private string _characterProfileId = string.Empty;
+    private string _identityPackId = string.Empty;
+    private int _datasetVersion;
+    private string _triggerToken = string.Empty;
+    private string _targetModelFamily = string.Empty;
+    private string _coveragePlanJson = string.Empty;
+    private string _curationPolicyJson = string.Empty;
+    private string _capabilityProfileId = string.Empty;
+    private string _capabilityCellId = string.Empty;
+    private CharacterIdentityStrategyKind? _identityStrategyKind;
+    private string _actorKey = string.Empty;
+    private string _loraArtifactId = string.Empty;
+    private decimal _loraStrength;
+    private string _candidatePlanJson = string.Empty;
+    private string _providerKey = string.Empty;
+    private string _endpointId = string.Empty;
+    private string _adapterKey = string.Empty;
+    private string _baseUrl = string.Empty;
+    private string _submitPath = string.Empty;
+    private string _statusPath = string.Empty;
+    private string _cancelPath = string.Empty;
+    private int _timeoutSeconds;
+    private int _maximumOutputs;
+    private int _retentionSeconds;
+    private bool _nativeVariations;
+    private string _workerImage = string.Empty;
+    private string _artifactSet = string.Empty;
+    private string _referenceAccessibility = string.Empty;
+    private string _readinessJson = string.Empty;
+    private string _currency = string.Empty;
+    private decimal _unitCost;
+    private string _contentPolicyKey = string.Empty;
+    private string _sourceVersionJson = string.Empty;
+    private string _retryPolicyJson = string.Empty;
+    private bool _busy;
+    private string? _createdDatasetId;
+    private string? _error;
+    private string? _status;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var scenarios = await ScenarioService.GetAllScenariosAsync();
+        _characters.AddRange(scenarios.SelectMany(scenario => scenario.Characters
+            .Select(character => new CharacterOption(character.Id, $"{scenario.Name} - {character.Name ?? "Unnamed"}"))));
+        _profiles = (await ProductionRepository.ListCapabilityProfilesAsync())
+            .Where(profile => profile.Enabled && profile.Status == MediaCapabilityProfileStatus.Qualified && profile.Operation == MediaOperation.Generate)
+            .ToList();
+        if (!string.IsNullOrWhiteSpace(CharacterId)
+            && _characters.Any(character => string.Equals(character.Id, CharacterId, StringComparison.Ordinal)))
+        {
+            _characterProfileId = CharacterId;
+            await LoadApprovedPacksAsync();
+            await LoadQualifiedArtifactsAsync();
+            if (!string.IsNullOrWhiteSpace(PackId)
+                && _approvedPacks.Any(pack => string.Equals(pack.Id, PackId, StringComparison.Ordinal)))
+            {
+                _identityPackId = PackId;
+            }
+        }
+    }
+
+    private CharacterImageIdentityPack? SelectedPack
+        => _approvedPacks.FirstOrDefault(pack => string.Equals(pack.Id, _identityPackId, StringComparison.Ordinal));
+
+    private MediaCapabilityProfile? SelectedProfile
+        => _profiles.FirstOrDefault(profile => string.Equals(profile.Id, _capabilityProfileId, StringComparison.Ordinal));
+
+    private IReadOnlyList<CharacterLoraArtifact> AvailableArtifacts
+        => SelectedProfile is null
+            ? []
+            : _qualifiedArtifacts
+                .Where(artifact => string.Equals(artifact.BaseModelId, SelectedProfile.ModelId, StringComparison.Ordinal)
+                    && string.Equals(artifact.BaseModelVersion, SelectedProfile.ModelVersion, StringComparison.Ordinal))
+                .ToList();
+
+    private async Task OnCharacterChangedAsync(ChangeEventArgs args)
+    {
+        _characterProfileId = args.Value?.ToString() ?? string.Empty;
+        _identityPackId = string.Empty;
+        _loraArtifactId = string.Empty;
+        await LoadApprovedPacksAsync();
+        await LoadQualifiedArtifactsAsync();
+    }
+
+    private async Task LoadApprovedPacksAsync()
+    {
+        _approvedPacks = string.IsNullOrWhiteSpace(_characterProfileId)
+            ? []
+            : (await IdentityService.ListPacksAsync(_characterProfileId))
+                .Where(pack => pack.Status == CharacterImageIdentityPackStatus.Approved)
+                .OrderByDescending(pack => pack.Version)
+                .ToList();
+    }
+
+    private void OnPackChanged(ChangeEventArgs args)
+        => _identityPackId = args.Value?.ToString() ?? string.Empty;
+
+    private async Task LoadQualifiedArtifactsAsync()
+    {
+        _qualifiedArtifacts = string.IsNullOrWhiteSpace(_characterProfileId)
+            ? []
+            : (await LoraRepository.ListArtifactsAsync(_characterProfileId))
+                .Where(artifact => artifact.Status == CharacterLoraArtifactStatus.Qualified)
+                .ToList();
+    }
+
+    private void OnStrategyChanged(ChangeEventArgs args)
+    {
+        _identityStrategyKind = Enum.TryParse<CharacterIdentityStrategyKind>(args.Value?.ToString(), out var strategy)
+            ? strategy
+            : null;
+        _loraArtifactId = string.Empty;
+    }
+
+    private static string PackDescriptor(CharacterImageIdentityPack pack)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(pack.DescriptorSnapshotJson);
+            return document.RootElement.TryGetProperty("descriptor", out var descriptor)
+                ? descriptor.GetString() ?? string.Empty
+                : string.Empty;
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private async Task OnProfileChangedAsync(ChangeEventArgs args)
+    {
+        _capabilityProfileId = args.Value?.ToString() ?? string.Empty;
+        _capabilityCellId = string.Empty;
+        _loraArtifactId = string.Empty;
+        _cells = string.IsNullOrWhiteSpace(_capabilityProfileId)
+            ? []
+            : (await ProductionRepository.ListCapabilityCellsAsync(_capabilityProfileId))
+                .Where(cell => cell.Status == MediaCapabilityCellStatus.Qualified)
+                .ToList();
+    }
+
+    private async Task CreateAndSubmitAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var inputs = JsonSerializer.Deserialize<List<CandidateInput>>(_candidatePlanJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? throw new InvalidOperationException("Candidate plan JSON must be an array.");
+            if (inputs.Count == 0) throw new InvalidOperationException("Candidate plan must contain at least one candidate.");
+            var identityPack = await IdentityService.GetPackAsync(_identityPackId)
+                ?? throw new InvalidOperationException($"Identity pack '{_identityPackId}' was not found.");
+            if (!string.Equals(identityPack.CharacterProfileId, _characterProfileId, StringComparison.Ordinal))
+                throw new InvalidOperationException("The selected identity pack does not belong to the selected character.");
+            if (identityPack.Status != CharacterImageIdentityPackStatus.Approved)
+                throw new InvalidOperationException("The selected identity pack is no longer approved.");
+            var candidates = new List<CharacterAssetCandidateDraft>();
+            foreach (var input in inputs)
+            {
+                var candidateKind = Enum.Parse<CharacterAssetCandidateKind>(input.Kind, false);
+                var requestId = Guid.NewGuid().ToString("N");
+                var bindings = new List<OrderedMediaReferenceBinding>();
+                for (var ordinal = 0; ordinal < input.ReferenceBindings.Count; ordinal++)
+                {
+                    var reference = input.ReferenceBindings[ordinal];
+                    var asset = await AssetRepository.GetAsync(reference.SceneAssetId)
+                        ?? throw new InvalidOperationException($"Reference asset '{reference.SceneAssetId}' was not found.");
+                    if (asset.ProductionVersion is null || string.IsNullOrWhiteSpace(asset.Sha256))
+                        throw new InvalidOperationException($"Reference asset '{asset.Id}' is not an approved exact production version.");
+                    bindings.Add(new OrderedMediaReferenceBinding
+                    {
+                        CompiledRequestId = requestId, Ordinal = ordinal, SemanticRole = reference.SemanticRole,
+                        SceneAssetId = asset.Id, SceneAssetVersion = asset.ProductionVersion.Value,
+                        SceneAssetSha256 = asset.Sha256,
+                        BindingSnapshotJson = JsonSerializer.Serialize(new { asset.Id, asset.ProductionVersion, asset.Sha256 }),
+                        CreatedUtc = DateTime.UtcNow
+                    });
+                }
+                var identityBindings = candidateKind == CharacterAssetCandidateKind.IdentitySeed
+                    ? []
+                    : CreateIdentityBindings(requestId, bindings);
+                candidates.Add(new CharacterAssetCandidateDraft(
+                    Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N"), requestId,
+                    input.AssetName, Enum.Parse<SceneAssetType>(input.AssetType, false),
+                    candidateKind, input.CoverageKey, input.Pov,
+                    input.VisibleActors.GetRawText(), input.CompositionIntent.GetRawText(), input.CameraIntent.GetRawText(),
+                    input.StyleIntent.GetRawText(), input.PreservationConstraints.GetRawText(), input.ChangeIntent.GetRawText(),
+                    input.Settings.GetRawText(), bindings, identityBindings));
+            }
+            var dataset = await LoraRepository.CreateDatasetAsync(new CharacterLoraDataset
+            {
+                CharacterProfileId = _characterProfileId,
+                IdentityPackId = _identityPackId,
+                Version = _datasetVersion,
+                Status = CharacterLoraDatasetStatus.Draft,
+                TriggerToken = _triggerToken,
+                TargetModelFamily = _targetModelFamily,
+                CoveragePlanJson = JsonDocument.Parse(_coveragePlanJson).RootElement.GetRawText(),
+                CurationPolicyJson = JsonDocument.Parse(_curationPolicyJson).RootElement.GetRawText(),
+                CreatedUtc = DateTime.UtcNow
+            });
+            var endpoint = new ProductionProviderEndpoint(
+                _providerKey, _endpointId, _baseUrl, _submitPath, _statusPath, _cancelPath,
+                _timeoutSeconds, _adapterKey, JsonDocument.Parse(_readinessJson).RootElement.GetRawText());
+            var policy = new ProductionDispatchPolicy(
+                _adapterKey, _nativeVariations, _maximumOutputs, _workerImage, _artifactSet,
+                _referenceAccessibility, _retentionSeconds);
+            var results = await GenerationService.CreateBatchAsync(new CharacterAssetGenerationBatch(
+                dataset.Id, _characterProfileId, _identityPackId, _capabilityProfileId, _capabilityCellId,
+                _contentPolicyKey, JsonDocument.Parse(_sourceVersionJson).RootElement.GetRawText(),
+                JsonDocument.Parse(_retryPolicyJson).RootElement.GetRawText(), endpoint, policy,
+                new ProductionCostBasis(_currency, _unitCost), candidates, DateTime.UtcNow));
+            _createdDatasetId = dataset.Id;
+            _workloadIds.Clear();
+            _workloadIds.AddRange(results.Select(result => result.Workload.Id));
+            foreach (var result in results)
+            {
+                if (result.Diagnostics.Any(diagnostic => diagnostic.Blocking))
+                    throw new InvalidOperationException($"Workload '{result.Workload.Id}' is blocked: {string.Join("; ", result.Diagnostics.Select(diagnostic => diagnostic.Message))}");
+                await WorkloadService.SubmitAsync(result.Workload.Id);
+            }
+            _status = $"Created dataset {dataset.Id} and submitted {results.Count} candidate workloads.";
+        });
+    }
+
+    private List<IdentityStrategyBinding> CreateIdentityBindings(
+        string requestId,
+        IReadOnlyList<OrderedMediaReferenceBinding> references)
+    {
+        var strategy = _identityStrategyKind
+            ?? throw new InvalidOperationException("Coverage candidates require an explicit identity strategy.");
+        var cell = _cells.SingleOrDefault(value => string.Equals(value.Id, _capabilityCellId, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("A qualified identity capability cell is required.");
+        if (cell.IdentityStrategyKind != strategy)
+            throw new InvalidOperationException($"Capability cell '{cell.Id}' qualifies {cell.IdentityStrategyKind}, not {strategy}.");
+        if (string.IsNullOrWhiteSpace(_actorKey))
+            throw new InvalidOperationException("Actor key is required for coverage identity binding.");
+
+        var usesReferences = strategy is CharacterIdentityStrategyKind.ReferenceConditioning or CharacterIdentityStrategyKind.Combined;
+        if (usesReferences && references.Count == 0)
+            throw new InvalidOperationException($"{strategy} requires explicit reference bindings.");
+
+        CharacterLoraArtifact? artifact = null;
+        if (strategy is CharacterIdentityStrategyKind.Lora or CharacterIdentityStrategyKind.Combined)
+        {
+            artifact = AvailableArtifacts.SingleOrDefault(value => string.Equals(value.Id, _loraArtifactId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException("An exact qualified LoRA artifact for the selected model/version is required.");
+            if (_loraStrength <= 0)
+                throw new InvalidOperationException("LoRA strength must be greater than zero.");
+        }
+
+        var referenceSnapshot = usesReferences
+            ? JsonSerializer.Serialize(references.Select(reference => new
+            {
+                reference.Ordinal,
+                reference.SemanticRole,
+                reference.SceneAssetId,
+                reference.SceneAssetVersion,
+                reference.SceneAssetSha256
+            }))
+            : null;
+        var snapshot = JsonSerializer.Serialize(new
+        {
+            actorKey = _actorKey.Trim(),
+            strategyKind = strategy.ToString(),
+            capabilityProfileId = _capabilityProfileId,
+            capabilityCellId = _capabilityCellId,
+            referenceBindings = referenceSnapshot,
+            loraArtifactId = artifact?.Id,
+            loraArtifactSha256 = artifact?.Sha256,
+            loraStrength = artifact is null ? (decimal?)null : _loraStrength
+        });
+        return
+        [
+            new IdentityStrategyBinding
+            {
+                CompiledRequestId = requestId,
+                ActorKey = _actorKey.Trim(),
+                StrategyKind = strategy,
+                CapabilityProfileId = _capabilityProfileId,
+                CapabilityCellId = _capabilityCellId,
+                ReferenceBindingsJson = referenceSnapshot,
+                LoraArtifactId = artifact?.Id,
+                LoraArtifactSha256 = artifact?.Sha256,
+                LoraStrength = artifact is null ? null : _loraStrength,
+                BindingSnapshotJson = snapshot,
+                CreatedUtc = DateTime.UtcNow
+            }
+        ];
+    }
+
+    private async Task ReconcileAsync()
+    {
+        await RunAsync(async () =>
+        {
+            foreach (var workloadId in _workloadIds) await ReconciliationService.ReconcileWorkloadAsync(workloadId);
+            _status = "Submitted candidate workloads reconciled. Completed outputs are available in Asset Manager as draft assets.";
+        });
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try { await action(); }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            Logger.LogWarning(exception, "LoRA dataset generation operation failed.");
+        }
+        finally { _busy = false; }
+    }
+}

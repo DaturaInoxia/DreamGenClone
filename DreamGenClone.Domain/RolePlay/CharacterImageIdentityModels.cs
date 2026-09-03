@@ -75,6 +75,52 @@ public enum SceneImageIdentityDecisionValue
     Deferred = 3
 }
 
+public enum SceneIdentityConstraintScore
+{
+    NotScored = 1,
+    Pass = 2,
+    Fail = 3
+}
+
+public sealed class SceneIdentityEvaluationCase
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string EvaluationRunId { get; set; } = string.Empty;
+    public string CapabilityCellId { get; set; } = string.Empty;
+    public int Ordinal { get; set; }
+    public string CharacterPairJson { get; set; } = "[]";
+    public string PoseKey { get; set; } = string.Empty;
+    public string ViewKey { get; set; } = string.Empty;
+    public long Seed { get; set; }
+    public string PromptHash { get; set; } = string.Empty;
+    public string ControlHash { get; set; } = string.Empty;
+    public string ExpectedConstraintsJson { get; set; } = "{}";
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class SceneIdentityEvaluationResult
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string EvaluationCaseId { get; set; } = string.Empty;
+    public string AttemptId { get; set; } = string.Empty;
+    public string OutputSha256 { get; set; } = string.Empty;
+    public string ConstraintScoresJson { get; set; } = "{}";
+    public string Notes { get; set; } = string.Empty;
+    public string Reviewer { get; set; } = string.Empty;
+    public DateTime ReviewedUtc { get; set; }
+}
+
+public sealed class CharacterIdentityDecision
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string IdentityPackId { get; set; } = string.Empty;
+    public string EvaluationRunId { get; set; } = string.Empty;
+    public SceneImageIdentityDecisionValue Decision { get; set; }
+    public string EvidenceJson { get; set; } = "{}";
+    public string Rationale { get; set; } = string.Empty;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+}
+
 /// <summary>
 /// A versioned, auditable collection of reference assets that together define how one recurring
 /// character should look. Tied to a single scenario character via <see cref="CharacterProfileId"/>.
