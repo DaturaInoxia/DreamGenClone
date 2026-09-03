@@ -21,7 +21,8 @@ using Microsoft.Data.Sqlite;
 
 internal static class ModelManagerTransfer
 {
-    // Default export location (next to the live dev.db, git-ignored). Run from the repo root.
+    // Default export location (next to the live dev.db). Git-tracked (see .gitignore exception) so the
+    // file can be cloned/pulled to another host. Run from the repo root.
     public const string DefaultExportPath = "DreamGenClone.Web/data/model-manager.export.json";
 
     public const string FormatMarker = "DreamGenClone.ModelManager.Export";

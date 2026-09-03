@@ -28,6 +28,8 @@ data/
 !DreamGenClone.Web/data/
 DreamGenClone.Web/data/*
 !DreamGenClone.Web/data/dreamgenclone.snapshot.db
+# Portable Model Manager config export (no API keys) — tracked so it can be cloned/pulled to another host
+!DreamGenClone.Web/data/model-manager.export.json
 
 # Python
 __pycache__/
