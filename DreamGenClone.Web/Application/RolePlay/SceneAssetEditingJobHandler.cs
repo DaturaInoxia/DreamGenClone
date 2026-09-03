@@ -41,10 +41,12 @@ public sealed class SceneAssetEditingJobHandler : IBackgroundJobHandler
 
     public async Task HandleAsync(BackgroundJobEnvelope job, CancellationToken cancellationToken)
     {
-        var payload = JsonSerializer.Deserialize<SceneAssetEditingJobPayload>(job.PayloadJson)
+        var payload = JsonSerializer.Deserialize<SceneAssetEditingJobPayload>(job.PayloadJson, JsonOptions)
             ?? throw new InvalidOperationException("Scene asset editing payload is missing or invalid.");
         if (string.IsNullOrWhiteSpace(payload.AssetId))
             throw new InvalidOperationException("Scene asset editing payload requires an AssetId.");
+        if (string.IsNullOrWhiteSpace(payload.ModelId))
+            throw new InvalidOperationException("Scene asset editing payload requires an exact ModelId.");
 
         var asset = await _repository.GetAsync(payload.AssetId, cancellationToken)
             ?? throw new InvalidOperationException($"Scene asset '{payload.AssetId}' was not found.");
@@ -65,10 +67,15 @@ public sealed class SceneAssetEditingJobHandler : IBackgroundJobHandler
 
         try
         {
-            var editor = await _modelResolver.ResolveAsync(cancellationToken);
+            var editor = await _modelResolver.ResolveByIdAsync(payload.ModelId, cancellationToken);
             await using var sourceStream = await _storage.OpenReadAsync(source.FileRelativePath, cancellationToken);
             var bytes = await _imageEditingClient.EditAsync(editor, sourceStream, $"{source.Id}.png", asset.Prompt, cancellationToken);
-            asset.ModelSnapshotJson = JsonSerializer.Serialize(new { editor.ModelIdentifier, editor.ProviderName }, JsonOptions);
+            asset.ModelSnapshotJson = JsonSerializer.Serialize(new
+            {
+                requestedModelId = payload.ModelId,
+                editor.ModelIdentifier,
+                editor.ProviderName
+            }, JsonOptions);
             await CompleteWithBytesAsync(asset, $"{asset.Id}.png", bytes, cancellationToken);
 
             _logger.LogInformation("Scene asset edited: AssetId={AssetId}, Source={SourceId}, Model={Model}", asset.Id, source.Id, editor.ModelIdentifier);

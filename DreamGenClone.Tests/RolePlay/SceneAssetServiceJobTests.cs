@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
@@ -12,6 +13,27 @@ namespace DreamGenClone.Tests.RolePlay;
 
 public sealed class SceneAssetServiceJobTests
 {
+    [Fact]
+    public void AssetPromptCompiler_UsesSelectedModelFamilyWithoutChangingSemanticInput()
+    {
+        var pony = Model(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags);
+        var sdxl = Model(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage);
+        const string description = "A detective in a rain-soaked alley.";
+
+        var ponyCompilation = SceneAssetPromptCompiler.Compile(
+            description, SceneAssetType.CharacterBody, pony);
+        var sdxlCompilation = SceneAssetPromptCompiler.Compile(
+            description, SceneAssetType.CharacterBody, sdxl);
+
+        Assert.StartsWith(
+            "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1person,",
+            ponyCompilation.Prompt);
+        Assert.Contains("A detective in a rain-soaked alley", ponyCompilation.Prompt);
+        Assert.Equal(description, sdxlCompilation.Prompt);
+        Assert.Equal("scene-asset-pony-v6", ponyCompilation.CompilerId);
+        Assert.Equal("scene-asset-sdxl-natural-language", sdxlCompilation.CompilerId);
+    }
+
     private sealed class CapturingBackgroundJobQueue : IBackgroundJobQueue
     {
         public List<(string JobType, string PayloadJson, string? DedupeKey)> Enqueued { get; } = [];
@@ -48,14 +70,22 @@ public sealed class SceneAssetServiceJobTests
         var (service, queue, repo, _, dbPath, root) = Build();
         try
         {
-            var asset = await service.CreateFromPromptAsync("Forest", "a misty forest clearing");
+            var asset = await service.CreateFromPromptAsync(
+                "Forest", "a misty forest clearing", SceneAssetType.Location, "model-42", "1024x1024");
 
             Assert.Equal(SceneAssetKind.PromptGenerated, asset.Kind);
             Assert.Equal(SceneAssetStatus.Pending, asset.Status);
+            Assert.Equal(SceneAssetType.Location, asset.Type);
             Assert.Equal("a misty forest clearing", asset.Prompt);
             Assert.Single(queue.Enqueued);
             Assert.Equal(BackgroundJobTypes.SceneAssetGeneration, queue.Enqueued[0].JobType);
             Assert.Equal($"{BackgroundJobTypes.SceneAssetGeneration}:{asset.Id}", queue.Enqueued[0].DedupeKey);
+            var payload = JsonSerializer.Deserialize<SceneAssetGenerationJobPayload>(
+                queue.Enqueued[0].PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            Assert.NotNull(payload);
+            Assert.Equal(asset.Id, payload.AssetId);
+            Assert.Equal("model-42", payload.ModelId);
+            Assert.Equal("1024x1024", payload.ImageSize);
             Assert.NotNull(await repo.GetAsync(asset.Id));
         }
         finally
@@ -70,7 +100,10 @@ public sealed class SceneAssetServiceJobTests
         var (service, _, _, _, dbPath, root) = Build();
         try
         {
-            await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateFromPromptAsync("X", "   "));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateFromPromptAsync(
+                "X", "   ", SceneAssetType.Prop, "model-42", "1024x1024"));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateFromPromptAsync(
+                "X", "a brass key", SceneAssetType.Prop, "   ", "1024x1024"));
         }
         finally
         {
@@ -86,10 +119,11 @@ public sealed class SceneAssetServiceJobTests
         {
             var png = MinimalPng();
             await using var stream = new MemoryStream(png);
-            var asset = await service.CreateFromUploadAsync("Photo", "photo.png", stream);
+            var asset = await service.CreateFromUploadAsync("Photo", SceneAssetType.Style, "photo.png", stream);
 
             Assert.Equal(SceneAssetKind.Uploaded, asset.Kind);
             Assert.Equal(SceneAssetStatus.Complete, asset.Status);
+            Assert.Equal(SceneAssetType.Style, asset.Type);
             Assert.StartsWith("assets/", asset.FileRelativePath);
             Assert.Equal(png.Length, asset.ByteLength);
             Assert.Equal("image/png", asset.MediaType);
@@ -109,7 +143,8 @@ public sealed class SceneAssetServiceJobTests
         try
         {
             await using var stream = new MemoryStream(MinimalPng());
-            var asset = await service.CreateFromUploadAsync("Dean face", "dean.png", stream);
+            var asset = await service.CreateFromUploadAsync(
+                "Dean face", SceneAssetType.CharacterFace, "dean.png", stream);
 
             var approved = await service.ApproveForProductionAsync(
                 asset.Id,
@@ -140,11 +175,13 @@ public sealed class SceneAssetServiceJobTests
         var (service, _, repo, _, dbPath, root) = Build();
         try
         {
-            await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueEditAsync("missing", "Edit", "change lighting"));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueEditAsync(
+                "missing", "Edit", "change lighting", "editor-1"));
 
             var pending = new SceneAsset { Id = "p1", Name = "Pending", Kind = SceneAssetKind.PromptGenerated, Status = SceneAssetStatus.Pending };
             await repo.UpsertAsync(pending);
-            await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueEditAsync("p1", "Edit", "change lighting"));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueEditAsync(
+                "p1", "Edit", "change lighting", "editor-1"));
         }
         finally
         {
@@ -158,16 +195,22 @@ public sealed class SceneAssetServiceJobTests
         var (service, queue, repo, _, dbPath, root) = Build();
         try
         {
-            var source = new SceneAsset { Id = "s1", Name = "Source", Kind = SceneAssetKind.PromptGenerated, Status = SceneAssetStatus.Complete, FileRelativePath = "assets/s1.png" };
+            var source = new SceneAsset { Id = "s1", Name = "Source", Kind = SceneAssetKind.PromptGenerated, Status = SceneAssetStatus.Complete, Type = SceneAssetType.Wardrobe, FileRelativePath = "assets/s1.png" };
             await repo.UpsertAsync(source);
 
-            var asset = await service.EnqueueEditAsync("s1", "Edited", "change lighting");
+            var asset = await service.EnqueueEditAsync("s1", "Edited", "change lighting", "editor-7");
 
             Assert.Equal(SceneAssetKind.Edited, asset.Kind);
             Assert.Equal(SceneAssetStatus.Pending, asset.Status);
+            Assert.Equal(SceneAssetType.Wardrobe, asset.Type);
             Assert.Equal("s1", asset.SourceAssetId);
             Assert.Single(queue.Enqueued);
             Assert.Equal(BackgroundJobTypes.SceneAssetEditing, queue.Enqueued[0].JobType);
+            var payload = JsonSerializer.Deserialize<SceneAssetEditingJobPayload>(
+                queue.Enqueued[0].PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            Assert.NotNull(payload);
+            Assert.Equal(asset.Id, payload.AssetId);
+            Assert.Equal("editor-7", payload.ModelId);
         }
         finally
         {
@@ -185,6 +228,13 @@ public sealed class SceneAssetServiceJobTests
                 service.EnqueueProfilePackAsync(new SceneAssetProfilePackJobPayload { CharacterProfileId = "" }));
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 service.EnqueueProfilePackAsync(new SceneAssetProfilePackJobPayload { CharacterProfileId = "char-1" }));
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.EnqueueProfilePackAsync(new SceneAssetProfilePackJobPayload
+                {
+                    CharacterProfileId = "char-1",
+                    Description = "blonde woman",
+                    EditorModelId = "editor-1"
+                }));
         }
         finally
         {
@@ -202,7 +252,9 @@ public sealed class SceneAssetServiceJobTests
             {
                 CharacterProfileId = "char-1",
                 CharacterName = "Becky",
-                Description = "blonde woman"
+                Description = "blonde woman",
+                FrontModelId = "generator-1",
+                EditorModelId = "editor-1"
             });
 
             Assert.Single(queue.Enqueued);
@@ -225,7 +277,8 @@ public sealed class SceneAssetServiceJobTests
             {
                 CharacterProfileId = "faee1ec0-1cf3-459e-97d2-ad59717c41ba",
                 CharacterName = "Dean",
-                FrontAssetId = "ce09a98859914aa985d205b814723ca9"
+                FrontAssetId = "ce09a98859914aa985d205b814723ca9",
+                EditorModelId = "editor-1"
             });
 
             var json = Assert.Single(queue.Enqueued).PayloadJson;
@@ -239,6 +292,7 @@ public sealed class SceneAssetServiceJobTests
             Assert.NotNull(roundTripped);
             Assert.Equal("faee1ec0-1cf3-459e-97d2-ad59717c41ba", roundTripped.CharacterProfileId);
             Assert.Equal("ce09a98859914aa985d205b814723ca9", roundTripped.FrontAssetId);
+            Assert.Equal("editor-1", roundTripped.EditorModelId);
         }
         finally
         {
@@ -273,7 +327,7 @@ public sealed class SceneAssetServiceJobTests
             var png = MinimalPng();
             await using (var stream = new MemoryStream(png))
             {
-                await service.CreateFromUploadAsync("Photo", "photo.png", stream);
+                await service.CreateFromUploadAsync("Photo", SceneAssetType.Location, "photo.png", stream);
             }
             var asset = (await repo.ListAsync()).Single();
             var fullPath = Path.Combine(root, asset.FileRelativePath!);
@@ -329,4 +383,19 @@ public sealed class SceneAssetServiceJobTests
         bytes[24] = 8; bytes[25] = 6; bytes[26] = 0; bytes[27] = 0; bytes[28] = 0;
         return bytes;
     }
+
+    private static ResolvedImageModel Model(
+        SceneImageModelFamily family,
+        SceneImagePromptDialect dialect) => new(
+            "https://example.test",
+            "/images",
+            60,
+            null,
+            "model",
+            ImageContentPolicy.AdultAllowed,
+            "provider",
+            false,
+            family,
+            dialect,
+            ImageProtocol.OpenAiImages);
 }

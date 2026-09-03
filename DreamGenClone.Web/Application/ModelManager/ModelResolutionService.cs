@@ -381,6 +381,7 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
         var result = new List<SceneImageModelChoice>();
         foreach (var model in models
             .Where(item => item.ModelKind == ModelKind.Image)
+            .Where(item => string.IsNullOrWhiteSpace(item.ImageEditorDiffusionModel))
             .Where(item => !identityCapableOnly || !string.IsNullOrWhiteSpace(item.IdentityMechanism))
             .OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase))
         {
@@ -485,6 +486,12 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
 
     private static void ValidateSceneImagePromptMetadata(RegisteredModel model)
     {
+        if (!string.IsNullOrWhiteSpace(model.ImageEditorDiffusionModel))
+        {
+            throw new ModelResolutionException(
+                $"Image model '{model.DisplayName}' is configured as a source-image editor and cannot be used for text-to-image generation.");
+        }
+
         var compatible = (model.SceneImageModelFamily, model.PromptDialect) switch
         {
             (SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags) => true,

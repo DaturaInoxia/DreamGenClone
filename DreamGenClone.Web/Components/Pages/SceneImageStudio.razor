@@ -710,7 +710,7 @@
                                 <span class="badge text-bg-info ms-2">@_productionGroup.Status</span>
                             }
                         </button>
-                        @if (!IsCurrentProductionSession && IsSelectedMomentEnriched)
+                        @if (IsSelectedMomentEnriched)
                         {
                             <button class="btn btn-sm btn-primary"
                                     disabled="@(_busy || string.IsNullOrWhiteSpace(_productionPov))"
@@ -732,7 +732,7 @@
                                 This session predates the current production schema. Create a new session to use Production Studio.
                             </div>
                         }
-                        <div hidden="@IsCurrentProductionSession">
+                        <div>
                         <hr class="my-4" />
                         @if (!IsSelectedMomentEnriched)
                         {
@@ -1038,7 +1038,7 @@
                     }
                 </div>
 
-                <div class="card mb-3 scene-image-legacy-tools" hidden="@IsCurrentProductionSession">
+                <div class="card mb-3 scene-image-legacy-tools">
                     <div class="card-header p-0">
                         <button class="studio-collapse-toggle studio-collapse-toggle-full px-3 py-2" @onclick="ToggleLegacyTools" type="button">
                             <strong>Legacy / Experimental Tools</strong>

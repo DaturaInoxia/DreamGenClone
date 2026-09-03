@@ -276,8 +276,10 @@ evidence are recorded.
   lineage, production provenance inspection, and an explicit no-default approval form for consent,
   license, use scope, content policy, and compatibility metadata. `ISceneAssetService` owns the
   approval boundary; focused service tests passed 12/12 and Razor/web build succeeded on
-  2026-09-02. Typed identity/body/wardrobe version workflows and reusable picker return semantics
-  remain before completion.
+  2026-09-02. Create Asset now requires a semantic type and supports upload or compiled prompt
+  generation with exact model, size, and output count; Create Identity Pack and Create LoRA are
+  explicit commands. Typed identity/body/wardrobe version workflows and reusable picker return
+  semantics remain before completion.
 - [ ] P2-053 Build Production Studio context rail/media pool/canvas-inspector/attempt strip/queue
   workspace with stable Moment/request/attempt switching.
   Partial evidence: `IProductionWorkloadService.LoadSessionAsync` now returns session-scoped durable
@@ -290,10 +292,19 @@ evidence are recorded.
   automatic polling, and comparison state remain before completion.
 - [ ] P2-054 Add semantic intent editing, reference-role selection, readiness/cost/group preview,
   prepare/submit/cancel/retry/review/approve actions, and exact request inspection.
+  Partial evidence: Asset detail supports iterative source editing with an exact editor model and
+  one to eight immutable outputs. Durable generation, editing, and identity-pack payloads pin exact
+  selected models, and generation compiles semantic text for the selected model family. Production
+  readiness/cost/group orchestration and complete exact-request review remain before completion.
 - [ ] P2-055 Remove the old one-off generation action from new-session production navigation after
   feature parity; do not retain it as a fallback.
 - [ ] P2-056 [P] Add service/component tests, Razor diagnostics, accessibility checks, and Playwright
   desktop/mobile workflow screenshots with no overlap or context loss.
+  Partial evidence: focused Asset Manager UI/service contracts passed 17/17. Playwright acceptance
+  at 1440 x 900 and 390 x 844 found no horizontal overflow, preserved all three creation commands
+  and both Create Asset input paths, kept TogetherAI selectable, visibly labeled the configured
+  default, and excluded the Qwen editor-only model from generation choices. Persisted screenshot
+  artifacts and broader workflow accessibility coverage remain before completion.
 
 ## K. Phase 2 Release Gate
 

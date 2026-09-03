@@ -351,6 +351,13 @@ public sealed class SceneImageEditCompilationJobTests
     {
         public Task<ResolvedImageEditorModel> ResolveAsync(CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("The stale revision must fail before editor model resolution.");
+
+        public Task<ResolvedImageEditorModel> ResolveByIdAsync(
+            string modelId, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("The stale revision must fail before editor model resolution.");
+
+        public Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(
+            CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<SceneImageModelChoice>>([]);
     }
 
     private sealed class RecordingImageEditor : IImageEditingClient

@@ -6,4 +6,8 @@ namespace DreamGenClone.Application.ModelManager;
 public interface IImageEditorModelResolver
 {
     Task<ResolvedImageEditorModel> ResolveAsync(CancellationToken cancellationToken = default);
+    Task<ResolvedImageEditorModel> ResolveByIdAsync(
+        string modelId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(
+        CancellationToken cancellationToken = default);
 }

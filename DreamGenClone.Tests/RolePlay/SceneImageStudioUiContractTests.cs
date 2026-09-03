@@ -18,7 +18,7 @@ public sealed class SceneImageStudioUiContractTests
     public void ProductionCommands_AreProgressivelyGatedAndUseExactCompositionContract()
     {
         var studioStart = IndexOf("<div class=\"card mb-3 scene-production-studio\">");
-        var createBranch = IndexOf("@if (!IsCurrentProductionSession && IsSelectedMomentEnriched)", studioStart);
+        var createBranch = IndexOf("@if (IsSelectedMomentEnriched)", studioStart);
         var createCommand = IndexOf("@onclick=\"CreateOrLoadProductionAsync\"", createBranch);
         var productionBody = IndexOf("<div class=\"card-body\">", createCommand);
         Assert.True(createBranch < createCommand && createCommand < productionBody,
@@ -42,12 +42,16 @@ public sealed class SceneImageStudioUiContractTests
     }
 
     [Fact]
-    public void CurrentGeneration_UsesDurableWorkspaceAndHidesTransitionalGenerationSurfaces()
+    public void CurrentGeneration_UsesDurableWorkspaceAndPreservesExistingGenerationSurfaces()
     {
         Assert.Contains("<ProductionWorkspace SessionId=\"@sessionId\" />", Source, StringComparison.Ordinal);
         Assert.Contains("SceneImageProductionSchema.CurrentGeneration", Source, StringComparison.Ordinal);
-        Assert.Contains("<div hidden=\"@IsCurrentProductionSession\">", Source, StringComparison.Ordinal);
-        Assert.Contains("scene-image-legacy-tools\" hidden=\"@IsCurrentProductionSession\"", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("<div hidden=\"@IsCurrentProductionSession\">", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("scene-image-legacy-tools\" hidden=\"@IsCurrentProductionSession\"", Source, StringComparison.Ordinal);
+        Assert.Contains("@if (IsSelectedMomentEnriched)", Source, StringComparison.Ordinal);
+        Assert.Contains("@bind=\"_selectedProductionModelId\"", Source, StringComparison.Ordinal);
+        Assert.Contains("@bind=\"_selectedGenericModelId\"", Source, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"() => OpenImageEditor(img)\"", Source, StringComparison.Ordinal);
         Assert.Contains("This session predates the current production schema. Create a new session", Source, StringComparison.Ordinal);
     }
 

@@ -41,10 +41,14 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler
 
     public async Task HandleAsync(BackgroundJobEnvelope job, CancellationToken cancellationToken)
     {
-        var payload = JsonSerializer.Deserialize<SceneAssetGenerationJobPayload>(job.PayloadJson)
+        var payload = JsonSerializer.Deserialize<SceneAssetGenerationJobPayload>(job.PayloadJson, JsonOptions)
             ?? throw new InvalidOperationException("Scene asset generation payload is missing or invalid.");
         if (string.IsNullOrWhiteSpace(payload.AssetId))
             throw new InvalidOperationException("Scene asset generation payload requires an AssetId.");
+        if (string.IsNullOrWhiteSpace(payload.ModelId))
+            throw new InvalidOperationException("Scene asset generation payload requires an exact ModelId.");
+        if (string.IsNullOrWhiteSpace(payload.ImageSize))
+            throw new InvalidOperationException("Scene asset generation payload requires an ImageSize.");
 
         var asset = await _repository.GetAsync(payload.AssetId, cancellationToken)
             ?? throw new InvalidOperationException($"Scene asset '{payload.AssetId}' was not found.");
@@ -60,10 +64,33 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler
 
         try
         {
-            var model = await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken);
-            var bytes = await _imageClient.GenerateAsync(model, asset.Prompt, "1024x1024", null, null, cancellationToken)
+            var model = await _modelResolutionService.ResolveImageModelByIdAsync(payload.ModelId, cancellationToken);
+            var compilation = SceneAssetPromptCompiler.Compile(
+                asset.Prompt,
+                asset.Type ?? throw new InvalidOperationException("Scene asset generation requires an explicit asset type."),
+                model);
+            asset.AssociationMetadataJson = JsonSerializer.Serialize(new
+            {
+                semanticDescription = asset.Prompt,
+                compiledPrompt = compilation.Prompt,
+                compilation.CompilerId,
+                compilation.CompilerVersion,
+                requestedModelId = payload.ModelId,
+                imageSize = payload.ImageSize
+            }, JsonOptions);
+            await _repository.UpsertAsync(asset, cancellationToken);
+            var bytes = await _imageClient.GenerateAsync(model, compilation.Prompt, payload.ImageSize, null, null, cancellationToken)
                 ?? throw new InvalidOperationException("The image model returned no image bytes.");
-            asset.ModelSnapshotJson = JsonSerializer.Serialize(new { model.ModelIdentifier, model.ProviderName }, JsonOptions);
+            asset.ModelSnapshotJson = JsonSerializer.Serialize(new
+            {
+                requestedModelId = payload.ModelId,
+                model.ModelIdentifier,
+                model.ProviderName,
+                model.SceneImageModelFamily,
+                model.PromptDialect,
+                compilation.CompilerId,
+                compilation.CompilerVersion
+            }, JsonOptions);
             await CompleteWithBytesAsync(asset, $"{asset.Id}.png", bytes, cancellationToken);
 
             _logger.LogInformation("Scene asset generated: AssetId={AssetId}, Model={Model}", asset.Id, model.ModelIdentifier);

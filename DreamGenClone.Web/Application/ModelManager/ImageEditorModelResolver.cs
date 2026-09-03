@@ -33,11 +33,20 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
             ?? throw new ModelResolutionException(
                 $"No image editor model configured for function '{AppFunction.RolePlaySceneImageEditor}'. Configure an image model and its Qwen editor workflow in Model Manager (/model-manager).");
 
-        var model = await _modelRepository.GetByIdAsync(functionDefault.ModelId, cancellationToken);
+        return await ResolveByIdAsync(functionDefault.ModelId, cancellationToken);
+    }
+
+    public async Task<ResolvedImageEditorModel> ResolveByIdAsync(
+        string modelId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+            throw new ModelResolutionException("An exact image editor model ID is required.");
+
+        var model = await _modelRepository.GetByIdAsync(modelId.Trim(), cancellationToken);
         if (model is null || !model.IsEnabled)
         {
             throw new ModelResolutionException(
-                $"The default image editor model for function '{AppFunction.RolePlaySceneImageEditor}' is no longer available. Update the model assignment in Model Manager (/model-manager).");
+                $"Image editor model '{modelId}' is not available. Choose an enabled editor model in Model Manager (/model-manager).");
         }
 
         if (model.ModelKind != ModelKind.Image)
@@ -50,7 +59,7 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
         if (provider is null || !provider.IsEnabled)
         {
             throw new ModelResolutionException(
-                $"The provider for function '{AppFunction.RolePlaySceneImageEditor}' default model is disabled. Enable the provider in Model Manager (/model-manager).");
+                $"The provider for image editor model '{model.DisplayName}' is disabled. Enable it in Model Manager (/model-manager).");
         }
 
         if (provider.ImageCapability == ImageProviderCapability.None)
@@ -106,6 +115,28 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
             AuraFlowShift: RequiredNonNegative(model.ImageEditorAuraFlowShift, "AuraFlow shift", model),
             CfgNormStrength: RequiredNonNegative(model.ImageEditorCfgNormStrength, "CFGNorm strength", model),
             ImageProtocol: provider.ImageProtocol);
+    }
+
+    public async Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var choices = new List<SceneImageModelChoice>();
+        foreach (var model in await _modelRepository.GetAllEnabledAsync(cancellationToken))
+        {
+            if (model.ModelKind != ModelKind.Image)
+                continue;
+            try
+            {
+                var resolved = await ResolveByIdAsync(model.Id, cancellationToken);
+                choices.Add(new SceneImageModelChoice(
+                    model.Id, model.DisplayName, model.ModelIdentifier, resolved.ProviderName, false));
+            }
+            catch (ModelResolutionException)
+            {
+                // The selector lists only fully configured, callable editor models.
+            }
+        }
+        return choices.OrderBy(choice => choice.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private static string RequiredText(string? value, string setting, RegisteredModel model) =>
