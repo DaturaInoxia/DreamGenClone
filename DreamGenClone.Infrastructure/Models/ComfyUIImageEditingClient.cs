@@ -25,9 +25,30 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
         _logger = logger;
     }
 
-    internal static JsonObject BuildWorkflow(ResolvedImageEditorModel model, string sourceImageName, string instruction)
+    internal static JsonObject BuildWorkflow(
+        ResolvedImageEditorModel model,
+        string sourceImageName,
+        string instruction,
+        IReadOnlyList<string>? referenceImageNames = null)
     {
-        return new JsonObject
+        var references = referenceImageNames ?? [];
+        var positiveInputs = new JsonObject
+        {
+            ["clip"] = new JsonArray("10", 0),
+            ["vae"] = new JsonArray("11", 0),
+            ["image1"] = new JsonArray("2", 0),
+            ["prompt"] = instruction
+        };
+        var negativeInputs = new JsonObject
+        {
+            ["clip"] = new JsonArray("10", 0),
+            ["vae"] = new JsonArray("11", 0),
+            ["image1"] = new JsonArray("2", 0),
+            ["prompt"] = string.Empty
+        };
+        AddReferenceInputs(positiveInputs, negativeInputs, references);
+
+        var workflow = new JsonObject
         {
             ["1"] = new JsonObject
             {
@@ -69,24 +90,12 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
             ["6"] = new JsonObject
             {
                 ["class_type"] = "TextEncodeQwenImageEditPlus",
-                ["inputs"] = new JsonObject
-                {
-                    ["clip"] = new JsonArray("10", 0),
-                    ["vae"] = new JsonArray("11", 0),
-                    ["image1"] = new JsonArray("2", 0),
-                    ["prompt"] = instruction
-                }
+                ["inputs"] = positiveInputs
             },
             ["7"] = new JsonObject
             {
                 ["class_type"] = "TextEncodeQwenImageEditPlus",
-                ["inputs"] = new JsonObject
-                {
-                    ["clip"] = new JsonArray("10", 0),
-                    ["vae"] = new JsonArray("11", 0),
-                    ["image1"] = new JsonArray("2", 0),
-                    ["prompt"] = string.Empty
-                }
+                ["inputs"] = negativeInputs
             },
             ["8"] = new JsonObject
             {
@@ -129,6 +138,8 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                 ["inputs"] = new JsonObject { ["samples"] = new JsonArray("3", 0), ["vae"] = new JsonArray("11", 0) }
             }
         };
+        AddReferenceLoaders(workflow, references);
+        return workflow;
     }
 
     /// <summary>
@@ -139,9 +150,30 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
     /// worker validates/accepts only this graph. The checkpoint name comes from the resolved
     /// <c>DiffusionModel</c> field; sampler settings come from the resolved model, never hardcoded.
     /// </summary>
-    internal static JsonObject BuildAioMergedCheckpointWorkflow(ResolvedImageEditorModel model, string sourceImageName, string instruction)
+    internal static JsonObject BuildAioMergedCheckpointWorkflow(
+        ResolvedImageEditorModel model,
+        string sourceImageName,
+        string instruction,
+        IReadOnlyList<string>? referenceImageNames = null)
     {
-        return new JsonObject
+        var references = referenceImageNames ?? [];
+        var positiveInputs = new JsonObject
+        {
+            ["clip"] = new JsonArray("16", 1),
+            ["vae"] = new JsonArray("16", 2),
+            ["image1"] = new JsonArray("2", 0),
+            ["prompt"] = instruction
+        };
+        var negativeInputs = new JsonObject
+        {
+            ["clip"] = new JsonArray("16", 1),
+            ["vae"] = new JsonArray("16", 2),
+            ["image1"] = new JsonArray("2", 0),
+            ["prompt"] = string.Empty
+        };
+        AddReferenceInputs(positiveInputs, negativeInputs, references);
+
+        var workflow = new JsonObject
         {
             ["1"] = new JsonObject
             {
@@ -178,24 +210,12 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
             ["6"] = new JsonObject
             {
                 ["class_type"] = "TextEncodeQwenImageEditPlus",
-                ["inputs"] = new JsonObject
-                {
-                    ["clip"] = new JsonArray("16", 1),
-                    ["vae"] = new JsonArray("16", 2),
-                    ["image1"] = new JsonArray("2", 0),
-                    ["prompt"] = instruction
-                }
+                ["inputs"] = positiveInputs
             },
             ["7"] = new JsonObject
             {
                 ["class_type"] = "TextEncodeQwenImageEditPlus",
-                ["inputs"] = new JsonObject
-                {
-                    ["clip"] = new JsonArray("16", 1),
-                    ["vae"] = new JsonArray("16", 2),
-                    ["image1"] = new JsonArray("2", 0),
-                    ["prompt"] = string.Empty
-                }
+                ["inputs"] = negativeInputs
             },
             ["8"] = new JsonObject
             {
@@ -233,6 +253,33 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                 ["inputs"] = new JsonObject { ["ckpt_name"] = model.DiffusionModel }
             }
         };
+        AddReferenceLoaders(workflow, references);
+        return workflow;
+    }
+
+    private static void AddReferenceInputs(
+        JsonObject positiveInputs,
+        JsonObject negativeInputs,
+        IReadOnlyList<string> referenceImageNames)
+    {
+        for (var index = 0; index < referenceImageNames.Count; index++)
+        {
+            var nodeId = (20 + index).ToString();
+            positiveInputs[$"image{index + 2}"] = new JsonArray(nodeId, 0);
+            negativeInputs[$"image{index + 2}"] = new JsonArray(nodeId, 0);
+        }
+    }
+
+    private static void AddReferenceLoaders(JsonObject workflow, IReadOnlyList<string> referenceImageNames)
+    {
+        for (var index = 0; index < referenceImageNames.Count; index++)
+        {
+            workflow[(20 + index).ToString()] = new JsonObject
+            {
+                ["class_type"] = "LoadImage",
+                ["inputs"] = new JsonObject { ["image"] = referenceImageNames[index] }
+            };
+        }
     }
 
     public async Task<byte[]> EditAsync(
@@ -285,6 +332,81 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
             _logger.LogError(ex, "ComfyUI source-image edit failed: Provider={ProviderName}", model.ProviderName);
             throw new ImageGenerationException($"ComfyUI source-image edit failed: {ex.Message}", model.ProviderName, reasonCode: "comfyui_edit_client_error", inner: ex);
         }
+    }
+
+    public async Task<byte[]> EditWithReferencesAsync(
+        ResolvedImageEditorModel model,
+        Stream sourceImage,
+        string sourceFileName,
+        string instruction,
+        IReadOnlyList<ImageEditingReference> references,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateEditInputs(model, sourceImage, sourceFileName, instruction);
+        ValidateReferences(references);
+
+        var baseUrl = model.ComfyUiUrl.TrimEnd('/');
+        var client = _httpClientFactory.CreateClient("CompletionClient");
+        client.Timeout = TimeSpan.FromSeconds(model.ProviderTimeoutSeconds);
+        if (!string.IsNullOrWhiteSpace(model.ApiKeyEncrypted))
+        {
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _encryptionService.Decrypt(model.ApiKeyEncrypted));
+        }
+
+        try
+        {
+            var uploadedSourceName = await UploadAsync(client, baseUrl, sourceImage, sourceFileName, model.ProviderName, cancellationToken);
+            var uploadedReferenceNames = new List<string>(references.Count);
+            foreach (var reference in references.OrderBy(reference => reference.Ordinal))
+            {
+                uploadedReferenceNames.Add(await UploadAsync(client, baseUrl, reference.Image, reference.FileName, model.ProviderName, cancellationToken));
+            }
+
+            var workflow = BuildWorkflow(model, uploadedSourceName, instruction.Trim(), uploadedReferenceNames);
+            var payload = new JsonObject { ["prompt"] = workflow, ["client_id"] = "dreamgen-app" };
+            using var submitResponse = await client.PostAsJsonAsync($"{baseUrl}/prompt", payload, cancellationToken);
+            if (!submitResponse.IsSuccessStatusCode)
+                throw await CreateHttpExceptionAsync(submitResponse, model.ProviderName, "comfyui_edit_submit_failed", cancellationToken);
+
+            var submitBody = await submitResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken);
+            var promptId = submitBody?["prompt_id"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(promptId))
+                throw new ImageGenerationException("ComfyUI returned no prompt_id for the reference image edit.", model.ProviderName, reasonCode: "comfyui_edit_no_prompt_id");
+
+            var history = await WaitForHistoryAsync(client, baseUrl, promptId, model, cancellationToken);
+            return await DownloadOutputAsync(client, baseUrl, history, promptId, model.ProviderName, cancellationToken);
+        }
+        catch (ImageGenerationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ComfyUI reference source-image edit failed: Provider={ProviderName}", model.ProviderName);
+            throw new ImageGenerationException($"ComfyUI reference source-image edit failed: {ex.Message}", model.ProviderName, reasonCode: "comfyui_edit_client_error", inner: ex);
+        }
+    }
+
+    private static void ValidateEditInputs(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction)
+    {
+        if (sourceImage is null || !sourceImage.CanRead)
+            throw new ImageGenerationException("The source image cannot be read.", model.ProviderName, reasonCode: "source_image_unreadable");
+        if (string.IsNullOrWhiteSpace(sourceFileName))
+            throw new ImageGenerationException("The source image file name is required.", model.ProviderName, reasonCode: "source_image_name_missing");
+        if (string.IsNullOrWhiteSpace(instruction))
+            throw new ImageGenerationException("An image edit instruction is required.", model.ProviderName, reasonCode: "instruction_missing");
+    }
+
+    private static void ValidateReferences(IReadOnlyList<ImageEditingReference> references)
+    {
+        if (references is null || references.Count == 0)
+            throw new InvalidOperationException("At least one ordered image editing reference is required.");
+        if (references.Any(reference => reference.Ordinal <= 0 || string.IsNullOrWhiteSpace(reference.SemanticRole)
+            || reference.Image is null || !reference.Image.CanRead || string.IsNullOrWhiteSpace(reference.FileName)
+            || string.IsNullOrWhiteSpace(reference.Checksum)))
+            throw new InvalidOperationException("Every image editing reference requires an ordinal, semantic role, readable image, file name, and checksum.");
+        if (references.Select(reference => reference.Ordinal).Distinct().Count() != references.Count)
+            throw new InvalidOperationException("Image editing reference ordinals must be unique.");
     }
 
     private static async Task<string> UploadAsync(HttpClient client, string baseUrl, Stream sourceImage, string sourceFileName, string providerName, CancellationToken cancellationToken)

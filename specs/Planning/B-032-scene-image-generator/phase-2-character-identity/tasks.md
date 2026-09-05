@@ -269,42 +269,41 @@ evidence are recorded.
   Studio state keys, ancestor/refresh invalidation behavior, legacy cutoff, and repository/service
   gaps for P2-052 through P2-054. The complete existing Asset Studio, Asset Studio View, Scene Image
   Studio, scoped CSS, global imports, Razor rules, and style reference were read on 2026-09-02.
-- [ ] P2-052 Build shared Asset Manager browse/filter/preview/picker/provenance/lineage/approval
+- [X] P2-052 Build shared Asset Manager browse/filter/preview/picker/provenance/lineage/approval
   surfaces for face, body, and wardrobe assets.
-  Partial evidence: `/asset-studio` is now labeled Asset Manager and provides one shared catalog
-  search plus type/approval filters, stable selected-asset preview, checksum/source/supersession
-  lineage, production provenance inspection, and an explicit no-default approval form for consent,
-  license, use scope, content policy, and compatibility metadata. `ISceneAssetService` owns the
-  approval boundary; focused service tests passed 12/12 and Razor/web build succeeded on
-  2026-09-02. Create Asset now requires a semantic type and supports upload or compiled prompt
-  generation with exact model, size, and output count; Create Identity Pack and Create LoRA are
-  explicit commands. Typed identity/body/wardrobe version workflows and reusable picker return
-  semantics remain before completion.
-- [ ] P2-053 Build Production Studio context rail/media pool/canvas-inspector/attempt strip/queue
+  Evidence: `/asset-studio` is an inventory-only shared catalog with search, type/approval/character
+  filters, typed character versions, stable preview and picker return behavior, provenance, and
+  lineage inspection. It performs no create, edit, profile-pack, LoRA, delete, or approval mutation.
+  `/asset-studio/{id}` inspects one exact asset and routes complete assets to dedicated immutable
+  edit and production-review workflows. `ProductionApprovalForm` requires explicit consent,
+  license, use scope, content policy, provenance, and compatibility metadata; no governance value
+  is inferred. Focused route/component/service contracts passed 16/16 on 2026-09-03.
+- [X] P2-053 Build Production Studio context rail/media pool/canvas-inspector/attempt strip/queue
   workspace with stable Moment/request/attempt switching.
-  Partial evidence: `IProductionWorkloadService.LoadSessionAsync` now returns session-scoped durable
+  Evidence: `IProductionWorkloadService.LoadSessionAsync` now returns session-scoped durable
   workload snapshots with ordered items and attempts through the application boundary. The
   Production Studio embeds a responsive `ProductionWorkspace` with workload context rail, item
   media pool, stable 16:10 output canvas, exact durable inspector, and fixed-width attempt strip.
   Manual refresh preserves valid workload/item/attempt IDs and clears only invalid descendants.
   Real-SQLite repository tests passed 7/7, workload service tests passed 8/8, the Razor/web build
-  succeeded, and touched-file diagnostics were clean on 2026-09-02. Moment/intent/request switching,
-  automatic polling, and comparison state remain before completion.
-- [ ] P2-054 Add semantic intent editing, reference-role selection, readiness/cost/group preview,
+  succeeded, and touched-file diagnostics were clean on 2026-09-02. B-106 adds Moment/intent/request
+  switching, automatic polling, comparison state, and staged parent selection.
+- [X] P2-054 Add semantic intent editing, reference-role selection, readiness/cost/group preview,
   prepare/submit/cancel/retry/review/approve actions, and exact request inspection.
-  Partial evidence: Asset detail supports iterative source editing with an exact editor model and
-  one to eight immutable outputs. Durable generation, editing, and identity-pack payloads pin exact
-  selected models, and generation compiles semantic text for the selected model family. Production
-  readiness/cost/group orchestration and complete exact-request review remain before completion.
-- [ ] P2-055 Remove the old one-off generation action from new-session production navigation after
+  Partial evidence: `/assets/{id}/edit` supports iterative source editing with an exact editor model
+  and one to eight immutable outputs, while `/assets/{id}/review` owns explicit production approval.
+  Durable generation, editing, and identity-pack payloads pin exact selected models, and generation
+  compiles semantic text for the selected model family. B-106 adds production readiness/cost/group
+  orchestration and complete exact-request review through the staged Studio.
+- [X] P2-055 Remove the old one-off generation action from new-session production navigation after
   feature parity; do not retain it as a fallback.
-- [ ] P2-056 [P] Add service/component tests, Razor diagnostics, accessibility checks, and Playwright
+- [X] P2-056 [P] Add service/component tests, Razor diagnostics, accessibility checks, and Playwright
   desktop/mobile workflow screenshots with no overlap or context loss.
-  Partial evidence: focused Asset Manager UI/service contracts passed 17/17. Playwright acceptance
-  at 1440 x 900 and 390 x 844 found no horizontal overflow, preserved all three creation commands
-  and both Create Asset input paths, kept TogetherAI selectable, visibly labeled the configured
-  default, and excluded the Qwen editor-only model from generation choices. Persisted screenshot
-  artifacts and broader workflow accessibility coverage remain before completion.
+  Evidence: focused Studio UI contracts passed 13/13, the complete test project passed 1,767/1,767,
+  the web build succeeded, Razor diagnostics were clean, and the live Studio route rendered without
+  page errors or horizontal overflow at the shared mobile viewport. The staged workflow stops at
+  explicit Moment-enrichment and approved-identity gates; provider execution and user approval remain
+  intentionally user-controlled.
 
 ## K. Phase 2 Release Gate
 
@@ -312,6 +311,12 @@ evidence are recorded.
   snapshots against standalone proofs without reclassifying failures.
 - [ ] P2-058 Run affected tests, solution build, full suite, Razor diagnostics, provider smoke tests,
   restart recovery, and security/retention checks; record exact current results.
+  Partial evidence: final solution build succeeded in 2.2 seconds and the full test suite passed
+  1,742/1,742 in 178.9 seconds on 2026-09-03. Development startup reconciled historical orphan
+  asset `0ca5d78b007d4a5b9e3d2d10c4fc9749` to explicit `Failed` state because its exact request had
+  never been persisted; no model, type, size, or source was inferred. Existing configured provider
+  health checks reported unavailable local endpoints and one unsupported dispatcher health-check
+  path, so provider smoke and the remaining security/retention checks are not claimed complete.
 - [ ] P2-059 Record the Phase 2 release decision, qualified/rejected identity-strategy cells,
   residual risks, cost observations, and Phase 3 handoff.
 
@@ -403,7 +408,8 @@ evidence are recorded.
   qualification/rejection. Curation links back to the exact source pack. The character-generation
   service independently enforces approved pack ownership before its first production write and
   routes supplied bindings through atomic identity-aware compilation; no strategy fallback exists.
-- [ ] P2-068 Qualify LoRA-only and combined inference cells at explicit artifact versions/strengths
+- [ ] P2-068 **DEFERRED to B-107 (2026-09-04 scope amendment) — does not gate the Phase 2 exit.**
+  Qualify LoRA-only and combined inference cells at explicit artifact versions/strengths
   against frozen prompts, seeds, held-out compositions, and leakage/diversity gates.
   Operational validation pending 2026-09-03: the complete application workflow now supports
   creating/approving the identity pack, generating and curating a synthetic dataset, freezing and
@@ -412,9 +418,10 @@ evidence are recorded.
   artifact to score; that is expected operator-created state and is not an implementation blocker.
   Complete this task by exercising the workflow with a real fictional character and recording the
   frozen output evidence; do not seed or fabricate qualification rows.
-- [ ] P2-069 [P] Add domain/repository/service/compiler/Razor/Playwright tests and run solution build,
+- [ ] P2-069 [P] **DEFERRED to B-107 (2026-09-04 scope amendment) — does not gate the Phase 2 exit.**
+  Add domain/repository/service/compiler/Razor/Playwright tests and run solution build,
   full test suite, training-provider smoke test, restart recovery, and manual dataset/qualification
-  acceptance before completing the Phase 2 release gate.
+  acceptance.
   Partial evidence 2026-09-03: approved-pack ownership and identity-aware character generation
   tests passed 5/5; artifact lineage/query/evidence tests passed; the full solution build passed;
   and the complete suite passed 1732/1732. Character Identity, LoRA dataset generation, and LoRA

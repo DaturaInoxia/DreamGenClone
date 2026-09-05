@@ -30,8 +30,6 @@ public sealed class TextAnalysisDurableJobExecutor
     {
         if (job.Status != DurableBackgroundJobStatus.Processing || string.IsNullOrWhiteSpace(job.LeaseOwner))
             throw new InvalidOperationException("A claimed durable job with a lease owner is required.");
-        if (job.Lane != DurableJobLane.TextAnalysis)
-            throw new InvalidOperationException("The TextAnalysis executor cannot process another lane.");
 
         var matchingHandlers = _handlers
             .Where(handler => string.Equals(handler.JobType, job.JobType, StringComparison.Ordinal))
@@ -51,6 +49,8 @@ public sealed class TextAnalysisDurableJobExecutor
 
         var leaseLost = 0;
         using var executionCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        using var operationTimeout = CancellationTokenSource.CreateLinkedTokenSource(executionCancellation.Token);
+        operationTimeout.CancelAfter(TimeSpan.FromSeconds(analyzer.Model.ProviderTimeoutSeconds));
         var renewalTask = RenewLeaseAsync(
             job,
             analyzer.LeaseSeconds,
@@ -61,7 +61,22 @@ public sealed class TextAnalysisDurableJobExecutor
         {
             try
             {
-                await matchingHandlers[0].HandleAsync(job, executionCancellation.Token);
+                var handlerTask = matchingHandlers[0].HandleAsync(job, operationTimeout.Token);
+                var completedTask = await Task.WhenAny(
+                    handlerTask,
+                    Task.Delay(Timeout.InfiniteTimeSpan, operationTimeout.Token));
+                if (completedTask != handlerTask)
+                {
+                    failure = new DurableJobFailureException(
+                        "structured_text_timeout",
+                        "The structured text provider exceeded its configured timeout.",
+                        isTransient: true);
+                    _ = ObserveHandlerCompletionAsync(handlerTask);
+                }
+                else
+                {
+                    await handlerTask;
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -116,7 +131,8 @@ public sealed class TextAnalysisDurableJobExecutor
             : "The durable job handler failed permanently.";
         _logger.LogError(
             failure,
-            "TextAnalysis durable job failed: JobType={JobType}, JobId={JobId}, ErrorCode={ErrorCode}",
+            "Durable job failed: Lane={Lane}, JobType={JobType}, JobId={JobId}, ErrorCode={ErrorCode}",
+            job.Lane,
             job.JobType,
             job.Id,
             errorCode);
@@ -127,6 +143,17 @@ public sealed class TextAnalysisDurableJobExecutor
             errorMessage,
             transitionedUtc,
             stoppingToken);
+    }
+
+    private static async Task ObserveHandlerCompletionAsync(Task handlerTask)
+    {
+        try
+        {
+            await handlerTask.ConfigureAwait(false);
+        }
+        catch
+        {
+        }
     }
 
     private async Task RenewLeaseAsync(

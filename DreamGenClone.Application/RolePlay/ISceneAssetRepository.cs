@@ -16,6 +16,26 @@ public interface ISceneAssetRepository
     Task<IReadOnlyList<SceneAsset>> ListByPackAsync(
         string identityPackId, CancellationToken cancellationToken = default);
 
+    Task<SceneAssetImage?> GetImageAsync(
+        string imageId, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<SceneAssetImage>> ListImagesAsync(
+        string assetId, CancellationToken cancellationToken = default);
+
+    Task UpsertImageAsync(
+        SceneAssetImage image, CancellationToken cancellationToken = default);
+
+    Task<SceneAssetImage> ApproveImageForProductionAsync(
+        string imageId,
+        string sourceProvenanceJson,
+        SceneAssetConsentState consentState,
+        SceneAssetLicenseState licenseState,
+        string licenseLabel,
+        SceneAssetApprovedUseScope approvedUseScope,
+        string contentPolicyKey,
+        string compatibilityMetadataJson,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Insert a new asset or update mutable fields (status, file metadata, error).</summary>
     Task UpsertAsync(SceneAsset asset, CancellationToken cancellationToken = default);
 

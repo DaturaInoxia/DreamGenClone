@@ -1,7 +1,9 @@
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Application.Sessions;
@@ -28,6 +30,8 @@ public sealed class SceneImageService : ISceneImageService
     private readonly ISceneImageProductionGroupRepository? _productionGroupRepository;
     private readonly ISceneMomentEnrichmentRepository? _momentEnrichmentRepository;
     private readonly ICompiledMediaBriefRepository? _compiledMediaBriefRepository;
+    private readonly ISceneImageProductionService? _productionService;
+    private readonly IModelResolutionService? _modelResolutionService;
     private readonly ILogger<SceneImageService> _logger;
 
     public SceneImageService(
@@ -37,7 +41,7 @@ public sealed class SceneImageService : ISceneImageService
         ISceneImageStorageService storage,
         IBackgroundJobQueue backgroundJobQueue,
         ILogger<SceneImageService> logger)
-        : this(sessionService, repository, editRepository, storage, backgroundJobQueue, null, null, null, null, logger)
+        : this(sessionService, repository, editRepository, storage, backgroundJobQueue, null, null, null, null, null, null, logger)
     {
     }
 
@@ -49,7 +53,7 @@ public sealed class SceneImageService : ISceneImageService
         IBackgroundJobQueue backgroundJobQueue,
         SceneImageTurnResolver? turnResolver,
         ILogger<SceneImageService> logger)
-        : this(sessionService, repository, editRepository, storage, backgroundJobQueue, turnResolver, null, null, null, logger)
+        : this(sessionService, repository, editRepository, storage, backgroundJobQueue, turnResolver, null, null, null, null, null, logger)
     {
     }
 
@@ -64,6 +68,24 @@ public sealed class SceneImageService : ISceneImageService
         ISceneMomentEnrichmentRepository? momentEnrichmentRepository,
         ICompiledMediaBriefRepository? compiledMediaBriefRepository,
         ILogger<SceneImageService> logger)
+        : this(sessionService, repository, editRepository, storage, backgroundJobQueue, turnResolver,
+            productionGroupRepository, momentEnrichmentRepository, compiledMediaBriefRepository, null, null, logger)
+    {
+    }
+
+    public SceneImageService(
+        ISessionService sessionService,
+        ISceneImageRepository repository,
+        ISceneImageEditRepository editRepository,
+        ISceneImageStorageService storage,
+        IBackgroundJobQueue backgroundJobQueue,
+        SceneImageTurnResolver? turnResolver,
+        ISceneImageProductionGroupRepository? productionGroupRepository,
+        ISceneMomentEnrichmentRepository? momentEnrichmentRepository,
+        ICompiledMediaBriefRepository? compiledMediaBriefRepository,
+        ISceneImageProductionService? productionService,
+        IModelResolutionService? modelResolutionService,
+        ILogger<SceneImageService> logger)
     {
         _sessionService = sessionService;
         _repository = repository;
@@ -74,6 +96,8 @@ public sealed class SceneImageService : ISceneImageService
         _productionGroupRepository = productionGroupRepository;
         _momentEnrichmentRepository = momentEnrichmentRepository;
         _compiledMediaBriefRepository = compiledMediaBriefRepository;
+        _productionService = productionService;
+        _modelResolutionService = modelResolutionService;
         _logger = logger;
     }
 
@@ -155,6 +179,165 @@ public sealed class SceneImageService : ISceneImageService
             interaction.Id,
             record.Id);
 
+        return record;
+    }
+
+    public async Task<SceneImageRecord> EnqueueFinishAsync(
+        SceneImageFinishRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var session = await LoadSessionAsync(request.SessionId, cancellationToken);
+        var interaction = FindInteraction(session, request.InteractionId);
+        Require(request.ProductionGroupId, "Production group id");
+        Require(request.SourceImageId, "Finish source image id");
+        Require(request.Instruction, "Finish instruction");
+        if (!request.FinishChangeClass.HasValue)
+            throw new InvalidOperationException("FinishChangeClass is required for every Finish edit.");
+        var groupRepository = _productionGroupRepository
+            ?? throw new InvalidOperationException("Finish enqueue requires the production group repository.");
+        var group = await groupRepository.GetAsync(request.ProductionGroupId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{request.ProductionGroupId}' was not found.");
+        if (!string.Equals(group.SessionId, session.Id, StringComparison.Ordinal)
+            || !string.Equals(group.InteractionId, interaction.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException("The production group must belong to the selected session and interaction.");
+        var parent = await _repository.GetImageAsync(request.SourceImageId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene image '{request.SourceImageId}' was not found.");
+        if (parent.Status != SceneImageStatus.Complete)
+            throw new InvalidOperationException("Finish requires a completed parent attempt.");
+        var identityParent = parent.ProductionStage == SceneImageProductionStage.Identity;
+        var skippedCompositionParent = parent.ProductionStage == SceneImageProductionStage.Composition
+            && group.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser;
+        if (!identityParent && !skippedCompositionParent)
+            throw new InvalidOperationException("Finish requires a completed Identity attempt, or a completed Composition when identity is skipped.");
+        if (string.IsNullOrWhiteSpace(parent.FileRelativePath) || string.IsNullOrWhiteSpace(parent.Sha256))
+            throw new InvalidOperationException("The completed Finish parent must have stored bytes and a checksum.");
+        if (request.RequestAdultContent)
+        {
+            var modelResolution = _modelResolutionService
+                ?? throw new InvalidOperationException("Finish adult-content policy cannot be resolved because model resolution is unavailable.");
+            var resolved = await modelResolution.ResolveImageModelAsync(null, cancellationToken);
+            if (resolved.ContentPolicy is ImageContentPolicy.SfwFiltered or ImageContentPolicy.Unknown)
+                throw new InvalidOperationException("Adult-content Finish edits are unavailable because the resolved editor model does not allow them.");
+        }
+
+        var record = new SceneImageRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interaction.Id,
+            PromptRecordId = parent.PromptRecordId,
+            PromptSnapshot = request.Instruction.Trim(),
+            Status = SceneImageStatus.Pending,
+            Operation = SceneImageOperation.Edit,
+            SourceImageId = parent.Id,
+            ImageSize = parent.ImageSize,
+            Style = parent.Style,
+            SettingsJson = parent.SettingsJson,
+            BeatId = parent.BeatId,
+            Pov = parent.Pov,
+            ProductionGroupId = group.Id,
+            CompiledMediaBriefId = parent.CompiledMediaBriefId,
+            ProductionStage = SceneImageProductionStage.Finish,
+            FinishChangeClass = request.FinishChangeClass,
+            IdentityStale = identityParent && request.FinishChangeClass == SceneImageFinishChangeClass.Geometry,
+            EditIntentSnapshot = JsonSerializer.Serialize(new { request.RequestAdultContent }),
+            Disposition = SceneImageAttemptDisposition.Active,
+            CatalogueId = parent.CatalogueId,
+            BeatProductionPlanId = parent.BeatProductionPlanId,
+            BeatProductionPlanVersion = parent.BeatProductionPlanVersion,
+            MomentSetId = parent.MomentSetId,
+            MomentSetVersion = parent.MomentSetVersion,
+            MomentId = parent.MomentId,
+            MomentEnrichmentId = parent.MomentEnrichmentId,
+            MomentEnrichmentRevision = parent.MomentEnrichmentRevision
+        };
+        await _repository.InsertImageAsync(record, cancellationToken);
+        _backgroundJobQueue.Enqueue(
+            BackgroundJobTypes.SceneImageEditing,
+            JsonSerializer.Serialize(new SceneImageEditingJobPayload { SessionId = session.Id, InteractionId = interaction.Id, ImageRecordId = record.Id }),
+            dedupeKey: $"{BackgroundJobTypes.SceneImageEditing}:{record.Id}");
+        return record;
+    }
+
+    public async Task<SceneImageRecord> EnqueueIdentityAsync(
+        SceneImageIdentityRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var session = await LoadSessionAsync(request.SessionId, cancellationToken);
+        var interaction = FindInteraction(session, request.InteractionId);
+        Require(request.ProductionGroupId, "Production group id");
+        Require(request.SourceImageId, "Composition source image id");
+        Require(request.Instruction, "Identity instruction");
+        var productionService = _productionService
+            ?? throw new InvalidOperationException("Identity enqueue requires the production service.");
+        var groupRepository = _productionGroupRepository
+            ?? throw new InvalidOperationException("Identity enqueue requires the production group repository.");
+        var group = await groupRepository.GetAsync(request.ProductionGroupId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{request.ProductionGroupId}' was not found.");
+        if (!string.Equals(group.SessionId, session.Id, StringComparison.Ordinal)
+            || !string.Equals(group.InteractionId, interaction.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException("The production group must belong to the selected session and interaction.");
+        var parent = await _repository.GetImageAsync(request.SourceImageId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene image '{request.SourceImageId}' was not found.");
+        if (parent.Status != SceneImageStatus.Complete
+            || parent.ProductionStage != SceneImageProductionStage.Composition
+            || !string.Equals(parent.ProductionGroupId, group.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException("Identity requires a completed Composition attempt in the same production group.");
+        if (string.IsNullOrWhiteSpace(parent.FileRelativePath) || string.IsNullOrWhiteSpace(parent.Sha256))
+            throw new InvalidOperationException("The completed Composition parent must have stored bytes and a checksum.");
+
+        var readiness = await productionService.ResolveIdentityReadinessAsync(group.Id, cancellationToken);
+        var bindings = readiness.Select((item, index) => new
+        {
+            ordinal = index + 1,
+            characterId = item.CharacterId,
+            characterName = item.CharacterName,
+            identityPackId = item.IdentityPackId,
+            identityPackVersion = item.IdentityPackVersion,
+            canonicalFaceAssetId = item.CanonicalFaceAssetId,
+            fileRelativePath = item.FileRelativePath,
+            sha256 = item.Sha256
+        }).ToArray();
+        if (bindings.Length == 0)
+            throw new InvalidOperationException("Identity requires at least one known visible character.");
+
+        var record = new SceneImageRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interaction.Id,
+            PromptRecordId = parent.PromptRecordId,
+            PromptSnapshot = request.Instruction.Trim(),
+            Status = SceneImageStatus.Pending,
+            Operation = SceneImageOperation.Edit,
+            SourceImageId = parent.Id,
+            ImageSize = parent.ImageSize,
+            Style = parent.Style,
+            SettingsJson = parent.SettingsJson,
+            BeatId = parent.BeatId,
+            Pov = parent.Pov,
+            ProductionGroupId = group.Id,
+            CompiledMediaBriefId = parent.CompiledMediaBriefId,
+            ProductionStage = SceneImageProductionStage.Identity,
+            Disposition = SceneImageAttemptDisposition.Active,
+            CatalogueId = parent.CatalogueId,
+            BeatProductionPlanId = parent.BeatProductionPlanId,
+            BeatProductionPlanVersion = parent.BeatProductionPlanVersion,
+            MomentSetId = parent.MomentSetId,
+            MomentSetVersion = parent.MomentSetVersion,
+            MomentId = parent.MomentId,
+            MomentEnrichmentId = parent.MomentEnrichmentId,
+            MomentEnrichmentRevision = parent.MomentEnrichmentRevision,
+            IdentityReferenceBindingsJson = JsonSerializer.Serialize(bindings, JsonOptions)
+        };
+        await _repository.InsertImageAsync(record, cancellationToken);
+        _backgroundJobQueue.Enqueue(
+            BackgroundJobTypes.SceneImageEditing,
+            JsonSerializer.Serialize(new SceneImageEditingJobPayload
+            {
+                SessionId = session.Id,
+                InteractionId = interaction.Id,
+                ImageRecordId = record.Id
+            }),
+            dedupeKey: $"{BackgroundJobTypes.SceneImageEditing}:{record.Id}");
         return record;
     }
 
@@ -700,6 +883,12 @@ public sealed class SceneImageService : ISceneImageService
         {
             throw new InvalidOperationException($"The {fieldName} must be valid JSON.", exception);
         }
+    }
+
+    private static void Require(string value, string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidOperationException($"{fieldName} is required.");
     }
 
     private static RolePlayInteraction FindInteraction(RolePlaySession session, string interactionId)

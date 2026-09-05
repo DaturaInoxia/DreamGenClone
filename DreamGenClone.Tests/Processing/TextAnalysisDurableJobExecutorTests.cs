@@ -24,6 +24,18 @@ public sealed class TextAnalysisDurableJobExecutorTests
     }
 
     [Fact]
+    public async Task Execute_ImageLaneSuccessCompletesOwnedJob()
+    {
+        var repository = new RecordingRepository();
+        var executor = CreateExecutor(repository, new Handler("catalogue", (_, _) => Task.CompletedTask));
+
+        await executor.ExecuteAsync(CreateClaimedJob(lane: DurableJobLane.ImageRender), CreateAnalyzer());
+
+        Assert.Equal(1, repository.CompleteCalls);
+        Assert.Equal(0, repository.FailCalls);
+    }
+
+    [Fact]
     public async Task Execute_TransientFailureSchedulesConfiguredRetryForClaimedAttempt()
     {
         var repository = new RecordingRepository();
@@ -123,16 +135,45 @@ public sealed class TextAnalysisDurableJobExecutorTests
         Assert.Equal(0, repository.FailCalls);
     }
 
+    [Fact]
+    public async Task Execute_ProviderTimeoutSchedulesRetryWithoutWaitingForHandler()
+    {
+        var repository = new RecordingRepository();
+        var handlerStopped = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var executor = CreateExecutor(repository, new Handler("catalogue", async (_, cancellationToken) =>
+        {
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            finally
+            {
+                handlerStopped.TrySetResult(true);
+            }
+        }));
+
+        await executor.ExecuteAsync(
+            CreateClaimedJob(attemptCount: 1, maxAttempts: 3),
+            CreateAnalyzer() with { Model = CreateAnalyzer().Model with { ProviderTimeoutSeconds = 1 } });
+
+        Assert.Equal(1, repository.RetryCalls);
+        Assert.Equal("structured_text_timeout", repository.ErrorCode);
+        Assert.True(await handlerStopped.Task.WaitAsync(TimeSpan.FromSeconds(1)));
+    }
+
     private static TextAnalysisDurableJobExecutor CreateExecutor(
         RecordingRepository repository,
         params IDurableBackgroundJobHandler[] handlers)
         => new(repository, handlers, TimeProvider.System, NullLogger<TextAnalysisDurableJobExecutor>.Instance);
 
-    private static DurableBackgroundJob CreateClaimedJob(int attemptCount = 1, int maxAttempts = 3) => new()
+    private static DurableBackgroundJob CreateClaimedJob(
+        int attemptCount = 1,
+        int maxAttempts = 3,
+        DurableJobLane lane = DurableJobLane.TextAnalysis) => new()
     {
         Id = "job-1",
         JobType = "catalogue",
-        Lane = DurableJobLane.TextAnalysis,
+        Lane = lane,
         PayloadJson = "{}",
         DedupeKey = "catalogue-1",
         Status = DurableBackgroundJobStatus.Processing,

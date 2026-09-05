@@ -1,0 +1,69 @@
+@page "/assets/{AssetId}/images/{ImageId}/edit"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Components.Assets
+
+@inject ISceneAssetService AssetService
+
+<PageTitle>Edit Asset - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">Edit Asset</h4>
+        <a href="/asset-studio/@AssetId" class="btn btn-outline-secondary btn-sm">Back to Asset</a>
+    </div>
+
+    @if (_asset is null)
+    {
+        <div class="alert alert-warning">Asset not found.</div>
+    }
+    else if (_image is null)
+    {
+        <div class="alert alert-warning">Image not found.</div>
+    }
+    else if (_image.Status != SceneAssetStatus.Complete)
+    {
+        <div class="alert alert-warning">This asset must finish processing before it can be edited.</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <div class="card"><div class="card-body p-2 text-center">
+                    <img src="/scene-images/@_image.FileRelativePath" class="img-fluid" alt="@_asset.Name" />
+                </div></div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header"><strong>Create an Edited Version</strong></div>
+                    <div class="card-body">
+                        <ImageEditWorkbench Source="_image" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string AssetId { get; set; } = string.Empty;
+    [Parameter]
+    public string ImageId { get; set; } = string.Empty;
+
+    private SceneAsset? _asset;
+    private SceneAssetImage? _image;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _asset = string.IsNullOrWhiteSpace(AssetId)
+            ? null
+            : await AssetService.GetAssetAsync(AssetId);
+        _image = string.IsNullOrWhiteSpace(ImageId)
+            ? null
+            : await AssetService.GetImageAsync(ImageId);
+        if (_image?.AssetId != AssetId) _image = null;
+    }
+}

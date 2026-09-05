@@ -60,6 +60,41 @@ public sealed class SceneImageProductionServiceTests
     }
 
     [Fact]
+    public async Task IdentitySkip_RequiresReason_PersistsAndCanBeCleared()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var group = await fixture.Service.GetOrCreateGroupAsync(CreateGroupRequest());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.SkipIdentityAsync(group.Id, " "));
+
+        var skipped = await fixture.Service.SkipIdentityAsync(group.Id, "Identity is intentionally out of scope for this frame.");
+        Assert.Equal(SceneImageIdentityPolicy.SkippedByUser, skipped.IdentityPolicy);
+        Assert.Equal("Identity is intentionally out of scope for this frame.", skipped.IdentitySkipReason);
+
+        var cleared = await fixture.Service.ClearIdentitySkipAsync(group.Id);
+        Assert.Equal(SceneImageIdentityPolicy.Required, cleared.IdentityPolicy);
+        Assert.Null(cleared.IdentitySkipReason);
+    }
+
+    [Fact]
+    public async Task Approval_BlocksCompositionUntilIdentityIsSkipped()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var group = await fixture.Service.GetOrCreateGroupAsync(CreateGroupRequest());
+        var image = fixture.CreateImage("composition-gated", group.Id, SceneImageAttemptDisposition.Active, Now);
+        await fixture.Images.InsertImageAsync(image);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.ApproveAsync(
+            group.Id, image.Id, image.Sha256!, "reviewer", null));
+        Assert.Contains("completed Identity attempt", error.Message, StringComparison.Ordinal);
+
+        await fixture.Service.SkipIdentityAsync(group.Id, "Composition-only approval is intentional for this frame.");
+        var approval = await fixture.Service.ApproveAsync(
+            group.Id, image.Id, image.Sha256!, "reviewer", null);
+        Assert.Equal(ApprovedSceneFrameDecisionState.Approved, approval.Decision);
+    }
+
+    [Fact]
     public async Task DispositionAndQueries_UsePersistedCasAttemptsAndApprovalHistory()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -69,6 +104,7 @@ public sealed class SceneImageProductionServiceTests
 
         await fixture.Service.SetDispositionAsync(
             image.Id, group.Id, SceneImageAttemptDisposition.Active, SceneImageAttemptDisposition.Shortlisted);
+        await fixture.Service.SkipIdentityAsync(group.Id, "This composition is approved without identity conditioning for this test.");
         var casError = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.SetDispositionAsync(
             image.Id, group.Id, SceneImageAttemptDisposition.Active, SceneImageAttemptDisposition.Rejected));
         Assert.Contains("changed concurrently", casError.Message, StringComparison.OrdinalIgnoreCase);
@@ -208,6 +244,7 @@ public sealed class SceneImageProductionServiceTests
             approvedParent.Id, group.Id, SceneImageAttemptDisposition.Active, SceneImageAttemptDisposition.Shortlisted);
         await fixture.Service.SetDispositionAsync(
             rejectedSibling.Id, group.Id, SceneImageAttemptDisposition.Active, SceneImageAttemptDisposition.Rejected);
+        await fixture.Service.SkipIdentityAsync(group.Id, "This composition is approved without identity conditioning for this test.");
         var approval = await fixture.Service.ApproveAsync(
             group.Id, approvedParent.Id, approvedParent.Sha256!, "reviewer", "exact completed frame");
         Assert.Equal(ApprovedSceneFrameDecisionState.Approved, approval.Decision);

@@ -1,0 +1,1 @@
+SELECT json_extract(je.value, '$.id') AS InteractionId, json_extract(je.value, '$.sequence') AS Sequence, json_extract(je.value, '$.role') AS Role FROM Sessions s, json_each(s.PayloadJson, '$.interactions') je WHERE s.Id = '4f2eec18-b190-4beb-ad35-8d520ae5c800';

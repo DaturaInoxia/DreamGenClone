@@ -369,6 +369,12 @@ public sealed class SceneImageEditCompilationJobTests
             Calls++;
             return Task.FromResult(Array.Empty<byte>());
         }
+
+        public Task<byte[]> EditWithReferencesAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, IReadOnlyList<ImageEditingReference> references, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(Array.Empty<byte>());
+        }
     }
 
     private static ResolvedMultimodalModel CreateResolvedModel() => new(

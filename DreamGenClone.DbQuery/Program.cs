@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -16,7 +17,7 @@ if (!File.Exists(databasePath))
     return 2;
 }
 
-var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "b100-analyzer-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "modelmanager-import" ? "ReadWrite" : "ReadOnly";
+var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -57,7 +58,12 @@ try
             RequireArgument(args, 1, "providerId"),
             RequireArgument(args, 2, "expectedCurrentTimeoutSeconds"),
             RequireArgument(args, 3, "newTimeoutSeconds")),
+        "provider-api-key-update" => await UpdateProviderApiKeyAsync(
+            connection,
+            RequireArgument(args, 1, "providerName"),
+            RequireArgument(args, 2, "environmentVariableName")),
         "b100-analyzer-configure" => await ConfigureB100AnalyzerAsync(connection),
+        "b100-analyzer-openrouter-configure" => await ConfigureB100OpenRouterAnalyzerAsync(connection),
         "biglust-image-configure" => await ConfigureBigLustImageAsync(connection),
         "qwen-edit-serverless-configure" => await ConfigureQwenEditServerlessAsync(connection),
         "set-identity-strength" => await SetIdentityStrengthAsync(
@@ -377,6 +383,65 @@ static async Task<int> RetagSceneAssetAsync(
     return 0;
 }
 
+static async Task<int> UpdateProviderApiKeyAsync(
+    SqliteConnection connection,
+    string providerName,
+    string environmentVariableName)
+{
+    if (string.IsNullOrWhiteSpace(environmentVariableName))
+        throw new ArgumentException("environmentVariableName must not be empty.");
+
+    var plainTextApiKey = Environment.GetEnvironmentVariable(environmentVariableName);
+    if (string.IsNullOrEmpty(plainTextApiKey))
+        throw new InvalidOperationException(
+            $"Environment variable '{environmentVariableName}' is missing or empty; no database changes were made.");
+    if (!OperatingSystem.IsWindows())
+        throw new PlatformNotSupportedException("API key encryption is only supported on Windows.");
+
+    var encryptedApiKey = Convert.ToBase64String(ProtectedData.Protect(
+        System.Text.Encoding.UTF8.GetBytes(plainTextApiKey),
+        optionalEntropy: null,
+        DataProtectionScope.CurrentUser));
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+    await using var select = connection.CreateCommand();
+    select.Transaction = transaction;
+    select.CommandText = "SELECT Id FROM Providers WHERE Name = $providerName;";
+    select.Parameters.AddWithValue("$providerName", providerName);
+
+    var providerIds = new List<string>();
+    await using (var reader = await select.ExecuteReaderAsync())
+    {
+        while (await reader.ReadAsync())
+            providerIds.Add(reader.GetString(0));
+    }
+
+    if (providerIds.Count != 1)
+        throw new InvalidOperationException(
+            $"Expected exactly one provider named '{providerName}', found {providerIds.Count}; no database changes were made.");
+
+    await using var update = connection.CreateCommand();
+    update.Transaction = transaction;
+    update.CommandText = """
+        UPDATE Providers
+        SET ApiKeyEncrypted = $apiKeyEncrypted,
+            UpdatedUtc = $updatedUtc
+                WHERE Id = $providerId
+                    AND Name = $providerName;
+        """;
+    update.Parameters.AddWithValue("$apiKeyEncrypted", encryptedApiKey);
+    update.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("o"));
+    update.Parameters.AddWithValue("$providerId", providerIds[0]);
+    update.Parameters.AddWithValue("$providerName", providerName);
+
+    if (await update.ExecuteNonQueryAsync() != 1)
+        throw new InvalidOperationException($"Provider '{providerName}' changed concurrently; no database changes were made.");
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"Provider API key updated from environment variable '{environmentVariableName}': {providerName}");
+    return 0;
+}
+
 static async Task<int> ConfigureB100AnalyzerAsync(SqliteConnection connection)
 {
     const string functionName = "RolePlaySceneBeatAnalyzer";
@@ -469,6 +534,68 @@ static async Task<int> ConfigureB100AnalyzerAsync(SqliteConnection connection)
 
     await transaction.CommitAsync();
     Console.WriteLine($"B-100 analyzer configured: {functionName} | {providerName} | {modelIdentifier}");
+    return 0;
+}
+
+static async Task<int> ConfigureB100OpenRouterAnalyzerAsync(SqliteConnection connection)
+{
+    const string functionName = "RolePlaySceneBeatAnalyzer";
+    const string modelDisplayName = "OP-deepseek-v4-flash-0731";
+    const int structuredOutputMode = 2;
+    const int maximumContextTokens = 1_310_720;
+    const int maximumOutputTokens = 64_000;
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+    await using var selectModel = connection.CreateCommand();
+    selectModel.Transaction = transaction;
+    selectModel.CommandText = "SELECT Id FROM RegisteredModels WHERE DisplayName = $displayName AND IsEnabled = 1;";
+    selectModel.Parameters.AddWithValue("$displayName", modelDisplayName);
+    var modelIds = new List<string>();
+    await using (var reader = await selectModel.ExecuteReaderAsync())
+    {
+        while (await reader.ReadAsync())
+            modelIds.Add(reader.GetString(0));
+    }
+
+    if (modelIds.Count != 1)
+        throw new InvalidOperationException(
+            $"Expected exactly one enabled registered model '{modelDisplayName}', found {modelIds.Count}; no database changes were made.");
+
+    await using var updateModel = connection.CreateCommand();
+    updateModel.Transaction = transaction;
+    updateModel.CommandText = """
+        UPDATE RegisteredModels
+        SET StructuredOutputMode = $structuredOutputMode,
+            MaximumContextTokens = $maximumContextTokens,
+            MaximumOutputTokens = $maximumOutputTokens,
+            SupportsThinkingControl = 0
+        WHERE Id = $modelId AND DisplayName = $displayName AND IsEnabled = 1;
+        """;
+    updateModel.Parameters.AddWithValue("$structuredOutputMode", structuredOutputMode);
+    updateModel.Parameters.AddWithValue("$maximumContextTokens", maximumContextTokens);
+    updateModel.Parameters.AddWithValue("$maximumOutputTokens", maximumOutputTokens);
+    updateModel.Parameters.AddWithValue("$modelId", modelIds[0]);
+    updateModel.Parameters.AddWithValue("$displayName", modelDisplayName);
+    if (await updateModel.ExecuteNonQueryAsync() != 1)
+        throw new InvalidOperationException("OpenRouter analyzer model capability update failed; no database changes were made.");
+
+    await using var updateFunction = connection.CreateCommand();
+    updateFunction.Transaction = transaction;
+    updateFunction.CommandText = """
+        UPDATE FunctionModelDefaults
+        SET ModelId = $modelId,
+            ThinkingMode = 2,
+            UpdatedUtc = $updatedUtc
+        WHERE FunctionName = $functionName;
+        """;
+    updateFunction.Parameters.AddWithValue("$modelId", modelIds[0]);
+    updateFunction.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("o"));
+    updateFunction.Parameters.AddWithValue("$functionName", functionName);
+    if (await updateFunction.ExecuteNonQueryAsync() != 1)
+        throw new InvalidOperationException("OpenRouter analyzer function update failed; no database changes were made.");
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"B-100 OpenRouter analyzer configured: {functionName} | {modelDisplayName}");
     return 0;
 }
 

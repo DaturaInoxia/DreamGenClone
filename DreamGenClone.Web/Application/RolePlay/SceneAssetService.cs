@@ -1,6 +1,8 @@
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.Processing;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using Microsoft.Extensions.Logging;
@@ -18,19 +20,206 @@ public sealed class SceneAssetService : ISceneAssetService
 
     private readonly ISceneAssetRepository _repository;
     private readonly ISceneAssetStorageService _storage;
-    private readonly IBackgroundJobQueue _backgroundJobQueue;
+    private readonly IDurableBackgroundJobQueue _backgroundJobQueue;
+    private readonly ISceneBeatAnalyzerResolver _durableSettingsResolver;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<SceneAssetService> _logger;
 
     public SceneAssetService(
         ISceneAssetRepository repository,
         ISceneAssetStorageService storage,
-        IBackgroundJobQueue backgroundJobQueue,
+        IDurableBackgroundJobQueue backgroundJobQueue,
+        ISceneBeatAnalyzerResolver durableSettingsResolver,
+        TimeProvider timeProvider,
         ILogger<SceneAssetService> logger)
     {
         _repository = repository;
         _storage = storage;
         _backgroundJobQueue = backgroundJobQueue;
+        _durableSettingsResolver = durableSettingsResolver;
+        _timeProvider = timeProvider;
         _logger = logger;
+    }
+
+    public async Task<SceneAsset> CreateAssetAsync(
+        string name,
+        SceneAssetType type,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new InvalidOperationException("An asset name is required.");
+        if (!Enum.IsDefined(type))
+            throw new InvalidOperationException("An asset type is required.");
+
+        var asset = new SceneAsset
+        {
+            Name = name.Trim(),
+            Type = type,
+            IsContainerOnly = true,
+            Kind = SceneAssetKind.Uploaded,
+            Status = SceneAssetStatus.Pending
+        };
+        await _repository.UpsertAsync(asset, cancellationToken);
+        _logger.LogInformation("Created scene asset container: AssetId={AssetId}, Name={Name}, Type={Type}", asset.Id, asset.Name, asset.Type);
+        return asset;
+    }
+
+    public async Task<SceneAssetImage> AddGeneratedImageAsync(
+        string assetId,
+        string prompt,
+        string modelId,
+        string imageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var asset = await RequireAssetAsync(assetId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(prompt))
+            throw new InvalidOperationException("An image description is required.");
+        if (string.IsNullOrWhiteSpace(modelId))
+            throw new InvalidOperationException("An exact image model is required.");
+        if (string.IsNullOrWhiteSpace(imageSize))
+            throw new InvalidOperationException("An image size is required.");
+
+        var image = new SceneAssetImage
+        {
+            AssetId = asset.Id,
+            Kind = SceneAssetKind.PromptGenerated,
+            Status = SceneAssetStatus.Pending,
+            Prompt = prompt.Trim()
+        };
+        var payload = new SceneAssetGenerationJobPayload
+        {
+            AssetId = asset.Id,
+            ImageId = image.Id,
+            ModelId = modelId.Trim(),
+            ImageSize = imageSize.Trim()
+        };
+        image.AssociationMetadataJson = JsonSerializer.Serialize(payload, JsonOptions);
+        await _repository.UpsertImageAsync(image, cancellationToken);
+        await EnqueueDurableAsync(
+            BackgroundJobTypes.SceneAssetGeneration,
+            DurableJobLane.ImageRender,
+            JsonSerializer.Serialize(payload, JsonOptions),
+            $"{BackgroundJobTypes.SceneAssetGeneration}:{image.Id}",
+            cancellationToken);
+        _logger.LogInformation("Enqueued scene asset image generation: AssetId={AssetId}, ImageId={ImageId}", asset.Id, image.Id);
+        return image;
+    }
+
+    public async Task<SceneAssetImage> AddUploadedImageAsync(
+        string assetId,
+        string fileName,
+        Stream content,
+        CancellationToken cancellationToken = default)
+    {
+        var asset = await RequireAssetAsync(assetId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(fileName))
+            throw new InvalidOperationException("A file name is required.");
+
+        var image = new SceneAssetImage
+        {
+            AssetId = asset.Id,
+            Kind = SceneAssetKind.Uploaded,
+            Status = SceneAssetStatus.Pending
+        };
+        var extension = SafeImageExtension(fileName);
+        var stored = await _storage.SaveAsync($"{image.Id}{extension}", content, cancellationToken);
+        image.Status = SceneAssetStatus.Complete;
+        image.FileRelativePath = stored.RelativePath;
+        image.MediaType = stored.MediaType;
+        image.Width = stored.Width;
+        image.Height = stored.Height;
+        image.ByteLength = stored.ByteLength;
+        image.Sha256 = stored.Sha256;
+        image.CompletedUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        image.UpdatedUtc = image.CompletedUtc.Value;
+        await _repository.UpsertImageAsync(image, cancellationToken);
+        _logger.LogInformation("Uploaded scene asset image: AssetId={AssetId}, ImageId={ImageId}", asset.Id, image.Id);
+        return image;
+    }
+
+    public async Task<SceneAssetImage> EnqueueImageEditAsync(
+        string assetId,
+        string sourceImageId,
+        string editPrompt,
+        string modelId,
+        CancellationToken cancellationToken = default)
+    {
+        var asset = await RequireAssetAsync(assetId, cancellationToken);
+        var source = await _repository.GetImageAsync(sourceImageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene asset image '{sourceImageId}' was not found.");
+        if (!string.Equals(source.AssetId, asset.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException("The source image does not belong to this asset.");
+        if (source.Status != SceneAssetStatus.Complete || string.IsNullOrWhiteSpace(source.FileRelativePath))
+            throw new InvalidOperationException("Only completed stored images can be edited.");
+        if (string.IsNullOrWhiteSpace(editPrompt))
+            throw new InvalidOperationException("An edit instruction is required.");
+        if (string.IsNullOrWhiteSpace(modelId))
+            throw new InvalidOperationException("An exact image editor model is required.");
+
+        var image = new SceneAssetImage
+        {
+            AssetId = asset.Id,
+            Kind = SceneAssetKind.Edited,
+            Status = SceneAssetStatus.Pending,
+            Prompt = editPrompt.Trim(),
+            SourceImageId = source.Id
+        };
+        var payload = new SceneAssetEditingJobPayload
+        {
+            AssetId = asset.Id,
+            ImageId = image.Id,
+            ModelId = modelId.Trim()
+        };
+        image.AssociationMetadataJson = JsonSerializer.Serialize(payload, JsonOptions);
+        await _repository.UpsertImageAsync(image, cancellationToken);
+        await EnqueueDurableAsync(
+            BackgroundJobTypes.SceneAssetEditing,
+            DurableJobLane.ImageEdit,
+            JsonSerializer.Serialize(payload, JsonOptions),
+            $"{BackgroundJobTypes.SceneAssetEditing}:{image.Id}",
+            cancellationToken);
+        _logger.LogInformation("Enqueued scene asset image edit: AssetId={AssetId}, ImageId={ImageId}, SourceImageId={SourceImageId}", asset.Id, image.Id, source.Id);
+        return image;
+    }
+
+    public Task<IReadOnlyList<SceneAssetImage>> ListImagesAsync(
+        string assetId, CancellationToken cancellationToken = default)
+        => _repository.ListImagesAsync(assetId, cancellationToken);
+
+    public Task<SceneAssetImage?> GetImageAsync(
+        string imageId, CancellationToken cancellationToken = default)
+        => _repository.GetImageAsync(imageId, cancellationToken);
+
+    public async Task<SceneAssetImage> ApproveImageForProductionAsync(
+        string imageId,
+        string sourceProvenanceJson,
+        SceneAssetConsentState consentState,
+        SceneAssetLicenseState licenseState,
+        string licenseLabel,
+        SceneAssetApprovedUseScope approvedUseScope,
+        string contentPolicyKey,
+        string compatibilityMetadataJson,
+        CancellationToken cancellationToken = default)
+    {
+        var approved = await _repository.ApproveImageForProductionAsync(
+            imageId, sourceProvenanceJson, consentState, licenseState, licenseLabel,
+            approvedUseScope, contentPolicyKey, compatibilityMetadataJson, cancellationToken);
+        _logger.LogInformation(
+            "Approved scene asset image for production: AssetId={AssetId}, ImageId={ImageId}",
+            approved.AssetId, approved.Id);
+        return approved;
+    }
+
+    public async Task<(SceneAsset Asset, SceneAssetImage Image, Stream Stream)> OpenImageForDownloadAsync(
+        string imageId, CancellationToken cancellationToken = default)
+    {
+        var image = await _repository.GetImageAsync(imageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Scene asset image '{imageId}' was not found.");
+        if (image.Status != SceneAssetStatus.Complete || string.IsNullOrWhiteSpace(image.FileRelativePath))
+            throw new InvalidOperationException($"Scene asset image '{imageId}' is not ready to download.");
+        var asset = await RequireAssetAsync(image.AssetId, cancellationToken);
+        var stream = await _storage.OpenReadAsync(image.FileRelativePath, cancellationToken);
+        return (asset, image, stream);
     }
 
     public async Task<SceneAsset> CreateFromPromptAsync(
@@ -50,24 +239,30 @@ public sealed class SceneAssetService : ISceneAssetService
         if (string.IsNullOrWhiteSpace(imageSize))
             throw new InvalidOperationException("An image size is required.");
 
+        var payload = new SceneAssetGenerationJobPayload
+        {
+            ModelId = modelId.Trim(),
+            ImageSize = imageSize.Trim()
+        };
         var asset = new SceneAsset
         {
             Name = name.Trim(),
             Kind = SceneAssetKind.PromptGenerated,
             Status = SceneAssetStatus.Pending,
             Type = type,
-            Prompt = prompt.Trim()
+            Prompt = prompt.Trim(),
+            AssociationMetadataJson = string.Empty
         };
+        payload.AssetId = asset.Id;
+        payload.ImageId = asset.Id;
+        asset.AssociationMetadataJson = JsonSerializer.Serialize(payload, JsonOptions);
         await _repository.UpsertAsync(asset, cancellationToken);
-        _backgroundJobQueue.Enqueue(
+        await EnqueueDurableAsync(
             BackgroundJobTypes.SceneAssetGeneration,
-            JsonSerializer.Serialize(new SceneAssetGenerationJobPayload
-            {
-                AssetId = asset.Id,
-                ModelId = modelId.Trim(),
-                ImageSize = imageSize.Trim()
-            }, JsonOptions),
-            dedupeKey: $"{BackgroundJobTypes.SceneAssetGeneration}:{asset.Id}");
+            DurableJobLane.ImageRender,
+            JsonSerializer.Serialize(payload, JsonOptions),
+            $"{BackgroundJobTypes.SceneAssetGeneration}:{asset.Id}",
+            cancellationToken);
         _logger.LogInformation("Enqueued scene asset generation: AssetId={AssetId}, Name={Name}", asset.Id, asset.Name);
         return asset;
     }
@@ -134,6 +329,10 @@ public sealed class SceneAssetService : ISceneAssetService
         if (source.Status != SceneAssetStatus.Complete)
             throw new InvalidOperationException("Only completed assets can be edited.");
 
+        var payload = new SceneAssetEditingJobPayload
+        {
+            ModelId = modelId.Trim()
+        };
         var asset = new SceneAsset
         {
             Name = name.Trim(),
@@ -141,17 +340,19 @@ public sealed class SceneAssetService : ISceneAssetService
             Status = SceneAssetStatus.Pending,
             Type = source.Type,
             Prompt = editPrompt.Trim(),
-            SourceAssetId = source.Id
+            SourceAssetId = source.Id,
+            AssociationMetadataJson = string.Empty
         };
+        payload.AssetId = asset.Id;
+        payload.ImageId = asset.Id;
+        asset.AssociationMetadataJson = JsonSerializer.Serialize(payload, JsonOptions);
         await _repository.UpsertAsync(asset, cancellationToken);
-        _backgroundJobQueue.Enqueue(
+        await EnqueueDurableAsync(
             BackgroundJobTypes.SceneAssetEditing,
-            JsonSerializer.Serialize(new SceneAssetEditingJobPayload
-            {
-                AssetId = asset.Id,
-                ModelId = modelId.Trim()
-            }, JsonOptions),
-            dedupeKey: $"{BackgroundJobTypes.SceneAssetEditing}:{asset.Id}");
+            DurableJobLane.ImageEdit,
+            JsonSerializer.Serialize(payload, JsonOptions),
+            $"{BackgroundJobTypes.SceneAssetEditing}:{asset.Id}",
+            cancellationToken);
         _logger.LogInformation("Enqueued scene asset edit: AssetId={AssetId}, Source={SourceId}", asset.Id, source.Id);
         return asset;
     }
@@ -168,10 +369,13 @@ public sealed class SceneAssetService : ISceneAssetService
         if (string.IsNullOrWhiteSpace(payload.EditorModelId))
             throw new InvalidOperationException("An exact image editor model is required for profile-pack angles.");
 
-        _backgroundJobQueue.Enqueue(
+        await EnqueueDurableAsync(
             BackgroundJobTypes.SceneAssetProfilePackGeneration,
+            DurableJobLane.ImageEdit,
             JsonSerializer.Serialize(payload, JsonOptions),
-            dedupeKey: $"{BackgroundJobTypes.SceneAssetProfilePackGeneration}:{payload.CharacterProfileId}");
+            $"{BackgroundJobTypes.SceneAssetProfilePackGeneration}:{payload.CharacterProfileId}",
+            cancellationToken,
+            useStableJobId: false);
         _logger.LogInformation("Enqueued profile pack generation: Character={Character}, FrontAsset={FrontAsset}",
             payload.CharacterProfileId, payload.FrontAssetId ?? "(generate from description)");
     }
@@ -235,5 +439,46 @@ public sealed class SceneAssetService : ISceneAssetService
         }
 
         _logger.LogInformation("Deleted scene asset: AssetId={AssetId}", asset.Id);
+    }
+
+    private async Task EnqueueDurableAsync(
+        string jobType,
+        DurableJobLane lane,
+        string payloadJson,
+        string dedupeKey,
+        CancellationToken cancellationToken,
+        bool useStableJobId = true)
+    {
+        var settings = await _durableSettingsResolver.ResolveAsync(cancellationToken);
+        var createdUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        var job = new DurableBackgroundJob
+        {
+            Id = useStableJobId ? dedupeKey : Guid.NewGuid().ToString("N"),
+            JobType = jobType,
+            Lane = lane,
+            PayloadJson = payloadJson,
+            DedupeKey = dedupeKey,
+            MaxAttempts = settings.RetryDelaysSeconds.Count + 1,
+            CreatedUtc = createdUtc,
+            UpdatedUtc = createdUtc
+        };
+        if (!await _backgroundJobQueue.TryEnqueueAsync(job, cancellationToken))
+            throw new InvalidOperationException($"A durable '{jobType}' job with key '{dedupeKey}' is already active.");
+    }
+
+    private async Task<SceneAsset> RequireAssetAsync(string assetId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(assetId))
+            throw new InvalidOperationException("An asset is required.");
+        return await _repository.GetAsync(assetId, cancellationToken)
+            ?? throw new InvalidOperationException($"Scene asset '{assetId}' was not found.");
+    }
+
+    private static string SafeImageExtension(string fileName)
+    {
+        var extension = Path.GetExtension(fileName);
+        return string.IsNullOrWhiteSpace(extension) || extension.Length > 8 || extension.Contains(' ')
+            ? ".png"
+            : extension.ToLowerInvariant();
     }
 }

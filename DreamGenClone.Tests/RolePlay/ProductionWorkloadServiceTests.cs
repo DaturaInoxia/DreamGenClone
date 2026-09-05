@@ -298,6 +298,7 @@ public sealed class ProductionWorkloadServiceTests
         var preparedIntent = (await fixture.Repository.GetIntentAsync(preparedItem.IntentSnapshotId))!;
         Assert.Equal(ProductionWorkloadStatus.Ready, prepared.Workload.Status);
         Assert.Equal(2, prepared.Workload.Revision);
+        Assert.Equal(sourceIntent.ContextId, prepared.Workload.ContextId);
         Assert.NotEqual(sourceIntent.Id, preparedIntent.Id);
         Assert.Equal(sourceIntent.MomentId, preparedIntent.MomentId);
         Assert.Equal(sourceIntent.MomentEnrichmentRevision, preparedIntent.MomentEnrichmentRevision);

@@ -25,6 +25,13 @@ public interface ISceneImageProductionGroupRepository
         string pov,
         CancellationToken cancellationToken = default);
 
+    Task<SceneImageProductionGroup> SetIdentityPolicyAsync(
+        string groupId,
+        SceneImageIdentityPolicy policy,
+        string? reason,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<SceneImageProductionGroup>> ListByInteractionAsync(
         string sessionId,
         string interactionId,

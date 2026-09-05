@@ -1,3 +1,5 @@
+using DreamGenClone.Domain.RolePlay;
+
 namespace DreamGenClone.Application.RolePlay;
 
 public sealed record ProductionStudioCapability(
@@ -43,6 +45,19 @@ public sealed record ProductionPrepareCommand(
     ProductionCostBasis CostBasis,
     DateTime CreatedUtc);
 
+public sealed record ProductionInitialRevisionCommand(
+    ProductionIntentSnapshot Intent,
+    string CapabilityProfileId,
+    string CapabilityCellId,
+    string SettingsJson,
+    int VariationCount,
+    string Goal,
+    string RetryPolicySnapshotJson,
+    ProductionProviderEndpoint Endpoint,
+    ProductionDispatchPolicy DispatchPolicy,
+    ProductionCostBasis CostBasis,
+    DateTime CreatedUtc);
+
 public interface IProductionStudioService
 {
     Task<IReadOnlyList<ProductionStudioCapability>> ListCapabilitiesAsync(
@@ -50,5 +65,9 @@ public interface IProductionStudioService
 
     Task<ProductionWorkloadReadiness> PrepareAsync(
         ProductionPrepareCommand command,
+        CancellationToken cancellationToken = default);
+
+    Task<ProductionWorkloadReadiness> CreateInitialRevisionAsync(
+        ProductionInitialRevisionCommand command,
         CancellationToken cancellationToken = default);
 }

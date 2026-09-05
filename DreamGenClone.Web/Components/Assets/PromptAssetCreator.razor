@@ -1,0 +1,117 @@
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+
+@inject ISceneAssetService AssetService
+@inject IModelResolutionService ModelResolutionService
+@inject ILogger<PromptAssetCreator> Logger
+
+<div class="card h-100">
+    <div class="card-header"><strong>Generate Image</strong></div>
+    <div class="card-body">
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+        <label class="form-label" for="generated-asset-prompt">Description</label>
+        <textarea id="generated-asset-prompt" class="form-control" rows="5" @bind="_prompt"></textarea>
+        <label class="form-label mt-2" for="generated-asset-model">Image model</label>
+        <select id="generated-asset-model" class="form-select" @bind="_modelId">
+            <option value="">Select an image model</option>
+            @foreach (var choice in _models)
+            {
+                <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
+            }
+        </select>
+        <div class="row g-2 mt-1">
+            <div class="col-sm-6">
+                <label class="form-label" for="generated-asset-size">Image size</label>
+                <select id="generated-asset-size" class="form-select" @bind="_imageSize">
+                    <option value="1024x1024">1024 x 1024</option>
+                    <option value="1152x896">1152 x 896</option>
+                    <option value="896x1152">896 x 1152</option>
+                </select>
+            </div>
+            <div class="col-sm-6">
+                <label class="form-label" for="generated-asset-count">Outputs</label>
+                <input id="generated-asset-count" type="number" class="form-control" min="1" max="8" @bind="_outputCount" />
+            </div>
+        </div>
+        <button class="btn btn-primary mt-3" type="button" disabled="@(_busy || !CanGenerate)" @onclick="GenerateAsync">
+            <i class="bi bi-stars me-1"></i> Generate
+        </button>
+        @if (_results.Count > 0)
+        {
+            <div class="alert alert-success mt-3 mb-0">
+                @_results.Count output@(_results.Count == 1 ? "" : "s") queued.
+                @foreach (var result in _results)
+                {
+                    <span class="d-block font-monospace text-break">@result.Id</span>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string AssetId { get; set; } = string.Empty;
+    [Parameter]
+    public EventCallback ImagesChanged { get; set; }
+
+    private List<SceneImageModelChoice> _models = [];
+    private List<SceneAssetImage> _results = [];
+    private string _prompt = string.Empty;
+    private string? _modelId;
+    private string _imageSize = "1024x1024";
+    private int _outputCount = 1;
+    private bool _busy;
+    private string? _error;
+
+    private bool CanGenerate => !string.IsNullOrWhiteSpace(AssetId)
+        && !string.IsNullOrWhiteSpace(_prompt)
+        && !string.IsNullOrWhiteSpace(_modelId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _models = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Failed to load models for asset creation.");
+        }
+    }
+
+    private async Task GenerateAsync()
+    {
+        if (!CanGenerate) return;
+
+        _busy = true;
+        _error = null;
+        _results = [];
+        try
+        {
+            var outputCount = Math.Clamp(_outputCount, 1, 8);
+            for (var output = 1; output <= outputCount; output++)
+            {
+                _results.Add(await AssetService.AddGeneratedImageAsync(
+                    AssetId, _prompt, _modelId!, _imageSize));
+            }
+            await ImagesChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Asset generation submission failed.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

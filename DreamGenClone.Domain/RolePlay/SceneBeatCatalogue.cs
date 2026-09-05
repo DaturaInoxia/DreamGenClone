@@ -71,6 +71,17 @@ public sealed class SceneBeatAnalysisAttempt
     public string? ValidationCode { get; set; }
     public string ValidationDetailsJson { get; set; } = string.Empty;
     public long? DurationMs { get; set; }
+    public long? PromptBuildDurationMs { get; set; }
+    public int? PromptUtf8Bytes { get; set; }
+    public int? SystemPromptCharacters { get; set; }
+    public int? UserPromptCharacters { get; set; }
+    public long? QueueWaitMs { get; set; }
+    public long? ProviderHeadersWaitMs { get; set; }
+    public long? ResponseBodyReadMs { get; set; }
+    public int? ResponseBytes { get; set; }
+    public long? ProviderJsonDeserializationMs { get; set; }
+    public long? ValidationDurationMs { get; set; }
+    public string? ProviderUsageJson { get; set; }
     public int InputCharacters { get; set; }
     public int? OutputCharacters { get; set; }
     public DateTime CreatedUtc { get; set; }

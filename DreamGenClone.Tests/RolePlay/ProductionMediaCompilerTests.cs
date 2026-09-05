@@ -2,11 +2,53 @@ using System.Text.Json;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Tests.RolePlay;
 
 public sealed class ProductionMediaCompilerTests
 {
+    [Fact]
+    public void Phase2StudioSettings_EmitTheQualifiedSdxlContract()
+    {
+        var settings = new SceneImageStudioSettings
+        {
+            ImageSize = "1024x1024",
+            Steps = 30,
+            Cfg = 5,
+            SamplerName = " dpmpp_2m_sde ",
+            Scheduler = " karras ",
+            NegativePrompt = "deformed",
+            Seed = 42
+        };
+
+        using var json = JsonDocument.Parse(SceneImageProductionSettingsContract.Serialize(settings));
+        Assert.Equal(1024, json.RootElement.GetProperty("width").GetInt32());
+        Assert.Equal(30, json.RootElement.GetProperty("steps").GetInt32());
+        Assert.Equal(5, json.RootElement.GetProperty("guidance").GetDouble());
+        Assert.Equal("dpmpp_2m_sde", json.RootElement.GetProperty("sampler").GetString());
+        Assert.Equal("karras", json.RootElement.GetProperty("scheduler").GetString());
+        Assert.Equal(42, json.RootElement.GetProperty("seed").GetInt64());
+        Assert.False(json.RootElement.TryGetProperty("Cfg", out _));
+        Assert.False(json.RootElement.TryGetProperty("SamplerName", out _));
+
+        var restored = JsonSerializer.Deserialize<SceneImageStudioSettings>(json.RootElement.GetRawText());
+        Assert.NotNull(restored);
+        Assert.Equal(5, restored!.Cfg);
+        Assert.Equal("dpmpp_2m_sde", restored.SamplerName);
+    }
+
+    [Fact]
+    public void Phase2StudioSettings_RejectMissingQualifiedValuesBeforeCompilation()
+    {
+        var settings = new SceneImageStudioSettings { Steps = null };
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => SceneImageProductionSettingsContract.Serialize(settings));
+
+        Assert.Contains("steps", exception.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void PonyAndSdxl_CompileFamilyNativeGoldenRequests()
     {

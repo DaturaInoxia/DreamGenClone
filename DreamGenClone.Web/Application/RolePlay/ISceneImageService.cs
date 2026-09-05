@@ -29,6 +29,12 @@ public interface ISceneImageService
     Task<SceneImageRecord> EnqueueEditAsync(
         SceneImageEditRequest request, CancellationToken cancellationToken = default);
 
+    Task<SceneImageRecord> EnqueueIdentityAsync(
+        SceneImageIdentityRequest request, CancellationToken cancellationToken = default);
+
+    Task<SceneImageRecord> EnqueueFinishAsync(
+        SceneImageFinishRequest request, CancellationToken cancellationToken = default);
+
     Task<SceneImagePromptRecord?> GetPromptAsync(
         string sessionId, string promptId, CancellationToken cancellationToken = default);
 

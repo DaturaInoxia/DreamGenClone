@@ -8,10 +8,13 @@ public sealed class SceneMomentEnrichmentContractTests
     [Fact]
     public void CreateResponseSchema_IsExactAndClosesEveryObject()
     {
-        var schema = SceneMomentEnrichmentContract.CreateResponseSchema();
+        var schema = SceneMomentEnrichmentContract.CreateResponseSchema(["p0"]);
         var required = schema.GetProperty("required").EnumerateArray().Select(item => item.GetString()).ToHashSet();
         var characterRequired = schema.GetProperty("properties").GetProperty("characters")
             .GetProperty("items").GetProperty("required").EnumerateArray().Select(item => item.GetString()).ToHashSet();
+        var characters = schema.GetProperty("properties").GetProperty("characters");
+        var profileKeys = characters.GetProperty("items").GetProperty("properties").GetProperty("profileKey")
+            .GetProperty("enum").EnumerateArray().Select(item => item.GetString()).ToArray();
 
         Assert.Equal([
             "schemaVersion", "catalogueBeatId", "momentId", "visualDescription", "characters",
@@ -22,6 +25,9 @@ public sealed class SceneMomentEnrichmentContractTests
             "name", "profileKey", "involvement", "physicalLocation", "position",
             "actionOrObservation", "sightline", "visibleCharacterNames", "clothing"
         ], characterRequired);
+        Assert.Equal(1, characters.GetProperty("minItems").GetInt32());
+        Assert.Equal(1, characters.GetProperty("maxItems").GetInt32());
+        Assert.Equal(["p0"], profileKeys);
         AssertAllObjectsAreClosed(schema);
     }
 

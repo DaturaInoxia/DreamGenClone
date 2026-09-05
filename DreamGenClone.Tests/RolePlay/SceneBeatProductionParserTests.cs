@@ -88,13 +88,13 @@ public sealed class SceneBeatProductionParserTests
     }
 
     [Fact]
-    public void Parse_RejectsExactTextThatDoesNotMatchImmutableSpan()
+    public void Parse_RejectsModelExactTextThatDiffersFromImmutableSourceSpan()
     {
         var response = ValidResponse.Replace("You're still awake.\", \"displayText", "You're still asleep.\", \"displayText");
 
-        var error = Assert.Throws<InvalidOperationException>(() => Parse(response));
+      var error = Assert.Throws<InvalidOperationException>(() => Parse(response));
 
-        Assert.Contains("exact source text does not match", error.Message, StringComparison.OrdinalIgnoreCase);
+      Assert.Contains("source span text does not match", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -292,6 +292,31 @@ public sealed class SceneBeatProductionParserTests
 
         Assert.Contains("ends outside the Beat window", error.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+      [Fact]
+      public void Parse_AllowsObjectDrivenActionWithoutParticipantSubject()
+      {
+        var response = MutateResponse(root =>
+        {
+          var action = root["actionArc"]![0]!;
+          action["subjectKey"] = null;
+          action["targetObject"] = "door";
+        });
+
+        var result = Parse(response);
+
+        Assert.Contains("\"targetObject\":\"door\"", result.ActionArcJson, StringComparison.Ordinal);
+      }
+
+      [Fact]
+      public void Parse_RejectsActionWithoutSubjectOrTargetObject()
+      {
+        var response = MutateResponse(root => root["actionArc"]![0]!["subjectKey"] = null);
+
+        var error = Assert.Throws<InvalidOperationException>(() => Parse(response));
+
+        Assert.Contains("subject or target object is required", error.Message, StringComparison.OrdinalIgnoreCase);
+      }
 
     private static SceneBeatProductionPlanData Parse(string response)
         => new SceneBeatProductionParser().Parse("plan-1", response, CreateSnapshot());

@@ -21,6 +21,8 @@ readiness instead of falling back.
 - [`contracts.md`](contracts.md) - repositories, resolver/client/job, storage, and host-proof contract.
 - [`plan.md`](plan.md) - layered change surface, slices, blast radius, and rollout.
 - [`tasks.md`](tasks.md) - dependency-ordered implementation ledger.
+- [`manual-test-runner.md`](manual-test-runner.md) - beginning-to-end user walkthrough, manual
+  acceptance record, defect log, and incomplete-gate ledger.
 - [`poc-production-reconciliation.md`](poc-production-reconciliation.md) - P2-033 forward-only map
   from implemented POC/Scene Asset records to production ownership and replacement boundaries.
 - [`production-ui-contract.md`](production-ui-contract.md) - P2-051 frozen Asset Manager and

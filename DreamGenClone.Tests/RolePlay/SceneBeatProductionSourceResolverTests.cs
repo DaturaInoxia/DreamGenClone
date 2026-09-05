@@ -17,6 +17,25 @@ public sealed class SceneBeatProductionSourceResolverTests
         Assert.Equal(["interaction-0", "interaction-1"], resolver.ResolveEvidenceInteractionIds(["n0", "c1"]));
     }
 
+    [Fact]
+    public void ResolveExactSpan_AcceptsJsonNormalizedLineEndings()
+    {
+        var snapshot = CreateSnapshot() with
+        {
+            Evidence =
+            [
+                new("n0", 0, "interaction-0", "Narrative", "System", "First line\r\n\r\nSecond line", DateTime.UtcNow, new string('B', 64)),
+                new("c1", 1, "interaction-1", "Dean", "User", "You're still awake, Becky.", DateTime.UtcNow, new string('C', 64)),
+                new("c2", 2, "interaction-2", "Other", "Npc", "Outside the selected Beat.", DateTime.UtcNow, new string('D', 64))
+            ]
+        };
+        var resolver = new SceneBeatProductionSourceResolver(snapshot);
+
+        var span = resolver.ResolveExactSpan("n0", 0, 25, "First line\n\nSecond line");
+
+        Assert.Equal("First line\r\n\r\nSecond line", span.ExactText);
+    }
+
     [Theory]
     [InlineData(-1, 5, "You're")]
     [InlineData(6, 60, "still awake, Becky")]

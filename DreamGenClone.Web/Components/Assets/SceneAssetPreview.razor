@@ -1,0 +1,23 @@
+@using DreamGenClone.Domain.RolePlay
+
+<div class="card">
+    <div class="card-body p-2 text-center">
+        @if (Asset.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(Asset.FileRelativePath))
+        {
+            <img src="/scene-images/@Asset.FileRelativePath" class="img-fluid" alt="@Asset.Name" />
+        }
+        else if (Asset.Status == SceneAssetStatus.Pending)
+        {
+            <div class="text-muted py-5">Processing asset...</div>
+        }
+        else
+        {
+            <div class="alert alert-danger mb-0">@Asset.ErrorMessage</div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public SceneAsset Asset { get; set; } = null!;
+}

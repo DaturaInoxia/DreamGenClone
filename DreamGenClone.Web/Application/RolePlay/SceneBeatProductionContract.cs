@@ -46,10 +46,10 @@ public sealed class SceneBeatProductionContract
             SystemPrompt,
             user.ToString().TrimEnd(),
             ResponseSchemaName,
-            CreateResponseSchema());
+            CreateResponseSchema(snapshot.Profiles.Select(profile => profile.Key)));
     }
 
-    public static JsonElement CreateResponseSchema()
+    public static JsonElement CreateResponseSchema(IEnumerable<string> profileKeys)
         => JsonSerializer.SerializeToElement(Object(
             ("schemaVersion", new JsonObject { ["const"] = SceneBeatProductionSnapshotBuilder.CurrentSchemaVersion }),
             ("catalogueBeatId", String()),
@@ -60,7 +60,7 @@ public sealed class SceneBeatProductionContract
             ("ambience", Ambience()),
             ("soundEvents", Array(SoundCue())),
             ("music", Array(MusicSection())),
-            ("actionArc", Array(ActionStep())),
+            ("actionArc", Array(ActionStep(profileKeys))),
             ("startContinuity", Continuity()),
             ("endContinuity", Continuity()),
             ("typedReferences", Array(TypedReference())),
@@ -69,7 +69,7 @@ public sealed class SceneBeatProductionContract
     private const string SystemPrompt = """
         You are a multimodal narrative production analyst. Expand exactly one selected narrative Beat into canonical, provider-neutral temporal production data for downstream speech, sound, music, image-key-state, and video planning.
 
-        Use only the selected Beat and supplied immutable evidence. Keep chronology source-supported. Use only supplied evidence keys and profile keys. Never invent UUIDs, speakers, addressees, quotations, source offsets, character facts, or Moment IDs. In startContinuity and endContinuity, characterStates and wardrobeStates keys are the participant profile keys (e.g. p0) - never suffix them (e.g. p0-wardrobe is invalid); objectStates keys are free-form object identifiers (e.g. porch-light); typedReferences.subjectKey is a participant profile key.
+        Use only the selected Beat and supplied immutable evidence. Keep chronology source-supported. Use only supplied evidence keys and profile keys. Never invent UUIDs, speakers, addressees, quotations, source offsets, character facts, or Moment IDs. In actionArc, subjectKey and targetKey are participant profile keys (e.g. p0 or p1) only; doors, mirrors, towels, faucets, and other objects belong in targetObject and must never be used as profile keys. In startContinuity and endContinuity, characterStates and wardrobeStates keys are the participant profile keys (e.g. p0) - never suffix them (e.g. p0-wardrobe is invalid); objectStates keys are free-form object identifiers (e.g. porch-light); typedReferences.subjectKey is a participant profile key.
 
         Dialogue and narration must preserve exact source text and zero-based start/end offsets in one supplied evidence item. For every cue, exactSourceText must be the character-for-character substring of its source evidence content at [startOffset, endOffset), including any newlines and surrounding whitespace; never trim, reflow, or re-case it, and ensure endOffset - startOffset equals exactSourceText.Length. Keep immutable display text separate from normalized spoken text and record normalization method/version. If attribution is ambiguous, set reviewStatus to ReviewRequired, leave speakerKey null, and explain reviewReason. Narration cues have no speaker: leave speakerKey null and set reviewStatus to Validated.
 
@@ -163,14 +163,24 @@ public sealed class SceneBeatProductionContract
         ("continuityIntent", String()),
         ("window", Window()));
 
-    private static JsonObject ActionStep() => Object(
-        ("order", PositiveInteger()),
-        ("eventKey", String()),
-        ("subjectKey", String()),
-        ("action", String()),
-        ("targetKey", NullableString()),
-        ("targetObject", NullableString()),
-        ("resultingState", String()));
+    private static JsonObject ActionStep(IEnumerable<string> profileKeys)
+    {
+        var keys = profileKeys
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (keys.Length == 0)
+            throw new InvalidOperationException("Beat Production actionArc schema requires at least one participant profile key.");
+
+        return Object(
+            ("order", PositiveInteger()),
+            ("eventKey", String()),
+            ("subjectKey", NullableEnum(keys)),
+            ("action", String()),
+            ("targetKey", NullableEnum(keys)),
+            ("targetObject", NullableString()),
+            ("resultingState", String()));
+    }
 
     private static JsonObject Continuity() => Object(
         ("location", String()),
@@ -260,6 +270,11 @@ public sealed class SceneBeatProductionContract
     {
         ["type"] = "string",
         ["enum"] = new JsonArray(values.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray())
+    };
+    private static JsonObject NullableEnum(params string[] values) => new()
+    {
+        ["type"] = new JsonArray("string", "null"),
+        ["enum"] = new JsonArray(values.Select(value => (JsonNode?)JsonValue.Create(value)).Append(null).ToArray())
     };
     private static JsonObject Array(JsonNode items, int? minimum = null)
     {

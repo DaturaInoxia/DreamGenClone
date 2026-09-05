@@ -23,7 +23,7 @@ public sealed class SceneImageStudioUiContractTests
         var productionBody = IndexOf("<div class=\"card-body\">", createCommand);
         Assert.True(createBranch < createCommand && createCommand < productionBody,
             "Create / Load Production must remain inside the enriched-Moment header branch.");
-        Assert.Single(Regex.Matches(Source, "Create / Load Production", RegexOptions.CultureInvariant).Cast<Match>());
+        Assert.Single(Regex.Matches(Source, "@onclick=\"CreateOrLoadProductionAsync\"", RegexOptions.CultureInvariant).Cast<Match>());
 
         var compositionCommand = IndexOf("@onclick=\"GenerateProductionCompositionAsync\"", productionBody);
         var compositionButtonStart = Source.LastIndexOf("<button", compositionCommand, StringComparison.Ordinal);
@@ -44,7 +44,7 @@ public sealed class SceneImageStudioUiContractTests
     [Fact]
     public void CurrentGeneration_UsesDurableWorkspaceAndPreservesExistingGenerationSurfaces()
     {
-        Assert.Contains("<ProductionWorkspace SessionId=\"@sessionId\" />", Source, StringComparison.Ordinal);
+        Assert.Contains("<ProductionWorkspace @key=\"_durableWorkspaceRefreshKey\" SessionId=\"@sessionId\" />", Source, StringComparison.Ordinal);
         Assert.Contains("SceneImageProductionSchema.CurrentGeneration", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("<div hidden=\"@IsCurrentProductionSession\">", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("scene-image-legacy-tools\" hidden=\"@IsCurrentProductionSession\"", Source, StringComparison.Ordinal);
@@ -56,6 +56,16 @@ public sealed class SceneImageStudioUiContractTests
     }
 
     [Fact]
+    public void StoryArcTurnSelection_NavigatesToTurnOnFirstClick()
+    {
+        var selection = IndexOf("private void SelectArcTurn(StoryArcTurn turn)");
+        var navigation = IndexOf("NavigateToTurn(turn);", selection);
+
+        Assert.True(selection < navigation,
+            "Selecting a Story Arc turn must navigate immediately instead of requiring a second click.");
+    }
+
+    [Fact]
     public void DurableWorkspace_PreservesSelectionAndExposesExactOperationalWorkflow()
     {
         Assert.Contains("_selectedWorkloadId", ProductionWorkspaceSource, StringComparison.Ordinal);
@@ -64,9 +74,11 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("new System.Threading.Timer", ProductionWorkspaceSource, StringComparison.Ordinal);
         Assert.Contains("UpdatePolling();", ProductionWorkspaceSource, StringComparison.Ordinal);
         Assert.Contains("_comparisonAttemptIds", ProductionWorkspaceSource, StringComparison.Ordinal);
-        Assert.Contains("_selectedItem.Request.CanonicalProviderRequestJson", ProductionWorkspaceSource, StringComparison.Ordinal);
-        Assert.Contains("_selectedItem.ReferenceBindings", ProductionWorkspaceSource, StringComparison.Ordinal);
-        Assert.Contains("@onclick=\"PrepareRevisionAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("The selected Moment and model settings are prepared automatically", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("Nothing to fill in here.", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Binding snapshot JSON", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Compiler settings JSON", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("@onclick=\"PrepareRevisionAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"SubmitSelectedAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"CancelSelectedAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"RetrySelectedAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
@@ -75,16 +87,40 @@ public sealed class SceneImageStudioUiContractTests
     }
 
     [Fact]
-    public void Identity_IsSurfacedAsOnePassCompositionAndFinish_RemainsUnavailable()
+    public void Identity_IsSurfacedAsASeparateStageWithExplicitSkipAndFinishState()
     {
-        // B-103 part A: identity is surfaced as a one-pass option inside the Composition stage (not
-        // a separate Identity stage), and the Finish stage remains unavailable.
-        Assert.Contains("Character Identity (one-pass)", Source, StringComparison.Ordinal);
-        Assert.Contains("@onclick=\"GenerateProductionCompositionWithIdentityAsync\"", Source, StringComparison.Ordinal);
-        Assert.Contains("<strong>Finish</strong>", Source, StringComparison.Ordinal);
-        Assert.Contains("Unavailable: finish-stage source-image editing follows the identity boundary", Source, StringComparison.Ordinal);
+        Assert.Contains("2. Identity", Source, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"ApplyProductionIdentityAsync\"", Source, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"SkipProductionIdentityAsync\"", Source, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"ClearProductionIdentitySkipAsync\"", Source, StringComparison.Ordinal);
+        Assert.Contains("<strong>3. Finish</strong>", Source, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"EnqueueProductionFinishAsync\"", Source, StringComparison.Ordinal);
+        Assert.Contains("Change class (required)", Source, StringComparison.Ordinal);
+        Assert.Contains("ToggleProductionCompare", Source, StringComparison.Ordinal);
+        Assert.Contains("ToggleProductionCompareAttempt", Source, StringComparison.Ordinal);
+        Assert.Contains("Branch a sibling Composition", Source, StringComparison.Ordinal);
+        Assert.Contains("Identity readiness", Source, StringComparison.Ordinal);
+        Assert.Contains("Identity blocked:", Source, StringComparison.Ordinal);
+        Assert.Contains("CanonicalFaceAssetId", Source, StringComparison.Ordinal);
+        Assert.Contains("Request adult-content Finish edit", Source, StringComparison.Ordinal);
+        Assert.Contains("resolved editor model", Source, StringComparison.Ordinal);
+        Assert.Contains("RequestAdultContent = _productionFinishAdultContent", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Character Identity (one-pass)", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("@onclick=\"GenerateProductionCompositionWithIdentityAsync\"", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("GenerateProductionIdentityAsync", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("GenerateProductionFinishAsync", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApplyProductionIdentity_UsesResolvedReadinessInsteadOfHiddenPackSelection()
+    {
+        var methodStart = IndexOf("private async Task ApplyProductionIdentityAsync()");
+        var methodEnd = IndexOf("private async Task SkipProductionIdentityAsync()", methodStart);
+        var method = Source[methodStart..methodEnd];
+
+        Assert.Contains("_productionIdentityReadiness.Select(binding => binding.CharacterName)", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("Select at least one approved identity pack", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("_productionIdentityPacks.Where(option => option.Selected)", method, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -103,16 +139,65 @@ public sealed class SceneImageStudioUiContractTests
     }
 
     [Fact]
-    public void LegacyTools_ExcludeProductionAttemptsAndLabelIdentityTextToImageAsLegacy()
+    public void StagedWorkbench_ExposesReadinessParentSelectionAndSkipDialog()
+    {
+        Assert.Contains("StageState(SceneImageProductionStage.Composition)", Source, StringComparison.Ordinal);
+        Assert.Contains("ReadyIdentityCount(characters)", Source, StringComparison.Ordinal);
+        Assert.Contains("IdentityReadinessFor(character.Name)", Source, StringComparison.Ordinal);
+        Assert.Contains("EligibleFinishParents()", Source, StringComparison.Ordinal);
+        Assert.Contains("OpenIdentitySkipDialogAsync", Source, StringComparison.Ordinal);
+        Assert.Contains("aria-modal=\"true\"", Source, StringComparison.Ordinal);
+        Assert.Contains("disabled=\"@(_busy || string.IsNullOrWhiteSpace(_productionIdentitySkipReason))\"", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AttemptTreeAndCompare_ExposeLineageMarkersAndPersistedDifferences()
+    {
+        Assert.Contains("has-parent", Source, StringComparison.Ordinal);
+        Assert.Contains("BranchFromAttemptAsync", Source, StringComparison.Ordinal);
+        Assert.Contains("Identity-stale", Source, StringComparison.Ordinal);
+        Assert.Contains("CompareDifferences()", Source, StringComparison.Ordinal);
+        Assert.Contains("IdentityReferenceBindingsJson", Source, StringComparison.Ordinal);
+        Assert.Contains("Attempt @", Source, StringComparison.Ordinal);
+        Assert.Contains("aria-label=\"Attempt @(compareIndex == 0 ? \"A\" : \"B\")\"", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApprovalSurface_StatesGateReasonAndRequiresExactCompletedAttempt()
+    {
+        Assert.Contains("ApprovalReason(_selectedProductionAttempt)", Source, StringComparison.Ordinal);
+        Assert.Contains("CanApprove(_selectedProductionAttempt)", Source, StringComparison.Ordinal);
+        Assert.Contains("Identity required - this attempt has no completed identity pass.", Source, StringComparison.Ordinal);
+        Assert.Contains("new decision version", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StagedWorkflow_PreservesStateKeysAndSupportsCompareApprovalAndFocusRules()
+    {
+        Assert.Contains("_activeProductionStage", Source, StringComparison.Ordinal);
+        Assert.Contains("_selectedParentAttemptId", Source, StringComparison.Ordinal);
+        Assert.Contains("_compareAttemptIds", Source, StringComparison.Ordinal);
+        Assert.Contains("_canvasMode", Source, StringComparison.Ordinal);
+        Assert.Contains("_productionFinishChangeClass", Source, StringComparison.Ordinal);
+        Assert.Contains("_identitySkipDialogOpen", Source, StringComparison.Ordinal);
+        Assert.Contains("PreserveProductionStateKeys", Source, StringComparison.Ordinal);
+        Assert.Contains("Approve Attempt @(compareIndex == 0 ? \"A\" : \"B\")", Source, StringComparison.Ordinal);
+        Assert.Contains("await focusable[_identitySkipFocusIndex].FocusAsync()", Source, StringComparison.Ordinal);
+        Assert.Contains("await _identitySkipOpener.FocusAsync()", Source, StringComparison.Ordinal);
+        Assert.Contains("IsStageAvailable(stages[nextIndex])", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AdditionalPhase2Tools_ExcludeProductionAttemptsAndUseCurrentTerminology()
     {
         var productionStudio = IndexOf("scene-production-studio");
-        var legacySection = IndexOf("Legacy / Experimental Tools", productionStudio);
-        var legacyImages = IndexOf("<strong>Legacy Images</strong>", legacySection);
-        var legacyLoop = IndexOf("@foreach (var img in _legacyImages)", legacyImages);
-        Assert.True(productionStudio < legacySection && legacySection < legacyImages && legacyImages < legacyLoop,
-            "Legacy tools and their image loop must remain after the production studio.");
-        Assert.Contains("<strong>Legacy Identity-Conditioned Render</strong>", Source, StringComparison.Ordinal);
-        Assert.Contains("private IEnumerable<SceneImageRecord> _legacyImages", Source, StringComparison.Ordinal);
+        var additionalSection = IndexOf("Additional Phase 2 Tools", productionStudio);
+        var additionalImages = IndexOf("<strong>Additional Images</strong>", additionalSection);
+        var additionalLoop = IndexOf("@foreach (var img in _additionalImages)", additionalImages);
+        Assert.True(productionStudio < additionalSection && additionalSection < additionalImages && additionalImages < additionalLoop,
+            "Additional Phase 2 tools and their image loop must remain after the production studio.");
+        Assert.Contains("<strong>Identity-Conditioned Render</strong>", Source, StringComparison.Ordinal);
+        Assert.Contains("private IEnumerable<SceneImageRecord> _additionalImages", Source, StringComparison.Ordinal);
         Assert.Contains("_images.Where(image => string.IsNullOrWhiteSpace(image.ProductionGroupId))", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("@foreach (var img in _images)", Source, StringComparison.Ordinal);
     }
@@ -143,6 +228,7 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("ProductionGroupId = _productionGroup.Id", Source, StringComparison.Ordinal);
         Assert.Contains("CompiledMediaBriefId = _compiledMediaBrief.Id", Source, StringComparison.Ordinal);
         Assert.Contains("Pov = _productionGroup.Pov", Source, StringComparison.Ordinal);
+        Assert.Contains("capability.ProviderKey", Source, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -18,6 +18,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
     private readonly ISceneBeatProductionPlanRepository? _plans;
     private readonly ISceneMomentSetRepository? _momentSets;
     private readonly ISceneMomentEnrichmentRepository? _enrichments;
+    private readonly ICharacterImageIdentityRepository? _identityRepository;
     private readonly ICompiledMediaBriefRepository? _briefs;
     private readonly IMultimodalMediaCompilationService? _compilationService;
     private readonly ILogger<SceneImageProductionService> _logger;
@@ -31,7 +32,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         TimeProvider timeProvider,
         ILogger<SceneImageProductionService> logger)
         : this(productionRepository, imageRepository, assetRepository, storage, sessionGuard, timeProvider,
-            null, null, null, null, null, logger)
+            null, null, null, null, null, null, logger)
     {
     }
 
@@ -47,6 +48,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         ISceneMomentEnrichmentRepository enrichments,
         ICompiledMediaBriefRepository briefs,
         IMultimodalMediaCompilationService compilationService,
+        ICharacterImageIdentityRepository identityRepository,
         ILogger<SceneImageProductionService> logger)
     {
         _productionRepository = productionRepository;
@@ -58,9 +60,87 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         _plans = plans;
         _momentSets = momentSets;
         _enrichments = enrichments;
+        _identityRepository = identityRepository;
         _briefs = briefs;
         _compilationService = compilationService;
         _logger = logger;
+    }
+
+    public async Task<IReadOnlyList<SceneImageIdentityReadiness>> ResolveIdentityReadinessAsync(
+        string productionGroupId,
+        CancellationToken cancellationToken = default)
+    {
+        Require(productionGroupId, "Production group id");
+        var enrichments = _enrichments
+            ?? throw new InvalidOperationException("Identity readiness requires the Moment Enrichment repository.");
+        var identity = _identityRepository
+            ?? throw new InvalidOperationException("Identity readiness requires the character identity repository.");
+        var group = await _productionRepository.GetAsync(productionGroupId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{productionGroupId}' was not found.");
+        await _sessionGuard.RequireCurrentAsync(group.SessionId, cancellationToken);
+        var enrichment = await enrichments.GetAsync(group.MomentEnrichmentId, cancellationToken)
+            ?? throw new InvalidOperationException($"Moment enrichment '{group.MomentEnrichmentId}' was not found.");
+        if (enrichment.Status != SceneBeatCatalogueStatus.Complete)
+            throw new InvalidOperationException($"Moment enrichment '{enrichment.Id}' is not complete.");
+
+        SceneMomentFrozenStateContract frozen;
+        try
+        {
+            frozen = JsonSerializer.Deserialize<SceneMomentFrozenStateContract>(
+                enrichment.FrozenStateContractJson, JsonOptions)
+                ?? throw new InvalidOperationException("The completed Moment enrichment has no frozen state contract.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("The completed Moment enrichment has an invalid frozen state contract.", ex);
+        }
+
+        var visibleCharacters = frozen.Characters
+            .GroupBy(character => character.CharacterId, StringComparer.Ordinal)
+            .Select(grouping => grouping.Single())
+            .ToArray();
+        var results = new List<SceneImageIdentityReadiness>(visibleCharacters.Length);
+        foreach (var character in visibleCharacters)
+        {
+            var packs = await identity.ListPacksAsync(character.CharacterId, cancellationToken);
+            var approvedPacks = packs
+                .Where(pack => pack.Status == CharacterImageIdentityPackStatus.Approved)
+                .OrderByDescending(pack => pack.Version)
+                .ToArray();
+            if (approvedPacks.Length != 1)
+            {
+                var reason = approvedPacks.Length == 0
+                    ? $"Character '{character.Name}' has no approved identity pack."
+                    : $"Character '{character.Name}' has multiple approved identity packs; exactly one is required.";
+                throw new InvalidOperationException(reason);
+            }
+
+            var pack = approvedPacks[0];
+            if (string.IsNullOrWhiteSpace(pack.CanonicalFaceAssetId))
+                throw new InvalidOperationException($"Character '{character.Name}' approved identity pack v{pack.Version} has no canonical face.");
+            var asset = await identity.GetAssetAsync(pack.CanonicalFaceAssetId, cancellationToken);
+            if (asset is null
+                || !string.Equals(asset.IdentityPackId, pack.Id, StringComparison.Ordinal)
+                || asset.AssetKind != SceneImageReferenceAssetKind.Face
+                || !asset.IsApproved
+                || string.IsNullOrWhiteSpace(asset.FileRelativePath)
+                || string.IsNullOrWhiteSpace(asset.Sha256))
+            {
+                throw new InvalidOperationException(
+                    $"Character '{character.Name}' approved identity pack v{pack.Version} has no approved owned canonical face asset.");
+            }
+
+            results.Add(new SceneImageIdentityReadiness(
+                character.CharacterId,
+                character.Name,
+                pack.Id,
+                pack.Version,
+                asset.Id,
+                asset.FileRelativePath,
+                asset.Sha256));
+        }
+
+        return results;
     }
 
     public async Task<CompiledMediaBrief> GetOrCreateStillBriefAsync(
@@ -209,6 +289,34 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         CancellationToken cancellationToken = default)
         => _productionRepository.GetCurrentAsync(momentEnrichmentId, pov, cancellationToken);
 
+    public async Task<SceneImageProductionGroup> SkipIdentityAsync(
+        string groupId,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        Require(groupId, "Production group id");
+        Require(reason, "Identity skip reason");
+        var group = await _productionRepository.GetAsync(groupId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{groupId}' was not found.");
+        await _sessionGuard.RequireCurrentAsync(group.SessionId, cancellationToken);
+        return await _productionRepository.SetIdentityPolicyAsync(
+            group.Id, SceneImageIdentityPolicy.SkippedByUser, reason.Trim(),
+            _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+    }
+
+    public async Task<SceneImageProductionGroup> ClearIdentitySkipAsync(
+        string groupId,
+        CancellationToken cancellationToken = default)
+    {
+        Require(groupId, "Production group id");
+        var group = await _productionRepository.GetAsync(groupId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{groupId}' was not found.");
+        await _sessionGuard.RequireCurrentAsync(group.SessionId, cancellationToken);
+        return await _productionRepository.SetIdentityPolicyAsync(
+            group.Id, SceneImageIdentityPolicy.Required, null,
+            _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+    }
+
     public Task<IReadOnlyList<SceneImageRecord>> ListAttemptsAsync(
         string groupId,
         CancellationToken cancellationToken = default)
@@ -249,6 +357,15 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         var group = await _productionRepository.GetAsync(groupId, cancellationToken)
             ?? throw new InvalidOperationException($"Production group '{groupId}' was not found.");
         await _sessionGuard.RequireCurrentAsync(group.SessionId, cancellationToken);
+        var image = await _imageRepository.GetImageAsync(imageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Scene image '{imageId}' was not found.");
+        if (group.IdentityPolicy == SceneImageIdentityPolicy.Required)
+        {
+            if (image.IdentityStale)
+                throw new InvalidOperationException("This Finish attempt is identity-stale after a geometry edit. Approval requires another identity pass.");
+            if (image.ProductionStage != SceneImageProductionStage.Identity)
+                throw new InvalidOperationException("Approval requires a completed Identity attempt, or an explicit identity skip.");
+        }
         return await _productionRepository.ApproveAsync(
             groupId, imageId, sha256, decidedBy, note, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
     }

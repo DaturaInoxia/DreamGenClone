@@ -1,0 +1,72 @@
+@page "/assets/create"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+
+@inject ISceneAssetService AssetService
+@inject NavigationManager Navigation
+
+<PageTitle>Asset Creator - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h4 class="mb-0">Asset Creator</h4>
+        <a href="/asset-studio" class="btn btn-outline-secondary btn-sm">Open Asset Manager</a>
+    </div>
+    <p class="text-muted small mb-3">Create an asset container. Images can be generated, uploaded, and edited from its workspace.</p>
+
+    <div class="row">
+        <div class="col-lg-6 col-xl-4">
+            <div class="card">
+                <div class="card-body">
+                    <label class="form-label" for="asset-name">Name</label>
+                    <input id="asset-name" class="form-control" @bind="_name" />
+                    <label class="form-label mt-3" for="asset-type">Type</label>
+                    <select id="asset-type" class="form-select" @bind="_type">
+                        <option value="">Select a type</option>
+                        @foreach (var type in Enum.GetValues<SceneAssetType>())
+                        {
+                            <option value="@type">@type</option>
+                        }
+                    </select>
+                    @if (!string.IsNullOrWhiteSpace(_error))
+                    {
+                        <div class="alert alert-danger mt-3 mb-0">@_error</div>
+                    }
+                    <button class="btn btn-primary mt-3" type="button" disabled="@(!CanCreate || _busy)" @onclick="CreateAsync">
+                        <i class="bi bi-plus-lg me-1"></i> Create Asset
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _name = string.Empty;
+    private SceneAssetType? _type;
+    private bool _busy;
+    private string? _error;
+
+    private bool CanCreate => !string.IsNullOrWhiteSpace(_name) && _type is not null;
+
+    private async Task CreateAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var asset = await AssetService.CreateAssetAsync(_name, _type!.Value);
+            Navigation.NavigateTo($"/asset-studio/{asset.Id}");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

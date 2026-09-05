@@ -41,4 +41,23 @@ public sealed class ImageEditingClientDispatcher : IImageEditingClient
                 reasonCode: "unsupported_editor_protocol")
         };
     }
+
+    public async Task<byte[]> EditWithReferencesAsync(
+        ResolvedImageEditorModel model,
+        Stream sourceImage,
+        string sourceFileName,
+        string instruction,
+        IReadOnlyList<ImageEditingReference> references,
+        CancellationToken cancellationToken = default)
+    {
+        return model.ImageProtocol switch
+        {
+            ImageProtocol.ComfyUi => await _comfyUi.EditWithReferencesAsync(model, sourceImage, sourceFileName, instruction, references, cancellationToken),
+            ImageProtocol.ComfyUiServerless => await _serverless.EditWithReferencesAsync(model, sourceImage, sourceFileName, instruction, references, cancellationToken),
+            _ => throw new ImageGenerationException(
+                $"Image editor provider '{model.ProviderName}' does not support reference image editing over image protocol '{model.ImageProtocol}'. Configure a ComfyUI or RunPod Serverless editor in Model Manager (/model-manager).",
+                model.ProviderName,
+                reasonCode: "unsupported_editor_protocol")
+        };
+    }
 }

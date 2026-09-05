@@ -22,20 +22,28 @@ Observed defects:
 - prompt assets sent ordinary descriptions directly to every model family;
 - current sessions hid the prior Studio controls;
 - Asset Studio detail polling called `StateHasChanged` outside the Blazor dispatcher.
+- Asset creation, upload, source editing, identity-pack commands, LoRA commands, and production
+  approval were incorrectly accumulated on the Asset Manager catalog page.
+- generic asset work used an in-memory channel, so a host restart left persisted assets permanently
+  `Pending` with no work available to resume.
 
 ## Analysis
 
-The backend durability work was present, but the UI replacement crossed the feature-parity cutoff
-too early. The nearest controlling paths were `SceneAssetService` job creation, the three asset job
-handlers, and current-session visibility gates in `SceneImageStudio.razor`.
+The production workload durability work was present, but generic scene assets still used the
+process-local queue. Persisting only `Pending` asset state without the exact request made restart
+recovery impossible. The UI also treated catalog browsing, creation, editing, identity management,
+and governance review as one page instead of separate user workflows. The nearest controlling paths
+were `SceneAssetService`, the three asset handlers, the durable lane worker/executor, and the Asset
+Studio route components.
 
 ## Plan
 
-1. Preserve the durable Production Workspace while restoring access to existing Studio controls.
-2. Require asset name/type and pin exact generation/editor model IDs in durable payloads.
-3. Compile plain semantic descriptions deterministically for the selected model family.
-4. Expose explicit Asset, Identity Pack, and LoRA commands with multiple immutable outputs.
-5. Repair detail-page dispatcher polling and add source/service regression coverage.
+1. Keep `/asset-studio` inventory-only and move creation, immutable editing, and production review
+  to dedicated routes composed from reusable asset components.
+2. Require asset name/type and pin exact generation/editor model IDs in persisted durable payloads.
+3. Dispatch generation, editing, and profile-pack work through the existing durable image lanes.
+4. Reconcile interrupted Pending assets at startup without guessing missing request values.
+5. Preserve the dedicated Character Identity, LoRA, and session Production Studio boundaries.
 
 No provider, endpoint, pod, or Model Manager database configuration is changed.
 
@@ -49,9 +57,18 @@ No provider, endpoint, pod, or Model Manager database configuration is changed.
 - Asset descriptions remain semantic source text. The worker records a separate deterministic
   family-specific compilation and compiler identity; Pony receives the qualified quality/rating/
   count prefix while SDXL and API natural-language families preserve semantic prose.
-- Asset Manager now exposes Create Asset, Create Identity Pack, and Create LoRA commands. Generate
-  and edit workflows support one to eight separately persisted outputs without overwriting source
-  assets.
+- Asset Manager is now catalog-only: browse, filter, preview, picker return, versions, provenance,
+  and lineage inspection. It contains no asset mutation controls.
+- `/assets/create` owns exact-model prompt generation and upload. `/assets/{id}/edit` creates one to
+  eight immutable children. `/assets/{id}/review` owns explicit production governance approval.
+- Shared preview, metadata, prompt generation, upload, editing, and approval components keep those
+  routes consistent without collapsing their responsibilities.
+- Generation, editing, and profile-pack requests are persisted before enqueue and run on the
+  existing durable `ImageRender` and `ImageEdit` lanes. Asset handlers have exactly one active
+  scheduling path.
+- Startup recovery first recovers expired durable leases, then reconciles Pending assets, then
+  starts lane workers. Exact persisted requests are re-enqueued; terminal jobs are reflected on the
+  asset; legacy rows without exact requests fail visibly instead of receiving inferred settings.
 - Asset detail polling marshals reload and render updates through `InvokeAsync`.
 - Text-to-image model choices exclude models configured for source-image editing. Exact generation
   resolution rejects those editor-only models explicitly, while compatible API models such as
@@ -60,12 +77,14 @@ No provider, endpoint, pod, or Model Manager database configuration is changed.
 ## Validation
 
 - Focused Scene Image Studio UI contracts: 9 passed.
-- Focused Asset Manager UI and asset service contracts: 17 passed on 2026-09-03.
-- Full RolePlay area: 1,409 passed on 2026-09-03 before the final catalog-filter correction.
-- Final post-fix full solution: 1,742 passed, 0 failed or skipped on 2026-09-03; build succeeded
-  in 199.7 seconds.
-- Playwright at 1440 x 900 and 390 x 844 found no horizontal overflow. Create Asset exposed prompt
-  and upload paths at both sizes. TogetherAI remained selectable, the configured default remained
-  visibly labeled, and Qwen Image Edit was absent from generation choices.
+- Focused final Asset Manager route/component/service contracts: 16 passed on 2026-09-03.
+- Full RolePlay area: 1,411 passed on 2026-09-03.
+- Final solution build succeeded in 2.2 seconds. The full suite passed 1,742/1,742 with no failures
+  or skips in 178.9 seconds.
+- Development startup changed historical orphan asset `0ca5d78b007d4a5b9e3d2d10c4fc9749`
+  from `Pending` to explicit `Failed` with interruption guidance; no request value was inferred.
+- Playwright covered catalog, create, detail, edit, and review at 1440 x 1000 and 390 x 844 with no
+  horizontal overflow or page errors. Asset Creator exposed prompt/upload paths and exact configured
+  model selection; failed/incomplete assets were blocked from edit and review.
 - No generation/edit request, provider endpoint, Model Manager data, or pod was changed during
   browser acceptance.

@@ -1,7 +1,9 @@
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Application.Processing;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using Microsoft.Extensions.Logging;
@@ -15,7 +17,7 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// by the configured image model from the character description; the other four views are produced by
 /// the canned Qwen angle edits (the exact validated steps from the pack proof).
 /// </summary>
-public sealed class SceneAssetProfilePackJobHandler : IBackgroundJobHandler
+public sealed class SceneAssetProfilePackJobHandler : IBackgroundJobHandler, IDurableBackgroundJobHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -69,8 +71,14 @@ public sealed class SceneAssetProfilePackJobHandler : IBackgroundJobHandler
     public string JobType => BackgroundJobTypes.SceneAssetProfilePackGeneration;
 
     public async Task HandleAsync(BackgroundJobEnvelope job, CancellationToken cancellationToken)
+        => await HandleAsync(job.PayloadJson, cancellationToken);
+
+    public async Task HandleAsync(DurableBackgroundJob job, CancellationToken cancellationToken = default)
+        => await HandleAsync(job.PayloadJson, cancellationToken);
+
+    private async Task HandleAsync(string payloadJson, CancellationToken cancellationToken)
     {
-        var payload = JsonSerializer.Deserialize<SceneAssetProfilePackJobPayload>(job.PayloadJson, JsonOptions)
+        var payload = JsonSerializer.Deserialize<SceneAssetProfilePackJobPayload>(payloadJson, JsonOptions)
             ?? throw new InvalidOperationException("Profile pack generation payload is missing or invalid.");
         if (string.IsNullOrWhiteSpace(payload.CharacterProfileId))
             throw new InvalidOperationException("Profile pack generation requires a character profile id.");

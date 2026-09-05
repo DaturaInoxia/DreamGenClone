@@ -1,0 +1,1 @@
+SELECT Id, ProviderKey, ModelId, ModelVersion, Operation, CompilerId, CompilerVersion, Status, Enabled, EvidenceRunId FROM MediaCapabilityProfiles WHERE Id = 'phase2-biglust-v16-generate';

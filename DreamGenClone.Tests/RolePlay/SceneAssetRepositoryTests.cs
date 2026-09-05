@@ -160,6 +160,50 @@ public sealed class SceneAssetRepositoryTests
         }
     }
 
+    [Fact]
+    public async Task Asset_CanOwnMultipleIndependentImages()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await repo.UpsertAsync(new SceneAsset
+            {
+                Id = "asset-1",
+                Name = "Forest clearing",
+                Type = SceneAssetType.Location,
+                Kind = SceneAssetKind.Uploaded,
+                Status = SceneAssetStatus.Pending
+            });
+            await repo.UpsertImageAsync(new SceneAssetImage
+            {
+                Id = "image-1",
+                AssetId = "asset-1",
+                Kind = SceneAssetKind.Uploaded,
+                Status = SceneAssetStatus.Complete,
+                FileRelativePath = "assets/image-1.png"
+            });
+            await repo.UpsertImageAsync(new SceneAssetImage
+            {
+                Id = "image-2",
+                AssetId = "asset-1",
+                Kind = SceneAssetKind.Edited,
+                Status = SceneAssetStatus.Pending,
+                SourceImageId = "image-1",
+                Prompt = "add morning fog"
+            });
+
+            var images = await repo.ListImagesAsync("asset-1");
+
+            Assert.Equal(2, images.Count(image => image.Id is "image-1" or "image-2"));
+            Assert.All(images.Where(image => image.Id is "image-1" or "image-2"), image => Assert.Equal("asset-1", image.AssetId));
+            Assert.Equal("image-1", images.Single(image => image.Id == "image-2").SourceImageId);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
     private static SceneAssetRepository CreateRepoAsync(out string dbPath)
     {
         dbPath = Path.Combine(Path.GetTempPath(), $"scene-asset-repo-{Guid.NewGuid():N}.db");

@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using DreamGenClone.Application.Processing;
 using DreamGenClone.Application.RolePlay;
@@ -54,6 +56,24 @@ public sealed class SceneBeatProductionPipelineService : ISceneBeatProductionPip
         CancellationToken cancellationToken = default)
         => _planRepository.GetCurrentAsync(catalogueId, beatId, cancellationToken);
 
+    public async Task<SceneBeatProductionStatus?> GetCurrentStatusAsync(
+        string catalogueId,
+        string beatId,
+        CancellationToken cancellationToken = default)
+    {
+        var plan = await _planRepository.GetLatestAsync(catalogueId, beatId, cancellationToken);
+        if (plan is null)
+            return null;
+
+        var attempt = string.IsNullOrWhiteSpace(plan.CurrentAttemptId)
+            ? null
+            : await _planRepository.GetAttemptAsync(plan.CurrentAttemptId, cancellationToken);
+        var job = attempt is null
+            ? null
+            : await _jobQueue.GetAsync(attempt.JobId, cancellationToken);
+        return new SceneBeatProductionStatus(plan, attempt, job);
+    }
+
     public async Task CancelAsync(string planId, CancellationToken cancellationToken = default)
     {
         var plan = await _planRepository.GetAsync(planId, cancellationToken)
@@ -93,7 +113,9 @@ public sealed class SceneBeatProductionPipelineService : ISceneBeatProductionPip
 
         var analyzer = await _analyzerResolver.ResolveAsync(cancellationToken);
         var snapshot = _snapshotBuilder.Build(catalogue, entry);
+        var promptStopwatch = Stopwatch.StartNew();
         var messages = _contract.BuildMessages(snapshot);
+        promptStopwatch.Stop();
         var executionSnapshot = SceneBeatAnalyzerExecutionSnapshot.FromResolved(analyzer);
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var planId = Guid.NewGuid().ToString();
@@ -124,6 +146,10 @@ public sealed class SceneBeatProductionPipelineService : ISceneBeatProductionPip
             UserPrompt = messages.UserPrompt,
             ValidationDetailsJson = "{}",
             InputCharacters = messages.SystemPrompt.Length + messages.UserPrompt.Length,
+            PromptBuildDurationMs = promptStopwatch.ElapsedMilliseconds,
+            PromptUtf8Bytes = Encoding.UTF8.GetByteCount(messages.SystemPrompt) + Encoding.UTF8.GetByteCount(messages.UserPrompt),
+            SystemPromptCharacters = messages.SystemPrompt.Length,
+            UserPromptCharacters = messages.UserPrompt.Length,
             CreatedUtc = now,
             UpdatedUtc = now
         };

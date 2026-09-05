@@ -70,6 +70,29 @@ public sealed class SceneBeatAnalyzerResolverTests
         Assert.Contains("explicit thinking mode", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Resolve_DisabledThinkingModeSucceedsWithoutModelThinkingControl()
+    {
+        var fixture = CreateFixture();
+        fixture.Models.Value!.SupportsThinkingControl = false;
+
+        var resolved = await fixture.Resolver.ResolveAsync();
+
+        Assert.Equal(ThinkingMode.Disabled, resolved.Model.ThinkingMode);
+    }
+
+    [Fact]
+    public async Task Resolve_EnabledThinkingModeFailsWithoutModelThinkingControl()
+    {
+        var fixture = CreateFixture();
+        fixture.Models.Value!.SupportsThinkingControl = false;
+        fixture.FunctionDefaults.Value!.ThinkingMode = ThinkingMode.Enabled;
+
+        var exception = await Assert.ThrowsAsync<ModelResolutionException>(() => fixture.Resolver.ResolveAsync());
+
+        Assert.Contains("does not support it", exception.Message, StringComparison.Ordinal);
+    }
+
     private static TestFixture CreateFixture()
     {
         var functionDefaults = new FunctionDefaultRepositoryStub

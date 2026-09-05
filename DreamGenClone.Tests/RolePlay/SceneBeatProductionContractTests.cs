@@ -8,7 +8,7 @@ public sealed class SceneBeatProductionContractTests
     [Fact]
     public void CreateResponseSchema_RequiresEveryCanonicalSectionAndClosesEveryObject()
     {
-        var schema = SceneBeatProductionContract.CreateResponseSchema();
+        var schema = SceneBeatProductionContract.CreateResponseSchema(["p0", "p1"]);
         var required = schema.GetProperty("required").EnumerateArray().Select(item => item.GetString()).ToHashSet();
 
         Assert.Equal(14, required.Count);
@@ -35,6 +35,21 @@ public sealed class SceneBeatProductionContractTests
         Assert.DoesNotContain("character-1", messages.UserPrompt, StringComparison.Ordinal);
         Assert.Contains("provider-neutral", messages.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("must not invent Moment IDs", messages.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("actionArc", messages.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("must never be used as profile keys", messages.SystemPrompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateResponseSchema_RestrictsActionArcReferencesToParticipantProfileKeys()
+    {
+        var schema = SceneBeatProductionContract.CreateResponseSchema(["p0", "p1"]);
+        var actionArc = schema.GetProperty("properties").GetProperty("actionArc")
+            .GetProperty("items");
+
+        Assert.Equal(["p0", "p1", null], actionArc.GetProperty("properties").GetProperty("subjectKey")
+            .GetProperty("enum").EnumerateArray().Select(item => item.GetString()).ToArray());
+        Assert.Equal(["p0", "p1", null], actionArc.GetProperty("properties").GetProperty("targetKey")
+            .GetProperty("enum").EnumerateArray().Select(item => item.ValueKind == JsonValueKind.Null ? null : item.GetString()).ToArray());
     }
 
     private static void AssertAllObjectsAreClosed(JsonElement element)

@@ -71,7 +71,7 @@ public sealed class CharacterImageIdentityRepositoryTests
     }
 
     [Fact]
-    public async Task Approve_RejectsUnknownConsent()
+    public async Task Approve_AllowsUnknownConsent()
     {
         var repo = await CreateRepoAsync(out var dbPath);
         try
@@ -88,8 +88,8 @@ public sealed class CharacterImageIdentityRepositoryTests
             await repo.AddAssetAsync(face);
             await repo.AddAssetAsync(body);
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                repo.ApproveAsync(pack.Id, "{\"hair\":\"dark\"}", face.Id));
+            var approved = await repo.ApproveAsync(pack.Id, "{\"hair\":\"dark\"}", face.Id);
+            Assert.Equal(CharacterImageIdentityPackStatus.Approved, approved.Status);
         }
         finally
         {
@@ -177,7 +177,7 @@ public sealed class CharacterImageIdentityRepositoryTests
     }
 
     [Fact]
-    public async Task Approve_RejectsMissingProvenance()
+    public async Task Approve_AllowsMissingProvenance()
     {
         var repo = await CreateRepoAsync(out var dbPath);
         try
@@ -192,8 +192,8 @@ public sealed class CharacterImageIdentityRepositoryTests
             asset.SourceLabel = string.Empty;
             await repo.AddAssetAsync(asset);
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                repo.ApproveAsync(pack.Id, "{\"hair\":\"dark\"}", asset.Id));
+            var approved = await repo.ApproveAsync(pack.Id, "{\"hair\":\"dark\"}", asset.Id);
+            Assert.Equal(CharacterImageIdentityPackStatus.Approved, approved.Status);
         }
         finally
         {
@@ -421,7 +421,7 @@ public sealed class CharacterImageIdentityRepositoryTests
     }
 
     [Fact]
-    public async Task SetAssetApproval_RequiresProvenanceAndConsent()
+    public async Task SetAssetApproval_DoesNotRequireProvenanceOrConsent()
     {
         var repo = await CreateRepoAsync(out var dbPath);
         try
@@ -435,9 +435,6 @@ public sealed class CharacterImageIdentityRepositoryTests
             var asset = FaceAsset(pack.Id, isApproved: false, consentState: SceneImageReferenceConsentState.Unknown);
             await repo.AddAssetAsync(asset);
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() => repo.SetAssetApprovalAsync(asset.Id, true));
-
-            await repo.UpdateAssetProvenanceAsync(asset.Id, "reference photo", SceneImageReferenceConsentState.Confirmed);
             await repo.SetAssetApprovalAsync(asset.Id, true);
 
             var loaded = await repo.GetAssetAsync(asset.Id);

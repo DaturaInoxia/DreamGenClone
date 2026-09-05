@@ -34,7 +34,8 @@ public interface IImageGenerationClient
         string? decryptedApiKey,
         string modelIdentifier,
         ImageContentPolicy contentPolicy,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        ImageProtocol imageProtocol = ImageProtocol.OpenAiImages);
 }
 
 /// <summary>Thrown when an image generation call fails (HTTP error or provider policy rejection).</summary>

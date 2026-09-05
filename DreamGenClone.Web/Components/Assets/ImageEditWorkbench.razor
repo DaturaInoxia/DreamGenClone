@@ -1,0 +1,95 @@
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+
+@inject ISceneAssetService AssetService
+@inject IImageEditorModelResolver ImageEditorModelResolver
+@inject ILogger<ImageEditWorkbench> Logger
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="alert alert-danger">@_error</div>
+}
+<label class="form-label" for="edit-asset-instruction">Edit instruction</label>
+<textarea id="edit-asset-instruction" class="form-control" rows="4" @bind="_instruction"></textarea>
+<label class="form-label mt-2" for="edit-asset-model">Image editor model</label>
+<select id="edit-asset-model" class="form-select" @bind="_modelId">
+    <option value="">Select an image editor</option>
+    @foreach (var choice in _models)
+    {
+        <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
+    }
+</select>
+<label class="form-label mt-2" for="edit-asset-count">Outputs</label>
+<input id="edit-asset-count" type="number" class="form-control" style="max-width:8rem" min="1" max="8" @bind="_outputCount" />
+<button class="btn btn-primary mt-3" type="button" disabled="@(_busy || !CanEdit)" @onclick="RunAsync">
+    <i class="bi bi-magic me-1"></i> Create Edited Version
+</button>
+@if (_results.Count > 0)
+{
+    <div class="alert alert-success mt-3 mb-0">
+        @_results.Count edit@(_results.Count == 1 ? "" : "s") queued.
+        @foreach (var result in _results)
+        {
+            <span class="d-block font-monospace text-break">@result.Id</span>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public SceneAssetImage Source { get; set; } = null!;
+
+    private List<SceneImageModelChoice> _models = [];
+    private List<SceneAssetImage> _results = [];
+    private string _instruction = string.Empty;
+    private string? _modelId;
+    private int _outputCount = 1;
+    private bool _busy;
+    private string? _error;
+
+    private bool CanEdit => Source.Status == SceneAssetStatus.Complete
+        && !string.IsNullOrWhiteSpace(_instruction)
+        && !string.IsNullOrWhiteSpace(_modelId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _models = (await ImageEditorModelResolver.ListImageEditorModelsAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Failed to load models for asset editing.");
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        if (!CanEdit) return;
+
+        _busy = true;
+        _error = null;
+        _results = [];
+        try
+        {
+            var outputCount = Math.Clamp(_outputCount, 1, 8);
+            for (var output = 1; output <= outputCount; output++)
+            {
+                _results.Add(await AssetService.EnqueueImageEditAsync(
+                    Source.AssetId, Source.Id, _instruction, _modelId!));
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Asset edit submission failed.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -100,6 +100,9 @@ public sealed class SceneAsset
 
     public SceneAssetType? Type { get; set; }
 
+    /// <summary>True when this row is an asset container; image lifecycle data lives in child rows.</summary>
+    public bool IsContainerOnly { get; set; }
+
     public string? AssociationMetadataJson { get; set; }
 
     /// <summary>The generation or edit prompt that produced this asset (empty for uploads).</summary>
@@ -164,6 +167,39 @@ public sealed class SceneAsset
 
     public string? ErrorMessage { get; set; }
 
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime? StartedUtc { get; set; }
+    public DateTime? CompletedUtc { get; set; }
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>An immutable generated, uploaded, or edited image owned by a reusable scene asset.</summary>
+public sealed class SceneAssetImage
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string AssetId { get; set; } = string.Empty;
+    public SceneAssetKind Kind { get; set; }
+    public SceneAssetStatus Status { get; set; }
+    public string Prompt { get; set; } = string.Empty;
+    public string? SourceImageId { get; set; }
+    public string? ModelSnapshotJson { get; set; }
+    public string? AssociationMetadataJson { get; set; }
+    public string? FileRelativePath { get; set; }
+    public string MediaType { get; set; } = string.Empty;
+    public int? Width { get; set; }
+    public int? Height { get; set; }
+    public long ByteLength { get; set; }
+    public string Sha256 { get; set; } = string.Empty;
+    public string? ErrorMessage { get; set; }
+    public string? SourceProvenanceJson { get; set; }
+    public SceneAssetProductionApprovalStatus? ProductionApprovalStatus { get; set; }
+    public SceneAssetConsentState? ConsentState { get; set; }
+    public SceneAssetLicenseState? LicenseState { get; set; }
+    public string? LicenseLabel { get; set; }
+    public SceneAssetApprovedUseScope? ApprovedUseScope { get; set; }
+    public string? ContentPolicyKey { get; set; }
+    public string? CompatibilityMetadataJson { get; set; }
+    public int? ProductionVersion { get; set; }
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? StartedUtc { get; set; }
     public DateTime? CompletedUtc { get; set; }

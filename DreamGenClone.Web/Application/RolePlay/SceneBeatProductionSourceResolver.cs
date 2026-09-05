@@ -74,12 +74,13 @@ public sealed class SceneBeatProductionSourceResolver
         if (startOffset < 0 || endOffset <= startOffset || endOffset > evidence.Content.Length)
             throw new InvalidOperationException(
                 $"Beat Production source span [{startOffset}, {endOffset}) is outside evidence '{evidenceKey}'.");
-        Require(exactText, "Exact source text");
         var resolved = evidence.Content[startOffset..endOffset];
-        if (!string.Equals(resolved, exactText, StringComparison.Ordinal)
-            && !string.Equals(resolved.Trim(), exactText.Trim(), StringComparison.Ordinal))
+        if (!string.Equals(
+            NormalizeLineEndings(resolved).Trim(),
+            NormalizeLineEndings(exactText).Trim(),
+            StringComparison.Ordinal))
             throw new InvalidOperationException(
-                $"Beat Production exact source text does not match evidence '{evidenceKey}' at [{startOffset}, {endOffset}).");
+                $"Beat Production source span text does not match evidence '{evidenceKey}'.");
         return new ResolvedProductionSourceSpan(
             evidence.Key,
             evidence.InteractionId,
@@ -111,4 +112,8 @@ public sealed class SceneBeatProductionSourceResolver
         if (string.IsNullOrWhiteSpace(value))
             throw new InvalidOperationException($"{name} is required.");
     }
+
+    private static string NormalizeLineEndings(string value)
+        => value.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
 }

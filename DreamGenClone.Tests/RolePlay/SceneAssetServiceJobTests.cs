@@ -1,11 +1,15 @@
 using System.Text.Json;
+using DreamGenClone.Application.Processing;
+using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
 using DreamGenClone.Infrastructure.Storage;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.RolePlay;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -34,21 +38,24 @@ public sealed class SceneAssetServiceJobTests
         Assert.Equal("scene-asset-sdxl-natural-language", sdxlCompilation.CompilerId);
     }
 
-    private sealed class CapturingBackgroundJobQueue : IBackgroundJobQueue
+    private sealed class CapturingBackgroundJobQueue : IDurableBackgroundJobQueue
     {
-        public List<(string JobType, string PayloadJson, string? DedupeKey)> Enqueued { get; } = [];
+        public List<DurableBackgroundJob> Enqueued { get; } = [];
 
-        public bool Enqueue(string jobType, string payloadJson, string? dedupeKey = null)
+        public Task<bool> TryEnqueueAsync(DurableBackgroundJob job, CancellationToken cancellationToken = default)
         {
-            Enqueued.Add((jobType, payloadJson, dedupeKey));
-            return true;
+            if (Enqueued.Any(existing => existing.Id == job.Id || existing.DedupeKey == job.DedupeKey))
+                return Task.FromResult(false);
+            Enqueued.Add(job);
+            return Task.FromResult(true);
         }
 
-        public ValueTask<BackgroundJobEnvelope> DequeueAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("Not used in this test.");
-        public void MarkProcessing(string jobId) { }
-        public void MarkCompleted(string jobId) { }
-        public void MarkFailed(string jobId, string errorMessage) { }
+        public Task<DurableBackgroundJob?> GetAsync(string jobId, CancellationToken cancellationToken = default)
+            => Task.FromResult(Enqueued.SingleOrDefault(job => job.Id == jobId));
+        public Task<bool> TryCancelAsync(string jobId, DateTime cancelledUtc, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public Task WaitForWorkAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private static (SceneAssetService service, CapturingBackgroundJobQueue queue, SceneAssetRepository repo, SceneAssetStorageService storage, string dbPath, string root)
@@ -60,7 +67,13 @@ public sealed class SceneAssetServiceJobTests
         var repo = new SceneAssetRepository(persistenceOptions);
         var storage = new SceneAssetStorageService(persistenceOptions, NullLogger<SceneAssetStorageService>.Instance);
         var queue = new CapturingBackgroundJobQueue();
-        var service = new SceneAssetService(repo, storage, queue, NullLogger<SceneAssetService>.Instance);
+        var service = new SceneAssetService(
+            repo,
+            storage,
+            queue,
+            new StubDurableSettingsResolver(),
+            TimeProvider.System,
+            NullLogger<SceneAssetService>.Instance);
         return (service, queue, repo, storage, dbPath, root);
     }
 
@@ -80,13 +93,37 @@ public sealed class SceneAssetServiceJobTests
             Assert.Single(queue.Enqueued);
             Assert.Equal(BackgroundJobTypes.SceneAssetGeneration, queue.Enqueued[0].JobType);
             Assert.Equal($"{BackgroundJobTypes.SceneAssetGeneration}:{asset.Id}", queue.Enqueued[0].DedupeKey);
+            Assert.Equal(DurableJobLane.ImageRender, queue.Enqueued[0].Lane);
+            Assert.Equal(3, queue.Enqueued[0].MaxAttempts);
             var payload = JsonSerializer.Deserialize<SceneAssetGenerationJobPayload>(
                 queue.Enqueued[0].PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
             Assert.NotNull(payload);
             Assert.Equal(asset.Id, payload.AssetId);
             Assert.Equal("model-42", payload.ModelId);
             Assert.Equal("1024x1024", payload.ImageSize);
-            Assert.NotNull(await repo.GetAsync(asset.Id));
+            var persisted = await repo.GetAsync(asset.Id);
+            Assert.NotNull(persisted);
+            Assert.Equal(queue.Enqueued[0].PayloadJson, persisted.AssociationMetadataJson);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task CreateAsset_RequiresOnlyNameAndType_AndStartsWithoutImages()
+    {
+        var (service, queue, _, _, dbPath, root) = Build();
+        try
+        {
+            var asset = await service.CreateAssetAsync("Forest", SceneAssetType.Location);
+
+            Assert.Equal("Forest", asset.Name);
+            Assert.Equal(SceneAssetType.Location, asset.Type);
+            Assert.True(asset.IsContainerOnly);
+            Assert.Empty(await service.ListImagesAsync(asset.Id));
+            Assert.Empty(queue.Enqueued);
         }
         finally
         {
@@ -206,6 +243,7 @@ public sealed class SceneAssetServiceJobTests
             Assert.Equal("s1", asset.SourceAssetId);
             Assert.Single(queue.Enqueued);
             Assert.Equal(BackgroundJobTypes.SceneAssetEditing, queue.Enqueued[0].JobType);
+            Assert.Equal(DurableJobLane.ImageEdit, queue.Enqueued[0].Lane);
             var payload = JsonSerializer.Deserialize<SceneAssetEditingJobPayload>(
                 queue.Enqueued[0].PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
             Assert.NotNull(payload);
@@ -293,6 +331,42 @@ public sealed class SceneAssetServiceJobTests
             Assert.Equal("faee1ec0-1cf3-459e-97d2-ad59717c41ba", roundTripped.CharacterProfileId);
             Assert.Equal("ce09a98859914aa985d205b814723ca9", roundTripped.FrontAssetId);
             Assert.Equal("editor-1", roundTripped.EditorModelId);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task StartupRecovery_MarksLegacyPendingAssetFailedWithoutGuessingRequestValues()
+    {
+        var (service, queue, repo, _, dbPath, root) = Build();
+        _ = service;
+        try
+        {
+            var asset = new SceneAsset
+            {
+                Id = "legacy-pending",
+                Name = "Interrupted",
+                Kind = SceneAssetKind.PromptGenerated,
+                Status = SceneAssetStatus.Pending,
+                Prompt = "missing exact request"
+            };
+            await repo.UpsertAsync(asset);
+            var recovery = new SceneAssetPendingJobRecovery(
+                repo,
+                queue,
+                CreateScopeFactory(),
+                TimeProvider.System,
+                NullLogger<SceneAssetPendingJobRecovery>.Instance);
+
+            await recovery.StartAsync(CancellationToken.None);
+
+            var recovered = await repo.GetAsync(asset.Id);
+            Assert.Equal(SceneAssetStatus.Failed, recovered!.Status);
+            Assert.Contains("no model or settings were inferred", recovered.ErrorMessage, StringComparison.Ordinal);
+            Assert.Empty(queue.Enqueued);
         }
         finally
         {
@@ -398,4 +472,43 @@ public sealed class SceneAssetServiceJobTests
             family,
             dialect,
             ImageProtocol.OpenAiImages);
+
+    private static IServiceScopeFactory CreateScopeFactory()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped<ISceneBeatAnalyzerResolver, StubDurableSettingsResolver>();
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+    }
+
+    private sealed class StubDurableSettingsResolver : ISceneBeatAnalyzerResolver
+    {
+        public Task<ResolvedSceneBeatAnalyzer> ResolveAsync(CancellationToken cancellationToken = default)
+        {
+            var model = new ResolvedModel(
+                "https://example.test",
+                "/chat",
+                30,
+                null,
+                "model",
+                0.2,
+                0.8,
+                1024,
+                "provider",
+                false);
+            return Task.FromResult(new ResolvedSceneBeatAnalyzer(
+                "function",
+                "model",
+                "provider",
+                model,
+                StructuredOutputMode.StrictJsonSchema,
+                4096,
+                1024,
+                1,
+                120,
+                250,
+                [5, 30],
+                30,
+                8));
+        }
+    }
 }

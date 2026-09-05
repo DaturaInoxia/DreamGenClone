@@ -160,7 +160,7 @@
                             <InputFile OnChange="OnAssetPicked" accept="image/png,image/jpeg,image/webp" class="form-control" disabled="@_busy" />
                         </div>
                     </div>
-                    <div class="form-text">Only PNG, JPEG, and WebP reference images are accepted. Provenance and a confirmed/not-applicable consent state are required before an asset can be approved.</div>
+                    <div class="form-text">Only PNG, JPEG, and WebP reference images are accepted.</div>
                 </div>
             </div>
 
@@ -529,13 +529,6 @@
 
         // Validate approval prerequisites BEFORE uploading so a failed approval does not
         // leave an orphaned asset row that the user cannot see (and cannot explain).
-        if (_uploadApproved
-            && (_uploadConsent == SceneImageReferenceConsentState.Unknown || string.IsNullOrWhiteSpace(_uploadSourceLabel)))
-        {
-            _error = "To upload an approved asset, set Source / provenance and a Confirmed (or Not applicable) consent state first — or uncheck Approved.";
-            return;
-        }
-
         await RunAsync(async () =>
         {
             var file = args.File;

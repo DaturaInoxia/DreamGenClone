@@ -9,6 +9,51 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// </summary>
 public interface ISceneAssetService
 {
+    Task<SceneAsset> CreateAssetAsync(
+        string name,
+        SceneAssetType type,
+        CancellationToken cancellationToken = default);
+
+    Task<SceneAssetImage> AddGeneratedImageAsync(
+        string assetId,
+        string prompt,
+        string modelId,
+        string imageSize,
+        CancellationToken cancellationToken = default);
+
+    Task<SceneAssetImage> AddUploadedImageAsync(
+        string assetId,
+        string fileName,
+        Stream content,
+        CancellationToken cancellationToken = default);
+
+    Task<SceneAssetImage> EnqueueImageEditAsync(
+        string assetId,
+        string sourceImageId,
+        string editPrompt,
+        string modelId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<SceneAssetImage>> ListImagesAsync(
+        string assetId, CancellationToken cancellationToken = default);
+
+    Task<SceneAssetImage?> GetImageAsync(
+        string imageId, CancellationToken cancellationToken = default);
+
+    Task<SceneAssetImage> ApproveImageForProductionAsync(
+        string imageId,
+        string sourceProvenanceJson,
+        SceneAssetConsentState consentState,
+        SceneAssetLicenseState licenseState,
+        string licenseLabel,
+        SceneAssetApprovedUseScope approvedUseScope,
+        string contentPolicyKey,
+        string compatibilityMetadataJson,
+        CancellationToken cancellationToken = default);
+
+    Task<(SceneAsset Asset, SceneAssetImage Image, Stream Stream)> OpenImageForDownloadAsync(
+        string imageId, CancellationToken cancellationToken = default);
+
     Task<SceneAsset> CreateFromPromptAsync(
         string name,
         string prompt,

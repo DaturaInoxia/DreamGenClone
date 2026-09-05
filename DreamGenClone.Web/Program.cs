@@ -268,9 +268,6 @@ builder.Services.AddScoped<IBackgroundJobHandler, SceneImageRenderingJobHandler>
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditingJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditCompilationJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImageEditDescriptionJobHandler>();
-builder.Services.AddScoped<IBackgroundJobHandler, SceneAssetGenerationJobHandler>();
-builder.Services.AddScoped<IBackgroundJobHandler, SceneAssetEditingJobHandler>();
-builder.Services.AddScoped<IBackgroundJobHandler, SceneAssetProfilePackJobHandler>();
 builder.Services.AddScoped<SceneImageTurnResolver>();
 builder.Services.AddScoped<SceneImageBeatAnalysisService>();
 builder.Services.AddSingleton<SceneBeatCatalogueSnapshotBuilder>();
@@ -390,8 +387,10 @@ builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneBeatCatalogueJobHa
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneBeatProductionPlanJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneBeatMomentDiscoveryJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneMomentEnrichmentJobHandler>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetGenerationJobHandler>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetEditingJobHandler>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetProfilePackJobHandler>();
 builder.Services.AddScoped<TextAnalysisDurableJobExecutor>();
-builder.Services.AddHostedService<TextAnalysisDurableWorker>();
 builder.Services.AddSingleton<ISceneImageStorageService, SceneImageStorageService>();
 builder.Services.AddSingleton<ICharacterImageIdentityRepository, CharacterImageIdentityRepository>();
 builder.Services.AddSingleton<ISceneIdentityEvaluationRepository, SceneIdentityEvaluationRepository>();
@@ -399,6 +398,8 @@ builder.Services.AddSingleton<ICharacterImageAssetStorageService, CharacterImage
 builder.Services.AddScoped<IIdentityControlledRequestCompiler, IdentityControlledRequestCompiler>();
 builder.Services.AddScoped<ICharacterImageIdentityService, CharacterImageIdentityService>();
 builder.Services.AddSingleton<ISceneAssetRepository, SceneAssetRepository>();
+builder.Services.AddHostedService<SceneAssetPendingJobRecovery>();
+builder.Services.AddHostedService<TextAnalysisDurableWorker>();
 builder.Services.AddSingleton<ICharacterAppearanceVersionRepository, CharacterAppearanceVersionRepository>();
 builder.Services.AddSingleton<ICharacterLoraRepository, CharacterLoraRepository>();
 builder.Services.AddSingleton<ICharacterLoraTrainingDispatchAdapter, RunPodCharacterLoraTrainingDispatchAdapter>();
@@ -574,6 +575,13 @@ app.MapGet("/asset-studio/{assetId}/download", async (string assetId, ISceneAsse
     var extension = Path.GetExtension(asset.FileRelativePath ?? string.Empty);
     if (string.IsNullOrWhiteSpace(extension)) extension = ".png";
     return Results.Stream(stream, asset.MediaType, $"{name}{extension}");
+});
+app.MapGet("/asset-studio/images/{imageId}/download", async (string imageId, ISceneAssetService assetService, CancellationToken cancellationToken) =>
+{
+    var (asset, image, stream) = await assetService.OpenImageForDownloadAsync(imageId, cancellationToken);
+    var extension = Path.GetExtension(image.FileRelativePath ?? string.Empty);
+    if (string.IsNullOrWhiteSpace(extension)) extension = ".png";
+    return Results.Stream(stream, image.MediaType, $"{asset.Name}-{image.Id[..8]}{extension}");
 });
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

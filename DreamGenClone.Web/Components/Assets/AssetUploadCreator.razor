@@ -1,0 +1,65 @@
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+
+@inject ISceneAssetService AssetService
+@inject ILogger<AssetUploadCreator> Logger
+
+<div class="card h-100">
+    <div class="card-header"><strong>Upload Image</strong></div>
+    <div class="card-body">
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+        <label class="form-label">Image</label>
+        <InputFile OnChange="SelectFile" accept="image/png,image/jpeg,image/webp" />
+        <button class="btn btn-primary mt-3" type="button" disabled="@(_busy || !CanUpload)" @onclick="UploadAsync">
+            <i class="bi bi-upload me-1"></i> Upload
+        </button>
+        @if (_result is not null)
+        {
+            <div class="alert alert-success mt-3 mb-0">
+                Upload complete. <span class="font-monospace text-break">@_result.Id</span>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string AssetId { get; set; } = string.Empty;
+    [Parameter]
+    public EventCallback ImagesChanged { get; set; }
+
+    private IBrowserFile? _file;
+    private SceneAssetImage? _result;
+    private bool _busy;
+    private string? _error;
+
+    private bool CanUpload => !string.IsNullOrWhiteSpace(AssetId) && _file is not null;
+
+    private void SelectFile(InputFileChangeEventArgs args) => _file = args.File;
+
+    private async Task UploadAsync()
+    {
+        if (!CanUpload) return;
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await using var stream = _file!.OpenReadStream(20 * 1024 * 1024);
+            _result = await AssetService.AddUploadedImageAsync(AssetId, _file.Name, stream);
+            await ImagesChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Asset upload failed.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -210,7 +210,8 @@ public sealed class RunPodServerlessImageClient : IImageGenerationClient
         string? decryptedApiKey,
         string modelIdentifier,
         ImageContentPolicy contentPolicy,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ImageProtocol imageProtocol = ImageProtocol.ComfyUiServerless)
     {
         if (string.IsNullOrWhiteSpace(providerBaseUrl)
             || !Uri.TryCreate(providerBaseUrl, UriKind.Absolute, out var endpointUri)

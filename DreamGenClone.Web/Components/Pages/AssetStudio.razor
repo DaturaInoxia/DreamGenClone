@@ -1,21 +1,11 @@
 @page "/asset-studio"
 @rendermode InteractiveServer
 
-@using DreamGenClone.Application.RolePlay
-@using DreamGenClone.Application.ModelManager
 @using DreamGenClone.Web.Application.RolePlay
-@using DreamGenClone.Web.Application.Scenarios
-@using DreamGenClone.Web.Domain.Scenarios
 @using DreamGenClone.Domain.RolePlay
-@using DreamGenClone.Domain.ModelManager
 @implements IAsyncDisposable
 
 @inject ISceneAssetService AssetService
-@inject IModelResolutionService ModelResolutionService
-@inject IImageEditorModelResolver ImageEditorModelResolver
-@inject ICharacterAssetCatalogService CharacterAssetCatalog
-@inject IScenarioService ScenarioService
-@inject NavigationManager Navigation
 @inject ILogger<AssetStudio> Logger
 
 <PageTitle>Asset Manager - DreamGenClone</PageTitle>
@@ -23,237 +13,22 @@
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-2">
         <h4 class="mb-0">Asset Manager</h4>
-        <div class="d-flex gap-2">
-            <a href="/asset-studio/lora-datasets/new" class="btn btn-outline-primary btn-sm">Generate LoRA Dataset</a>
-            <a href="/asset-studio/lora-training-profiles" class="btn btn-outline-primary btn-sm">LoRA Training Profiles</a>
+        <div class="d-flex flex-wrap gap-2 justify-content-end">
+            <a href="/assets/create" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Create Asset</a>
+            <a href="/characters/identity" class="btn btn-outline-primary btn-sm">Identity Packs</a>
+            <a href="/asset-studio/lora-datasets/new" class="btn btn-outline-primary btn-sm">New LoRA Dataset</a>
+            <a href="/asset-studio/lora-training-profiles" class="btn btn-outline-secondary btn-sm">LoRA Profiles</a>
             <a href="/" class="btn btn-outline-secondary btn-sm">Back to Home</a>
         </div>
     </div>
-    <p class="text-muted small mb-3">Curate the shared production asset catalog for character identity, body, wardrobe, locations, and controls.</p>
-
-    <div class="btn-group mb-3" role="group" aria-label="Asset creation commands">
-        <button class="btn @(_createMode == AssetCreateMode.Asset ? "btn-primary" : "btn-outline-primary")" type="button"
-                @onclick="() => _createMode = AssetCreateMode.Asset">
-            <i class="bi bi-plus-square me-1"></i> Create Asset
-        </button>
-        <button class="btn @(_createMode == AssetCreateMode.IdentityPack ? "btn-primary" : "btn-outline-primary")" type="button"
-                @onclick="() => _createMode = AssetCreateMode.IdentityPack">
-            <i class="bi bi-person-bounding-box me-1"></i> Create Identity Pack
-        </button>
-        <a class="btn btn-outline-primary" href="/asset-studio/lora-datasets/new">
-            <i class="bi bi-layers me-1"></i> Create LoRA
-        </a>
-    </div>
-
-    @if (PickerMode)
-    {
-        <div class="alert alert-secondary py-2">
-            <strong>Picker:</strong> @PickerRole for actor @PickerActorKey.
-            Select an exact approved versioned asset below.
-        </div>
-    }
+    <p class="text-muted small mb-3">Browse existing production assets, versions, provenance, and approval state.</p>
 
     @if (!string.IsNullOrEmpty(_error))
     {
         <div class="alert alert-danger">@_error</div>
     }
-    @if (!string.IsNullOrEmpty(_status))
-    {
-        <div class="alert alert-info">@_status</div>
-    }
 
-    <div class="row g-3">
-        <div class="col-lg-6">
-            @if (_createMode == AssetCreateMode.Asset)
-            {
-            <div class="card mb-3">
-                <div class="card-header"><strong>Create From Prompt</strong></div>
-                <div class="card-body">
-                    <label class="form-label">Asset name</label>
-                    <input type="text" class="form-control" @bind="_promptName" placeholder="e.g. Forest clearing location" />
-                    <label class="form-label mt-2">Asset type</label>
-                    <select class="form-select" @bind="_promptType">
-                        <option value="">Select an asset type…</option>
-                        @foreach (var type in Enum.GetValues<SceneAssetType>())
-                        {
-                            <option value="@type">@type</option>
-                        }
-                    </select>
-                    <label class="form-label mt-2">Description</label>
-                    <textarea class="form-control" rows="3" @bind="_promptText" placeholder="Describe what the asset should look like in ordinary language."></textarea>
-                    <div class="row g-2 mt-1">
-                        <div class="col-sm-8">
-                            <label class="form-label">Image model</label>
-                            <select class="form-select" @bind="_selectedGenerationModelId">
-                                <option value="">Select an image model…</option>
-                                @foreach (var choice in _generationModelChoices)
-                                {
-                                    <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName@(choice.ModelId == _defaultGenerationModelId ? " (Default)" : "")</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="col-sm-4">
-                            <label class="form-label">Image size</label>
-                            <select class="form-select" @bind="_generationImageSize">
-                                <option value="1024x1024">1024 × 1024</option>
-                                <option value="768x768">768 × 768</option>
-                                <option value="512x512">512 × 512</option>
-                            </select>
-                        </div>
-                    </div>
-                    <label class="form-label mt-2">Outputs</label>
-                    <input type="number" class="form-control" style="max-width:8rem" min="1" max="8" @bind="_generationOutputCount" />
-                    <button class="btn btn-primary mt-2" @onclick="GenerateFromPromptAsync"
-                            disabled="@(_busy || string.IsNullOrWhiteSpace(_promptName) || _promptType is null || string.IsNullOrWhiteSpace(_promptText) || string.IsNullOrWhiteSpace(_selectedGenerationModelId))">Generate Asset</button>
-                </div>
-            </div>
-
-            <div class="card mb-3">
-                <div class="card-header"><strong>Create From Image</strong></div>
-                <div class="card-body">
-                    <label class="form-label">Asset name</label>
-                    <input type="text" class="form-control" @bind="_uploadName" placeholder="e.g. Becky front photo" />
-                    <label class="form-label mt-2">Asset type</label>
-                    <select class="form-select" @bind="_uploadType">
-                        <option value="">Select an asset type…</option>
-                        @foreach (var type in Enum.GetValues<SceneAssetType>())
-                        {
-                            <option value="@type">@type</option>
-                        }
-                    </select>
-                    <label class="form-label mt-2">Image</label>
-                    <InputFile OnChange="OnUploadPicked" accept="image/png,image/jpeg,image/webp" />
-                    <button class="btn btn-primary mt-2" @onclick="UploadAssetAsync"
-                            disabled="@(_busy || string.IsNullOrWhiteSpace(_uploadName) || _uploadType is null || _pendingUploadFile is null)">Upload Asset</button>
-                </div>
-            </div>
-
-            }
-
-            @if (_createMode == AssetCreateMode.IdentityPack)
-            {
-            <div class="card">
-                <div class="card-header"><strong>Create Identity Pack</strong></div>
-                <div class="card-body small">
-                    <p class="text-muted mb-2">Creates the 5 face views (front, 3/4 left, 3/4 right, profile left, profile right) for one character and saves them into the character's identity pack plus the asset library. The front is your chosen photo, or is generated from the description; the other four views use the canned Qwen edits.</p>
-                    <label class="form-label">Character</label>
-                    <select class="form-select" @bind="_packCharacterId">
-                        <option value="">Select a scenario character…</option>
-                        @foreach (var option in _characterOptions)
-                        {
-                            <option value="@option.Id">@option.Label</option>
-                        }
-                    </select>
-                    <label class="form-label mt-2">Front photo (optional — else generated from description)</label>
-                    <select class="form-select" @bind="_packFrontAssetId">
-                        <option value="">— generate front from description —</option>
-                        @foreach (var asset in _assets.Where(a => a.Status == SceneAssetStatus.Complete))
-                        {
-                            <option value="@asset.Id">@asset.Name</option>
-                        }
-                    </select>
-                    <label class="form-label mt-2">Character description (when generating the front)</label>
-                    <textarea class="form-control" rows="2" @bind="_packDescription" placeholder="Short stable description of the character's look."></textarea>
-                    @if (string.IsNullOrWhiteSpace(_packFrontAssetId))
-                    {
-                        <label class="form-label mt-2">Front image model</label>
-                        <select class="form-select" @bind="_packFrontModelId">
-                            <option value="">Select an image model…</option>
-                            @foreach (var choice in _generationModelChoices)
-                            {
-                                <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName@(choice.ModelId == _defaultGenerationModelId ? " (Default)" : "")</option>
-                            }
-                        </select>
-                    }
-                    <label class="form-label mt-2">Angle editor model</label>
-                    <select class="form-select" @bind="_packEditorModelId">
-                        <option value="">Select an image editor…</option>
-                        @foreach (var choice in _editorModelChoices)
-                        {
-                            <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName@(choice.ModelId == _defaultEditorModelId ? " (Default)" : "")</option>
-                        }
-                    </select>
-                    <button class="btn btn-success mt-2" @onclick="GenerateProfilePackAsync"
-                            disabled="@(_busy || string.IsNullOrWhiteSpace(_packCharacterId) || string.IsNullOrWhiteSpace(_packEditorModelId) || (string.IsNullOrWhiteSpace(_packFrontAssetId) && (string.IsNullOrWhiteSpace(_packDescription) || string.IsNullOrWhiteSpace(_packFrontModelId))))">
-                        Generate Profile Pack Now
-                    </button>
-                </div>
-            </div>
-            }
-
-            <section class="mt-3" aria-label="Typed character asset versions">
-                <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
-                    <h5 class="mb-0">Character Versions</h5>
-                    <a href="/characters/identity" class="btn btn-sm btn-outline-secondary">Manage Identity Packs</a>
-                </div>
-                <label class="form-label small" for="version-character">Character</label>
-                <div class="input-group input-group-sm mb-2">
-                    <select id="version-character" class="form-select" @bind="_versionCharacterId">
-                        <option value="">Select a character</option>
-                        @foreach (var option in _characterOptions)
-                        {
-                            <option value="@option.Id">@option.Label</option>
-                        }
-                    </select>
-                    <button class="btn btn-outline-primary" type="button" disabled="@(_busy || string.IsNullOrWhiteSpace(_versionCharacterId))"
-                            @onclick="LoadCharacterVersionsAsync">Load Versions</button>
-                </div>
-                @if (_characterVersions.Count == 0)
-                {
-                    <div class="small text-muted">No typed versions loaded.</div>
-                }
-                else
-                {
-                    <div class="table-responsive">
-                        <table class="table table-sm align-middle">
-                            <thead><tr><th>Type</th><th>Version</th><th>Status</th><th>Assets</th></tr></thead>
-                            <tbody>
-                                @foreach (var version in _characterVersions)
-                                {
-                                    <tr>
-                                        <td>@version.Kind</td>
-                                        <td>
-                                            <span class="font-monospace">@version.Id</span>
-                                            <span class="d-block small text-muted">v@version.Version · from @(version.SupersedesId ?? "root")</span>
-                                        </td>
-                                        <td><span class="badge text-bg-secondary">@version.Status</span></td>
-                                        <td>
-                                            @if (version.Assets.Count == 0)
-                                            {
-                                                <span class="text-muted small">No production-version assets</span>
-                                            }
-                                            else
-                                            {
-                                                @foreach (var option in version.Assets)
-                                                {
-                                                    <button class="btn btn-sm btn-outline-primary me-1 mb-1" type="button"
-                                                            disabled="@(version.Status != "Approved")"
-                                                            title="Select exact @option.SemanticRole asset"
-                                                            @onclick="() => SelectPickerAsset(option)">
-                                                        @option.SemanticRole · asset v@option.SceneAssetVersion
-                                                    </button>
-                                                }
-                                            }
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-                @if (_selectedPickerAsset is not null)
-                {
-                    <div class="small border-top pt-2">
-                        <strong>Exact picker result</strong>
-                        <span class="d-block font-monospace text-break">@_selectedPickerAsset.VersionKind · @_selectedPickerAsset.VersionId · v@_selectedPickerAsset.Version</span>
-                        <span class="d-block font-monospace text-break">@_selectedPickerAsset.SceneAssetId · asset v@_selectedPickerAsset.SceneAssetVersion</span>
-                        <span class="d-block font-monospace text-break">@_selectedPickerAsset.SceneAssetSha256</span>
-                    </div>
-                }
-            </section>
-        </div>
-
-        <div class="col-lg-6">
+    <div>
             <div class="card mb-3">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <strong>Asset Library (@_filteredAssets.Count / @_assets.Count)</strong>
@@ -389,54 +164,7 @@
                             <dt class="col-4">Supersedes</dt><dd class="col-8 font-monospace text-break">@(_selectedAsset.SupersedesAssetId ?? "None")</dd>
                             <dt class="col-4">SHA-256</dt><dd class="col-8 font-monospace text-break">@_selectedAsset.Sha256</dd>
                         </dl>
-
-                        @if (_selectedAsset.ProductionApprovalStatus is null or SceneAssetProductionApprovalStatus.Draft)
-                        {
-                            <h6>Production Approval</h6>
-                            <label class="form-label small" for="asset-provenance">Source provenance JSON</label>
-                            <textarea id="asset-provenance" class="form-control form-control-sm font-monospace" rows="2" @bind="_approvalProvenanceJson"></textarea>
-                            <div class="row g-2 mt-1">
-                                <div class="col-sm-6">
-                                    <label class="form-label small" for="asset-consent">Consent</label>
-                                    <select id="asset-consent" class="form-select form-select-sm" @bind="_approvalConsent">
-                                        <option value="">Select consent</option>
-                                        <option value="Confirmed">Confirmed</option>
-                                        <option value="NotApplicable">Not applicable</option>
-                                    </select>
-                                </div>
-                                <div class="col-sm-6">
-                                    <label class="form-label small" for="asset-license">License</label>
-                                    <select id="asset-license" class="form-select form-select-sm" @bind="_approvalLicense">
-                                        <option value="">Select license</option>
-                                        <option value="Confirmed">Confirmed</option>
-                                        <option value="NotApplicable">Not applicable</option>
-                                    </select>
-                                </div>
-                                <div class="col-sm-6">
-                                    <label class="form-label small" for="asset-license-label">License label</label>
-                                    <input id="asset-license-label" class="form-control form-control-sm" @bind="_approvalLicenseLabel" />
-                                </div>
-                                <div class="col-sm-6">
-                                    <label class="form-label small" for="asset-use-scope">Use scope</label>
-                                    <select id="asset-use-scope" class="form-select form-select-sm" @bind="_approvalUseScope">
-                                        <option value="">Select scope</option>
-                                        @foreach (var scope in Enum.GetValues<SceneAssetApprovedUseScope>())
-                                        {
-                                            <option value="@scope.ToString()">@scope</option>
-                                        }
-                                    </select>
-                                </div>
-                            </div>
-                            <label class="form-label small mt-2" for="asset-policy">Content policy key</label>
-                            <input id="asset-policy" class="form-control form-control-sm" @bind="_approvalContentPolicyKey" />
-                            <label class="form-label small mt-2" for="asset-compatibility">Compatibility metadata JSON</label>
-                            <textarea id="asset-compatibility" class="form-control form-control-sm font-monospace" rows="2" @bind="_approvalCompatibilityJson"></textarea>
-                            <button class="btn btn-sm btn-success mt-2" type="button" disabled="@(_busy || !CanApproveSelectedAsset)"
-                                    @onclick="ApproveSelectedAssetAsync">
-                                <i class="bi bi-check2-circle me-1"></i> Approve Exact Asset
-                            </button>
-                        }
-                        else
+                        @if (_selectedAsset.ProductionApprovalStatus is not null)
                         {
                             <h6>Production Provenance</h6>
                             <div class="font-monospace text-break mb-2">@_selectedAsset.SourceProvenanceJson</div>
@@ -446,79 +174,31 @@
                             <div><strong>Policy:</strong> @_selectedAsset.ContentPolicyKey</div>
                             <div class="font-monospace text-break mt-2">@_selectedAsset.CompatibilityMetadataJson</div>
                         }
+                        <a class="btn btn-sm btn-outline-primary mt-2" href="/asset-studio/@_selectedAsset.Id">View asset details</a>
                     </div>
                 </section>
             }
-        </div>
     </div>
 </div>
 
 @code {
-    [SupplyParameterFromQuery(Name = "pickerRole")]
-    public string? PickerRole { get; set; }
-
-    [SupplyParameterFromQuery(Name = "pickerActorKey")]
-    public string? PickerActorKey { get; set; }
-
-    [SupplyParameterFromQuery(Name = "pickerReturnContext")]
-    public string? PickerReturnContext { get; set; }
-
     private sealed record CharacterOption(string Id, string Label);
-    private enum AssetCreateMode { None, Asset, IdentityPack }
 
     private readonly List<CharacterOption> _characterOptions = [];
     private List<SceneAsset> _assets = [];
-    private readonly List<IBrowserFile> _pendingUploads = [];
-
-    private string _promptName = string.Empty;
-    private string _promptText = string.Empty;
-    private SceneAssetType? _promptType;
-    private List<SceneImageModelChoice> _generationModelChoices = [];
-    private string? _selectedGenerationModelId;
-    private string? _defaultGenerationModelId;
-    private string _generationImageSize = "1024x1024";
-    private int _generationOutputCount = 1;
-    private string _uploadName = string.Empty;
-    private SceneAssetType? _uploadType;
-    private string _packCharacterId = string.Empty;
-    private string _packFrontAssetId = string.Empty;
-    private string _packDescription = string.Empty;
-    private string? _packFrontModelId;
-    private List<SceneImageModelChoice> _editorModelChoices = [];
-    private string? _packEditorModelId;
-    private string? _defaultEditorModelId;
     private string _assetSearch = string.Empty;
     private string _assetTypeFilter = string.Empty;
     private string _assetApprovalFilter = string.Empty;
     private string _assetCharacterFilter = string.Empty;
-    private string _versionCharacterId = string.Empty;
-    private IReadOnlyList<CharacterAssetVersionSnapshot> _characterVersions = [];
-    private CharacterAssetPickerOption? _selectedPickerAsset;
     private string? _selectedAssetId;
-    private string _approvalProvenanceJson = string.Empty;
-    private string _approvalConsent = string.Empty;
-    private string _approvalLicense = string.Empty;
-    private string _approvalLicenseLabel = string.Empty;
-    private string _approvalUseScope = string.Empty;
-    private string _approvalContentPolicyKey = string.Empty;
-    private string _approvalCompatibilityJson = string.Empty;
-    private AssetCreateMode _createMode;
 
-    private bool _busy;
     private bool _hasInFlight;
     private string? _error;
-    private string? _status;
 
     private System.Threading.Timer? _timer;
     private readonly object _timerLock = new();
 
-    private IBrowserFile? _pendingUploadFile => _pendingUploads.FirstOrDefault();
-
     private SceneAsset? _selectedAsset => _assets.FirstOrDefault(asset => asset.Id == _selectedAssetId);
-
-    private bool PickerMode => !string.IsNullOrWhiteSpace(PickerRole)
-        || !string.IsNullOrWhiteSpace(PickerActorKey)
-        || !string.IsNullOrWhiteSpace(PickerReturnContext);
 
     private List<SceneAsset> _filteredAssets => _assets.Where(asset =>
         (string.IsNullOrWhiteSpace(_assetSearch)
@@ -535,196 +215,17 @@
             || string.Equals(asset.CharacterProfileId, _assetCharacterFilter, StringComparison.Ordinal)))
         .ToList();
 
-    private bool CanApproveSelectedAsset => _selectedAsset?.Status == SceneAssetStatus.Complete
-        && !string.IsNullOrWhiteSpace(_approvalProvenanceJson)
-        && !string.IsNullOrWhiteSpace(_approvalConsent)
-        && !string.IsNullOrWhiteSpace(_approvalLicense)
-        && !string.IsNullOrWhiteSpace(_approvalLicenseLabel)
-        && !string.IsNullOrWhiteSpace(_approvalUseScope)
-        && !string.IsNullOrWhiteSpace(_approvalContentPolicyKey)
-        && !string.IsNullOrWhiteSpace(_approvalCompatibilityJson);
-
     protected override async Task OnInitializedAsync()
     {
-        try
-        {
-            var scenarios = await ScenarioService.GetAllScenariosAsync();
-            _characterOptions.AddRange(scenarios
-                .SelectMany(s => s.Characters.Select(c => new CharacterOption(c.Id, $"{s.Name} — {c.Name ?? "Unnamed"}")))
-                .ToList());
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to load scenario characters in Asset Studio.");
-        }
-
-        await LoadGenerationModelsAsync();
-        await LoadEditorModelsAsync();
         await ReloadAssetsAsync();
-    }
-
-    private async Task LoadGenerationModelsAsync()
-    {
-        _generationModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
-        var resolvedDefault = await ModelResolutionService.ResolveImageModelAsync(null);
-        _defaultGenerationModelId = _generationModelChoices
-            .SingleOrDefault(choice => string.Equals(choice.ModelIdentifier, resolvedDefault.ModelIdentifier, StringComparison.Ordinal))?.ModelId;
-        _selectedGenerationModelId = _defaultGenerationModelId;
-        _packFrontModelId = _defaultGenerationModelId;
-    }
-
-    private async Task LoadEditorModelsAsync()
-    {
-        _editorModelChoices = (await ImageEditorModelResolver.ListImageEditorModelsAsync()).ToList();
-        var resolvedDefault = await ImageEditorModelResolver.ResolveAsync();
-        _defaultEditorModelId = _editorModelChoices
-            .SingleOrDefault(choice => string.Equals(choice.ModelIdentifier, resolvedDefault.ModelIdentifier, StringComparison.Ordinal))?.ModelId;
-        _packEditorModelId = _defaultEditorModelId;
-    }
-
-    private async Task GenerateFromPromptAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_promptName)
-            || _promptType is null
-            || string.IsNullOrWhiteSpace(_promptText)
-            || string.IsNullOrWhiteSpace(_selectedGenerationModelId)) return;
-
-        await RunAsync(async () =>
-        {
-            var outputCount = Math.Clamp(_generationOutputCount, 1, 8);
-            for (var output = 1; output <= outputCount; output++)
-            {
-                var name = outputCount == 1 ? _promptName.Trim() : $"{_promptName.Trim()} {output}";
-                await AssetService.CreateFromPromptAsync(
-                    name, _promptText, _promptType.Value, _selectedGenerationModelId, _generationImageSize);
-            }
-            _promptName = string.Empty;
-            _promptText = string.Empty;
-            _promptType = null;
-            _generationOutputCount = 1;
-            _status = outputCount == 1 ? "Asset generation queued." : $"{outputCount} asset variations queued.";
-            await ReloadAssetsAsync();
-            EnsurePolling();
-        });
     }
 
     private void SelectAsset(string assetId)
     {
         _selectedAssetId = assetId;
-        _approvalProvenanceJson = string.Empty;
-        _approvalConsent = string.Empty;
-        _approvalLicense = string.Empty;
-        _approvalLicenseLabel = string.Empty;
-        _approvalUseScope = string.Empty;
-        _approvalContentPolicyKey = string.Empty;
-        _approvalCompatibilityJson = string.Empty;
     }
 
     private void ClearAssetSelection() => _selectedAssetId = null;
-
-    private async Task LoadCharacterVersionsAsync()
-    {
-        await RunAsync(async () =>
-        {
-            _characterVersions = await CharacterAssetCatalog.LoadVersionsAsync(_versionCharacterId);
-            _selectedPickerAsset = null;
-        });
-    }
-
-    private void SelectPickerAsset(CharacterAssetPickerOption option)
-    {
-        _selectedPickerAsset = option;
-        if (!PickerMode) return;
-        if (string.IsNullOrWhiteSpace(PickerRole)
-            || string.IsNullOrWhiteSpace(PickerActorKey)
-            || string.IsNullOrWhiteSpace(PickerReturnContext))
-        {
-            _error = "Picker role, actor key, and return context are all required.";
-            return;
-        }
-        if (!Uri.TryCreate(PickerReturnContext, UriKind.Relative, out _)
-            || PickerReturnContext.StartsWith("//", StringComparison.Ordinal))
-        {
-            _error = "Picker return context must be a local relative application route.";
-            return;
-        }
-
-        var separator = PickerReturnContext.Contains('?', StringComparison.Ordinal) ? "&" : "?";
-        Navigation.NavigateTo(
-            $"{PickerReturnContext}{separator}pickerRole={Uri.EscapeDataString(PickerRole)}"+
-            $"&pickerActorKey={Uri.EscapeDataString(PickerActorKey)}"+
-            $"&versionKind={option.VersionKind}&versionId={Uri.EscapeDataString(option.VersionId)}"+
-            $"&version={option.Version}&sceneAssetId={Uri.EscapeDataString(option.SceneAssetId)}"+
-            $"&sceneAssetVersion={option.SceneAssetVersion}&sceneAssetSha256={option.SceneAssetSha256}"+
-            $"&semanticRole={Uri.EscapeDataString(option.SemanticRole)}");
-    }
-
-    private async Task ApproveSelectedAssetAsync()
-    {
-        if (_selectedAsset is null || !CanApproveSelectedAsset) return;
-
-        await RunAsync(async () =>
-        {
-            var consent = Enum.Parse<SceneAssetConsentState>(_approvalConsent, false);
-            var license = Enum.Parse<SceneAssetLicenseState>(_approvalLicense, false);
-            var useScope = Enum.Parse<SceneAssetApprovedUseScope>(_approvalUseScope, false);
-            var approved = await AssetService.ApproveForProductionAsync(
-                _selectedAsset.Id, _approvalProvenanceJson, consent, license, _approvalLicenseLabel,
-                useScope, _approvalContentPolicyKey, _approvalCompatibilityJson);
-            await ReloadAssetsAsync();
-            _selectedAssetId = approved.Id;
-            _status = $"Approved '{approved.Name}' as production version {approved.ProductionVersion}.";
-        });
-    }
-
-    private void OnUploadPicked(InputFileChangeEventArgs e)
-    {
-        _pendingUploads.Clear();
-        if (e.File is not null)
-        {
-            _pendingUploads.Add(e.File);
-        }
-    }
-
-    private async Task UploadAssetAsync()
-    {
-        var file = _pendingUploadFile;
-        if (file is null || string.IsNullOrWhiteSpace(_uploadName) || _uploadType is null) return;
-
-        await RunAsync(async () =>
-        {
-            await using var stream = file.OpenReadStream(20 * 1024 * 1024);
-            var asset = await AssetService.CreateFromUploadAsync(
-                _uploadName.Trim(), _uploadType.Value, file.Name, stream);
-            _uploadName = string.Empty;
-            _uploadType = null;
-            _pendingUploads.Clear();
-            _status = $"Uploaded '{asset.Name}'.";
-            await ReloadAssetsAsync();
-        });
-    }
-
-    private async Task GenerateProfilePackAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_packCharacterId)) return;
-
-        await RunAsync(async () =>
-        {
-            var option = _characterOptions.FirstOrDefault(o => o.Id == _packCharacterId);
-            await AssetService.EnqueueProfilePackAsync(new SceneAssetProfilePackJobPayload
-            {
-                CharacterProfileId = _packCharacterId,
-                CharacterName = option?.Label ?? _packCharacterId,
-                Description = _packDescription.Trim(),
-                FrontAssetId = string.IsNullOrWhiteSpace(_packFrontAssetId) ? null : _packFrontAssetId,
-                FrontModelId = string.IsNullOrWhiteSpace(_packFrontAssetId) ? _packFrontModelId : null,
-                EditorModelId = _packEditorModelId ?? string.Empty
-            });
-            _status = "Profile pack generation queued — the 5 face views will appear here as they complete.";
-            await ReloadAssetsAsync();
-            EnsurePolling();
-        });
-    }
 
     private async Task ReloadAssetsAsync()
     {
@@ -770,26 +271,6 @@
         {
             _timer?.Dispose();
             _timer = null;
-        }
-    }
-
-    private async Task RunAsync(Func<Task> action)
-    {
-        _busy = true;
-        _error = null;
-        _status = null;
-        try
-        {
-            await action();
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-            Logger.LogWarning(ex, "Asset Studio operation failed.");
-        }
-        finally
-        {
-            _busy = false;
         }
     }
 

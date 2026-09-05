@@ -50,7 +50,7 @@ public sealed class SceneBeatAnalyzerResolver : ISceneBeatAnalyzerResolver
         if (model.MaximumContextTokens.HasValue && functionDefault.MaxTokens > model.MaximumContextTokens.Value)
             throw new ModelResolutionException(
                 $"Function '{function}' Max Tokens exceeds model '{model.DisplayName}' maximum context capability.");
-        if (functionDefault.ThinkingMode != ThinkingMode.Default && !model.SupportsThinkingControl)
+        if (functionDefault.ThinkingMode == ThinkingMode.Enabled && !model.SupportsThinkingControl)
             throw new ModelResolutionException(
                 $"Function '{function}' configures thinking control, but model '{model.DisplayName}' does not support it.");
 

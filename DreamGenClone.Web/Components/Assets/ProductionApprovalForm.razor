@@ -1,0 +1,118 @@
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+
+@inject ISceneAssetService AssetService
+@inject ILogger<ProductionApprovalForm> Logger
+
+@if (Image.ProductionApprovalStatus is not null and not SceneAssetProductionApprovalStatus.Draft)
+{
+    <div class="alert alert-info">This image is already @Image.ProductionApprovalStatus.</div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    <label class="form-label" for="review-provenance">Source provenance JSON</label>
+    <textarea id="review-provenance" class="form-control font-monospace" rows="3" @bind="_provenanceJson"></textarea>
+    <div class="row g-2 mt-1">
+        <div class="col-sm-6">
+            <label class="form-label" for="review-consent">Consent</label>
+            <select id="review-consent" class="form-select" @bind="_consent">
+                <option value="">Select consent</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="NotApplicable">Not applicable</option>
+            </select>
+        </div>
+        <div class="col-sm-6">
+            <label class="form-label" for="review-license">License</label>
+            <select id="review-license" class="form-select" @bind="_license">
+                <option value="">Select license</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="NotApplicable">Not applicable</option>
+            </select>
+        </div>
+        <div class="col-sm-6">
+            <label class="form-label" for="review-license-label">License label</label>
+            <input id="review-license-label" class="form-control" @bind="_licenseLabel" />
+        </div>
+        <div class="col-sm-6">
+            <label class="form-label" for="review-use-scope">Use scope</label>
+            <select id="review-use-scope" class="form-select" @bind="_useScope">
+                <option value="">Select scope</option>
+                @foreach (var scope in Enum.GetValues<SceneAssetApprovedUseScope>())
+                {
+                    <option value="@scope">@scope</option>
+                }
+            </select>
+        </div>
+    </div>
+    <label class="form-label mt-2" for="review-policy">Content policy key</label>
+    <input id="review-policy" class="form-control" @bind="_contentPolicyKey" />
+    <label class="form-label mt-2" for="review-compatibility">Compatibility metadata JSON</label>
+    <textarea id="review-compatibility" class="form-control font-monospace" rows="3" @bind="_compatibilityJson"></textarea>
+    <button class="btn btn-success mt-3" type="button" disabled="@(_busy || !CanApprove)" @onclick="ApproveAsync">
+        <i class="bi bi-check2-circle me-1"></i> Approve Exact Image
+    </button>
+    @if (_approved is not null)
+    {
+        <div class="alert alert-success mt-3 mb-0">
+            Approved as production version @_approved.ProductionVersion.
+        </div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public SceneAssetImage Image { get; set; } = null!;
+
+    private string _provenanceJson = string.Empty;
+    private string _consent = string.Empty;
+    private string _license = string.Empty;
+    private string _licenseLabel = string.Empty;
+    private string _useScope = string.Empty;
+    private string _contentPolicyKey = string.Empty;
+    private string _compatibilityJson = string.Empty;
+    private SceneAssetImage? _approved;
+    private bool _busy;
+    private string? _error;
+
+    private bool CanApprove => Image.Status == SceneAssetStatus.Complete
+        && !string.IsNullOrWhiteSpace(_provenanceJson)
+        && !string.IsNullOrWhiteSpace(_consent)
+        && !string.IsNullOrWhiteSpace(_license)
+        && !string.IsNullOrWhiteSpace(_licenseLabel)
+        && !string.IsNullOrWhiteSpace(_useScope)
+        && !string.IsNullOrWhiteSpace(_contentPolicyKey)
+        && !string.IsNullOrWhiteSpace(_compatibilityJson);
+
+    private async Task ApproveAsync()
+    {
+        if (!CanApprove) return;
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            _approved = await AssetService.ApproveImageForProductionAsync(
+                Image.Id,
+                _provenanceJson,
+                Enum.Parse<SceneAssetConsentState>(_consent, false),
+                Enum.Parse<SceneAssetLicenseState>(_license, false),
+                _licenseLabel,
+                Enum.Parse<SceneAssetApprovedUseScope>(_useScope, false),
+                _contentPolicyKey,
+                _compatibilityJson);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Asset production approval failed.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

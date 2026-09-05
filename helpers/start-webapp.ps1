@@ -78,7 +78,8 @@ function Get-WebAppProcesses {
         Where-Object {
             $_.CommandLine -and (
                 $_.CommandLine -like "*DreamGenClone.Web*DreamGenClone.csproj*" -or
-                $_.CommandLine -like "*DreamGenClone.Web*DreamGenClone.dll*"
+                $_.CommandLine -like "*DreamGenClone.Web*DreamGenClone.dll*" -or
+                $_.CommandLine -like "*DreamGenClone.dll*"
             )
         }
     if ($dotnetProcs) {

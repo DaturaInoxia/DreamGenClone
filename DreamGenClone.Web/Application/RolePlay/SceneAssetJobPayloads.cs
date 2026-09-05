@@ -4,6 +4,7 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed class SceneAssetGenerationJobPayload
 {
     public string AssetId { get; set; } = string.Empty;
+    public string ImageId { get; set; } = string.Empty;
     public string ModelId { get; set; } = string.Empty;
     public string ImageSize { get; set; } = string.Empty;
 }
@@ -12,6 +13,7 @@ public sealed class SceneAssetGenerationJobPayload
 public sealed class SceneAssetEditingJobPayload
 {
     public string AssetId { get; set; } = string.Empty;
+    public string ImageId { get; set; } = string.Empty;
     public string ModelId { get; set; } = string.Empty;
 }
 

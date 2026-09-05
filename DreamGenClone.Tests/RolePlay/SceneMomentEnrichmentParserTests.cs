@@ -129,6 +129,17 @@ public sealed class SceneMomentEnrichmentParserTests
         Assert.Contains("sequential before/after/then action", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Parse_AllowsSpatialBeforePhraseInFrozenAction()
+    {
+        var response = Mutate(root => root["characters"]![0]!["actionOrObservation"] =
+            "Unaware of the door opening, standing bare before the shower stall");
+
+        var result = Parse(response);
+
+        Assert.Contains("standing bare before the shower stall", result.FrozenStateContractJson, StringComparison.Ordinal);
+    }
+
     private static SceneMomentEnrichmentData Parse(string response)
         => new SceneMomentEnrichmentParser().Parse(response, SceneMomentEnrichmentTestFixture.CreateSnapshot());
 

@@ -18,7 +18,17 @@ screen direction, landmarks, props, lighting, and spatial relationships across v
 - Mandatory Blender installation.
 - Reinterpreting story/world state independently for each camera.
 - Migrating pre-production sessions or retaining old one-off generation modes.
+- LoRA qualification or production use. The subsystem is build-complete but inactive; activation is
+  B-107 and is explicitly out of scope for Phase 2 and Phase 3 (2026-09-04 scope amendment).
 - B-101 timeline placement/publication or future audio/video rendering.
+
+> **Naming boundary (B-108, 2026-09-05):** a deliberately minimal, standalone location reference
+> concept (`ReferenceBootstrapLocationProfile` / `ReferenceBootstrapLocationReference` —
+> name/description/status/ordered references only, no coordinate frame, landmarks, or blocking)
+> exists under `specs/Planning/B-108-reference-bootstrap-studio/`. It is intentionally named apart
+> from this phase's `LocationProfile`/`LocationReferenceAsset` so nothing here may assume
+> compatibility. When this phase starts, make an explicit reconciliation decision (import, migrate,
+> or supersede) — never a silent migration.
 
 ## User Stories
 

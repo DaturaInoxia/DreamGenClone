@@ -76,10 +76,24 @@ public sealed class SessionService : ISessionService
         var row = await LoadRowAsync(sessionId, cancellationToken);
         if (row is null || !string.Equals(row.SessionType, RolePlaySessionType, StringComparison.OrdinalIgnoreCase))
         {
+            _logger.LogWarning(
+                "Role-play session load miss: RequestedId={RequestedId}, RowFound={RowFound}, RowId={RowId}, RowType={RowType}, ConnectionString={ConnectionString}, CurrentDirectory={CurrentDirectory}",
+                sessionId,
+                row is not null,
+                row?.Id,
+                row?.SessionType,
+                _connectionString,
+                Environment.CurrentDirectory);
             return null;
         }
 
         var session = JsonSerializer.Deserialize<RolePlaySession>(row.PayloadJson, JsonOptions);
+        _logger.LogInformation(
+            "Role-play session loaded: RequestedId={RequestedId}, RowId={RowId}, PayloadSessionId={PayloadSessionId}, InteractionCount={InteractionCount}",
+            sessionId,
+            row.Id,
+            session?.Id,
+            session?.Interactions.Count);
 
         // AdaptiveState is [JsonIgnore] — load from the authoritative V2 tables.
         // The V2 store is the single source of truth for adaptive state.

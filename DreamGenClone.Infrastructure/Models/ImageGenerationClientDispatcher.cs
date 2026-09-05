@@ -51,7 +51,19 @@ public sealed class ImageGenerationClientDispatcher : IImageGenerationClient
         string? decryptedApiKey,
         string modelIdentifier,
         ImageContentPolicy contentPolicy,
-        CancellationToken cancellationToken = default)
-        => throw new NotSupportedException(
-            "Health check protocol selection requires the resolved provider; use the concrete client directly.");
+        CancellationToken cancellationToken = default,
+        ImageProtocol imageProtocol = ImageProtocol.OpenAiImages)
+        => imageProtocol switch
+        {
+            ImageProtocol.ComfyUi => _comfyUiClient.CheckImageModelHealthAsync(
+                providerBaseUrl, imageGenerationPath, timeoutSeconds, decryptedApiKey, modelIdentifier,
+                contentPolicy, cancellationToken, imageProtocol),
+            ImageProtocol.ComfyUiServerless => _serverlessClient.CheckImageModelHealthAsync(
+                providerBaseUrl, imageGenerationPath, timeoutSeconds, decryptedApiKey, modelIdentifier,
+                contentPolicy, cancellationToken, imageProtocol),
+            ImageProtocol.OpenAiImages => _openAiClient.CheckImageModelHealthAsync(
+                providerBaseUrl, imageGenerationPath, timeoutSeconds, decryptedApiKey, modelIdentifier,
+                contentPolicy, cancellationToken, imageProtocol),
+            _ => Task.FromResult((false, $"Unsupported image protocol '{imageProtocol}'. Configure a supported provider protocol in Model Manager."))
+        };
 }

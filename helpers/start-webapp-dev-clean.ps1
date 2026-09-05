@@ -91,8 +91,8 @@ Stop-ExistingWebApp
 
 # Step 1: Clean the solution to force full recompilation
 Write-Section "Cleaning solution (dotnet clean)"
-Write-Host "Running: dotnet clean $solutionPath -v $BuildVerbosity" -ForegroundColor DarkCyan
-$cleanLines = & dotnet clean "$solutionPath" -v $BuildVerbosity 2>&1
+Write-Host "Running: dotnet clean $solutionPath -v $BuildVerbosity --disable-build-servers" -ForegroundColor DarkCyan
+$cleanLines = & dotnet clean "$solutionPath" -v $BuildVerbosity --disable-build-servers 2>&1
 foreach ($line in $cleanLines) {
     Write-Host $line
 }
@@ -103,8 +103,8 @@ if ($LASTEXITCODE -ne 0) {
 # Step 2: Build the web project (and dependencies) from scratch
 Write-Section "Building web app (full rebuild after clean)"
 Write-Host "Build command target: $projectPath" -ForegroundColor DarkCyan
-Write-Host "Running: dotnet build $projectPath -v $BuildVerbosity --no-restore" -ForegroundColor DarkCyan
-$buildLines = & dotnet build "$projectPath" -v $BuildVerbosity --no-restore 2>&1
+Write-Host "Running: dotnet build $projectPath -v $BuildVerbosity --no-restore --disable-build-servers" -ForegroundColor DarkCyan
+$buildLines = & dotnet build "$projectPath" -v $BuildVerbosity --no-restore --disable-build-servers 2>&1
 foreach ($line in $buildLines) {
     Write-Host $line
 }

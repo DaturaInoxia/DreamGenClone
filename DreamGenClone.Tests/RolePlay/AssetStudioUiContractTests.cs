@@ -7,52 +7,52 @@ public sealed class AssetStudioUiContractTests
         Root, "DreamGenClone.Web", "Components", "Pages", "AssetStudio.razor"));
     private static readonly string DetailSource = File.ReadAllText(Path.Combine(
         Root, "DreamGenClone.Web", "Components", "Pages", "AssetStudioView.razor"));
-    private static readonly string ModelResolutionSource = File.ReadAllText(Path.Combine(
-        Root, "DreamGenClone.Web", "Application", "ModelManager", "ModelResolutionService.cs"));
-
+    private static readonly string CreateSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "Pages", "AssetCreate.razor"));
+    private static readonly string EditSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "Pages", "AssetEdit.razor"));
+    private static readonly string ReviewSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "Pages", "AssetReview.razor"));
+    private static readonly string EditComponentSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "Assets", "ImageEditWorkbench.razor"));
     [Fact]
-    public void Manager_ExposesPrimaryAssetIdentityAndLoraCommands()
+    public void Manager_ListsAssetsAndLinksDedicatedManagementWorkflows()
     {
-        Assert.Contains("> Create Asset", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("> Create Identity Pack", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("> Create LoRA", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("AssetCreateMode.Asset", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("AssetCreateMode.IdentityPack", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("Asset Library", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("@bind=\"_assetSearch\"", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("@bind=\"_assetTypeFilter\"", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("@bind=\"_assetApprovalFilter\"", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("@bind=\"_assetCharacterFilter\"", ManagerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateFromPromptAsync", ManagerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateFromUploadAsync", ManagerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnqueueProfilePackAsync", ManagerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApproveForProductionAsync", ManagerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("InputFile", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("href=\"/assets/create\"", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("href=\"/characters/identity\"", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("href=\"/asset-studio/lora-datasets/new\"", ManagerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Character Versions", ManagerSource, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void AssetCreation_RequiresTypeAndPinsVisibleModelAndOutputs()
+    public void Operations_HaveDedicatedRoutesAndReusableComponents()
     {
-        Assert.Contains("@bind=\"_promptType\"", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("@bind=\"_uploadType\"", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("@bind=\"_selectedGenerationModelId\"", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("(Default)", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("@bind=\"_generationOutputCount\"", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("Math.Clamp(_generationOutputCount, 1, 8)", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("_promptType.Value, _selectedGenerationModelId, _generationImageSize", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains(
-            ".Where(item => string.IsNullOrWhiteSpace(item.ImageEditorDiffusionModel))",
-            ModelResolutionSource,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void IdentityPack_PinsFrontAndEditorModels()
-    {
-        Assert.Contains("@bind=\"_packFrontModelId\"", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("@bind=\"_packEditorModelId\"", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("FrontModelId =", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("EditorModelId =", ManagerSource, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void DetailEdit_PinsEditorSupportsOutputsAndUsesDispatcherPolling()
-    {
-        Assert.Contains("@bind=\"_selectedEditorModelId\"", DetailSource, StringComparison.Ordinal);
-        Assert.Contains("@bind=\"_editOutputCount\"", DetailSource, StringComparison.Ordinal);
-        Assert.Contains("Math.Clamp(_editOutputCount, 1, 8)", DetailSource, StringComparison.Ordinal);
+        Assert.Contains("@page \"/assets/create\"", CreateSource, StringComparison.Ordinal);
+        Assert.Contains("CreateAssetAsync(_name, _type!.Value)", CreateSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("PromptAssetCreator", CreateSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("AssetUploadCreator", CreateSource, StringComparison.Ordinal);
+        Assert.Contains("<PromptAssetCreator AssetId=\"@_asset.Id\"", DetailSource, StringComparison.Ordinal);
+        Assert.Contains("<AssetUploadCreator AssetId=\"@_asset.Id\"", DetailSource, StringComparison.Ordinal);
+        Assert.Contains("@page \"/assets/{AssetId}/images/{ImageId}/edit\"", EditSource, StringComparison.Ordinal);
+        Assert.Contains("<ImageEditWorkbench Source=\"_image\" />", EditSource, StringComparison.Ordinal);
+        Assert.Contains("@page \"/assets/{AssetId}/images/{ImageId}/review\"", ReviewSource, StringComparison.Ordinal);
+        Assert.Contains("<ProductionApprovalForm Image=\"_image\" />", ReviewSource, StringComparison.Ordinal);
+        Assert.Contains("/assets/@_asset.Id/images/@image.Id/edit", DetailSource, StringComparison.Ordinal);
+        Assert.Contains("/assets/@_asset.Id/images/@image.Id/review", DetailSource, StringComparison.Ordinal);
         Assert.Contains("await InvokeAsync(async () =>", DetailSource, StringComparison.Ordinal);
-        Assert.Contains("_editPrompt, _selectedEditorModelId", DetailSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnqueueEditAsync", DetailSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApproveForProductionAsync", DetailSource, StringComparison.Ordinal);
+        Assert.Contains("Math.Clamp(_outputCount, 1, 8)", EditComponentSource, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

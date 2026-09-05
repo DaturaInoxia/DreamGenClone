@@ -113,6 +113,7 @@ public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHan
                 cancellationToken);
             if (!started)
                 throw Permanent("scene_beat_production_attempt_stale", "The Beat Production attempt could not acquire ownership.");
+            attempt.QueueWaitMs = Math.Max(0, (long)(_timeProvider.GetUtcNow().UtcDateTime - attempt.CreatedUtc).TotalMilliseconds);
             attempt.Status = SceneBeatAnalysisAttemptStatus.Processing;
         }
         else if (attempt.Status != SceneBeatAnalysisAttemptStatus.Processing
@@ -130,7 +131,7 @@ public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHan
                     attempt.SystemPrompt,
                     attempt.UserPrompt,
                     SceneBeatProductionContract.ResponseSchemaName,
-                    SceneBeatProductionContract.CreateResponseSchema()),
+                    SceneBeatProductionContract.CreateResponseSchema(sourceSnapshot.Profiles.Select(profile => profile.Key))),
                 cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -171,6 +172,15 @@ public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHan
         attempt.FinishReason = result.FinishReason;
         attempt.DurationMs = (long)result.Duration.TotalMilliseconds;
         attempt.OutputCharacters = result.Content.Length;
+        if (result.Diagnostics is not null)
+        {
+            attempt.ProviderHeadersWaitMs = result.Diagnostics.HeadersWaitMs;
+            attempt.ResponseBodyReadMs = result.Diagnostics.ResponseBodyReadMs;
+            attempt.ResponseBytes = result.Diagnostics.ResponseBytes;
+            attempt.ProviderJsonDeserializationMs = result.Diagnostics.JsonDeserializationMs;
+            attempt.ProviderUsageJson = result.Diagnostics.UsageJson;
+            attempt.ReasoningContent = result.Diagnostics.ReasoningContent;
+        }
         attempt.ValidationDetailsJson = "{}";
         if (!string.Equals(result.FinishReason, "stop", StringComparison.OrdinalIgnoreCase))
         {
@@ -183,17 +193,22 @@ public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHan
         }
 
         SceneBeatProductionPlanData data;
+        var validationStopwatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             data = _parser.Parse(plan.Id, result.Content, sourceSnapshot);
         }
         catch (InvalidOperationException ex)
         {
+            validationStopwatch.Stop();
+            attempt.ValidationDurationMs = validationStopwatch.ElapsedMilliseconds;
             attempt.ValidationCode = "scene_beat_production_output_invalid";
             attempt.ValidationDetailsJson = JsonSerializer.Serialize(new { message = ex.Message }, JsonOptions);
             await FailAttemptAsync(plan, attempt, attempt.ValidationCode, ex.Message, cancellationToken);
             throw Permanent(attempt.ValidationCode, "The Beat Production output failed strict validation.");
         }
+        validationStopwatch.Stop();
+        attempt.ValidationDurationMs = validationStopwatch.ElapsedMilliseconds;
 
         if (!await _repository.TryCompleteAttemptAsync(
                 plan.Id, attempt, data, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken))

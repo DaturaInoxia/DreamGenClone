@@ -38,6 +38,8 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
         var resolved = analyzer.Model;
         var stopwatch = Stopwatch.StartNew();
         using var client = CreateClient(resolved);
+        using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        requestTimeout.CancelAfter(client.Timeout);
         var systemMessage = analyzer.StructuredOutputMode == StructuredOutputMode.JsonObject
             ? BuildJsonObjectSystemMessage(request)
             : request.SystemMessage;
@@ -52,6 +54,12 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
                 "The configured structured-output mode is unsupported.",
                 false)
         };
+        var reasoning = resolved.ThinkingMode == ThinkingMode.Disabled
+            ? new ReasoningOptions("none")
+            : null;
+        var chatTemplateKwargs = resolved.ThinkingMode == ThinkingMode.Enabled
+            ? new Dictionary<string, object> { ["thinking"] = true }
+            : null;
         var payload = new ChatCompletionRequest(
             resolved.ModelIdentifier,
             [new("system", systemMessage), new("user", request.UserMessage)],
@@ -59,16 +67,19 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
             resolved.TopP,
             resolved.MaxTokens,
             responseFormat,
-            new Dictionary<string, object> { ["thinking"] = resolved.ThinkingMode == ThinkingMode.Enabled });
+            reasoning,
+            chatTemplateKwargs);
 
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, resolved.ChatCompletionsPath.TrimStart('/'))
         {
             Content = JsonContent.Create(payload)
         };
+        var headersStopwatch = Stopwatch.StartNew();
         using var response = await client.SendAsync(
             httpRequest,
             HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken).ConfigureAwait(false);
+            requestTimeout.Token).ConfigureAwait(false);
+        headersStopwatch.Stop();
         if (!response.IsSuccessStatusCode)
         {
             throw new StructuredTextCompletionException(
@@ -79,19 +90,42 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
         }
 
         ChatCompletionResponse parsed;
+        byte[] responseBytes;
+        var bodyStopwatch = Stopwatch.StartNew();
         try
         {
-            await using var body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            parsed = await JsonSerializer.DeserializeAsync<ChatCompletionResponse>(body, cancellationToken: cancellationToken)
-                .ConfigureAwait(false)
-                ?? throw new JsonException("The response body was null.");
+            responseBytes = await response.Content.ReadAsByteArrayAsync(requestTimeout.Token).ConfigureAwait(false);
+            if (requestTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                throw new StructuredTextCompletionException(
+                    "structured_text_timeout",
+                    "The structured text provider exceeded its configured timeout.",
+                    true);
+            }
         }
         catch (JsonException ex)
         {
+            if (requestTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                throw new StructuredTextCompletionException(
+                    "structured_text_timeout",
+                    "The structured text provider exceeded its configured timeout.",
+                    true,
+                    ex);
+            }
+
             throw new StructuredTextCompletionException(
                 "structured_text_response_malformed",
                 "The structured text provider returned malformed JSON.",
                 false,
+                ex);
+        }
+        catch (OperationCanceledException ex) when (requestTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new StructuredTextCompletionException(
+                "structured_text_timeout",
+                "The structured text provider exceeded its configured timeout.",
+                true,
                 ex);
         }
         catch (IOException ex)
@@ -102,14 +136,39 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
                 true,
                 ex);
         }
-        catch (HttpRequestException ex)
+        catch (HttpRequestException ex) when (ex.InnerException is IOException ioException)
         {
             throw new StructuredTextCompletionException(
                 "structured_text_transport_failure",
                 "The structured text provider connection failed while reading the response.",
                 true,
+            ioException);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new StructuredTextCompletionException(
+            "structured_text_transport_failure",
+            "The structured text provider connection failed while reading the response.",
+            true,
+            ex);
+        }
+        bodyStopwatch.Stop();
+
+        var jsonStopwatch = Stopwatch.StartNew();
+        try
+        {
+            parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseBytes)
+                ?? throw new JsonException("The response body was null.");
+        }
+        catch (JsonException ex)
+        {
+            throw new StructuredTextCompletionException(
+                "structured_text_response_malformed",
+                "The structured text provider returned malformed JSON.",
+                false,
                 ex);
         }
+        jsonStopwatch.Stop();
 
         if (parsed.Choices is not [{ Message.Content: { } content }]
             || string.IsNullOrWhiteSpace(content)
@@ -117,7 +176,7 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
         {
             throw new StructuredTextCompletionException(
                 "structured_text_response_shape_invalid",
-                "The structured text provider returned an invalid completion shape.",
+                $"The structured text provider returned an invalid completion shape (modelPresent={!string.IsNullOrWhiteSpace(parsed.Model)}, choices={parsed.Choices?.Count ?? 0}, contentLength={parsed.Choices?.FirstOrDefault()?.Message?.Content?.Length ?? 0}, finishReason={parsed.Choices?.FirstOrDefault()?.FinishReason ?? "<null>"}).",
                 false);
         }
         if (!string.Equals(parsed.Model, resolved.ModelIdentifier, StringComparison.Ordinal))
@@ -132,7 +191,18 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
             resolved.ProviderName,
             resolved.ModelIdentifier,
             stopwatch.ElapsedMilliseconds);
-        return new StructuredTextCompletionResult(content, parsed.Model, parsed.Choices[0].FinishReason, stopwatch.Elapsed);
+        return new StructuredTextCompletionResult(
+            content,
+            parsed.Model,
+            parsed.Choices[0].FinishReason,
+            stopwatch.Elapsed,
+            new StructuredTextCompletionDiagnostics(
+                headersStopwatch.ElapsedMilliseconds,
+                bodyStopwatch.ElapsedMilliseconds,
+                responseBytes.Length,
+                jsonStopwatch.ElapsedMilliseconds,
+                parsed.Usage is null ? null : JsonSerializer.Serialize(parsed.Usage),
+                parsed.Choices[0].Message?.ReasoningContent));
     }
 
     private HttpClient CreateClient(ResolvedModel resolved)
@@ -214,7 +284,11 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
         [property: JsonPropertyName("top_p")] double TopP,
         [property: JsonPropertyName("max_tokens")] int MaxTokens,
         [property: JsonPropertyName("response_format")] ResponseFormat ResponseFormat,
-        [property: JsonPropertyName("chat_template_kwargs")] IReadOnlyDictionary<string, object> ChatTemplateKwargs);
+        [property: JsonPropertyName("reasoning"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ReasoningOptions? Reasoning,
+        [property: JsonPropertyName("chat_template_kwargs"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, object>? ChatTemplateKwargs);
+
+    private sealed record ReasoningOptions(
+        [property: JsonPropertyName("effort")] string Effort);
 
     private sealed record ChatMessage(
         [property: JsonPropertyName("role")] string Role,
@@ -231,11 +305,14 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
 
     private sealed record ChatCompletionResponse(
         [property: JsonPropertyName("model")] string? Model,
-        [property: JsonPropertyName("choices")] IReadOnlyList<ChatChoice>? Choices);
+        [property: JsonPropertyName("choices")] IReadOnlyList<ChatChoice>? Choices,
+        [property: JsonPropertyName("usage")] JsonElement? Usage);
 
     private sealed record ChatChoice(
         [property: JsonPropertyName("message")] ChatResponseMessage? Message,
         [property: JsonPropertyName("finish_reason")] string? FinishReason);
 
-    private sealed record ChatResponseMessage([property: JsonPropertyName("content")] string? Content);
+    private sealed record ChatResponseMessage(
+        [property: JsonPropertyName("content")] string? Content,
+        [property: JsonPropertyName("reasoning_content")] string? ReasoningContent);
 }

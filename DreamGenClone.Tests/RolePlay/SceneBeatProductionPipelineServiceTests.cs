@@ -30,6 +30,14 @@ public sealed class SceneBeatProductionPipelineServiceTests
             Assert.Equal(plan.Id, payload.RootElement.GetProperty("planId").GetString());
             Assert.Equal(plan.CurrentAttemptId, payload.RootElement.GetProperty("attemptId").GetString());
             Assert.Equal(3, job.MaxAttempts);
+            var persistedStatus = await fixture.Service.GetCurrentStatusAsync("catalogue-1", "b1");
+            Assert.NotNull(persistedStatus?.Attempt);
+            Assert.Equal(persistedStatus!.Attempt!.SystemPrompt.Length, persistedStatus.Attempt.SystemPromptCharacters);
+            Assert.Equal(persistedStatus.Attempt.UserPrompt.Length, persistedStatus.Attempt.UserPromptCharacters);
+            Assert.Equal(
+                System.Text.Encoding.UTF8.GetByteCount(persistedStatus.Attempt.SystemPrompt + persistedStatus.Attempt.UserPrompt),
+                persistedStatus.Attempt.PromptUtf8Bytes);
+            Assert.NotNull(persistedStatus.Attempt.PromptBuildDurationMs);
             var snapshot = JsonSerializer.Deserialize<SceneBeatProductionSourceSnapshot>(
                 plan.SourceSnapshotJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
             Assert.Equal(["n0"], snapshot!.Evidence.Select(item => item.Key));
@@ -56,6 +64,29 @@ public sealed class SceneBeatProductionPipelineServiceTests
             var stale = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 fixture.Service.ReplaceAsync(new("catalogue-1", "b1")));
             Assert.Contains("no longer current", stale.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Cleanup(fixture.Path);
+        }
+    }
+
+    [Fact]
+    public async Task CancelledPlan_RemainsVisibleThroughCurrentStatus()
+    {
+        var fixture = await CreateFixtureAsync();
+        try
+        {
+            var plan = await fixture.Service.EnqueueAsync(new("catalogue-1", "b1"));
+
+            await fixture.Service.CancelAsync(plan.Id);
+
+            var status = await fixture.Service.GetCurrentStatusAsync("catalogue-1", "b1");
+            Assert.NotNull(status);
+            Assert.Equal(plan.Id, status!.Plan.Id);
+            Assert.Equal(SceneBeatCatalogueStatus.Cancelled, status.Plan.Status);
+            Assert.Equal(SceneBeatAnalysisAttemptStatus.Cancelled, status.Attempt!.Status);
+            Assert.Equal(plan.CurrentAttemptId, status.Attempt.Id);
         }
         finally
         {

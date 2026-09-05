@@ -130,14 +130,6 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         if (assets.Count == 0)
             throw new InvalidOperationException("An identity pack requires at least one reference asset before approval.");
 
-        foreach (var asset in assets)
-        {
-            if (string.IsNullOrWhiteSpace(asset.SourceLabel))
-                throw new InvalidOperationException($"Reference asset '{asset.Id}' requires provenance before the pack can be approved.");
-            if (asset.ConsentState == SceneImageReferenceConsentState.Unknown)
-                throw new InvalidOperationException($"Reference asset '{asset.Id}' requires a confirmed or not-applicable consent state before the pack can be approved.");
-        }
-
         var canonicalFace = assets.FirstOrDefault(a => a.Id == canonicalFaceAssetId.Trim());
         if (canonicalFace is null)
             throw new InvalidOperationException("The canonical face asset must belong to the pack being approved.");
@@ -378,14 +370,6 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         var asset = await GetAssetAsync(connection, assetId.Trim(), cancellationToken)
             ?? throw new InvalidOperationException($"Reference asset '{assetId}' was not found.");
         await RequireDraftPackAsync(connection, asset.IdentityPackId, cancellationToken);
-
-        if (isApproved)
-        {
-            if (string.IsNullOrWhiteSpace(asset.SourceLabel))
-                throw new InvalidOperationException("A reference asset requires provenance before it can be approved.");
-            if (asset.ConsentState == SceneImageReferenceConsentState.Unknown)
-                throw new InvalidOperationException("A reference asset requires a confirmed or not-applicable consent state before it can be approved.");
-        }
 
         await using var command = connection.CreateCommand();
         command.CommandText = "UPDATE SceneImageReferenceAssets SET IsApproved = $approved WHERE Id = $id;";

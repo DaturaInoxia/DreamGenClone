@@ -31,6 +31,13 @@ public sealed class SceneBeatProductionPlanJobHandlerTests
             var attempt = await fixture.Repository.GetAttemptAsync(fixture.AttemptId);
             Assert.Equal(SceneBeatAnalysisAttemptStatus.Complete, attempt!.Status);
             Assert.Equal("stop", attempt.FinishReason);
+            Assert.Equal(11, attempt.ProviderHeadersWaitMs);
+            Assert.Equal(13, attempt.ResponseBodyReadMs);
+            Assert.Equal(17, attempt.ResponseBytes);
+            Assert.Equal(19, attempt.ProviderJsonDeserializationMs);
+            Assert.Equal("{\"prompt_tokens\":10}", attempt.ProviderUsageJson);
+            Assert.Equal("reasoning", attempt.ReasoningContent);
+            Assert.NotNull(attempt.ValidationDurationMs);
         }
         finally { Cleanup(fixture.Path); }
     }
@@ -123,7 +130,13 @@ public sealed class SceneBeatProductionPlanJobHandlerTests
             ResolvedSceneBeatAnalyzer analyzer,
             StructuredTextCompletionRequest request,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new StructuredTextCompletionResult(response, analyzer.Model.ModelIdentifier, "stop", TimeSpan.FromMilliseconds(20)));
+            => Task.FromResult(new StructuredTextCompletionResult(
+                response,
+                analyzer.Model.ModelIdentifier,
+                "stop",
+                TimeSpan.FromMilliseconds(20),
+                new StructuredTextCompletionDiagnostics(
+                    11, 13, 17, 19, "{\"prompt_tokens\":10}", "reasoning")));
     }
 
     private sealed class ProviderRepository : IProviderRepository

@@ -173,7 +173,8 @@ public sealed class ImageGenerationClient : IImageGenerationClient
         string? decryptedApiKey,
         string modelIdentifier,
         ImageContentPolicy contentPolicy,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ImageProtocol imageProtocol = ImageProtocol.OpenAiImages)
     {
         try
         {

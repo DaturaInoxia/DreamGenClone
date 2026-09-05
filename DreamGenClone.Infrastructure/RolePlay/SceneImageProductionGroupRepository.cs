@@ -174,6 +174,40 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
         return await ReadAsync(command, cancellationToken);
     }
 
+    public async Task<SceneImageProductionGroup> SetIdentityPolicyAsync(
+        string groupId,
+        SceneImageIdentityPolicy policy,
+        string? reason,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default)
+    {
+        Require(groupId, "Production group id");
+        if (policy == SceneImageIdentityPolicy.SkippedByUser)
+            Require(reason, "Identity skip reason");
+        if (policy == SceneImageIdentityPolicy.Required && !string.IsNullOrWhiteSpace(reason))
+            throw new InvalidOperationException("The Required identity policy cannot carry a skip reason.");
+
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneImageProductionGroups
+            SET IdentityPolicy = $policy, IdentitySkipReason = $reason, UpdatedUtc = $updatedUtc
+            WHERE Id = $id AND Status <> 'Archived';
+            """;
+        command.Parameters.AddWithValue("$policy", policy.ToString());
+        command.Parameters.AddWithValue("$reason", (object?)reason?.Trim() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$updatedUtc", FormatUtc(updatedUtc));
+        command.Parameters.AddWithValue("$id", groupId.Trim());
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException($"Production group '{groupId}' was not found or is archived.");
+
+        await using var select = CreateSelect(connection);
+        select.CommandText += " WHERE Id = $id;";
+        select.Parameters.AddWithValue("$id", groupId.Trim());
+        return await ReadAsync(select, cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{groupId}' was not found after updating identity policy.");
+    }
+
     public async Task<IReadOnlyList<SceneImageProductionGroup>> ListByInteractionAsync(
         string sessionId,
         string interactionId,

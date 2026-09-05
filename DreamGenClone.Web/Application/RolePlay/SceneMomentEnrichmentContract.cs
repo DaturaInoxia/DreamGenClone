@@ -126,22 +126,23 @@ public sealed class SceneMomentEnrichmentContract
             user.AppendLine($"[{evidence.Key}] {evidence.ActorName} ({evidence.InteractionType}):");
             user.AppendLine(evidence.Content);
         }
+        user.AppendLine($"FINAL CHARACTER OUTPUT CONSTRAINT: characters must contain exactly {snapshot.Moment.Participants.Count} object(s), with exactly these profile keys: {string.Join(", ", snapshot.Moment.Participants.Select(profile => profile.ProfileKey))}. Do not add any other character, including characters mentioned in the evidence but absent from SELECTED CAST.");
 
         return new SceneMomentEnrichmentContractMessages(
             ContractVersion,
             SystemPrompt,
             user.ToString().TrimEnd(),
             ResponseSchemaName,
-            CreateResponseSchema());
+                CreateResponseSchema(snapshot.Moment.Participants.Select(profile => profile.ProfileKey).ToArray()));
     }
 
-    public static JsonElement CreateResponseSchema()
+            public static JsonElement CreateResponseSchema(IReadOnlyList<string> selectedProfileKeys)
         => JsonSerializer.SerializeToElement(Object(
             ("schemaVersion", new JsonObject { ["const"] = CurrentSchemaVersion }),
             ("catalogueBeatId", String()),
             ("momentId", String()),
             ("visualDescription", String()),
-            ("characters", Array(Character(), 1)),
+            ("characters", Array(Character(selectedProfileKeys), selectedProfileKeys.Count, selectedProfileKeys.Count)),
             ("location", String()),
             ("timeOfDay", String()),
             ("lighting", String()),
@@ -153,9 +154,9 @@ public sealed class SceneMomentEnrichmentContract
                 ("roles", UniqueEnumArray("VideoStart", "VideoEnd", "VideoInternalKeyframe")),
                 ("stateChangeAllowed", Boolean())))));
 
-    private static JsonObject Character() => Object(
+    private static JsonObject Character(IReadOnlyList<string> selectedProfileKeys) => Object(
         ("name", String()),
-        ("profileKey", String()),
+        ("profileKey", Enum(selectedProfileKeys.ToArray())),
         ("involvement", Enum("active", "observer")),
         ("physicalLocation", String()),
         ("position", String()),
@@ -167,9 +168,9 @@ public sealed class SceneMomentEnrichmentContract
     private const string SystemPrompt = """
         You are a frozen-state production planner. Enrich exactly one selected Moment into one canonical, provider-neutral visual state, its instantaneous sound anchors, and its selected video key-state roles.
 
-        Describe exactly one instant. Do not write a sequence, transition, before-and-after state, montage, shot list, or action progression. Include exactly the selected Moment cast, using each supplied profile key and exact profile name once. Use visibleCharacterNames only for supplied cast members visible to that character.
+        Describe exactly one instant. Do not write a sequence, transition, before-and-after state, montage, shot list, or action progression. Include exactly and only the selected Moment cast, using each supplied profile key and exact profile name once; never add a participant or profile key from the wider Beat cast who is not listed in SELECTED CAST. Use visibleCharacterNames only for supplied cast members visible to that character.
 
-        Use only supplied evidence, profile facts, Beat continuity, sound cue keys, and selected production roles. instantaneousSoundCueKeys must be empty unless the selected Moment's productionRoles includes SoundEventAnchor; when it does include SoundEventAnchor, list at least one instantaneous cue, and never list cues otherwise. videoKeyState.roles must equal the selected Moment's Video roles exactly, and stateChangeAllowed must be false.
+        Use only supplied evidence, profile facts, Beat continuity, sound cue keys, and selected production roles. instantaneousSoundCueKeys must be empty unless the selected Moment's productionRoles includes SoundEventAnchor; when it does include SoundEventAnchor, list at least one instantaneous cue, and never list cues otherwise. videoKeyState.roles must contain only the selected Moment's VideoStart, VideoEnd, and VideoInternalKeyframe roles exactly; never put SoundEventAnchor in videoKeyState.roles because it belongs only in instantaneousSoundCueKeys. stateChangeAllowed must be false.
 
         Never invent UUIDs, people, profile keys, cue keys, events, clothing, continuity, source facts, or media assets. Return only JSON matching the supplied schema. Do not use markdown fences, explanatory text, provider tags, prompts, model names, camera-provider syntax, generation settings, inferred missing fields, or alternate roots.
         """;
@@ -202,10 +203,11 @@ public sealed class SceneMomentEnrichmentContract
         ["enum"] = new JsonArray(values.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray())
     };
 
-    private static JsonObject Array(JsonNode items, int? minimum = null)
+    private static JsonObject Array(JsonNode items, int? minimum = null, int? maximum = null)
     {
         var schema = new JsonObject { ["type"] = "array", ["items"] = items };
         if (minimum.HasValue) schema["minItems"] = minimum.Value;
+        if (maximum.HasValue) schema["maxItems"] = maximum.Value;
         return schema;
     }
 

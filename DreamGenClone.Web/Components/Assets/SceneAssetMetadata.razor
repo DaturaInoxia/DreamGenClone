@@ -1,0 +1,50 @@
+@using DreamGenClone.Domain.RolePlay
+
+<div class="card">
+    <div class="card-header"><strong>Details</strong></div>
+    <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+            <tbody>
+                <tr><th style="width:35%">Name</th><td>@Asset.Name</td></tr>
+                <tr><th>Asset ID</th><td class="font-monospace small text-break">@Asset.Id</td></tr>
+                <tr><th>Kind</th><td>@Asset.Kind</td></tr>
+                <tr><th>Type</th><td>@(Asset.Type?.ToString() ?? "Unclassified")</td></tr>
+                <tr><th>Status</th><td><span class="badge @StatusBadge(Asset.Status)">@Asset.Status</span></td></tr>
+                @if (Asset.SourceAssetId is not null)
+                {
+                    <tr><th>Source</th><td><a href="/asset-studio/@Asset.SourceAssetId" class="font-monospace small">@Asset.SourceAssetId</a></td></tr>
+                }
+                <tr><th>Dimensions</th><td>@(Asset.Width is null ? "Not available" : $"{Asset.Width}x{Asset.Height}")</td></tr>
+                <tr><th>Bytes</th><td>@Asset.ByteLength</td></tr>
+                <tr><th>Media type</th><td>@Asset.MediaType</td></tr>
+                <tr><th>SHA-256</th><td class="font-monospace small text-break">@Asset.Sha256</td></tr>
+                <tr><th>Created</th><td>@Asset.CreatedUtc.ToLocalTime().ToString("g")</td></tr>
+                @if (Asset.CompletedUtc is not null)
+                {
+                    <tr><th>Completed</th><td>@Asset.CompletedUtc.Value.ToLocalTime().ToString("g")</td></tr>
+                }
+                @if (!string.IsNullOrWhiteSpace(Asset.Prompt))
+                {
+                    <tr><th>Prompt</th><td style="white-space:pre-wrap;">@Asset.Prompt</td></tr>
+                }
+                @if (!string.IsNullOrWhiteSpace(Asset.ModelSnapshotJson))
+                {
+                    <tr><th>Model</th><td class="font-monospace small text-break">@Asset.ModelSnapshotJson</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public SceneAsset Asset { get; set; } = null!;
+
+    private static string StatusBadge(SceneAssetStatus status) => status switch
+    {
+        SceneAssetStatus.Pending => "bg-secondary",
+        SceneAssetStatus.Complete => "bg-success",
+        SceneAssetStatus.Failed => "bg-danger",
+        _ => "bg-secondary"
+    };
+}

@@ -483,6 +483,7 @@ public sealed class MultimodalMediaCompilerTests
     {
         public Task<SceneBeatProductionPlan?> GetCurrentAsync(string catalogueId, string beatId, CancellationToken cancellationToken = default) => Task.FromResult<SceneBeatProductionPlan?>(current);
         public Task<SceneBeatProductionPlan?> GetAsync(string planId, CancellationToken cancellationToken = default) => Task.FromResult<SceneBeatProductionPlan?>(current);
+        public Task<SceneBeatProductionPlan?> GetLatestAsync(string catalogueId, string beatId, CancellationToken cancellationToken = default) => Task.FromResult<SceneBeatProductionPlan?>(current);
         public Task CreateVersionAsync(SceneBeatProductionPlan plan, SceneBeatAnalysisAttempt attempt, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<SceneBeatAnalysisAttempt?> GetAttemptAsync(string attemptId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> TryStartAttemptAsync(string planId, string attemptId, string modelIdentifier, string providerName, DateTime startedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();

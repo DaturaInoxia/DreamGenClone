@@ -5,6 +5,15 @@
 **Architecture:** [`../production-architecture.md`](../production-architecture.md)
 **Evidence:** [`../provider-evidence-matrix.md`](../provider-evidence-matrix.md)
 
+> **Scope amendment — LoRA (user decision, 2026-09-04):** the synthetic character LoRA subsystem is
+> **build-complete but not activated**. Its domain, repositories, schema, training profiles, dataset
+> generation/curation/freeze, training dispatch/reconciliation, artifact registration, and per-request
+> strategy bindings (P2-060 → P2-067) stay in Phase 2 and remain implemented. **Qualification and
+> production use of LoRA are out of scope for Phase 2 and Phase 3** and are tracked as **B-107**.
+> Consequently P2-068 and P2-069 no longer gate the Phase 2 exit. Until B-107 qualifies a cell,
+> selecting a `Lora` or `Combined` strategy must fail explicitly as unqualified configuration —
+> it must never fall back to reference conditioning (FR2-053).
+
 ## Goal
 
 Users can curate authoritative character assets and prepare, queue, compare, and approve images
@@ -17,6 +26,8 @@ They never need to author model-native prompts.
 - Location continuity and multi-camera blocking, delivered in Phase 3.
 - Automatic aesthetic acceptance; qualification and approval remain explicit gates.
 - Import-only LoRA datasets that bypass Asset Manager generation, provenance, curation, or approval.
+- LoRA qualification and production use — deferred to B-107 by the 2026-09-04 scope amendment above.
+  The subsystem is built and reachable; no qualified LoRA cell is exposed for production requests.
 - Migration or runtime compatibility for sessions created before the Phase 2 schema.
 - Audio/video generation; the shared asset/workload model only preserves future extensibility.
 

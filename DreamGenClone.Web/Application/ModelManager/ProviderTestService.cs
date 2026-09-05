@@ -57,7 +57,8 @@ public sealed class ProviderTestService
                     decryptedKey,
                     modelIdentifier: "",
                     provider.ContentPolicy,
-                    cancellationToken)).Success
+                    cancellationToken,
+                    provider.ImageProtocol)).Success
                 : await _completionClient.CheckHealthAsync(
                     provider.BaseUrl,
                     provider.TimeoutSeconds,
@@ -124,7 +125,8 @@ public sealed class ProviderTestService
                     decryptedKey,
                     model.ModelIdentifier,
                     provider.ContentPolicy,
-                    cancellationToken);
+                    cancellationToken,
+                    provider.ImageProtocol);
             }
 
             return await _imageGenerationClient.CheckImageModelHealthAsync(
@@ -134,7 +136,8 @@ public sealed class ProviderTestService
                 decryptedKey,
                 model.ModelIdentifier,
                 provider.ContentPolicy,
-                cancellationToken);
+                cancellationToken,
+                provider.ImageProtocol);
         }
 
         return await _completionClient.CheckModelHealthAsync(

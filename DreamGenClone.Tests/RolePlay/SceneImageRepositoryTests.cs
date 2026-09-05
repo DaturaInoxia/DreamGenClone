@@ -501,6 +501,38 @@ public sealed class SceneImageRepositoryTests
     }
 
     [Fact]
+    public async Task InsertImage_B106FinishAndIdentityFields_RoundTrip()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "finish edit",
+                Status = SceneImageStatus.Pending,
+                FinishChangeClass = SceneImageFinishChangeClass.Geometry,
+                IdentityStale = true,
+                IdentityReferenceBindingsJson = "[{\"ordinal\":1,\"characterId\":\"character-1\",\"sha256\":\"ABC\"}]"
+            };
+
+            await repo.InsertImageAsync(image);
+
+            var loaded = await repo.GetImageAsync(image.Id);
+            Assert.NotNull(loaded);
+            Assert.Equal(SceneImageFinishChangeClass.Geometry, loaded!.FinishChangeClass);
+            Assert.True(loaded.IdentityStale);
+            Assert.Equal(image.IdentityReferenceBindingsJson, loaded.IdentityReferenceBindingsJson);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task TrySetDisposition_EnforcesTransitionsAndLeavesExecutionStatusUnchanged()
     {
         var (repo, dbPath) = CreateRepo();

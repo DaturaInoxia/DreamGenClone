@@ -132,6 +132,69 @@ public sealed class ProductionStudioService : IProductionStudioService
                 command.DispatchPolicy, command.CostBasis)], command.CreatedUtc), cancellationToken);
     }
 
+    public async Task<ProductionWorkloadReadiness> CreateInitialRevisionAsync(
+        ProductionInitialRevisionCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        if (command.CreatedUtc.Kind != DateTimeKind.Utc)
+            throw new InvalidOperationException("Production preparation time must be UTC.");
+        if (command.Intent.ContextKind != ProductionContextKind.SceneMoment)
+            throw new InvalidOperationException("Initial Production Studio revisions require a Scene Moment intent.");
+        RequireJson(command.Intent.ContextSnapshotJson, "Production context snapshot");
+        RequireJson(command.Intent.VisibleActorsJson, "Visible actors");
+        RequireJson(command.Intent.CompositionIntentJson, "Composition intent");
+        RequireJson(command.Intent.CameraIntentJson, "Camera intent");
+        RequireJson(command.Intent.StyleIntentJson, "Style intent");
+        RequireJson(command.Intent.PreservationConstraintsJson, "Preservation constraints");
+        RequireJson(command.Intent.ChangeIntentJson, "Change intent");
+        RequireJson(command.Intent.ContentPolicyJson, "Content policy");
+
+        var intent = command.Intent;
+        var existingWorkloads = await _repository.ListWorkloadsBySessionAsync(intent.SessionId, cancellationToken);
+        foreach (var workload in existingWorkloads.Where(workload =>
+                     workload.ContextKind == intent.ContextKind
+                     && string.Equals(workload.ContextId, intent.ContextId, StringComparison.Ordinal)
+                     && workload.ContextSnapshotJson == intent.ContextSnapshotJson))
+        {
+            var existingItems = await _repository.ListWorkloadItemsAsync(workload.Id, cancellationToken);
+            var existingIntent = existingItems.Count == 1
+                ? await _repository.GetIntentAsync(existingItems[0].IntentSnapshotId, cancellationToken)
+                : null;
+            if (existingIntent is not null
+                && string.Equals(existingIntent.ProductionGroupId, intent.ProductionGroupId, StringComparison.Ordinal)
+                && string.Equals(existingIntent.Pov, intent.Pov, StringComparison.Ordinal))
+            {
+                return new ProductionWorkloadReadiness(workload, existingItems, []);
+            }
+        }
+
+        intent.Id = Guid.NewGuid().ToString("N");
+        intent.CreatedUtc = command.CreatedUtc;
+        intent.ContentHash = ProductionContentHash.ForIntent(intent);
+        await _repository.CreateIntentAsync(intent, cancellationToken);
+
+        var compilation = await _compilation.CompileAndPersistAsync(
+            Guid.NewGuid().ToString("N"), intent.Id, command.CapabilityProfileId,
+            command.CapabilityCellId, command.SettingsJson, [], command.CreatedUtc, cancellationToken);
+        var profile = await RequiredProfileAsync(command.CapabilityProfileId, cancellationToken);
+
+        return await _workloads.CreateDraftAsync(new ProductionWorkloadDraft(
+            Guid.NewGuid().ToString("N"), ProductionContextKind.SceneMoment, intent.ContextId,
+            intent.ContextSnapshotJson, intent.SessionId,
+            existingWorkloads.Count == 0 ? 1 : existingWorkloads.Max(workload => workload.Revision) + 1,
+            command.Goal, profile.ContentPolicyKey,
+            JsonSerializer.Serialize(new
+            {
+                intentId = intent.Id, intentHash = intent.ContentHash,
+                requestId = compilation.Request.Id, requestHash = compilation.Request.ContentHash
+            }),
+            [new ProductionWorkloadDraftItem(
+                intent.Id, compilation.Request.Id, command.VariationCount,
+                command.RetryPolicySnapshotJson, null, command.Endpoint,
+                command.DispatchPolicy, command.CostBasis)], command.CreatedUtc), cancellationToken);
+    }
+
     private async Task<MediaCapabilityProfile> RequiredProfileAsync(
         string id,
         CancellationToken cancellationToken) =>

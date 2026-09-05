@@ -1,8 +1,9 @@
+using System.Text.Json.Serialization;
 using DreamGenClone.Web.Application.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay.Models;
 
-/// <summary>User-controlled image generation attributes for the studio.</summary>
+/// <summary>Phase 2 image-generation controls used by the studio and its production services.</summary>
 public sealed class SceneImageStudioSettings
 {
     /// <summary>realistic | cinematic | anime | cartoon | painterly | sketch | free text …</summary>
@@ -23,23 +24,25 @@ public sealed class SceneImageStudioSettings
 
     /// <summary>
     /// Optional fixed ComfyUI sampler seed. When set the render is reproducible; when null the
-    /// client draws a random seed each call (matching the studio's previous behavior).
+    /// production request receives an execution seed for a fresh render.
     /// </summary>
     public long? Seed { get; set; }
 
     /// <summary>
-    /// User-editable negative prompt (guard terms). Defaults to the server's SDXL guard set; blank
-    /// reverts to the automatic deterministic negative.
+    /// User-editable negative prompt (guard terms). The active model pipeline determines its
+    /// configured guard set when this value is blank.
     /// </summary>
     public string? NegativePrompt { get; set; } = SdxlSceneImagePromptBuilder.DefaultNegativePrompt;
 
-    /// <summary>CFG scale override (Juggernaut-validated default 5.0). Null = model-family default.</summary>
+    /// <summary>CFG scale control for the qualified photographic production recipe.</summary>
+    [JsonPropertyName("guidance")]
     public double? Cfg { get; set; } = 5.0;
 
-    /// <summary>Sampling step count (30). Null = model-family default.</summary>
+    /// <summary>Sampling step count for the qualified photographic production recipe.</summary>
     public int? Steps { get; set; } = 30;
 
-    /// <summary>Sampler name (Juggernaut-validated default dpmpp_2m_sde).</summary>
+    /// <summary>Sampler name for the qualified photographic production recipe.</summary>
+    [JsonPropertyName("sampler")]
     public string? SamplerName { get; set; } = "dpmpp_2m_sde";
 
     /// <summary>Scheduler name (karras).</summary>

@@ -40,7 +40,9 @@ public sealed class StructuredTextCompletionClientTests
         Assert.Equal(0.2, body.GetProperty("temperature").GetDouble());
         Assert.Equal(0.8, body.GetProperty("top_p").GetDouble());
         Assert.Equal(4096, body.GetProperty("max_tokens").GetInt32());
-        Assert.False(body.GetProperty("chat_template_kwargs").GetProperty("thinking").GetBoolean());
+        var reasoning = body.GetProperty("reasoning");
+        Assert.Equal("none", reasoning.GetProperty("effort").GetString());
+        Assert.False(body.TryGetProperty("chat_template_kwargs", out _));
         var responseFormat = body.GetProperty("response_format");
         Assert.Equal("json_schema", responseFormat.GetProperty("type").GetString());
         var jsonSchema = responseFormat.GetProperty("json_schema");
@@ -156,6 +158,27 @@ public sealed class StructuredTextCompletionClientTests
         Assert.IsType<IOException>(exception.InnerException);
     }
 
+    [Fact]
+    public async Task GenerateAsync_ResponseBodyReadIsBoundedByProviderTimeout()
+    {
+        var client = BuildClient(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new HangingStream())
+        }));
+        var analyzer = CreateAnalyzer() with
+        {
+            Model = CreateAnalyzer().Model with { ProviderTimeoutSeconds = 1 }
+        };
+
+        var completion = client.GenerateAsync(analyzer, CreateRequest());
+        var completed = await Task.WhenAny(completion, Task.Delay(TimeSpan.FromSeconds(3)));
+
+        Assert.Same(completion, completed);
+        var exception = await Assert.ThrowsAsync<StructuredTextCompletionException>(() => completion);
+        Assert.Equal("structured_text_timeout", exception.ErrorCode);
+        Assert.True(exception.IsTransient);
+    }
+
     private static OpenAiStructuredTextCompletionClient BuildClient(
         Func<HttpRequestMessage, Task<HttpResponseMessage>> responder) => new(
             new FakeHttpClientFactory(new StubHttpMessageHandler(responder)),
@@ -255,6 +278,30 @@ public sealed class StructuredTextCompletionClientTests
         public override int Read(byte[] buffer, int offset, int count) => throw new IOException("simulated transport drop");
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
             => throw new IOException("simulated transport drop");
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    private sealed class HangingStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ContinueWith(
+                _ => 0,
+                CancellationToken.None,
+                TaskContinuationOptions.NotOnRanToCompletion,
+                TaskScheduler.Default);
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();

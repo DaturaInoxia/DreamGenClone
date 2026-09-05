@@ -19,12 +19,25 @@ public sealed record CreateSceneImageProductionGroupRequest(
 
 public interface ISceneImageProductionService
 {
+    Task<IReadOnlyList<SceneImageIdentityReadiness>> ResolveIdentityReadinessAsync(
+        string productionGroupId,
+        CancellationToken cancellationToken = default);
+
     Task<CompiledMediaBrief> GetOrCreateStillBriefAsync(
         string productionGroupId,
         CancellationToken cancellationToken = default);
 
     Task<SceneImageProductionGroup> GetOrCreateGroupAsync(
         CreateSceneImageProductionGroupRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<SceneImageProductionGroup> SkipIdentityAsync(
+        string groupId,
+        string reason,
+        CancellationToken cancellationToken = default);
+
+    Task<SceneImageProductionGroup> ClearIdentitySkipAsync(
+        string groupId,
         CancellationToken cancellationToken = default);
 
     Task<SceneImageProductionGroup?> GetCurrentGroupAsync(

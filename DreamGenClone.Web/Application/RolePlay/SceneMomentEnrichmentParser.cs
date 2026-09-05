@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -13,8 +14,12 @@ public sealed class SceneMomentEnrichmentParser
 
     private static readonly string[] SequentialStateMarkers =
     [
-        " before ", " after ", " then ", " followed by ", " transitions to ", " moves from ", " and then "
+        " then ", " followed by ", " transitions to ", " moves from ", " and then "
     ];
+
+    private static readonly Regex TemporalActionPhrase = new(
+        @"\b(?:before|after)\s+(?:(?:the|a|an|this|that|she|he|they|it|we|i|becky|dean)\s+)?[a-z][a-z'-]*ing\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public SceneMomentEnrichmentData Parse(
         string rawResponse,
@@ -147,7 +152,8 @@ public sealed class SceneMomentEnrichmentParser
     private static void ValidateFrozenText(string value, string field)
     {
         var normalized = $" {value.Trim().ToLowerInvariant()} ";
-        if (SequentialStateMarkers.Any(marker => normalized.Contains(marker, StringComparison.Ordinal)))
+        if (SequentialStateMarkers.Any(marker => normalized.Contains(marker, StringComparison.Ordinal))
+            || TemporalActionPhrase.IsMatch(value))
             throw new InvalidOperationException($"Moment enrichment {field} describes sequential before/after/then action instead of one frozen state.");
     }
 

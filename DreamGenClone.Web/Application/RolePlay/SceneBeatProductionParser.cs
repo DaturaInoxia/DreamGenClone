@@ -75,8 +75,11 @@ public sealed class SceneBeatProductionParser
             foreach (var step in response.ActionArc)
             {
                 RequireEvent(step.EventKey, eventKeys, "Action step");
-                resolver.ResolveCharacterId(step.SubjectKey);
+                if (step.SubjectKey is not null)
+                    resolver.ResolveCharacterId(step.SubjectKey);
                 if (step.TargetKey is not null) resolver.ResolveCharacterId(step.TargetKey);
+                if (string.IsNullOrWhiteSpace(step.SubjectKey) && string.IsNullOrWhiteSpace(step.TargetObject))
+                    throw new InvalidOperationException("Action subject or target object is required.");
                 Require(step.Action, "Action");
                 Require(step.ResultingState, "Action resulting state");
             }
@@ -125,7 +128,7 @@ public sealed class SceneBeatProductionParser
         RequireEvent(item.EventKey, eventKeys, $"Dialogue cue '{item.CueKey}'");
         var span = resolver.ResolveExactSpan(item.SourceKey, item.StartOffset, item.EndOffset, item.ExactSourceText);
         Require(item.DisplayText, $"Dialogue cue '{item.CueKey}' display text");
-        ValidateSpokenNormalization(item.ExactSourceText, item.NormalizedSpokenText, item.CueKey);
+        ValidateSpokenNormalization(span.ExactText, item.NormalizedSpokenText, item.CueKey);
         Require(item.NormalizationMethod, $"Dialogue cue '{item.CueKey}' normalization method");
         Require(item.NormalizationVersion, $"Dialogue cue '{item.CueKey}' normalization version");
 
@@ -486,7 +489,7 @@ public sealed class SceneBeatProductionParser
         public required string TransitionIntent { get; init; } public required bool Instrumental { get; init; } public required string ContinuityIntent { get; init; }
         public required WindowInput Window { get; init; }
     }
-    private sealed class ActionInput { public required int Order { get; init; } public required string EventKey { get; init; } public required string SubjectKey { get; init; } public required string Action { get; init; } public required string? TargetKey { get; init; } public required string? TargetObject { get; init; } public required string ResultingState { get; init; } }
+    private sealed class ActionInput { public required int Order { get; init; } public required string EventKey { get; init; } public required string? SubjectKey { get; init; } public required string Action { get; init; } public required string? TargetKey { get; init; } public required string? TargetObject { get; init; } public required string ResultingState { get; init; } }
     private sealed class ContinuityInput { public required string Location { get; init; } public required List<KeyValueInput> CharacterStates { get; init; } public required List<KeyValueInput> WardrobeStates { get; init; } public required List<KeyValueInput> ObjectStates { get; init; } public required string Lighting { get; init; } public required string StateSummary { get; init; } }
     private sealed class KeyValueInput { public required string Key { get; init; } public required string Value { get; init; } }
     private sealed class ReferenceInput

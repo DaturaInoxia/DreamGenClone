@@ -47,4 +47,29 @@ public sealed class ComfyUIImageEditingClientTests
         Assert.DoesNotContain("CheckpointLoaderSimple", json, StringComparison.Ordinal);
         Assert.DoesNotContain("CLIPSetLastLayer", json, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BuildWorkflow_BindsOrderedReferencesToBothEncoders(bool mergedCheckpoint)
+    {
+        var references = new[] { "becky-face.png", "dean-face.png" };
+        var workflow = mergedCheckpoint
+            ? ComfyUIImageEditingClient.BuildAioMergedCheckpointWorkflow(Resolve(), "composition.png", "Apply the approved faces.", references)
+            : ComfyUIImageEditingClient.BuildWorkflow(Resolve(), "composition.png", "Apply the approved faces.", references);
+
+        var positive = workflow["6"]!["inputs"]!.AsObject();
+        var negative = workflow["7"]!["inputs"]!.AsObject();
+        Assert.Equal(new JsonArray("20", 0).ToJsonString(), positive["image2"]!.ToJsonString());
+        Assert.Equal(new JsonArray("21", 0).ToJsonString(), positive["image3"]!.ToJsonString());
+        Assert.Equal(new JsonArray("20", 0).ToJsonString(), negative["image2"]!.ToJsonString());
+        Assert.Equal(new JsonArray("21", 0).ToJsonString(), negative["image3"]!.ToJsonString());
+        Assert.Equal("becky-face.png", workflow["20"]!["inputs"]!["image"]!.GetValue<string>());
+        Assert.Equal("dean-face.png", workflow["21"]!["inputs"]!["image"]!.GetValue<string>());
+        Assert.Equal(40, workflow["3"]!["inputs"]!["steps"]!.GetValue<int>());
+        Assert.Equal(4, workflow["3"]!["inputs"]!["cfg"]!.GetValue<double>());
+        Assert.Equal("euler", workflow["3"]!["inputs"]!["sampler_name"]!.GetValue<string>());
+        Assert.Equal("simple", workflow["3"]!["inputs"]!["scheduler"]!.GetValue<string>());
+        Assert.Equal(1, workflow["3"]!["inputs"]!["denoise"]!.GetValue<double>());
+    }
 }

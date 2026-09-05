@@ -135,6 +135,24 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
         return await ReadPlanAsync(connection, command, cancellationToken);
     }
 
+    public async Task<SceneBeatProductionPlan?> GetLatestAsync(
+        string catalogueId,
+        string beatId,
+        CancellationToken cancellationToken = default)
+    {
+        Require(catalogueId, "Catalogue id");
+        Require(beatId, "Beat id");
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = CreatePlanSelect(connection);
+        command.CommandText += """
+             WHERE CatalogueId = $catalogueId AND BeatId = $beatId
+             ORDER BY Version DESC LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$catalogueId", catalogueId.Trim());
+        command.Parameters.AddWithValue("$beatId", beatId.Trim());
+        return await ReadPlanAsync(connection, command, cancellationToken);
+    }
+
     public async Task<SceneBeatAnalysisAttempt?> GetAttemptAsync(
         string attemptId,
         CancellationToken cancellationToken = default)
@@ -174,6 +192,7 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
                 plan.Parameters.AddWithValue("$startedUtc", FormatUtc(startedUtc));
                 attempt.CommandText += ", StartedUtc = $startedUtc";
                 attempt.Parameters.AddWithValue("$startedUtc", FormatUtc(startedUtc));
+                attempt.CommandText += ", QueueWaitMs = CAST((julianday($startedUtc) - julianday(CreatedUtc)) * 86400000 AS INTEGER)";
             },
             cancellationToken);
     }
@@ -213,6 +232,12 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
                 UPDATE SceneBeatProductionAttempts SET Status = 'Complete', RawModelResponse = $raw,
                     ReasoningContent = $reasoning, FinishReason = $finishReason, ValidationCode = NULL,
                     ValidationDetailsJson = $validationDetails, DurationMs = $durationMs,
+                    PromptBuildDurationMs = $promptBuildDurationMs, PromptUtf8Bytes = $promptUtf8Bytes,
+                    SystemPromptCharacters = $systemPromptCharacters, UserPromptCharacters = $userPromptCharacters,
+                    QueueWaitMs = $queueWaitMs, ProviderHeadersWaitMs = $providerHeadersWaitMs,
+                    ResponseBodyReadMs = $responseBodyReadMs, ResponseBytes = $responseBytes,
+                    ProviderJsonDeserializationMs = $providerJsonDeserializationMs,
+                    ValidationDurationMs = $validationDurationMs, ProviderUsageJson = $providerUsageJson,
                     OutputCharacters = $outputCharacters, CompletedUtc = $completedUtc, UpdatedUtc = $completedUtc
                 WHERE Id = $attemptId AND OwnerRecordId = $planId AND Status = 'Processing';
                 """;
@@ -273,6 +298,12 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
             UPDATE SceneBeatProductionAttempts SET Status = 'Failed', RawModelResponse = $raw,
                 ReasoningContent = $reasoning, FinishReason = $finishReason, ValidationCode = $validationCode,
                 ValidationDetailsJson = $validationDetails, DurationMs = $durationMs,
+                PromptBuildDurationMs = $promptBuildDurationMs, PromptUtf8Bytes = $promptUtf8Bytes,
+                SystemPromptCharacters = $systemPromptCharacters, UserPromptCharacters = $userPromptCharacters,
+                QueueWaitMs = $queueWaitMs, ProviderHeadersWaitMs = $providerHeadersWaitMs,
+                ResponseBodyReadMs = $responseBodyReadMs, ResponseBytes = $responseBytes,
+                ProviderJsonDeserializationMs = $providerJsonDeserializationMs,
+                ValidationDurationMs = $validationDurationMs, ProviderUsageJson = $providerUsageJson,
                 OutputCharacters = $outputCharacters, CompletedUtc = $completedUtc, UpdatedUtc = $completedUtc
             WHERE Id = $attemptId AND OwnerRecordId = $planId AND Status IN ('Queued', 'Processing');
             """;
@@ -375,7 +406,38 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
         await using var command = connection.CreateCommand();
         command.CommandText = SchemaSql;
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await EnsureAttemptColumnsAsync(connection, cancellationToken);
         return connection;
+    }
+
+    private static async Task EnsureAttemptColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["PromptBuildDurationMs"] = "INTEGER NULL",
+            ["PromptUtf8Bytes"] = "INTEGER NULL",
+            ["SystemPromptCharacters"] = "INTEGER NULL",
+            ["UserPromptCharacters"] = "INTEGER NULL",
+            ["QueueWaitMs"] = "INTEGER NULL",
+            ["ProviderHeadersWaitMs"] = "INTEGER NULL",
+            ["ResponseBodyReadMs"] = "INTEGER NULL",
+            ["ResponseBytes"] = "INTEGER NULL",
+            ["ProviderJsonDeserializationMs"] = "INTEGER NULL",
+            ["ValidationDurationMs"] = "INTEGER NULL",
+            ["ProviderUsageJson"] = "TEXT NULL"
+        };
+        foreach (var column in columns)
+        {
+            await using var check = connection.CreateCommand();
+            check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneBeatProductionAttempts') WHERE name = $name;";
+            check.Parameters.AddWithValue("$name", column.Key);
+            if (Convert.ToInt32(await check.ExecuteScalarAsync(cancellationToken)) == 1)
+                continue;
+
+            await using var add = connection.CreateCommand();
+            add.CommandText = $"ALTER TABLE SceneBeatProductionAttempts ADD COLUMN {column.Key} {column.Value};";
+            await add.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private static SqliteCommand CreatePlanSelect(SqliteConnection connection)
@@ -495,9 +557,13 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
             INSERT INTO SceneBeatProductionAttempts (
                 Id, OwnerRecordId, AttemptNumber, JobId, Status, SystemPrompt, UserPrompt,
                 RawModelResponse, ReasoningContent, FinishReason, ValidationCode, ValidationDetailsJson,
-                DurationMs, InputCharacters, OutputCharacters, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
+                DurationMs, PromptBuildDurationMs, PromptUtf8Bytes, SystemPromptCharacters, UserPromptCharacters,
+                QueueWaitMs, ProviderHeadersWaitMs, ResponseBodyReadMs, ResponseBytes, ProviderJsonDeserializationMs,
+                ValidationDurationMs, ProviderUsageJson, InputCharacters, OutputCharacters, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
             VALUES ($id, $ownerId, $attemptNumber, $jobId, 'Queued', $systemPrompt, $userPrompt,
-                NULL, NULL, NULL, NULL, $validationDetails, NULL, $inputCharacters, NULL,
+                NULL, NULL, NULL, NULL, $validationDetails, NULL, $promptBuildDurationMs, $promptUtf8Bytes,
+                $systemPromptCharacters, $userPromptCharacters, NULL, NULL, NULL, NULL, NULL, NULL,
+                NULL, $inputCharacters, NULL,
                 $createdUtc, NULL, NULL, $createdUtc);
             """;
         command.Parameters.AddWithValue("$id", attempt.Id.Trim());
@@ -507,6 +573,10 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
         command.Parameters.AddWithValue("$systemPrompt", attempt.SystemPrompt);
         command.Parameters.AddWithValue("$userPrompt", attempt.UserPrompt);
         command.Parameters.AddWithValue("$validationDetails", attempt.ValidationDetailsJson);
+        command.Parameters.AddWithValue("$promptBuildDurationMs", (object?)attempt.PromptBuildDurationMs ?? DBNull.Value);
+        command.Parameters.AddWithValue("$promptUtf8Bytes", (object?)attempt.PromptUtf8Bytes ?? DBNull.Value);
+        command.Parameters.AddWithValue("$systemPromptCharacters", (object?)attempt.SystemPromptCharacters ?? DBNull.Value);
+        command.Parameters.AddWithValue("$userPromptCharacters", (object?)attempt.UserPromptCharacters ?? DBNull.Value);
         command.Parameters.AddWithValue("$inputCharacters", attempt.InputCharacters);
         command.Parameters.AddWithValue("$createdUtc", FormatUtc(attempt.CreatedUtc));
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -537,7 +607,9 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
     private const string AttemptSelect = """
         SELECT Id, OwnerRecordId, AttemptNumber, JobId, Status, SystemPrompt, UserPrompt,
                RawModelResponse, ReasoningContent, FinishReason, ValidationCode, ValidationDetailsJson,
-               DurationMs, InputCharacters, OutputCharacters, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+               DurationMs, PromptBuildDurationMs, PromptUtf8Bytes, SystemPromptCharacters, UserPromptCharacters,
+               QueueWaitMs, ProviderHeadersWaitMs, ResponseBodyReadMs, ResponseBytes, ProviderJsonDeserializationMs,
+               ValidationDurationMs, ProviderUsageJson, InputCharacters, OutputCharacters, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
         FROM SceneBeatProductionAttempts
         """;
 
@@ -557,12 +629,23 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
             ValidationCode = reader.IsDBNull(10) ? null : reader.GetString(10),
             ValidationDetailsJson = reader.GetString(11),
             DurationMs = reader.IsDBNull(12) ? null : reader.GetInt64(12),
-            InputCharacters = reader.GetInt32(13),
-            OutputCharacters = reader.IsDBNull(14) ? null : reader.GetInt32(14),
-            CreatedUtc = ParseUtc(reader.GetString(15)),
-            StartedUtc = reader.IsDBNull(16) ? null : ParseUtc(reader.GetString(16)),
-            CompletedUtc = reader.IsDBNull(17) ? null : ParseUtc(reader.GetString(17)),
-            UpdatedUtc = ParseUtc(reader.GetString(18))
+            PromptBuildDurationMs = reader.IsDBNull(13) ? null : reader.GetInt64(13),
+            PromptUtf8Bytes = reader.IsDBNull(14) ? null : reader.GetInt32(14),
+            SystemPromptCharacters = reader.IsDBNull(15) ? null : reader.GetInt32(15),
+            UserPromptCharacters = reader.IsDBNull(16) ? null : reader.GetInt32(16),
+            QueueWaitMs = reader.IsDBNull(17) ? null : reader.GetInt64(17),
+            ProviderHeadersWaitMs = reader.IsDBNull(18) ? null : reader.GetInt64(18),
+            ResponseBodyReadMs = reader.IsDBNull(19) ? null : reader.GetInt64(19),
+            ResponseBytes = reader.IsDBNull(20) ? null : reader.GetInt32(20),
+            ProviderJsonDeserializationMs = reader.IsDBNull(21) ? null : reader.GetInt64(21),
+            ValidationDurationMs = reader.IsDBNull(22) ? null : reader.GetInt64(22),
+            ProviderUsageJson = reader.IsDBNull(23) ? null : reader.GetString(23),
+            InputCharacters = reader.GetInt32(24),
+            OutputCharacters = reader.IsDBNull(25) ? null : reader.GetInt32(25),
+            CreatedUtc = ParseUtc(reader.GetString(26)),
+            StartedUtc = reader.IsDBNull(27) ? null : ParseUtc(reader.GetString(27)),
+            CompletedUtc = reader.IsDBNull(28) ? null : ParseUtc(reader.GetString(28)),
+            UpdatedUtc = ParseUtc(reader.GetString(29))
         };
 
     private static void AddAttemptResultParameters(
@@ -579,6 +662,17 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
         command.Parameters.AddWithValue("$validationCode", (object?)attempt.ValidationCode ?? DBNull.Value);
         command.Parameters.AddWithValue("$validationDetails", attempt.ValidationDetailsJson);
         command.Parameters.AddWithValue("$durationMs", (object?)attempt.DurationMs ?? DBNull.Value);
+        command.Parameters.AddWithValue("$promptBuildDurationMs", (object?)attempt.PromptBuildDurationMs ?? DBNull.Value);
+        command.Parameters.AddWithValue("$promptUtf8Bytes", (object?)attempt.PromptUtf8Bytes ?? DBNull.Value);
+        command.Parameters.AddWithValue("$systemPromptCharacters", (object?)attempt.SystemPromptCharacters ?? DBNull.Value);
+        command.Parameters.AddWithValue("$userPromptCharacters", (object?)attempt.UserPromptCharacters ?? DBNull.Value);
+        command.Parameters.AddWithValue("$queueWaitMs", (object?)attempt.QueueWaitMs ?? DBNull.Value);
+        command.Parameters.AddWithValue("$providerHeadersWaitMs", (object?)attempt.ProviderHeadersWaitMs ?? DBNull.Value);
+        command.Parameters.AddWithValue("$responseBodyReadMs", (object?)attempt.ResponseBodyReadMs ?? DBNull.Value);
+        command.Parameters.AddWithValue("$responseBytes", (object?)attempt.ResponseBytes ?? DBNull.Value);
+        command.Parameters.AddWithValue("$providerJsonDeserializationMs", (object?)attempt.ProviderJsonDeserializationMs ?? DBNull.Value);
+        command.Parameters.AddWithValue("$validationDurationMs", (object?)attempt.ValidationDurationMs ?? DBNull.Value);
+        command.Parameters.AddWithValue("$providerUsageJson", (object?)attempt.ProviderUsageJson ?? DBNull.Value);
         command.Parameters.AddWithValue("$outputCharacters", (object?)attempt.OutputCharacters ?? DBNull.Value);
         command.Parameters.AddWithValue("$completedUtc", FormatUtc(completedUtc));
     }
@@ -688,7 +782,11 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
             JobId TEXT NOT NULL, Status TEXT NOT NULL, SystemPrompt TEXT NOT NULL, UserPrompt TEXT NOT NULL,
             RawModelResponse TEXT NULL, ReasoningContent TEXT NULL, FinishReason TEXT NULL,
             ValidationCode TEXT NULL, ValidationDetailsJson TEXT NOT NULL, DurationMs INTEGER NULL,
-            InputCharacters INTEGER NOT NULL, OutputCharacters INTEGER NULL, CreatedUtc TEXT NOT NULL,
+            PromptBuildDurationMs INTEGER NULL, PromptUtf8Bytes INTEGER NULL,
+            SystemPromptCharacters INTEGER NULL, UserPromptCharacters INTEGER NULL, QueueWaitMs INTEGER NULL,
+            ProviderHeadersWaitMs INTEGER NULL, ResponseBodyReadMs INTEGER NULL, ResponseBytes INTEGER NULL,
+            ProviderJsonDeserializationMs INTEGER NULL, ValidationDurationMs INTEGER NULL,
+            ProviderUsageJson TEXT NULL, InputCharacters INTEGER NOT NULL, OutputCharacters INTEGER NULL, CreatedUtc TEXT NOT NULL,
             StartedUtc TEXT NULL, CompletedUtc TEXT NULL, UpdatedUtc TEXT NOT NULL,
             UNIQUE (OwnerRecordId, AttemptNumber)
         );

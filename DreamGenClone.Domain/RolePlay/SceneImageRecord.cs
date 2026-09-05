@@ -28,6 +28,12 @@ public enum SceneImageOperation
     Edit = 1
 }
 
+public enum SceneImageFinishChangeClass
+{
+    Cosmetic = 1,
+    Geometry = 2
+}
+
 /// <summary>Render mode for a scene image: prompt-only or identity-controlled.</summary>
 public enum SceneImageRenderMode
 {
@@ -137,6 +143,9 @@ public sealed class SceneImageRecord
     public string? MomentEnrichmentId { get; set; }
     public int? MomentEnrichmentRevision { get; set; }
     public string? TypedReferenceSnapshotJson { get; set; }
+    public SceneImageFinishChangeClass? FinishChangeClass { get; set; }
+    public bool IdentityStale { get; set; }
+    public string? IdentityReferenceBindingsJson { get; set; }
     public string? Sha256 { get; set; }
     public DateTime? BytesPurgedUtc { get; set; }
 

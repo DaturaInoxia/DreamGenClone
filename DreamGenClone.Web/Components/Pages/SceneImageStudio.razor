@@ -8,16 +8,19 @@
 @using DreamGenClone.Web.Application.Scenarios
 @using DreamGenClone.Web.Domain.RolePlay
 @using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Domain.Processing
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Application.ModelManager
 @using DreamGenClone.Web.Application.StoryAnalysis
 @using DreamGenClone.Domain.StoryAnalysis
 @using System.Text.Json
+@using Microsoft.AspNetCore.Components.Web
 @implements IAsyncDisposable
 
 @inject ISessionService SessionService
 @inject ISceneImageService ImageService
 @inject ISceneImageProductionService ProductionService
+@inject IProductionStudioService DurableProductionService
 @inject ISceneBeatPipelineService BeatPipelineService
 @inject ISceneBeatProductionPipelineService BeatProductionService
 @inject ISceneMomentDiscoveryPipelineService MomentDiscoveryService
@@ -230,7 +233,7 @@
                                     }
                                     else
                                     {
-                                        <span>Source: legacy context window</span>
+                                        <span>Source: persisted context window</span>
                                     }
                                 </div>
                                 <div class="list-group list-group-flush scene-image-turn-context">
@@ -410,17 +413,42 @@
                                 }
                                 else if (_productionPlan.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing)
                                 {
-                                    <div class="d-flex justify-content-between align-items-center gap-2">
-                                        <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Building production plan...</span>
+                                    <div class="d-flex justify-content-between align-items-start gap-2">
+                                        <div>
+                                            <div class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>@ProductionProgressLabel(_productionPlan)</div>
+                                            <dl class="row small mb-0 mt-2 scene-job-status">
+                                                <dt class="col-sm-4">Elapsed</dt>
+                                                <dd class="col-sm-8">@ProductionElapsed(_productionPlan)</dd>
+                                                <dt class="col-sm-4">Attempt</dt>
+                                                <dd class="col-sm-8">@ProductionAttemptLabel()</dd>
+                                                <dt class="col-sm-4">Last update</dt>
+                                                <dd class="col-sm-8">@ProductionLastUpdate()</dd>
+                                                @if (_productionJob?.LeaseExpiresUtc is not null)
+                                                {
+                                                    <dt class="col-sm-4">Lease</dt>
+                                                    <dd class="col-sm-8">until @_productionJob.LeaseExpiresUtc.Value.ToLocalTime().ToString("g")</dd>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(_productionPlan.ProviderName) || !string.IsNullOrWhiteSpace(_productionPlan.ModelIdentifier))
+                                                {
+                                                    <dt class="col-sm-4">Provider</dt>
+                                                    <dd class="col-sm-8">@(_productionPlan.ProviderName ?? "Unknown") / @(_productionPlan.ModelIdentifier ?? "Unknown model")</dd>
+                                                }
+                                                @if (_productionJob?.Status == DurableBackgroundJobStatus.RetryScheduled)
+                                                {
+                                                    <dt class="col-sm-4">Retry</dt>
+                                                    <dd class="col-sm-8">scheduled @(_productionJob.NextAttemptUtc?.ToLocalTime().ToString("g") ?? "")</dd>
+                                                }
+                                            </dl>
+                                        </div>
                                         <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="CancelProductionPlanAsync">
                                             <i class="bi bi-x-circle me-1"></i> Cancel
                                         </button>
                                     </div>
                                 }
-                                else if (_productionPlan.Status == SceneBeatCatalogueStatus.Failed)
+                                else if (_productionPlan.Status is SceneBeatCatalogueStatus.Failed or SceneBeatCatalogueStatus.Cancelled)
                                 {
                                     <div class="alert alert-danger py-2 mb-2">
-                                        <strong>@(_productionPlan.ErrorCode ?? "Production planning failed")</strong>
+                                        <strong>@(_productionPlan.Status == SceneBeatCatalogueStatus.Cancelled ? "Production planning cancelled" : _productionPlan.ErrorCode ?? "Production planning failed")</strong>
                                         @if (!string.IsNullOrWhiteSpace(_productionPlan.ErrorMessage))
                                         {
                                             <span class="d-block mt-1">@_productionPlan.ErrorMessage</span>
@@ -456,6 +484,34 @@
                                 else
                                 {
                                     <span class="text-muted">Production status: @_productionPlan.Status</span>
+                                }
+                                @if (_productionAttempt is not null)
+                                {
+                                    <div class="border-top mt-3 pt-2">
+                                        <div class="fw-semibold mb-1">Run diagnostics</div>
+                                        <dl class="row small mb-0 scene-job-status">
+                                            <dt class="col-sm-5">Prompt</dt>
+                                            <dd class="col-sm-7">@Metric(_productionAttempt.InputCharacters, "characters") · @Metric(_productionAttempt.PromptUtf8Bytes, "bytes")</dd>
+                                            <dt class="col-sm-5">Prompt build</dt>
+                                            <dd class="col-sm-7">@Metric(_productionAttempt.PromptBuildDurationMs, "ms")</dd>
+                                            <dt class="col-sm-5">Queue wait</dt>
+                                            <dd class="col-sm-7">@Metric(_productionAttempt.QueueWaitMs, "ms")</dd>
+                                            <dt class="col-sm-5">Request to headers</dt>
+                                            <dd class="col-sm-7">@Metric(_productionAttempt.ProviderHeadersWaitMs, "ms")</dd>
+                                            <dt class="col-sm-5">Response body</dt>
+                                            <dd class="col-sm-7">@Metric(_productionAttempt.ResponseBodyReadMs, "ms") · @Metric(_productionAttempt.ResponseBytes, "bytes")</dd>
+                                            <dt class="col-sm-5">JSON deserialization</dt>
+                                            <dd class="col-sm-7">@Metric(_productionAttempt.ProviderJsonDeserializationMs, "ms")</dd>
+                                            <dt class="col-sm-5">Strict validation</dt>
+                                            <dd class="col-sm-7">@Metric(_productionAttempt.ValidationDurationMs, "ms")</dd>
+                                            @if (!string.IsNullOrWhiteSpace(_productionAttempt.ReasoningContent))
+                                            {
+                                                <dt class="col-sm-5">Reasoning content</dt>
+                                                <dd class="col-sm-7">recorded (@_productionAttempt.ReasoningContent.Length characters)</dd>
+                                            }
+                                        </dl>
+                                        <div class="text-muted mt-2">@ProductionDiagnosticInterpretation(_productionAttempt)</div>
+                                    </div>
                                 }
                             </div>
                             }
@@ -722,22 +778,63 @@
                     @if (_productionStudioOpen)
                     {
                     <div class="card-body">
-                        @if (IsCurrentProductionSession)
-                        {
-                            <ProductionWorkspace SessionId="@sessionId" />
-                        }
-                        else
+                        @if (!IsCurrentProductionSession)
                         {
                             <div class="alert alert-warning mb-0">
                                 This session predates the current production schema. Create a new session to use Production Studio.
                             </div>
                         }
                         <div>
+                        @if (IsCurrentProductionSession)
+                        {
+                            <div class="card mb-3 scene-production-workspace-primary">
+                                <div class="card-header">
+                                    <strong>Production Workspace</strong>
+                                    <span class="d-block text-muted small">Turn a completed Story Moment into an image without entering technical configuration.</span>
+                                </div>
+                                <div class="card-body">
+                                    <div class="alert alert-info py-2 small mb-3">
+                                        <strong>How to use this:</strong>
+                                        select a completed Moment above, choose a POV, then click <strong>Create / Load Production</strong>.
+                                        Production Studio prepares the prompt, references, model, and provider settings automatically.
+                                        After that, use <strong>Generate Prompt</strong> and <strong>Generate Composition</strong> below.
+                                    </div>
+                                    <ProductionWorkspace @key="_durableWorkspaceRefreshKey" SessionId="@sessionId" />
+                                </div>
+                            </div>
+                        }
                         <hr class="my-4" />
                         @if (!IsSelectedMomentEnriched)
                         {
-                            <div class="scene-production-empty text-muted">
-                                Select and complete a Moment enrichment to begin image production.
+                            <div class="scene-production-gate" aria-label="Staged production workflow blocked">
+                                <div class="scene-production-gate-header">
+                                    <div>
+                                        <span class="eyebrow-label">STAGED PRODUCTION STUDIO</span>
+                                        <h5 class="mb-1">Production workbench</h5>
+                                        <p class="mb-0 text-muted">The workflow is ready for this turn, but image production is locked until the selected Moment has a frozen enrichment.</p>
+                                    </div>
+                                    <span class="badge text-bg-warning">Waiting for enrichment</span>
+                                </div>
+                                <div class="scene-production-gate-steps" role="list" aria-label="Production stage status">
+                                    <div class="scene-production-gate-step is-blocked" role="listitem">
+                                        <strong>01 Compose</strong>
+                                        <span>Blocked · complete Moment enrichment first</span>
+                                    </div>
+                                    <div class="scene-production-gate-step is-locked" role="listitem">
+                                        <strong>02 Identity</strong>
+                                        <span>Locked · requires a completed Composition</span>
+                                    </div>
+                                    <div class="scene-production-gate-step is-locked" role="listitem">
+                                        <strong>03 Finish</strong>
+                                        <span>Locked · requires an eligible parent</span>
+                                    </div>
+                                </div>
+                                <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                                    <button class="btn btn-sm btn-primary" disabled="@(_busy || _selectedMoment is null)" @onclick="() => _momentEnrichment is null && _selectedMoment is not null ? SelectMomentAsync(_selectedMoment) : Task.CompletedTask">
+                                        <i class="bi bi-bounding-box me-1"></i> Complete selected Moment enrichment
+                                    </button>
+                                    <span class="small text-muted">Choose a Moment above, then return here to unlock the workbench.</span>
+                                </div>
                             </div>
                         }
                         else
@@ -755,11 +852,44 @@
                             </div>
 
                             <div class="scene-production-grid">
+                                <aside class="scene-production-context-rail" aria-label="Production context">
+                                    <h6>Production context</h6>
+                                    @if (_selectedMoment is null || _productionFrozenState is null)
+                                    {
+                                        <div class="small text-muted">Select a frozen Moment to begin production.</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="small fw-semibold">@_selectedMoment.Label</div>
+                                        <div class="small text-muted mt-1">@_productionFrozenState.Location</div>
+                                        <div class="small text-muted">@_productionFrozenState.TimeOfDay · @_productionFrozenState.Lighting</div>
+                                        <div class="scene-production-context-cast mt-3">
+                                            <div class="small fw-semibold mb-1">Visible cast</div>
+                                            @foreach (var character in _productionFrozenState.Characters)
+                                            {
+                                                <div class="small d-flex justify-content-between gap-2">
+                                                    <span>@character.Name</span>
+                                                    <span class="text-muted">@character.Position</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    <div class="small mt-3 pt-3 border-top">
+                                        <span class="text-muted d-block">Active stage</span>
+                                        <strong>@_activeProductionStage</strong>
+                                    </div>
+                                </aside>
                                 <section class="scene-production-main" aria-label="Production canvas">
-                                    <div class="scene-production-stage-stepper" aria-label="Production stages">
-                                        <span class="is-current"><strong>1</strong> Composition</span>
-                                        <span><strong>2</strong> Identity</span>
-                                        <span><strong>3</strong> Finish</span>
+                                    <div class="scene-production-stage-stepper" role="tablist" aria-label="Production stages">
+                                        <button type="button" role="tab" tabindex="@StageTabIndex(SceneImageProductionStage.Composition)" aria-selected="@(_activeProductionStage == SceneImageProductionStage.Composition)" class="@StageTabClass(SceneImageProductionStage.Composition)" @onkeydown="eventArgs => HandleProductionStageKeyDown(eventArgs, SceneImageProductionStage.Composition)" @onclick="() => SelectProductionStageIfAvailable(SceneImageProductionStage.Composition)">
+                                            <strong>1</strong> Composition <span class="scene-production-stage-state">@StageState(SceneImageProductionStage.Composition)</span>@if (_activeProductionStage == SceneImageProductionStage.Composition) { <span class="visually-hidden">current stage</span> }
+                                        </button>
+                                        <button type="button" role="tab" tabindex="@StageTabIndex(SceneImageProductionStage.Identity)" aria-selected="@(_activeProductionStage == SceneImageProductionStage.Identity)" class="@StageTabClass(SceneImageProductionStage.Identity)" @onkeydown="eventArgs => HandleProductionStageKeyDown(eventArgs, SceneImageProductionStage.Identity)" @onclick="() => SelectProductionStageIfAvailable(SceneImageProductionStage.Identity)">
+                                            <strong>2</strong> Identity <span class="scene-production-stage-state">@StageState(SceneImageProductionStage.Identity)</span>
+                                        </button>
+                                        <button type="button" role="tab" tabindex="@StageTabIndex(SceneImageProductionStage.Finish)" aria-selected="@(_activeProductionStage == SceneImageProductionStage.Finish)" class="@StageTabClass(SceneImageProductionStage.Finish)" @onkeydown="eventArgs => HandleProductionStageKeyDown(eventArgs, SceneImageProductionStage.Finish)" @onclick="() => SelectProductionStageIfAvailable(SceneImageProductionStage.Finish)">
+                                            <strong>3</strong> Finish <span class="scene-production-stage-state">@StageState(SceneImageProductionStage.Finish)</span>
+                                        </button>
                                     </div>
 
                                     <div class="scene-production-canvas">
@@ -804,7 +934,16 @@
                                         }
                                     </div>
 
-                                    <div class="scene-production-stage-controls mt-3">
+                                    <div class="scene-production-stage-controls mt-3" role="tabpanel" aria-label="@_activeProductionStage stage controls">
+                                        @if (_activeProductionStage != SceneImageProductionStage.Composition)
+                                        {
+                                            <div class="alert @(_activeProductionStage == SceneImageProductionStage.Identity ? "alert-info" : "alert-warning") py-2 small mb-3">
+                                                <strong>@_activeProductionStage stage</strong>
+                                                <span class="d-block">@StageBlockingReason(_activeProductionStage)</span>
+                                            </div>
+                                        }
+                                        @if (_activeProductionStage == SceneImageProductionStage.Composition)
+                                        {
                                         <div class="d-flex flex-wrap align-items-center gap-2">
                                             <strong>Composition</strong>
                                             <button class="btn btn-sm btn-primary"
@@ -816,11 +955,6 @@
                                                     disabled="@(_busy || _productionGroup is null || _compiledMediaBrief is null || _activePrompt?.Status != SceneImagePromptStatus.Complete || string.IsNullOrWhiteSpace(_editablePrompt) || _productionAttempts.Any(attempt => attempt.Status is SceneImageStatus.Pending or SceneImageStatus.Generating))"
                                                     @onclick="GenerateProductionCompositionAsync">
                                                 <i class="bi bi-image me-1"></i> Generate Composition
-                                            </button>
-                                            <button class="btn btn-sm btn-outline-success"
-                                                    disabled="@(_busy || _productionGroup is null || _compiledMediaBrief is null || _activePrompt?.Status != SceneImagePromptStatus.Complete || string.IsNullOrWhiteSpace(_editablePrompt) || !_productionIdentityPacks.Any(o => o.Selected) || _productionAttempts.Any(attempt => attempt.Status is SceneImageStatus.Pending or SceneImageStatus.Generating))"
-                                                    @onclick="GenerateProductionCompositionWithIdentityAsync">
-                                                <i class="bi bi-person-badge me-1"></i> + Identity
                                             </button>
                                             @if (_selectedProductionAttempt?.Status == SceneImageStatus.Complete
                                                 && _selectedProductionAttempt.ProductionStage == SceneImageProductionStage.Composition)
@@ -856,44 +990,187 @@
                                                 </select>
                                             }
                                         </div>
+                                        }
 
-                                        <div class="mt-2">
-                                            <label class="form-label small fw-semibold mb-1">Character Identity (one-pass)</label>
-                                            @if (_identityModelChoices.Count == 0)
-                                            {
-                                                <span class="text-muted d-block">No identity-capable image models enabled. Configure an identity mechanism (IP-Adapter/PuLid) in Model Manager.</span>
-                                            }
-                                            else
-                                            {
-                                                <select class="form-select form-select-sm mb-2" @bind="_selectedProductionIdentityModelId">
-                                                    @foreach (var choice in _identityModelChoices)
-                                                    {
-                                                        <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName</option>
-                                                    }
-                                                </select>
-                                            }
-                                            @if (_productionIdentityPacks.Count == 0)
-                                            {
-                                                <span class="text-muted d-block">No approved identity packs. Create and approve one in <a href="/characters/identity">Character Identity</a>.</span>
-                                            }
-                                            else
-                                            {
-                                                @foreach (var opt in _productionIdentityPacks)
+                                        @if (_activeProductionStage == SceneImageProductionStage.Identity)
+                                        {
+                                        <div class="border rounded p-3 mt-3" aria-label="Identity stage">
+                                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                                <div>
+                                                    <strong>2. Identity</strong>
+                                                    <span class="d-block small text-muted">Apply identity to a completed Composition attempt, or record why this production intentionally skips it.</span>
+                                                </div>
+                                                <span class="badge @(_productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser ? "text-bg-warning" : "text-bg-info")">
+                                                    @_productionGroup?.IdentityPolicy
+                                                </span>
+                                            </div>
+                                            <label class="form-label small mt-3 mb-1">Composition parent</label>
+                                            <select class="form-select form-select-sm" value="@_selectedProductionAttemptId" @onchange="OnIdentityParentChanged" aria-label="Identity Composition parent">
+                                                <option value="">Select a completed Composition parent</option>
+                                                @foreach (var parent in CompletedCompositionAttempts())
                                                 {
-                                                    <div class="form-check form-check-inline">
-                                                        <input class="form-check-input" type="checkbox" @bind="opt.Selected" id="@("prod_idp_" + opt.PackId)" />
-                                                        <label class="form-check-label" for="@("prod_idp_" + opt.PackId)">@opt.Label</label>
-                                                    </div>
+                                                    <option value="@parent.Id">@parent.Id</option>
                                                 }
+                                            </select>
+                                            @if (_selectedProductionAttempt is not null && (_selectedProductionAttempt.Status != SceneImageStatus.Complete || _selectedProductionAttempt.ProductionStage != SceneImageProductionStage.Composition))
+                                            {
+                                                <div class="small text-warning mt-1">Identity requires a completed Composition parent.</div>
+                                            }
+                                            @if (_productionFrozenState?.Characters is { Count: > 0 } characters)
+                                            {
+                                                <div class="scene-production-readiness-header mt-3">
+                                                    <strong>Identity readiness</strong>
+                                                    <span>@ReadyIdentityCount(characters) of @characters.Count ready</span>
+                                                </div>
+                                                <div class="scene-production-identity-readiness mt-2" aria-label="Identity readiness">
+                                                    @foreach (var character in characters)
+                                                    {
+                                                        var readiness = IdentityReadinessFor(character.Name);
+                                                        <div class="scene-production-identity-row">
+                                                            <div class="scene-production-identity-thumb">
+                                                                @if (readiness is not null)
+                                                                {
+                                                                    <img src="/scene-images/@readiness.FileRelativePath" alt="@character.Name canonical face" />
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="scene-production-identity-gap" aria-label="No canonical face">?</span>
+                                                                }
+                                                            </div>
+                                                            <div class="min-w-0 flex-grow-1">
+                                                                <strong>@character.Name</strong>
+                                                                @if (readiness is null)
+                                                                {
+                                                                    <span class="d-block small text-warning">@IdentityReadinessState(character.Name)</span>
+                                                                    <a class="small" href="/characters/identity">Open Character Identity</a>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="d-block small text-success">Ready · pack v@readiness.IdentityPackVersion</span>
+                                                                    <span class="d-block small text-muted text-truncate" title="@readiness.Sha256">@readiness.Sha256[..Math.Min(12, readiness.Sha256.Length)]...</span>
+                                                                }
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="small text-muted mt-3">No known visible characters in this Moment.</div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(_productionIdentityReadinessError))
+                                            {
+                                                <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                                    <strong>Identity blocked:</strong> @_productionIdentityReadinessError
+                                                </div>
+                                            }
+                                            else if (_productionIdentityReadiness.Count > 0)
+                                            {
+                                                <div class="scene-production-identity-readiness mt-2" aria-label="Ordered identity references">
+                                                    @foreach (var binding in _productionIdentityReadiness.Select((binding, index) => (binding, index)))
+                                                    {
+                                                        <div class="scene-production-identity-row">
+                                                            <span class="badge text-bg-secondary" aria-label="Reference ordinal">@(binding.index + 1)</span>
+                                                            <div class="scene-production-identity-thumb">
+                                                                <img src="/scene-images/@binding.binding.FileRelativePath" alt="@binding.binding.CharacterName canonical face" />
+                                                            </div>
+                                                            <div class="min-w-0 flex-grow-1">
+                                                                <strong>@binding.binding.CharacterName</strong>
+                                                                <span class="d-block small text-success">Ready · identity pack v@binding.binding.IdentityPackVersion</span>
+                                                                <span class="d-block small text-muted text-truncate" title="@binding.binding.Sha256">Face asset @binding.binding.CanonicalFaceAssetId · SHA-256 @binding.binding.Sha256[..Math.Min(12, binding.binding.Sha256.Length)]...</span>
+                                                            </div>
+                                                            <span class="badge text-bg-success">Ready</span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                            else if (_productionIdentityPacks.Count == 0)
+                                            {
+                                                <div class="small text-muted mt-2">No approved identity packs are available. Create and approve one in <a href="/characters/identity">Character Identity</a>.</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="d-flex flex-wrap gap-2 mt-2">
+                                                    @foreach (var opt in _productionIdentityPacks)
+                                                    {
+                                                        <label class="form-check form-check-inline mb-0">
+                                                            <input class="form-check-input" type="checkbox" @bind="opt.Selected" />
+                                                            <span class="form-check-label">@opt.Label</span>
+                                                        </label>
+                                                    }
+                                                </div>
+                                            }
+                                            <div class="d-flex flex-wrap gap-2 mt-3">
+                                                <button class="btn btn-sm btn-outline-success" disabled="@(_busy || _productionGroup is null || _productionIdentityReadinessError is not null || _selectedProductionAttempt?.Status != SceneImageStatus.Complete || _selectedProductionAttempt.ProductionStage != SceneImageProductionStage.Composition || _productionIdentityReadiness.Count == 0 || _productionIdentityReadiness.Count != (_productionFrozenState?.Characters.Count ?? 0))" @onclick="ApplyProductionIdentityAsync">
+                                                    <i class="bi bi-person-badge me-1"></i> Apply Identity
+                                                </button>
+                                                <button @ref="_identitySkipOpener" class="btn btn-sm btn-outline-warning" disabled="@(_busy || _productionGroup is null || _productionGroup.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser)" @onclick="OpenIdentitySkipDialogAsync">Record identity skip</button>
+                                                @if (_productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ClearProductionIdentitySkipAsync">Require Identity</button>
+                                                }
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(_productionGroup?.IdentitySkipReason))
+                                            {
+                                                <div class="small text-warning mt-2">Skip reason: @_productionGroup.IdentitySkipReason</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="input-group input-group-sm mt-2">
+                                                    <input class="form-control" @bind="_productionIdentitySkipReason" placeholder="Required reason when skipping identity" aria-label="Identity skip reason" />
+                                                    <button class="btn btn-outline-warning" disabled="@(_busy || _productionGroup is null || string.IsNullOrWhiteSpace(_productionIdentitySkipReason))" @onclick="SkipProductionIdentityAsync">Record skip</button>
+                                                </div>
                                             }
                                         </div>
+                                        }
 
-                                        <div class="form-text mt-1">Composition renders prompt-only with the selected image model; "+ Identity" folds the selected identity packs into the same render in one generation.</div>
-
-                                        <div class="scene-production-unavailable mt-2">
-                                            <strong>Finish</strong>
-                                            <span>Unavailable: finish-stage source-image editing follows the identity boundary.</span>
+                                        @if (_activeProductionStage == SceneImageProductionStage.Finish)
+                                        {
+                                        <div class="border rounded p-3 mt-3" aria-label="Finish stage">
+                                            <strong>3. Finish</strong>
+                                            <span class="d-block small text-muted">Select an eligible completed parent, then describe the final source-image change.</span>
+                                            <label class="form-label small mt-2 mb-1">Parent attempt</label>
+                                            <select class="form-select form-select-sm" value="@_selectedProductionAttemptId" @onchange="OnFinishParentChanged">
+                                                <option value="">Select a completed eligible parent</option>
+                                                @foreach (var parent in EligibleFinishParents())
+                                                {
+                                                    <option value="@parent.Id">@parent.ProductionStage · @parent.Id</option>
+                                                }
+                                            </select>
+                                            @if (_selectedProductionAttempt is not null && !IsEligibleFinishParent(_selectedProductionAttempt))
+                                            {
+                                                <div class="small text-warning mt-1">@FinishParentReason(_selectedProductionAttempt)</div>
+                                            }
+                                            <textarea class="form-control form-control-sm mt-2" rows="2" @bind="_productionFinishInstruction" placeholder="Describe the final source-image change."></textarea>
+                                            <div class="form-text">@WordCount(_productionFinishInstruction) words · ~@EstimateTokens(_productionFinishInstruction) tokens</div>
+                                            <fieldset class="mt-2">
+                                                <legend class="small fw-semibold mb-1">Change class (required)</legend>
+                                                <div class="d-flex flex-wrap gap-3 small">
+                                                    <label><input type="radio" name="finish-change-class" value="Cosmetic" @onchange="() => _productionFinishChangeClass = SceneImageFinishChangeClass.Cosmetic" checked="@(_productionFinishChangeClass == SceneImageFinishChangeClass.Cosmetic)" /> Cosmetic</label>
+                                                    <label><input type="radio" name="finish-change-class" value="Geometry" @onchange="() => _productionFinishChangeClass = SceneImageFinishChangeClass.Geometry" checked="@(_productionFinishChangeClass == SceneImageFinishChangeClass.Geometry)" /> Geometry</label>
+                                                </div>
+                                                <div class="form-text">Geometry changes can wash out an applied face. The result will be marked identity-stale and will need another identity pass before approval.</div>
+                                            </fieldset>
+                                            @if (_resolvedPolicy is ImageContentPolicy.AdultAllowed or ImageContentPolicy.AdultAllowedConfigurable)
+                                            {
+                                                <div class="form-check mt-2 small">
+                                                    <input class="form-check-input" type="checkbox" id="finish-adult-content" @bind="_productionFinishAdultContent" />
+                                                    <label class="form-check-label" for="finish-adult-content">Request adult-content Finish edit</label>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="form-text text-warning mt-2">Adult-content Finish is unavailable: the resolved editor model is @(_resolvedPolicy?.ToString() ?? "not configured").</div>
+                                            }
+                                            <button class="btn btn-sm btn-outline-primary mt-2" disabled="@(_busy || _productionGroup is null || _selectedProductionAttempt is null || _selectedProductionAttempt.Status != SceneImageStatus.Complete || string.IsNullOrWhiteSpace(_productionFinishInstruction) || !_productionFinishChangeClass.HasValue)" @onclick="EnqueueProductionFinishAsync">
+                                                <i class="bi bi-sliders me-1"></i> Enqueue Finish
+                                            </button>
+                                            @if (_productionGroup is null || _selectedProductionAttempt is null || _selectedProductionAttempt.Status != SceneImageStatus.Complete || string.IsNullOrWhiteSpace(_productionFinishInstruction) || !_productionFinishChangeClass.HasValue)
+                                            {
+                                                <div class="form-text text-warning">Run Edit is available after selecting a completed eligible parent, entering an instruction, and choosing Cosmetic or Geometry.</div>
+                                            }
                                         </div>
+                                        }
                                     </div>
                                 </section>
 
@@ -918,6 +1195,15 @@
                                         </dl>
                                     }
 
+                                    <h6>Cast &amp; identity</h6>
+                                    @if (_productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser)
+                                    {
+                                        <div class="alert alert-warning py-2 small">Identity skipped: @_productionGroup.IdentitySkipReason <button class="btn btn-sm btn-link p-0" @onclick="ClearProductionIdentitySkipAsync">Clear skip</button></div>
+                                    }
+                                    else if (_productionIdentityReadinessError is not null)
+                                    {
+                                        <div class="alert alert-warning py-2 small" role="status">@_productionIdentityReadinessError</div>
+                                    }
                                     <h6>Exact Lineage</h6>
                                     @if (_productionGroup is null)
                                     {
@@ -956,12 +1242,78 @@
                                             <dt>Checksum</dt><dd class="font-monospace">@(_selectedProductionAttempt.Sha256 ?? "Pending")</dd>
                                             <dt>Parent / source</dt><dd class="font-monospace">@(parentId ?? "Root attempt")</dd>
                                         </dl>
+                                        <div class="mt-3 pt-2 border-top" aria-label="Approval surface">
+                                            <strong>Approval</strong>
+                                            <div class="small mt-1">@ApprovalReason(_selectedProductionAttempt)</div>
+                                            @if (_selectedProductionAttempt.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(_selectedProductionAttempt.Sha256))
+                                            {
+                                                <button class="btn btn-sm btn-outline-success mt-2" disabled="@(_busy || !CanApprove(_selectedProductionAttempt))" @onclick="() => ApproveProductionAttemptAsync(_selectedProductionAttempt)">
+                                                    <i class="bi bi-check2-circle me-1"></i>Approve selected attempt
+                                                </button>
+                                            }
+                                        </div>
                                     }
                                 </aside>
                             </div>
 
                             <div class="scene-production-attempts mt-3 pt-3 border-top">
-                                <h6>Production Attempts</h6>
+                                <div class="d-flex justify-content-between align-items-center gap-2">
+                                    <h6 class="mb-0">Production Attempts</h6>
+                                    <button class="btn btn-sm @(_compareMode ? "btn-primary" : "btn-outline-secondary")" @onclick="ToggleProductionCompare" type="button">
+                                        <i class="bi bi-layout-split me-1"></i>@(_compareMode ? "Exit Compare" : "Compare")
+                                    </button>
+                                </div>
+                                @if (_compareMode)
+                                {
+                                    <div class="alert alert-info py-2 mt-2 mb-2 small">
+                                        Compare exactly two completed attempts. Selecting a third replaces the oldest comparison.
+                                    </div>
+                                    <div class="scene-production-compare-grid mb-3" aria-label="Compared production attempts">
+                                        @foreach (var compareId in _compareAttemptIds)
+                                        {
+                                            var compareAttempt = _productionAttempts.FirstOrDefault(attempt => attempt.Id == compareId);
+                                            var compareIndex = _compareAttemptIds.IndexOf(compareId);
+                                            if (compareAttempt is null)
+                                            {
+                                                continue;
+                                            }
+                                            <article class="scene-production-compare-pane" aria-label="Attempt @(compareIndex == 0 ? "A" : "B")">
+                                                <h6>Attempt @(compareIndex == 0 ? "A" : "B")</h6>
+                                                @if (compareAttempt.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(compareAttempt.FileRelativePath))
+                                                {
+                                                    <img src="/scene-images/@compareAttempt.FileRelativePath" alt="Compared production attempt @compareAttempt.Id" />
+                                                }
+                                                <dl class="small mt-2 mb-0">
+                                                    <dt>Stage / status</dt><dd>@compareAttempt.ProductionStage · @compareAttempt.Status</dd>
+                                                    <dt>Attempt</dt><dd class="font-monospace">@compareAttempt.Id</dd>
+                                                    <dt>Model / seed</dt><dd>@(compareAttempt.ModelIdentifier ?? "Pending") · @SnapshotValue(compareAttempt, "seed")</dd>
+                                                    <dt>Change class</dt><dd>@(compareAttempt.FinishChangeClass?.ToString() ?? "Not applicable")</dd>
+                                                    <dt>Parent</dt><dd class="font-monospace">@(compareAttempt.SourceImageId ?? compareAttempt.RegenerateOfId ?? "Root")</dd>
+                                                    <dt>Checksum</dt><dd class="font-monospace">@(compareAttempt.Sha256 ?? "Pending")</dd>
+                                                </dl>
+                                                <button class="btn btn-sm btn-outline-success mt-2" disabled="@(_busy || !CanApprove(compareAttempt))" @onclick="() => ApproveProductionAttemptAsync(compareAttempt)">
+                                                    <i class="bi bi-check2-circle me-1"></i>Approve Attempt @(compareIndex == 0 ? "A" : "B")
+                                                </button>
+                                                @if (compareAttempt.IdentityStale)
+                                                {
+                                                    <div class="badge text-bg-warning mt-2">Identity-stale</div>
+                                                }
+                                            </article>
+                                        }
+                                    </div>
+                                    @if (_compareAttemptIds.Count == 2)
+                                    {
+                                        <div class="scene-production-differences small" aria-label="Differences between compared attempts">
+                                            <strong>Differences</strong>
+                                            <ul class="mb-0">
+                                                @foreach (var difference in CompareDifferences())
+                                                {
+                                                    <li>@difference</li>
+                                                }
+                                            </ul>
+                                        </div>
+                                    }
+                                }
                                 @foreach (var stage in new[] { SceneImageProductionStage.Composition, SceneImageProductionStage.Identity, SceneImageProductionStage.Finish })
                                 {
                                     var stageAttempts = _productionAttempts.Where(attempt => attempt.ProductionStage == stage).ToList();
@@ -977,7 +1329,7 @@
                                                 @foreach (var attempt in stageAttempts)
                                                 {
                                                     var parentId = attempt.SourceImageId ?? attempt.RegenerateOfId;
-                                                    <div class="scene-production-attempt @(_selectedProductionAttemptId == attempt.Id ? "is-selected" : "")">
+                                                    <div class="scene-production-attempt @(_selectedProductionAttemptId == attempt.Id ? "is-selected" : "") @(parentId is null ? "" : "has-parent")">
                                                         <button class="scene-production-attempt-select" title="Select attempt" @onclick="() => _selectedProductionAttemptId = attempt.Id">
                                                             @if (attempt.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(attempt.FileRelativePath))
                                                             {
@@ -992,11 +1344,16 @@
                                                             <span class="badge text-bg-secondary">@attempt.Status</span>
                                                             <span class="badge text-bg-info">@attempt.Disposition</span>
                                                             <span class="badge @(_currentApproval?.SceneImageId == attempt.Id ? "text-bg-success" : "text-bg-secondary")">@(_currentApproval?.SceneImageId == attempt.Id ? "Approved" : "Not approved")</span>
+                                                            @if (attempt.IdentityStale)
+                                                            {
+                                                                <span class="badge text-bg-warning">Identity-stale</span>
+                                                            }
                                                         </div>
                                                         <div class="small text-muted text-truncate" title="@(parentId is null ? "Root attempt" : $"Parent/source: {parentId}")">
                                                             @(parentId is null ? "Root attempt" : $"From {parentId}")
                                                         </div>
                                                         <div class="d-flex flex-wrap gap-1 mt-1">
+                                                            <button class="btn btn-sm btn-outline-light py-0 px-1" title="Select attempt" @onclick="() => SelectProductionAttempt(attempt)">Select</button>
                                                             @if (attempt.Disposition == SceneImageAttemptDisposition.Active)
                                                             {
                                                                 <button class="btn btn-sm btn-outline-warning py-0 px-1" title="Shortlist attempt" disabled="@_busy"
@@ -1014,9 +1371,16 @@
                                                             }
                                                             @if (attempt.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(attempt.Sha256))
                                                             {
+                                                                <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Add attempt to compare" disabled="@_busy"
+                                                                    @onclick="() => ToggleProductionCompareAttempt(attempt)"><i class="bi bi-layout-split"></i></button>
                                                                 <button class="btn btn-sm btn-outline-success py-0 px-1" title="Approve this exact completed attempt" disabled="@_busy"
                                                                         @onclick="() => ApproveProductionAttemptAsync(attempt)"><i class="bi bi-check2-circle"></i></button>
                                                             }
+                                                                @if (attempt.Status == SceneImageStatus.Complete)
+                                                                {
+                                                                <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Branch a sibling Composition from this attempt when applicable" disabled="@_busy"
+                                                                    @onclick="() => BranchFromAttemptAsync(attempt)"><i class="bi bi-diagram-3"></i></button>
+                                                                }
                                                             @if (attempt.Disposition == SceneImageAttemptDisposition.Rejected
                                                                 && attempt.BytesPurgedUtc is null
                                                                 && !string.IsNullOrWhiteSpace(attempt.FileRelativePath))
@@ -1038,17 +1402,17 @@
                     }
                 </div>
 
-                <div class="card mb-3 scene-image-legacy-tools">
+                <div class="card mb-3 scene-image-additional-tools">
                     <div class="card-header p-0">
-                        <button class="studio-collapse-toggle studio-collapse-toggle-full px-3 py-2" @onclick="ToggleLegacyTools" type="button">
-                            <strong>Legacy / Experimental Tools</strong>
-                            <i class="bi @(_legacyToolsOpen ? "bi-chevron-up" : "bi-chevron-down") ms-auto"></i>
+                        <button class="studio-collapse-toggle studio-collapse-toggle-full px-3 py-2" @onclick="ToggleAdditionalTools" type="button">
+                            <strong>Additional Phase 2 Tools</strong>
+                            <i class="bi @(_additionalToolsOpen ? "bi-chevron-up" : "bi-chevron-down") ms-auto"></i>
                         </button>
                     </div>
-                    @if (_legacyToolsOpen)
+                    @if (_additionalToolsOpen)
                     {
                         <div class="card-body">
-                            <div class="small text-muted mb-2">Prompt compilation and identity-conditioned text-to-image remain available during production workflow migration.</div>
+                            <div class="small text-muted mb-2">Prompt compilation and identity-conditioned text-to-image controls for the Phase 2 image workflow.</div>
 
                             <div class="card mb-3">
                                 <div class="card-header d-flex justify-content-between align-items-center">
@@ -1060,7 +1424,7 @@
                                     </div>
                                     @if (_fullTurn?.Turn is null)
                                     {
-                                        <span class="text-muted">This legacy interaction has no persisted turn, so it cannot be analyzed into image beats.</span>
+                                        <span class="text-muted">This interaction has no persisted turn, so it cannot be analyzed into image beats.</span>
                                     }
                                     else if (_beatAnalysis is null)
                                     {
@@ -1193,7 +1557,7 @@
                 </div>
 
                 <div class="card mb-3">
-                    <div class="card-header"><strong>Legacy Selected Beat and POV</strong></div>
+                    <div class="card-header"><strong>Selected Beat and POV</strong></div>
                     <div class="card-body small">
                         @if (_selectedBeat is null)
                         {
@@ -1271,7 +1635,7 @@
                 {
                     <div class="card mb-3">
                         <div class="card-header d-flex justify-content-between align-items-center">
-                            <strong>Legacy Prompt Analysis</strong>
+                            <strong>Prompt Analysis</strong>
                             <button class="btn btn-sm btn-outline-secondary" @onclick="() => _showAnalysis = !_showAnalysis">
                                 @(_showAnalysis ? "Hide" : "Show")
                             </button>
@@ -1318,7 +1682,7 @@
 
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <strong>Legacy Exact Preprocessor Request</strong>
+                        <strong>Exact Preprocessor Request</strong>
                         @if (_preprocessorPrompt is not null)
                         {
                             <button class="btn btn-sm btn-outline-secondary" @onclick="() => _showPreprocessorPrompts = !_showPreprocessorPrompts">
@@ -1357,7 +1721,7 @@
 
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <strong>Legacy Identity-Conditioned Render</strong>
+                        <strong>Identity-Conditioned Render</strong>
                         <button class="btn btn-sm btn-success" @onclick="RenderIdentityImageAsync"
                             disabled="@(_busy || !IsSelectedMomentEnriched || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null || !_identityPackOptions.Any(o => o.Selected))">
                             <i class="bi bi-person-badge me-1"></i> Render with Identity
@@ -1405,7 +1769,7 @@
 
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <strong>Legacy Images</strong>
+                        <strong>Additional Images</strong>
                         <button class="btn btn-sm btn-success" @onclick="RenderImageAsync"
                             disabled="@(_busy || !IsSelectedMomentEnriched || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null)">
                             <i class="bi bi-image me-1"></i> Render Image
@@ -1426,14 +1790,14 @@
                                 }
                             </select>
                         }
-                        @if (!_legacyImages.Any())
+                        @if (!_additionalImages.Any())
                         {
                             <div class="text-muted small">No images yet. Generate a prompt, then render an image.</div>
                         }
                         else
                         {
                             <div class="d-flex flex-wrap gap-3">
-                                @foreach (var img in _legacyImages)
+                                @foreach (var img in _additionalImages)
                                 {
                                     <div class="border rounded p-2" style="width: 220px;">
                                         @if (img.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(img.FileRelativePath))
@@ -1509,6 +1873,22 @@
     </div>
 }
 
+@if (_identitySkipDialogOpen)
+{
+    <div class="scene-production-modal-backdrop" role="presentation" @onclick="CloseIdentitySkipDialog">
+        <section class="scene-production-modal" role="dialog" aria-modal="true" aria-labelledby="identity-skip-title" tabindex="-1" @onclick:stopPropagation="true" @onkeydown="HandleIdentitySkipKeyDown">
+            <h5 id="identity-skip-title">Record identity skip</h5>
+            <p class="small text-muted">This decision allows Finish to use a Composition parent. Record the reason for the audit trail.</p>
+            <label class="form-label" for="identity-skip-reason">Reason</label>
+            <textarea @ref="_identitySkipReasonInput" id="identity-skip-reason" class="form-control" rows="3" @bind="_productionIdentitySkipReason" autofocus="autofocus"></textarea>
+            <div class="d-flex justify-content-end gap-2 mt-3">
+                <button @ref="_identitySkipCancel" class="btn btn-sm btn-outline-secondary" @onclick="CloseIdentitySkipDialog">Cancel</button>
+                <button @ref="_identitySkipSubmit" class="btn btn-sm btn-warning" disabled="@(_busy || string.IsNullOrWhiteSpace(_productionIdentitySkipReason))" @onclick="SubmitIdentitySkipDialogAsync">Record skip</button>
+            </div>
+        </section>
+    </div>
+}
+
 @code {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -1550,6 +1930,8 @@
     private string? _selectedCatalogueBeatId;
     private bool _cataloguePinned;
     private SceneBeatProductionPlan? _productionPlan;
+    private SceneBeatAnalysisAttempt? _productionAttempt;
+    private DurableBackgroundJob? _productionJob;
     private bool _replaceProductionRequested;
     private SceneMomentSet? _momentSet;
     private bool _replaceMomentsRequested;
@@ -1563,6 +1945,7 @@
     private List<ApprovedSceneFrameDecision> _approvalDecisions = [];
     private string? _selectedProductionAttemptId;
     private string? _productionPov;
+    private int _durableWorkspaceRefreshKey;
     private SceneImageBeatAnalysisRecord? _beatAnalysis;
     private bool _requiresBeatRegeneration;
     private SceneImageAnalysisResult? _analysis;
@@ -1576,15 +1959,15 @@
     private bool IsCurrentProductionSession =>
         _session?.SceneImageProductionSchemaGeneration == SceneImageProductionSchema.CurrentGeneration;
 
-    // Studio layout: the Story Moment panel and the Legacy / Experimental Tools panel are
+    // Studio layout: the Story Moment panel and the Additional Phase 2 Tools panel are
     // collapsible and collapsed by default. The Story Moment panel hosts tabs for the story
     // moment itself, the full turn context, and the scene context.
     private bool _storyMomentOpen;
-    private bool _legacyToolsOpen;
+    private bool _additionalToolsOpen;
     private enum StoryPanelTab { StoryMoment, FullTurnContext }
     private StoryPanelTab _storyTab = StoryPanelTab.StoryMoment;
 
-    // Per-panel collapse state. Story Moment and Legacy tools collapse by default; the
+    // Per-panel collapse state. Story Moment and Additional Phase 2 tools collapse by default; the
     // pipeline + studio panels start expanded so their content is visible.
     private bool _beatCatalogueOpen = true;
     private bool _beatProductionOpen = true;
@@ -1627,7 +2010,7 @@
     }
     private List<IdentityPackOption> _identityPackOptions = [];
 
-    // Image model selectors for the legacy render cards: identity-capable models for the
+    // Image model selectors for the additional render cards: identity-capable models for the
     // identity-conditioned render, all enabled image models for the generic render.
     private List<SceneImageModelChoice> _identityModelChoices = [];
     private List<SceneImageModelChoice> _genericModelChoices = [];
@@ -1635,10 +2018,29 @@
     private string? _selectedGenericModelId;
     private string? _resolvedDefaultImageModelId;
 
-    // Production Studio composition controls: model + identity selection independent of the legacy cards.
+    // Production Studio composition controls: model + identity selection independent of the additional cards.
     private string? _selectedProductionModelId;
     private string? _selectedProductionIdentityModelId;
     private List<IdentityPackOption> _productionIdentityPacks = [];
+    private IReadOnlyList<SceneImageIdentityReadiness> _productionIdentityReadiness = [];
+    private string? _productionIdentityReadinessError;
+    private string _productionIdentitySkipReason = string.Empty;
+    private string _productionFinishInstruction = string.Empty;
+    private SceneImageFinishChangeClass? _productionFinishChangeClass;
+    private bool _productionFinishAdultContent;
+    private bool _compareMode;
+    private readonly List<string> _compareAttemptIds = [];
+    private SceneImageProductionStage _activeProductionStage = SceneImageProductionStage.Composition;
+    private bool _identitySkipDialogOpen;
+    private string? _selectedParentAttemptId;
+    private string _canvasMode = "Single";
+    private bool _restoreIdentitySkipFocus;
+    private bool _focusIdentitySkipReason;
+    private int _identitySkipFocusIndex;
+    private ElementReference _identitySkipOpener;
+    private ElementReference _identitySkipReasonInput;
+    private ElementReference _identitySkipCancel;
+    private ElementReference _identitySkipSubmit;
 
     private SceneImageBeat? _selectedBeat
         => _analysis?.Beats.FirstOrDefault(b => b.BeatId == _selectedBeatId);
@@ -1668,7 +2070,7 @@
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList() ?? []);
 
-    private IEnumerable<SceneImageRecord> _legacyImages
+    private IEnumerable<SceneImageRecord> _additionalImages
         => _images.Where(image => string.IsNullOrWhiteSpace(image.ProductionGroupId));
 
     private bool IsSelectedMomentEnriched
@@ -1688,6 +2090,59 @@
         => plan.DialogueCues.Count(cue => cue.ReviewStatus == ProductionReviewStatus.ReviewRequired)
             + plan.SoundCues.Count(cue => cue.ReviewStatus == ProductionReviewStatus.ReviewRequired)
             + plan.VideoCoveragePlans.Count(coverage => coverage.ReviewStatus == ProductionReviewStatus.ReviewRequired);
+
+    private string ProductionProgressLabel(SceneBeatProductionPlan plan)
+        => plan.Status == SceneBeatCatalogueStatus.Pending ? "Queued for production planning..." : "Provider is building the production plan...";
+
+    private string ProductionElapsed(SceneBeatProductionPlan plan)
+    {
+        var end = plan.CompletedUtc ?? DateTime.UtcNow;
+        return FormatDuration(end - plan.CreatedUtc);
+    }
+
+    private string ProductionAttemptLabel()
+    {
+        if (_productionAttempt is null)
+            return "Waiting for durable attempt";
+        var maxAttempts = _productionJob?.MaxAttempts;
+        return maxAttempts is null
+            ? $"{_productionJob?.AttemptCount ?? _productionAttempt.AttemptNumber} · {_productionAttempt.Status}"
+            : $"{_productionJob.AttemptCount} / {maxAttempts} · {_productionAttempt.Status}";
+    }
+
+    private string ProductionLastUpdate()
+    {
+        var updatedUtc = _productionJob?.UpdatedUtc ?? _productionAttempt?.UpdatedUtc ?? _productionPlan?.UpdatedUtc;
+        return updatedUtc is null ? "Waiting" : updatedUtc.Value.ToLocalTime().ToString("g");
+    }
+
+    private static string Metric(long? value, string unit)
+        => value is null ? "not recorded" : $"{value:N0} {unit}";
+
+    private static string Metric(int? value, string unit)
+        => value is null ? "not recorded" : $"{value:N0} {unit}";
+
+    private static string ProductionDiagnosticInterpretation(SceneBeatAnalysisAttempt attempt)
+    {
+        if (attempt.ProviderHeadersWaitMs is null || attempt.ResponseBodyReadMs is null)
+            return "Provider timing is incomplete; a later run is needed for a diagnosis.";
+        if (attempt.ProviderHeadersWaitMs > attempt.ResponseBodyReadMs * 2 && attempt.ProviderHeadersWaitMs > 5000)
+            return "Most measured provider time elapsed before response headers arrived. This indicates request or provider-side waiting, but the client cannot prove the provider queue share.";
+        if (attempt.ResponseBodyReadMs > attempt.ProviderHeadersWaitMs * 2 && attempt.ResponseBodyReadMs > 5000)
+            return "Most measured provider time elapsed while receiving the response body, which is consistent with slow generation or a slow transfer.";
+        if (attempt.InputCharacters > 100000)
+            return "The prompt is large enough to investigate as a possible context-size contributor.";
+        return "No single measured phase dominates; provider metadata and reasoning content should be reviewed with this run.";
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration < TimeSpan.Zero)
+            duration = TimeSpan.Zero;
+        return duration.TotalHours >= 1
+            ? duration.ToString(@"h\:mm\:ss")
+            : duration.ToString(@"m\:ss");
+    }
 
     private static IEnumerable<string> ProductionReviewIssues(SceneBeatProductionPlan plan)
     {
@@ -1731,7 +2186,7 @@
 
     private void ToggleStoryMoment() => _storyMomentOpen = !_storyMomentOpen;
 
-    private void ToggleLegacyTools() => _legacyToolsOpen = !_legacyToolsOpen;
+    private void ToggleAdditionalTools() => _additionalToolsOpen = !_additionalToolsOpen;
 
     private void ToggleBeatCatalogue() => _beatCatalogueOpen = !_beatCatalogueOpen;
 
@@ -1743,11 +2198,268 @@
 
     private void ToggleProductionStudio() => _productionStudioOpen = !_productionStudioOpen;
 
+    private void SelectProductionStage(SceneImageProductionStage stage)
+    {
+        _activeProductionStage = stage;
+        _selectedParentAttemptId = _selectedProductionAttemptId;
+    }
+
+    private void SelectProductionStageIfAvailable(SceneImageProductionStage stage)
+    {
+        if (StageState(stage).StartsWith("Blocked", StringComparison.Ordinal)
+            || StageState(stage).StartsWith("Locked", StringComparison.Ordinal))
+            return;
+
+        SelectProductionStage(stage);
+    }
+
+    private string StageState(SceneImageProductionStage stage)
+    {
+        var attempts = _productionAttempts.Where(attempt => attempt.ProductionStage == stage).ToList();
+        if (attempts.Any(attempt => attempt.Status is SceneImageStatus.Pending or SceneImageStatus.Generating))
+            return "Running";
+        if (stage == SceneImageProductionStage.Identity && _productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser)
+            return $"Skipped - {_productionGroup.IdentitySkipReason}";
+        if (attempts.Any(attempt => attempt.Status == SceneImageStatus.Complete))
+            return $"Complete ({attempts.Count(attempt => attempt.Status == SceneImageStatus.Complete)})";
+        if (attempts.Any(attempt => attempt.Status == SceneImageStatus.Failed))
+            return "Failed";
+        if (stage == SceneImageProductionStage.Composition)
+            return _productionGroup is null ? "Not started" : "Ready";
+        return StageBlockingReason(stage);
+    }
+
+    private SceneImageIdentityReadiness? IdentityReadinessFor(string characterName)
+        => _productionIdentityReadiness.FirstOrDefault(readiness =>
+            string.Equals(readiness.CharacterName, characterName, StringComparison.OrdinalIgnoreCase));
+
+    private string IdentityReadinessState(string characterName)
+    {
+        if (_productionIdentityReadinessError is not null)
+            return _productionIdentityReadinessError.Contains(characterName, StringComparison.OrdinalIgnoreCase)
+                ? _productionIdentityReadinessError
+                : "Not ready";
+        return "Missing pack or canonical face";
+    }
+
+    private int ReadyIdentityCount(IReadOnlyList<SceneMomentFrozenCharacter> characters)
+        => characters.Count(character => IdentityReadinessFor(character.Name) is not null);
+
+    private IEnumerable<SceneImageRecord> EligibleFinishParents()
+        => _productionAttempts.Where(IsEligibleFinishParent);
+
+    private bool IsEligibleFinishParent(SceneImageRecord attempt)
+        => attempt.Status == SceneImageStatus.Complete
+            && (attempt.ProductionStage == SceneImageProductionStage.Identity
+                || (attempt.ProductionStage == SceneImageProductionStage.Composition
+                    && _productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser));
+
+    private string FinishParentReason(SceneImageRecord attempt)
+        => attempt.Status != SceneImageStatus.Complete
+            ? "Parent must be completed."
+            : "Finish requires a completed Identity attempt, or a Composition attempt when identity is skipped.";
+
+    private static string SnapshotValue(SceneImageRecord attempt, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(attempt.SettingsJson))
+            return "Not persisted";
+        try
+        {
+            using var document = JsonDocument.Parse(attempt.SettingsJson);
+            return document.RootElement.TryGetProperty(propertyName, out var value)
+                ? value.ToString()
+                : "Not persisted";
+        }
+        catch (JsonException)
+        {
+            return "Invalid snapshot";
+        }
+    }
+
+    private IReadOnlyList<string> CompareDifferences()
+    {
+        if (_compareAttemptIds.Count != 2)
+            return ["Select two completed attempts to compare."];
+        var left = _productionAttempts.FirstOrDefault(attempt => attempt.Id == _compareAttemptIds[0]);
+        var right = _productionAttempts.FirstOrDefault(attempt => attempt.Id == _compareAttemptIds[1]);
+        if (left is null || right is null)
+            return ["One compared attempt is no longer available."];
+        var differences = new List<string>();
+        if (left.ProductionStage != right.ProductionStage) differences.Add("stage");
+        if (!string.Equals(left.ModelIdentifier, right.ModelIdentifier, StringComparison.Ordinal)) differences.Add("model");
+        if (!string.Equals(left.SettingsJson, right.SettingsJson, StringComparison.Ordinal)) differences.Add("settings");
+        if (!string.Equals(left.SourceImageId ?? left.RegenerateOfId, right.SourceImageId ?? right.RegenerateOfId, StringComparison.Ordinal)) differences.Add("parent");
+        if (!string.Equals(left.IdentityReferenceBindingsJson, right.IdentityReferenceBindingsJson, StringComparison.Ordinal)) differences.Add("references");
+        return differences.Count == 0 ? ["No persisted metadata differences."] : differences;
+    }
+
+    private bool CanApprove(SceneImageRecord attempt)
+        => _productionGroup is not null
+            && attempt.Status == SceneImageStatus.Complete
+            && !string.IsNullOrWhiteSpace(attempt.Sha256)
+            && !attempt.IdentityStale
+            && (_productionGroup.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser
+                || attempt.ProductionStage == SceneImageProductionStage.Identity
+                || attempt.FinishChangeClass == SceneImageFinishChangeClass.Cosmetic);
+
+    private string ApprovalReason(SceneImageRecord attempt)
+    {
+        if (attempt.Status != SceneImageStatus.Complete)
+            return "Approval is blocked until this attempt completes.";
+        if (attempt.IdentityStale)
+            return "Identity-stale after a geometry edit; run another identity pass before approval.";
+        if (_productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.Required
+            && attempt.ProductionStage is not SceneImageProductionStage.Identity
+            && attempt.FinishChangeClass != SceneImageFinishChangeClass.Cosmetic)
+            return "Identity required - this attempt has no completed identity pass.";
+        return "Ready for approval. The decision records this attempt checksum and creates a new decision version.";
+    }
+
+    private void SelectProductionAttempt(SceneImageRecord attempt)
+    {
+        _selectedProductionAttemptId = attempt.Id;
+        if (attempt.ProductionStage.HasValue)
+            _activeProductionStage = attempt.ProductionStage.Value;
+    }
+
+    private void OnFinishParentChanged(ChangeEventArgs args)
+    {
+        _selectedProductionAttemptId = args.Value?.ToString();
+        _activeProductionStage = SceneImageProductionStage.Finish;
+    }
+
+    private IReadOnlyList<SceneImageRecord> CompletedCompositionAttempts()
+        => _productionAttempts
+            .Where(attempt => attempt.ProductionStage == SceneImageProductionStage.Composition
+                && attempt.Status == SceneImageStatus.Complete)
+            .ToList();
+
+    private void OnIdentityParentChanged(ChangeEventArgs args)
+    {
+        _selectedProductionAttemptId = args.Value?.ToString();
+        _activeProductionStage = SceneImageProductionStage.Identity;
+    }
+
+    private Task BranchFromAttemptAsync(SceneImageRecord attempt)
+    {
+        SelectProductionAttempt(attempt);
+        return attempt.ProductionStage == SceneImageProductionStage.Composition
+            ? RegenerateProductionCompositionAsync(attempt)
+            : Task.CompletedTask;
+    }
+
+    private Task OpenIdentitySkipDialogAsync()
+    {
+        _identitySkipDialogOpen = true;
+        _productionIdentitySkipReason = string.Empty;
+        _identitySkipFocusIndex = 0;
+        _focusIdentitySkipReason = true;
+        return Task.CompletedTask;
+    }
+
+    private void CloseIdentitySkipDialog()
+    {
+        _identitySkipDialogOpen = false;
+        _focusIdentitySkipReason = false;
+        _restoreIdentitySkipFocus = true;
+    }
+
+    private async Task SubmitIdentitySkipDialogAsync()
+    {
+        await SkipProductionIdentityAsync();
+        CloseIdentitySkipDialog();
+    }
+
+    private async Task HandleIdentitySkipKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            CloseIdentitySkipDialog();
+            return;
+        }
+
+        if (args.Key == "Tab")
+        {
+            var focusable = new[] { _identitySkipReasonInput, _identitySkipCancel, _identitySkipSubmit };
+            _identitySkipFocusIndex = (_identitySkipFocusIndex + (args.ShiftKey ? -1 : 1) + focusable.Length) % focusable.Length;
+            await focusable[_identitySkipFocusIndex].FocusAsync();
+        }
+    }
+
+    private int StageTabIndex(SceneImageProductionStage stage)
+        => _activeProductionStage == stage ? 0 : -1;
+
+    private void HandleProductionStageKeyDown(KeyboardEventArgs args, SceneImageProductionStage stage)
+    {
+        var stages = new[]
+        {
+            SceneImageProductionStage.Composition,
+            SceneImageProductionStage.Identity,
+            SceneImageProductionStage.Finish
+        };
+        var currentIndex = Array.IndexOf(stages, stage);
+        var nextIndex = args.Key switch
+        {
+            "ArrowRight" or "ArrowDown" => (currentIndex + 1) % stages.Length,
+            "ArrowLeft" or "ArrowUp" => (currentIndex - 1 + stages.Length) % stages.Length,
+            "Home" => 0,
+            "End" => stages.Length - 1,
+            _ => -1
+        };
+        if (nextIndex >= 0)
+        {
+            var direction = nextIndex >= currentIndex ? 1 : -1;
+            while (nextIndex != currentIndex && !IsStageAvailable(stages[nextIndex]))
+                nextIndex = (nextIndex + direction + stages.Length) % stages.Length;
+            if (IsStageAvailable(stages[nextIndex]))
+                SelectProductionStage(stages[nextIndex]);
+        }
+    }
+
+    private bool IsStageAvailable(SceneImageProductionStage stage)
+        => !StageState(stage).StartsWith("Blocked", StringComparison.Ordinal)
+            && !StageState(stage).StartsWith("Locked", StringComparison.Ordinal);
+
+    private string StageTabClass(SceneImageProductionStage stage)
+    {
+        var classes = new List<string>();
+        if (_activeProductionStage == stage)
+        {
+            classes.Add("is-current");
+        }
+        if (_productionAttempts.Any(attempt => attempt.ProductionStage == stage && attempt.Status == SceneImageStatus.Complete))
+        {
+            classes.Add("is-complete");
+        }
+        return string.Join(' ', classes);
+    }
+
+    private string StageBlockingReason(SceneImageProductionStage stage) => stage switch
+    {
+        SceneImageProductionStage.Identity => _productionAttempts.Any(attempt => attempt.ProductionStage == SceneImageProductionStage.Composition && attempt.Status == SceneImageStatus.Complete)
+            ? "Select a completed Composition attempt below, then apply an approved identity pack."
+            : "Select a completed Composition attempt before applying identity.",
+        SceneImageProductionStage.Finish => _productionAttempts.Any(attempt => attempt.ProductionStage == SceneImageProductionStage.Identity && attempt.Status == SceneImageStatus.Complete)
+            || _productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser
+            ? "Select a completed Identity attempt below, or use the recorded identity skip, then describe the final change."
+            : "Finish is locked until a completed Identity attempt exists or identity is explicitly skipped.",
+        _ => string.Empty
+    };
+
     private void ToggleStoryArc() => _storyArcOpen = !_storyArcOpen;
 
     private void ToggleAllTurns() => _allTurnsOpen = !_allTurnsOpen;
 
-    private void SelectArcTurn(StoryArcTurn turn) => _selectedArcTurnId = turn.TurnId;
+    private void SelectArcTurn(StoryArcTurn turn)
+    {
+        if (string.IsNullOrWhiteSpace(turn.NavigationInteractionId))
+        {
+            _selectedArcTurnId = turn.TurnId;
+            return;
+        }
+
+        NavigateToTurn(turn);
+    }
 
     private void ExpandStoryArc() => _selectedArcTurnId = null;
 
@@ -2006,6 +2718,17 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_identitySkipDialogOpen && _focusIdentitySkipReason)
+        {
+            _focusIdentitySkipReason = false;
+            await _identitySkipReasonInput.FocusAsync();
+        }
+        else if (!_identitySkipDialogOpen && _restoreIdentitySkipFocus)
+        {
+            _restoreIdentitySkipFocus = false;
+            await _identitySkipOpener.FocusAsync();
+        }
+
         // Reload on the initial render and whenever the route's interaction changes (e.g. when
         // navigating between turns from the Story arc "Open in Studio"), so the studio always
         // reflects the requested interaction and its turn stays pinned in the Story arc.
@@ -2425,9 +3148,12 @@
     private async Task LoadProductionPlanAsync()
     {
         var previousProductionPlanId = _productionPlan?.Id;
-        _productionPlan = _catalogue is null || _selectedCatalogueBeatId is null
+        var productionStatus = _catalogue is null || _selectedCatalogueBeatId is null
             ? null
-            : await BeatProductionService.GetCurrentAsync(_catalogue.Id, _selectedCatalogueBeatId);
+            : await BeatProductionService.GetCurrentStatusAsync(_catalogue.Id, _selectedCatalogueBeatId);
+        _productionPlan = productionStatus?.Plan;
+        _productionAttempt = productionStatus?.Attempt;
+        _productionJob = productionStatus?.Job;
         if (previousProductionPlanId is not null
             && !string.Equals(previousProductionPlanId, _productionPlan?.Id, StringComparison.Ordinal))
         {
@@ -2480,6 +3206,16 @@
         _approvalDecisions = [];
         _selectedProductionAttemptId = null;
         _productionPov = null;
+        _productionIdentityReadiness = [];
+        _productionIdentityReadinessError = null;
+        _activeProductionStage = SceneImageProductionStage.Composition;
+        _selectedParentAttemptId = null;
+        _compareAttemptIds.Clear();
+        _compareMode = false;
+        _canvasMode = "Single";
+        _productionFinishChangeClass = null;
+        _productionFinishInstruction = string.Empty;
+        _identitySkipDialogOpen = false;
     }
 
     private async Task SelectProductionPovAsync(string pov)
@@ -2490,6 +3226,10 @@
         _productionAttempts = [];
         _approvalDecisions = [];
         _selectedProductionAttemptId = null;
+        _selectedParentAttemptId = null;
+        _compareAttemptIds.Clear();
+        _compareMode = false;
+        _canvasMode = "Single";
         await RunAsync(LoadProductionGroupAsync);
     }
 
@@ -2502,6 +3242,8 @@
             _productionAttempts = [];
             _approvalDecisions = [];
             _selectedProductionAttemptId = null;
+            _productionIdentityReadiness = [];
+            _productionIdentityReadinessError = null;
             return;
         }
 
@@ -2512,12 +3254,24 @@
             _productionAttempts = [];
             _approvalDecisions = [];
             _selectedProductionAttemptId = null;
+            _productionIdentityReadiness = [];
+            _productionIdentityReadinessError = null;
             return;
         }
 
         EnsureProductionGroupMatchesSelection(_productionGroup);
     _compiledMediaBrief = await ProductionService.GetOrCreateStillBriefAsync(_productionGroup.Id);
     await LoadProductionPromptAsync();
+        try
+        {
+            _productionIdentityReadiness = await ProductionService.ResolveIdentityReadinessAsync(_productionGroup.Id);
+            _productionIdentityReadinessError = null;
+        }
+        catch (InvalidOperationException exception)
+        {
+            _productionIdentityReadiness = [];
+            _productionIdentityReadinessError = exception.Message;
+        }
         _productionAttempts = (await ProductionService.ListAttemptsAsync(_productionGroup.Id)).ToList();
         _approvalDecisions = (await ProductionService.ListApprovalDecisionsAsync(_productionGroup.Id)).ToList();
         if (_selectedProductionAttemptId is null
@@ -2525,6 +3279,27 @@
         {
             _selectedProductionAttemptId = _productionAttempts.FirstOrDefault()?.Id;
         }
+        PreserveProductionStateKeys();
+    }
+
+    private void PreserveProductionStateKeys()
+    {
+        if (_selectedProductionAttemptId is not null
+            && !_productionAttempts.Any(attempt => attempt.Id == _selectedProductionAttemptId))
+            _selectedProductionAttemptId = _productionAttempts.FirstOrDefault()?.Id;
+
+        if (_selectedParentAttemptId is not null
+            && !_productionAttempts.Any(attempt => attempt.Id == _selectedParentAttemptId))
+            _selectedParentAttemptId = null;
+
+        _compareAttemptIds.RemoveAll(id => !_productionAttempts.Any(attempt => attempt.Id == id)
+            || _productionAttempts.First(attempt => attempt.Id == id).Status != SceneImageStatus.Complete);
+        if (_compareAttemptIds.Count < 2)
+            _compareMode = false;
+        _canvasMode = _compareMode ? "Compare" : "Single";
+
+        if (!IsStageAvailable(_activeProductionStage))
+            _activeProductionStage = SceneImageProductionStage.Composition;
     }
 
     private async Task CreateOrLoadProductionAsync()
@@ -2558,9 +3333,172 @@
                 _productionPov,
                 null));
             _compiledMediaBrief = await ProductionService.GetOrCreateStillBriefAsync(_productionGroup.Id);
+            await CreateInitialDurableRevisionAsync();
             await LoadProductionGroupAsync();
-            _statusMessage = "Production group and compiled Still brief are ready for the exact selected Moment and POV.";
+            _durableWorkspaceRefreshKey++;
+            _statusMessage = "Production group, compiled Still brief, and durable revision 1 are ready for the exact selected Moment and POV.";
         });
+    }
+
+    private async Task CreateInitialDurableRevisionAsync()
+    {
+        if (_productionGroup is null || _compiledMediaBrief is null || _momentEnrichment is null
+            || _selectedCatalogueBeat is null || _productionPlan is null || _momentSet is null || _selectedMoment is null
+            || string.IsNullOrWhiteSpace(_productionPov))
+            throw new InvalidOperationException("Completed Moment production context is required before durable bootstrap.");
+
+        var resolvedModel = await ModelResolutionService.ResolveImageModelAsync(_selectedProductionModelId);
+        var capability = (await DurableProductionService.ListCapabilitiesAsync())
+            .Where(candidate => string.Equals(candidate.ModelId, resolvedModel.ModelIdentifier, StringComparison.Ordinal))
+            .SingleOrDefault()
+            ?? throw new InvalidOperationException($"No single qualified durable capability is registered for image model '{resolvedModel.ModelIdentifier}'.");
+        if (resolvedModel.ImageProtocol != ImageProtocol.ComfyUiServerless)
+            throw new InvalidOperationException($"Durable dispatch is not configured for image protocol '{resolvedModel.ImageProtocol}'.");
+
+        var now = DateTime.UtcNow;
+        var durableIntentJson = BuildDurableIntentJson(_compiledMediaBrief.SemanticInputSnapshotJson, _productionPov);
+        var intent = new ProductionIntentSnapshot
+        {
+            ContextKind = ProductionContextKind.SceneMoment,
+            ContextId = sessionId,
+            ContextSnapshotJson = JsonSerializer.Serialize(new
+            {
+                CatalogueId = _catalogue.Id,
+                BeatId = _selectedCatalogueBeat.BeatId,
+                BeatProductionPlanId = _productionPlan.Id,
+                BeatProductionPlanVersion = _productionPlan.Version,
+                MomentSetId = _momentSet.Id,
+                MomentSetVersion = _momentSet.Version,
+                MomentId = _selectedMoment.MomentId,
+                MomentEnrichmentId = _momentEnrichment.Id,
+                MomentEnrichmentRevision = _momentEnrichment.Revision,
+                Pov = _productionPov
+            }),
+            ProductionGroupId = _productionGroup.Id,
+            SessionId = sessionId,
+            CatalogueId = _catalogue.Id,
+            BeatId = _selectedCatalogueBeat.BeatId,
+            BeatProductionPlanId = _productionPlan.Id,
+            BeatProductionPlanVersion = _productionPlan.Version,
+            MomentSetId = _momentSet.Id,
+            MomentSetVersion = _momentSet.Version,
+            MomentId = _selectedMoment.MomentId,
+            MomentEnrichmentId = _momentEnrichment.Id,
+            MomentEnrichmentRevision = _momentEnrichment.Revision,
+            Pov = _productionPov,
+            Operation = MediaOperation.Generate,
+            VisibleActorsJson = durableIntentJson.VisibleActorsJson,
+            CompositionIntentJson = durableIntentJson.CompositionIntentJson,
+            CameraIntentJson = durableIntentJson.CameraIntentJson,
+            StyleIntentJson = durableIntentJson.StyleIntentJson,
+            PreservationConstraintsJson = "{}",
+            ChangeIntentJson = "{}",
+            ContentPolicyJson = JsonSerializer.Serialize(new { resolvedModel.ContentPolicy })
+        };
+
+        var endpoint = new ProductionProviderEndpoint(
+            capability.ProviderKey,
+            resolvedModel.ProviderBaseUrl,
+            resolvedModel.ProviderBaseUrl,
+            resolvedModel.ImageGenerationPath,
+            "/status/{jobId}",
+            "/cancel/{jobId}",
+            resolvedModel.ProviderTimeoutSeconds,
+            "comfyui-serverless",
+            "{\"ready\":true,\"source\":\"model-manager\"}");
+        var policy = new ProductionDispatchPolicy(
+            "runpod-serverless-worker-comfyui-v1", false, 1,
+            "configured-comfyui-worker", "configured-capability-artifacts", "inline", 3600);
+
+        await DurableProductionService.CreateInitialRevisionAsync(new ProductionInitialRevisionCommand(
+            intent, capability.ProfileId, capability.CellId, SceneImageProductionSettingsContract.Serialize(_settings), 1,
+            $"Generate Composition for {_selectedMoment.Label} ({_productionPov})", "{}", endpoint, policy,
+            new ProductionCostBasis("USD", 0), now));
+    }
+
+    private static (string VisibleActorsJson, string CompositionIntentJson, string CameraIntentJson, string StyleIntentJson)
+        BuildDurableIntentJson(string semanticInputSnapshotJson, string pov)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(semanticInputSnapshotJson);
+            var root = document.RootElement;
+            var frozenState = RequiredObject(root, "frozenState", "compiled media brief");
+            var characters = RequiredArray(frozenState, "characters", "frozen state");
+            if (characters.GetArrayLength() == 0)
+                throw new InvalidOperationException("Compiled media brief frozen state must contain at least one visible character.");
+
+            var actors = characters.EnumerateArray().Select(character => new
+            {
+                actorKey = RequiredString(character, "profileKey", "frozen character"),
+                description = LimitPromptText(string.Join("; ",
+                    RequiredString(character, "position", "frozen character"),
+                    RequiredString(character, "actionOrObservation", "frozen character"),
+                    RequiredString(character, "clothing", "frozen character")), 60)
+            }).ToArray();
+
+            var composition = new
+            {
+                location = LimitPromptText(RequiredString(frozenState, "location", "frozen state"), 50),
+                visualDescription = LimitPromptText(RequiredString(frozenState, "visualDescription", "frozen state"), 110),
+                environment = LimitPromptText(RequiredString(frozenState, "environment", "frozen state"), 50),
+                objects = CompactStringArray(RequiredArray(frozenState, "objects", "frozen state"), 2, 25)
+            };
+            var camera = new { pov = LimitPromptText(pov, 30) };
+            var style = new
+            {
+                lighting = LimitPromptText(RequiredString(frozenState, "lighting", "frozen state"), 25),
+                mood = LimitPromptText(RequiredString(frozenState, "mood", "frozen state"), 25),
+                timeOfDay = LimitPromptText(RequiredString(frozenState, "timeOfDay", "frozen state"), 25)
+            };
+
+            return (
+                JsonSerializer.Serialize(actors),
+                JsonSerializer.Serialize(composition),
+                JsonSerializer.Serialize(camera),
+                JsonSerializer.Serialize(style));
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException("Compiled media brief semantic input is invalid JSON; durable visual intent cannot be resolved.", exception);
+        }
+    }
+
+    private static JsonElement RequiredObject(JsonElement parent, string name, string source)
+    {
+        if (!parent.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException($"{source} must contain object '{name}'.");
+        return value;
+    }
+
+    private static JsonElement RequiredArray(JsonElement parent, string name, string source)
+    {
+        if (!parent.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException($"{source} must contain array '{name}'.");
+        return value;
+    }
+
+    private static string RequiredString(JsonElement parent, string name, string source)
+    {
+        if (!parent.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(value.GetString()))
+            throw new InvalidOperationException($"{source} must contain non-empty string '{name}'.");
+        return value.GetString()!.Trim();
+    }
+
+    private static string[] CompactStringArray(JsonElement value, int maximumItems, int maximumLength)
+    {
+        return value.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+            .Take(maximumItems)
+            .Select(item => LimitPromptText(item.GetString()!, maximumLength))
+            .ToArray();
+    }
+
+    private static string LimitPromptText(string value, int maximum = 160)
+    {
+        var normalized = string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return normalized.Length <= maximum ? normalized : normalized[..(maximum - 3)].TrimEnd() + "...";
     }
 
     private void EnsureProductionGroupMatchesSelection(SceneImageProductionGroup group)
@@ -2643,55 +3581,78 @@
         });
     }
 
-    private async Task GenerateProductionCompositionWithIdentityAsync()
+    private async Task ApplyProductionIdentityAsync()
     {
-        if (_productionGroup is null
-            || _compiledMediaBrief is null
-            || _activePrompt?.Status != SceneImagePromptStatus.Complete
-            || string.IsNullOrWhiteSpace(_editablePrompt)
-            || string.IsNullOrWhiteSpace(_productionPov))
-        {
-            throw new InvalidOperationException("A production group and completed nonblank prompt are required for Composition.");
-        }
-        var selected = _productionIdentityPacks.Where(o => o.Selected).ToList();
-        if (selected.Count == 0)
-            throw new InvalidOperationException("Select at least one approved identity pack for one-pass identity Composition.");
-        EnsureProductionGroupMatchesSelection(_productionGroup);
+        if (_productionGroup is null || _selectedProductionAttempt is null)
+            throw new InvalidOperationException("Select a completed Composition attempt before applying identity.");
+        if (_selectedProductionAttempt.Status != SceneImageStatus.Complete
+            || _selectedProductionAttempt.ProductionStage != SceneImageProductionStage.Composition)
+            throw new InvalidOperationException("Identity requires a completed Composition attempt.");
 
         await RunAsync(async () =>
         {
-            await ImageService.UpdatePromptOutputAsync(sessionId, _activePrompt.Id, _editablePrompt.Trim());
-
-            var identityPacks = selected
-                .Select(o => new IdentityPackSelection
-                {
-                    PackId = o.PackId,
-                    CharacterLabel = o.Label,
-                    Strength = o.Strength
-                })
-                .ToList();
-
-            var record = await ImageService.EnqueueRenderAsync(new SceneRenderRequest
+            var record = await ImageService.EnqueueIdentityAsync(new SceneImageIdentityRequest
             {
                 SessionId = sessionId,
                 InteractionId = interactionId,
-                PromptRecordId = _activePrompt.Id,
-                Prompt = _editablePrompt.Trim(),
-                ImageSize = _settings.ImageSize,
-                RequestedModelId = _selectedProductionIdentityModelId,
-                SettingsJson = JsonSerializer.Serialize(_settings),
-                RegenerateOfId = null,
                 ProductionGroupId = _productionGroup.Id,
-                CompiledMediaBriefId = _activePrompt.CompiledMediaBriefId,
-                BeatId = _productionGroup.BeatId,
-                Pov = _productionGroup.Pov,
-                RenderMode = SceneImageRenderMode.IdentityControlled,
-                IdentityPackId = identityPacks[0].PackId,
-                IdentityPacks = identityPacks
+                SourceImageId = _selectedProductionAttempt.Id,
+                Instruction = $"Apply the approved identity references for {string.Join(", ", _productionIdentityReadiness.Select(binding => binding.CharacterName))} while preserving the completed Composition scene, camera, lighting, clothing, and composition."
             });
             await LoadProductionGroupAsync();
             _selectedProductionAttemptId = record.Id;
-            _statusMessage = "Production Composition with identity queued.";
+            _statusMessage = "Production Identity queued.";
+            EnsurePolling();
+        });
+    }
+
+    private async Task SkipProductionIdentityAsync()
+    {
+        if (_productionGroup is null || string.IsNullOrWhiteSpace(_productionIdentitySkipReason))
+            throw new InvalidOperationException("A nonblank identity skip reason is required.");
+        await RunAsync(async () =>
+        {
+            _productionGroup = await ProductionService.SkipIdentityAsync(_productionGroup.Id, _productionIdentitySkipReason.Trim());
+            _productionIdentitySkipReason = string.Empty;
+            _statusMessage = "Identity skip recorded.";
+        });
+    }
+
+    private async Task ClearProductionIdentitySkipAsync()
+    {
+        if (_productionGroup is null)
+            throw new InvalidOperationException("A production group is required.");
+        await RunAsync(async () =>
+        {
+            _productionGroup = await ProductionService.ClearIdentitySkipAsync(_productionGroup.Id);
+            _statusMessage = "Identity is required again.";
+        });
+    }
+
+    private async Task EnqueueProductionFinishAsync()
+    {
+        if (_productionGroup is null || _selectedProductionAttempt is null)
+            throw new InvalidOperationException("Select a completed production attempt before enqueuing Finish.");
+        if (string.IsNullOrWhiteSpace(_productionFinishInstruction) || !_productionFinishChangeClass.HasValue)
+            throw new InvalidOperationException("Finish instruction and change class are required.");
+        await RunAsync(async () =>
+        {
+            var record = await ImageService.EnqueueFinishAsync(new SceneImageFinishRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                ProductionGroupId = _productionGroup.Id,
+                SourceImageId = _selectedProductionAttempt.Id,
+                Instruction = _productionFinishInstruction.Trim(),
+                FinishChangeClass = _productionFinishChangeClass,
+                RequestAdultContent = _productionFinishAdultContent
+            });
+            await LoadProductionGroupAsync();
+            _selectedProductionAttemptId = record.Id;
+            _productionFinishInstruction = string.Empty;
+            _productionFinishChangeClass = null;
+            _productionFinishAdultContent = false;
+            _statusMessage = "Production Finish queued.";
             EnsurePolling();
         });
     }
@@ -2708,6 +3669,25 @@
                 attempt.Id, _productionGroup.Id, attempt.Disposition.Value, nextDisposition);
             await LoadProductionGroupAsync();
         });
+    }
+
+    private void ToggleProductionCompare()
+    {
+        _compareMode = !_compareMode;
+        if (!_compareMode)
+            _compareAttemptIds.Clear();
+    }
+
+    private void ToggleProductionCompareAttempt(SceneImageRecord attempt)
+    {
+        if (attempt.Status != SceneImageStatus.Complete)
+            return;
+        if (_compareAttemptIds.Remove(attempt.Id))
+            return;
+        if (_compareAttemptIds.Count == 2)
+            _compareAttemptIds.RemoveAt(0);
+        _compareAttemptIds.Add(attempt.Id);
+        _compareMode = true;
     }
 
     private async Task ApproveProductionAttemptAsync(SceneImageRecord attempt)
@@ -2985,7 +3965,7 @@
     private void LoadProductionIdentityPackOptionsAsync()
     {
         // Independent selection state for the Production Studio so its identity checkboxes never
-        // affect the legacy identity card.
+        // affect the additional identity card.
         _productionIdentityPacks = _identityPackOptions
             .Select(option => new IdentityPackOption
             {

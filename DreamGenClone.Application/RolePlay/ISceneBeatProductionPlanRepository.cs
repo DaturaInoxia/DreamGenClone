@@ -16,6 +16,11 @@ public interface ISceneBeatProductionPlanRepository
         string beatId,
         CancellationToken cancellationToken = default);
 
+    Task<SceneBeatProductionPlan?> GetLatestAsync(
+        string catalogueId,
+        string beatId,
+        CancellationToken cancellationToken = default);
+
     Task<SceneBeatAnalysisAttempt?> GetAttemptAsync(
         string attemptId,
         CancellationToken cancellationToken = default);

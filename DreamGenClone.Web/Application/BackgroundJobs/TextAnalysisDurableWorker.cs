@@ -6,6 +6,14 @@ namespace DreamGenClone.Web.Application.BackgroundJobs;
 
 public sealed class TextAnalysisDurableWorker : BackgroundService
 {
+    private static readonly DurableJobLane[] SupportedLanes =
+    [
+        DurableJobLane.TextAnalysis,
+        DurableJobLane.PromptCompilation,
+        DurableJobLane.ImageRender,
+        DurableJobLane.ImageEdit
+    ];
+
     private readonly IDurableBackgroundJobRepository _repository;
     private readonly IDurableBackgroundJobQueue _queue;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -28,7 +36,12 @@ public sealed class TextAnalysisDurableWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!await _repository.HasActiveJobsAsync(DurableJobLane.TextAnalysis, stoppingToken))
+        var hasActiveJobs = false;
+        foreach (var lane in SupportedLanes)
+        {
+            hasActiveJobs |= await _repository.HasActiveJobsAsync(lane, stoppingToken);
+        }
+        if (!hasActiveJobs)
             await _queue.WaitForWorkAsync(stoppingToken);
 
         await using var configurationScope = _scopeFactory.CreateAsyncScope();
@@ -37,25 +50,36 @@ public sealed class TextAnalysisDurableWorker : BackgroundService
             .ResolveAsync(stoppingToken);
 
         _logger.LogInformation(
-            "TextAnalysis durable worker started: MaxConcurrentJobs={MaxConcurrentJobs}, PollMilliseconds={PollMilliseconds}",
+            "Durable worker started: Lanes={Lanes}, MaxConcurrentJobsPerLane={MaxConcurrentJobs}, PollMilliseconds={PollMilliseconds}",
+            string.Join(',', SupportedLanes),
             analyzer.MaxConcurrentJobs,
             analyzer.PollIntervalMilliseconds);
-        var workers = Enumerable.Range(0, analyzer.MaxConcurrentJobs)
-            .Select(index => RunWorkerAsync(index, analyzer, stoppingToken));
+        var workers = SupportedLanes.SelectMany(lane => Enumerable.Range(0, analyzer.MaxConcurrentJobs)
+            .Select(index => RunWorkerAsync(lane, index, analyzer, stoppingToken)));
         await Task.WhenAll(workers);
     }
 
     private async Task RunWorkerAsync(
+        DurableJobLane lane,
         int workerIndex,
         ResolvedSceneBeatAnalyzer analyzer,
         CancellationToken stoppingToken)
     {
-        var leaseOwner = $"{Environment.MachineName}:{Environment.ProcessId}:text-analysis:{workerIndex}:{Guid.NewGuid():N}";
+        var leaseOwner = $"{Environment.MachineName}:{Environment.ProcessId}:{lane}:{workerIndex}:{Guid.NewGuid():N}";
+        var nextLeaseRecoveryUtc = DateTime.MinValue;
         while (!stoppingToken.IsCancellationRequested)
         {
             var claimedUtc = _timeProvider.GetUtcNow().UtcDateTime;
+            if (claimedUtc >= nextLeaseRecoveryUtc)
+            {
+                var recoveredCount = await _repository.RecoverExpiredLeasesAsync(claimedUtc, stoppingToken);
+                if (recoveredCount > 0)
+                    _logger.LogWarning("Recovered {RecoveredCount} expired durable job lease(s)", recoveredCount);
+                nextLeaseRecoveryUtc = claimedUtc.AddSeconds(Math.Max(1, analyzer.LeaseSeconds / 2d));
+            }
+
             var job = await _repository.TryClaimNextAsync(
-                DurableJobLane.TextAnalysis,
+                lane,
                 leaseOwner,
                 claimedUtc,
                 claimedUtc.AddSeconds(analyzer.LeaseSeconds),
