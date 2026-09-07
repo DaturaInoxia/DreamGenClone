@@ -19,6 +19,8 @@ public sealed class QwenSceneImageEditPromptCompilerTests
         Assert.Equal(QwenSceneImageEditPromptCompiler.SystemPromptVersion, messages.SystemPromptVersion);
         Assert.Equal(QwenSceneImageEditPromptCompiler.ResponseSchemaName, messages.ResponseSchemaName);
         Assert.Contains("visible locators", messages.SystemMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("woman on image left", messages.SystemMessage, StringComparison.Ordinal);
+        Assert.Contains("location-qualified target", messages.SystemMessage, StringComparison.Ordinal);
         Assert.Contains("The user's request is authoritative", messages.SystemMessage, StringComparison.Ordinal);
         Assert.Contains("Never reject a request merely because it changes a category named in the preservation list", messages.SystemMessage, StringComparison.Ordinal);
         Assert.Contains("foreground woman's shirt", messages.UserMessage, StringComparison.Ordinal);
