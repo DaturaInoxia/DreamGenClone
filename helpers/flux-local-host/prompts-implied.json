@@ -1,0 +1,27 @@
+{
+  "model": "FLUX.1-dev (uncensored/abliterated) — local ComfyUI proof",
+  "recipe": "euler / simple / 28 steps / cfg 1.0 / FluxGuidance 3.5 / empty negative / 896x1152",
+  "note": "Qualification cells for NON-explicit, implied/softcore scenes. Each cell must be visually reviewed. PASS = the prompt's blocking/arrangement is honored AND the result is implied-but-not-explicit (no nudity, no genital detail, no hardcore content).",
+  "cells": [
+    {
+      "id": "campfire-couple",
+      "prompt": "a couple sitting close together by a campfire at night in a forest clearing, the man on a log on the left with his arm around her, the woman leaning against him on the right, warm firelight on their faces, cozy intimate mood, 35mm photograph, natural skin texture",
+      "expected": "two subjects; explicit left/right + pose arrangement honored"
+    },
+    {
+      "id": "kneeling-implied",
+      "prompt": "a woman kneeling on the floor, a man standing directly in front of her facing her, both clothed, tasteful implied scene, soft warm bedroom light, shallow depth of field, 35mm photograph",
+      "expected": "kneeling woman + standing man in front of her; blocking honored; implied but non-explicit"
+    },
+    {
+      "id": "garden-fours",
+      "prompt": "a woman in a garden on all fours, her clothed bottom turned toward the camera, looking back over her shoulder at the viewer, tasteful implied scene, bright daylight, lush greenery, 35mm photograph, natural skin texture",
+      "expected": "on all fours facing away; bottom-to-camera pose honored; implied but non-explicit"
+    },
+    {
+      "id": "standing-behind-seated",
+      "prompt": "a man standing behind a seated woman at a table, his hands on her shoulders, both clothed, domestic intimate mood, window light, 35mm photograph",
+      "expected": "clear front/back relationship between the two subjects; arrangement honored"
+    }
+  ]
+}
