@@ -103,6 +103,50 @@
                                                          ExecutableStrategies="EditorReferenceStrategies" />
                                 </div>
                             }
+                            @if (_compilationResult?.Status == SceneImageEditCompilationResultStatus.Ready && _identityTargetSelections.Count > 0)
+                            {
+                                <section class="border rounded p-3 mt-3" aria-label="Vision-qualified character identity references">
+                                    <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
+                                        <strong>Character identity targets</strong>
+                                        <span class="small text-muted">Vision-qualified locations keep references attached to the correct person.</span>
+                                    </div>
+                                    @foreach (var target in _identityTargetSelections)
+                                    {
+                                        <div class="border rounded p-2 mb-2" @key="target.Target.Key">
+                                            <div class="d-flex justify-content-between gap-2 mb-2">
+                                                <strong>@target.Target.Key</strong>
+                                                <span class="small text-muted">@target.Target.VisibleLocator</span>
+                                            </div>
+                                            @if (target.Target.Region is not null)
+                                            {
+                                                <div class="form-text mb-2">Region: x @target.Target.Region.X.ToString("0.###"), y @target.Target.Region.Y.ToString("0.###"), width @target.Target.Region.Width.ToString("0.###"), height @target.Target.Region.Height.ToString("0.###")</div>
+                                            }
+                                            <div class="row g-2">
+                                                <div class="col-md-6">
+                                                    <label class="form-label small mb-1">Approved face identity</label>
+                                                    <ReferencePicker AssetType="@SceneAssetType.CharacterFace"
+                                                                     SelectedAssetImageId="@target.Application.SceneAssetImageId"
+                                                                     SelectedAssetChanged="asset => SetIdentityTargetAssetAsync(target, asset)" />
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small mb-1">Strategy</label>
+                                                    <select class="form-select form-select-sm" value="@target.Application.Strategy" @onchange="args => SetIdentityTargetStrategy(target, args)">
+                                                        @foreach (var strategy in EditorReferenceStrategies)
+                                                        {
+                                                            <option value="@strategy">@strategy</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small mb-1">Strength</label>
+                                                    <input class="form-control form-control-sm" type="number" min="0" max="1" step="0.05"
+                                                           value="@target.Application.Strength" @onchange="args => SetIdentityTargetStrengthAsync(target, args)" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </section>
+                            }
                         }
                     </div>
                     <EditIterateWorkbench Error="@_errorMessage"
@@ -286,11 +330,11 @@
     private static readonly IReadOnlyList<string> EditorReferenceStrategies = ["TextOnly", "NativeMultiReference"];
     private readonly List<ReferenceApplicationSelection> _referenceApplications =
     [
-        new() { ElementKey = "Identity", SemanticRole = "character identity", AssetType = SceneAssetType.CharacterFace },
         new() { ElementKey = "Body", SemanticRole = "character body", AssetType = SceneAssetType.CharacterBody },
         new() { ElementKey = "Wardrobe", SemanticRole = "wardrobe continuity", AssetType = SceneAssetType.Wardrobe },
         new() { ElementKey = "Location", SemanticRole = "location continuity", AssetType = SceneAssetType.Location }
     ];
+    private readonly List<EditIdentityTargetSelection> _identityTargetSelections = [];
     private readonly List<string> _clarificationHistory = [];
     private string _rawIntent = string.Empty;
     private string _preparedIntent = string.Empty;
@@ -393,6 +437,7 @@
             });
             _preparedIntent = _rawIntent.Trim();
             _compilationResult = null;
+            _identityTargetSelections.Clear();
             _activeRevision = null;
             _editablePrompt = string.Empty;
             _statusMessage = "Edit compilation queued.";
@@ -453,6 +498,8 @@
                 PromptSha256 = revision.PromptSha256,
                 EditorModelId = _selectedEditorModelId!,
                 ReferenceApplications = _referenceApplications
+                    .Concat(_identityTargetSelections.Select(selection => selection.Application))
+                    .ToList()
             });
             _statusMessage = "Image edit queued.";
             Nav.NavigateTo($"/roleplay/studio/{sessionId}/{interactionId}", forceLoad: true);
@@ -472,6 +519,7 @@
             var changedAttempt = !string.Equals(_attempt?.Id, latestAttempt.Id, StringComparison.Ordinal);
             _attempt = latestAttempt;
             _compilationResult = ParseResult(latestAttempt.ParsedResultJson);
+            SyncIdentityTargetSelections();
             var revisions = await CompilationService.ListRevisionsAsync(latestAttempt.Id);
             var latestRevision = revisions.OrderByDescending(revision => revision.Ordinal).FirstOrDefault();
             if (latestRevision is not null && (changedAttempt || _activeRevision is null))
@@ -501,6 +549,7 @@
         });
         _attempt = null;
         _compilationResult = null;
+        _identityTargetSelections.Clear();
         _activeRevision = null;
         _editablePrompt = string.Empty;
         _preparedIntent = string.Empty;
@@ -511,6 +560,76 @@
     {
         StateHasChanged();
         return Task.CompletedTask;
+    }
+
+    private sealed class EditIdentityTargetSelection
+    {
+        public SceneImageEditTarget Target { get; set; } = new();
+        public ReferenceApplicationSelection Application { get; init; } = new();
+    }
+
+    private void SyncIdentityTargetSelections()
+    {
+        var targets = _compilationResult?.Status == SceneImageEditCompilationResultStatus.Ready
+            ? _compilationResult.Targets
+            : [];
+        var existing = _identityTargetSelections.ToDictionary(item => item.Target.Key, StringComparer.Ordinal);
+        _identityTargetSelections.Clear();
+        foreach (var target in targets)
+        {
+            if (existing.TryGetValue(target.Key, out var current))
+            {
+                current.Target = target;
+                current.Application.BindingSnapshotJson = SerializeTargetBinding(target);
+                _identityTargetSelections.Add(current);
+                continue;
+            }
+
+            _identityTargetSelections.Add(new EditIdentityTargetSelection
+            {
+                Target = target,
+                Application = new ReferenceApplicationSelection
+                {
+                    ElementKey = "Identity",
+                    SemanticRole = $"character identity at {target.VisibleLocator}",
+                    AssetType = SceneAssetType.CharacterFace,
+                    ActorKey = target.Key,
+                    Strategy = "NativeMultiReference",
+                    BindingSnapshotJson = SerializeTargetBinding(target)
+                }
+            });
+        }
+    }
+
+    private static string SerializeTargetBinding(SceneImageEditTarget target)
+        => JsonSerializer.Serialize(new
+        {
+            targetKey = target.Key,
+            visibleLocator = target.VisibleLocator,
+            region = target.Region
+        }, JsonOptions);
+
+    private async Task SetIdentityTargetAssetAsync(EditIdentityTargetSelection target, SceneAssetReferenceChoice? choice)
+    {
+        target.Application.SceneAssetId = choice?.Asset.Id;
+        target.Application.SceneAssetImageId = choice?.Image.Id;
+        target.Application.SceneAssetVersion = choice?.Image.ProductionVersion;
+        target.Application.SceneAssetSha256 = choice?.Image.Sha256;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SetIdentityTargetStrategy(EditIdentityTargetSelection target, ChangeEventArgs args)
+    {
+        target.Application.Strategy = args.Value?.ToString() ?? "TextOnly";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SetIdentityTargetStrengthAsync(EditIdentityTargetSelection target, ChangeEventArgs args)
+    {
+        if (!decimal.TryParse(args.Value?.ToString(), out var strength) || strength < 0m || strength > 1m)
+            throw new InvalidOperationException("Identity reference strength must be a number between 0 and 1.");
+        target.Application.Strength = strength;
+        await InvokeAsync(StateHasChanged);
     }
 
     private static SceneImageEditCompilationResult? ParseResult(string? json)
