@@ -265,6 +265,30 @@ cost, latency and capability profiles**. Treating them as one thing is a modelli
 
 Everything below in F7 concerns the **`ComfyUiServerless`** class specifically.
 
+### F7.0.6 Model provisioning is from RunPod storage, not runtime registry pulls (user, 2026-09-05)
+
+The app's self-built ComfyUI serverless workers **load models from RunPod storage** — a persistent
+network volume and/or models baked into the worker image — **not** by pulling from an external model
+registry at request time. Model/node **sourcing is flexible and provisioning-time only**: when (or
+if) a **new model or a new serverless endpoint** is added, its weights/nodes are fetched from
+**Civitai or any other suitable source** and placed onto RunPod storage. There is no fixed registry
+and no runtime registry dependency.
+
+**Normative consequences.**
+1. **External-registry reachability (HF, Civitai) is a build-time concern only.** The Hugging Face
+   TLS block on the dev machine (F7.0.5 note / repo env facts) does **not** affect the running
+   pipeline, because workers never fetch weights at runtime. It only matters when provisioning a
+   worker image or populating a volume — and Civitai is the source there.
+2. **Cold start = container boot + model load from local/volume storage**, per F7.2's cached-model /
+   baked-image / network-volume levers (S17/S18). This is the fast path RunPod documents; the app is
+   already on the right side of the cold-start trade-off for model loading.
+3. **P3's new identity worker image** (PuLID/FaceID/InstantID) provisions its models/nodes from
+   Civitai + RunPod storage at build time, recorded in the RunPod registry per repo rules — no
+   runtime HF/Civitai dependency, and the build step is where registry reachability is verified.
+4. Adding/replacing a model on an endpoint is therefore a **provisioning** action (update the volume
+   or image, record it) plus a Model Manager data row — consistent with O7 (data + qualification
+   record, no caller code change).
+
 ### F7.1 Defaults and the shape of latency
 - Defaults: **Active workers 0, Max workers 3, Idle timeout 5s, Execution timeout 600s, Job TTL 24h,
   FlashBoot enabled.** (S14)
@@ -389,11 +413,39 @@ All facts in F7.1–F7.6 are from S14–S19 (RunPod first-party docs).
    allowed to silently reduce the identity strategy actually applied. Where classes differ, compose
    them across stages (F7.0.3a) rather than substituting one for another.
 8. **Content capability is a property of the model, not a mode of the pipeline** (user decision,
-   2026-09-05). There is **one** production flow and **one** golden set. A model either supports the
-   content or it does not; that is endpoint capability data, surfaced and failed-fast like any other
-   capability. There must be no parallel "safe path" and no separate acceptance set, because a
-   second flow doubles the surface being validated while measuring the case that is not actually
-   used. **Open reconciliation:** the current pipeline contains a deterministic SFW clamp
-   (`ImageContentPolicy.SfwOnly` → model-family suffix appended in `SceneImageRenderingJobHandler`),
-   which is exactly such a second flow. It must be explicitly reconciled with this principle before
-   P0 closes — not silently left in place, and not silently deleted.
+   2026-09-05). There is **one** production flow and **one** golden set, and **every golden-set case
+   is explicit**. A model either supports the content or it does not. There is no parallel "safe
+   path", no SFW variant of a case, and no separate acceptance set — a second flow doubles the
+   surface being validated while measuring the case that is not actually used.
+
+   **A refusal is a measurement, not an error to be worked around.** When a model refuses,
+   sanitises, or is filtered:
+   - the attempt is **recorded as a failure against that (model, endpoint) cell**, with the refusal
+     mode captured;
+   - the failure is **surfaced clearly to the user**;
+   - the user then **manually picks a different model and retries**. The app performs **no automatic
+     model substitution and no ordered-list advance** — it never selects a model on the user's behalf
+     (user decision 2026-09-05). Model choice stays entirely with the user.
+
+   **Why this is even stricter than the no-fallback rule:** the app never picks a model for you — not
+   from a default, not from a list. Detection is still required so a refusal is a *visible* failure,
+   never a silent success.
+
+   **Detection is the hard part, and must be designed rather than assumed.** Three distinct refusal
+   modes exist and only the first is easy:
+   | Mode | Signal | Detection |
+   |---|---|---|
+   | Explicit refusal / policy error | HTTP error or error payload | Trivial — provider tells you |
+   | Empty or absent output | No image returned | Trivial |
+   | **Silent sanitisation** — an image *is* returned, but clothed, cropped, blurred or otherwise altered | None | **Requires content inspection of the output.** This is the dangerous mode: it looks like success, it silently corrupts the scorecard, and it is invisible without a check |
+
+   The third mode is why refusal handling belongs to the scorer as well as the transport (see
+   FR-C6-08). Deprecated by this decision: the deterministic SFW clamp
+   (`ImageContentPolicy.SfwOnly` → model-family suffix appended in `SceneImageRenderingJobHandler`)
+   is exactly the second flow this principle forbids and is removed, not reconciled.
+9. **The human verdict is authoritative; the automated score is advisory and regression-detecting**
+   (user decision, 2026-09-05). The metrics in F6 are proxies built for other domains. Their job is
+   to catch drift cheaply, to make failures like the dropped-character case visible without manual
+   inspection, and to prevent the identity-strength trap. They do not overrule the eye. Where the
+   scorer and the human verdict disagree, **the human verdict stands and the threshold is
+   recalibrated as data** — the metric is corrected to match observed judgement, never the reverse.

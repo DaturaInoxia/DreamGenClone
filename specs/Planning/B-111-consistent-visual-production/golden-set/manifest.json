@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "frozen": true,
+  "characters": [
+    {
+      "id": "mara-vale",
+      "name": "Mara Vale",
+      "role": "female",
+      "appearance": "Fictional woman with warm brown skin, short wavy black hair, amber eyes, a narrow scar through her left eyebrow, and a poised, observant expression."
+    },
+    {
+      "id": "elior-reed",
+      "name": "Elior Reed",
+      "role": "male",
+      "appearance": "Fictional man with deep umber skin, close-cropped dark hair, gray-green eyes, a square jaw, and a calm expression softened by a small dimple on his right cheek."
+    },
+    {
+      "id": "penn-orin",
+      "name": "Penn Orin",
+      "role": "secondary",
+      "appearance": "Fictional young adult with copper-brown skin, long dark braid, hazel eyes, round spectacles, and an alert, wry expression."
+    }
+  ],
+  "locations": [
+    {
+      "id": "glasshouse-studio",
+      "kind": "interior",
+      "description": "A quiet glasshouse studio with tall rain-streaked windows, pale worktables, hanging plants, and late-afternoon light falling across a worn wooden floor."
+    },
+    {
+      "id": "harbor-overlook",
+      "kind": "exterior",
+      "description": "A windy harbor overlook above slate-blue water, with weathered railings, distant cranes, gulls, and a low sun breaking through layered clouds."
+    }
+  ],
+  "outfits": [
+    {
+      "id": "mara-field-coat",
+      "description": "A charcoal field coat over an ivory knit shirt, dark trousers, sturdy brown boots, and a narrow copper watch."
+    },
+    {
+      "id": "eli-reed-sweater",
+      "description": "A moss-green wool sweater over a pale blue shirt, rolled charcoal trousers, polished black shoes, and a weathered canvas satchel."
+    }
+  ],
+  "scenes": [
+    {
+      "id": "harbor-railing-brace",
+      "character_ids": ["mara-vale", "elior-reed"],
+      "location_id": "harbor-overlook",
+      "interaction": "Mara braces one hand on the harbor railing while Elior stands close behind her, one arm crossing in front of her to steady her as they lean together against the wind."
+    }
+  ],
+  "prompts": [
+    {
+      "id": "mara-face-front",
+      "text": "Portrait of Mara Vale, fictional woman with warm brown skin, short wavy black hair, amber eyes, and a narrow scar through her left eyebrow, direct front-facing expression, soft studio light, detailed natural face.",
+      "expected_subject_ids": ["mara-vale"],
+      "expected_subject_count": 1,
+      "seeds": [11111, 22222, 33333]
+    },
+    {
+      "id": "mara-face-three-quarter",
+      "text": "Three-quarter face portrait of Mara Vale, fictional woman with warm brown skin, short wavy black hair, amber eyes, and a narrow scar through her left eyebrow, poised observant expression, neutral background, soft directional light.",
+      "expected_subject_ids": ["mara-vale"],
+      "expected_subject_count": 1,
+      "seeds": [11111, 22222, 33333]
+    },
+    {
+      "id": "elior-face-front",
+      "text": "Portrait of Elior Reed, fictional man with deep umber skin, close-cropped dark hair, gray-green eyes, square jaw, and a small right-cheek dimple, direct front-facing expression, soft studio light, detailed natural face.",
+      "expected_subject_ids": ["elior-reed"],
+      "expected_subject_count": 1,
+      "seeds": [11111, 22222, 33333]
+    },
+    {
+      "id": "elior-face-three-quarter",
+      "text": "Three-quarter face portrait of Elior Reed, fictional man with deep umber skin, close-cropped dark hair, gray-green eyes, square jaw, and a small right-cheek dimple, calm expression, neutral background, soft directional light.",
+      "expected_subject_ids": ["elior-reed"],
+      "expected_subject_count": 1,
+      "seeds": [11111, 22222, 33333]
+    },
+    {
+      "id": "penn-face-front",
+      "text": "Portrait of Penn Orin, fictional young adult with copper-brown skin, long dark braid, hazel eyes, round spectacles, and an alert wry expression, direct front-facing pose, soft studio light, detailed natural face.",
+      "expected_subject_ids": ["penn-orin"],
+      "expected_subject_count": 1,
+      "seeds": [11111, 22222, 33333]
+    },
+    {
+      "id": "penn-face-three-quarter",
+      "text": "Three-quarter face portrait of Penn Orin, fictional young adult with copper-brown skin, long dark braid, hazel eyes, round spectacles, and an alert wry expression, neutral background, soft directional light.",
+      "expected_subject_ids": ["penn-orin"],
+      "expected_subject_count": 1,
+      "seeds": [11111, 22222, 33333]
+    },
+    {
+      "id": "mara-glasshouse",
+      "text": "Mara Vale standing alone in the glasshouse studio, warm brown skin, short wavy black hair, amber eyes, and eyebrow scar clearly visible, surrounded by hanging plants and rain-streaked windows, late-afternoon light.",
+      "expected_subject_ids": ["mara-vale"],
+      "expected_subject_count": 1,
+      "seeds": [11111, 22222, 33333]
+    },
+    {
+      "id": "elior-harbor",
+      "text": "Elior Reed standing alone at the harbor overlook, deep umber skin, close-cropped dark hair, gray-green eyes, square jaw, and right-cheek dimple clearly visible, slate-blue water and distant cranes behind him.",
+      "expected_subject_ids": ["elior-reed"],
+      "expected_subject_count": 1,
+      "seeds": [11111, 22222, 33333]
+    },
+    {
+      "id": "mara-field-coat-studio",
+      "text": "Full-body character portrait of Mara Vale in the charcoal field coat, ivory knit shirt, dark trousers, brown boots, and copper watch, standing in the glasshouse studio with pale worktables and hanging plants.",
+      "expected_subject_ids": ["mara-vale"],
+      "expected_subject_count": 1,
+      "seeds": [11111, 22222, 33333]
+    },
+    {
+      "id": "elior-sweater-harbor",
+      "text": "Full-body character portrait of Elior Reed in the moss-green wool sweater, pale blue shirt, rolled charcoal trousers, black shoes, and canvas satchel, standing at the windy harbor overlook above slate-blue water.",
+      "expected_subject_ids": ["elior-reed"],
+      "expected_subject_count": 1,
+      "seeds": [11111, 22222, 33333]
+    },
+    {
+      "id": "penn-glasshouse-witness",
+      "text": "Penn Orin watching from the glasshouse studio, copper-brown skin, long dark braid, hazel eyes, and round spectacles, framed by rain-streaked windows, hanging plants, pale worktables, and warm late-afternoon light.",
+      "expected_subject_ids": ["penn-orin"],
+      "expected_subject_count": 1,
+      "seeds": [11111, 22222, 33333]
+    },
+    {
+      "id": "mara-elior-harbor-brace",
+      "text": "Mara Vale and Elior Reed at the harbor overlook: Mara braces one hand on the railing while Elior stands close behind her with one arm crossing in front of her to steady her, both leaning together against the wind.",
+      "expected_subject_ids": ["mara-vale", "elior-reed"],
+      "expected_subject_count": 2,
+      "seeds": [11111, 22222, 33333]
+    }
+  ]
+}

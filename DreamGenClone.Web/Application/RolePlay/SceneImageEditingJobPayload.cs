@@ -6,4 +6,5 @@ public sealed class SceneImageEditingJobPayload
     public string SessionId { get; set; } = string.Empty;
     public string InteractionId { get; set; } = string.Empty;
     public string ImageRecordId { get; set; } = string.Empty;
+    public string EditorModelId { get; set; } = string.Empty;
 }

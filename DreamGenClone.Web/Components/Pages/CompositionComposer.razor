@@ -1,0 +1,364 @@
+@page "/roleplay/studio/{sessionId}/{interactionId}/production/{productionGroupId}/composition"
+@rendermode InteractiveServer
+
+@using System.Text.Json
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Models
+@implements IAsyncDisposable
+
+@inject ISceneImageService ImageService
+@inject ISceneImageProductionService ProductionService
+@inject IModelResolutionService ModelResolutionService
+@inject NavigationManager Nav
+@inject ILogger<CompositionComposer> Logger
+
+<PageTitle>Composition Composer - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <a href="@StudioUrl" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i>Back to Production Studio
+            </a>
+            <h4 class="d-inline-block ms-2 mb-0">Composition Composer</h4>
+        </div>
+        @if (_productionGroup is not null)
+        {
+            <a class="btn btn-sm btn-outline-info" href="/review-deck/studio/@_productionGroup.Id">
+                <i class="bi bi-images me-1"></i>Review Deck
+            </a>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger">@_errorMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <div class="alert alert-info">@_statusMessage</div>
+    }
+
+    @if (_productionGroup is null || _compiledMediaBrief is null)
+    {
+        <div class="alert alert-warning">Loading the exact production group and still brief...</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            <div class="col-xl-7">
+                <section class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center gap-2">
+                        <strong>Composition</strong>
+                        <span class="badge text-bg-info">@_productionGroup.Pov</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <button class="btn btn-sm btn-primary" disabled="@(_busy || _activePrompt?.Status == SceneImagePromptStatus.Pending)" @onclick="GeneratePromptAsync">
+                                <i class="bi bi-magic me-1"></i>Generate Prompt
+                            </button>
+                            <button class="btn btn-sm btn-success"
+                                    disabled="@(_busy || _activePrompt?.Status != SceneImagePromptStatus.Complete || string.IsNullOrWhiteSpace(_editablePrompt))"
+                                    @onclick="GenerateCompositionAsync">
+                                <i class="bi bi-image me-1"></i>Generate Composition
+                            </button>
+                        </div>
+
+                        @if (_activePrompt?.Status == SceneImagePromptStatus.Pending)
+                        {
+                            <div class="small text-muted mt-2"><span class="spinner-border spinner-border-sm me-1"></span>Generating prompt...</div>
+                        }
+                        else if (_activePrompt?.Status == SceneImagePromptStatus.Failed)
+                        {
+                            <div class="alert alert-danger py-2 small mt-2 mb-0">Prompt generation failed: @_activePrompt.ErrorMessage</div>
+                        }
+
+                        <div class="mt-3">
+                            <label class="form-label small fw-semibold mb-1">Image Prompt</label>
+                            <textarea class="form-control font-monospace" rows="6" @bind="_editablePrompt"
+                                      placeholder="Generate a prompt, then edit it before generating a Composition."></textarea>
+                            <div class="form-text">@WordCount(_editablePrompt) words · ~@EstimateTokens(_editablePrompt) tokens</div>
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="form-label small fw-semibold mb-1">Image Model</label>
+                            @if (_modelChoices.Count == 0)
+                            {
+                                <span class="text-muted d-block">No image models are enabled in Model Manager.</span>
+                            }
+                            else
+                            {
+                                <select class="form-select form-select-sm" @bind="_selectedModelId">
+                                    @foreach (var choice in _modelChoices)
+                                    {
+                                        <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
+                                    }
+                                </select>
+                            }
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(_selectedModelId))
+                        {
+                            <div class="mt-3">
+                                <ReferenceApplyPanel ModelId="@_selectedModelId"
+                                                     Selections="@_referenceApplications"
+                                                     SelectionsChanged="OnReferenceApplicationsChanged"
+                                                     ExecutableStrategies="TextOnlyReferenceStrategy" />
+                                <div class="mt-2">
+                                    <ResolvedRenderBadge ModelLabel="@SelectedModelLabel()" Selections="@_referenceApplications" />
+                                </div>
+                            </div>
+                        }
+
+                        <details class="mt-3">
+                            <summary class="small fw-semibold">View what will be submitted</summary>
+                            <dl class="row small mt-2 mb-0">
+                                <dt class="col-sm-3">POV</dt><dd class="col-sm-9">@_productionGroup.Pov</dd>
+                                <dt class="col-sm-3">Model</dt><dd class="col-sm-9">@(string.IsNullOrWhiteSpace(_selectedModelId) ? "Select an enabled image model" : SelectedModelLabel())</dd>
+                                <dt class="col-sm-3">Prompt</dt><dd class="col-sm-9 text-break">@(_editablePrompt.Length == 0 ? "Generate or enter a prompt" : _editablePrompt)</dd>
+                            </dl>
+                        </details>
+                    </div>
+                </section>
+            </div>
+            <div class="col-xl-5">
+                <section class="card h-100">
+                    <div class="card-header"><strong>Composition Images</strong> <span class="text-muted">(@_compositionAttempts.Count)</span></div>
+                    <div class="card-body">
+                        @if (_compositionAttempts.Count == 0)
+                        {
+                            <span class="text-muted small">No Composition images have been generated for this POV.</span>
+                        }
+                        else
+                        {
+                            <div class="d-grid gap-3">
+                                @foreach (var attempt in _compositionAttempts)
+                                {
+                                    <article class="border p-2">
+                                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                                            <span class="badge text-bg-secondary">@attempt.Status</span>
+                                            <span class="small text-muted">@attempt.CreatedUtc.ToLocalTime().ToString("g")</span>
+                                        </div>
+                                        @if (attempt.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(attempt.FileRelativePath))
+                                        {
+                                            <img src="/scene-images/@attempt.FileRelativePath" class="img-fluid" alt="Generated Composition" />
+                                            <button class="btn btn-sm btn-outline-secondary mt-2" disabled="@_busy" @onclick="() => RegenerateCompositionAsync(attempt)">
+                                                <i class="bi bi-arrow-repeat me-1"></i>Regenerate Sibling
+                                            </button>
+                                        }
+                                        else if (attempt.Status is SceneImageStatus.Pending or SceneImageStatus.Generating)
+                                        {
+                                            <div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Composition @attempt.Status.ToString().ToLowerInvariant()...</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="small text-muted">@(attempt.ErrorMessage ?? attempt.Status.ToString())</div>
+                                        }
+                                    </article>
+                                }
+                            </div>
+                        }
+                    </div>
+                </section>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly IReadOnlyList<string> TextOnlyReferenceStrategy = ["TextOnly"];
+
+    [Parameter] public string sessionId { get; set; } = string.Empty;
+    [Parameter] public string interactionId { get; set; } = string.Empty;
+    [Parameter] public string productionGroupId { get; set; } = string.Empty;
+
+    private SceneImageProductionGroup? _productionGroup;
+    private CompiledMediaBrief? _compiledMediaBrief;
+    private SceneImagePromptRecord? _activePrompt;
+    private List<SceneImageRecord> _compositionAttempts = [];
+    private List<SceneImageModelChoice> _modelChoices = [];
+    private string? _selectedModelId;
+    private string _editablePrompt = string.Empty;
+    private string _errorMessage = string.Empty;
+    private string _statusMessage = string.Empty;
+    private bool _busy;
+    private CancellationTokenSource? _pollingCts;
+    private Task? _pollingTask;
+    private readonly List<ReferenceApplicationSelection> _referenceApplications =
+    [
+        new() { ElementKey = "Identity", SemanticRole = "character identity", AssetType = SceneAssetType.CharacterFace },
+        new() { ElementKey = "Body", SemanticRole = "character body", AssetType = SceneAssetType.CharacterBody },
+        new() { ElementKey = "Wardrobe", SemanticRole = "wardrobe continuity", AssetType = SceneAssetType.Wardrobe },
+        new() { ElementKey = "Location", SemanticRole = "location continuity", AssetType = SceneAssetType.Location }
+    ];
+
+    private string StudioUrl => $"/roleplay/studio/{sessionId}/{interactionId}/production/{productionGroupId}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        EnsurePollingWhenNeeded();
+    }
+
+    private async Task LoadAsync()
+    {
+        _productionGroup = await ProductionService.GetGroupAsync(productionGroupId)
+            ?? throw new InvalidOperationException($"Production group '{productionGroupId}' was not found.");
+        if (!string.Equals(_productionGroup.SessionId, sessionId, StringComparison.Ordinal)
+            || !string.Equals(_productionGroup.InteractionId, interactionId, StringComparison.Ordinal))
+            throw new InvalidOperationException("The requested production group does not belong to this Studio context.");
+
+        _compiledMediaBrief = await ProductionService.GetOrCreateStillBriefAsync(_productionGroup.Id);
+        _activePrompt = _activePrompt?.Status == SceneImagePromptStatus.Pending
+            ? await ImageService.GetPromptAsync(sessionId, _activePrompt.Id)
+            : await ImageService.GetLatestCompletedProductionPromptAsync(
+                sessionId, interactionId, _productionGroup.Id, _compiledMediaBrief.Id);
+        if (_activePrompt?.Status == SceneImagePromptStatus.Complete)
+            _editablePrompt = _activePrompt.OutputPrompt;
+        _compositionAttempts = (await ProductionService.ListAttemptsAsync(_productionGroup.Id))
+            .Where(attempt => attempt.ProductionStage == SceneImageProductionStage.Composition)
+            .OrderByDescending(attempt => attempt.CreatedUtc)
+            .Take(100)
+            .ToList();
+        _modelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
+        if (string.IsNullOrWhiteSpace(_selectedModelId))
+            _selectedModelId = _modelChoices.FirstOrDefault()?.ModelId;
+    }
+
+    private async Task GeneratePromptAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var record = await ImageService.EnqueuePromptAsync(new ScenePromptRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                Settings = new SceneImageStudioSettings(),
+                ProductionGroupId = _productionGroup!.Id,
+                CompiledMediaBriefId = _compiledMediaBrief!.Id,
+                Pov = _productionGroup.Pov
+            });
+            _activePrompt = record;
+            _editablePrompt = string.Empty;
+            _statusMessage = "Prompt generation queued.";
+            EnsurePollingWhenNeeded();
+        });
+    }
+
+    private Task GenerateCompositionAsync() => EnqueueCompositionAsync(null);
+
+    private Task RegenerateCompositionAsync(SceneImageRecord source) => EnqueueCompositionAsync(source.Id);
+
+    private async Task EnqueueCompositionAsync(string? regenerateOfId)
+    {
+        if (_activePrompt?.Status != SceneImagePromptStatus.Complete || string.IsNullOrWhiteSpace(_editablePrompt))
+            throw new InvalidOperationException("A completed nonblank Composition prompt is required.");
+
+        await RunAsync(async () =>
+        {
+            await ImageService.UpdatePromptOutputAsync(sessionId, _activePrompt.Id, _editablePrompt.Trim());
+            await ImageService.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                PromptRecordId = _activePrompt.Id,
+                Prompt = _editablePrompt.Trim(),
+                RequestedModelId = _selectedModelId,
+                SettingsJson = JsonSerializer.Serialize(new SceneImageStudioSettings()),
+                RegenerateOfId = regenerateOfId,
+                ProductionGroupId = _productionGroup!.Id,
+                CompiledMediaBriefId = _compiledMediaBrief!.Id,
+                BeatId = _productionGroup.BeatId,
+                Pov = _productionGroup.Pov,
+                ReferenceApplications = _referenceApplications
+            });
+            _statusMessage = regenerateOfId is null ? "Composition queued." : "Sibling Composition queued.";
+            await LoadAsync();
+            EnsurePollingWhenNeeded();
+        });
+    }
+
+    private Task OnReferenceApplicationsChanged()
+    {
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private string SelectedModelLabel()
+        => _modelChoices.FirstOrDefault(choice => choice.ModelId == _selectedModelId)?.DisplayName
+            ?? throw new InvalidOperationException("The selected Composition model is no longer enabled.");
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _errorMessage = string.Empty;
+        _statusMessage = string.Empty;
+        try
+        {
+            await action();
+        }
+        catch (Exception exception)
+        {
+            _errorMessage = exception.Message;
+            Logger.LogWarning(exception, "Composition Composer action failed: ProductionGroupId={ProductionGroupId}", productionGroupId);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private bool HasInFlightWork()
+        => _activePrompt?.Status == SceneImagePromptStatus.Pending
+            || _compositionAttempts.Any(attempt => attempt.Status is SceneImageStatus.Pending or SceneImageStatus.Generating);
+
+    private void EnsurePollingWhenNeeded()
+    {
+        if (!HasInFlightWork() || _pollingTask is not null)
+            return;
+        _pollingCts = new CancellationTokenSource();
+        _pollingTask = Task.Run(() => PollAsync(_pollingCts.Token));
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadAsync();
+                    StateHasChanged();
+                });
+                if (!HasInFlightWork())
+                    return;
+            }
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            _pollingTask = null;
+        }
+    }
+
+    private static int WordCount(string text)
+        => string.IsNullOrWhiteSpace(text) ? 0 : text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
+
+    private static int EstimateTokens(string text)
+        => string.IsNullOrWhiteSpace(text) ? 0 : (int)Math.Ceiling(text.Length / 4.0);
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_pollingCts is not null)
+        {
+            await _pollingCts.CancelAsync();
+            _pollingCts.Dispose();
+        }
+    }
+}

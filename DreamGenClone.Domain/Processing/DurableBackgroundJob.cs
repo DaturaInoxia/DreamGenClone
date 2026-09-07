@@ -10,12 +10,13 @@ public enum DurableJobLane
 
 public enum DurableBackgroundJobStatus
 {
-    Queued = 1,
-    Processing = 2,
-    RetryScheduled = 3,
-    Complete = 4,
-    Failed = 5,
-    Cancelled = 6
+    Staged = 1,
+    Queued = 2,
+    Processing = 3,
+    RetryScheduled = 4,
+    Complete = 5,
+    Failed = 6,
+    Cancelled = 7
 }
 
 public sealed class DurableBackgroundJob

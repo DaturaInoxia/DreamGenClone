@@ -48,6 +48,15 @@ public enum SceneAssetType
     ProductionFrame = 7
 }
 
+public enum SceneAssetCandidateDecision
+{
+    Undecided = 0,
+    Accepted = 1,
+    Rejected = 2,
+    Shortlisted = 3,
+    Revoked = 4
+}
+
 public enum SceneAssetProductionApprovalStatus
 {
     Draft = 1,
@@ -142,6 +151,14 @@ public sealed class SceneAsset
 
     public string? SourceProvenanceJson { get; set; }
 
+    public string? CandidateBatchId { get; set; }
+
+    public SceneAssetCandidateDecision? CandidateDecision { get; set; }
+
+    public string? CandidateNotes { get; set; }
+
+    public string? CandidateSourceAssetId { get; set; }
+
     /// <summary>
     /// Production governance is nullable so historical assets never acquire implicit approval.
     /// </summary>
@@ -200,6 +217,9 @@ public sealed class SceneAssetImage
     public string? ContentPolicyKey { get; set; }
     public string? CompatibilityMetadataJson { get; set; }
     public int? ProductionVersion { get; set; }
+    public string? CandidateBatchId { get; set; }
+    public SceneAssetCandidateDecision? CandidateDecision { get; set; }
+    public string? CandidateNotes { get; set; }
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? StartedUtc { get; set; }
     public DateTime? CompletedUtc { get; set; }

@@ -27,6 +27,10 @@ public interface ISceneBeatProductionPipelineService
         string beatId,
         CancellationToken cancellationToken = default);
 
+    Task<SceneBeatProductionPlan?> GetAsync(
+        string planId,
+        CancellationToken cancellationToken = default);
+
     Task<SceneBeatProductionStatus?> GetCurrentStatusAsync(
         string catalogueId,
         string beatId,

@@ -5,6 +5,7 @@ namespace DreamGenClone.Application.RolePlay;
 public sealed record ProductionStudioCapability(
     string ProfileId,
     string CellId,
+    string RegisteredModelId,
     string ProviderKey,
     string ModelId,
     string ModelVersion,
@@ -15,6 +16,8 @@ public sealed record ProductionStudioCapability(
 
 public sealed record ProductionPrepareReference(
     string SemanticRole,
+    string Strategy,
+    decimal? Strength,
     string? ActorKey,
     string SceneAssetId,
     int SceneAssetVersion,

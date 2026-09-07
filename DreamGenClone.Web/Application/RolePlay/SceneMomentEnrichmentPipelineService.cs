@@ -72,6 +72,11 @@ public sealed class SceneMomentEnrichmentPipelineService : ISceneMomentEnrichmen
         CancellationToken cancellationToken = default)
         => _enrichmentRepository.GetCurrentAsync(momentSetId, momentId, cancellationToken);
 
+    public Task<SceneMomentEnrichment?> GetAsync(
+        string enrichmentId,
+        CancellationToken cancellationToken = default)
+        => _enrichmentRepository.GetAsync(enrichmentId, cancellationToken);
+
     public async Task CancelAsync(string enrichmentId, CancellationToken cancellationToken = default)
     {
         var enrichment = await _enrichmentRepository.GetAsync(enrichmentId, cancellationToken)

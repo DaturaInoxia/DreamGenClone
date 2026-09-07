@@ -1,0 +1,48 @@
+@if (Items.Count == 0)
+{
+    <p class="text-muted mb-0">No candidates.</p>
+}
+else
+{
+    <div class="row g-2 mb-3">
+        @foreach (var item in Items)
+        {
+            <div class="col-6 col-md-4 col-xl-3">
+                <button class="btn w-100 h-100 p-0 text-start border @(item.Id == SelectedId ? "border-primary border-3" : "border-secondary")" type="button" @onclick="() => SelectedIdChanged.InvokeAsync(item.Id)">
+                    <div class="ratio ratio-1x1 bg-dark">
+                        @if (!string.IsNullOrWhiteSpace(item.ImagePath))
+                        {
+                            <img src="/scene-images/@item.ImagePath" class="w-100 h-100" style="object-fit:contain;" alt="Candidate @item.Id" />
+                        }
+                        else
+                        {
+                            <span class="d-flex align-items-center justify-content-center text-light small">Pending</span>
+                        }
+                    </div>
+                    <span class="d-flex justify-content-between gap-1 p-2 small">
+                        <span class="text-truncate font-monospace">@item.Id</span>
+                        <span class="badge @StatusBadge(item.Status)">@item.Status</span>
+                    </span>
+                    @if (!string.IsNullOrWhiteSpace(item.Subtitle))
+                    {
+                        <span class="d-block px-2 pb-2 small text-muted text-truncate">@item.Subtitle</span>
+                    }
+                </button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<CandidateGridItem> Items { get; set; } = [];
+    [Parameter] public string? SelectedId { get; set; }
+    [Parameter] public EventCallback<string> SelectedIdChanged { get; set; }
+
+    private static string StatusBadge(string status) => status switch
+    {
+        "Accepted" or "Approved" => "text-bg-success",
+        "Shortlisted" => "text-bg-info",
+        "Rejected" or "Revoked" => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+}

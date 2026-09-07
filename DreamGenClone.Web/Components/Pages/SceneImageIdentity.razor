@@ -1,0 +1,98 @@
+@page "/roleplay/studio/{sessionId}/{interactionId}/identity/{productionGroupId}/{sourceImageId}"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Models
+
+@inject ISceneImageProductionService ProductionService
+@inject ISceneImageService ImageService
+
+<PageTitle>Apply Moment Identity - DreamGenClone</PageTitle>
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <a class="btn btn-sm btn-outline-secondary" href="/roleplay/studio/@sessionId/@interactionId/compose/@productionGroupId">
+            <i class="bi bi-arrow-left me-1"></i>Back to Compose
+        </a>
+        <a class="btn btn-sm btn-outline-primary" href="/review-deck/studio/@productionGroupId"><i class="bi bi-images me-1"></i>Review Deck</a>
+    </div>
+    <h4>Apply identity</h4>
+    @if (!string.IsNullOrWhiteSpace(_errorMessage)) { <div class="alert alert-danger">@_errorMessage</div> }
+    @if (!string.IsNullOrWhiteSpace(_statusMessage)) { <div class="alert alert-info">@_statusMessage</div> }
+    @if (_group is not null)
+    {
+        <div class="alert alert-secondary small"><strong>Moment:</strong> @_group.MomentId <span class="ms-2"><strong>POV:</strong> @_group.Pov</span></div>
+        <section class="card" aria-label="Identity inputs">
+            <div class="card-header"><strong>2. Identity</strong></div>
+            <div class="card-body">
+                <label class="form-label" for="identity-parent">Completed Composition</label>
+                <select id="identity-parent" class="form-select" @bind="sourceImageId">
+                    @foreach (var attempt in _compositionAttempts)
+                    {
+                        <option value="@attempt.Id">@attempt.Id</option>
+                    }
+                </select>
+                @if (_readinessError is not null)
+                {
+                    <div class="alert alert-warning py-2 small mt-3">@_readinessError</div>
+                }
+                else
+                {
+                    <div class="small mt-3"><strong>Exact approved identity packs:</strong>
+                        @foreach (var item in _readiness)
+                        {
+                            <span class="badge text-bg-secondary ms-1">@item.CharacterName v@item.IdentityPackVersion</span>
+                        }
+                    </div>
+                }
+                <details class="mt-3"><summary class="small fw-semibold">View what will be submitted</summary>
+                    <dl class="row small mt-2 mb-0"><dt class="col-sm-3">Group</dt><dd class="col-sm-9 font-monospace">@productionGroupId</dd><dt class="col-sm-3">Parent</dt><dd class="col-sm-9 font-monospace">@sourceImageId</dd><dt class="col-sm-3">Operation</dt><dd class="col-sm-9">Apply approved identity while preserving the completed composition.</dd></dl>
+                </details>
+                <button class="btn btn-success mt-4" disabled="@(_busy || _readinessError is not null || _readiness.Count == 0)" @onclick="ApplyAsync"><i class="bi bi-person-badge me-1"></i>Apply identity</button>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    [Parameter] public string sessionId { get; set; } = string.Empty;
+    [Parameter] public string interactionId { get; set; } = string.Empty;
+    [Parameter] public string productionGroupId { get; set; } = string.Empty;
+    [Parameter] public string sourceImageId { get; set; } = string.Empty;
+    private SceneImageProductionGroup? _group;
+    private IReadOnlyList<SceneImageRecord> _compositionAttempts = [];
+    private IReadOnlyList<SceneImageIdentityReadiness> _readiness = [];
+    private string? _readinessError;
+    private string? _errorMessage;
+    private string? _statusMessage;
+    private bool _busy;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _group = await ProductionService.GetGroupAsync(productionGroupId) ?? throw new InvalidOperationException("The requested production group was not found.");
+            if (!string.Equals(_group.SessionId, sessionId, StringComparison.Ordinal) || !string.Equals(_group.InteractionId, interactionId, StringComparison.Ordinal)) throw new InvalidOperationException("The requested production group does not belong to this Studio Moment.");
+            _compositionAttempts = (await ProductionService.ListAttemptsAsync(_group.Id)).Where(item => item.Status == SceneImageStatus.Complete && item.ProductionStage == SceneImageProductionStage.Composition).ToList();
+            if (!_compositionAttempts.Any(item => item.Id == sourceImageId)) throw new InvalidOperationException("Identity requires a completed Composition from this production group.");
+            try { _readiness = await ProductionService.ResolveIdentityReadinessAsync(_group.Id); _readinessError = null; }
+            catch (InvalidOperationException exception) { _readiness = []; _readinessError = exception.Message; }
+        }
+        catch (Exception exception) { _errorMessage = exception.Message; }
+    }
+
+    private async Task ApplyAsync()
+    {
+        _busy = true; _errorMessage = null;
+        try
+        {
+            var record = await ImageService.EnqueueIdentityAsync(new SceneImageIdentityRequest { SessionId = sessionId, InteractionId = interactionId, ProductionGroupId = productionGroupId, SourceImageId = sourceImageId, Instruction = "Apply the approved identity references while preserving the completed Composition scene, camera, lighting, clothing, and composition." });
+            _statusMessage = record.Status == SceneImageStatus.Complete
+                ? $"Identity {record.Id} completed immediately through the hosted or dedicated provider."
+                : $"Identity {record.Id} queued for the self-built serverless endpoint. Return to Compose to refresh the production attempts.";
+        }
+        catch (Exception exception) { _errorMessage = exception.Message; }
+        finally { _busy = false; }
+    }
+}

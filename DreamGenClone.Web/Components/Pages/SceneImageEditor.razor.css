@@ -132,6 +132,56 @@
     background: #121212;
 }
 
+.scene-edit-lineage-item.is-current {
+    border-color: #4a8592;
+    box-shadow: inset 3px 0 0 #78bdca;
+}
+
+.scene-edit-lineage-thumb {
+    flex: 0 0 112px;
+    width: 112px;
+    height: 76px;
+    object-fit: cover;
+    border: 1px solid #303030;
+    border-radius: 4px;
+    background: #0c0c0c;
+}
+
+.scene-edit-lineage-thumb-state {
+    display: grid;
+    place-items: center;
+    color: #9aa4aa;
+    font-size: 0.75rem;
+    text-align: center;
+}
+
+.scene-edit-lineage-meta {
+    display: grid;
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 3px;
+}
+
+.scene-edit-lineage-prompt {
+    min-width: 0;
+    margin-top: 3px;
+    color: #d4d4d4;
+    font-size: 0.82rem;
+}
+
+.scene-edit-lineage-prompt summary {
+    color: #91d6e4;
+    cursor: pointer;
+}
+
+.scene-edit-lineage-prompt div {
+    max-height: 180px;
+    margin-top: 5px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 @media (max-width: 767.98px) {
     .scene-edit-image-stage {
         min-height: 240px;
@@ -140,6 +190,16 @@
     .scene-edit-lineage-item {
         align-items: flex-start;
         flex-wrap: wrap;
+    }
+
+    .scene-edit-lineage-thumb {
+        flex-basis: 88px;
+        width: 88px;
+        height: 60px;
+    }
+
+    .scene-edit-lineage-meta {
+        flex-basis: calc(100% - 98px);
     }
 
     .scene-edit-lineage-item .ms-auto {

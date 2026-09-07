@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))
 SUITE = os.path.dirname(HERE)
 DEFAULT_SOURCE_DIR = os.path.join(SUITE, "images", "matrix")
-DEFAULT_REF_DIR = os.path.join(SUITE, "refs")
+DEFAULT_REF_DIR = os.path.join(SUITE, "refs", "multiangle")
 DEFAULT_OUT = os.path.join("artifacts", "tmp", "qwen-composition-identity")
 DEFAULT_ENDPOINT_ID = "79wkn5jz5d5txx"
 DEFAULT_BASE = f"https://api.runpod.ai/v2/{DEFAULT_ENDPOINT_ID}"
@@ -23,6 +23,11 @@ ENDPOINT_KEY = "img-qwen-edit-serverless"
 USER_AGENT = "Mozilla/5.0 (compatible; DreamGenClone/1.0)"
 CELLS = ("c1", "c2", "c3")
 SEEDS = (1001, 1002)
+REFERENCE_STEMS = {
+    "c1": ("dean_front", "becky_front"),
+    "c2": ("dean_34r", "becky_34l"),
+    "c3": ("dean_34r", "becky_34l"),
+}
 
 PROMPTS = {
     "c1": (
@@ -174,7 +179,8 @@ def case_inputs(source_dir, reference_dir, cell, seed):
     source = os.path.join(source_dir, f"{cell}_s{seed}.png")
     if not os.path.isfile(source):
         raise FileNotFoundError(f"Missing frozen source composition: {source}")
-    return source, find_reference(reference_dir, "dean_face"), find_reference(reference_dir, "becky_face")
+    dean_stem, becky_stem = REFERENCE_STEMS[cell]
+    return source, find_reference(reference_dir, dean_stem), find_reference(reference_dir, becky_stem)
 
 
 def main():

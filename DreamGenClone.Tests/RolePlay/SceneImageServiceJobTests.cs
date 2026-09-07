@@ -2,7 +2,11 @@ using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
 using DreamGenClone.Application.Abstractions;
+using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Application.Processing;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
@@ -22,10 +26,23 @@ namespace DreamGenClone.Tests.RolePlay;
 public sealed class SceneImageServiceJobTests
 {
     private const string CurrentBeatsJson = "[{\"schemaVersion\":3,\"beatId\":\"beat-1\",\"order\":2,\"label\":\"Kitchen confession\",\"visualDescription\":\"She steps closer in the kitchen.\",\"interactionIds\":[\"i1\"],\"subjectCharacterNames\":[\"Wife\"],\"characters\":[{\"name\":\"Wife\",\"profileId\":null,\"involvement\":\"active\",\"physicalLocation\":\"Kitchen\",\"position\":\"beside the kitchen table\",\"actionOrObservation\":\"steps closer\",\"sightline\":\"toward the other person\",\"visibleCharacterNames\":[],\"clothing\":\"blue dress\"}],\"location\":\"Kitchen\",\"timeOfDay\":\"Evening\",\"lighting\":\"warm overhead light\",\"environment\":\"quiet kitchen\",\"mood\":\"intimate\",\"excerpt\":\"She steps closer in the kitchen.\"}]";
+    private const string EditorModelId = "editor-1";
 
-    private sealed class CapturingBackgroundJobQueue : IBackgroundJobQueue
+    [Fact]
+    public void BuildFaceOnlyIdentityInstructionRequiresIdentityFeatureTransfer()
+    {
+        var instruction = SceneImageService.BuildFaceOnlyIdentityInstruction([(1, "Becky")]);
+
+        Assert.Contains("Reference image 2 is the approved face identity reference for Becky", instruction, StringComparison.Ordinal);
+        Assert.Contains("distinguishing facial geometry, eye color and shape, eyebrows, nose, lips, freckles", instruction, StringComparison.Ordinal);
+        Assert.Contains("existing scene's visible neck and body skin tone as authoritative", instruction, StringComparison.Ordinal);
+        Assert.Contains("Preserve everything outside those selected face regions exactly", instruction, StringComparison.Ordinal);
+    }
+
+    private sealed class CapturingBackgroundJobQueue : IBackgroundJobQueue, IDurableBackgroundJobQueue
     {
         public List<(string JobType, string PayloadJson, string? DedupeKey)> Enqueued { get; } = [];
+        public List<DurableBackgroundJob> DurableJobs { get; } = [];
 
         public bool Enqueue(string jobType, string payloadJson, string? dedupeKey = null)
         {
@@ -38,6 +55,51 @@ public sealed class SceneImageServiceJobTests
         public void MarkProcessing(string jobId) { }
         public void MarkCompleted(string jobId) { }
         public void MarkFailed(string jobId, string errorMessage) { }
+
+        public Task<bool> TryEnqueueAsync(DurableBackgroundJob job, CancellationToken cancellationToken = default)
+        {
+            DurableJobs.Add(job);
+            Enqueued.Add((job.JobType, job.PayloadJson, job.DedupeKey));
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> TryActivateAsync(string jobId, DateTime activatedUtc, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<DurableBackgroundJob?> GetAsync(string jobId, CancellationToken cancellationToken = default)
+            => Task.FromResult<DurableBackgroundJob?>(null);
+
+        public Task<bool> TryCancelAsync(string jobId, DateTime cancelledUtc, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task WaitForWorkAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
+
+    private sealed class TestImageEditorModelResolver : IImageEditorModelResolver
+    {
+        public Task<ResolvedImageEditorModel> ResolveAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(CreateResolvedModel());
+
+        public Task<ResolvedImageEditorModel> ResolveByIdAsync(string modelId, CancellationToken cancellationToken = default)
+        {
+            Assert.Equal(EditorModelId, modelId);
+            return Task.FromResult(CreateResolvedModel());
+        }
+
+        public Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<SceneImageModelChoice>>([]);
+
+        private static ResolvedImageEditorModel CreateResolvedModel() => new(
+            "https://qwen.test", 60, null, "qwen-test", "Test Qwen", ImageContentPolicy.Unknown,
+            "qwen.safetensors", "text-encoder.safetensors", "vae.safetensors", 40, 4,
+            "euler", "simple", 1, 3.1, 1, ImageProtocol.ComfyUiServerless, EditorModelId);
+    }
+
+    private sealed class WarmImageEditorEndpointReadiness : IImageEditorEndpointReadiness
+    {
+        public Task<bool> IsWarmAsync(ResolvedImageEditorModel model, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
     }
 
     private sealed class StubSessionService : ISessionService
@@ -101,7 +163,12 @@ public sealed class SceneImageServiceJobTests
             productionGroupRepository,
             momentEnrichmentRepository,
             new CompiledMediaBriefRepository(persistenceOptions),
-            NullLogger<SceneImageService>.Instance);
+            null,
+            null,
+            NullLogger<SceneImageService>.Instance,
+            imageEditorModelResolver: new TestImageEditorModelResolver(),
+            imageEditorEndpointReadiness: new WarmImageEditorEndpointReadiness(),
+            durableJobQueue: queue);
         return (service, queue, repo, storage, dbPath, root);
     }
 
@@ -682,7 +749,8 @@ public sealed class SceneImageServiceJobTests
                 CompilationAttemptId = attempt.Id,
                 PromptRevisionId = revision.Id,
                 SourceImageSha256 = editSession.SourceImageSha256,
-                PromptSha256 = revision.PromptSha256
+                PromptSha256 = revision.PromptSha256,
+                EditorModelId = EditorModelId
             });
 
             Assert.Equal(SceneImageStatus.Pending, record.Status);
@@ -697,6 +765,7 @@ public sealed class SceneImageServiceJobTests
             Assert.Single(queue.Enqueued);
             Assert.Equal(BackgroundJobTypes.SceneImageEditing, queue.Enqueued[0].JobType);
             Assert.Contains(record.Id, queue.Enqueued[0].DedupeKey, StringComparison.Ordinal);
+            Assert.Equal(DurableBackgroundJobStatus.Queued, Assert.Single(queue.DurableJobs).Status);
         }
         finally
         {
@@ -705,7 +774,7 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
-    public async Task EnqueueEditAsync_ProductionAttempt_InheritsExactLineageAsFinishAndRejectsPurgedSource()
+    public async Task EnqueueEditAsync_ProductionAttempt_RetainsLineageWithoutEnteringFinishWorkflowAndRejectsPurgedSource()
     {
         var (service, _, repo, _, dbPath, root) = Build(MakeSession());
         try
@@ -729,13 +798,14 @@ public sealed class SceneImageServiceJobTests
             {
                 SessionId = "s1", InteractionId = "i1", SourceImageId = source.Id, EditSessionId = editSession.Id,
                 CompilationAttemptId = attempt.Id, PromptRevisionId = revision.Id,
-                SourceImageSha256 = editSession.SourceImageSha256, PromptSha256 = revision.PromptSha256
+                SourceImageSha256 = editSession.SourceImageSha256, PromptSha256 = revision.PromptSha256,
+                EditorModelId = EditorModelId
             };
 
             var edit = await service.EnqueueEditAsync(request);
             Assert.Equal(source.Id, edit.SourceImageId);
-            Assert.Equal(SceneImageProductionStage.Finish, edit.ProductionStage);
-            Assert.Equal(SceneImageAttemptDisposition.Active, edit.Disposition);
+            Assert.Null(edit.ProductionStage);
+            Assert.Null(edit.Disposition);
             Assert.Equal(source.ProductionGroupId, edit.ProductionGroupId);
             Assert.Equal(source.CatalogueId, edit.CatalogueId);
             Assert.Equal(source.BeatProductionPlanVersion, edit.BeatProductionPlanVersion);
@@ -784,7 +854,8 @@ public sealed class SceneImageServiceJobTests
                 CompilationAttemptId = "attempt",
                 PromptRevisionId = "revision",
                 SourceImageSha256 = new string('A', 64),
-                PromptSha256 = new string('B', 64)
+                PromptSha256 = new string('B', 64),
+                EditorModelId = EditorModelId
             }));
 
             Assert.Contains("completed", exception.Message, StringComparison.OrdinalIgnoreCase);
@@ -825,7 +896,8 @@ public sealed class SceneImageServiceJobTests
                 CompilationAttemptId = attempt.Id,
                 PromptRevisionId = revision.Id,
                 SourceImageSha256 = editSession.SourceImageSha256,
-                PromptSha256 = new string('F', 64)
+                PromptSha256 = new string('F', 64),
+                EditorModelId = EditorModelId
             }));
 
             Assert.Contains("checksum", exception.Message, StringComparison.OrdinalIgnoreCase);
@@ -1004,13 +1076,13 @@ public sealed class SceneImageServiceJobTests
                 InteractionId = "i1",
                 PromptRecordId = prompt.Id,
                 Prompt = "a draft",
-                SettingsJson = "{\"Style\":\"cartoon\",\"ImageSize\":\"768x768\",\"AllowExplicitImage\":true}"
+                SettingsJson = "{\"Style\":\"cartoon\",\"ImageSize\":\"768x768\"}"
             });
 
             Assert.Equal("cartoon", record.Style);
             Assert.Equal("768x768", record.ImageSize);
             Assert.Contains("cartoon", record.SettingsJson, StringComparison.Ordinal);
-            Assert.Contains("AllowExplicitImage", record.SettingsJson, StringComparison.Ordinal);
+            Assert.Contains("768x768", record.SettingsJson, StringComparison.Ordinal);
 
             var persisted = await repo.GetImageAsync(record.Id);
             Assert.NotNull(persisted);

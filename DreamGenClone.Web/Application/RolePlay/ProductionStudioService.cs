@@ -34,7 +34,7 @@ public sealed class ProductionStudioService : IProductionStudioService
                 .Where(cell => cell.Status == MediaCapabilityCellStatus.Qualified))
             {
                 results.Add(new ProductionStudioCapability(
-                    profile.Id, cell.Id, profile.ProviderKey, profile.ModelId, profile.ModelVersion,
+                    profile.Id, cell.Id, profile.RegisteredModelId, profile.ProviderKey, profile.ModelId, profile.ModelVersion,
                     profile.CompilerId, profile.CompilerVersion, profile.ContentPolicyKey,
                     $"{cell.ActorCount} actor(s) · {cell.FaceAngleKey} · {cell.CropKey} · {cell.PoseClassKey} · {cell.CompositionClassKey}"));
             }
@@ -100,7 +100,8 @@ public sealed class ProductionStudioService : IProductionStudioService
             bindings.Add(new OrderedMediaReferenceBinding
             {
                 Id = Guid.NewGuid().ToString("N"), CompiledRequestId = requestId, Ordinal = ordinal,
-                SemanticRole = reference.SemanticRole, ActorKey = reference.ActorKey,
+                SemanticRole = reference.SemanticRole, Strategy = reference.Strategy, Strength = reference.Strength,
+                ActorKey = reference.ActorKey,
                 SceneAssetId = asset.Id, SceneAssetVersion = reference.SceneAssetVersion,
                 SceneAssetSha256 = reference.SceneAssetSha256,
                 IdentityVersionId = reference.IdentityVersionId,

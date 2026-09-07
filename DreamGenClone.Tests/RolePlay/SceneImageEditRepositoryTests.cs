@@ -203,7 +203,9 @@ public sealed class SceneImageEditRepositoryTests
             await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.EditRepository.DeleteRevisionAsync(revision.Id));
             await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.EditRepository.DeleteAttemptAsync(attempt.Id));
             await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.EditRepository.DeleteSessionAsync(session.Id));
-            await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.ImageRepository.DeleteImageAsync(source.Id));
+            await fixture.ImageRepository.DeleteImageAsync(source.Id);
+            Assert.Null(await fixture.ImageRepository.GetImageAsync(source.Id));
+            Assert.NotNull(await fixture.ImageRepository.GetImageAsync(editedImage.Id));
         }
         finally
         {

@@ -1,0 +1,67 @@
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+
+@inject ISceneAssetService AssetService
+
+<select class="form-select form-select-sm" value="@SelectedAssetImageId" @onchange="ChangeAsset" disabled="@_loading">
+    <option value="">Text only / no asset reference</option>
+    @foreach (var choice in _choices)
+    {
+        <option value="@choice.Image.Id">@choice.Asset.Name · v@choice.Image.ProductionVersion</option>
+    }
+</select>
+
+@code {
+    [Parameter, EditorRequired]
+    public SceneAssetType AssetType { get; set; }
+
+    [Parameter]
+    public string? SelectedAssetImageId { get; set; }
+
+    [Parameter]
+    public EventCallback<SceneAssetReferenceChoice?> SelectedAssetChanged { get; set; }
+
+    private IReadOnlyList<SceneAssetReferenceChoice> _choices = [];
+    private bool _loading;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        try
+        {
+            var assets = (await AssetService.ListAssetsAsync())
+                .Where(asset => asset.Type == AssetType)
+                .ToList();
+            var choices = new List<SceneAssetReferenceChoice>();
+            foreach (var asset in assets)
+            {
+                var images = await AssetService.ListImagesAsync(asset.Id);
+                choices.AddRange(images
+                    .Where(image => image.Status == SceneAssetStatus.Complete
+                        && image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved
+                        && image.ProductionVersion is not null
+                        && !string.IsNullOrWhiteSpace(image.Sha256))
+                    .Select(image => new SceneAssetReferenceChoice(asset, image)));
+            }
+            _choices = choices
+                .OrderByDescending(choice => choice.Image.ProductionVersion)
+                .ThenBy(choice => choice.Asset.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ChangeAsset(ChangeEventArgs args)
+    {
+        var id = args.Value?.ToString();
+        var choice = string.IsNullOrWhiteSpace(id)
+            ? null
+            : _choices.SingleOrDefault(candidate => string.Equals(candidate.Image.Id, id, StringComparison.Ordinal));
+        if (!string.IsNullOrWhiteSpace(id) && choice is null)
+            throw new InvalidOperationException("The selected asset image is not an approved reference for this element.");
+        await SelectedAssetChanged.InvokeAsync(choice);
+    }
+}

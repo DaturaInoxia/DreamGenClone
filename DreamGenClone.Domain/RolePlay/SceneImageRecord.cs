@@ -15,7 +15,10 @@ public enum SceneImageStatus
     Complete = 2,
 
     /// <summary>Image call failed or the provider rejected the prompt.</summary>
-    Failed = 3
+    Failed = 3,
+
+    /// <summary>Image work was cancelled before the durable job completed.</summary>
+    Cancelled = 4
 }
 
 /// <summary>How a scene image was created.</summary>
@@ -146,6 +149,7 @@ public sealed class SceneImageRecord
     public SceneImageFinishChangeClass? FinishChangeClass { get; set; }
     public bool IdentityStale { get; set; }
     public string? IdentityReferenceBindingsJson { get; set; }
+    public string? AppliedReferenceBindingsJson { get; set; }
     public string? Sha256 { get; set; }
     public DateTime? BytesPurgedUtc { get; set; }
 

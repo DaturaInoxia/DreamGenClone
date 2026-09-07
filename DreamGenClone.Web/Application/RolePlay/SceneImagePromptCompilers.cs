@@ -16,7 +16,6 @@ public sealed class PonySceneImagePromptCompiler : ISceneImagePromptCompiler
     public SceneImageModelFamily Family => SceneImageModelFamily.Pony;
     public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.PonyV6Tags;
     public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
-    public string SfwClampSuffix => PonySceneImagePromptBuilder.SfwClampSuffix;
     public string CanonicalNegativePrompt => "lowres, bad anatomy, bad hands, extra digits, watermark, text, blurry";
 
     public string BuildNegativePrompt(SceneImageBeat beat, string pov) =>
@@ -35,7 +34,6 @@ public sealed class SdxlSceneImagePromptCompiler : ISceneImagePromptCompiler
     public SceneImageModelFamily Family => SceneImageModelFamily.Sdxl;
     public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.SdxlNaturalLanguage;
     public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
-    public string SfwClampSuffix => _builder.SfwClampSuffix;
     public string CanonicalNegativePrompt => SdxlSceneImagePromptBuilder.DefaultNegativePrompt;
 
     public string BuildNegativePrompt(SceneImageBeat beat, string pov) =>
@@ -45,8 +43,8 @@ public sealed class SdxlSceneImagePromptCompiler : ISceneImagePromptCompiler
 /// <summary>
 /// Plain-request compiler for API-protocol image models (OpenAI-compatible images endpoint, e.g.
 /// TogetherAI GPT-Image-2 / Seedream / Imagen). These are natural-language image generators with no
-/// checkpoint-prompt dialect, so the compiler uses the LLM natural-language prompt builder, a neutral
-/// SFW clamp, and no deterministic negative prompt.
+/// checkpoint-prompt dialect, so the compiler uses the LLM natural-language prompt builder and no
+/// deterministic negative prompt.
 /// </summary>
 public sealed class ApiSceneImagePromptCompiler : ISceneImagePromptCompiler
 {
@@ -60,7 +58,6 @@ public sealed class ApiSceneImagePromptCompiler : ISceneImagePromptCompiler
     public SceneImageModelFamily Family => SceneImageModelFamily.Api;
     public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.NaturalLanguage;
     public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
-    public string SfwClampSuffix => "keep fully clothed, non-explicit";
     public string CanonicalNegativePrompt => string.Empty;
 
     public string BuildNegativePrompt(SceneImageBeat beat, string pov) => string.Empty;
@@ -115,7 +112,7 @@ public static class SceneAssetPromptCompiler
             (SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags) => new(
                 "scene-asset-pony-v6",
                 "1",
-                CompilePony(semanticDescription, assetType, model.ContentPolicy)),
+                CompilePony(semanticDescription, assetType)),
             (SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage) => new(
                 "scene-asset-sdxl-natural-language",
                 "1",
@@ -131,12 +128,8 @@ public static class SceneAssetPromptCompiler
 
     private static string CompilePony(
         string description,
-        SceneAssetType assetType,
-        ImageContentPolicy contentPolicy)
+        SceneAssetType assetType)
     {
-        var rating = contentPolicy == ImageContentPolicy.SfwFiltered
-            ? "rating_safe"
-            : "rating_explicit";
         var subjectCount = assetType is SceneAssetType.CharacterFace or SceneAssetType.CharacterBody
             ? "1person"
             : null;
@@ -146,7 +139,7 @@ public static class SceneAssetPromptCompiler
             .TrimEnd('.');
         var terms = new List<string>
         {
-            "score_9", "score_8_up", "score_7_up", "score_6_up", "score_5_up", "score_4_up", rating
+            "score_9", "score_8_up", "score_7_up", "score_6_up", "score_5_up", "score_4_up", "rating_explicit"
         };
         if (subjectCount is not null) terms.Add(subjectCount);
         terms.Add(semanticTags);

@@ -11,6 +11,8 @@ public sealed class SceneImageEditRequest
     public string PromptRevisionId { get; set; } = string.Empty;
     public string SourceImageSha256 { get; set; } = string.Empty;
     public string PromptSha256 { get; set; } = string.Empty;
+    public string EditorModelId { get; set; } = string.Empty;
+    public IReadOnlyList<ReferenceApplicationSelection>? ReferenceApplications { get; set; }
 
     [Obsolete("Use the compiled prompt revision identifiers and checksums. Raw instructions are never executed.")]
     public string Instruction { get; set; } = string.Empty;

@@ -114,6 +114,30 @@ public sealed class DurableBackgroundJobRepositoryTests
     }
 
     [Fact]
+    public async Task Cancellation_AllowsStagedJobBeforeActivation()
+    {
+        var fixture = CreateFixture();
+        try
+        {
+            var created = Utc(13);
+            var job = CreateJob("job-1", "cancel-staged", DurableJobLane.ImageEdit, created);
+            job.Status = DurableBackgroundJobStatus.Staged;
+            await fixture.Repository.TryEnqueueAsync(job);
+
+            Assert.True(await fixture.Repository.TryCancelAsync("job-1", created.AddSeconds(10)));
+            var cancelled = await fixture.Repository.GetAsync("job-1");
+            Assert.Equal(DurableBackgroundJobStatus.Cancelled, cancelled!.Status);
+            Assert.NotNull(cancelled.CompletedUtc);
+            Assert.Null(await fixture.Repository.TryClaimNextAsync(
+                DurableJobLane.ImageEdit, "worker-1", created.AddMinutes(1), created.AddMinutes(2)));
+        }
+        finally
+        {
+            Cleanup(fixture.DatabasePath);
+        }
+    }
+
+    [Fact]
     public async Task Recovery_RequeuesOnlyExpiredLeasesAndPreservesAttemptCount()
     {
         var fixture = CreateFixture();

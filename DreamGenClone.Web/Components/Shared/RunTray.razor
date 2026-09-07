@@ -1,0 +1,313 @@
+@using System.Text.Json
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Application.Processing
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Domain.Processing
+
+@inject IDurableBackgroundJobRepository JobRepository
+@inject IDurableBackgroundJobQueue JobQueue
+@inject ISceneImageService ImageService
+@inject ISceneImageProductionGroupRepository ProductionGroupRepository
+@inject IRegisteredModelRepository ModelRepository
+@inject IProviderRepository ProviderRepository
+
+<section class="border rounded p-3" aria-label="Production jobs">
+    <div class="d-flex justify-content-between align-items-center gap-2">
+        <div>
+            <strong>Jobs</strong>
+            <div class="small text-muted">Durable queue for every Production POV of this Moment.</div>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" type="button" disabled="@_loading" @onclick="LoadAsync" title="Refresh jobs">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger py-2 small mt-2 mb-0">@_error</div>
+    }
+    else if (string.IsNullOrWhiteSpace(MomentEnrichmentId))
+    {
+        <div class="small text-muted mt-2">Open a completed Moment enrichment to inspect its jobs.</div>
+    }
+    else if (_loading)
+    {
+        <div class="small text-muted mt-2">Loading durable jobs...</div>
+    }
+    else
+    {
+        <div class="d-flex flex-wrap gap-1 mt-2">
+            @foreach (var status in Enum.GetValues<DurableBackgroundJobStatus>())
+            {
+                <span class="badge @StatusBadgeClass(status)">@status: @_jobs.Count(job => job.Status == status)</span>
+            }
+        </div>
+        @if (_jobs.Count == 0)
+        {
+            <div class="small text-muted mt-2">No durable jobs exist for this Production POV.</div>
+        }
+        else
+        {
+            <div class="table-responsive mt-2">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr><th>Work</th><th>Target</th><th>Status</th><th>Attempts</th><th>Updated</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var job in _jobs)
+                        {
+                            <tr @key="job.Id">
+                                <td><span class="font-monospace small">@job.JobType</span><span class="d-block small text-muted">@JobScopeDisplay(job.Id) · @job.Lane · @ShortId(job.Id)</span></td>
+                                <td class="small">@TargetDisplay(job.Id)</td>
+                                <td><span class="badge @StatusBadgeClass(job.Status)">@job.Status</span></td>
+                                <td>@job.AttemptCount/@job.MaxAttempts</td>
+                                <td class="small">@job.UpdatedUtc.ToLocalTime().ToString("g")</td>
+                                <td>
+                                    <div class="d-flex flex-wrap gap-1">
+                                        <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => ToggleDetails(job.Id)">Details</button>
+                                        @if (job.Status == DurableBackgroundJobStatus.Staged)
+                                        {
+                                            <button class="btn btn-sm btn-primary" type="button" disabled="@_loading" @onclick="() => StartAsync(job.Id)">Start</button>
+                                        }
+                                        @if (CanCancel(job.Status))
+                                        {
+                                            <button class="btn btn-sm btn-outline-danger" type="button" disabled="@_loading" @onclick="() => RequestCancel(job.Id)">Cancel</button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                            @if (_expandedJobId == job.Id)
+                            {
+                                <tr @key="DetailRowKey(job.Id)">
+                                    <td colspan="6">
+                                        <dl class="row small mb-2">
+                                            <dt class="col-sm-3">Error</dt><dd class="col-sm-9">@FormatError(job)</dd>
+                                            <dt class="col-sm-3">Created</dt><dd class="col-sm-9">@job.CreatedUtc.ToLocalTime().ToString("g")</dd>
+                                            <dt class="col-sm-3">Next retry</dt><dd class="col-sm-9">@(job.NextAttemptUtc?.ToLocalTime().ToString("g") ?? "None")</dd>
+                                            <dt class="col-sm-3">Lease</dt><dd class="col-sm-9">@FormatLease(job)</dd>
+                                            <dt class="col-sm-3">Dedupe key</dt><dd class="col-sm-9 font-monospace text-break">@job.DedupeKey</dd>
+                                        </dl>
+                                        <details>
+                                            <summary class="small">Queue payload</summary>
+                                            <pre class="small text-break mt-2 mb-0">@job.PayloadJson</pre>
+                                        </details>
+                                    </td>
+                                </tr>
+                            }
+                            @if (_cancelConfirmationJobId == job.Id)
+                            {
+                                <tr @key="CancelRowKey(job.Id)">
+                                    <td colspan="6">
+                                        <div class="alert alert-warning py-2 mb-0 small">
+                                            Cancel this @job.Status job? Queued work will not run; an in-flight provider request may already have incurred cost.
+                                            <button class="btn btn-sm btn-danger ms-2" type="button" disabled="@_loading" @onclick="() => CancelAsync(job.Id)">Confirm cancel</button>
+                                            <button class="btn btn-sm btn-outline-secondary ms-1" type="button" disabled="@_loading" @onclick="ClearCancelRequest">Keep job</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public string SessionId { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string InteractionId { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string? MomentEnrichmentId { get; set; }
+
+    private List<DurableBackgroundJob> _jobs = [];
+    private Dictionary<string, string> _jobTargets = [];
+    private Dictionary<string, string> _jobScopes = [];
+    private string? _error;
+    private bool _loading;
+    private string? _expandedJobId;
+    private string? _cancelConfirmationJobId;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _jobTargets = [];
+            _jobScopes = [];
+            if (string.IsNullOrWhiteSpace(MomentEnrichmentId))
+            {
+                _jobs = [];
+                return;
+            }
+
+            var groups = (await ProductionGroupRepository.ListByInteractionAsync(SessionId, InteractionId))
+                .Where(group => string.Equals(group.MomentEnrichmentId, MomentEnrichmentId, StringComparison.Ordinal))
+                .ToList();
+            var groupsById = groups.ToDictionary(group => group.Id, StringComparer.Ordinal);
+            var attemptLists = await Task.WhenAll(groups.Select(group => ImageService.ListImagesByProductionGroupAsync(group.Id)));
+            var attempts = attemptLists.SelectMany(attemptList => attemptList).ToList();
+            var attemptsById = attempts.ToDictionary(attempt => attempt.Id, StringComparer.Ordinal);
+            var groupIds = groupsById.Keys.ToHashSet(StringComparer.Ordinal);
+            var modelNames = new Dictionary<string, string>(StringComparer.Ordinal);
+            var providerNames = new Dictionary<string, string>(StringComparer.Ordinal);
+            var candidates = await JobRepository.ListRecentAsync(200);
+            var matched = new List<DurableBackgroundJob>();
+            foreach (var job in candidates)
+            {
+                var recordId = ReadPayloadId(job.PayloadJson, "ImageRecordId")
+                    ?? ReadPayloadId(job.PayloadJson, "AttemptId");
+                if (recordId is not null && attemptsById.TryGetValue(recordId, out var attempt))
+                {
+                    matched.Add(job);
+                    _jobScopes[job.Id] = groupsById[attempt.ProductionGroupId!].Pov;
+                    _jobTargets[job.Id] = await ResolveImageTargetAsync(attempt, modelNames, providerNames);
+                    continue;
+                }
+
+                var promptRecordId = ReadPayloadId(job.PayloadJson, "PromptRecordId");
+                if (promptRecordId is not null)
+                {
+                    var prompt = await ImageService.GetPromptAsync(SessionId, promptRecordId);
+                    if (prompt?.ProductionGroupId is not null && groupIds.Contains(prompt.ProductionGroupId))
+                    {
+                        matched.Add(job);
+                        _jobScopes[job.Id] = groupsById[prompt.ProductionGroupId].Pov;
+                        _jobTargets[job.Id] = string.IsNullOrWhiteSpace(prompt.ModelIdentifier)
+                            ? "Prompt compiler target not recorded"
+                            : $"Prompt compiler: {prompt.ModelIdentifier}";
+                    }
+                }
+            }
+
+            _jobs = matched.OrderByDescending(job => job.UpdatedUtc).Take(100).ToList();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task StartAsync(string jobId)
+    {
+        if (!await JobQueue.TryActivateAsync(jobId, DateTime.UtcNow))
+        {
+            _error = "The job is no longer staged. Refresh to see its current state.";
+        }
+        await LoadAsync();
+    }
+
+    private void RequestCancel(string jobId) => _cancelConfirmationJobId = jobId;
+
+    private void ClearCancelRequest() => _cancelConfirmationJobId = null;
+
+    private async Task CancelAsync(string jobId)
+    {
+        var cancelledUtc = DateTime.UtcNow;
+        if (!await JobQueue.TryCancelAsync(jobId, cancelledUtc))
+        {
+            _error = "The job can no longer be cancelled. Refresh to see its current state.";
+        }
+        else if (ReadPayloadId(_jobs.FirstOrDefault(job => job.Id == jobId)?.PayloadJson ?? string.Empty, "ImageRecordId") is { } imageRecordId)
+        {
+            await ImageService.TryCancelImageAsync(SessionId, imageRecordId, cancelledUtc);
+        }
+        _cancelConfirmationJobId = null;
+        await LoadAsync();
+    }
+
+    private void ToggleDetails(string jobId) => _expandedJobId = _expandedJobId == jobId ? null : jobId;
+
+    private static string? ReadPayloadId(string payloadJson, string propertyName)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            return document.RootElement.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool CanCancel(DurableBackgroundJobStatus status)
+        => status is DurableBackgroundJobStatus.Staged
+            or DurableBackgroundJobStatus.Queued
+            or DurableBackgroundJobStatus.Processing
+            or DurableBackgroundJobStatus.RetryScheduled;
+
+    private string TargetDisplay(string jobId)
+        => _jobTargets.TryGetValue(jobId, out var target) ? target : "Prompt compilation target";
+
+    private string JobScopeDisplay(string jobId)
+        => _jobScopes.TryGetValue(jobId, out var pov) ? pov : "Moment";
+
+    private async Task<string> ResolveImageTargetAsync(
+        SceneImageRecord attempt,
+        Dictionary<string, string> modelNames,
+        Dictionary<string, string> providerNames)
+    {
+        if (string.IsNullOrWhiteSpace(attempt.RequestedModelId))
+        {
+            return string.IsNullOrWhiteSpace(attempt.ProviderName)
+                ? $"Resolved model: {attempt.ModelIdentifier ?? "not recorded"}"
+                : $"Resolved model: {attempt.ModelIdentifier ?? "not recorded"} / {attempt.ProviderName}";
+        }
+
+        if (!modelNames.TryGetValue(attempt.RequestedModelId, out var modelName))
+        {
+            var model = await ModelRepository.GetByIdAsync(attempt.RequestedModelId);
+            modelName = model?.DisplayName ?? "Removed configured model";
+            modelNames[attempt.RequestedModelId] = modelName;
+            if (model is not null && !providerNames.ContainsKey(model.ProviderId))
+            {
+                providerNames[model.ProviderId] = (await ProviderRepository.GetByIdAsync(model.ProviderId))?.Name
+                    ?? "Removed provider";
+            }
+        }
+
+        var configuredModel = await ModelRepository.GetByIdAsync(attempt.RequestedModelId);
+        return configuredModel is not null && providerNames.TryGetValue(configuredModel.ProviderId, out var providerName)
+            ? $"{modelName} / {providerName}"
+            : modelName;
+    }
+
+    private static string ShortId(string id) => id.Length <= 12 ? id : id[..12];
+
+    private static string DetailRowKey(string jobId) => $"{jobId}-details";
+
+    private static string CancelRowKey(string jobId) => $"{jobId}-cancel";
+
+    private static string FormatError(DurableBackgroundJob job)
+        => string.IsNullOrWhiteSpace(job.ErrorCode) && string.IsNullOrWhiteSpace(job.ErrorMessage)
+            ? "None"
+            : string.Join(" / ", new[] { job.ErrorCode, job.ErrorMessage }.Where(value => !string.IsNullOrWhiteSpace(value)));
+
+    private static string FormatLease(DurableBackgroundJob job)
+        => job.LeaseOwner is null ? "None" : $"{job.LeaseOwner} until {job.LeaseExpiresUtc?.ToLocalTime().ToString("g") ?? "unknown"}";
+
+    private static string StatusBadgeClass(DurableBackgroundJobStatus status) => status switch
+    {
+        DurableBackgroundJobStatus.Complete => "text-bg-success",
+        DurableBackgroundJobStatus.Failed => "text-bg-danger",
+        DurableBackgroundJobStatus.Cancelled => "text-bg-secondary",
+        DurableBackgroundJobStatus.RetryScheduled => "text-bg-warning",
+        DurableBackgroundJobStatus.Processing => "text-bg-primary",
+        _ => "text-bg-info"
+    };
+}

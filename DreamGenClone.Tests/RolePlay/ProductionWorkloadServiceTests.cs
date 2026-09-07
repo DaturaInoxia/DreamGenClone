@@ -20,7 +20,7 @@ public sealed class ProductionWorkloadServiceTests
         await using var fixture = await Fixture.CreateAsync();
         var compilation = new ProductionMediaCompilationService(
             fixture.Repository, new ProductionMediaCompilerRegistry([new FakeProductionCompiler()]),
-            fixture.LoraRepository, null!);
+            fixture.LoraRepository, null!, new TestReferenceStrategyResolver());
         await fixture.SeedIdentityPackAsync("pack-1", "character-1", CharacterImageIdentityPackStatus.Approved);
         var service = new CharacterAssetGenerationService(
             fixture.Repository, compilation, fixture.Service, fixture.IdentityRepository);
@@ -29,7 +29,7 @@ public sealed class ProductionWorkloadServiceTests
             "/run", "/status/{jobId}", "/cancel/{jobId}", 30,
             FakeDispatchAdapter.Key, "{\"ready\":true}");
         var policy = new ProductionDispatchPolicy(
-            FakeDispatchAdapter.Key, false, 1, "worker:v1", "artifacts:v1", "inline", 600);
+            FakeDispatchAdapter.Key, false, 1, "worker:v1", "artifacts:v1", "inline", 600, false);
         var candidates = new[]
         {
             Candidate("seed", CharacterAssetCandidateKind.IdentitySeed, "front-close", SceneAssetType.CharacterFace),
@@ -77,7 +77,7 @@ public sealed class ProductionWorkloadServiceTests
         await fixture.SeedIdentityPackAsync("pack-1", packCharacterId, status);
         var compilation = new ProductionMediaCompilationService(
             fixture.Repository, new ProductionMediaCompilerRegistry([new FakeProductionCompiler()]),
-            fixture.LoraRepository, null!);
+            fixture.LoraRepository, null!, new TestReferenceStrategyResolver());
         var service = new CharacterAssetGenerationService(
             fixture.Repository, compilation, fixture.Service, fixture.IdentityRepository);
         var candidate = new CharacterAssetCandidateDraft(
@@ -94,7 +94,7 @@ public sealed class ProductionWorkloadServiceTests
                     "/run", "/status/{jobId}", "/cancel/{jobId}", 30,
                     FakeDispatchAdapter.Key, "{\"ready\":true}"),
                 new ProductionDispatchPolicy(
-                    FakeDispatchAdapter.Key, false, 1, "worker:v1", "artifacts:v1", "inline", 600),
+                    FakeDispatchAdapter.Key, false, 1, "worker:v1", "artifacts:v1", "inline", 600, false),
                 new ProductionCostBasis("USD", 0.1m), [candidate], DateTime.UtcNow)));
 
         Assert.Contains("Identity pack", error.Message, StringComparison.Ordinal);
@@ -108,7 +108,7 @@ public sealed class ProductionWorkloadServiceTests
         await fixture.SeedIdentityPackAsync("pack-1", "character-1", CharacterImageIdentityPackStatus.Approved);
         var compilation = new ProductionMediaCompilationService(
             fixture.Repository, new ProductionMediaCompilerRegistry([new FakeProductionCompiler()]),
-            fixture.LoraRepository, new FakeRegisteredModelRepository());
+            fixture.LoraRepository, new FakeRegisteredModelRepository(), new TestReferenceStrategyResolver());
         var service = new CharacterAssetGenerationService(
             fixture.Repository, compilation, fixture.Service, fixture.IdentityRepository);
         var requestId = "request-identity-coverage";
@@ -138,7 +138,7 @@ public sealed class ProductionWorkloadServiceTests
                 "/run", "/status/{jobId}", "/cancel/{jobId}", 30,
                 FakeDispatchAdapter.Key, "{\"ready\":true}"),
             new ProductionDispatchPolicy(
-                FakeDispatchAdapter.Key, false, 1, "worker:v1", "artifacts:v1", "inline", 600),
+                FakeDispatchAdapter.Key, false, 1, "worker:v1", "artifacts:v1", "inline", 600, false),
             new ProductionCostBasis("USD", 0.1m), [candidate], DateTime.UtcNow));
 
         var persisted = Assert.Single(await fixture.LoraRepository.ListIdentityStrategyBindingsAsync(requestId));
@@ -276,7 +276,7 @@ public sealed class ProductionWorkloadServiceTests
         var sourceIntent = (await fixture.Repository.GetIntentAsync(sourceItem.IntentSnapshotId))!;
         var compilation = new ProductionMediaCompilationService(
             fixture.Repository, new ProductionMediaCompilerRegistry([new FakeProductionCompiler()]),
-            fixture.LoraRepository, null!);
+            fixture.LoraRepository, null!, new TestReferenceStrategyResolver());
         var studio = new ProductionStudioService(fixture.Repository, compilation, fixture.Service, fixture.Assets);
         var createdUtc = DateTime.UtcNow;
 
@@ -291,7 +291,7 @@ public sealed class ProductionWorkloadServiceTests
                 "/run", "/status/{jobId}", "/cancel/{jobId}", 30,
                 FakeDispatchAdapter.Key, "{\"ready\":true}"),
             new ProductionDispatchPolicy(
-                FakeDispatchAdapter.Key, false, 1, "worker:v1", "artifacts:v1", "inline", 600),
+                FakeDispatchAdapter.Key, false, 1, "worker:v1", "artifacts:v1", "inline", 600, false),
             new ProductionCostBasis("USD", 0.25m), createdUtc));
 
         var preparedItem = Assert.Single(prepared.Items);
@@ -542,7 +542,7 @@ public sealed class ProductionWorkloadServiceTests
                         FakeDispatchAdapter.Key, "{\"ready\":true,\"checkedUtc\":\"2026-09-02T00:00:00Z\"}"),
                     new ProductionDispatchPolicy(
                         FakeDispatchAdapter.Key, nativeVariations, 4, "worker:v1", "artifacts:v1",
-                        "inline", 600),
+                        "inline", 600, false),
                     new ProductionCostBasis("USD", unitCost)));
             }
             return new ProductionWorkloadDraft(

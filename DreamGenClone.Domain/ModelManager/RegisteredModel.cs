@@ -58,6 +58,12 @@ public sealed class RegisteredModel
     /// <summary>Broad identity strategies this model can support. Exact use still requires a qualified capability cell.</summary>
     public string SupportedIdentityStrategiesJson { get; set; } = "[]";
 
+    /// <summary>Broad visual reference strategies this model can support. Exact use still requires a qualified capability cell.</summary>
+    public string SupportedVisualStrategiesJson { get; set; } = "[]";
+
+    /// <summary>Qualification evidence by strategy and endpoint. The resolver treats unqualified entries as unavailable.</summary>
+    public string CapabilityQualificationsJson { get; set; } = "[]";
+
     public bool IsEnabled { get; set; } = true;
     /// <summary>Whether this model's chat template supports chat_template_kwargs.thinking.</summary>
     public bool SupportsThinkingControl { get; set; }

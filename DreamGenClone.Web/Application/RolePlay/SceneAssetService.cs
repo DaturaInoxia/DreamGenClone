@@ -69,7 +69,9 @@ public sealed class SceneAssetService : ISceneAssetService
         string prompt,
         string modelId,
         string imageSize,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null,
+        string? candidateBatchId = null)
     {
         var asset = await RequireAssetAsync(assetId, cancellationToken);
         if (string.IsNullOrWhiteSpace(prompt))
@@ -78,20 +80,25 @@ public sealed class SceneAssetService : ISceneAssetService
             throw new InvalidOperationException("An exact image model is required.");
         if (string.IsNullOrWhiteSpace(imageSize))
             throw new InvalidOperationException("An image size is required.");
+        var referenceApplicationsJson = SerializeReferenceApplications(referenceApplications);
 
         var image = new SceneAssetImage
         {
             AssetId = asset.Id,
             Kind = SceneAssetKind.PromptGenerated,
             Status = SceneAssetStatus.Pending,
-            Prompt = prompt.Trim()
+            Prompt = prompt.Trim(),
+            CandidateBatchId = string.IsNullOrWhiteSpace(candidateBatchId) ? null : candidateBatchId.Trim(),
+            CandidateDecision = string.IsNullOrWhiteSpace(candidateBatchId) ? null : SceneAssetCandidateDecision.Undecided
         };
         var payload = new SceneAssetGenerationJobPayload
         {
             AssetId = asset.Id,
             ImageId = image.Id,
             ModelId = modelId.Trim(),
-            ImageSize = imageSize.Trim()
+            ImageSize = imageSize.Trim(),
+            CandidateBatchId = image.CandidateBatchId,
+            ReferenceApplicationsJson = referenceApplicationsJson
         };
         image.AssociationMetadataJson = JsonSerializer.Serialize(payload, JsonOptions);
         await _repository.UpsertImageAsync(image, cancellationToken);
@@ -103,6 +110,69 @@ public sealed class SceneAssetService : ISceneAssetService
             cancellationToken);
         _logger.LogInformation("Enqueued scene asset image generation: AssetId={AssetId}, ImageId={ImageId}", asset.Id, image.Id);
         return image;
+    }
+
+    public Task<IReadOnlyList<SceneAssetImage>> ListImagesByCandidateBatchAsync(
+        string candidateBatchId, CancellationToken cancellationToken = default)
+        => _repository.ListImagesByCandidateBatchAsync(candidateBatchId, cancellationToken);
+
+    public Task SetImageCandidateDecisionAsync(
+        string imageId,
+        SceneAssetCandidateDecision decision,
+        string? notes,
+        CancellationToken cancellationToken = default)
+        => _repository.SetImageCandidateDecisionAsync(imageId, decision, notes, cancellationToken);
+
+    public async Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default)
+    {
+        var image = await _repository.GetImageAsync(imageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Scene asset image '{imageId}' was not found.");
+
+        await _repository.DeleteImageAsync(image.Id, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(image.FileRelativePath)
+            && await _repository.CountByFilePathAsync(image.FileRelativePath, cancellationToken) == 0)
+        {
+            await _storage.DeleteAsync(image.FileRelativePath, cancellationToken);
+        }
+
+        _logger.LogInformation("Hard-deleted scene asset image: ImageId={ImageId}", image.Id);
+    }
+
+    private static string? SerializeReferenceApplications(
+        IReadOnlyList<ReferenceApplicationSelection>? applications)
+    {
+        if (applications is not { Count: > 0 })
+            return null;
+        if (applications.Any(application => string.IsNullOrWhiteSpace(application.ElementKey)
+            || string.IsNullOrWhiteSpace(application.SemanticRole)
+            || string.IsNullOrWhiteSpace(application.Strategy)))
+        {
+            throw new InvalidOperationException("Every asset reference application requires an element key, semantic role, and strategy.");
+        }
+        if (applications.Select(application => application.ElementKey.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).Count() != applications.Count)
+        {
+            throw new InvalidOperationException("Asset reference application element keys must be unique.");
+        }
+        foreach (var application in applications)
+        {
+            var hasAsset = !string.IsNullOrWhiteSpace(application.SceneAssetId);
+            if (hasAsset && (string.IsNullOrWhiteSpace(application.SceneAssetImageId)
+                || application.SceneAssetVersion is null
+                || string.IsNullOrWhiteSpace(application.SceneAssetSha256)))
+            {
+                throw new InvalidOperationException($"Asset reference application '{application.ElementKey}' is missing an exact approved asset version or checksum.");
+            }
+            if (!hasAsset && !string.Equals(application.Strategy, "TextOnly", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Asset reference application '{application.ElementKey}' requires an approved asset for strategy '{application.Strategy}'.");
+            }
+            if (application.Strength is < 0m or > 1m)
+            {
+                throw new InvalidOperationException($"Asset reference application '{application.ElementKey}' strength must be between 0 and 1.");
+            }
+        }
+        return JsonSerializer.Serialize(applications, JsonOptions);
     }
 
     public async Task<SceneAssetImage> AddUploadedImageAsync(
@@ -142,7 +212,9 @@ public sealed class SceneAssetService : ISceneAssetService
         string sourceImageId,
         string editPrompt,
         string modelId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? candidateBatchId = null,
+        IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null)
     {
         var asset = await RequireAssetAsync(assetId, cancellationToken);
         var source = await _repository.GetImageAsync(sourceImageId, cancellationToken)
@@ -155,6 +227,7 @@ public sealed class SceneAssetService : ISceneAssetService
             throw new InvalidOperationException("An edit instruction is required.");
         if (string.IsNullOrWhiteSpace(modelId))
             throw new InvalidOperationException("An exact image editor model is required.");
+        var referenceApplicationsJson = SerializeReferenceApplications(referenceApplications);
 
         var image = new SceneAssetImage
         {
@@ -162,13 +235,17 @@ public sealed class SceneAssetService : ISceneAssetService
             Kind = SceneAssetKind.Edited,
             Status = SceneAssetStatus.Pending,
             Prompt = editPrompt.Trim(),
-            SourceImageId = source.Id
+            SourceImageId = source.Id,
+            CandidateBatchId = string.IsNullOrWhiteSpace(candidateBatchId) ? null : candidateBatchId.Trim(),
+            CandidateDecision = string.IsNullOrWhiteSpace(candidateBatchId) ? null : SceneAssetCandidateDecision.Undecided
         };
         var payload = new SceneAssetEditingJobPayload
         {
             AssetId = asset.Id,
             ImageId = image.Id,
-            ModelId = modelId.Trim()
+            ModelId = modelId.Trim(),
+            CandidateBatchId = image.CandidateBatchId,
+            ReferenceApplicationsJson = referenceApplicationsJson
         };
         image.AssociationMetadataJson = JsonSerializer.Serialize(payload, JsonOptions);
         await _repository.UpsertImageAsync(image, cancellationToken);
@@ -228,6 +305,7 @@ public sealed class SceneAssetService : ISceneAssetService
         SceneAssetType type,
         string modelId,
         string imageSize,
+        string? candidateBatchId = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -242,7 +320,8 @@ public sealed class SceneAssetService : ISceneAssetService
         var payload = new SceneAssetGenerationJobPayload
         {
             ModelId = modelId.Trim(),
-            ImageSize = imageSize.Trim()
+            ImageSize = imageSize.Trim(),
+            CandidateBatchId = string.IsNullOrWhiteSpace(candidateBatchId) ? null : candidateBatchId.Trim()
         };
         var asset = new SceneAsset
         {

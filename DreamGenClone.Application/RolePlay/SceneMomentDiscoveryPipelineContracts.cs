@@ -20,5 +20,9 @@ public interface ISceneMomentDiscoveryPipelineService
         string beatProductionPlanId,
         CancellationToken cancellationToken = default);
 
+    Task<SceneMomentSet?> GetAsync(
+        string momentSetId,
+        CancellationToken cancellationToken = default);
+
     Task CancelAsync(string momentSetId, CancellationToken cancellationToken = default);
 }

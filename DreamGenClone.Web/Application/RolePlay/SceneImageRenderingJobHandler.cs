@@ -3,8 +3,10 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Application.Processing;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.RolePlay.Models;
@@ -14,10 +16,9 @@ namespace DreamGenClone.Web.Application.RolePlay;
 
 /// <summary>
 /// Renders an image from a prompt snapshot using the configured image model. Marks the image
-/// record Generating → Complete/Failed. Enforces the provider content policy deterministically
-/// (SFW clamp before sending to a filtered provider — never bypasses).
+/// record Generating → Complete/Failed.
 /// </summary>
-public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
+public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDurableBackgroundJobHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -30,6 +31,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
     private readonly ISceneImagePromptCompilerRegistry _compilerRegistry;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<SceneImageRenderingJobHandler> _logger;
+    private readonly IProducedImageRepository _producedImages;
 
     public SceneImageRenderingJobHandler(
         ISceneImageRepository repository,
@@ -40,7 +42,8 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         IIdentityControlledRequestCompiler identityRequestCompiler,
         ISceneImagePromptCompilerRegistry compilerRegistry,
         IRolePlayDebugEventSink debugEventSink,
-        ILogger<SceneImageRenderingJobHandler> logger)
+        ILogger<SceneImageRenderingJobHandler> logger,
+        IProducedImageRepository producedImages)
     {
         _repository = repository;
         _storage = storage;
@@ -51,13 +54,20 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         _compilerRegistry = compilerRegistry;
         _debugEventSink = debugEventSink;
         _logger = logger;
+        _producedImages = producedImages;
     }
 
     public string JobType => BackgroundJobTypes.SceneImageRendering;
 
     public async Task HandleAsync(BackgroundJobEnvelope job, CancellationToken cancellationToken)
+        => await HandlePayloadAsync(job.PayloadJson, cancellationToken);
+
+    public async Task HandleAsync(DurableBackgroundJob job, CancellationToken cancellationToken = default)
+        => await HandlePayloadAsync(job.PayloadJson, cancellationToken);
+
+    private async Task HandlePayloadAsync(string payloadJson, CancellationToken cancellationToken)
     {
-        var payload = JsonSerializer.Deserialize<SceneImageRenderingJobPayload>(job.PayloadJson, JsonOptions)
+        var payload = JsonSerializer.Deserialize<SceneImageRenderingJobPayload>(payloadJson, JsonOptions)
             ?? throw new InvalidOperationException("Scene image rendering job payload is missing or invalid.");
 
         if (string.IsNullOrWhiteSpace(payload.SessionId))
@@ -70,9 +80,9 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         var image = await _repository.GetImageAsync(payload.ImageRecordId, cancellationToken)
             ?? throw new InvalidOperationException($"Scene image record '{payload.ImageRecordId}' was not found.");
 
-        if (image.Status == SceneImageStatus.Complete)
+        if (image.Status is SceneImageStatus.Complete or SceneImageStatus.Cancelled)
         {
-            _logger.LogDebug("Skipping scene image rendering; already complete: ImageRecordId={ImageRecordId}", image.Id);
+            _logger.LogDebug("Skipping scene image rendering; already terminal: ImageRecordId={ImageRecordId}, Status={Status}", image.Id, image.Status);
             return;
         }
 
@@ -82,30 +92,17 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         image.UpdatedUtc = DateTime.UtcNow;
         await _repository.InsertImageAsync(image, cancellationToken);
 
+        ResolvedImageModel? resolved = null;
         try
         {
             // Resolve the image model + provider content policy (fail-fast, no fallback). A user-pinned
             // model (RequestedModelId) wins; otherwise the configured default for RolePlaySceneImage.
-            var resolved = string.IsNullOrWhiteSpace(image.RequestedModelId)
+            resolved = string.IsNullOrWhiteSpace(image.RequestedModelId)
                 ? await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken)
                 : await _modelResolutionService.ResolveImageModelByIdAsync(image.RequestedModelId, cancellationToken);
             var compiler = _compilerRegistry.Resolve(resolved.SceneImageModelFamily, resolved.PromptDialect);
 
             var prompt = image.PromptSnapshot;
-
-            // Hard content-policy guarantee: never send explicit content to a SFW-filtered provider.
-            // Deterministic clamp, logged — never silently skipped, never auto-escalated. The clamp
-            // suffix is model-family aware (Pony vs SDXL prose), never a silent default.
-            var sfwClampSuffix = compiler.SfwClampSuffix;
-            if (resolved.ContentPolicy == ImageContentPolicy.SfwFiltered
-                && !prompt.Contains(sfwClampSuffix, StringComparison.OrdinalIgnoreCase))
-            {
-                prompt = $"{prompt.TrimEnd()}, {sfwClampSuffix}";
-                _logger.LogWarning(
-                    "Scene image prompt clamped to SFW (content_policy_clamped): SessionId={SessionId}, ImageRecordId={ImageRecordId}",
-                    payload.SessionId,
-                    image.Id);
-            }
 
             var stopwatch = Stopwatch.StartNew();
             var negative = await ResolveNegativePromptAsync(image, compiler, cancellationToken);
@@ -141,7 +138,10 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
             if (bytes is null || bytes.Length == 0)
             {
                 throw new ImageGenerationException(
-                    $"Provider {resolved.ProviderName} returned no image data.",
+                    SceneImageRefusalMessage.ForUser(
+                        resolved.ModelIdentifier,
+                        resolved.ProviderName,
+                        SceneImageRefusalMode.EmptyOutput),
                     resolved.ProviderName,
                     reasonCode: "empty_response");
             }
@@ -159,7 +159,29 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
             image.Status = SceneImageStatus.Complete;
             image.CompletedUtc = DateTime.UtcNow;
             image.UpdatedUtc = DateTime.UtcNow;
-            await _repository.InsertImageAsync(image, cancellationToken);
+            if (!await _repository.TryCompleteImageAsync(image, cancellationToken))
+            {
+                _logger.LogInformation("Skipping scene image completion after concurrent terminal transition: ImageRecordId={ImageRecordId}", image.Id);
+                return;
+            }
+
+            var producedImage = new ProducedImage
+            {
+                Kind = ProducedImageKind.MomentImage,
+                SessionId = payload.SessionId,
+                InteractionId = payload.InteractionId,
+                VisionSource = ProducedImageVisionSource.BeatMetadata,
+                VisionText = image.PromptSnapshot,
+                PromptCompiled = image.PromptSnapshot,
+                NegativePrompt = negative,
+                Seed = seed,
+                ModelId = resolved.ModelIdentifier,
+                EndpointId = resolved.ProviderName,
+                StoragePath = image.FileRelativePath,
+                Status = ProducedImageStatus.Undecided,
+                RefusalMode = SceneImageRefusalMode.None
+            };
+            await _producedImages.InsertAsync(producedImage, cancellationToken);
 
             await WriteDebugEventAsync("SceneImageResponseReceived", payload.SessionId, payload.InteractionId, new
             {
@@ -182,19 +204,52 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler
         }
         catch (Exception ex)
         {
+            var refusalMode = ex is ImageGenerationException imageException
+                ? ResolveRefusalMode(imageException)
+                : SceneImageRefusalMode.None;
+            var failureMessage = refusalMode == SceneImageRefusalMode.None || resolved is null
+                ? ex.Message
+                : SceneImageRefusalMessage.ForUser(resolved.ModelIdentifier, resolved.ProviderName, refusalMode);
             image.Status = SceneImageStatus.Failed;
-            image.ErrorMessage = ex.Message;
+            image.ErrorMessage = failureMessage;
             image.UpdatedUtc = DateTime.UtcNow;
-            await _repository.InsertImageAsync(image, cancellationToken);
+            if (!await _repository.TryFailImageAsync(image, cancellationToken))
+            {
+                _logger.LogInformation("Skipping scene image failure after concurrent terminal transition: ImageRecordId={ImageRecordId}", image.Id);
+                return;
+            }
+
+            if (refusalMode != SceneImageRefusalMode.None && resolved is not null)
+            {
+                await WriteDebugEventAsync("SceneImageRefusalRecorded", payload.SessionId, payload.InteractionId, new
+                {
+                    recordId = image.Id,
+                    model = resolved.ModelIdentifier,
+                    provider = resolved.ProviderName,
+                    mode = refusalMode.ToString(),
+                    message = failureMessage
+                }, cancellationToken);
+            }
 
             _logger.LogWarning(
                 "Scene image rendering failed: SessionId={SessionId}, ImageRecordId={ImageRecordId}, Error={ErrorMessage}",
                 payload.SessionId,
                 image.Id,
-                ex.Message);
+                failureMessage);
 
             throw;
         }
+    }
+
+    private static SceneImageRefusalMode ResolveRefusalMode(ImageGenerationException exception)
+    {
+        if (string.Equals(exception.ReasonCode, "empty_response", StringComparison.Ordinal))
+            return SceneImageRefusalMode.EmptyOutput;
+        if (string.Equals(exception.ReasonCode, "payment_required", StringComparison.Ordinal))
+            return SceneImageRefusalMode.None;
+        if (exception.StatusCode is >= 400 and < 500)
+            return SceneImageRefusalMode.PolicyError;
+        return SceneImageRefusalMode.None;
     }
 
     private async Task<byte[]> RenderIdentityControlledAsync(

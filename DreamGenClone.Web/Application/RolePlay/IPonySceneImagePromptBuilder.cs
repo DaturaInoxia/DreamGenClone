@@ -22,6 +22,7 @@ public interface IPonySceneImagePromptBuilder
         string pov,
         SceneImageStudioSettings settings,
         ImageContentPolicy resolvedPolicy,
+        NarrativePhase phase,
         string? refineInstruction,
         IReadOnlyList<Character>? characters = null);
 

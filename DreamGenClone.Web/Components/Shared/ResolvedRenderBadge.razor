@@ -1,0 +1,29 @@
+@using DreamGenClone.Web.Application.RolePlay
+
+<section class="alert alert-secondary py-2 mb-0 small" aria-label="Resolved render configuration">
+    <div class="d-flex justify-content-between gap-2">
+        <strong>Resolved render</strong>
+        <span>@ModelLabel</span>
+    </div>
+    @if (Selections.Count == 0 || !Selections.Any(selection => selection.UsesReference))
+    {
+        <span class="d-block mt-1">Text-only render. No approved image references are attached.</span>
+    }
+    else
+    {
+        <ul class="mb-0 mt-1 ps-3">
+            @foreach (var selection in Selections.Where(selection => selection.UsesReference))
+            {
+                <li>@selection.ElementKey: @selection.Strategy · @selection.SceneAssetId/@selection.SceneAssetImageId · v@selection.SceneAssetVersion · strength @selection.Strength</li>
+            }
+        </ul>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public string ModelLabel { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ReferenceApplicationSelection> Selections { get; set; } = [];
+}

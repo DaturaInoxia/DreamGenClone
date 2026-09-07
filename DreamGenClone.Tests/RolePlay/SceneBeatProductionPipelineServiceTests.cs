@@ -186,6 +186,7 @@ public sealed class SceneBeatProductionPipelineServiceTests
         public List<DurableBackgroundJob> Jobs { get; } = [];
         public Task<bool> TryEnqueueAsync(DurableBackgroundJob job, CancellationToken cancellationToken = default) { Jobs.Add(job); return Task.FromResult(true); }
         public Task<DurableBackgroundJob?> GetAsync(string jobId, CancellationToken cancellationToken = default) => Task.FromResult(Jobs.SingleOrDefault(item => item.Id == jobId));
+        public Task<bool> TryActivateAsync(string jobId, DateTime activatedUtc, CancellationToken cancellationToken = default) => Task.FromResult(Jobs.Any(item => item.Id == jobId));
         public Task<bool> TryCancelAsync(string jobId, DateTime cancelledUtc, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task WaitForWorkAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }

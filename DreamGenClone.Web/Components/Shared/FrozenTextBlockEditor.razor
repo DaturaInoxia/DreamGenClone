@@ -1,0 +1,43 @@
+<div>
+    <label class="form-label" for="@Id">Frozen reference text</label>
+    <textarea id="@Id" class="form-control" rows="4" maxlength="@MaxCharacters"
+              value="@Value" @oninput="OnInput"></textarea>
+    <div class="d-flex justify-content-between form-text">
+        @if (IsValid)
+        {
+            <span>Draft</span>
+        }
+        else
+        {
+            <span class="text-danger">Required before generation or promotion.</span>
+        }
+        <span>@(Value?.Length ?? 0) / @MaxCharacters</span>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Id { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+
+    [Parameter]
+    public int MaxCharacters { get; set; } = 6000;
+
+    private bool IsValid => !string.IsNullOrWhiteSpace(Value);
+
+    private async Task OnInput(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString() ?? string.Empty;
+        if (value.Length > MaxCharacters)
+        {
+            value = value[..MaxCharacters];
+        }
+
+        await ValueChanged.InvokeAsync(value);
+    }
+}

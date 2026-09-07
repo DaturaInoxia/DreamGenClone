@@ -19,7 +19,9 @@ public interface ISceneAssetService
         string prompt,
         string modelId,
         string imageSize,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null,
+        string? candidateBatchId = null);
 
     Task<SceneAssetImage> AddUploadedImageAsync(
         string assetId,
@@ -32,13 +34,26 @@ public interface ISceneAssetService
         string sourceImageId,
         string editPrompt,
         string modelId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? candidateBatchId = null,
+        IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null);
 
     Task<IReadOnlyList<SceneAssetImage>> ListImagesAsync(
         string assetId, CancellationToken cancellationToken = default);
 
     Task<SceneAssetImage?> GetImageAsync(
         string imageId, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<SceneAssetImage>> ListImagesByCandidateBatchAsync(
+        string candidateBatchId, CancellationToken cancellationToken = default);
+
+    Task SetImageCandidateDecisionAsync(
+        string imageId,
+        SceneAssetCandidateDecision decision,
+        string? notes,
+        CancellationToken cancellationToken = default);
+
+    Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default);
 
     Task<SceneAssetImage> ApproveImageForProductionAsync(
         string imageId,
@@ -60,6 +75,7 @@ public interface ISceneAssetService
         SceneAssetType type,
         string modelId,
         string imageSize,
+        string? candidateBatchId = null,
         CancellationToken cancellationToken = default);
 
     Task<SceneAsset> CreateFromUploadAsync(

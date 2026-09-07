@@ -8,6 +8,11 @@ public interface IDurableBackgroundJobQueue
         DurableBackgroundJob job,
         CancellationToken cancellationToken = default);
 
+    Task<bool> TryActivateAsync(
+        string jobId,
+        DateTime activatedUtc,
+        CancellationToken cancellationToken = default);
+
     Task<DurableBackgroundJob?> GetAsync(
         string jobId,
         CancellationToken cancellationToken = default);

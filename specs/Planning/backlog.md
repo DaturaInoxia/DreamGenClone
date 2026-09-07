@@ -43,8 +43,51 @@ Items here are high-level ideas.  Each item must go through **Design → Plan �
 > baseline; legacy backfill, dual-read/write, compatibility adapters, and old one-off fallbacks are
 > out of scope. Existing B-032 row notes below remain historical progress evidence.
 
+> ### ⛔ B-111 CONSOLIDATION OVERRIDE (2026-09-05) — READ BEFORE STARTING ANY VISUAL WORK
+>
+> **B-111 is now the single controlling program** for image generation/editing, visual consistency
+> (character · wardrobe · location), reference bootstrap, and provider-class execution including
+> serverless cold starts. Package:
+> `specs/Planning/B-111-consistent-visual-production/` (README → research → spec → plan →
+> superseded-map).
+>
+> **The following rows are SUPERSEDED.** They remain below as historical evidence only. Do **not**
+> start work from them — read the B-111 phase that absorbed them instead. Where a superseded row and
+> B-111 disagree, **B-111 controls**.
+>
+> | Superseded row | Absorbed into |
+> |---|---|
+> | **B-032** Phases 2, 3, 4 (Phases 1 and 1B are *not* superseded) | P3, P5, P6 |
+> | **B-097** controlled pose/layout and multi-POV | P5 |
+> | **B-102** RunPod Serverless migration (remainder) | P1 |
+> | **B-103** Production Studio composition transparency | P4 |
+> | **B-105** appearance in compiled Still brief | P4 |
+> | **B-106** Production Studio staged workflow | P4 |
+> | **B-107** activate synthetic character LoRA | P3 (enters the strategy seam with no qualified cells; activation still deferred) |
+> | **B-108** Reference Bootstrap Studio | P2 |
+> | **B-109** identity conditioning strategy expansion | P3 |
+> | **B-110** unified image-edit workbench | P4 |
+>
+> **Six conflicts these rows contained are now resolved** in `superseded-map.md` §2 — including
+> B-106's one-immutable-attempt rule vs B-110's iterate loop, and B-106 vs B-109 on identity
+> ownership. Both were marked ready for implementation while being mutually exclusive.
+>
+> **B-100 and B-101 are NOT superseded.** B-111 declares a read contract to them and nothing more.
+
+> ### B-111 Completion Decision (2026-09-06)
+>
+> **B-111 is `done` for its production-surface scope.** The historical table row below remains as
+> program context, but its `designed` state is superseded by this decision. Asset Manager, Studio,
+> Review Deck, Gallery ownership, durable asset jobs/provenance, reusable workbench controls, and
+> Model Manager strategy qualification gates are implemented. LoRA inference, ControlNet,
+> IDM-VTON/wardrobe try-on, evaluator-backed scorecards, and versioned frozen-text history are
+> future activation integrations when their real endpoints/evaluators and qualification evidence
+> exist. Until then those strategies remain unavailable and fail explicitly; they never downgrade to
+> `TextOnly`.
+
 | # | Title | State | Priority | Scope | Notes |
 |---|---|---|---|---|---|
+| B-111 | Consistent Visual Production Program — consolidation of all image/consistency/serverless work | `designed` | high | large | **Controlling program. Supersedes B-032 Ph2–4, B-097, B-102, B-103, B-105, B-106, B-107, B-108, B-109, B-110.** Consolidates the visual pipeline into one outcome-gated program after a corpus + code audit found the recurring cause of fix-plan chains: plans specified *mechanisms* rather than outcomes, so work completed while nothing became true (Phase 2 shipped identity packs/compilers/client — Studio still exposed only Composition); capabilities were built and never activated (5 face views stored / 1 used, PuLID coded and unreachable, LoRA trained and never applied); gates were declared then bypassed; two packages owned one concern with opposite rules; the floor was never poured (no workflow could create a reference for a fictional character, and no `LocationProfile` exists in code); and the serverless cold-start constraint had no representation anywhere in the design. Backed by 19 primary sources (`research/external-research-findings.md`). Three findings reshaped it: **(1)** consistency is a property of a *set*, not an image — every working mechanism (shared attention, shared control maps, shared references, shared LoRA) holds something constant across a group, so the unit of work is a Run; **(2)** the cost architecture and the quality architecture are therefore **the same architecture** — batching for cold-start economics and batching for consistency are one mechanism, to be built once; **(3)** multi-character identity bleed is solved by spatial **routing**, not strength tuning (UniPortrait ID-routing, OMG layout-then-blend), which is independent evidence for Composition-first/Identity-second with regions **derived from the composition**. Two user decisions shaped it further: **provider class is a capability ceiling** (hosted inference APIs have no ComfyUI graph, so IP-Adapter/PuLID/InstantID/ControlNet/LoRA/`batch_size` are *structurally impossible* there, not merely unqualified — and only self-built serverless endpoints have cold starts); and **classes compose across stages rather than substituting** (an API cannot apply identity, but its output can be edited afterwards on a ComfyUI endpoint to apply it — so only Identity/Finish pay for a warm window). Also binding: content capability is a **model property, not a pipeline mode** — one flow, one golden set, **every case explicit**, no SFW variant; the existing `ImageContentPolicy.SfwOnly` clamp is **removed** in P0, and a model **refusal becomes a first-class recorded outcome** (explicit refusal / empty output / **silent sanitisation**) that fails that `(model, endpoint)` cell, updates its learned content capability, and advances to the next model in an explicit persisted ordered preference — strategy never changes, only the model, and exhausting the order fails fast. **Your eye is the authoritative verdict**; the automated scorer is advisory and regression-detecting, and where they disagree the threshold is recalibrated rather than the judgement overruled. Six capability contracts (Reference Library · Reference Bootstrap · Identity Strategy · Production Run · Geometry Control · Consistency Scorer). Seven phases, order confirmed 2026-09-05 with the Run engine **before** Reference Bootstrap so Bootstrap validates it: **P0** golden set + `tools/consistency-scoring/` + baseline + conflict resolution; **P1** Run engine and provider-class execution (absorbs B-102); **P2** Reference Bootstrap (absorbs B-108); **P3** identity strategy seam + activation of the dead capabilities, incl. a combined PuLID/FaceID/InstantID serverless worker so all strategies share one endpoint and one cold start (absorbs B-107, B-109, closes B-032 Ph2); **P4** staged Studio Composition→Identity→Finish with one shared edit workbench (absorbs B-103, B-105, B-106, B-110) — **this is the phase that delivers the first-phase targets: same face across images, same outfit in a scene, same location across moments**; **P5** location geometry + multi-POV (absorbs B-097, B-032 Ph3); **P6** validation + bounded repair (absorbs B-032 Ph4). Seven binding governance rules prevent recurrence — chiefly **G1** no phase closes on "code complete", only on a recorded scorecard against the frozen golden set plus manual sign-off, and **G2** no capability may be built without its activation path in the same phase. Scorecards report a **triple** (identity + prompt adherence + diversity) always together, because identity fidelity and editability move in opposite directions — reporting identity alone drives conditioning strength up until every render is a re-pose of the reference. Package: `specs/Planning/B-111-consistent-visual-production/`. Related (not superseded): B-100, B-101, B-032 Ph1/1B, B-104. |
 | B-001 | Fix and enhance the Question/Decision prompt | `new` | medium | small | Decision prompts are not generating well-formed or contextually appropriate questions; needs redesign and testing |
 | B-002 | Fix locations — scene location is incorrect or missing | `new` | medium | small | Location injection into prompts is broken or not resolving correctly for active scenario context |
 | B-004 | Test completed single theme run multiple times | `new` | low | small | Ensure repeat-run penalty, score decay, and cooldown logic work correctly across multiple completions of the same theme |

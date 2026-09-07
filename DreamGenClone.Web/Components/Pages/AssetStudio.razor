@@ -3,6 +3,7 @@
 
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Components.Assets
 @implements IAsyncDisposable
 
 @inject ISceneAssetService AssetService
@@ -27,6 +28,12 @@
     {
         <div class="alert alert-danger">@_error</div>
     }
+
+    <ReferenceBootstrapPanel />
+
+    <div class="mb-3">
+        <AssetRunTray />
+    </div>
 
     <div>
             <div class="card mb-3">
@@ -127,6 +134,12 @@
                                                         aria-label="Preview @asset.Name" @onclick="() => SelectAsset(asset.Id)">
                                                     <i class="bi bi-eye"></i>
                                                 </button>
+                                                @if (!string.IsNullOrWhiteSpace(asset.CandidateBatchId))
+                                                {
+                                                    <a class="btn btn-sm btn-outline-info" href="/review-deck/@asset.CandidateBatchId" title="Review this candidate batch">
+                                                        <i class="bi bi-collection-play"></i>
+                                                    </a>
+                                                }
                                                 <a class="btn btn-sm btn-outline-secondary" href="/asset-studio/@asset.Id">View</a>
                                             </td>
                                         </tr>
@@ -173,6 +186,12 @@
                             <div><strong>Use scope:</strong> @_selectedAsset.ApprovedUseScope</div>
                             <div><strong>Policy:</strong> @_selectedAsset.ContentPolicyKey</div>
                             <div class="font-monospace text-break mt-2">@_selectedAsset.CompatibilityMetadataJson</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_selectedAsset.CandidateBatchId))
+                        {
+                            <a class="btn btn-sm btn-outline-info mt-2" href="/review-deck/@_selectedAsset.CandidateBatchId">
+                                <i class="bi bi-collection-play me-1"></i> Review Candidate Batch
+                            </a>
                         }
                         <a class="btn btn-sm btn-outline-primary mt-2" href="/asset-studio/@_selectedAsset.Id">View asset details</a>
                     </div>

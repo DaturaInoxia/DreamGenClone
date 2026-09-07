@@ -42,6 +42,8 @@ public sealed class RunPodProductionDispatchAdapter : IProductionDispatchAdapter
             {
                 ["input"] = new JsonObject { ["workflow"] = workflow }
             };
+            if (group.Policy.LowPriority)
+                payload["policy"] = new JsonObject { ["lowPriority"] = true };
             using var response = await client.PostAsJsonAsync(
                 BuildUri(group.Endpoint.BaseUrl, group.Endpoint.SubmitPath), payload, cancellationToken);
             var body = await response.Content.ReadAsStringAsync(cancellationToken);

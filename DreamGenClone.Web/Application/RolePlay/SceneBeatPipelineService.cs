@@ -62,6 +62,11 @@ public sealed class SceneBeatPipelineService : ISceneBeatPipelineService
         CancellationToken cancellationToken = default)
         => _catalogueRepository.GetCurrentByTurnAsync(sessionId, turnId, cancellationToken);
 
+    public Task<SceneBeatCatalogue?> GetAsync(
+        string catalogueId,
+        CancellationToken cancellationToken = default)
+        => _catalogueRepository.GetAsync(catalogueId, cancellationToken);
+
     public async Task CancelCatalogueAsync(string catalogueId, CancellationToken cancellationToken = default)
     {
         var catalogue = await _catalogueRepository.GetAsync(catalogueId, cancellationToken)

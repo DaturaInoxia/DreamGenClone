@@ -236,6 +236,9 @@ public sealed class SceneBeatPipelineServiceTests
         public Task<DurableBackgroundJob?> GetAsync(string jobId, CancellationToken cancellationToken = default)
             => Task.FromResult(AcceptedJobs.SingleOrDefault(job => job.Id == jobId));
 
+        public Task<bool> TryActivateAsync(string jobId, DateTime activatedUtc, CancellationToken cancellationToken = default)
+            => Task.FromResult(AcceptedJobs.Any(job => job.Id == jobId));
+
         public Task<bool> TryCancelAsync(string jobId, DateTime cancelledUtc, CancellationToken cancellationToken = default)
             => Task.FromResult(true);
 

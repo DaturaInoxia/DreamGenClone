@@ -25,6 +25,7 @@ Agents: prefer these tools over ad-hoc `artifacts/tmp` scripts. See
 | **eye-validation** | `tools/eye-validation/` | Measure face eye level / symmetry with real iris landmarks (MediaPipe FaceMesh). Canonical eye check — Haar/centroid/Hough are known-bad for this. | `d:/src/DreamGenClone/.venv/Scripts/python.exe tools/eye-validation/measure_iris.py <img...>` |
 | **e2e** | `tools/e2e/` | Playwright E2E harness for the live Blazor Server UI (LLM-free, non-destructive; captures the SignalR circuit-attach probe-retry + suite snapshot/restore patterns). | `cd tools/e2e; npm test` (Node ≥18 + chromium; webapp on `http://localhost:5177`) |
 | **character-front-generator** | `tools/character-front-generator/` | Generate near-frontal character face candidates (gpt-image-2/TogetherAI) with the eye-symmetry-hardened prompt; TRUE-PNG output. | `d:/src/DreamGenClone/.venv/Scripts/python.exe tools/character-front-generator/generate_front.py --count 6` |
+| **consistency-scoring** | `tools/consistency-scoring/` | B-111 consistency scorer: identity/subject/adherence/presence/sanitisation/scorecard | `tools\consistency-scoring\.venv\Scripts\python.exe tools\consistency-scoring\score.py --help` |
 
 ## Notes
 - The first approved tool (`eye-validation/measure_iris.py`) was promoted out of

@@ -31,11 +31,13 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                 SupportsImageInput, MaximumInputImages, MaximumInputImageBytes, MaximumInputImagePixels, MaximumInputImageDimension, AcceptedInputMediaTypes, MaximumResponseBytes, RuntimeRevision, ArtifactRevision,
                 ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength,
                 IdentityMechanism, IdentityStrength, IdentityAdapterRef, IdentityClipVisionRef, SupportedIdentityStrategiesJson,
+                SupportedVisualStrategiesJson, CapabilityQualificationsJson,
                 StructuredOutputMode, MaximumContextTokens, MaximumOutputTokens)
             VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported, $sceneImageModelFamily, $promptDialect,
                 $supportsImageInput, $maximumInputImages, $maximumInputImageBytes, $maximumInputImagePixels, $maximumInputImageDimension, $acceptedInputMediaTypes, $maximumResponseBytes, $runtimeRevision, $artifactRevision,
                 $imageEditorDiffusionModel, $imageEditorTextEncoder, $imageEditorVae, $imageEditorSteps, $imageEditorCfg, $imageEditorSampler, $imageEditorScheduler, $imageEditorDenoise, $imageEditorAuraFlowShift, $imageEditorCfgNormStrength,
                 $identityMechanism, $identityStrength, $identityAdapterRef, $identityClipVisionRef, $supportedIdentityStrategies,
+                $supportedVisualStrategies, $capabilityQualifications,
                 $structuredOutputMode, $maximumContextTokens, $maximumOutputTokens)
             ON CONFLICT(Id) DO UPDATE SET
                 ProviderId = $providerId,
@@ -75,6 +77,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                 IdentityAdapterRef = $identityAdapterRef,
                 IdentityClipVisionRef = $identityClipVisionRef,
                 SupportedIdentityStrategiesJson = $supportedIdentityStrategies,
+                SupportedVisualStrategiesJson = $supportedVisualStrategies,
+                CapabilityQualificationsJson = $capabilityQualifications,
                 StructuredOutputMode = $structuredOutputMode,
                 MaximumContextTokens = $maximumContextTokens,
                 MaximumOutputTokens = $maximumOutputTokens
@@ -119,6 +123,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.Parameters.AddWithValue("$identityAdapterRef", (object?)model.IdentityAdapterRef ?? DBNull.Value);
         command.Parameters.AddWithValue("$identityClipVisionRef", (object?)model.IdentityClipVisionRef ?? DBNull.Value);
         command.Parameters.AddWithValue("$supportedIdentityStrategies", model.SupportedIdentityStrategiesJson);
+        command.Parameters.AddWithValue("$supportedVisualStrategies", model.SupportedVisualStrategiesJson);
+        command.Parameters.AddWithValue("$capabilityQualifications", model.CapabilityQualificationsJson);
         command.Parameters.AddWithValue("$structuredOutputMode", (int)model.StructuredOutputMode);
         command.Parameters.AddWithValue("$maximumContextTokens", (object?)model.MaximumContextTokens ?? DBNull.Value);
         command.Parameters.AddWithValue("$maximumOutputTokens", (object?)model.MaximumOutputTokens ?? DBNull.Value);
@@ -179,6 +185,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                      rm.ImageEditorDiffusionModel, rm.ImageEditorTextEncoder, rm.ImageEditorVae, rm.ImageEditorSteps, rm.ImageEditorCfg,
                      rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
                      rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef, rm.SupportedIdentityStrategiesJson,
+                     rm.SupportedVisualStrategiesJson, rm.CapabilityQualificationsJson,
                                          rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens,
                    p.Name AS ProviderName
             FROM RegisteredModels rm
@@ -236,6 +243,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                rm.ImageEditorDiffusionModel, rm.ImageEditorTextEncoder, rm.ImageEditorVae, rm.ImageEditorSteps, rm.ImageEditorCfg,
                rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
                rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef, rm.SupportedIdentityStrategiesJson,
+               rm.SupportedVisualStrategiesJson, rm.CapabilityQualificationsJson,
                rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens
         FROM RegisteredModels rm
         """;
@@ -281,9 +289,11 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         IdentityAdapterRef = reader.IsDBNull(36) ? null : reader.GetString(36),
         IdentityClipVisionRef = reader.IsDBNull(37) ? null : reader.GetString(37),
         SupportedIdentityStrategiesJson = reader.GetString(38),
-        StructuredOutputMode = (StructuredOutputMode)reader.GetInt32(39),
-        MaximumContextTokens = reader.IsDBNull(40) ? null : reader.GetInt32(40),
-        MaximumOutputTokens = reader.IsDBNull(41) ? null : reader.GetInt32(41)
+        SupportedVisualStrategiesJson = reader.GetString(39),
+        CapabilityQualificationsJson = reader.GetString(40),
+        StructuredOutputMode = (StructuredOutputMode)reader.GetInt32(41),
+        MaximumContextTokens = reader.IsDBNull(42) ? null : reader.GetInt32(42),
+        MaximumOutputTokens = reader.IsDBNull(43) ? null : reader.GetInt32(43)
     };
 
     private static void ValidateImagePromptMetadata(RegisteredModel model)

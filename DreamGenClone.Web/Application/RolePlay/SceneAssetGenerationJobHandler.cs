@@ -62,6 +62,16 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
 
         var asset = await _repository.GetAsync(payload.AssetId, cancellationToken)
             ?? throw new InvalidOperationException($"Scene asset '{payload.AssetId}' was not found.");
+        if (!string.IsNullOrWhiteSpace(payload.CandidateBatchId))
+        {
+            await _repository.UpdateCandidateFieldsAsync(
+                asset.Id,
+                payload.CandidateBatchId,
+                SceneAssetCandidateDecision.Undecided,
+                null,
+                null,
+                cancellationToken);
+        }
         var image = await _repository.GetImageAsync(payload.ImageId, cancellationToken)
             ?? throw new InvalidOperationException($"Scene asset image '{payload.ImageId}' was not found.");
         if (!string.Equals(image.AssetId, asset.Id, StringComparison.Ordinal))
@@ -90,7 +100,8 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 compilation.CompilerId,
                 compilation.CompilerVersion,
                 requestedModelId = payload.ModelId,
-                imageSize = payload.ImageSize
+                imageSize = payload.ImageSize,
+                referenceApplicationsJson = payload.ReferenceApplicationsJson
             }, JsonOptions);
             await _repository.UpsertImageAsync(image, cancellationToken);
             var bytes = await _imageClient.GenerateAsync(model, compilation.Prompt, payload.ImageSize, null, null, cancellationToken)

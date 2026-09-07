@@ -52,6 +52,8 @@ public sealed class SceneAssetServiceJobTests
 
         public Task<DurableBackgroundJob?> GetAsync(string jobId, CancellationToken cancellationToken = default)
             => Task.FromResult(Enqueued.SingleOrDefault(job => job.Id == jobId));
+        public Task<bool> TryActivateAsync(string jobId, DateTime activatedUtc, CancellationToken cancellationToken = default)
+            => Task.FromResult(Enqueued.Any(job => job.Id == jobId));
         public Task<bool> TryCancelAsync(string jobId, DateTime cancelledUtc, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
         public Task WaitForWorkAsync(CancellationToken cancellationToken = default)

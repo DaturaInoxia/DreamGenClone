@@ -1,0 +1,97 @@
+# B-111 P0-T9: SFW Clamp Removal Map
+
+This is a read-only inventory for P1. It distinguishes the deterministic prompt-safety
+behaviour from `ImageContentPolicy`, which remains provider capability data for the later
+refusal-outcome model. The classifications below cover **45 distinct sites: 15 KEEP and
+30 REMOVE**.
+
+| File | Member/method | What it does | Classification (KEEP = capability signal / REMOVE = clamp behaviour) | P1 removal note |
+|---|---|---|---|---|
+| [DreamGenClone.Domain/ModelManager/ImageContentPolicy.cs](DreamGenClone.Domain/ModelManager/ImageContentPolicy.cs#L3-L20) | `ImageContentPolicy` enum | Defines `Unknown`, `SfwFiltered`, `AdultAllowed`, and `AdultAllowedConfigurable`. | **KEEP** | Preserve the enum and its values. Update only stale clamp wording in its XML documentation when the behaviour is removed. |
+| [DreamGenClone.Domain/ModelManager/Provider.cs](DreamGenClone.Domain/ModelManager/Provider.cs#L12) | `Provider.ContentPolicy` | Stores the configured provider capability, defaulting to `Unknown`. | **KEEP** | Continue resolving this from Model Manager data; do not replace it with a prompt-mode flag. |
+| [DreamGenClone.Domain/ModelManager/ResolvedImageModel.cs](DreamGenClone.Domain/ModelManager/ResolvedImageModel.cs#L7-L17); [ResolvedIdentityImageModel.cs](DreamGenClone.Domain/ModelManager/ResolvedIdentityImageModel.cs#L9-L20); [ResolvedImageEditorModel.cs](DreamGenClone.Domain/ModelManager/ResolvedImageEditorModel.cs#L11-L24); [ResolvedMultimodalModel.cs](DreamGenClone.Domain/ModelManager/ResolvedMultimodalModel.cs#L9-L32) | Resolved-model record `ContentPolicy` fields | Carries the provider capability through image, identity, editor, and multimodal resolution. | **KEEP** | Keep these transport fields because the refusal model needs the resolved provider capability. |
+| [DreamGenClone.Infrastructure/ModelManager/ProviderRepository.cs](DreamGenClone.Infrastructure/ModelManager/ProviderRepository.cs#L165-L180) | `ReadProvider` | Reads the persisted provider content-policy integer into `ImageContentPolicy`. | **KEEP** | Preserve the persistence mapping. |
+| [DreamGenClone.Web/Application/ModelManager/ModelResolutionService.cs](DreamGenClone.Web/Application/ModelManager/ModelResolutionService.cs#L242-L282) | Image-model resolution | Fails fast for `Unknown`, logs the policy, and returns `provider.ContentPolicy` in `ResolvedImageModel`. | **KEEP** | Keep the configured capability resolution and fail-fast validation; remove only consumers that turn it into a deterministic prompt clamp. |
+| [DreamGenClone.Web/Application/ModelManager/ModelResolutionService.cs](DreamGenClone.Web/Application/ModelManager/ModelResolutionService.cs#L438-L460) | Multimodal-model resolution | Requires an explicit provider content policy and passes it into `ResolvedMultimodalModel`. | **KEEP** | Preserve as capability resolution for downstream refusal handling. |
+| [DreamGenClone.Web/Application/ModelManager/ImageEditorModelResolver.cs](DreamGenClone.Web/Application/ModelManager/ImageEditorModelResolver.cs#L77-L82) | Image-editor model resolution | Rejects an editor provider whose content policy is `Unknown`. | **KEEP** | Retain explicit capability configuration validation. |
+| [DreamGenClone.Domain/RolePlay/SceneImageRecord.cs](DreamGenClone.Domain/RolePlay/SceneImageRecord.cs#L94-L95) | `SceneImageRecord.ContentPolicy` | Stores the policy associated with the rendered image. | **KEEP** | Keep the persisted outcome context for refusal/sanitisation analysis. |
+| [DreamGenClone.Infrastructure/RolePlay/SceneImageRepository.cs](DreamGenClone.Infrastructure/RolePlay/SceneImageRepository.cs#L957-L978) | `ReadImage` | Restores the persisted scene-image content policy from SQLite. | **KEEP** | Preserve this read path. |
+| [DreamGenClone.Web/Application/RolePlay/SceneImageRenderingJobHandler.cs](DreamGenClone.Web/Application/RolePlay/SceneImageRenderingJobHandler.cs#L157) | `HandleAsync` image completion assignment | Persists `resolved.ContentPolicy` on a completed render. | **KEEP** | Keep recording the provider capability alongside the result. |
+| [DreamGenClone.Web/Application/RolePlay/SceneImageEditingJobHandler.cs](DreamGenClone.Web/Application/RolePlay/SceneImageEditingJobHandler.cs#L142-L142); [same file](DreamGenClone.Web/Application/RolePlay/SceneImageEditingJobHandler.cs#L224-L224) | Edit completion assignments | Persists the resolved editor policy on edit records. | **KEEP** | Keep the capability on edit outcomes. |
+| [DreamGenClone.Web/Application/RolePlay/SceneImageEditingJobHandler.cs](DreamGenClone.Web/Application/RolePlay/SceneImageEditingJobHandler.cs#L256-L258) | Adult Finish capability guard | Rejects an adult Finish request when the resolved policy is `SfwFiltered` or `Unknown`. | **KEEP** | This is a capability/refusal gate, not the scene-prompt suffix clamp; retain it or migrate it deliberately into the refusal-outcome model. |
+| [DreamGenClone.Web/Application/RolePlay/SceneImageService.cs](DreamGenClone.Web/Application/RolePlay/SceneImageService.cs#L219-L221) | Resolved-policy adult-content guard | Rejects adult-content work for `SfwFiltered` or `Unknown` resolved models. | **KEEP** | Preserve as capability enforcement until its explicit P1 refusal replacement is wired. |
+| [DreamGenClone.Web/Components/Pages/SceneImageStudio.razor](DreamGenClone.Web/Components/Pages/SceneImageStudio.razor#L1154-L1162) | Finish adult-content capability UI | Shows the adult Finish control only for adult-allowed policies and warns otherwise. | **KEEP** | Keep the UI backed by the capability signal; update wording only if P1 changes the user-facing refusal flow. |
+| [DreamGenClone.Web/Components/Pages/ModelManager.razor](DreamGenClone.Web/Components/Pages/ModelManager.razor#L165-L165); [same file](DreamGenClone.Web/Components/Pages/ModelManager.razor#L970-L970) | Provider policy editor and validation | Lets the user configure `ContentPolicy` and rejects an image-capable provider with `Unknown`. | **KEEP** | This is the source of truth for capability configuration. |
+| [DreamGenClone.Web/Application/RolePlay/SceneImageRenderingJobHandler.cs](DreamGenClone.Web/Application/RolePlay/SceneImageRenderingJobHandler.cs#L97-L107) | `HandleAsync` SFW suffix append and warning | Reads `compiler.SfwClampSuffix`, appends it for `SfwFiltered`, and logs `content_policy_clamped`. | **REMOVE** | Delete this prompt mutation and its clamp warning; do not remove the later `image.ContentPolicy` persistence. |
+| [DreamGenClone.Web/Application/RolePlay/SceneImagePromptGenerationJobHandler.cs](DreamGenClone.Web/Application/RolePlay/SceneImagePromptGenerationJobHandler.cs#L142-L146) | Legacy prompt `requestedPolicy` | Converts `AllowExplicitImage` into `AdultAllowed` or `SfwFiltered` before prompt building. | **REMOVE** | Stop using a requested UI policy to drive deterministic SFW prompt text; retain provider capability resolution separately. |
+| [DreamGenClone.Web/Application/RolePlay/SceneImagePromptGenerationJobHandler.cs](DreamGenClone.Web/Application/RolePlay/SceneImagePromptGenerationJobHandler.cs#L278-L280) | Canonical prompt `requestedPolicy` | Repeats the UI-setting-to-policy mapping for canonical prompt generation. | **REMOVE** | Remove this clamp-driving policy path or replace it with the P1 refusal model's explicit outcome inputs. |
+| [DreamGenClone.Web/Application/RolePlay/ISceneImagePromptCompiler.cs](DreamGenClone.Web/Application/RolePlay/ISceneImagePromptCompiler.cs#L7-L13) | `SfwClampSuffix` interface member | Exposes the suffix so the render handler can append it. | **REMOVE** | Remove implementations first; remove this interface member last. |
+| [DreamGenClone.Web/Application/RolePlay/ISdxlSceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/ISdxlSceneImagePromptBuilder.cs#L10-L18) | `SfwClampSuffix` interface member | Exposes the SDXL-specific deterministic suffix. | **REMOVE** | Remove after the SDXL implementation and compiler passthrough are changed. |
+| [DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs#L23-L26) | `SfwClampSuffix` constant | Defines `keep fully clothed / non-explicit`. | **REMOVE** | Delete after all references and assertions are removed. |
+| [DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs#L379-L381) | `ResolveRatingTag(ImageContentPolicy)` | Converts `SfwFiltered` to `rating_safe`; this is policy-based safe-rating behavior. | **REMOVE** | Remove the policy clamp overload or reduce rating selection to the intended non-clamp model semantics. |
+| [DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs#L388-L400) | `ResolveRatingTag(NarrativePhase, ImageContentPolicy)` | Forces `rating_safe` for `SfwFiltered` before phase mapping. | **REMOVE** | Remove the `SfwFiltered` hard-safe branch; preserve only the phase mapping needed after P1 redesign. |
+| [DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs#L587-L610) | `BuildSystemPrompt` SFW branch | Emits fully-clothed/non-explicit instructions and demands the clamp suffix. | **REMOVE** | Delete the `SfwFiltered` prompt branch and suffix instruction. |
+| [DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs#L618-L628) | `BuildCanonicalSystemPrompt` SFW branch | Emits safe-only wording and the suffix for canonical prompts. | **REMOVE** | Remove the branch; canonical prompts must not be deterministically rewritten to SFW. |
+| [DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs#L707-L707); [same file](DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs#L756-L757) | `BuildUserPrompt` rating and explicitness policy use | Injects the policy-derived rating tag and changes explicitness to non-explicit when policy is `SfwFiltered`. | **REMOVE** | Remove the clamp-driving policy conditions while preserving provider capability as a separate input to refusal handling. |
+| [DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs#L27-L30); [same file](DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs#L41-L44) | `DefaultSfwClampSuffix` and `SfwClampSuffix` | Defines and exposes `fully clothed, wholesome, non-explicit`. | **REMOVE** | Delete the constant and property after consumers are removed. |
+| [DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs#L210-L230) | `BuildSystemPrompt` SFW branch | Adds safe-only content-policy prose and requires the suffix. | **REMOVE** | Delete the `SfwFiltered` branch and suffix instruction. |
+| [DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs#L239-L267) | `BuildCanonicalSystemPrompt` SFW branch | Adds canonical safe-only wording and the suffix. | **REMOVE** | Remove the deterministic canonical clamp. |
+| [DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs#L502-L515) | `ResolveExplicitnessProse` | Forces `safe: fully clothed, wholesome, non-explicit` for `SfwFiltered`, regardless of phase. | **REMOVE** | Remove the policy hard-clamp branch; retain only the non-clamp phase/prose policy designed for P1. |
+| [DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs](DreamGenClone.Web/Application/RolePlay/SdxlSceneImagePromptBuilder.cs#L483-L484) | `BuildUserPrompt` explicitness policy use | Converts `SfwFiltered` into `non-explicit / implied only`. | **REMOVE** | Remove this deterministic safe rewrite from the prompt-generation path. |
+| [DreamGenClone.Web/Application/RolePlay/SceneImagePromptCompilers.cs](DreamGenClone.Web/Application/RolePlay/SceneImagePromptCompilers.cs#L15-L20) | `PonySceneImagePromptCompiler.SfwClampSuffix` | Passes the Pony suffix to the render-stage compiler contract. | **REMOVE** | Remove after the render append and interface member are gone. |
+| [DreamGenClone.Web/Application/RolePlay/SceneImagePromptCompilers.cs](DreamGenClone.Web/Application/RolePlay/SceneImagePromptCompilers.cs#L34-L39) | `SdxlSceneImagePromptCompiler.SfwClampSuffix` | Passes the SDXL suffix through the compiler contract. | **REMOVE** | Remove before deleting the interface member. |
+| [DreamGenClone.Web/Application/RolePlay/SceneImagePromptCompilers.cs](DreamGenClone.Web/Application/RolePlay/SceneImagePromptCompilers.cs#L59-L64) | `ApiSceneImagePromptCompiler.SfwClampSuffix` | Supplies a neutral API-provider suffix for the same render clamp. | **REMOVE** | Remove this remaining suffix implementation as part of the same contract deletion. |
+| [DreamGenClone.Web/Application/RolePlay/SceneImagePromptCompilers.cs](DreamGenClone.Web/Application/RolePlay/SceneImagePromptCompilers.cs#L132-L151) | `SceneAssetPromptCompiler.CompilePony` / `CompilePony` | Converts `SfwFiltered` into `rating_safe` for Pony scene-asset prompts. | **REMOVE** | Remove the deterministic SFW rating branch; capability remains available to refusal handling. |
+| [DreamGenClone.Web/Components/Pages/SceneImageStudio.razor](DreamGenClone.Web/Components/Pages/SceneImageStudio.razor#L1504-L1515) | Studio SFW clamp warning and explicitness disablement | Tells the user the prompt is clamped and disables explicit content for `SfwFiltered`. | **REMOVE** | Remove or replace the clamp-specific warning/disablement when the P1 refusal flow is active. |
+| [DreamGenClone.Tests/RolePlay/SceneImagePromptPreprocessorTests.cs](DreamGenClone.Tests/RolePlay/SceneImagePromptPreprocessorTests.cs#L31-L47) | `BuildMessages_SfwPolicy_ClampsExplicitness` | Asserts the Pony suffix and non-explicit user prompt. | **REMOVE** | Delete or replace with a refusal-outcome/capability test. |
+| [DreamGenClone.Tests/RolePlay/SceneImagePromptPreprocessorTests.cs](DreamGenClone.Tests/RolePlay/SceneImagePromptPreprocessorTests.cs#L50-L59) | `BuildMessages_AdultPolicy_AllowsExplicit` | Asserts the Pony suffix is absent for adult policy. | **REMOVE** | Update with the P1 contract; it directly asserts the old clamp distinction. |
+| [DreamGenClone.Tests/RolePlay/SceneImagePromptPreprocessorTests.cs](DreamGenClone.Tests/RolePlay/SceneImagePromptPreprocessorTests.cs#L83-L98) | `BuildMessages_SfwPolicy_ForcesRatingSafe_RegardlessOfClimaxPhase` | Asserts the policy hard-clamps a Climax phase to `rating_safe` and emits the suffix. | **REMOVE** | Replace with a test for phase semantics plus separate provider-capability/refusal handling. |
+| [DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs](DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs#L57-L66) | `BuildMessages_SfwPolicy_ClampsExplicitness` | Asserts the SDXL suffix and non-explicit wording. | **REMOVE** | Replace with the P1 refusal contract. |
+| [DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs](DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs#L69-L78) | `BuildMessages_AdultPolicy_AllowsExplicit` | Asserts the SDXL suffix is absent for adult policy. | **REMOVE** | Update because it tests the old clamp split. |
+| [DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs](DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs#L101-L113) | `BuildMessages_SfwPolicy_ForcesSafe_RegardlessOfClimaxPhase` | Asserts SDXL phase explicitness is hard-clamped to safe prose. | **REMOVE** | Replace with P1 outcome handling. |
+| [DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs](DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs#L197-L201) | `SfwClampSuffix_DiffersFromPony` | Asserts that SDXL and Pony have distinct clamp suffixes. | **REMOVE** | Delete with the suffix contract. |
+| [DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs](DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs#L263-L270) | `BuildCanonicalMessages_SfwPolicy_ClampsExplicitness` | Asserts the canonical SDXL system prompt contains the clamp suffix. | **REMOVE** | Replace with canonical prompt/refusal behavior coverage. |
+| [DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs](DreamGenClone.Tests/RolePlay/SdxlSceneImagePromptBuilderTests.cs#L273-L280) | `BuildCanonicalMessages_AdultPolicy_NoSfwClamp` | Asserts the canonical SDXL suffix is absent for adult policy. | **REMOVE** | Update because it directly tests the old clamp contract. |
+
+## P1 execution notes
+
+1. Remove the render mutation first: the `SceneImageRenderingJobHandler` suffix append and
+   `content_policy_clamped` warning are the final deterministic mutation immediately before the
+   provider request.
+2. Remove the builder branches and policy-derived safe-rating/explicitness paths next, including
+   Pony and SDXL canonical and legacy prompt paths, the API/asset compiler suffixes, and the
+   clamp-specific UI/tests.
+3. Remove compiler and builder implementation properties (`SfwClampSuffix` and constants).
+4. Remove the `ISceneImagePromptCompiler.SfwClampSuffix` and
+   `ISdxlSceneImagePromptBuilder.SfwClampSuffix` interface members **last**, after all
+   implementations and consumers have been changed.
+
+Do not remove `ImageContentPolicy`, `Provider.ContentPolicy`, the resolved-model fields, the
+`Unknown` fail-fast checks, or scene-image policy persistence. The P1 refusal-outcome model must
+read provider capability (`Unknown`, `SfwFiltered`, `AdultAllowed`, or
+`AdultAllowedConfigurable`) after the prompt is no longer deterministically clamped.
+
+## Verification
+
+The source search used for this map was:
+
+```powershell
+git grep -n -E "SfwClampSuffix|DefaultSfwClampSuffix|SfwFiltered|ImageContentPolicy|ResolveRatingTag|clamp|fully clothed|non-explicit|content_policy_clamped" -- DreamGenClone.Web DreamGenClone.Domain DreamGenClone.Infrastructure DreamGenClone.Tests -- '*.cs'
+```
+
+The focused clamp/capability search used to classify the direct sites was:
+
+```powershell
+git grep -n -E "SfwClampSuffix|DefaultSfwClampSuffix|ResolveRatingTag|content_policy_clamped|ImageContentPolicy\.SfwFiltered|ImageContentPolicy\.Unknown" -- DreamGenClone.Web DreamGenClone.Domain DreamGenClone.Infrastructure DreamGenClone.Tests -- '*.cs'
+```
+
+For the P1 re-check, repeat both commands and additionally search the Razor capability/UI
+surfaces:
+
+```powershell
+git grep -n -E "SfwFiltered|ImageContentPolicy|clamped to safe-for-work|SfwClampSuffix|DefaultSfwClampSuffix" -- DreamGenClone.Web -- '*.razor'
+```
+
+Expected result after P1: no clamp suffix constants/properties, no
+`content_policy_clamped` append path, and no clamp-specific prompt/test assertions; the enum,
+provider policy resolution, persistence, and capability/refusal inputs remain.

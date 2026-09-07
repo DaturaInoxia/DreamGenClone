@@ -1,3 +1,5 @@
+using DreamGenClone.Domain.RolePlay;
+
 namespace DreamGenClone.Web.Application.RolePlay;
 
 /// <summary>Payload for a text-to-image scene asset generation job.</summary>
@@ -7,6 +9,19 @@ public sealed class SceneAssetGenerationJobPayload
     public string ImageId { get; set; } = string.Empty;
     public string ModelId { get; set; } = string.Empty;
     public string ImageSize { get; set; } = string.Empty;
+    public string? CandidateBatchId { get; set; }
+    public string? ReferenceApplicationsJson { get; set; }
+}
+
+/// <summary>Payload for a typed-vision reference candidate generation job.</summary>
+public sealed record ProducedImageGenerationJobPayload
+{
+    public string BatchId { get; init; } = string.Empty;
+    public string TargetRef { get; init; } = string.Empty;
+    public ProducedImageReferenceKind ReferenceKind { get; init; }
+    public string VisionText { get; init; } = string.Empty;
+    public string? ModelId { get; init; }
+    public string ImageSize { get; init; } = string.Empty;
 }
 
 /// <summary>Payload for a Qwen source-image edit that produces a new scene asset revision.</summary>
@@ -15,6 +30,8 @@ public sealed class SceneAssetEditingJobPayload
     public string AssetId { get; set; } = string.Empty;
     public string ImageId { get; set; } = string.Empty;
     public string ModelId { get; set; } = string.Empty;
+    public string? CandidateBatchId { get; set; }
+    public string? ReferenceApplicationsJson { get; set; }
 }
 
 /// <summary>

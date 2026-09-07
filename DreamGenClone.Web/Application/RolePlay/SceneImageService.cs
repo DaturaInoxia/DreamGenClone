@@ -1,9 +1,11 @@
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Application.Processing;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.Processing;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Application.Sessions;
@@ -33,6 +35,11 @@ public sealed class SceneImageService : ISceneImageService
     private readonly ISceneImageProductionService? _productionService;
     private readonly IModelResolutionService? _modelResolutionService;
     private readonly ILogger<SceneImageService> _logger;
+    private readonly SceneImageRenderingJobHandler? _renderingJobHandler;
+    private readonly SceneImageEditingJobHandler? _editingJobHandler;
+    private readonly IImageEditorModelResolver? _imageEditorModelResolver;
+    private readonly IImageEditorEndpointReadiness? _imageEditorEndpointReadiness;
+    private readonly IDurableBackgroundJobQueue? _durableJobQueue;
 
     public SceneImageService(
         ISessionService sessionService,
@@ -85,7 +92,12 @@ public sealed class SceneImageService : ISceneImageService
         ICompiledMediaBriefRepository? compiledMediaBriefRepository,
         ISceneImageProductionService? productionService,
         IModelResolutionService? modelResolutionService,
-        ILogger<SceneImageService> logger)
+        ILogger<SceneImageService> logger,
+        SceneImageRenderingJobHandler? renderingJobHandler = null,
+        SceneImageEditingJobHandler? editingJobHandler = null,
+        IImageEditorModelResolver? imageEditorModelResolver = null,
+        IImageEditorEndpointReadiness? imageEditorEndpointReadiness = null,
+        IDurableBackgroundJobQueue? durableJobQueue = null)
     {
         _sessionService = sessionService;
         _repository = repository;
@@ -99,6 +111,11 @@ public sealed class SceneImageService : ISceneImageService
         _productionService = productionService;
         _modelResolutionService = modelResolutionService;
         _logger = logger;
+        _renderingJobHandler = renderingJobHandler;
+        _editingJobHandler = editingJobHandler;
+        _imageEditorModelResolver = imageEditorModelResolver;
+        _imageEditorEndpointReadiness = imageEditorEndpointReadiness;
+        _durableJobQueue = durableJobQueue;
     }
 
     public Task<SceneImageBeatAnalysisRecord?> GetBeatAnalysisByTurnAsync(
@@ -219,6 +236,8 @@ public sealed class SceneImageService : ISceneImageService
             if (resolved.ContentPolicy is ImageContentPolicy.SfwFiltered or ImageContentPolicy.Unknown)
                 throw new InvalidOperationException("Adult-content Finish edits are unavailable because the resolved editor model does not allow them.");
         }
+        var appliedReferenceBindingsJson = SerializeReferenceApplications(request.ReferenceApplications)
+            ?? parent.AppliedReferenceBindingsJson;
 
         var record = new SceneImageRecord
         {
@@ -248,14 +267,17 @@ public sealed class SceneImageService : ISceneImageService
             MomentSetVersion = parent.MomentSetVersion,
             MomentId = parent.MomentId,
             MomentEnrichmentId = parent.MomentEnrichmentId,
-            MomentEnrichmentRevision = parent.MomentEnrichmentRevision
+            MomentEnrichmentRevision = parent.MomentEnrichmentRevision,
+            AppliedReferenceBindingsJson = appliedReferenceBindingsJson
         };
         await _repository.InsertImageAsync(record, cancellationToken);
-        _backgroundJobQueue.Enqueue(
-            BackgroundJobTypes.SceneImageEditing,
-            JsonSerializer.Serialize(new SceneImageEditingJobPayload { SessionId = session.Id, InteractionId = interaction.Id, ImageRecordId = record.Id }),
-            dedupeKey: $"{BackgroundJobTypes.SceneImageEditing}:{record.Id}");
-        return record;
+        var resolvedEditorModel = await ResolveEditorModelForDispatchAsync(cancellationToken);
+        return await DispatchEditAsync(
+            record,
+            new SceneImageEditingJobPayload { SessionId = session.Id, InteractionId = interaction.Id, ImageRecordId = record.Id },
+            resolvedEditorModel.ImageProtocol,
+            resolvedEditorModel,
+            cancellationToken);
     }
 
     public async Task<SceneImageRecord> EnqueueIdentityAsync(
@@ -279,13 +301,13 @@ public sealed class SceneImageService : ISceneImageService
         var parent = await _repository.GetImageAsync(request.SourceImageId.Trim(), cancellationToken)
             ?? throw new InvalidOperationException($"Source scene image '{request.SourceImageId}' was not found.");
         if (parent.Status != SceneImageStatus.Complete
-            || parent.ProductionStage != SceneImageProductionStage.Composition
             || !string.Equals(parent.ProductionGroupId, group.Id, StringComparison.Ordinal))
-            throw new InvalidOperationException("Identity requires a completed Composition attempt in the same production group.");
+            throw new InvalidOperationException("Identity requires a completed attempt in the same production group.");
         if (string.IsNullOrWhiteSpace(parent.FileRelativePath) || string.IsNullOrWhiteSpace(parent.Sha256))
-            throw new InvalidOperationException("The completed Composition parent must have stored bytes and a checksum.");
+            throw new InvalidOperationException("The completed Identity source must have stored bytes and a checksum.");
 
-        var readiness = await productionService.ResolveIdentityReadinessAsync(group.Id, cancellationToken);
+        var readiness = await productionService.ResolveIdentityReadinessAsync(
+            group.Id, request.IdentityReferences, cancellationToken);
         var bindings = readiness.Select((item, index) => new
         {
             ordinal = index + 1,
@@ -294,18 +316,23 @@ public sealed class SceneImageService : ISceneImageService
             identityPackId = item.IdentityPackId,
             identityPackVersion = item.IdentityPackVersion,
             canonicalFaceAssetId = item.CanonicalFaceAssetId,
+            faceView = item.FaceView,
             fileRelativePath = item.FileRelativePath,
             sha256 = item.Sha256
         }).ToArray();
         if (bindings.Length == 0)
             throw new InvalidOperationException("Identity requires at least one known visible character.");
+        var faceOnlyInstruction = BuildFaceOnlyIdentityInstruction(
+            bindings.Select(binding => (binding.ordinal, binding.characterName)).ToList());
+        var appliedReferenceBindingsJson = SerializeReferenceApplications(request.ReferenceApplications)
+            ?? parent.AppliedReferenceBindingsJson;
 
         var record = new SceneImageRecord
         {
             SessionId = session.Id,
             InteractionId = interaction.Id,
             PromptRecordId = parent.PromptRecordId,
-            PromptSnapshot = request.Instruction.Trim(),
+            PromptSnapshot = faceOnlyInstruction,
             Status = SceneImageStatus.Pending,
             Operation = SceneImageOperation.Edit,
             SourceImageId = parent.Id,
@@ -326,19 +353,47 @@ public sealed class SceneImageService : ISceneImageService
             MomentId = parent.MomentId,
             MomentEnrichmentId = parent.MomentEnrichmentId,
             MomentEnrichmentRevision = parent.MomentEnrichmentRevision,
-            IdentityReferenceBindingsJson = JsonSerializer.Serialize(bindings, JsonOptions)
+            IdentityReferenceBindingsJson = JsonSerializer.Serialize(bindings, JsonOptions),
+            AppliedReferenceBindingsJson = appliedReferenceBindingsJson
         };
         await _repository.InsertImageAsync(record, cancellationToken);
-        _backgroundJobQueue.Enqueue(
-            BackgroundJobTypes.SceneImageEditing,
-            JsonSerializer.Serialize(new SceneImageEditingJobPayload
+        var resolvedEditorModel = await ResolveEditorModelForDispatchAsync(cancellationToken);
+        return await DispatchEditAsync(
+            record,
+            new SceneImageEditingJobPayload
             {
                 SessionId = session.Id,
                 InteractionId = interaction.Id,
                 ImageRecordId = record.Id
-            }),
-            dedupeKey: $"{BackgroundJobTypes.SceneImageEditing}:{record.Id}");
-        return record;
+            },
+            resolvedEditorModel.ImageProtocol,
+            resolvedEditorModel,
+            cancellationToken);
+    }
+
+    internal static string BuildFaceOnlyIdentityInstruction(
+        IReadOnlyList<(int Ordinal, string CharacterName)> selectedCharacters)
+    {
+        var names = string.Join(", ", selectedCharacters
+            .Select(selected => selected.CharacterName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(names))
+            throw new InvalidOperationException("Identity requires named selected characters.");
+        var referenceMapping = string.Join(" ", selectedCharacters.Select(selected =>
+            $"Reference image {selected.Ordinal + 1} is the approved face identity reference for {selected.CharacterName.Trim()} and applies only to that character's face in image 1."));
+
+        return $"Identity correction only for the selected character faces: {names}. " +
+            "Image 1 is the existing scene and must remain the base image. " +
+            $"{referenceMapping} " +
+            "The additional approved face images are identity references only, not replacement images or composition sources. " +
+            "Transfer the approved reference identity into the matching face region: preserve and reproduce the reference's distinguishing facial geometry, eye color and shape, eyebrows, nose, lips, freckles, complexion markers, and hairline-adjacent facial details, adapted to the existing face's scale, angle, expression, and lighting. " +
+            "Use the reference only to correct face-local identity details for those selected characters. " +
+            "Treat the existing scene's visible neck and body skin tone as authoritative: harmonize the corrected face skin tone, undertone, exposure, and shading with that body under the existing scene lighting, without importing a mismatched complexion from the reference. " +
+            "Preserve everything outside those selected face regions exactly: every person and unselected face, bodies, poses, hands, clothing, accessories, expression, action, scene geometry, framing, camera, crop, background, objects, lighting, color, and composition. " +
+            "Do not copy the reference image framing, background, body, pose, clothing, or lighting. " +
+            "Do not add, remove, move, restyle, or otherwise alter anything outside the selected character face regions.";
     }
 
     private async Task<SceneImagePromptRecord> EnqueueProductionPromptAsync(
@@ -444,6 +499,7 @@ public sealed class SceneImageService : ISceneImageService
         }
 
         var firstPackId = request.IdentityPacks?.FirstOrDefault()?.PackId;
+        var appliedReferenceBindingsJson = SerializeReferenceApplications(request.ReferenceApplications);
         var record = new SceneImageRecord
         {
             SessionId = session.Id,
@@ -475,6 +531,7 @@ public sealed class SceneImageService : ISceneImageService
             MomentEnrichmentId = productionGroup?.MomentEnrichmentId,
             MomentEnrichmentRevision = productionGroup?.MomentEnrichmentRevision,
             TypedReferenceSnapshotJson = typedReferenceSnapshotJson,
+            AppliedReferenceBindingsJson = appliedReferenceBindingsJson,
             BeatId = productionGroup?.BeatId ?? request.BeatId,
             Pov = productionGroup?.Pov ?? request.Pov
         };
@@ -503,25 +560,53 @@ public sealed class SceneImageService : ISceneImageService
 
         await _repository.InsertImageAsync(record, cancellationToken);
 
-        var payloadJson = JsonSerializer.Serialize(new SceneImageRenderingJobPayload
+        var resolvedImageModel = await ResolveRenderModelForDispatchAsync(record, cancellationToken);
+        var payload = new SceneImageRenderingJobPayload
         {
             SessionId = session.Id,
             InteractionId = request.InteractionId,
             ImageRecordId = record.Id
-        });
+        };
+        return await DispatchRenderAsync(record, payload, resolvedImageModel.ImageProtocol, cancellationToken);
+    }
 
-        _backgroundJobQueue.Enqueue(
-            BackgroundJobTypes.SceneImageRendering,
-            payloadJson,
-            dedupeKey: $"{BackgroundJobTypes.SceneImageRendering}:{record.Id}");
+    private static string? SerializeReferenceApplications(
+        IReadOnlyList<ReferenceApplicationSelection>? applications)
+    {
+        if (applications is not { Count: > 0 })
+            return null;
+        if (applications.Any(application => string.IsNullOrWhiteSpace(application.ElementKey)
+            || string.IsNullOrWhiteSpace(application.SemanticRole)
+            || string.IsNullOrWhiteSpace(application.Strategy)))
+        {
+            throw new InvalidOperationException("Every reference application requires an element key, semantic role, and strategy.");
+        }
+        if (applications.Select(application => application.ElementKey.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).Count() != applications.Count)
+        {
+            throw new InvalidOperationException("Reference application element keys must be unique.");
+        }
 
-        _logger.LogInformation(
-            "Enqueued scene image rendering: SessionId={SessionId}, InteractionId={InteractionId}, ImageRecordId={ImageRecordId}",
-            session.Id,
-            request.InteractionId,
-            record.Id);
+        foreach (var application in applications)
+        {
+            var hasAsset = !string.IsNullOrWhiteSpace(application.SceneAssetId);
+            if (hasAsset && (string.IsNullOrWhiteSpace(application.SceneAssetImageId)
+                || application.SceneAssetVersion is null
+                || string.IsNullOrWhiteSpace(application.SceneAssetSha256)))
+            {
+                throw new InvalidOperationException($"Reference application '{application.ElementKey}' is missing an exact approved asset version or checksum.");
+            }
+            if (!hasAsset && !string.Equals(application.Strategy, "TextOnly", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Reference application '{application.ElementKey}' requires an approved asset for strategy '{application.Strategy}'.");
+            }
+            if (application.Strength is < 0m or > 1m)
+            {
+                throw new InvalidOperationException($"Reference application '{application.ElementKey}' strength must be between 0 and 1.");
+            }
+        }
 
-        return record;
+        return JsonSerializer.Serialize(applications, JsonOptions);
     }
 
     private static void ValidateIdentitySelections(SceneRenderRequest request)
@@ -585,6 +670,9 @@ public sealed class SceneImageService : ISceneImageService
             || string.IsNullOrWhiteSpace(request.SourceImageSha256)
             || string.IsNullOrWhiteSpace(request.PromptSha256))
             throw new InvalidOperationException("An exact compiled edit session, attempt, prompt revision, source checksum, and prompt checksum are required.");
+        if (string.IsNullOrWhiteSpace(request.EditorModelId))
+            throw new InvalidOperationException("An exact enabled image editor model is required.");
+        var resolvedEditorModel = await ResolveEditorModelByIdForDispatchAsync(request.EditorModelId, cancellationToken);
 
         var source = await _repository.GetImageAsync(request.SourceImageId, cancellationToken)
             ?? throw new InvalidOperationException($"Source scene image '{request.SourceImageId}' was not found.");
@@ -628,6 +716,7 @@ public sealed class SceneImageService : ISceneImageService
             attempt.SystemPromptVersion,
             resolvedModelSnapshot = JsonSerializer.Deserialize<JsonElement>(attempt.ResolvedModelSnapshotJson)
         }, JsonOptions);
+        var appliedReferenceBindingsJson = SerializeReferenceApplications(request.ReferenceApplications);
 
         var record = new SceneImageRecord
         {
@@ -637,6 +726,7 @@ public sealed class SceneImageService : ISceneImageService
             PromptSnapshot = revision.Prompt,
             Status = SceneImageStatus.Pending,
             Operation = SceneImageOperation.Edit,
+            RequestedModelId = request.EditorModelId.Trim(),
             SourceImageId = source.Id,
             EditSessionId = editSession.Id,
             EditCompilationAttemptId = attempt.Id,
@@ -650,8 +740,6 @@ public sealed class SceneImageService : ISceneImageService
             Pov = source.Pov,
             ProductionGroupId = source.ProductionGroupId,
             CompiledMediaBriefId = source.CompiledMediaBriefId,
-            ProductionStage = source.ProductionGroupId is null ? null : SceneImageProductionStage.Finish,
-            Disposition = source.ProductionGroupId is null ? null : SceneImageAttemptDisposition.Active,
             CatalogueId = source.CatalogueId,
             BeatProductionPlanId = source.BeatProductionPlanId,
             BeatProductionPlanVersion = source.BeatProductionPlanVersion,
@@ -660,21 +748,22 @@ public sealed class SceneImageService : ISceneImageService
             MomentId = source.MomentId,
             MomentEnrichmentId = source.MomentEnrichmentId,
             MomentEnrichmentRevision = source.MomentEnrichmentRevision,
-            TypedReferenceSnapshotJson = source.TypedReferenceSnapshotJson
+            TypedReferenceSnapshotJson = source.TypedReferenceSnapshotJson,
+            AppliedReferenceBindingsJson = appliedReferenceBindingsJson
         };
         await _repository.InsertImageAsync(record, cancellationToken);
-        _backgroundJobQueue.Enqueue(
-            BackgroundJobTypes.SceneImageEditing,
-            JsonSerializer.Serialize(new SceneImageEditingJobPayload
+        return await DispatchEditAsync(
+            record,
+            new SceneImageEditingJobPayload
             {
                 SessionId = session.Id,
                 InteractionId = interaction.Id,
-                ImageRecordId = record.Id
-            }),
-            dedupeKey: $"{BackgroundJobTypes.SceneImageEditing}:{record.Id}");
-
-        _logger.LogInformation("Enqueued scene image edit: SessionId={SessionId}, InteractionId={InteractionId}, ImageRecordId={ImageRecordId}, SourceImageId={SourceImageId}", session.Id, interaction.Id, record.Id, source.Id);
-        return record;
+                ImageRecordId = record.Id,
+                EditorModelId = request.EditorModelId.Trim()
+            },
+            resolvedEditorModel.ImageProtocol,
+            resolvedEditorModel,
+            cancellationToken);
     }
 
     public Task<SceneImagePromptRecord?> GetPromptAsync(string sessionId, string promptId, CancellationToken cancellationToken = default)
@@ -722,6 +811,13 @@ public sealed class SceneImageService : ISceneImageService
         string productionGroupId, CancellationToken cancellationToken = default)
         => _repository.ListImagesByProductionGroupAsync(productionGroupId, cancellationToken);
 
+    public Task<bool> TryCancelImageAsync(
+        string sessionId,
+        string imageId,
+        DateTime cancelledUtc,
+        CancellationToken cancellationToken = default)
+        => _repository.TryCancelImageAsync(imageId, sessionId, cancelledUtc, cancellationToken);
+
     public async Task SetDispositionAsync(
         string imageId,
         string productionGroupId,
@@ -749,6 +845,117 @@ public sealed class SceneImageService : ISceneImageService
             (SceneImageAttemptDisposition.Rejected, SceneImageAttemptDisposition.Archived) => true,
             _ => false
         };
+
+    private async Task<ResolvedImageModel> ResolveRenderModelForDispatchAsync(
+        SceneImageRecord record,
+        CancellationToken cancellationToken)
+    {
+        var resolver = _modelResolutionService
+            ?? throw new InvalidOperationException("Image render dispatch requires the model resolution service.");
+        return string.IsNullOrWhiteSpace(record.RequestedModelId)
+            ? await resolver.ResolveImageModelAsync(null, cancellationToken)
+            : await resolver.ResolveImageModelByIdAsync(record.RequestedModelId, cancellationToken);
+    }
+
+    private async Task<SceneImageRecord> DispatchRenderAsync(
+        SceneImageRecord record,
+        SceneImageRenderingJobPayload payload,
+        ImageProtocol protocol,
+        CancellationToken cancellationToken)
+    {
+        await EnqueueDurableAsync(
+            BackgroundJobTypes.SceneImageRendering,
+            DurableJobLane.ImageRender,
+            payload,
+            record.Id,
+            protocol,
+            null,
+            cancellationToken);
+        return record;
+    }
+
+    private async Task<ResolvedImageEditorModel> ResolveEditorModelForDispatchAsync(CancellationToken cancellationToken)
+    {
+        var resolver = _imageEditorModelResolver
+            ?? throw new InvalidOperationException("Image edit dispatch requires the image editor model resolver.");
+        return await resolver.ResolveAsync(cancellationToken);
+    }
+
+    private async Task<ResolvedImageEditorModel> ResolveEditorModelByIdForDispatchAsync(
+        string modelId,
+        CancellationToken cancellationToken)
+    {
+        var resolver = _imageEditorModelResolver
+            ?? throw new InvalidOperationException("Image edit dispatch requires the image editor model resolver.");
+        return await resolver.ResolveByIdAsync(modelId.Trim(), cancellationToken);
+    }
+
+    private async Task<SceneImageRecord> DispatchEditAsync(
+        SceneImageRecord record,
+        SceneImageEditingJobPayload payload,
+        ImageProtocol protocol,
+        ResolvedImageEditorModel? editorModel,
+        CancellationToken cancellationToken)
+    {
+        var queueStatus = await ResolveEditQueueStatusAsync(protocol, editorModel, cancellationToken);
+        await EnqueueDurableAsync(
+            BackgroundJobTypes.SceneImageEditing,
+            DurableJobLane.ImageEdit,
+            payload,
+            record.Id,
+            protocol,
+            queueStatus,
+            cancellationToken);
+        return record;
+    }
+
+    private async Task<DurableBackgroundJobStatus> ResolveEditQueueStatusAsync(
+        ImageProtocol protocol,
+        ResolvedImageEditorModel? editorModel,
+        CancellationToken cancellationToken)
+    {
+        if (protocol != ImageProtocol.ComfyUiServerless)
+            return DurableBackgroundJobStatus.Queued;
+        if (editorModel is null || _imageEditorEndpointReadiness is null)
+            return DurableBackgroundJobStatus.Staged;
+        return await _imageEditorEndpointReadiness.IsWarmAsync(editorModel, cancellationToken)
+            ? DurableBackgroundJobStatus.Queued
+            : DurableBackgroundJobStatus.Staged;
+    }
+
+    private async Task EnqueueDurableAsync<TPayload>(
+        string jobType,
+        DurableJobLane lane,
+        TPayload payload,
+        string imageRecordId,
+        ImageProtocol protocol,
+        DurableBackgroundJobStatus? requestedStatus,
+        CancellationToken cancellationToken)
+    {
+        if (!Enum.IsDefined(protocol))
+            throw new InvalidOperationException($"Unsupported image protocol '{protocol}' for production queue admission.");
+        var queue = _durableJobQueue
+            ?? throw new InvalidOperationException("Studio image dispatch requires the persisted production queue.");
+        var now = DateTime.UtcNow;
+        var status = requestedStatus ?? (protocol == ImageProtocol.ComfyUiServerless
+            ? DurableBackgroundJobStatus.Staged
+            : DurableBackgroundJobStatus.Queued);
+        var queued = await queue.TryEnqueueAsync(new DurableBackgroundJob
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            JobType = jobType,
+            Lane = lane,
+            PayloadJson = JsonSerializer.Serialize(payload),
+            DedupeKey = $"{jobType}:{imageRecordId}",
+            Status = status,
+            MaxAttempts = 1,
+            CreatedUtc = now,
+            UpdatedUtc = now
+        }, cancellationToken);
+        _logger.LogInformation(
+            "Admitted Studio image work to the persisted production queue: ImageRecordId={ImageRecordId}, JobType={JobType}, Protocol={Protocol}, Status={Status}, Enqueued={Enqueued}",
+            imageRecordId, jobType, protocol, status, queued);
+    }
 
     public Task<Dictionary<string, int>> CountImagesByInteractionAsync(string sessionId, CancellationToken cancellationToken = default)
         => _repository.CountImagesByInteractionAsync(sessionId, cancellationToken);

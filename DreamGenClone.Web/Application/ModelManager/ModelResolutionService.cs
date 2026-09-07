@@ -429,7 +429,14 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
         Require(provider.ReadinessSuccessContractJson, "readiness success contract", function);
         Require(provider.LifecycleStrategyIdentifier, "lifecycle strategy", function);
         Require(provider.CredentialReference, "credential reference", function);
-        Require(provider.ApiKeyEncrypted, "inference credential", function);
+        var apiKeyEncrypted = provider.ApiKeyEncrypted;
+        if (string.IsNullOrWhiteSpace(apiKeyEncrypted))
+        {
+            var credential = _secretProvider.Resolve(provider.CredentialReference);
+            if (!string.IsNullOrWhiteSpace(credential))
+                apiKeyEncrypted = _encryptionService.Encrypt(credential);
+        }
+        Require(apiKeyEncrypted, "inference credential", function);
         if (!Enum.TryParse<ModelLifecycleStrategy>(provider.LifecycleStrategyIdentifier, out var lifecycleStrategy)
             || lifecycleStrategy == ModelLifecycleStrategy.Unknown)
         {
@@ -454,7 +461,7 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             RequirePositive(provider.TransitionTimeoutSeconds, "transition timeout", function),
             RequirePositive(provider.TransitionMarginSeconds, "transition margin", function),
             provider.CredentialReference!,
-            provider.ApiKeyEncrypted,
+            apiKeyEncrypted,
             Require(model.ModelIdentifier, "model identifier", function),
             Require(provider.Name, "provider name", function),
             provider.ContentPolicy,

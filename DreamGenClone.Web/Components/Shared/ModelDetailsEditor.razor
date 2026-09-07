@@ -166,6 +166,12 @@
                 </div>
                 <div class="col-md-4">
                     <div class="form-check">
+                        <input id="identity-native-multi-reference-capability" class="form-check-input" type="checkbox" @bind="_supportsNativeMultiReference" />
+                        <label class="form-check-label" for="identity-native-multi-reference-capability">Qwen native multi-reference edit</label>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-check">
                         <input id="identity-lora-capability" class="form-check-input" type="checkbox" @bind="_supportsLora" />
                         <label class="form-check-label" for="identity-lora-capability">LoRA</label>
                     </div>
@@ -176,7 +182,24 @@
                         <label class="form-check-label" for="identity-combined-capability">Combined references + LoRA</label>
                     </div>
                 </div>
-                <div class="col-12"><div class="form-text">These declarations make the model selectable for compatible identity work. Every request still requires an exact qualified capability cell; unavailable combinations fail without changing model or strategy.</div></div>
+                <div class="col-md-4">
+                    <div class="form-check">
+                        <input id="location-controlnet-capability" class="form-check-input" type="checkbox" @bind="_supportsControlNet" />
+                        <label class="form-check-label" for="location-controlnet-capability">ControlNet location control</label>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-check">
+                        <input id="wardrobe-tryon-capability" class="form-check-input" type="checkbox" @bind="_supportsWardrobeTryOn" />
+                        <label class="form-check-label" for="wardrobe-tryon-capability">Wardrobe reference / try-on</label>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Capability Qualification Evidence (JSON)</label>
+                    <textarea class="form-control font-monospace" rows="4" @bind="Model.CapabilityQualificationsJson" placeholder="[{&quot;strategy&quot;:&quot;ReferenceConditioning&quot;,&quot;endpointId&quot;:&quot;...&quot;,&quot;qualified&quot;:true,&quot;proofId&quot;:&quot;...&quot;}]"></textarea>
+                    <div class="form-text">Record passing proof per strategy and endpoint. A declared strategy without a qualified entry remains unavailable.</div>
+                </div>
+                <div class="col-12"><div class="form-text">These declarations make the model selectable for compatible visual work. Every request still requires an exact qualified capability cell; unavailable combinations fail without changing model or strategy.</div></div>
             }
             <div class="col-12">
                 <label class="form-label">Notes</label>
@@ -401,8 +424,11 @@
     private bool _isEnabled;
     private bool _supportsThinkingControl;
     private bool _supportsReferenceConditioning;
+    private bool _supportsNativeMultiReference;
     private bool _supportsLora;
     private bool _supportsCombined;
+    private bool _supportsControlNet;
+    private bool _supportsWardrobeTryOn;
     private int _contextWindowSize;
     private string _parameterCount = "";
     private string _quantization = "";
@@ -431,15 +457,23 @@
         _quantization = Model.Quantization;
         _notes = Model.Notes;
         var identityStrategies = System.Text.Json.JsonSerializer.Deserialize<string[]>(Model.SupportedIdentityStrategiesJson) ?? [];
-        _supportsReferenceConditioning = identityStrategies.Contains("ReferenceConditioning", StringComparer.OrdinalIgnoreCase);
-        _supportsLora = identityStrategies.Contains("Lora", StringComparer.OrdinalIgnoreCase);
-        _supportsCombined = identityStrategies.Contains("Combined", StringComparer.OrdinalIgnoreCase);
+        var visualStrategies = System.Text.Json.JsonSerializer.Deserialize<string[]>(Model.SupportedVisualStrategiesJson) ?? [];
+        _supportsReferenceConditioning = visualStrategies.Contains("ReferenceConditioning", StringComparer.OrdinalIgnoreCase)
+            || identityStrategies.Contains("ReferenceConditioning", StringComparer.OrdinalIgnoreCase);
+        _supportsNativeMultiReference = visualStrategies.Contains("NativeMultiReference", StringComparer.OrdinalIgnoreCase);
+        _supportsLora = visualStrategies.Contains("Lora", StringComparer.OrdinalIgnoreCase)
+            || identityStrategies.Contains("Lora", StringComparer.OrdinalIgnoreCase);
+        _supportsCombined = visualStrategies.Contains("Combined", StringComparer.OrdinalIgnoreCase)
+            || identityStrategies.Contains("Combined", StringComparer.OrdinalIgnoreCase);
+        _supportsControlNet = visualStrategies.Contains("ControlNet", StringComparer.OrdinalIgnoreCase);
+        _supportsWardrobeTryOn = visualStrategies.Contains("WardrobeTryOn", StringComparer.OrdinalIgnoreCase);
         _formError = null;
         _analysisError = null;
     }
 
     private async Task Save()
     {
+        ApplyFormValues();
         if (string.IsNullOrWhiteSpace(_modelIdentifier))
         {
             _formError = "Model identifier is required.";
@@ -465,15 +499,6 @@
         _formError = null;
         try
         {
-            Model.ModelIdentifier = _modelIdentifier.Trim();
-            Model.DisplayName = _displayName.Trim();
-            Model.IsEnabled = _isEnabled;
-            Model.SupportsThinkingControl = _supportsThinkingControl;
-            Model.ContextWindowSize = _contextWindowSize;
-            Model.ParameterCount = _parameterCount.Trim();
-            Model.Quantization = _quantization.Trim();
-            Model.Notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim();
-            ApplyIdentityCapabilities();
             await Facade.SaveModelAsync(Model);
             await OnSaved.InvokeAsync();
         }
@@ -494,6 +519,7 @@
 
     private async Task RunAnalysis()
     {
+        ApplyFormValues();
         if (!ValidateImagePromptMetadata(Model, out var imagePromptError))
         {
             _analysisError = imagePromptError;
@@ -508,15 +534,6 @@
         try
         {
             // Save current form values first so the analysis uses the latest metadata
-            Model.ModelIdentifier = _modelIdentifier.Trim();
-            Model.DisplayName = _displayName.Trim();
-            Model.IsEnabled = _isEnabled;
-            Model.SupportsThinkingControl = _supportsThinkingControl;
-            Model.ContextWindowSize = _contextWindowSize;
-            Model.ParameterCount = _parameterCount.Trim();
-            Model.Quantization = _quantization.Trim();
-            Model.Notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim();
-            ApplyIdentityCapabilities();
             await Facade.SaveModelAsync(Model);
 
             _analysisResult = await Facade.AnalyseModelAsync(Model.Id, AnalysisService);
@@ -529,6 +546,20 @@
         {
             _isAnalysing = false;
         }
+    }
+
+    private void ApplyFormValues()
+    {
+        Model.ModelIdentifier = _modelIdentifier.Trim();
+        Model.DisplayName = _displayName.Trim();
+        Model.IsEnabled = _isEnabled;
+        Model.SupportsThinkingControl = _supportsThinkingControl;
+        Model.ContextWindowSize = _contextWindowSize;
+        Model.ParameterCount = _parameterCount.Trim();
+        Model.Quantization = _quantization.Trim();
+        Model.Notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim();
+        ApplyIdentityCapabilities();
+        ApplyVisualCapabilities();
     }
 
     private async Task AutoDetectMetadata()
@@ -675,6 +706,18 @@
         if (_supportsLora) strategies.Add("Lora");
         if (_supportsCombined) strategies.Add("Combined");
         Model.SupportedIdentityStrategiesJson = System.Text.Json.JsonSerializer.Serialize(strategies);
+    }
+
+    private void ApplyVisualCapabilities()
+    {
+        var strategies = new List<string>();
+        if (_supportsReferenceConditioning) strategies.Add("ReferenceConditioning");
+        if (_supportsNativeMultiReference) strategies.Add("NativeMultiReference");
+        if (_supportsLora) strategies.Add("Lora");
+        if (_supportsCombined) strategies.Add("Combined");
+        if (_supportsControlNet) strategies.Add("ControlNet");
+        if (_supportsWardrobeTryOn) strategies.Add("WardrobeTryOn");
+        Model.SupportedVisualStrategiesJson = System.Text.Json.JsonSerializer.Serialize(strategies);
     }
 
     private static string FormatFunctionName(string name)

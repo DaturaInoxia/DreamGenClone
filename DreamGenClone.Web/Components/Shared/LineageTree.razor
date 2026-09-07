@@ -1,0 +1,36 @@
+<section>
+    <h5>Lineage</h5>
+    @if (!string.IsNullOrWhiteSpace(ParentImageId))
+    {
+        <p class="mb-2">Parent: <span class="font-monospace text-break">@ParentImageId</span></p>
+    }
+    @if (Children.Count == 0)
+    {
+        <p class="text-muted">No child images.</p>
+    }
+    else
+    {
+        <ul class="list-group">
+            @foreach (var child in Children)
+            {
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span class="font-monospace text-break">@child.Id</span>
+                    <span class="badge @StatusBadge(child.Status)">@child.Status</span>
+                </li>
+            }
+        </ul>
+    }
+</section>
+
+@code {
+    [Parameter] public string? ParentImageId { get; set; }
+    [Parameter, EditorRequired] public IReadOnlyList<LineageTreeItem> Children { get; set; } = [];
+
+    private static string StatusBadge(string status) => status switch
+    {
+        "Accepted" or "Approved" => "text-bg-success",
+        "Shortlisted" => "text-bg-info",
+        "Rejected" or "Revoked" => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+}

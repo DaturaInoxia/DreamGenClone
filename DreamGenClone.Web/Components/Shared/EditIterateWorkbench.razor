@@ -1,0 +1,156 @@
+@using DreamGenClone.Domain.RolePlay
+
+@if (!string.IsNullOrWhiteSpace(Error))
+{
+    <div class="alert alert-danger">@Error</div>
+}
+@if (!string.IsNullOrWhiteSpace(StatusMessage))
+{
+    <div class="alert alert-info">@StatusMessage</div>
+}
+@if (Loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>@LoadingMessage</div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(SourceDescription))
+    {
+        <div class="border rounded p-2 mb-3 small">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                <strong>What the model sees</strong>
+                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="OnReanalyze" disabled="@(Busy || ReadOnly)" title="Re-analyze source"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+            @SourceDescription
+        </div>
+    }
+    <label class="form-label" for="@IntentInputId">@IntentLabel</label>
+    <textarea id="@IntentInputId" class="form-control" rows="4" @bind:get="Intent" @bind:set="SetIntentAsync" @bind:event="oninput" disabled="@(Busy || ReadOnly)"></textarea>
+    @if (CompilationStale)
+    {
+        <div class="alert alert-warning py-2 mt-2 mb-0">The intent changed after compilation. Prepare it again before running.</div>
+    }
+    <div class="d-flex justify-content-end mt-2">
+        <button class="btn btn-primary" type="button" @onclick="OnPrepare" disabled="@(Busy || HasInFlightWork || string.IsNullOrWhiteSpace(Intent) || ReadOnly)"><i class="bi bi-magic me-1"></i>Prepare edit</button>
+    </div>
+    @if (Compiling)
+    {
+        <div class="text-muted small mt-2"><span class="spinner-border spinner-border-sm me-2"></span>Compiling a source-grounded edit instruction...</div>
+    }
+    @if (Rendering)
+    {
+        <div class="text-muted small mt-2"><span class="spinner-border spinner-border-sm me-2"></span>Rendering edited image...</div>
+    }
+    @if (Compilation?.Status == SceneImageEditCompilationResultStatus.ClarificationRequired)
+    {
+        <div class="alert alert-warning mt-3 mb-0">
+            <strong>Clarification needed.</strong> @Compilation.ClarificationQuestion
+            <div class="input-group mt-2">
+                <input class="form-control" @bind:get="Clarification" @bind:set="SetClarificationAsync" />
+                <button class="btn btn-outline-primary" type="button" @onclick="SubmitClarificationAsync" disabled="@(Busy || string.IsNullOrWhiteSpace(Clarification))">Submit</button>
+            </div>
+        </div>
+    }
+    @if (!string.IsNullOrWhiteSpace(CompilationError))
+    {
+        <div class="alert alert-danger mt-3 mb-0">@CompilationError</div>
+    }
+    @if (PromptReady)
+    {
+        <div class="border rounded p-3 mt-3">
+            <div class="small text-muted mb-2">Compiled prompt, revision @PromptRevisionNumber</div>
+            <textarea class="form-control font-monospace" rows="6" @bind:get="EditablePrompt" @bind:set="SetEditablePromptAsync" @bind:event="oninput" disabled="@ReadOnly"></textarea>
+            <details class="mt-2 small">
+                <summary>View what will be submitted</summary>
+                <pre class="border rounded bg-body-tertiary p-2 mt-2 mb-0 text-wrap">@SubmittedInput</pre>
+            </details>
+            @ReadyContent
+            <div class="d-flex justify-content-end mt-3"><button class="btn btn-success" type="button" @onclick="OnRun" disabled="@(Busy || HasInFlightWork || CompilationStale || string.IsNullOrWhiteSpace(EditablePrompt) || !CanRun)"><i class="bi bi-play-fill me-1"></i>Run edit</button></div>
+        </div>
+    }
+    @if (!string.IsNullOrWhiteSpace(BeforeImageUrl) || !string.IsNullOrWhiteSpace(AfterImageUrl) || !string.IsNullOrWhiteSpace(ResultError))
+    {
+        <div class="row g-2 mt-2">
+            <div class="col-md-6">
+                <div class="small text-muted mb-1">Before</div>
+                @if (!string.IsNullOrWhiteSpace(BeforeImageUrl))
+                {
+                    <img class="img-fluid w-100 border" src="@BeforeImageUrl" alt="Source image" />
+                }
+            </div>
+            <div class="col-md-6">
+                <div class="small text-muted mb-1">After</div>
+                @if (!string.IsNullOrWhiteSpace(AfterImageUrl))
+                {
+                    <img class="img-fluid w-100 border" src="@AfterImageUrl" alt="Edited image" />
+                }
+                else if (!string.IsNullOrWhiteSpace(ResultError))
+                {
+                    <div class="alert alert-danger">@ResultError</div>
+                }
+            </div>
+        </div>
+    }
+    @if (!string.IsNullOrWhiteSpace(ReviewDeckUrl))
+    {
+        <a class="btn btn-sm btn-outline-info mt-2" href="@ReviewDeckUrl"><i class="bi bi-collection-play me-1"></i>Review Candidate Batch</a>
+    }
+}
+
+@code {
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public string? StatusMessage { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string LoadingMessage { get; set; } = "Opening edit session...";
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public string? SourceDescription { get; set; }
+    [Parameter] public string IntentLabel { get; set; } = "Edit intent";
+    [Parameter] public string IntentInputId { get; set; } = "edit-intent";
+    [Parameter] public string Intent { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> IntentChanged { get; set; }
+    [Parameter] public bool CompilationStale { get; set; }
+    [Parameter] public bool HasInFlightWork { get; set; }
+    [Parameter] public bool Compiling { get; set; }
+    [Parameter] public bool Rendering { get; set; }
+    [Parameter] public SceneImageEditCompilationResult? Compilation { get; set; }
+    [Parameter] public string? CompilationError { get; set; }
+    [Parameter] public string Clarification { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ClarificationChanged { get; set; }
+    [Parameter] public bool PromptReady { get; set; }
+    [Parameter] public int PromptRevisionNumber { get; set; }
+    [Parameter] public string EditablePrompt { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> EditablePromptChanged { get; set; }
+    [Parameter] public string SubmittedInput { get; set; } = string.Empty;
+    [Parameter] public RenderFragment? ReadyContent { get; set; }
+    [Parameter] public bool CanRun { get; set; }
+    [Parameter] public string? BeforeImageUrl { get; set; }
+    [Parameter] public string? AfterImageUrl { get; set; }
+    [Parameter] public string? ResultError { get; set; }
+    [Parameter] public string? ReviewDeckUrl { get; set; }
+    [Parameter] public EventCallback OnReanalyze { get; set; }
+    [Parameter] public EventCallback OnPrepare { get; set; }
+    [Parameter] public EventCallback<string> OnSubmitClarification { get; set; }
+    [Parameter] public EventCallback OnRun { get; set; }
+
+    private Task SubmitClarificationAsync()
+        => OnSubmitClarification.InvokeAsync(Clarification.Trim());
+
+    private async Task SetIntentAsync(string value)
+    {
+        Intent = value;
+        await IntentChanged.InvokeAsync(value);
+    }
+
+    private async Task SetClarificationAsync(string value)
+    {
+        Clarification = value;
+        await ClarificationChanged.InvokeAsync(value);
+    }
+
+    private async Task SetEditablePromptAsync(string value)
+    {
+        EditablePrompt = value;
+        await EditablePromptChanged.InvokeAsync(value);
+    }
+}

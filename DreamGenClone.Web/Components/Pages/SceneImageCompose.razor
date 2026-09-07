@@ -1,0 +1,335 @@
+@page "/roleplay/studio/{sessionId}/{interactionId}/compose/{productionGroupId}"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Models
+@using System.Text.Json
+
+@inject ISceneImageProductionService ProductionService
+@inject ISceneImageService ImageService
+@inject IModelResolutionService ModelResolutionService
+@inject IReferenceStrategyResolver ReferenceStrategyResolver
+@inject NavigationManager Nav
+
+<PageTitle>Compose Moment Image - DreamGenClone</PageTitle>
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <a class="btn btn-sm btn-outline-secondary" href="/roleplay/studio/@sessionId/@interactionId">
+                <i class="bi bi-arrow-left me-1"></i>Back to Moment chain
+            </a>
+            <h4 class="d-inline-block ms-2 mb-0">Compose moment image</h4>
+        </div>
+        @if (_group is not null)
+        {
+            <a class="btn btn-sm btn-outline-primary" href="/review-deck/studio/@_group.Id">
+                <i class="bi bi-images me-1"></i>Review Deck
+            </a>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@_errorMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <div class="alert alert-info" role="status">@_statusMessage</div>
+    }
+    @if (_group is null)
+    {
+        <div class="alert alert-secondary">Loading the exact selected Moment production group...</div>
+    }
+    else
+    {
+        <div class="alert alert-secondary small">
+            <strong>Selected enriched Moment:</strong> @_group.MomentId
+            <span class="ms-2"><strong>POV:</strong> @_group.Pov</span>
+            <span class="ms-2"><strong>Enrichment:</strong> r@_group.MomentEnrichmentRevision</span>
+        </div>
+
+        <section class="card mb-3" aria-label="Composition inputs">
+            <div class="card-header"><strong>1. Compose</strong></div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label" for="compose-model">Image model</label>
+                        <select id="compose-model" class="form-select" value="@_selectedModelId" @onchange="SelectModelAsync">
+                            @foreach (var model in _models)
+                            {
+                                <option value="@model.ModelId">@model.DisplayName - @model.ProviderName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="compose-size">Image size</label>
+                        <input id="compose-size" class="form-control" @bind="_settings.ImageSize" />
+                    </div>
+                </div>
+
+                <div class="mt-3">
+                    <label class="form-label" for="compose-prompt">Image prompt</label>
+                    <textarea id="compose-prompt" class="form-control font-monospace" rows="7" @bind="_editablePrompt"
+                              placeholder="Generate the prompt from this exact enriched Moment."></textarea>
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                        <button class="btn btn-primary" disabled="@(_busy || _brief is null)" @onclick="GeneratePromptAsync">
+                            <i class="bi bi-magic me-1"></i>Generate prompt
+                        </button>
+                        <button class="btn btn-outline-secondary" disabled="@_busy" @onclick="RefreshAsync">
+                            <i class="bi bi-arrow-clockwise me-1"></i>Refresh status
+                        </button>
+                    </div>
+                </div>
+
+                <div class="border-top mt-4 pt-3">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div>
+                            <strong>Identity on create</strong>
+                            <span class="d-block small text-muted">Uses the exact approved canonical identity packs for the visible Moment cast.</span>
+                        </div>
+                        @if (_identityResolution is not null)
+                        {
+                            <span class="badge @IdentityBadgeClass()">@_identityResolution.Status</span>
+                        }
+                    </div>
+                    @if (_identityResolution is not null)
+                    {
+                        <div class="small mt-2">@_identityResolution.Reason</div>
+                    }
+                    @if (_identityReadinessError is not null)
+                    {
+                        <div class="alert alert-warning py-2 small mt-2 mb-0">@_identityReadinessError</div>
+                    }
+                    else if (_identityReadiness.Count == 0)
+                    {
+                        <div class="alert alert-warning py-2 small mt-2 mb-0">The selected Moment has no approved canonical identity packs to apply.</div>
+                    }
+                    else
+                    {
+                        <div class="small mt-2">
+                            @foreach (var identity in _identityReadiness)
+                            {
+                                <span class="badge text-bg-secondary me-1">@identity.CharacterName v@identity.IdentityPackVersion</span>
+                            }
+                        </div>
+                    }
+                    <div class="form-check mt-3">
+                        <input id="compose-with-identity" class="form-check-input" type="checkbox" @bind="_applyIdentityOnCreate"
+                               disabled="@(!CanApplyIdentityOnCreate)" />
+                        <label class="form-check-label" for="compose-with-identity">Apply identity while creating this composition</label>
+                    </div>
+                </div>
+
+                <details class="mt-4">
+                    <summary class="small fw-semibold">View what will be submitted</summary>
+                    <dl class="row small mt-2 mb-0">
+                        <dt class="col-sm-3">Production group</dt><dd class="col-sm-9 font-monospace">@_group.Id</dd>
+                        <dt class="col-sm-3">Frozen Moment</dt><dd class="col-sm-9">@_group.MomentId / enrichment r@_group.MomentEnrichmentRevision / @_group.Pov</dd>
+                        <dt class="col-sm-3">Model</dt><dd class="col-sm-9">@SelectedModelLabel()</dd>
+                        <dt class="col-sm-3">Strategy</dt><dd class="col-sm-9">@(_applyIdentityOnCreate ? "ReferenceConditioning (IP-Adapter)" : "TextOnly")</dd>
+                        <dt class="col-sm-3">Prompt</dt><dd class="col-sm-9 font-monospace text-break">@_editablePrompt</dd>
+                    </dl>
+                </details>
+
+                <button class="btn btn-success mt-4" disabled="@(!CanQueueComposition)" @onclick="QueueCompositionAsync">
+                    <i class="bi bi-image me-1"></i>Create composition
+                </button>
+            </div>
+        </section>
+
+        @if (_attempts.Count > 0)
+        {
+            <section class="card" aria-label="Composition attempts">
+                <div class="card-header"><strong>Composition attempts</strong></div>
+                <div class="list-group list-group-flush">
+                    @foreach (var attempt in _attempts)
+                    {
+                        <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                            <div>
+                                <strong>@attempt.ProductionStage</strong> - @attempt.Status
+                                <span class="d-block small text-muted font-monospace">@attempt.Id</span>
+                            </div>
+                            @if (attempt.Status == SceneImageStatus.Complete && attempt.ProductionStage == SceneImageProductionStage.Composition)
+                            {
+                                <a class="btn btn-sm btn-outline-success" href="/roleplay/studio/@sessionId/@interactionId/identity/@_group.Id/@attempt.Id">Apply identity</a>
+                            }
+                            else if (attempt.Status == SceneImageStatus.Complete && attempt.ProductionStage == SceneImageProductionStage.Identity)
+                            {
+                                <a class="btn btn-sm btn-outline-primary" href="/roleplay/studio/@sessionId/@interactionId/finish/@_group.Id/@attempt.Id">Finish image</a>
+                            }
+                        </div>
+                    }
+                </div>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string sessionId { get; set; } = string.Empty;
+    [Parameter] public string interactionId { get; set; } = string.Empty;
+    [Parameter] public string productionGroupId { get; set; } = string.Empty;
+
+    private SceneImageProductionGroup? _group;
+    private CompiledMediaBrief? _brief;
+    private IReadOnlyList<SceneImageModelChoice> _models = [];
+    private IReadOnlyList<SceneImageIdentityReadiness> _identityReadiness = [];
+    private IReadOnlyList<SceneImageRecord> _attempts = [];
+    private SceneImagePromptRecord? _activePrompt;
+    private ReferenceStrategyResolution? _identityResolution;
+    private SceneImageStudioSettings _settings = new();
+    private string? _selectedModelId;
+    private string _editablePrompt = string.Empty;
+    private string? _identityReadinessError;
+    private string? _errorMessage;
+    private string? _statusMessage;
+    private bool _applyIdentityOnCreate;
+    private bool _busy;
+
+    private bool CanApplyIdentityOnCreate => _identityResolution?.IsAvailable == true
+        && _identityReadiness.Count > 0 && _identityReadinessError is null;
+
+    private bool CanQueueComposition => !_busy && _activePrompt?.Status == SceneImagePromptStatus.Complete
+        && !string.IsNullOrWhiteSpace(_editablePrompt) && _selectedModelId is not null
+        && (!_applyIdentityOnCreate || CanApplyIdentityOnCreate);
+
+    protected override Task OnParametersSetAsync()
+    {
+        Nav.NavigateTo($"/roleplay/studio/{sessionId}/{interactionId}/production/{productionGroupId}", replace: true);
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadAsync()
+    {
+        _errorMessage = null;
+        try
+        {
+            _group = await ProductionService.GetGroupAsync(productionGroupId)
+                ?? throw new InvalidOperationException("The requested production group was not found.");
+            if (!string.Equals(_group.SessionId, sessionId, StringComparison.Ordinal)
+                || !string.Equals(_group.InteractionId, interactionId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("The requested production group does not belong to this Studio Moment.");
+            }
+
+            _brief = await ProductionService.GetOrCreateStillBriefAsync(_group.Id);
+            _models = await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false);
+            _selectedModelId ??= _models.FirstOrDefault()?.ModelId;
+            _activePrompt = await ImageService.GetLatestCompletedProductionPromptAsync(sessionId, interactionId, _group.Id, _brief.Id);
+            _editablePrompt = _activePrompt?.OutputPrompt ?? _editablePrompt;
+            _attempts = await ProductionService.ListAttemptsAsync(_group.Id);
+            try
+            {
+                _identityReadiness = await ProductionService.ResolveIdentityReadinessAsync(_group.Id);
+                _identityReadinessError = null;
+            }
+            catch (InvalidOperationException exception)
+            {
+                _identityReadiness = [];
+                _identityReadinessError = exception.Message;
+            }
+            await ResolveIdentityStrategyAsync();
+        }
+        catch (Exception exception)
+        {
+            _errorMessage = exception.Message;
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        _statusMessage = null;
+        await LoadAsync();
+    }
+
+    private async Task SelectModelAsync(ChangeEventArgs args)
+    {
+        _selectedModelId = args.Value?.ToString();
+        _applyIdentityOnCreate = false;
+        await ResolveIdentityStrategyAsync();
+    }
+
+    private async Task ResolveIdentityStrategyAsync()
+    {
+        _identityResolution = string.IsNullOrWhiteSpace(_selectedModelId)
+            ? null
+            : await ReferenceStrategyResolver.ResolveAsync(_selectedModelId, "ReferenceConditioning");
+    }
+
+    private async Task GeneratePromptAsync()
+    {
+        if (_group is null || _brief is null) return;
+        await RunAsync(async () =>
+        {
+            _activePrompt = await ImageService.EnqueuePromptAsync(new ScenePromptRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                Settings = _settings,
+                ProductionGroupId = _group.Id,
+                CompiledMediaBriefId = _brief.Id,
+                Pov = _group.Pov
+            });
+            _editablePrompt = string.Empty;
+            _statusMessage = "Prompt generation queued. Refresh status when it completes.";
+        });
+    }
+
+    private async Task QueueCompositionAsync()
+    {
+        if (_group is null || _brief is null || _activePrompt is null || _selectedModelId is null) return;
+        await RunAsync(async () =>
+        {
+            await ImageService.UpdatePromptOutputAsync(sessionId, _activePrompt.Id, _editablePrompt.Trim());
+            var identityPacks = _applyIdentityOnCreate
+                ? _identityReadiness.Select(item => new IdentityPackSelection
+                {
+                    PackId = item.IdentityPackId,
+                    CharacterLabel = item.CharacterName
+                }).ToList()
+                : null;
+            var record = await ImageService.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                PromptRecordId = _activePrompt.Id,
+                Prompt = _editablePrompt.Trim(),
+                ImageSize = _settings.ImageSize,
+                RequestedModelId = _selectedModelId,
+                SettingsJson = JsonSerializer.Serialize(_settings),
+                ProductionGroupId = _group.Id,
+                CompiledMediaBriefId = _brief.Id,
+                Pov = _group.Pov,
+                RenderMode = _applyIdentityOnCreate ? SceneImageRenderMode.IdentityControlled : SceneImageRenderMode.PromptOnly,
+                IdentityPacks = identityPacks
+            });
+            _attempts = await ProductionService.ListAttemptsAsync(_group.Id);
+            _statusMessage = record.Status == SceneImageStatus.Complete
+                ? $"Composition {record.Id} completed immediately through the hosted or dedicated provider."
+                : $"Composition {record.Id} queued for the self-built serverless endpoint.";
+        });
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _errorMessage = null;
+        try { await action(); }
+        catch (Exception exception) { _errorMessage = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private string SelectedModelLabel() => _models.FirstOrDefault(model => model.ModelId == _selectedModelId)?.DisplayName
+        ?? "No model selected";
+
+    private string IdentityBadgeClass() => _identityResolution?.Status switch
+    {
+        ReferenceStrategyResolutionStatus.Possible => "text-bg-success",
+        ReferenceStrategyResolutionStatus.Unqualified => "text-bg-warning",
+        _ => "text-bg-secondary"
+    };
+}

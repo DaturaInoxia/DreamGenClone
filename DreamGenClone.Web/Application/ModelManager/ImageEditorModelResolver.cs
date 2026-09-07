@@ -114,7 +114,8 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
             Denoise: RequiredNonNegative(model.ImageEditorDenoise, "denoise", model),
             AuraFlowShift: RequiredNonNegative(model.ImageEditorAuraFlowShift, "AuraFlow shift", model),
             CfgNormStrength: RequiredNonNegative(model.ImageEditorCfgNormStrength, "CFGNorm strength", model),
-            ImageProtocol: provider.ImageProtocol);
+            ImageProtocol: provider.ImageProtocol,
+            RegisteredModelId: model.Id);
     }
 
     public async Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(

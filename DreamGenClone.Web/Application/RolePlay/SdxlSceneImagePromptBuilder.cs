@@ -12,8 +12,8 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// SDXL / Juggernaut scene-image prompt builder. Produces NATURAL-LANGUAGE, photorealistic image
 /// prompts for SDXL-family checkpoints (SDXL base 1.0, Juggernaut XL, RealVisXL, ...). Fully
 /// separate from <see cref="PonySceneImagePromptBuilder"/>: no Pony tag vocabulary (no score_*,
-/// no rating_*, no count tags, no CLIP-skip conventions). Explicitness is driven by the narrative
-/// phase (theme intensity) expressed in prose, exactly like the Pony rating mapping.
+/// no rating_*, no count tags, no CLIP-skip conventions). Explicitness is chosen from depicted
+/// scene content and expressed in natural-language prose.
 /// </summary>
 public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
 {
@@ -25,9 +25,6 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
 
     private static readonly JsonSerializerOptions FrozenStateJsonOptions = new(JsonSerializerDefaults.Web);
 
-    /// <summary>Deterministic SFW clamp appended to prompts sent to SFW-filtered providers.</summary>
-    public const string DefaultSfwClampSuffix = "fully clothed, wholesome, non-explicit";
-
     /// <summary>
     /// Default SDXL/Juggernaut negative guard set. Exposed as the studio's editable negative
     /// default and reused by the deterministic beat negative builder.
@@ -38,9 +35,6 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         "detached penis, extra penis, penis from mouth, mouth to mouth, wrong attachment, double mouth, " +
         "blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, " +
         "watermark, text, low quality, oversaturated, plastic skin";
-
-    /// <inheritdoc/>
-    public string SfwClampSuffix => DefaultSfwClampSuffix;
 
     public (string SystemPrompt, string UserPrompt) BuildMessages(
         CompiledMediaBrief brief,
@@ -64,7 +58,7 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         if (string.IsNullOrWhiteSpace(pov))
             throw new InvalidOperationException("Canonical scene-image prompt generation requires the production group POV.");
 
-        var systemPrompt = BuildCanonicalSystemPrompt(resolvedPolicy);
+        var systemPrompt = BuildCanonicalSystemPrompt();
         var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters);
         return (systemPrompt, userPrompt);
     }
@@ -80,7 +74,7 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         IReadOnlyList<Character>? characters = null)
     {
         return (
-            BuildSystemPrompt(resolvedPolicy, scenarioState.CurrentPhase),
+            BuildSystemPrompt(),
             BuildUserPrompt(session, interaction, scenarioState, settings, resolvedPolicy, scenarioState.CurrentPhase, excerptOverride, refineInstruction, characters, null, null));
     }
 
@@ -120,7 +114,7 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
             baseUser += "\n" + renderBrief;
         }
 
-        return (BuildSystemPrompt(resolvedPolicy, scenarioState.CurrentPhase), baseUser);
+        return (BuildSystemPrompt(), baseUser);
     }
 
     public SceneImagePreprocessorResult ParseOutput(string rawOutput)
@@ -204,12 +198,11 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
     }
 
     /// <summary>
-    /// SDXL expert system prompt: natural-language photography brief, no tag vocabulary, with the
-    /// phase-driven explicitness level expressed in prose (the SDXL analogue of the Pony rating tag).
+    /// SDXL expert system prompt: natural-language photography brief, no tag vocabulary, with
+    /// depicted-content explicitness expressed in prose.
     /// </summary>
-    private static string BuildSystemPrompt(ImageContentPolicy policy, NarrativePhase phase)
+    private static string BuildSystemPrompt()
     {
-        var explicitnessProse = ResolveExplicitnessProse(phase, policy);
         var sb = new StringBuilder();
         sb.AppendLine("Convert story prose into a short, NATURAL-LANGUAGE image prompt for an SDXL-based photorealistic model (SDXL base 1.0, Juggernaut XL, Big Lust) — not comma-tag soup, not danbooru tags, not attribute metadata blocks.");
         sb.AppendLine("Rules:");
@@ -217,26 +210,18 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         sb.AppendLine("- Describe each character's appearance (hair, eyes, body type, age) so the same character is recognizable every time. State each person's gender explicitly (e.g. 'a middle-aged man and a middle-aged woman') so the model never merges or miscounts people.");
         sb.AppendLine("- Fold in location, time of day, lighting, and mood in plain words. Do not repeat the same fact twice.");
         sb.AppendLine("- Include photographic style cues such as photorealistic, 35mm, natural skin texture, sharp focus.");
-        sb.AppendLine("- Honor beat-stated clothing exactly; only use nudity when the beat implies it AND the explicitness level allows it.");
+        sb.AppendLine("- Honor beat-stated clothing exactly; describe explicitness to match what the scene depicts, not a user toggle or narrative phase.");
         sb.AppendLine("- Never use Pony-style vocabulary: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.");
-        sb.AppendLine($@"- Explicitness level: {explicitnessProse}. Match it exactly; never exceed it. For explicit levels use concrete anatomical language (penis, vagina, correct anatomy); for safe/questionable levels imply rather than spell out.");
+        sb.AppendLine("- Choose explicitness from the depicted content: describe explicit sexual acts or visible genitals explicitly, suggestive content or partial nudity as questionable, and non-sexual content as safe. Base it on the scene, not narrative phase or a user toggle. Use concrete anatomical language for explicit content and imply rather than spell out questionable content.");
         sb.AppendLine($@"- Keep the ENTIRE prompt under {OutputPromptTargetChars} characters. Short and concrete beats verbose.");
         sb.AppendLine("- Return ONLY the final image prompt as plain text. No commentary, quotes, or markdown.");
 
-        if (policy == ImageContentPolicy.SfwFiltered)
-        {
-            sb.AppendLine("- CONTENT POLICY: the image provider filters adult content. Keep the image safe-for-work: fully clothed, non-explicit, no nudity, no sexual content.");
-            sb.AppendLine($@"- Always end the prompt with the phrase ""{DefaultSfwClampSuffix}"".");
-        }
-        else
-        {
-            sb.AppendLine("- The provider allows adult content. Follow the explicitness level exactly; do not add explicitness beyond it.");
-        }
+        sb.AppendLine("- Follow the depicted scene content exactly; do not add or remove explicitness based on phase or settings.");
 
         return sb.ToString();
     }
 
-    private static string BuildCanonicalSystemPrompt(ImageContentPolicy policy)
+    private static string BuildCanonicalSystemPrompt()
     {
         // Canonical composition-path prompt (B-104 / B-103 part B). No identity fluff: the model's
         // behavior comes from (a) facts about the target SDXL-family checkpoint, (b) explicit
@@ -263,8 +248,6 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         sb.AppendLine("- POV-scene shape (project reference, follows the same anatomy): \"a photorealistic view from twenty feet away across the grass at night: a woman with dark hair in a loose bun stands at the wooden deck railing of a silver trailer, wearing an unbuttoned pale-blue camp shirt, bare-legged, one hand resting beside a glass on the rail, her face turned toward the dark pines. She is lit only by thin strips of blue television light leaking through warped blinds. 35mm, shallow depth of field, natural skin texture.\" — the POV character is never in frame and people are described by appearance only.");
         sb.AppendLine("Never emit Pony vocabulary, score tags, rating tags, danbooru tokens, or count tags.");
         sb.AppendLine("Return ONLY the final image prompt as plain text. No commentary, quotes, or markdown.");
-        if (policy == ImageContentPolicy.SfwFiltered)
-            sb.AppendLine($"- CONTENT POLICY: keep every person fully clothed and the result non-explicit; end verbatim with: {DefaultSfwClampSuffix}");
         return sb.ToString();
     }
 
@@ -433,7 +416,6 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         sb.AppendLine($"- Time of day: {scenarioState.CurrentTimeOfDay}");
         sb.AppendLine($"- Narrative phase: {phase}");
         sb.AppendLine($"- Resolved intensity: {session.LastResolvedIntensityLabel ?? "unknown"}");
-        sb.AppendLine($"- Explicitness level: {ResolveExplicitnessProse(phase, resolvedPolicy)}");
 
         var participants = SceneImageParticipantResolver.ResolveParticipants(session, interaction, scenarioState, characters);
         var presentNames = participants
@@ -480,8 +462,7 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         sb.AppendLine($"- Style: {settings.Style}");
         sb.AppendLine($"- Size/Aspect: {settings.ImageSize}{(string.IsNullOrWhiteSpace(settings.AspectRatio) ? "" : $" / {settings.AspectRatio}")}");
 
-        var explicitAllowed = resolvedPolicy != ImageContentPolicy.SfwFiltered && settings.AllowExplicitImage;
-        sb.AppendLine($"- Explicitness: {(explicitAllowed ? "explicit content allowed" : "non-explicit / implied only")}");
+        sb.AppendLine("- Explicitness: describe the content shown in the scene accurately, including explicit sexual acts or visible genitals when depicted.");
         sb.AppendLine();
 
         if (!string.IsNullOrWhiteSpace(refineInstruction))
@@ -491,26 +472,6 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         }
 
         return sb.ToString();
-    }
-
-    /// <summary>
-    /// Resolves the explicitness level from the narrative phase (theme intensity), the SDXL prose
-    /// analogue of the Pony rating mapping: BuildUp → safe, Committed/Approaching → questionable,
-    /// Climax → explicit, Reset → questionable, anything else (Opening) → safe. A SFW-filtered
-    /// provider policy is a hard clamp to safe regardless of phase.
-    /// </summary>
-    private static string ResolveExplicitnessProse(NarrativePhase phase, ImageContentPolicy policy)
-    {
-        if (policy == ImageContentPolicy.SfwFiltered)
-        {
-            return "safe: fully clothed, wholesome, non-explicit";
-        }
-        return phase switch
-        {
-            NarrativePhase.Climax => "explicit: nude bodies, explicit sexual activity, correct genital anatomy",
-            NarrativePhase.Committed or NarrativePhase.Approaching or NarrativePhase.Reset => "questionable: partially undressed, suggestive, implied intimacy",
-            _ => "safe: fully clothed, wholesome"
-        };
     }
 
     private static string BuildFullTurnContextBlock(FullTurnContext fullTurn, RolePlayInteraction selected)

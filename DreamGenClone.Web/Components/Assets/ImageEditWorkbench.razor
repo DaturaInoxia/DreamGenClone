@@ -1,95 +1,257 @@
+@using System.Text.Json
 @using DreamGenClone.Application.ModelManager
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Models
+@implements IAsyncDisposable
 
+@inject ISceneAssetImageEditCompilationService CompilationService
 @inject ISceneAssetService AssetService
 @inject IImageEditorModelResolver ImageEditorModelResolver
 @inject ILogger<ImageEditWorkbench> Logger
 
-@if (!string.IsNullOrWhiteSpace(_error))
-{
-    <div class="alert alert-danger">@_error</div>
-}
-<label class="form-label" for="edit-asset-instruction">Edit instruction</label>
-<textarea id="edit-asset-instruction" class="form-control" rows="4" @bind="_instruction"></textarea>
-<label class="form-label mt-2" for="edit-asset-model">Image editor model</label>
-<select id="edit-asset-model" class="form-select" @bind="_modelId">
-    <option value="">Select an image editor</option>
-    @foreach (var choice in _models)
-    {
-        <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
-    }
-</select>
-<label class="form-label mt-2" for="edit-asset-count">Outputs</label>
-<input id="edit-asset-count" type="number" class="form-control" style="max-width:8rem" min="1" max="8" @bind="_outputCount" />
-<button class="btn btn-primary mt-3" type="button" disabled="@(_busy || !CanEdit)" @onclick="RunAsync">
-    <i class="bi bi-magic me-1"></i> Create Edited Version
-</button>
-@if (_results.Count > 0)
-{
-    <div class="alert alert-success mt-3 mb-0">
-        @_results.Count edit@(_results.Count == 1 ? "" : "s") queued.
-        @foreach (var result in _results)
+<EditIterateWorkbench Error="@_error"
+                       StatusMessage="@_status"
+                       Loading="@_loading"
+                       LoadingMessage="Opening asset edit session..."
+                       Busy="@_busy"
+                       ReadOnly="@(_session?.Status == SceneAssetImageEditSessionStatus.Completed)"
+                       SourceDescription="@_session?.DescriptionText"
+                       IntentInputId="edit-asset-intent"
+                       @bind-Intent="_rawIntent"
+                       CompilationStale="@IsCompilationStale"
+                       HasInFlightWork="@HasInFlightWork()"
+                       Compiling="@(_attempt?.Status is SceneImageEditCompilationAttemptStatus.Pending or SceneImageEditCompilationAttemptStatus.Compiling)"
+                       Rendering="@(_result?.Status == SceneAssetStatus.Pending)"
+                       Compilation="@_compilation"
+                       CompilationError="@CompilationError"
+                       @bind-Clarification="_clarification"
+                       PromptReady="@(_compilation?.Status == SceneImageEditCompilationResultStatus.Ready && _attempt is not null && _revision is not null)"
+                       PromptRevisionNumber="@((_revision?.Ordinal ?? 0) + 1)"
+                       @bind-EditablePrompt="_editablePrompt"
+                       SubmittedInput="@SubmittedInput"
+                       CanRun="@(!string.IsNullOrWhiteSpace(_modelId))"
+                       BeforeImageUrl="@SourceImageUrl"
+                       AfterImageUrl="@ResultImageUrl"
+                       ResultError="@ResultError"
+                       ReviewDeckUrl="@ReviewDeckUrl"
+                       OnReanalyze="ReanalyzeAsync"
+                       OnPrepare="PrepareAsync"
+                       OnSubmitClarification="SubmitClarificationAsync"
+                       OnRun="RunEditAsync">
+    <ReadyContent>
+        <label class="form-label mt-2" for="edit-asset-model">Image editor model</label>
+        <select id="edit-asset-model" class="form-select" @bind="_modelId">
+            <option value="">Select an image editor</option>
+            @foreach (var choice in _models)
+            {
+                <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
+            }
+        </select>
+        @if (!string.IsNullOrWhiteSpace(_modelId))
         {
-            <span class="d-block font-monospace text-break">@result.Id</span>
+            <div class="mt-3">
+                <ReferenceApplyPanel ModelId="@_modelId" Selections="@_referenceApplications"
+                                     SelectionsChanged="OnReferenceApplicationsChanged"
+                                     ExecutableStrategies="ReferenceEditStrategies" />
+                <div class="mt-2">
+                    <ResolvedRenderBadge ModelLabel="@SelectedModelLabel()" Selections="@_referenceApplications" />
+                </div>
+            </div>
         }
-    </div>
-}
+    </ReadyContent>
+</EditIterateWorkbench>
 
 @code {
-    [Parameter, EditorRequired]
-    public SceneAssetImage Source { get; set; } = null!;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    [Parameter, EditorRequired] public SceneAssetImage Source { get; set; } = null!;
 
+    private readonly List<string> _clarificationHistory = [];
     private List<SceneImageModelChoice> _models = [];
-    private List<SceneAssetImage> _results = [];
-    private string _instruction = string.Empty;
+    private SceneAssetImageEditSession? _session;
+    private SceneAssetImageEditCompilationAttempt? _attempt;
+    private SceneImageEditCompilationResult? _compilation;
+    private SceneAssetImageEditPromptRevision? _revision;
+    private SceneAssetImage? _result;
+    private string _rawIntent = string.Empty;
+    private string _preparedIntent = string.Empty;
+    private string _clarification = string.Empty;
+    private string _editablePrompt = string.Empty;
     private string? _modelId;
-    private int _outputCount = 1;
-    private bool _busy;
+    private string? _candidateBatchId;
+    private static readonly IReadOnlyList<string> ReferenceEditStrategies = ["TextOnly", "ReferenceConditioning"];
+    private readonly List<ReferenceApplicationSelection> _referenceApplications =
+    [
+        new() { ElementKey = "Identity", SemanticRole = "character identity", AssetType = SceneAssetType.CharacterFace },
+        new() { ElementKey = "Body", SemanticRole = "character body", AssetType = SceneAssetType.CharacterBody },
+        new() { ElementKey = "Wardrobe", SemanticRole = "wardrobe continuity", AssetType = SceneAssetType.Wardrobe },
+        new() { ElementKey = "Location", SemanticRole = "location continuity", AssetType = SceneAssetType.Location }
+    ];
     private string? _error;
+    private string? _status;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _descriptionPending;
+    private CancellationTokenSource? _pollingCts;
 
-    private bool CanEdit => Source.Status == SceneAssetStatus.Complete
-        && !string.IsNullOrWhiteSpace(_instruction)
-        && !string.IsNullOrWhiteSpace(_modelId);
+    private bool IsCompilationStale => _attempt is not null && !string.Equals(_rawIntent.Trim(), _preparedIntent, StringComparison.Ordinal);
+    private string? CompilationError => _compilation?.Status == SceneImageEditCompilationResultStatus.Invalid
+        ? _compilation.InvalidReason
+        : _attempt?.Status == SceneImageEditCompilationAttemptStatus.Failed ? _attempt.Error : null;
+    private string SourceImageUrl => $"/scene-images/{Source.FileRelativePath}";
+    private string? ResultImageUrl => _result?.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(_result.FileRelativePath)
+        ? $"/scene-images/{_result.FileRelativePath}" : null;
+    private string? ResultError => _result?.Status == SceneAssetStatus.Failed ? _result.ErrorMessage : null;
+    private string? ReviewDeckUrl => string.IsNullOrWhiteSpace(_candidateBatchId) ? null : $"/review-deck/asset/{_candidateBatchId}";
+    private string SubmittedInput => JsonSerializer.Serialize(new
+    {
+        prompt = _editablePrompt.Trim(),
+        imageEditorModelId = _modelId,
+        referenceApplications = _referenceApplications
+    }, JsonOptions);
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
             _models = (await ImageEditorModelResolver.ListImageEditorModelsAsync()).ToList();
+            _session = await CompilationService.CreateSessionAsync(new CreateSceneAssetImageEditSessionRequest { AssetId = Source.AssetId, SourceImageId = Source.Id });
+            await CompilationService.EnqueueDescriptionAsync(_session.Id);
+            _descriptionPending = true;
+            EnsurePolling();
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            _error = ex.Message;
-            Logger.LogWarning(ex, "Failed to load models for asset editing.");
-        }
-    }
-
-    private async Task RunAsync()
-    {
-        if (!CanEdit) return;
-
-        _busy = true;
-        _error = null;
-        _results = [];
-        try
-        {
-            var outputCount = Math.Clamp(_outputCount, 1, 8);
-            for (var output = 1; output <= outputCount; output++)
-            {
-                _results.Add(await AssetService.EnqueueImageEditAsync(
-                    Source.AssetId, Source.Id, _instruction, _modelId!));
-            }
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-            Logger.LogWarning(ex, "Asset edit submission failed.");
+            _error = exception.Message;
+            Logger.LogWarning(exception, "Could not open asset edit workbench for {SourceImageId}", Source.Id);
         }
         finally
         {
-            _busy = false;
+            _loading = false;
+        }
+    }
+
+    private async Task PrepareAsync() => await RunAsync(async () =>
+    {
+        _attempt = await CompilationService.EnqueueCompilationAsync(new EnqueueSceneAssetImageEditCompilationRequest { EditSessionId = _session!.Id, RawIntent = _rawIntent.Trim(), ClarificationHistory = _clarificationHistory.ToList() });
+        _preparedIntent = _rawIntent.Trim();
+        _compilation = null;
+        _revision = null;
+        _editablePrompt = string.Empty;
+        _status = "Edit compilation queued.";
+        EnsurePolling();
+    });
+
+    private async Task SubmitClarificationAsync(string clarification)
+    {
+        if (string.IsNullOrWhiteSpace(clarification)) return;
+        _clarificationHistory.Add(clarification.Trim());
+        _clarification = string.Empty;
+        await PrepareAsync();
+    }
+
+    private Task ReanalyzeAsync() => RunAsync(async () =>
+    {
+        _descriptionPending = true;
+        await CompilationService.EnqueueDescriptionAsync(_session!.Id, force: true);
+        EnsurePolling();
+    });
+
+    private Task RunEditAsync() => RunAsync(async () =>
+    {
+        var revision = _revision!;
+        if (!string.Equals(_editablePrompt.Trim(), revision.Prompt, StringComparison.Ordinal))
+        {
+            revision = await CompilationService.AppendPromptRevisionAsync(new AppendSceneAssetImageEditPromptRevisionRequest { EditSessionId = _session!.Id, CompilationAttemptId = _attempt!.Id, Prompt = _editablePrompt.Trim() });
+        }
+        _revision = revision;
+        _candidateBatchId = Guid.NewGuid().ToString("N");
+        _result = await CompilationService.EnqueueEditAsync(new EnqueueSceneAssetImageEditRequest { AssetId = Source.AssetId, SourceImageId = Source.Id, EditSessionId = _session!.Id, CompilationAttemptId = _attempt!.Id, PromptRevisionId = revision.Id, SourceImageSha256 = _session.SourceImageSha256, PromptSha256 = revision.PromptSha256, EditorModelId = _modelId!, CandidateBatchId = _candidateBatchId, ReferenceApplications = _referenceApplications });
+        _status = "Edited asset queued.";
+        EnsurePolling();
+    });
+
+    private string SelectedModelLabel()
+        => _models.FirstOrDefault(choice => choice.ModelId == _modelId)?.DisplayName
+            ?? throw new InvalidOperationException("The selected image editor is no longer enabled.");
+
+    private Task OnReferenceApplicationsChanged()
+    {
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_session is null) return;
+        _session = await CompilationService.GetSessionAsync(_session.Id) ?? _session;
+        _descriptionPending &= string.IsNullOrWhiteSpace(_session.DescriptionText);
+        if (_result is not null)
+        {
+            _result = await AssetService.GetImageAsync(_result.Id) ?? _result;
+        }
+        var latest = await CompilationService.GetLatestAttemptAsync(_session.Id);
+        if (latest is null) return;
+        var attemptChanged = _attempt?.Id != latest.Id;
+        _attempt = latest;
+        _compilation = string.IsNullOrWhiteSpace(latest.ParsedResultJson) ? null : JsonSerializer.Deserialize<SceneImageEditCompilationResult>(latest.ParsedResultJson, JsonOptions);
+        var revision = (await CompilationService.ListRevisionsAsync(latest.Id)).LastOrDefault();
+        if (revision is not null && (attemptChanged || _revision is null))
+        {
+            _revision = revision;
+            _editablePrompt = revision.Prompt;
+        }
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try { await action(); }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            Logger.LogWarning(exception, "Asset image edit workbench operation failed for {SourceImageId}", Source.Id);
+        }
+        finally { _busy = false; }
+    }
+
+    private bool HasInFlightWork() => _descriptionPending || _attempt?.Status is SceneImageEditCompilationAttemptStatus.Pending or SceneImageEditCompilationAttemptStatus.Compiling || _result?.Status == SceneAssetStatus.Pending;
+
+    private void EnsurePolling()
+    {
+        if (_pollingCts is null) _ = PollAsync(_pollingCts = new CancellationTokenSource());
+    }
+
+    private async Task PollAsync(CancellationTokenSource source)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(source.Token))
+            {
+                await InvokeAsync(RefreshAsync);
+                if (!HasInFlightWork()) break;
+                StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            source.Dispose();
+            if (_pollingCts == source) _pollingCts = null;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_pollingCts is not null)
+        {
+            await _pollingCts.CancelAsync();
+            _pollingCts.Dispose();
+            _pollingCts = null;
         }
     }
 }

@@ -103,11 +103,29 @@
     border-color: #355b63;
 }
 
-.scene-production-grid {
+.scene-production-only .scene-story-arc,
+.scene-production-only .scene-story-moment-panel,
+.scene-production-only .scene-beat-catalogue,
+.scene-production-only .scene-beat-production-panel,
+.scene-production-only .scene-production-moments-panel,
+.scene-production-only .scene-moment-enrichment-panel,
+.scene-production-only .scene-image-additional-tools {
+    display: none;
+}
+
+.scene-production-workspace {
     display: grid;
     grid-template-columns: 280px minmax(480px, 1fr) 340px;
     gap: 16px;
-    align-items: start;
+    align-items: stretch;
+}
+
+.scene-production-pov {
+    grid-column: 1 / -1;
+}
+
+.scene-production-grid {
+    display: contents;
 }
 
 .scene-production-main,
@@ -121,7 +139,7 @@
 
 .scene-production-context-rail {
     grid-column: 1;
-    grid-row: 1 / span 3;
+    grid-row: 2 / span 5;
     min-width: 0;
     padding: 12px;
     border: 1px solid #355b63;
@@ -136,15 +154,28 @@
 }
 
 .scene-production-main > .scene-production-stage-stepper {
-    grid-row: 1;
-}
-
-.scene-production-main > .scene-production-canvas {
     grid-row: 2;
 }
 
-.scene-production-main > .scene-production-stage-controls {
+.scene-production-main > .scene-production-canvas {
     grid-row: 3;
+}
+
+.scene-production-main > .scene-production-stage-controls {
+    grid-row: 4;
+}
+
+.scene-production-canvas-actions,
+.scene-production-attempts {
+    grid-column: 1 / -1;
+}
+
+.scene-production-canvas-actions {
+    grid-row: 5;
+}
+
+.scene-production-attempts {
+    grid-row: 6;
 }
 
 .scene-production-stage-stepper {
@@ -279,8 +310,13 @@
 }
 
 .scene-production-inspector {
+    grid-column: 3;
+    grid-row: 2 / span 5;
+    min-height: 0;
+    height: 100%;
     padding-left: 14px;
     border-left: 1px solid #2b2b2b;
+    overflow-y: auto;
     overflow-wrap: anywhere;
 }
 
@@ -609,7 +645,7 @@
 }
 
 @media (max-width: 991.98px) {
-    .scene-production-grid {
+    .scene-production-workspace {
         grid-template-columns: minmax(0, 1fr);
     }
 
@@ -619,8 +655,20 @@
 
     .scene-production-main > .scene-production-stage-stepper,
     .scene-production-main > .scene-production-canvas,
-    .scene-production-main > .scene-production-stage-controls {
+    .scene-production-main > .scene-production-stage-controls,
+    .scene-production-canvas-actions,
+    .scene-production-attempts {
         grid-column: 1;
+    }
+
+    .scene-production-pov,
+    .scene-production-main > .scene-production-stage-stepper,
+    .scene-production-main > .scene-production-canvas,
+    .scene-production-main > .scene-production-stage-controls,
+    .scene-production-canvas-actions,
+    .scene-production-attempts,
+    .scene-production-inspector {
+        grid-row: auto;
     }
 
     .scene-production-context-rail {

@@ -21,14 +21,11 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
     public const int OutputPromptTargetChars = 800;
     public const int CharacterAppearanceDescriptionMaxChars = 240;
 
-    /// <summary>Deterministic SFW clamp appended to prompts sent to SFW-filtered providers.</summary>
-    public const string SfwClampSuffix = "keep fully clothed / non-explicit";
-
     /// <summary>
     /// Pony-style quality tags. The FULL string is required — Pony V6 learned the whole long string
     /// as the quality signal; the short `score_9` form is documented as "much weaker" and yields
-    /// low-quality/deformed output. The `rating_*` tag is appended separately, chosen by content
-    /// policy (see <see cref="ResolveRatingTag"/>), never hardcoded here.
+    /// low-quality/deformed output. The `rating_*` tag is appended separately, chosen from the
+    /// depicted scene content by the pre-processor.
     /// </summary>
     public const string PonyQualityTags = "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up";
 
@@ -40,7 +37,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         string? refineInstruction)
     {
         ValidateCanonicalBrief(brief, pov);
-        var systemPrompt = BuildCanonicalSystemPrompt(resolvedPolicy);
+        var systemPrompt = BuildCanonicalSystemPrompt();
         var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction);
         return (systemPrompt, userPrompt);
     }
@@ -56,7 +53,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         IReadOnlyList<Character>? characters = null)
     {
         return (
-            BuildSystemPrompt(resolvedPolicy, scenarioState.CurrentPhase),
+            BuildSystemPrompt(),
             BuildUserPrompt(session, interaction, scenarioState, settings, resolvedPolicy, scenarioState.CurrentPhase, excerptOverride, refineInstruction, characters, null, null));
     }
 
@@ -98,7 +95,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
             baseUser += "\n" + renderBrief;
         }
 
-        return (BuildSystemPrompt(resolvedPolicy, scenarioState.CurrentPhase), baseUser);
+        return (BuildSystemPrompt(), baseUser);
     }
 
     public SceneImagePreprocessorResult ParseOutput(string rawOutput)
@@ -164,6 +161,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         string pov,
         SceneImageStudioSettings settings,
         ImageContentPolicy resolvedPolicy,
+        NarrativePhase phase,
         string? refineInstruction,
         IReadOnlyList<Character>? characters = null)
     {
@@ -190,17 +188,16 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
 
         // ── Dense, Pony-tag-friendly prompt ────────────────────────────────────────────────
         // Pony/ComfyUI CLIP reads dense comma-separated tags, not caption prose. Lead with quality
-        // + explicitness tokens, then fold identity, wardrobe, pose/action, location, lighting,
+        // + content rating token, then fold identity, wardrobe, pose/action, location, lighting,
         // mood, and POV framing into one dense line.
         var tags = new List<string>();
 
-        var isExplicit = resolvedPolicy == ImageContentPolicy.AdultAllowed
-            || resolvedPolicy == ImageContentPolicy.AdultAllowedConfigurable;
+        var isExplicit = phase == NarrativePhase.Climax;
 
         // Head: FULL Pony quality string (short form is documented as much weaker and yields
-        // deformed output) + a rating_* tag chosen by content policy, never hardcoded.
+        // deformed output) + a neutral content-rating tag for this retired reference path.
         tags.Add(PonyQualityTags);
-        tags.Add(ResolveRatingTag(resolvedPolicy));
+        tags.Add("rating_explicit");
 
         // Count tags prevent Pony collapsing multiple people into a single figure.
         var countTag = BuildCountTag(visibleCharacters, profilesByName);
@@ -373,28 +370,6 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
             return string.Join(", ", parts);
         }
         return names.Count == 1 ? "1person" : $"{names.Count}people";
-    }
-
-    /// <summary>Pony requires a `rating_*` tag; choose it from the resolved content policy, never hardcode.</summary>
-    private static string ResolveRatingTag(ImageContentPolicy policy)
-        => policy == ImageContentPolicy.SfwFiltered ? "rating_safe" : "rating_explicit";
-
-    /// <summary>
-    /// Chooses the Pony `rating_*` tag from the narrative phase (theme intensity), per the approved
-    /// mapping: BuildUp → safe, Committed/Approaching → questionable, Climax → explicit, Reset
-    /// (after climax) → questionable, anything else (Opening) → safe. A SFW-filtered provider policy
-    /// is a hard clamp to safe regardless of phase.
-    /// </summary>
-    private static string ResolveRatingTag(NarrativePhase phase, ImageContentPolicy policy)
-    {
-        if (policy == ImageContentPolicy.SfwFiltered)
-            return "rating_safe";
-        return phase switch
-        {
-            NarrativePhase.Climax => "rating_explicit",
-            NarrativePhase.Committed or NarrativePhase.Approaching or NarrativePhase.Reset => "rating_questionable",
-            _ => "rating_safe"
-        };
     }
 
     private static string ResolveDeterministicClothing(
@@ -584,15 +559,14 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
             : string.Empty;
     }
 
-    private static string BuildSystemPrompt(ImageContentPolicy policy, NarrativePhase phase)
+    private static string BuildSystemPrompt()
     {
-        var ratingTag = ResolveRatingTag(phase, policy);
         var sb = new StringBuilder();
         sb.AppendLine("Convert story prose into a dense comma-separated tag prompt for the PONY DIFFUSION V6 XL image model (a Stable Diffusion XL finetune).");
         sb.AppendLine("Pony reads DENSE, COMMA-SEPARATED TAGS — not prose, not sentences, not attribute metadata. Short prompts work; long ones degrade output into garbage.");
         sb.AppendLine("Rules:");
         sb.AppendLine("- ALWAYS start the prompt with the full quality tag string: score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up");
-        sb.AppendLine($@"- Immediately after the quality tags, add the rating tag ""{ratingTag}"" (chosen for you — keep it verbatim).");
+        sb.AppendLine("- Immediately after the quality tags, choose the Pony rating tag from what the scene depicts: rating_explicit for explicit sexual acts or visible genitals, rating_questionable for suggestive content or partial nudity, and rating_safe for non-sexual content. Base it on the depicted content, not on narrative phase.");
         sb.AppendLine("- Add a danbooru-style count tag (1boy, 1girl, 2people, 1girl and 1boy) matching the number of people in frame. This prevents the model merging people into one figure.");
         sb.AppendLine("- Describe each character with 3-6 SHORT visual tags (hair, eyes, body type, age, key clothing) — never a metadata block, never 'Age: 51; Height: 5'8\"; Weight: 150 lbs', never 'Appearance — ...'. Use concrete single tokens (e.g. chubby, not 'full figure').");
         sb.AppendLine("- Fold the scene into a few short tags: location, time of day, lighting, mood. Do not repeat the same fact twice.");
@@ -602,29 +576,18 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         sb.AppendLine($@"- Keep the ENTIRE prompt under {OutputPromptTargetChars} characters and under ~40 tags. Short and dense beats verbose.");
         sb.AppendLine("- Return ONLY the final comma-separated image prompt as plain text. No commentary, quotes, or markdown.");
 
-        if (policy == ImageContentPolicy.SfwFiltered)
-        {
-            sb.AppendLine("- CONTENT POLICY: the image provider filters adult content. Keep the image safe-for-work: fully clothed, non-explicit, no nudity, no sexual content.");
-            sb.AppendLine($@"- Always end the prompt with the phrase ""{SfwClampSuffix}"".");
-        }
-        else
-        {
-            sb.AppendLine("- The provider allows adult content. Follow the rating tag and the scene's explicitness exactly; do not add explicitness beyond the rating tag you were given.");
-        }
+        sb.AppendLine("- Choose the rating tag and scene explicitness from the depicted content; do not use narrative phase or a user setting as a substitute for reading the scene.");
 
         return sb.ToString();
     }
 
-    private static string BuildCanonicalSystemPrompt(ImageContentPolicy policy)
+    private static string BuildCanonicalSystemPrompt()
     {
-        var ratingTag = ResolveRatingTag(policy);
         var sb = new StringBuilder();
         sb.AppendLine("Convert the supplied immutable canonical Still brief into one short dense comma-separated prompt for the PONY DIFFUSION V6 XL image model. Do not invent or rediscover story facts.");
-        sb.AppendLine($"Start verbatim with: {PonyQualityTags}, {ratingTag}");
+        sb.AppendLine($"Start verbatim with: {PonyQualityTags}, then choose the rating tag from the depicted content: rating_explicit for explicit sexual acts or visible genitals, rating_questionable for suggestive content or partial nudity, and rating_safe for non-sexual content.");
         sb.AppendLine("Then include the exact visible cast count, short visual identity/wardrobe/action tags, location, lighting, mood, one camera-view tag, and the {{style}} and {{size}} placeholders.");
         sb.AppendLine("Keep the result under 800 characters and about 40 tags. Return only the final prompt as plain text.");
-        if (policy == ImageContentPolicy.SfwFiltered)
-            sb.AppendLine($"Keep every person fully clothed and the result non-explicit; end verbatim with: {SfwClampSuffix}");
         return sb.ToString();
     }
 
@@ -704,7 +667,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         sb.AppendLine($"- Time of day: {scenarioState.CurrentTimeOfDay}");
         sb.AppendLine($"- Narrative phase: {phase}");
         sb.AppendLine($"- Resolved intensity: {session.LastResolvedIntensityLabel ?? "unknown"}");
-        sb.AppendLine($"- Pony rating tag to use: {ResolveRatingTag(phase, resolvedPolicy)}");
+        sb.AppendLine("- Choose the Pony rating tag from what the scene depicts: rating_explicit for explicit sexual acts or visible genitals, rating_questionable for suggestive content or partial nudity, rating_safe for non-sexual content. Base it on the depicted content, not on narrative phase.");
 
         // Characters present: resolved via the authoritative presence model (CR-006 P1) so the
         // line shows real character names, not role labels.
@@ -753,7 +716,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         sb.AppendLine($"- Style: {settings.Style}");
         sb.AppendLine($"- Size/Aspect: {settings.ImageSize}{(string.IsNullOrWhiteSpace(settings.AspectRatio) ? "" : $" / {settings.AspectRatio}")}");
 
-        var explicitAllowed = resolvedPolicy != ImageContentPolicy.SfwFiltered && settings.AllowExplicitImage;
+        var explicitAllowed = phase == NarrativePhase.Climax;
         sb.AppendLine($"- Explicitness: {(explicitAllowed ? "explicit content allowed" : "non-explicit / implied only")}");
         sb.AppendLine();
 

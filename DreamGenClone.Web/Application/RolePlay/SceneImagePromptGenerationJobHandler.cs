@@ -139,12 +139,6 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 
         try
         {
-            // The prompt draft reflects the user's explicitness intent; the render stage clamps
-            // against the actual resolved provider policy (hard guarantee, see the render handler).
-            var requestedPolicy = settings.AllowExplicitImage
-                ? ImageContentPolicy.AdultAllowed
-                : ImageContentPolicy.SfwFiltered;
-
             // Load the scenario characters so the pre-processor can inject their fixed visual
             // identity (likeness — same hair/eyes/body type across images). Best-effort: when the
             // scenario can't be loaded, the appearance block is simply omitted.
@@ -163,8 +157,8 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             // select the matching prompt builder. The preprocessor is an LLM that is an EXPERT in
             // that target image model: Pony → dense tag prompt; SDXL/Juggernaut → natural-language
             // photography brief. Explicitness (Pony rating_* tag / SDXL explicitness prose) is
-            // driven by the narrative phase (theme intensity) per the approved mapping, not by the
-            // studio's AllowExplicitImage. Missing compiler metadata fails fast (no fallback).
+            // driven by the narrative phase (theme intensity) per the approved mapping. Missing
+            // compiler metadata fails fast (no fallback).
             var resolvedImageModel = await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken);
             var compiler = _compilerRegistry.Resolve(
                 resolvedImageModel.SceneImageModelFamily,
@@ -178,7 +172,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 fullTurn,
                 session.AdaptiveState,
                 settings,
-                requestedPolicy,
+                resolvedImageModel.ContentPolicy,
                 null,
                 record.RefineInstruction,
                 characters,
@@ -188,7 +182,6 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             await WriteDebugEventAsync("SceneImagePromptProjected", session.Id, interaction.Id, new
             {
                 promptRecordId = record.Id,
-                requestedPolicy = requestedPolicy.ToString(),
                 narrativePhase = session.AdaptiveState.CurrentPhase.ToString(),
                 settingsJson = record.SettingsJson,
                 turnId = fullTurn.Turn?.TurnId,
@@ -275,9 +268,6 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 
             var settings = JsonSerializer.Deserialize<SceneImageStudioSettings>(record.SettingsJson, JsonOptions)
                 ?? throw new InvalidOperationException("Canonical scene image prompt SettingsJson cannot be null.");
-            var requestedPolicy = settings.AllowExplicitImage
-                ? ImageContentPolicy.AdultAllowed
-                : ImageContentPolicy.SfwFiltered;
             var resolvedImageModel = await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken);
             var compiler = _compilerRegistry.Resolve(
                 resolvedImageModel.SceneImageModelFamily,
@@ -296,14 +286,13 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             }
 
             var (systemPrompt, userPrompt) = compiler.PromptBuilder.BuildMessages(
-                brief, group.Pov, settings, requestedPolicy, record.RefineInstruction, characters);
+                brief, group.Pov, settings, resolvedImageModel.ContentPolicy, record.RefineInstruction, characters);
 
             await WriteDebugEventAsync("SceneImagePromptProjected", record.SessionId, record.InteractionId, new
             {
                 promptRecordId = record.Id,
                 productionGroupId = group.Id,
                 compiledMediaBriefId = brief.Id,
-                requestedPolicy = requestedPolicy.ToString(),
                 settingsJson = record.SettingsJson,
                 pov = group.Pov,
                 modelIdentifier = resolvedTextModel.ModelIdentifier,

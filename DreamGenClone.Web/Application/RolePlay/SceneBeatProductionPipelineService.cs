@@ -56,6 +56,11 @@ public sealed class SceneBeatProductionPipelineService : ISceneBeatProductionPip
         CancellationToken cancellationToken = default)
         => _planRepository.GetCurrentAsync(catalogueId, beatId, cancellationToken);
 
+    public Task<SceneBeatProductionPlan?> GetAsync(
+        string planId,
+        CancellationToken cancellationToken = default)
+        => _planRepository.GetAsync(planId, cancellationToken);
+
     public async Task<SceneBeatProductionStatus?> GetCurrentStatusAsync(
         string catalogueId,
         string beatId,

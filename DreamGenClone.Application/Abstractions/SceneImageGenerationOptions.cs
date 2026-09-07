@@ -21,4 +21,10 @@ public sealed record SceneImageGenerationOptions
 
     /// <summary>CLIP skip layer (e.g. -2 for skip 2). Null = no CLIPSetLastLayer node.</summary>
     public int? ClipSkip { get; init; }
+
+    public bool IsLowPriority { get; init; }
+
+    public int? ExecutionTimeoutMilliseconds { get; init; }
+
+    public int? TtlMilliseconds { get; init; }
 }

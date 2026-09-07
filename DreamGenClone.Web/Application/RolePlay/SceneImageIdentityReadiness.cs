@@ -1,3 +1,5 @@
+using DreamGenClone.Domain.RolePlay;
+
 namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed record SceneImageIdentityReadiness(
@@ -7,4 +9,9 @@ public sealed record SceneImageIdentityReadiness(
     int IdentityPackVersion,
     string CanonicalFaceAssetId,
     string FileRelativePath,
-    string Sha256);
+    string Sha256,
+    SceneImageReferenceFaceView? FaceView = null);
+
+public sealed record SceneImageIdentityReferenceSelection(
+    string CharacterId,
+    string ReferenceAssetId);

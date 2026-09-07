@@ -35,6 +35,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                    MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
                      ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
                                          SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson,
+                                         CandidateBatchId, CandidateDecision, CandidateNotes, CandidateSourceAssetId,
                                          ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
                                          ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc,
                                          IsContainerOnly
@@ -64,6 +65,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                    MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
                      ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
                                          SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson,
+                                         CandidateBatchId, CandidateDecision, CandidateNotes, CandidateSourceAssetId,
                                          ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
                                          ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc,
                                          IsContainerOnly
@@ -96,6 +98,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                    MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
                      ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
                                          SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson,
+                                         CandidateBatchId, CandidateDecision, CandidateNotes, CandidateSourceAssetId,
                                          ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
                                          ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc,
                                          IsContainerOnly
@@ -104,6 +107,41 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ORDER BY CreatedUtc ASC;
             """;
         command.Parameters.AddWithValue("$packId", identityPackId.Trim());
+
+        var results = new List<SceneAsset>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadAsset(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<IReadOnlyList<SceneAsset>> ListByCandidateBatchAsync(
+        string candidateBatchId, CancellationToken cancellationToken = default)
+    {
+        Require(candidateBatchId, "Candidate batch id");
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, Name, Kind, Status, Prompt, SourceAssetId, ModelSnapshotJson, FileRelativePath,
+                   MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
+                     ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
+                                         SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson,
+                                         CandidateBatchId, CandidateDecision, CandidateNotes, CandidateSourceAssetId,
+                                         ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
+                                         ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc,
+                                         IsContainerOnly
+            FROM SceneAssets
+            WHERE CandidateBatchId = $candidateBatchId
+            ORDER BY CreatedUtc ASC;
+            """;
+        command.Parameters.AddWithValue("$candidateBatchId", candidateBatchId.Trim());
 
         var results = new List<SceneAsset>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -147,6 +185,22 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         return images;
     }
 
+    public async Task<IReadOnlyList<SceneAssetImage>> ListImagesByCandidateBatchAsync(
+        string candidateBatchId, CancellationToken cancellationToken = default)
+    {
+        Require(candidateBatchId, "Candidate batch id");
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"{ImageSelectSql} WHERE CandidateBatchId = $candidateBatchId ORDER BY CreatedUtc ASC, Id ASC;";
+        command.Parameters.AddWithValue("$candidateBatchId", candidateBatchId.Trim());
+        var images = new List<SceneAssetImage>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) images.Add(ReadImage(reader));
+        return images;
+    }
+
     public async Task UpsertImageAsync(
         SceneAssetImage image, CancellationToken cancellationToken = default)
     {
@@ -164,13 +218,13 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                 Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                 LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-                CompatibilityMetadataJson, ProductionVersion, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
+                CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
             VALUES (
                 $id, $assetId, $kind, $status, $prompt, $sourceImageId, $modelSnapshotJson,
                 $associationMetadataJson, $fileRelativePath, $mediaType, $width, $height, $byteLength,
                 $sha256, $errorMessage, $sourceProvenanceJson, $productionApprovalStatus, $consentState,
                 $licenseState, $licenseLabel, $approvedUseScope, $contentPolicyKey,
-                $compatibilityMetadataJson, $productionVersion, $createdUtc, $startedUtc, $completedUtc, $updatedUtc)
+                $compatibilityMetadataJson, $productionVersion, $candidateBatchId, $candidateDecision, $candidateNotes, $createdUtc, $startedUtc, $completedUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 Status = excluded.Status,
                 ModelSnapshotJson = excluded.ModelSnapshotJson,
@@ -191,11 +245,51 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 ContentPolicyKey = excluded.ContentPolicyKey,
                 CompatibilityMetadataJson = excluded.CompatibilityMetadataJson,
                 ProductionVersion = excluded.ProductionVersion,
+                CandidateBatchId = excluded.CandidateBatchId,
+                CandidateDecision = excluded.CandidateDecision,
+                CandidateNotes = excluded.CandidateNotes,
                 StartedUtc = excluded.StartedUtc,
                 CompletedUtc = excluded.CompletedUtc,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
         AddImageParameters(command, image);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task SetImageCandidateDecisionAsync(
+        string imageId,
+        SceneAssetCandidateDecision decision,
+        string? notes,
+        CancellationToken cancellationToken = default)
+    {
+        Require(imageId, "Image id");
+        if (!Enum.IsDefined(decision))
+            throw new InvalidOperationException("A valid asset candidate decision is required.");
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE SceneAssetImages SET CandidateDecision = $decision, CandidateNotes = $notes, UpdatedUtc = $updatedUtc WHERE Id = $id AND CandidateBatchId IS NOT NULL;";
+        command.Parameters.AddWithValue("$decision", decision.ToString());
+        command.Parameters.AddWithValue("$notes", (object?)notes?.Trim() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$id", imageId.Trim());
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException($"Scene asset image '{imageId}' is not a candidate in a review batch.");
+    }
+
+    public async Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default)
+    {
+        Require(imageId, "Image id");
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneAssetImages SET SourceImageId = NULL WHERE SourceImageId = $id;
+            DELETE FROM SceneAssetImages WHERE Id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", imageId.Trim());
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -292,6 +386,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 MediaType, Width, Height, ByteLength, Sha256, FaceView, IdentityPackId, CharacterProfileId,
                 ErrorMessage, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, Type, AssociationMetadataJson,
                 SourceApprovalDecisionId, SourceSceneImageId, SourceSha256, SourceProvenanceJson,
+                CandidateBatchId, CandidateDecision, CandidateNotes, CandidateSourceAssetId,
                 ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
                 ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc,
                 IsContainerOnly)
@@ -300,6 +395,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 $mediaType, $width, $height, $byteLength, $sha256, $faceView, $identityPackId, $characterProfileId,
                 $errorMessage, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $type, $associationMetadataJson,
                 $sourceApprovalDecisionId, $sourceSceneImageId, $sourceSha256, $sourceProvenanceJson,
+                $candidateBatchId, $candidateDecision, $candidateNotes, $candidateSourceAssetId,
                 $productionApprovalStatus, $consentState, $licenseState, $licenseLabel, $approvedUseScope,
                 $contentPolicyKey, $compatibilityMetadataJson, $productionVersion, $supersedesAssetId, $productionApprovedUtc,
                 $isContainerOnly);
@@ -326,10 +422,45 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.Parameters.AddWithValue("$completedUtc", asset.CompletedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$updatedUtc", asset.UpdatedUtc.ToString("O"));
         AddPromotionParameters(command, asset);
+        AddCandidateParameters(command, asset);
         AddProductionGovernanceParameters(command, asset);
         command.Parameters.AddWithValue("$isContainerOnly", asset.IsContainerOnly ? 1 : 0);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task UpdateCandidateFieldsAsync(
+        string assetId,
+        string? candidateBatchId,
+        SceneAssetCandidateDecision? candidateDecision,
+        string? candidateNotes,
+        string? candidateSourceAssetId,
+        CancellationToken cancellationToken = default)
+    {
+        Require(assetId, "Asset id");
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneAssets
+            SET CandidateBatchId = $candidateBatchId,
+                CandidateDecision = $candidateDecision,
+                CandidateNotes = $candidateNotes,
+                CandidateSourceAssetId = $candidateSourceAssetId,
+                UpdatedUtc = $updatedUtc
+            WHERE Id = $id;
+            """;
+        command.Parameters.AddWithValue("$candidateBatchId", (object?)candidateBatchId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$candidateDecision", (object?)candidateDecision?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$candidateNotes", (object?)candidateNotes ?? DBNull.Value);
+        command.Parameters.AddWithValue("$candidateSourceAssetId", (object?)candidateSourceAssetId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$id", assetId.Trim());
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException($"Scene asset '{assetId}' was not found.");
     }
 
     public async Task<SceneAsset> ApproveForProductionAsync(
@@ -545,17 +676,21 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ,SourceSceneImageId = reader.IsDBNull(24) ? null : reader.GetString(24)
             ,SourceSha256 = reader.IsDBNull(25) ? null : reader.GetString(25)
             ,SourceProvenanceJson = reader.IsDBNull(26) ? null : reader.GetString(26)
-            ,ProductionApprovalStatus = reader.IsDBNull(27) ? null : ParseEnum<SceneAssetProductionApprovalStatus>(reader.GetString(27), id, "SceneAssets")
-            ,ConsentState = reader.IsDBNull(28) ? null : ParseEnum<SceneAssetConsentState>(reader.GetString(28), id, "SceneAssets")
-            ,LicenseState = reader.IsDBNull(29) ? null : ParseEnum<SceneAssetLicenseState>(reader.GetString(29), id, "SceneAssets")
-            ,LicenseLabel = reader.IsDBNull(30) ? null : reader.GetString(30)
-            ,ApprovedUseScope = reader.IsDBNull(31) ? null : (SceneAssetApprovedUseScope)reader.GetInt32(31)
-            ,ContentPolicyKey = reader.IsDBNull(32) ? null : reader.GetString(32)
-            ,CompatibilityMetadataJson = reader.IsDBNull(33) ? null : reader.GetString(33)
-            ,ProductionVersion = reader.IsDBNull(34) ? null : reader.GetInt32(34)
-            ,SupersedesAssetId = reader.IsDBNull(35) ? null : reader.GetString(35)
-            ,ProductionApprovedUtc = reader.IsDBNull(36) ? null : ParseUtc(reader.GetString(36), id, "ProductionApprovedUtc")
-            ,IsContainerOnly = reader.GetInt32(37) != 0
+            ,CandidateBatchId = reader.IsDBNull(27) ? null : reader.GetString(27)
+            ,CandidateDecision = reader.IsDBNull(28) ? null : ParseEnum<SceneAssetCandidateDecision>(reader.GetString(28), id, "SceneAssets")
+            ,CandidateNotes = reader.IsDBNull(29) ? null : reader.GetString(29)
+            ,CandidateSourceAssetId = reader.IsDBNull(30) ? null : reader.GetString(30)
+            ,ProductionApprovalStatus = reader.IsDBNull(31) ? null : ParseEnum<SceneAssetProductionApprovalStatus>(reader.GetString(31), id, "SceneAssets")
+            ,ConsentState = reader.IsDBNull(32) ? null : ParseEnum<SceneAssetConsentState>(reader.GetString(32), id, "SceneAssets")
+            ,LicenseState = reader.IsDBNull(33) ? null : ParseEnum<SceneAssetLicenseState>(reader.GetString(33), id, "SceneAssets")
+            ,LicenseLabel = reader.IsDBNull(34) ? null : reader.GetString(34)
+            ,ApprovedUseScope = reader.IsDBNull(35) ? null : (SceneAssetApprovedUseScope)reader.GetInt32(35)
+            ,ContentPolicyKey = reader.IsDBNull(36) ? null : reader.GetString(36)
+            ,CompatibilityMetadataJson = reader.IsDBNull(37) ? null : reader.GetString(37)
+            ,ProductionVersion = reader.IsDBNull(38) ? null : reader.GetInt32(38)
+            ,SupersedesAssetId = reader.IsDBNull(39) ? null : reader.GetString(39)
+            ,ProductionApprovedUtc = reader.IsDBNull(40) ? null : ParseUtc(reader.GetString(40), id, "ProductionApprovedUtc")
+            ,IsContainerOnly = reader.GetInt32(41) != 0
         };
     }
 
@@ -564,7 +699,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-               CompatibilityMetadataJson, ProductionVersion, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+               CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
         FROM SceneAssetImages
         """;
 
@@ -597,10 +732,13 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ContentPolicyKey = reader.IsDBNull(21) ? null : reader.GetString(21),
             CompatibilityMetadataJson = reader.IsDBNull(22) ? null : reader.GetString(22),
             ProductionVersion = reader.IsDBNull(23) ? null : reader.GetInt32(23),
-            CreatedUtc = ParseUtc(reader.GetString(24), id, "CreatedUtc"),
-            StartedUtc = reader.IsDBNull(25) ? null : ParseUtc(reader.GetString(25), id, "StartedUtc"),
-            CompletedUtc = reader.IsDBNull(26) ? null : ParseUtc(reader.GetString(26), id, "CompletedUtc"),
-            UpdatedUtc = ParseUtc(reader.GetString(27), id, "UpdatedUtc")
+            CandidateBatchId = reader.IsDBNull(24) ? null : reader.GetString(24),
+            CandidateDecision = reader.IsDBNull(25) ? null : ParseEnum<SceneAssetCandidateDecision>(reader.GetString(25), id, "SceneAssetImages"),
+            CandidateNotes = reader.IsDBNull(26) ? null : reader.GetString(26),
+            CreatedUtc = ParseUtc(reader.GetString(27), id, "CreatedUtc"),
+            StartedUtc = reader.IsDBNull(28) ? null : ParseUtc(reader.GetString(28), id, "StartedUtc"),
+            CompletedUtc = reader.IsDBNull(29) ? null : ParseUtc(reader.GetString(29), id, "CompletedUtc"),
+            UpdatedUtc = ParseUtc(reader.GetString(30), id, "UpdatedUtc")
         };
     }
 
@@ -630,6 +768,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.Parameters.AddWithValue("$contentPolicyKey", (object?)image.ContentPolicyKey ?? DBNull.Value);
         command.Parameters.AddWithValue("$compatibilityMetadataJson", (object?)image.CompatibilityMetadataJson ?? DBNull.Value);
         command.Parameters.AddWithValue("$productionVersion", (object?)image.ProductionVersion ?? DBNull.Value);
+        command.Parameters.AddWithValue("$candidateBatchId", (object?)image.CandidateBatchId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$candidateDecision", (object?)image.CandidateDecision?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$candidateNotes", (object?)image.CandidateNotes ?? DBNull.Value);
         command.Parameters.AddWithValue("$createdUtc", image.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$startedUtc", image.StartedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$completedUtc", image.CompletedUtc?.ToString("O") ?? (object)DBNull.Value);
@@ -644,6 +785,14 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.Parameters.AddWithValue("$sourceSceneImageId", (object?)asset.SourceSceneImageId ?? DBNull.Value);
         command.Parameters.AddWithValue("$sourceSha256", (object?)asset.SourceSha256 ?? DBNull.Value);
         command.Parameters.AddWithValue("$sourceProvenanceJson", (object?)asset.SourceProvenanceJson ?? DBNull.Value);
+    }
+
+    private static void AddCandidateParameters(SqliteCommand command, SceneAsset asset)
+    {
+        command.Parameters.AddWithValue("$candidateBatchId", (object?)asset.CandidateBatchId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$candidateDecision", (object?)asset.CandidateDecision?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$candidateNotes", (object?)asset.CandidateNotes ?? DBNull.Value);
+        command.Parameters.AddWithValue("$candidateSourceAssetId", (object?)asset.CandidateSourceAssetId ?? DBNull.Value);
     }
 
     private static void AddProductionGovernanceParameters(SqliteCommand command, SceneAsset asset)
@@ -762,6 +911,10 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 SourceSceneImageId TEXT NULL,
                 SourceSha256       TEXT NULL,
                 SourceProvenanceJson TEXT NULL,
+                CandidateBatchId TEXT NULL,
+                CandidateDecision TEXT NULL,
+                CandidateNotes TEXT NULL,
+                CandidateSourceAssetId TEXT NULL,
                 ProductionApprovalStatus TEXT NULL,
                 ConsentState       TEXT NULL,
                 LicenseState       TEXT NULL,
@@ -793,6 +946,10 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ("SourceSceneImageId", "ALTER TABLE SceneAssets ADD COLUMN SourceSceneImageId TEXT NULL"),
             ("SourceSha256", "ALTER TABLE SceneAssets ADD COLUMN SourceSha256 TEXT NULL"),
             ("SourceProvenanceJson", "ALTER TABLE SceneAssets ADD COLUMN SourceProvenanceJson TEXT NULL"),
+            ("CandidateBatchId", "ALTER TABLE SceneAssets ADD COLUMN CandidateBatchId TEXT NULL"),
+            ("CandidateDecision", "ALTER TABLE SceneAssets ADD COLUMN CandidateDecision TEXT NULL"),
+            ("CandidateNotes", "ALTER TABLE SceneAssets ADD COLUMN CandidateNotes TEXT NULL"),
+            ("CandidateSourceAssetId", "ALTER TABLE SceneAssets ADD COLUMN CandidateSourceAssetId TEXT NULL"),
             ("ProductionApprovalStatus", "ALTER TABLE SceneAssets ADD COLUMN ProductionApprovalStatus TEXT NULL"),
             ("ConsentState", "ALTER TABLE SceneAssets ADD COLUMN ConsentState TEXT NULL"),
             ("LicenseState", "ALTER TABLE SceneAssets ADD COLUMN LicenseState TEXT NULL"),
@@ -848,6 +1005,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 ContentPolicyKey TEXT NULL,
                 CompatibilityMetadataJson TEXT NULL,
                 ProductionVersion INTEGER NULL,
+                CandidateBatchId TEXT NULL,
+                CandidateDecision TEXT NULL,
+                CandidateNotes TEXT NULL,
                 CreatedUtc TEXT NOT NULL,
                 StartedUtc TEXT NULL,
                 CompletedUtc TEXT NULL,
@@ -862,14 +1022,25 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             """;
         await imageSchema.ExecuteNonQueryAsync(cancellationToken);
 
-        await using var imageColumnCheck = connection.CreateCommand();
-        imageColumnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneAssetImages') WHERE name = 'ProductionVersion'";
-        if (Convert.ToInt32(await imageColumnCheck.ExecuteScalarAsync(cancellationToken)) == 0)
+        foreach (var (name, sql) in new[]
         {
+            ("ProductionVersion", "ALTER TABLE SceneAssetImages ADD COLUMN ProductionVersion INTEGER NULL"),
+            ("CandidateBatchId", "ALTER TABLE SceneAssetImages ADD COLUMN CandidateBatchId TEXT NULL"),
+            ("CandidateDecision", "ALTER TABLE SceneAssetImages ADD COLUMN CandidateDecision TEXT NULL"),
+            ("CandidateNotes", "ALTER TABLE SceneAssetImages ADD COLUMN CandidateNotes TEXT NULL")
+        })
+        {
+            await using var imageColumnCheck = connection.CreateCommand();
+            imageColumnCheck.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('SceneAssetImages') WHERE name = '{name}'";
+            if (Convert.ToInt32(await imageColumnCheck.ExecuteScalarAsync(cancellationToken)) > 0) continue;
             await using var alterImage = connection.CreateCommand();
-            alterImage.CommandText = "ALTER TABLE SceneAssetImages ADD COLUMN ProductionVersion INTEGER NULL";
+            alterImage.CommandText = sql;
             await alterImage.ExecuteNonQueryAsync(cancellationToken);
         }
+
+        await using var candidateBatchIndex = connection.CreateCommand();
+        candidateBatchIndex.CommandText = "CREATE INDEX IF NOT EXISTS IX_SceneAssetImages_CandidateBatchId ON SceneAssetImages (CandidateBatchId, CreatedUtc ASC);";
+        await candidateBatchIndex.ExecuteNonQueryAsync(cancellationToken);
 
         await using var imageBackfill = connection.CreateCommand();
         imageBackfill.CommandText = """
@@ -878,12 +1049,12 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                 Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                 LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-                CompatibilityMetadataJson, ProductionVersion, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
+                CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc)
             SELECT Id, Id, Kind, Status, Prompt, SourceAssetId, ModelSnapshotJson,
                 AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                 Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                 LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-                CompatibilityMetadataJson, ProductionVersion, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
+                CompatibilityMetadataJson, ProductionVersion, NULL, NULL, NULL, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc
             FROM SceneAssets
             WHERE IsContainerOnly = 0;
             """;

@@ -276,6 +276,8 @@ public abstract class ProductionMediaCompilerBase : IProductionMediaCompiler
             {
                 ["image"] = $"image {binding.Ordinal + 1}",
                 ["role"] = binding.SemanticRole,
+                ["strategy"] = binding.Strategy,
+                ["strength"] = binding.Strength,
                 ["actor"] = binding.ActorKey
             }).ToArray())
     };
@@ -300,6 +302,8 @@ public abstract class ProductionMediaCompilerBase : IProductionMediaCompiler
             ["scene_asset_id"] = binding.SceneAssetId,
             ["sha256"] = binding.SceneAssetSha256,
             ["role"] = binding.SemanticRole,
+            ["strategy"] = binding.Strategy,
+            ["strength"] = binding.Strength,
             ["actor"] = binding.ActorKey
         }).ToArray());
 
@@ -393,8 +397,11 @@ public abstract class ProductionMediaCompilerBase : IProductionMediaCompiler
             if (!string.Equals(binding.CompiledRequestId, input.RequestId, StringComparison.Ordinal))
                 throw new InvalidOperationException("Reference binding request ownership does not match the compiled request.");
             if (string.IsNullOrWhiteSpace(binding.SemanticRole) || string.IsNullOrWhiteSpace(binding.SceneAssetId)
+                || string.IsNullOrWhiteSpace(binding.Strategy)
                 || binding.SceneAssetVersion <= 0 || binding.SceneAssetSha256.Length != 64)
-                throw new InvalidOperationException("Every production reference requires exact role, asset, version, and checksum.");
+                throw new InvalidOperationException("Every production reference requires exact role, strategy, asset, version, and checksum.");
+            if (binding.Strength is { } strength && (strength < 0m || strength > 1m))
+                throw new InvalidOperationException("Reference strength must be between 0 and 1 when supplied.");
         }
     }
 
@@ -488,17 +495,20 @@ public sealed class ProductionMediaCompilationService : IProductionMediaCompilat
     private readonly IProductionMediaCompilerRegistry _registry;
     private readonly ICharacterLoraRepository _loraRepository;
     private readonly IRegisteredModelRepository _modelRepository;
+    private readonly IReferenceStrategyResolver _referenceStrategyResolver;
 
     public ProductionMediaCompilationService(
         IProductionMediaRepository repository,
         IProductionMediaCompilerRegistry registry,
         ICharacterLoraRepository loraRepository,
-        IRegisteredModelRepository modelRepository)
+        IRegisteredModelRepository modelRepository,
+        IReferenceStrategyResolver referenceStrategyResolver)
     {
         _repository = repository;
         _registry = registry;
         _loraRepository = loraRepository;
         _modelRepository = modelRepository;
+        _referenceStrategyResolver = referenceStrategyResolver;
     }
 
     public async Task<ProductionMediaCompilation> CompileAndPersistAsync(
@@ -518,6 +528,7 @@ public sealed class ProductionMediaCompilationService : IProductionMediaCompilat
         var cell = (await _repository.ListCapabilityCellsAsync(profile.Id, cancellationToken))
             .SingleOrDefault(candidate => string.Equals(candidate.Id, capabilityCellId, StringComparison.Ordinal))
             ?? throw new InvalidOperationException($"Media capability cell '{capabilityCellId}' was not found in profile '{profile.Id}'.");
+        await ValidateReferenceStrategiesAsync(profile, referenceBindings, cancellationToken);
         var compiler = _registry.Resolve(profile);
         var result = compiler.Compile(new ProductionMediaCompilationInput(
             requestId, intent, profile, cell, settingsJson, referenceBindings, createdUtc));
@@ -544,6 +555,7 @@ public sealed class ProductionMediaCompilationService : IProductionMediaCompilat
         var cell = (await _repository.ListCapabilityCellsAsync(profile.Id, cancellationToken))
             .SingleOrDefault(candidate => string.Equals(candidate.Id, capabilityCellId, StringComparison.Ordinal))
             ?? throw new InvalidOperationException($"Media capability cell '{capabilityCellId}' was not found in profile '{profile.Id}'.");
+        await ValidateReferenceStrategiesAsync(profile, referenceBindings, cancellationToken);
         await ValidateIdentityBindingsAsync(requestId, profile, cell, identityBindings, cancellationToken);
 
         var compiler = _registry.Resolve(profile);
@@ -556,6 +568,25 @@ public sealed class ProductionMediaCompilationService : IProductionMediaCompilat
         await _repository.CreateIdentityCompiledRequestAsync(
             result.Request, result.ReferenceBindings, identityBindings, cancellationToken);
         return result;
+    }
+
+    private async Task ValidateReferenceStrategiesAsync(
+        MediaCapabilityProfile profile,
+        IReadOnlyList<OrderedMediaReferenceBinding> bindings,
+        CancellationToken cancellationToken)
+    {
+        if (bindings.Count == 0) return;
+        if (string.IsNullOrWhiteSpace(profile.RegisteredModelId))
+            throw new InvalidOperationException($"Capability profile '{profile.Id}' is not linked to a Model Manager model.");
+
+        foreach (var binding in bindings)
+        {
+            var resolution = await _referenceStrategyResolver.ResolveAsync(
+                profile.RegisteredModelId, binding.Strategy, cancellationToken);
+            if (!resolution.IsAvailable)
+                throw new InvalidOperationException(
+                    $"Reference strategy '{binding.Strategy}' for role '{binding.SemanticRole}' cannot be used: {resolution.Reason}");
+        }
     }
 
     private async Task ValidateIdentityBindingsAsync(

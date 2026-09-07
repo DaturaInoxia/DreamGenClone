@@ -50,7 +50,9 @@ public sealed class TextAnalysisDurableJobExecutor
         var leaseLost = 0;
         using var executionCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         using var operationTimeout = CancellationTokenSource.CreateLinkedTokenSource(executionCancellation.Token);
-        operationTimeout.CancelAfter(TimeSpan.FromSeconds(analyzer.Model.ProviderTimeoutSeconds));
+        var hasStructuredTextTimeout = job.Lane is DurableJobLane.TextAnalysis or DurableJobLane.PromptCompilation;
+        if (hasStructuredTextTimeout)
+            operationTimeout.CancelAfter(TimeSpan.FromSeconds(analyzer.Model.ProviderTimeoutSeconds));
         var renewalTask = RenewLeaseAsync(
             job,
             analyzer.LeaseSeconds,
@@ -68,8 +70,10 @@ public sealed class TextAnalysisDurableJobExecutor
                 if (completedTask != handlerTask)
                 {
                     failure = new DurableJobFailureException(
-                        "structured_text_timeout",
-                        "The structured text provider exceeded its configured timeout.",
+                        hasStructuredTextTimeout ? "structured_text_timeout" : "durable_job_timeout",
+                        hasStructuredTextTimeout
+                            ? "The structured text provider exceeded its configured timeout."
+                            : $"The durable {job.Lane} job exceeded its configured timeout.",
                         isTransient: true);
                     _ = ObserveHandlerCompletionAsync(handlerTask);
                 }
@@ -128,7 +132,7 @@ public sealed class TextAnalysisDurableJobExecutor
             : "durable_handler_unclassified_failure";
         var errorMessage = failure is DurableJobFailureException durableFailure
             ? durableFailure.Message
-            : "The durable job handler failed permanently.";
+            : failure.Message;
         _logger.LogError(
             failure,
             "Durable job failed: Lane={Lane}, JobType={JobType}, JobId={JobId}, ErrorCode={ErrorCode}",

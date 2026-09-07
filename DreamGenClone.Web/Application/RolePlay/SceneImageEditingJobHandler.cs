@@ -3,7 +3,9 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
+using DreamGenClone.Application.Processing;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Web.Application.BackgroundJobs;
@@ -12,12 +14,15 @@ using Microsoft.Extensions.Logging;
 namespace DreamGenClone.Web.Application.RolePlay;
 
 /// <summary>Runs a manual Qwen source-image edit using the dedicated editor configuration.</summary>
-public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
+public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler, IDurableBackgroundJobHandler
 {
     private readonly ISceneImageRepository _repository;
     private readonly ISceneImageEditRepository _editRepository;
     private readonly ISceneImageStorageService _storage;
     private readonly ICharacterImageAssetStorageService? _identityStorage;
+    private readonly ISceneAssetRepository? _assetRepository;
+    private readonly ISceneAssetStorageService? _assetStorage;
+    private readonly IReferenceStrategyResolver? _referenceStrategyResolver;
     private readonly IImageEditorModelResolver _modelResolver;
     private readonly IImageEditingClient _imageEditingClient;
     private readonly IRolePlayDebugEventSink? _debugEventSink;
@@ -55,11 +60,30 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
         ICharacterImageAssetStorageService? identityStorage,
         IRolePlayDebugEventSink? debugEventSink,
         ILogger<SceneImageEditingJobHandler> logger)
+        : this(repository, editRepository, storage, modelResolver, imageEditingClient, identityStorage, debugEventSink, null, null, null, logger)
+    {
+    }
+
+    public SceneImageEditingJobHandler(
+        ISceneImageRepository repository,
+        ISceneImageEditRepository editRepository,
+        ISceneImageStorageService storage,
+        IImageEditorModelResolver modelResolver,
+        IImageEditingClient imageEditingClient,
+        ICharacterImageAssetStorageService? identityStorage,
+        IRolePlayDebugEventSink? debugEventSink,
+        ISceneAssetRepository? assetRepository,
+        ISceneAssetStorageService? assetStorage,
+        IReferenceStrategyResolver? referenceStrategyResolver,
+        ILogger<SceneImageEditingJobHandler> logger)
     {
         _repository = repository;
         _editRepository = editRepository;
         _storage = storage;
         _identityStorage = identityStorage;
+        _assetRepository = assetRepository;
+        _assetStorage = assetStorage;
+        _referenceStrategyResolver = referenceStrategyResolver;
         _modelResolver = modelResolver;
         _imageEditingClient = imageEditingClient;
         _debugEventSink = debugEventSink;
@@ -69,15 +93,21 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
     public string JobType => BackgroundJobTypes.SceneImageEditing;
 
     public async Task HandleAsync(BackgroundJobEnvelope job, CancellationToken cancellationToken)
+        => await HandlePayloadAsync(job.PayloadJson, cancellationToken);
+
+    public async Task HandleAsync(DurableBackgroundJob job, CancellationToken cancellationToken = default)
+        => await HandlePayloadAsync(job.PayloadJson, cancellationToken);
+
+    private async Task HandlePayloadAsync(string payloadJson, CancellationToken cancellationToken)
     {
-        var payload = JsonSerializer.Deserialize<SceneImageEditingJobPayload>(job.PayloadJson)
+        var payload = JsonSerializer.Deserialize<SceneImageEditingJobPayload>(payloadJson)
             ?? throw new InvalidOperationException("Scene image editing job payload is missing or invalid.");
         if (string.IsNullOrWhiteSpace(payload.SessionId) || string.IsNullOrWhiteSpace(payload.InteractionId) || string.IsNullOrWhiteSpace(payload.ImageRecordId))
             throw new InvalidOperationException("Scene image editing job payload requires SessionId, InteractionId, and ImageRecordId.");
 
         var image = await _repository.GetImageAsync(payload.ImageRecordId, cancellationToken)
             ?? throw new InvalidOperationException($"Scene image edit record '{payload.ImageRecordId}' was not found.");
-        if (image.Status == SceneImageStatus.Complete)
+        if (image.Status is SceneImageStatus.Complete or SceneImageStatus.Cancelled)
             return;
         if (image.Operation != SceneImageOperation.Edit || string.IsNullOrWhiteSpace(image.SourceImageId))
             throw new InvalidOperationException("Scene image editing jobs require an edit record with a source image id.");
@@ -99,6 +129,8 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
                 await ExecuteFinishAsync(image, payload, cancellationToken);
                 return;
             }
+            if (string.IsNullOrWhiteSpace(payload.EditorModelId))
+                throw new InvalidOperationException("Scene image edit jobs require an exact selected editor model id.");
             if (string.IsNullOrWhiteSpace(image.EditSessionId)
                 || string.IsNullOrWhiteSpace(image.EditCompilationAttemptId)
                 || string.IsNullOrWhiteSpace(image.EditPromptRevisionId)
@@ -129,10 +161,10 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
                 throw new InvalidOperationException("The source scene image is not a complete image for this session and interaction.");
             }
 
-            var resolved = await _modelResolver.ResolveAsync(cancellationToken);
+            var resolved = await _modelResolver.ResolveByIdAsync(payload.EditorModelId, cancellationToken);
             var stopwatch = Stopwatch.StartNew();
             await using var sourceStream = await _storage.OpenReadAsync(source.FileRelativePath, cancellationToken);
-            var bytes = await _imageEditingClient.EditAsync(resolved, sourceStream, $"{source.Id}.png", image.PromptSnapshot, cancellationToken);
+            var bytes = await ExecuteEditWithReferencesAsync(image, resolved, sourceStream, source.Id, cancellationToken);
             stopwatch.Stop();
 
             await using var outputStream = new MemoryStream(bytes);
@@ -144,7 +176,8 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
             image.Status = SceneImageStatus.Complete;
             image.CompletedUtc = DateTime.UtcNow;
             image.UpdatedUtc = DateTime.UtcNow;
-            await _repository.InsertImageAsync(image, cancellationToken);
+            if (!await _repository.TryCompleteImageAsync(image, cancellationToken))
+                return;
             var latestAttempt = await _editRepository.GetLatestAttemptAsync(image.EditSessionId, cancellationToken);
             if (latestAttempt?.Id == image.EditCompilationAttemptId)
                 await _editRepository.UpdateSessionStatusAsync(image.EditSessionId, SceneImageEditSessionStatus.Completed, DateTime.UtcNow, image.CompletedUtc, cancellationToken);
@@ -156,7 +189,8 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
             image.Status = SceneImageStatus.Failed;
             image.ErrorMessage = ex.Message;
             image.UpdatedUtc = DateTime.UtcNow;
-            await _repository.InsertImageAsync(image, cancellationToken);
+            if (!await _repository.TryFailImageAsync(image, cancellationToken))
+                return;
             if (!string.IsNullOrWhiteSpace(image.EditSessionId) && !string.IsNullOrWhiteSpace(image.EditCompilationAttemptId))
             {
                 var latestAttempt = await _editRepository.GetLatestAttemptAsync(image.EditSessionId, cancellationToken);
@@ -202,7 +236,7 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
                 referenceStreams.Add(stream);
                 references.Add(new ImageEditingReference(
                     binding.Ordinal,
-                    $"CharacterFace:{binding.CharacterId}",
+                    $"selected face identity reference for {binding.CharacterName} (CharacterFace:{binding.CharacterId})",
                     stream,
                     $"{binding.CharacterId}.png",
                     binding.Sha256));
@@ -226,7 +260,8 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
             image.Status = SceneImageStatus.Complete;
             image.CompletedUtc = DateTime.UtcNow;
             image.UpdatedUtc = DateTime.UtcNow;
-            await _repository.InsertImageAsync(image, cancellationToken);
+            if (!await _repository.TryCompleteImageAsync(image, cancellationToken))
+                return;
         }
         finally
         {
@@ -257,8 +292,7 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
             throw new InvalidOperationException("Adult-content Finish edits are unavailable because the resolved editor model does not allow them.");
 
         await using var sourceStream = await _storage.OpenReadAsync(source.FileRelativePath, cancellationToken);
-        var bytes = await _imageEditingClient.EditAsync(
-            resolved, sourceStream, $"{source.Id}.png", image.PromptSnapshot, cancellationToken);
+        var bytes = await ExecuteEditWithReferencesAsync(image, resolved, sourceStream, source.Id, cancellationToken);
         await using var outputStream = new MemoryStream(bytes);
         image.FileRelativePath = await _storage.SaveAsync(payload.SessionId, $"{image.Id}.png", outputStream, cancellationToken);
         image.ModelIdentifier = resolved.ModelIdentifier;
@@ -268,7 +302,87 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler
         image.Status = SceneImageStatus.Complete;
         image.CompletedUtc = DateTime.UtcNow;
         image.UpdatedUtc = DateTime.UtcNow;
-        await _repository.InsertImageAsync(image, cancellationToken);
+        await _repository.TryCompleteImageAsync(image, cancellationToken);
+    }
+
+    private async Task<byte[]> ExecuteEditWithReferencesAsync(
+        SceneImageRecord image,
+        ResolvedImageEditorModel resolved,
+        Stream sourceStream,
+        string sourceImageId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(image.AppliedReferenceBindingsJson))
+            return await _imageEditingClient.EditAsync(resolved, sourceStream, $"{sourceImageId}.png", image.PromptSnapshot, cancellationToken);
+
+        var applications = JsonSerializer.Deserialize<IReadOnlyList<ReferenceApplicationSelection>>(
+            image.AppliedReferenceBindingsJson,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            ?? throw new InvalidOperationException("Scene image edit reference applications are invalid.");
+        var referenceApplications = applications
+            .Where(application => application.UsesReference
+                && !string.Equals(application.Strategy, "TextOnly", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (referenceApplications.Count == 0)
+            return await _imageEditingClient.EditAsync(resolved, sourceStream, $"{sourceImageId}.png", image.PromptSnapshot, cancellationToken);
+        if (string.IsNullOrWhiteSpace(resolved.RegisteredModelId))
+            throw new InvalidOperationException("Scene image edit reference application requires the exact registered editor model id.");
+        var resolver = _referenceStrategyResolver
+            ?? throw new InvalidOperationException("Scene image edit reference application requires the strategy resolver.");
+        var assets = _assetRepository
+            ?? throw new InvalidOperationException("Scene image edit reference application requires the scene asset repository.");
+        var storage = _assetStorage
+            ?? throw new InvalidOperationException("Scene image edit reference application requires scene asset storage.");
+
+        var streams = new List<Stream>(referenceApplications.Count);
+        try
+        {
+            var references = new List<ImageEditingReference>(referenceApplications.Count);
+            for (var index = 0; index < referenceApplications.Count; index++)
+            {
+                var application = referenceApplications[index];
+                var resolution = await resolver.ResolveAsync(resolved.RegisteredModelId, application.Strategy, cancellationToken);
+                if (!resolution.IsAvailable)
+                    throw new InvalidOperationException($"Scene image edit reference strategy '{application.Strategy}' for '{application.ElementKey}' is unavailable: {resolution.Reason}");
+                if (!string.Equals(resolution.Strategy, "NativeMultiReference", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"Scene image edit reference strategy '{resolution.Strategy}' for '{application.ElementKey}' is qualified but has no implemented graph in the Qwen native multi-reference editor.");
+                var assetImage = await assets.GetImageAsync(application.SceneAssetImageId!, cancellationToken)
+                    ?? throw new InvalidOperationException($"Scene image edit reference image '{application.SceneAssetImageId}' was not found.");
+                if (!string.Equals(assetImage.AssetId, application.SceneAssetId, StringComparison.Ordinal)
+                    || assetImage.ProductionApprovalStatus != SceneAssetProductionApprovalStatus.Approved
+                    || assetImage.ProductionVersion != application.SceneAssetVersion
+                    || !string.Equals(assetImage.Sha256, application.SceneAssetSha256, StringComparison.Ordinal)
+                    || assetImage.Status != SceneAssetStatus.Complete
+                    || string.IsNullOrWhiteSpace(assetImage.FileRelativePath))
+                {
+                    throw new InvalidOperationException($"Scene image edit reference image '{application.SceneAssetImageId}' no longer matches its approved immutable selection.");
+                }
+                var stream = await storage.OpenReadAsync(assetImage.FileRelativePath, cancellationToken);
+                streams.Add(stream);
+                references.Add(new ImageEditingReference(index + 1, application.SemanticRole, stream, $"{assetImage.Id}.png", assetImage.Sha256));
+            }
+            var referenceInstruction = BuildReferenceAwareInstruction(image.PromptSnapshot, referenceApplications);
+            return await _imageEditingClient.EditWithReferencesAsync(resolved, sourceStream, $"{sourceImageId}.png", referenceInstruction, references, cancellationToken);
+        }
+        finally
+        {
+            foreach (var stream in streams)
+                await stream.DisposeAsync();
+        }
+    }
+
+    private static string BuildReferenceAwareInstruction(
+        string instruction,
+        IReadOnlyList<ReferenceApplicationSelection> applications)
+    {
+        var identityApplications = applications
+            .Where(application => string.Equals(application.ElementKey, "Identity", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var identityConstraint = identityApplications.Count == 0
+            ? string.Empty
+            : " Identity references are face-local guidance only: change only the selected character face identity in the existing scene. Treat the existing scene's visible neck and body skin tone as authoritative and harmonize the corrected face's skin tone, undertone, exposure, and shading with that body under the scene lighting; do not import a mismatched complexion from the reference, and do not copy the reference image's body, pose, clothing, framing, background, lighting, or composition.";
+
+        return $"The first input image is the existing scene and is the base image. Additional reference images are guidance only, never replacement images. {instruction.Trim()}{identityConstraint} Preserve all unrelated people, objects, scene geometry, framing, crop, lighting, colors, and composition exactly unless the instruction explicitly requests that specific change.";
     }
 
     private Task _loggerIdentityDispatchAsync(

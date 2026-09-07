@@ -68,6 +68,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
 
     public async Task<IReadOnlyList<SceneImageIdentityReadiness>> ResolveIdentityReadinessAsync(
         string productionGroupId,
+        IReadOnlyList<SceneImageIdentityReferenceSelection>? selections = null,
         CancellationToken cancellationToken = default)
     {
         Require(productionGroupId, "Production group id");
@@ -99,9 +100,16 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
             .GroupBy(character => character.CharacterId, StringComparer.Ordinal)
             .Select(grouping => grouping.Single())
             .ToArray();
+        var selectionsByCharacter = selections?
+            .GroupBy(selection => selection.CharacterId, StringComparer.Ordinal)
+            .ToDictionary(grouping => grouping.Key, grouping => grouping.Single(), StringComparer.Ordinal);
+        if (selectionsByCharacter is not null && selectionsByCharacter.Count != selections!.Count)
+            throw new InvalidOperationException("Identity references must select at most one face asset per character.");
         var results = new List<SceneImageIdentityReadiness>(visibleCharacters.Length);
         foreach (var character in visibleCharacters)
         {
+            if (selectionsByCharacter is not null && !selectionsByCharacter.ContainsKey(character.CharacterId))
+                continue;
             var packs = await identity.ListPacksAsync(character.CharacterId, cancellationToken);
             var approvedPacks = packs
                 .Where(pack => pack.Status == CharacterImageIdentityPackStatus.Approved)
@@ -116,9 +124,13 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
             }
 
             var pack = approvedPacks[0];
-            if (string.IsNullOrWhiteSpace(pack.CanonicalFaceAssetId))
+            var selectedAssetId = selectionsByCharacter is not null
+                && !string.IsNullOrWhiteSpace(selectionsByCharacter[character.CharacterId].ReferenceAssetId)
+                    ? selectionsByCharacter[character.CharacterId].ReferenceAssetId
+                    : pack.CanonicalFaceAssetId;
+            if (string.IsNullOrWhiteSpace(selectedAssetId))
                 throw new InvalidOperationException($"Character '{character.Name}' approved identity pack v{pack.Version} has no canonical face.");
-            var asset = await identity.GetAssetAsync(pack.CanonicalFaceAssetId, cancellationToken);
+            var asset = await identity.GetAssetAsync(selectedAssetId, cancellationToken);
             if (asset is null
                 || !string.Equals(asset.IdentityPackId, pack.Id, StringComparison.Ordinal)
                 || asset.AssetKind != SceneImageReferenceAssetKind.Face
@@ -137,8 +149,12 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
                 pack.Version,
                 asset.Id,
                 asset.FileRelativePath,
-                asset.Sha256));
+                asset.Sha256,
+                asset.FaceView));
         }
+
+        if (selectionsByCharacter is not null && results.Count != selectionsByCharacter.Count)
+            throw new InvalidOperationException("Every selected identity reference must belong to a visible character in this Moment.");
 
         return results;
     }
@@ -288,6 +304,11 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         string pov,
         CancellationToken cancellationToken = default)
         => _productionRepository.GetCurrentAsync(momentEnrichmentId, pov, cancellationToken);
+
+    public Task<SceneImageProductionGroup?> GetGroupAsync(
+        string groupId,
+        CancellationToken cancellationToken = default)
+        => _productionRepository.GetAsync(groupId, cancellationToken);
 
     public async Task<SceneImageProductionGroup> SkipIdentityAsync(
         string groupId,

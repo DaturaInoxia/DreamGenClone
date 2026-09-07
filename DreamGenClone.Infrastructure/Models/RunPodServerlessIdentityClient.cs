@@ -44,6 +44,7 @@ public sealed class RunPodServerlessIdentityClient : IIdentityConditionedImageCl
     {
         var stopwatch = Stopwatch.StartNew();
         var baseUrl = model.ProviderBaseUrl.TrimEnd('/');
+        var jobId = string.Empty;
 
         try
         {
@@ -137,7 +138,7 @@ public sealed class RunPodServerlessIdentityClient : IIdentityConditionedImageCl
             }
 
             var submitBody = await submitResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken);
-            var jobId = submitBody?["id"]?.GetValue<string>();
+            jobId = submitBody?["id"]?.GetValue<string>() ?? string.Empty;
             if (string.IsNullOrEmpty(jobId))
             {
                 throw new ImageGenerationException(
@@ -207,13 +208,47 @@ public sealed class RunPodServerlessIdentityClient : IIdentityConditionedImageCl
             {
                 b64 = b64[(b64.IndexOf(',') + 1)..];
             }
-            var bytes = Convert.FromBase64String(b64);
+            byte[] bytes;
+            try
+            {
+                bytes = Convert.FromBase64String(b64);
+            }
+            catch (FormatException)
+            {
+                throw new ImageGenerationException(
+                    $"RunPod serverless job {jobId} returned malformed base64 output.",
+                    model.ProviderName,
+                    reasonCode: "runpod_bad_base64");
+            }
 
             stopwatch.Stop();
             _logger.LogInformation(
                 "RunPod serverless identity generation completed: Provider={ProviderName}, Bytes={Bytes}, JobId={JobId}, DurationMs={DurationMs}",
                 model.ProviderName, bytes.Length, jobId, stopwatch.ElapsedMilliseconds);
             return bytes;
+        }
+        catch (OperationCanceledException)
+        {
+            if (!string.IsNullOrEmpty(jobId))
+            {
+                try
+                {
+                    using var cancelTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    var cancelClient = _httpClientFactory.CreateClient("CompletionClient");
+                    if (!string.IsNullOrEmpty(model.ApiKeyEncrypted))
+                    {
+                        cancelClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", _encryptionService.Decrypt(model.ApiKeyEncrypted));
+                    }
+                    using var cancelResponse = await cancelClient.PostAsync(
+                        $"{baseUrl}/cancel/{jobId}", content: null, cancelTimeout.Token);
+                }
+                catch
+                {
+                }
+            }
+
+            throw;
         }
         catch (ImageGenerationException)
         {

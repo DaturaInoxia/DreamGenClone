@@ -1,6 +1,7 @@
 namespace DreamGenClone.Web.Application.RolePlay.Models;
 
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay;
 
 /// <summary>
 /// One identity pack selected for a multi-character identity-controlled render. The first selected
@@ -69,4 +70,7 @@ public sealed class SceneRenderRequest
     /// prompt-only or single-actor renders.
     /// </summary>
     public List<IdentityPackSelection>? IdentityPacks { get; set; }
+
+    /// <summary>Exact approved reference applications selected for this render.</summary>
+    public IReadOnlyList<ReferenceApplicationSelection>? ReferenceApplications { get; set; }
 }

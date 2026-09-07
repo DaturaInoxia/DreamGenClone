@@ -1,0 +1,274 @@
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Domain.StoryAnalysis
+@using DreamGenClone.Web.Application.RolePlay
+
+@inject IReferenceBootstrapService ReferenceBootstrapService
+@inject DreamGenClone.Application.StoryAnalysis.Abstractions.ICharacterProfileService CharacterProfiles
+@inject DreamGenClone.Application.RolePlay.IReferenceBootstrapRepository BootstrapRepository
+
+<section class="card mb-3" aria-label="Build reference">
+    <div class="card-header"><strong>Build Reference</strong></div>
+    <div class="card-body">
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+        <FrozenTextBlockEditor Id="reference-bootstrap-description"
+                       Value="@_description"
+                       ValueChanged="value => _description = value" />
+        <div class="row g-2 mt-1">
+            <div class="col-md-4">
+                <label class="form-label" for="reference-bootstrap-kind">Kind</label>
+                <select id="reference-bootstrap-kind" class="form-select" @bind="_referenceKind">
+                    @foreach (var kind in Enum.GetValues<ProducedImageReferenceKind>())
+                    {
+                        <option value="@kind">@kind</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label" for="reference-bootstrap-character">Character</label>
+                <select id="reference-bootstrap-character" class="form-select" @bind="_characterProfileId" disabled="@IsLocation">
+                    <option value="">Select character</option>
+                    @foreach (var profile in _characterProfiles)
+                    {
+                        <option value="@profile.Id">@profile.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="reference-bootstrap-count">Candidates</label>
+                <input id="reference-bootstrap-count" class="form-control" type="number" min="1" @bind="_count" />
+            </div>
+        </div>
+        @if (IsLocation)
+        {
+            <div class="row g-2 mt-1">
+                <div class="col-md-8">
+                <label class="form-label" for="reference-bootstrap-location">Location profile</label>
+                <select id="reference-bootstrap-location" class="form-select" @bind="_locationProfileId">
+                    <option value="">Select location profile</option>
+                    @foreach (var profile in _locationProfiles)
+                    {
+                        <option value="@profile.Id">@profile.Name</option>
+                    }
+                </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="reference-bootstrap-location-name">New location</label>
+                    <div class="input-group">
+                        <input id="reference-bootstrap-location-name" class="form-control" @bind="_newLocationName" />
+                        <button class="btn btn-outline-secondary" type="button" disabled="@_busy" @onclick="CreateLocationProfileAsync">Create</button>
+                    </div>
+                </div>
+            </div>
+        }
+        <button class="btn btn-primary mt-3" type="button" disabled="@_busy" @onclick="GenerateAsync">Generate candidates</button>
+        @if (!string.IsNullOrWhiteSpace(_batchId))
+        {
+            <a class="btn btn-outline-info mt-3 ms-2" href="/review-deck/@_batchId"><i class="bi bi-collection-play me-1"></i>Review Candidate Batch</a>
+            <button class="btn btn-outline-secondary mt-3 ms-2" type="button" disabled="@_busy" @onclick="RefreshCandidatesAsync">Refresh</button>
+        }
+        @if (_candidates.Count > 0)
+        {
+            <div class="mt-3">
+                <CandidateGrid Items="@_candidates.Select(candidate => new CandidateGridItem(candidate.Id, candidate.StoragePath, candidate.Status.ToString(), candidate.ReferenceKind?.ToString())).ToList()"
+                               SelectedId="@_selectedCandidateId"
+                               SelectedIdChanged="SelectCandidateAsync" />
+                @if (SelectedCandidate is not null)
+                {
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-outline-success btn-sm" type="button" disabled="@_busy" @onclick="() => SetDecisionAsync(ProducedImageStatus.Accepted)">Accept</button>
+                        <button class="btn btn-outline-info btn-sm" type="button" disabled="@_busy" @onclick="() => SetDecisionAsync(ProducedImageStatus.Shortlisted)">Shortlist</button>
+                        <button class="btn btn-outline-danger btn-sm" type="button" disabled="@_busy" @onclick="() => SetDecisionAsync(ProducedImageStatus.Rejected)">Reject</button>
+                        <button class="btn btn-primary btn-sm" type="button" disabled="@(_busy || SelectedCandidate.Status != ProducedImageStatus.Accepted)" @onclick="PromoteAsync">Promote Accepted Reference</button>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    private List<CharacterProfile> _characterProfiles = [];
+    private List<ReferenceBootstrapLocationProfile> _locationProfiles = [];
+    private string _characterProfileId = string.Empty;
+    private string _locationProfileId = string.Empty;
+    private string _newLocationName = string.Empty;
+    private string _description = string.Empty;
+    private ProducedImageReferenceKind _referenceKind = ProducedImageReferenceKind.CharacterFace;
+    private int _count = 4;
+    private string? _batchId;
+    private string? _error;
+    private bool _busy;
+    private List<ProducedImage> _candidates = [];
+    private string? _selectedCandidateId;
+
+    private bool IsLocation => _referenceKind == ProducedImageReferenceKind.Location;
+    private ProducedImage? SelectedCandidate => _candidates.FirstOrDefault(candidate => candidate.Id == _selectedCandidateId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _characterProfiles = (await CharacterProfiles.GetAllAsync()).ToList();
+        _locationProfiles = (await BootstrapRepository.ListLocationProfilesAsync()).ToList();
+    }
+
+    private async Task CreateLocationProfileAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newLocationName))
+        {
+            _error = "A location profile name is required.";
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            var profile = new ReferenceBootstrapLocationProfile { Name = _newLocationName.Trim() };
+            await BootstrapRepository.UpsertLocationProfileAsync(profile);
+            _locationProfiles = (await BootstrapRepository.ListLocationProfilesAsync()).ToList();
+            _locationProfileId = profile.Id;
+            _newLocationName = string.Empty;
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task GenerateAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_description))
+                throw new InvalidOperationException("Frozen reference text is required.");
+            if (IsLocation && string.IsNullOrWhiteSpace(_locationProfileId))
+                throw new InvalidOperationException("Select a location profile first.");
+            if (!IsLocation && string.IsNullOrWhiteSpace(_characterProfileId))
+                throw new InvalidOperationException("Select a character profile first.");
+            var batch = await ReferenceBootstrapService.CreateBatchAsync(new ReferenceBootstrapBatch
+            {
+                Description = _description.Trim(), FrozenTextBlock = _description.Trim(), RequestedCandidateCount = Math.Max(1, _count),
+                TargetAssetType = ToAssetType(_referenceKind), CharacterProfileId = IsLocation ? null : _characterProfileId,
+                LocationProfileId = IsLocation ? _locationProfileId : null
+            });
+            _batchId = batch.Id;
+            await ReferenceBootstrapService.GenerateCandidatesAsync(batch.Id);
+            await RefreshCandidatesAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RefreshCandidatesAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_batchId))
+        {
+            return;
+        }
+
+        try
+        {
+            _candidates = (await ReferenceBootstrapService.ListCandidatesAsync(_batchId)).ToList();
+            if (SelectedCandidate is null)
+            {
+                _selectedCandidateId = _candidates.FirstOrDefault()?.Id;
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private Task SelectCandidateAsync(string candidateId)
+    {
+        _selectedCandidateId = candidateId;
+        return Task.CompletedTask;
+    }
+
+    private async Task SetDecisionAsync(ProducedImageStatus status)
+    {
+        if (SelectedCandidate is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await ReferenceBootstrapService.SetCandidateDecisionAsync(SelectedCandidate.Id, status, null);
+            await RefreshCandidatesAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task PromoteAsync()
+    {
+        if (SelectedCandidate is null || string.IsNullOrWhiteSpace(_batchId))
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            switch (_referenceKind)
+            {
+                case ProducedImageReferenceKind.CharacterFace:
+                    await ReferenceBootstrapService.PromoteAcceptedCharacterFaceAsync(_batchId, SelectedCandidate.Id);
+                    break;
+                case ProducedImageReferenceKind.CharacterBody:
+                    await ReferenceBootstrapService.PromoteAcceptedCharacterBodyAsync(_batchId, SelectedCandidate.Id);
+                    break;
+                case ProducedImageReferenceKind.Wardrobe:
+                    await ReferenceBootstrapService.PromoteAcceptedWardrobeAsync(_batchId, SelectedCandidate.Id);
+                    break;
+                case ProducedImageReferenceKind.Location:
+                    await ReferenceBootstrapService.PromoteAcceptedLocationAsync(_batchId, SelectedCandidate.Id);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unsupported reference kind '{_referenceKind}'.");
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static SceneAssetType ToAssetType(ProducedImageReferenceKind kind) => kind switch
+    {
+        ProducedImageReferenceKind.CharacterFace => SceneAssetType.CharacterFace,
+        ProducedImageReferenceKind.CharacterBody => SceneAssetType.CharacterBody,
+        ProducedImageReferenceKind.Wardrobe => SceneAssetType.Wardrobe,
+        ProducedImageReferenceKind.Location => SceneAssetType.Location,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
+    };
+}

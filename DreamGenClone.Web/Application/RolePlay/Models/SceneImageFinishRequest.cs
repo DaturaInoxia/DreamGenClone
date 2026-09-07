@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay.Models;
 
@@ -11,4 +12,5 @@ public sealed class SceneImageFinishRequest
     public string Instruction { get; set; } = string.Empty;
     public SceneImageFinishChangeClass? FinishChangeClass { get; set; }
     public bool RequestAdultContent { get; set; }
+    public IReadOnlyList<ReferenceApplicationSelection>? ReferenceApplications { get; set; }
 }

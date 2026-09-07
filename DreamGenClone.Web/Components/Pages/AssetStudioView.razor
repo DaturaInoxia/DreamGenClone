@@ -39,6 +39,10 @@
             </div>
         </div>
 
+        <div class="mb-4">
+            <AssetRunTray AssetId="@_asset.Id" />
+        </div>
+
         <div class="d-flex justify-content-between align-items-center mb-2">
             <h5 class="mb-0">Images</h5>
             @if (_images.Any(image => image.Status == SceneAssetStatus.Pending))
@@ -74,6 +78,10 @@
                                     {
                                         <span class="badge text-bg-info">@image.ProductionApprovalStatus</span>
                                     }
+                                    @if (image.CandidateDecision is not null)
+                                    {
+                                        <span class="badge @CandidateDecisionBadge(image.CandidateDecision.Value)">@image.CandidateDecision</span>
+                                    }
                                 </div>
                                 <div class="font-monospace text-truncate mt-2" title="@image.Id">@image.Id</div>
                                 <div class="text-muted">@image.Kind · @image.CreatedUtc.ToLocalTime().ToString("g")</div>
@@ -87,6 +95,10 @@
                                 <div class="card-footer d-flex gap-1 justify-content-end">
                                     <a class="btn btn-sm btn-outline-primary" href="/assets/@_asset.Id/images/@image.Id/edit" title="Edit image"><i class="bi bi-magic"></i></a>
                                     <a class="btn btn-sm btn-outline-success" href="/assets/@_asset.Id/images/@image.Id/review" title="Review image"><i class="bi bi-check2-circle"></i></a>
+                                    @if (!string.IsNullOrWhiteSpace(image.CandidateBatchId))
+                                    {
+                                        <a class="btn btn-sm btn-outline-info" href="/review-deck/asset/@image.CandidateBatchId" title="Review candidate batch"><i class="bi bi-collection-play"></i></a>
+                                    }
                                     <a class="btn btn-sm btn-outline-secondary" href="/asset-studio/images/@image.Id/download" title="Download image"><i class="bi bi-download"></i></a>
                                 </div>
                             }
@@ -152,6 +164,14 @@
     {
         SceneAssetStatus.Complete => "text-bg-success",
         SceneAssetStatus.Failed => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+
+    private static string CandidateDecisionBadge(SceneAssetCandidateDecision decision) => decision switch
+    {
+        SceneAssetCandidateDecision.Accepted => "text-bg-success",
+        SceneAssetCandidateDecision.Shortlisted => "text-bg-info",
+        SceneAssetCandidateDecision.Rejected or SceneAssetCandidateDecision.Revoked => "text-bg-danger",
         _ => "text-bg-secondary"
     };
 

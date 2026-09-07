@@ -97,6 +97,99 @@ public sealed class RunPodServerlessImageClientTests
     }
 
     [Fact]
+    public async Task GenerateAsync_LowPriorityOption_AddsPolicyToRunPayload()
+    {
+        HttpRequestMessage? submitRequest = null;
+        var client = BuildClient(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/run"))
+            {
+                submitRequest = request;
+                return JsonResponse("{\"id\":\"job-policy\"}");
+            }
+
+            return JsonResponse("{\"status\":\"FAILED\"}");
+        });
+
+        await Assert.ThrowsAsync<ImageGenerationException>(() => client.GenerateAsync(
+            Resolve(),
+            "prompt",
+            null,
+            cancellationToken: CancellationToken.None,
+            options: new SceneImageGenerationOptions { IsLowPriority = true }));
+
+        var body = JsonNode.Parse(await submitRequest!.Content!.ReadAsStringAsync())!.AsObject();
+        Assert.True(body["policy"]!["lowPriority"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task GenerateAsync_DefaultOptions_DoesNotAddPolicyToRunPayload()
+    {
+        HttpRequestMessage? submitRequest = null;
+        var client = BuildClient(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/run"))
+            {
+                submitRequest = request;
+                return JsonResponse("{\"id\":\"job-no-policy\"}");
+            }
+
+            return JsonResponse("{\"status\":\"FAILED\"}");
+        });
+
+        await Assert.ThrowsAsync<ImageGenerationException>(() => client.GenerateAsync(
+            Resolve(), "prompt", null, cancellationToken: CancellationToken.None));
+
+        var body = JsonNode.Parse(await submitRequest!.Content!.ReadAsStringAsync())!.AsObject();
+        Assert.False(body.ContainsKey("policy"));
+    }
+
+    [Fact]
+    public async Task GenerateAsync_CancellationDuringPolling_CancelsRunPodJobAndPropagatesCancellation()
+    {
+        using var cancellationSource = new CancellationTokenSource();
+        HttpRequestMessage? cancelRequest = null;
+        var client = BuildClient(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/run"))
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(50);
+                    cancellationSource.Cancel();
+                });
+                return JsonResponse("{\"id\":\"job-cancel\"}");
+            }
+
+            if (request.RequestUri.AbsolutePath.EndsWith("/cancel/job-cancel"))
+            {
+                cancelRequest = request;
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+
+            return JsonResponse("{\"status\":\"RUNNING\"}");
+        });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.GenerateAsync(
+            Resolve(), "prompt", null, cancellationToken: cancellationSource.Token));
+
+        Assert.NotNull(cancelRequest);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_MalformedBase64Output_ThrowsWithReasonCode()
+    {
+        var client = BuildClient(request => request.RequestUri!.AbsolutePath.EndsWith("/run")
+            ? JsonResponse("{\"id\":\"job-bad-base64\"}")
+            : JsonResponse("{\"status\":\"COMPLETED\",\"output\":{\"images\":[{\"type\":\"base64\",\"data\":\"not-base64!!\"}]}}"));
+
+        var exception = await Assert.ThrowsAsync<ImageGenerationException>(() =>
+            client.GenerateAsync(Resolve(), "prompt", null, cancellationToken: CancellationToken.None));
+
+        Assert.Equal("runpod_bad_base64", exception.ReasonCode);
+    }
+
+    [Fact]
     public async Task GenerateAsync_FailedJob_ThrowsWithReasonCode()
     {
         var client = BuildClient(request => request.RequestUri!.AbsolutePath.EndsWith("/run")

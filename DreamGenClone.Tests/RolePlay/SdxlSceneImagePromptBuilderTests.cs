@@ -54,65 +54,6 @@ public sealed class SdxlSceneImagePromptBuilderTests
     private readonly SdxlSceneImagePromptBuilder _preprocessor = new();
 
     [Fact]
-    public void BuildMessages_SfwPolicy_ClampsExplicitness()
-    {
-        var settings = new SceneImageStudioSettings { Style = "cinematic", ImageSize = "1024x1024", AllowExplicitImage = true };
-        var (system, user) = _preprocessor.BuildMessages(
-            MakeSession(), MakeInteraction(), MakeState(), settings,
-            ImageContentPolicy.SfwFiltered, null, null);
-
-        Assert.Contains(SdxlSceneImagePromptBuilder.DefaultSfwClampSuffix, system, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("non-explicit", user, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("explicit content allowed", user, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void BuildMessages_AdultPolicy_AllowsExplicit()
-    {
-        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024", AllowExplicitImage = true };
-        var (system, user) = _preprocessor.BuildMessages(
-            MakeSession(), MakeInteraction(), MakeState(), settings,
-            ImageContentPolicy.AdultAllowed, null, null);
-
-        Assert.DoesNotContain(SdxlSceneImagePromptBuilder.DefaultSfwClampSuffix, system, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("explicit content allowed", user, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Theory]
-    [InlineData(NarrativePhase.Opening, "safe: fully clothed")]
-    [InlineData(NarrativePhase.BuildUp, "safe: fully clothed")]
-    [InlineData(NarrativePhase.Committed, "questionable: partially undressed")]
-    [InlineData(NarrativePhase.Approaching, "questionable: partially undressed")]
-    [InlineData(NarrativePhase.Climax, "explicit: nude bodies")]
-    [InlineData(NarrativePhase.Reset, "questionable: partially undressed")]
-    public void BuildMessages_ExplicitnessProse_FollowsNarrativePhase(NarrativePhase phase, string expectedProse)
-    {
-        var state = MakeState();
-        state.CurrentPhase = phase;
-        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
-        var (system, user) = _preprocessor.BuildMessages(
-            MakeSession(), MakeInteraction(), state, settings,
-            ImageContentPolicy.AdultAllowed, null, null);
-
-        Assert.Contains(expectedProse, system, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains($"Explicitness level: {expectedProse}", user, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void BuildMessages_SfwPolicy_ForcesSafe_RegardlessOfClimaxPhase()
-    {
-        var state = MakeState();
-        state.CurrentPhase = NarrativePhase.Climax;
-        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024", AllowExplicitImage = true };
-        var (system, user) = _preprocessor.BuildMessages(
-            MakeSession(), MakeInteraction(), state, settings,
-            ImageContentPolicy.SfwFiltered, null, null);
-
-        Assert.Contains("safe: fully clothed, wholesome, non-explicit", system, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("explicit: nude bodies", system, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
     public void BuildMessages_SystemPrompt_IsSdxlExpert_NaturalLanguage_NoPonyTags()
     {
         var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
@@ -125,6 +66,7 @@ public sealed class SdxlSceneImagePromptBuilderTests
         Assert.Contains("photorealistic", system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("natural-language", system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("35mm", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("from the depicted content", system, StringComparison.OrdinalIgnoreCase);
 
         // It teaches the model NOT to use Pony vocabulary ...
         Assert.Contains("no score_9", system, StringComparison.Ordinal);
@@ -193,13 +135,6 @@ public sealed class SdxlSceneImagePromptBuilderTests
         Assert.DoesNotContain("Dean absent from frame", negative, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void SfwClampSuffix_DiffersFromPony()
-    {
-        // The SDXL prose clamp is intentionally distinct from the Pony clamp suffix.
-        Assert.NotEqual(PonySceneImagePromptBuilder.SfwClampSuffix, _preprocessor.SfwClampSuffix);
-    }
-
     // ---- Canonical (B-100 CompiledMediaBrief) path — B-104 / B-103 part B ----
 
     private static CompiledMediaBrief MakeCanonicalStillBrief() => new(
@@ -257,26 +192,6 @@ public sealed class SdxlSceneImagePromptBuilderTests
         Assert.Contains("PRODUCTION POV: Dean", user, StringComparison.Ordinal);
         Assert.Contains("CANONICAL STILL BRIEF", user, StringComparison.Ordinal);
         Assert.Contains("CANONICAL PROVIDER REQUEST SNAPSHOT", user, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void BuildCanonicalMessages_SfwPolicy_ClampsExplicitness()
-    {
-        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
-        var (system, _) = _preprocessor.BuildMessages(
-            MakeCanonicalStillBrief(), "Dean", settings, ImageContentPolicy.SfwFiltered, null);
-
-        Assert.Contains(SdxlSceneImagePromptBuilder.DefaultSfwClampSuffix, system, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void BuildCanonicalMessages_AdultPolicy_NoSfwClamp()
-    {
-        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
-        var (system, _) = _preprocessor.BuildMessages(
-            MakeCanonicalStillBrief(), "Dean", settings, ImageContentPolicy.AdultAllowed, null);
-
-        Assert.DoesNotContain(SdxlSceneImagePromptBuilder.DefaultSfwClampSuffix, system, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

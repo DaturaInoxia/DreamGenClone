@@ -1,0 +1,142 @@
+@using System.Text.Json
+@using DreamGenClone.Application.Processing
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.Processing
+@using DreamGenClone.Web.Application.BackgroundJobs
+@using DreamGenClone.Web.Application.RolePlay
+
+<section class="border rounded p-3" aria-label="Asset production runs">
+    <div class="d-flex justify-content-between align-items-center gap-2">
+        <strong>Recent Asset Runs</strong>
+        <button class="btn btn-sm btn-outline-secondary" type="button" disabled="@_loading" @onclick="LoadAsync" title="Refresh asset runs">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="text-danger small mt-2">@_error</div>
+    }
+    else if (_loading)
+    {
+        <div class="small text-muted mt-2">Loading durable asset runs...</div>
+    }
+    else if (_runs.Count == 0)
+    {
+        <div class="small text-muted mt-2">No recent durable asset runs.</div>
+    }
+    else
+    {
+        <div class="list-group list-group-flush mt-2">
+            @foreach (var run in _runs)
+            {
+                <div class="list-group-item px-0 py-2" @key="run.Job.Id">
+                    <div class="d-flex justify-content-between gap-2 small">
+                        <strong>@run.Label</strong>
+                        <span class="badge text-bg-secondary">@run.Job.Status</span>
+                    </div>
+                    <div class="small text-muted font-monospace text-break">@run.AssetId</div>
+                    <div class="small text-muted">@run.Job.CreatedUtc.ToLocalTime().ToString("g") · attempt @run.Job.AttemptCount of @run.Job.MaxAttempts</div>
+                    @if (!string.IsNullOrWhiteSpace(run.Job.ErrorMessage))
+                    {
+                        <div class="text-danger small mt-1">@run.Job.ErrorMessage</div>
+                    }
+                    <div class="small text-muted">Endpoint state and cost are not recorded for this run.</div>
+                </div>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    private const int RecentJobLimit = 100;
+    [Parameter] public string? AssetId { get; set; }
+
+    private sealed record AssetRun(DurableBackgroundJob Job, string AssetId, string Label);
+
+    [Inject] private IDurableBackgroundJobRepository JobRepository { get; set; } = null!;
+    [Inject] private ISceneAssetImageEditRepository EditRepository { get; set; } = null!;
+
+    private IReadOnlyList<AssetRun> _runs = [];
+    private string? _error;
+    private bool _loading;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var jobs = await JobRepository.ListRecentAsync(RecentJobLimit);
+            var runs = new List<AssetRun>();
+            foreach (var job in jobs)
+            {
+                var run = await TryMapAsync(job);
+                if (run is not null && (string.IsNullOrWhiteSpace(AssetId) || string.Equals(run.AssetId, AssetId, StringComparison.Ordinal)))
+                    runs.Add(run);
+            }
+            _runs = runs;
+        }
+        catch (Exception exception)
+        {
+            _runs = [];
+            _error = exception.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task<AssetRun?> TryMapAsync(DurableBackgroundJob job)
+    {
+        switch (job.JobType)
+        {
+            case BackgroundJobTypes.SceneAssetGeneration:
+            {
+                var payload = Deserialize<SceneAssetGenerationJobPayload>(job);
+                return new AssetRun(job, payload.AssetId, "Generate reference");
+            }
+            case BackgroundJobTypes.ProducedImageGeneration:
+            {
+                if (!string.IsNullOrWhiteSpace(AssetId))
+                    return null;
+                var payload = Deserialize<ProducedImageGenerationJobPayload>(job);
+                return new AssetRun(job, $"Reference bootstrap: {payload.TargetRef}", "Generate reference candidates");
+            }
+            case BackgroundJobTypes.SceneAssetEditing:
+            {
+                var payload = Deserialize<SceneAssetEditingJobPayload>(job);
+                return new AssetRun(job, payload.AssetId, "Edit reference");
+            }
+            case BackgroundJobTypes.SceneAssetImageEditing:
+            {
+                var payload = Deserialize<SceneAssetImageEditingJobPayload>(job);
+                return new AssetRun(job, payload.AssetId, "Compiled reference edit");
+            }
+            case BackgroundJobTypes.SceneAssetImageEditPromptCompilation:
+            {
+                var payload = Deserialize<SceneAssetImageEditCompilationJobPayload>(job);
+                var attempt = await EditRepository.GetAttemptAsync(payload.AttemptId)
+                    ?? throw new InvalidOperationException($"Asset compilation attempt '{payload.AttemptId}' was not found.");
+                var session = await EditRepository.GetSessionAsync(attempt.EditSessionId)
+                    ?? throw new InvalidOperationException($"Asset edit session '{attempt.EditSessionId}' was not found.");
+                return new AssetRun(job, session.AssetId, "Compile reference edit");
+            }
+            case BackgroundJobTypes.SceneAssetImageEditDescription:
+            {
+                var payload = Deserialize<SceneAssetImageEditDescriptionJobPayload>(job);
+                var session = await EditRepository.GetSessionAsync(payload.EditSessionId)
+                    ?? throw new InvalidOperationException($"Asset edit session '{payload.EditSessionId}' was not found.");
+                return new AssetRun(job, session.AssetId, "Describe reference image");
+            }
+            default:
+                return null;
+        }
+    }
+
+    private static TPayload Deserialize<TPayload>(DurableBackgroundJob job)
+        => JsonSerializer.Deserialize<TPayload>(job.PayloadJson)
+            ?? throw new InvalidOperationException($"Durable asset run '{job.Id}' has an invalid '{job.JobType}' payload.");
+}

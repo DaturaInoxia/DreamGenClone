@@ -194,6 +194,8 @@ public sealed class OrderedMediaReferenceBinding
     public string CompiledRequestId { get; set; } = string.Empty;
     public int Ordinal { get; set; }
     public string SemanticRole { get; set; } = string.Empty;
+    public string Strategy { get; set; } = string.Empty;
+    public decimal? Strength { get; set; }
     public string? ActorKey { get; set; }
     public string SceneAssetId { get; set; } = string.Empty;
     public int SceneAssetVersion { get; set; }

@@ -30,7 +30,8 @@ public sealed record ProductionDispatchPolicy(
     string WorkerImage,
     string ArtifactSet,
     string ReferenceAccessibility,
-    int ResultRetentionSeconds);
+    int ResultRetentionSeconds,
+    bool LowPriority = false);
 
 public sealed record ProductionCostBasis(string Currency, decimal UnitCostPerOutput);
 

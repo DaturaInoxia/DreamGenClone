@@ -39,6 +39,13 @@ public interface ISceneImageRepository
     // ---- Image records ----
     Task InsertImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default);
     Task<SceneImageRecord?> GetImageAsync(string imageId, CancellationToken cancellationToken = default);
+    Task<bool> TryCancelImageAsync(
+        string imageId,
+        string sessionId,
+        DateTime cancelledUtc,
+        CancellationToken cancellationToken = default);
+    Task<bool> TryCompleteImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default);
+    Task<bool> TryFailImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SceneImageRecord>> ListImagesByInteractionAsync(
         string sessionId, string interactionId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SceneImageRecord>> ListImagesByProductionGroupAsync(

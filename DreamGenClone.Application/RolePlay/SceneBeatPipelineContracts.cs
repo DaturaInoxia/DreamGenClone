@@ -104,5 +104,9 @@ public interface ISceneBeatPipelineService
         string turnId,
         CancellationToken cancellationToken = default);
 
+    Task<SceneBeatCatalogue?> GetAsync(
+        string catalogueId,
+        CancellationToken cancellationToken = default);
+
     Task CancelCatalogueAsync(string catalogueId, CancellationToken cancellationToken = default);
 }

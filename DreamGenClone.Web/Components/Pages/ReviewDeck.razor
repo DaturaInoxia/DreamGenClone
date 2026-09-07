@@ -1,0 +1,752 @@
+@page "/review-deck/{BatchId}"
+@page "/review-deck/{RouteKind}/{BatchId}"
+@rendermode InteractiveServer
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@inject IProducedImageRepository ProducedImages
+@inject IReferenceBootstrapService ReferenceBootstrapService
+@inject ISceneImageProductionService ProductionService
+@inject ISceneImageService ImageService
+@inject ISceneAssetService AssetService
+@inject IJSRuntime JS
+
+<PageTitle>Review Deck - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">Review Deck</h4>
+        <div class="d-flex align-items-center gap-2">
+            @if (Current is not null)
+            {
+                <a class="btn btn-outline-secondary btn-sm" href="@BackUrl" title="Back to production POV form">
+                    <i class="bi bi-arrow-left me-1"></i>Production POV
+                </a>
+                @if (CanEditCurrent)
+                {
+                    <a class="btn btn-outline-primary btn-sm" href="@EditUrl" title="Edit this image">
+                        <i class="bi bi-pencil-square me-1"></i>Edit
+                    </a>
+                }
+                @if (_deleteConfirmId == Current.Id)
+                {
+                    <span class="small text-danger">Delete this image?</span>
+                    <button class="btn btn-danger btn-sm" type="button" @onclick="() => DeleteItemAsync(Current.Id)" disabled="@_busy">Delete permanently</button>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="CancelDelete" disabled="@_busy">Cancel</button>
+                }
+                else
+                {
+                    <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => BeginDelete(Current.Id)" disabled="@_busy" title="Permanently delete this image">
+                        <i class="bi bi-trash me-1"></i>Delete permanently
+                    </button>
+                }
+            }
+        </div>
+        @if (_items.Count > 0)
+        {
+            <span class="text-muted">@(_index + 1) of @_items.Count</span>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+
+    @if (_items.Count == 0)
+    {
+        <p class="text-muted">No images are available for this @(IsStudioRoute ? "production group" : IsAssetRoute ? "asset batch" : "batch").</p>
+    }
+    else if (Current is not null)
+    {
+        <div class="row g-2 mb-3">
+            @foreach (var item in _items)
+            {
+                <div class="col-6 col-md-4 col-xl-3">
+                    <div class="border rounded p-2 h-100 @(item.Id == Current.Id ? "border-primary border-3" : "border-secondary")">
+                        <button class="btn w-100 p-0 text-start" type="button" @onclick="() => SelectCandidateAsync(item.Id)">
+                            <div class="ratio ratio-1x1 bg-dark">
+                                @if (!string.IsNullOrWhiteSpace(item.StoragePath))
+                                {
+                                    <img src="/scene-images/@item.StoragePath" class="w-100 h-100" style="object-fit:contain;" alt="Candidate @item.Id" />
+                                }
+                                else
+                                {
+                                    <span class="d-flex align-items-center justify-content-center text-light small">Pending</span>
+                                }
+                            </div>
+                            <span class="d-flex justify-content-between gap-1 p-2 small">
+                                <span class="text-truncate font-monospace">@item.Id</span>
+                                <span class="badge @GetStatusBadgeClass(item.Status)">@item.Status</span>
+                            </span>
+                        </button>
+                        <div class="d-flex gap-1 mt-1">
+                            @if (CanEdit(item))
+                            {
+                                <a class="btn btn-outline-primary btn-sm flex-fill" href="@GetEditUrl(item)" title="Edit this image">
+                                    <i class="bi bi-pencil-square"></i><span class="visually-hidden">Edit</span>
+                                </a>
+                            }
+                            @if (_deleteConfirmId == item.Id)
+                            {
+                                <button class="btn btn-danger btn-sm flex-fill" type="button" @onclick="() => DeleteItemAsync(item.Id)" disabled="@_busy">Delete</button>
+                                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="CancelDelete" disabled="@_busy">Cancel</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-outline-danger btn-sm flex-fill" type="button" @onclick="() => BeginDelete(item.Id)" disabled="@_busy" title="Permanently delete this image">
+                                    <i class="bi bi-trash"></i><span class="visually-hidden">Delete</span>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+        <div class="d-flex flex-wrap gap-2 mb-3">
+            <button class="btn btn-outline-secondary" type="button" @onclick="PreviousAsync" disabled="@(_busy || _index == 0)">Previous</button>
+            <button class="btn btn-outline-secondary" type="button" @onclick="NextAsync" disabled="@(_busy || _index == _items.Count - 1)">Next</button>
+            <button class="btn btn-outline-primary" type="button" @onclick="ToggleCompare" disabled="@(_busy || _items.Count < 2)">Compare</button>
+            @if (CanEditCurrent)
+            {
+                <a class="btn btn-outline-primary" href="@EditUrl"><i class="bi bi-pencil-square me-1"></i>Edit selected</a>
+            }
+            @if (Current is not null && _deleteConfirmId != Current.Id)
+            {
+                <button class="btn btn-outline-danger" type="button" @onclick="() => BeginDelete(Current.Id)" disabled="@_busy"><i class="bi bi-trash me-1"></i>Delete selected</button>
+            }
+            @if (IsStudioRoute)
+            {
+                @if (Current.Disposition == SceneImageAttemptDisposition.Active)
+                {
+                    <button class="btn btn-info" type="button" @onclick="() => SetStudioDispositionAsync(SceneImageAttemptDisposition.Shortlisted)" disabled="@_busy">Shortlist</button>
+                }
+                else if (Current.Disposition == SceneImageAttemptDisposition.Shortlisted)
+                {
+                    <button class="btn btn-outline-secondary" type="button" @onclick="() => SetStudioDispositionAsync(SceneImageAttemptDisposition.Active)" disabled="@_busy">Return to Active</button>
+                }
+                @if (Current.Disposition is SceneImageAttemptDisposition.Active or SceneImageAttemptDisposition.Shortlisted)
+                {
+                    <button class="btn btn-danger" type="button" @onclick="() => SetStudioDispositionAsync(SceneImageAttemptDisposition.Rejected)" disabled="@_busy">Reject</button>
+                }
+                <button class="btn btn-success" type="button" @onclick="ApproveStudioAsync" disabled="@(_busy || Current.ExecutionStatus != SceneImageStatus.Complete || string.IsNullOrWhiteSpace(Current.Sha256))">Approve</button>
+            }
+            else if (IsAssetRoute)
+            {
+                <button class="btn btn-success" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Accepted)" disabled="@_busy">Accept</button>
+                <button class="btn btn-info" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Shortlisted)" disabled="@_busy">Shortlist</button>
+                <button class="btn btn-danger" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Rejected)" disabled="@_busy">Reject</button>
+                <button class="btn btn-outline-danger" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Revoked)" disabled="@_busy">Revoke</button>
+            }
+            else
+            {
+                <button class="btn btn-success" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Accepted)" disabled="@_busy">Accept</button>
+                <button class="btn btn-info" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Shortlisted)" disabled="@_busy">Shortlist</button>
+                <button class="btn btn-danger" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Rejected)" disabled="@_busy">Reject</button>
+                <button class="btn btn-outline-danger" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Revoked)" disabled="@_busy">Revoke</button>
+            }
+        </div>
+
+        <div class="row g-4">
+            <div class="col-lg-7">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="badge @GetStatusBadgeClass(Current.Status)">@Current.Status</span>
+                    <span class="small font-monospace text-break">@Current.Id</span>
+                </div>
+
+                @if (_compare && _items.Count > 1)
+                {
+                    <div class="mb-3">
+                        <label class="form-label" for="compare-image">Compare with</label>
+                        <select id="compare-image" class="form-select form-select-sm" @bind="_compareIndex">
+                            @for (var imageIndex = 0; imageIndex < _items.Count; imageIndex++)
+                            {
+                                if (imageIndex != _index)
+                                {
+                                    <option value="@imageIndex">@(imageIndex + 1) - @ShortId(_items[imageIndex].Id)</option>
+                                }
+                            }
+                        </select>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="small text-muted mb-1">Current</div>
+                            @RenderImage(Current)
+                        </div>
+                        <div class="col-md-6">
+                            <div class="small text-muted mb-1">Comparison</div>
+                            @RenderImage(_items[_compareIndex])
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    @RenderImage(Current)
+                }
+
+                <div class="mt-4">
+                    <LineageTree ParentImageId="@Current.ParentImageId"
+                                 Children="@_lineageChildren.Select(item => new LineageTreeItem(item.Id, item.Status)).ToList()" />
+                </div>
+            </div>
+
+            <div class="col-lg-5">
+                <h5>Metadata</h5>
+                @if (IsStudioRoute)
+                {
+                    <dl class="row small">
+                        <dt class="col-sm-4">Kind</dt><dd class="col-sm-8">@Current.Kind</dd>
+                        <dt class="col-sm-4">Status</dt><dd class="col-sm-8">@Current.Status</dd>
+                        <dt class="col-sm-4">Stage</dt><dd class="col-sm-8">@Display(Current.Stage)</dd>
+                        <dt class="col-sm-4">Execution</dt><dd class="col-sm-8">@Display(Current.ExecutionStatus)</dd>
+                        <dt class="col-sm-4">Prompt</dt><dd class="col-sm-8 text-break">@Display(Current.Prompt)</dd>
+                        <dt class="col-sm-4">Negative prompt</dt><dd class="col-sm-8 text-break">@Display(Current.NegativePrompt)</dd>
+                        <dt class="col-sm-4">Model</dt><dd class="col-sm-8 text-break">@Display(Current.Model)</dd>
+                        <dt class="col-sm-4">Checksum</dt><dd class="col-sm-8 text-break">@Display(Current.Sha256)</dd>
+                        <dt class="col-sm-4">Created</dt><dd class="col-sm-8 text-break">@Current.CreatedUtc</dd>
+                    </dl>
+                    @if (!string.IsNullOrWhiteSpace(Current.Details))
+                    {
+                        <h6>Details</h6><pre class="font-monospace text-break">@Current.Details</pre>
+                    }
+                }
+                else if (IsAssetRoute)
+                {
+                    <dl class="row small">
+                        <dt class="col-sm-4">Kind</dt><dd class="col-sm-8">@Current.Kind</dd>
+                        <dt class="col-sm-4">Status</dt><dd class="col-sm-8">@Current.Status</dd>
+                        <dt class="col-sm-4">Prompt</dt><dd class="col-sm-8 text-break">@Display(Current.Prompt)</dd>
+                        <dt class="col-sm-4">Model</dt><dd class="col-sm-8 text-break">@Display(Current.Model)</dd>
+                        <dt class="col-sm-4">Checksum</dt><dd class="col-sm-8 text-break">@Display(Current.Sha256)</dd>
+                        <dt class="col-sm-4">Created</dt><dd class="col-sm-8 text-break">@Current.CreatedUtc</dd>
+                    </dl>
+                    @if (!string.IsNullOrWhiteSpace(Current.Details))
+                    {
+                        <h6>Details</h6><pre class="font-monospace text-break">@Current.Details</pre>
+                    }
+                }
+                else
+                {
+                    <dl class="row small">
+                        <dt class="col-sm-4">Kind</dt><dd class="col-sm-8">@Current.Kind</dd>
+                        <dt class="col-sm-4">Status</dt><dd class="col-sm-8">@Current.Status</dd>
+                        <dt class="col-sm-4">Reference kind</dt><dd class="col-sm-8">@Display(Current.ReferenceKind)</dd>
+                        <dt class="col-sm-4">Vision source</dt><dd class="col-sm-8">@Current.VisionSource</dd>
+                        <dt class="col-sm-4">Vision text</dt><dd class="col-sm-8 text-break">@Display(Current.VisionText)</dd>
+                        <dt class="col-sm-4">Prompt compiled</dt><dd class="col-sm-8 text-break">@Display(Current.PromptCompiled)</dd>
+                        <dt class="col-sm-4">Prompt edited</dt><dd class="col-sm-8 text-break">@Display(Current.PromptEdited)</dd>
+                        <dt class="col-sm-4">Negative prompt</dt><dd class="col-sm-8 text-break">@Display(Current.NegativePrompt)</dd>
+                        <dt class="col-sm-4">Seed</dt><dd class="col-sm-8">@Display(Current.Seed)</dd>
+                        <dt class="col-sm-4">Model</dt><dd class="col-sm-8 text-break">@Display(Current.Model)</dd>
+                        <dt class="col-sm-4">Endpoint</dt><dd class="col-sm-8 text-break">@Display(Current.EndpointId)</dd>
+                        <dt class="col-sm-4">Identity strategy</dt><dd class="col-sm-8 text-break">@Display(Current.IdentityStrategy)</dd>
+                        <dt class="col-sm-4">Refusal mode</dt><dd class="col-sm-8">@Current.RefusalMode</dd>
+                        <dt class="col-sm-4">Created</dt><dd class="col-sm-8 text-break">@Current.CreatedUtc</dd>
+                    </dl>
+                    @if (!string.IsNullOrWhiteSpace(Current.AppliedReferencesJson))
+                    {
+                        <h6>Applied references</h6><pre class="font-monospace text-break">@Current.AppliedReferencesJson</pre>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(Current.CostJson))
+                    {
+                        <h6>Cost</h6><pre class="font-monospace text-break">@Current.CostJson</pre>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(Current.ScoreJson))
+                    {
+                        <h6>Score</h6><pre class="font-monospace text-break">@Current.ScoreJson</pre>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(Current.CandidateNotes))
+                    {
+                        <h6>Candidate notes</h6><pre class="font-monospace text-break">@Current.CandidateNotes</pre>
+                    }
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string BatchId { get; set; } = string.Empty;
+    [Parameter] public string? RouteKind { get; set; }
+
+    private List<ReviewDeckItem> _items = [];
+    private int _index;
+    private string? _error;
+    private bool _busy;
+    private bool _compare;
+    private int _compareIndex;
+    private string? _deleteConfirmId;
+    private List<ReviewDeckItem> _lineageChildren = [];
+
+    private bool IsStudioRoute => string.Equals(RouteKind, "studio", StringComparison.OrdinalIgnoreCase);
+    private bool IsAssetRoute => string.Equals(RouteKind, "asset", StringComparison.OrdinalIgnoreCase);
+
+    private bool CanEditCurrent => Current is not null
+        && Current.Status is not (nameof(SceneImageStatus.Pending) or nameof(SceneImageStatus.Generating))
+        && (!IsAssetRoute || !string.IsNullOrWhiteSpace(Current.AssetId))
+        && (!IsStudioRoute || (!string.IsNullOrWhiteSpace(Current.SessionId) && !string.IsNullOrWhiteSpace(Current.InteractionId)));
+
+    private string BackUrl => IsStudioRoute && Current is not null
+        ? string.IsNullOrWhiteSpace(Current.ProductionGroupId)
+            ? $"/roleplay/studio/{Current.SessionId}/{Current.InteractionId}"
+            : $"/roleplay/studio/{Current.SessionId}/{Current.InteractionId}/production/{Current.ProductionGroupId}"
+        : IsAssetRoute && Current is not null
+            ? $"/asset-studio/{Current.AssetId}"
+            : "/roleplay";
+
+    private string EditUrl => IsAssetRoute
+        ? $"/assets/{Current!.AssetId}/images/{Current.Id}/edit"
+        : $"/roleplay/image-editor/{Current!.SessionId}/{Current.InteractionId}/{Current.Id}";
+
+    private bool CanEdit(ReviewDeckItem item) => item.Status is not (nameof(SceneImageStatus.Pending) or nameof(SceneImageStatus.Generating))
+        && (!IsAssetRoute || !string.IsNullOrWhiteSpace(item.AssetId))
+        && (!IsStudioRoute || (!string.IsNullOrWhiteSpace(item.SessionId) && !string.IsNullOrWhiteSpace(item.InteractionId)));
+
+    private string GetEditUrl(ReviewDeckItem item) => IsAssetRoute
+        ? $"/assets/{item.AssetId}/images/{item.Id}/edit"
+        : $"/roleplay/image-editor/{item.SessionId}/{item.InteractionId}/{item.Id}";
+
+    private ReviewDeckItem? Current => _items.Count > 0 ? _items[_index] : null;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _error = null;
+            if (RouteKind is not null && !IsStudioRoute && !IsAssetRoute)
+            {
+                throw new InvalidOperationException($"Unsupported review deck route kind '{RouteKind}'.");
+            }
+
+            _items = IsStudioRoute
+                ? await LoadStudioItemsAsync()
+                : IsAssetRoute
+                    ? await LoadAssetItemsAsync()
+                : (await ProducedImages.ListByBatchAsync(BatchId)).Select(MapLegacyItem).ToList();
+            _index = Math.Clamp(_index, 0, Math.Max(0, _items.Count - 1));
+            await LoadCurrentAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private async Task PreviousAsync()
+    {
+        if (_index == 0)
+        {
+            return;
+        }
+
+        _index--;
+        await LoadCurrentAsync();
+    }
+
+    private async Task NextAsync()
+    {
+        if (_index >= _items.Count - 1)
+        {
+            return;
+        }
+
+        _index++;
+        await LoadCurrentAsync();
+    }
+
+    private async Task SelectCandidateAsync(string imageId)
+    {
+        var nextIndex = _items.FindIndex(item => string.Equals(item.Id, imageId, StringComparison.Ordinal));
+        if (nextIndex < 0 || nextIndex == _index)
+        {
+            return;
+        }
+
+        _index = nextIndex;
+        await LoadCurrentAsync();
+    }
+
+    private void ToggleCompare()
+    {
+        _compare = !_compare;
+        EnsureCompareIndex();
+    }
+
+    private async Task SetStatusAsync(ProducedImageStatus status)
+    {
+        if (Current is null)
+        {
+            return;
+        }
+
+        if (status is ProducedImageStatus.Rejected or ProducedImageStatus.Revoked &&
+            !await JS.InvokeAsync<bool>("confirm", $"Set this image to {status}?"))
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await ReferenceBootstrapService.SetCandidateDecisionAsync(Current.Id, status, null);
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task LoadCurrentAsync()
+    {
+        try
+        {
+            _lineageChildren = Current is null
+                ? []
+                : IsStudioRoute
+                    ? _items.Where(item => string.Equals(item.ParentImageId, Current.Id, StringComparison.Ordinal)).ToList()
+                    : IsAssetRoute
+                        ? _items.Where(item => string.Equals(item.ParentImageId, Current.Id, StringComparison.Ordinal)).ToList()
+                    : (await ProducedImages.ListByParentAsync(Current.Id)).Select(MapLegacyItem).ToList();
+            EnsureCompareIndex();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private void EnsureCompareIndex()
+    {
+        if (_items.Count < 2)
+        {
+            _compareIndex = 0;
+            return;
+        }
+
+        if (_compareIndex == _index)
+        {
+            _compareIndex = _index == 0 ? 1 : 0;
+        }
+
+        _compareIndex = Math.Clamp(_compareIndex, 0, _items.Count - 1);
+    }
+
+    private async Task SetStudioDispositionAsync(SceneImageAttemptDisposition nextDisposition)
+    {
+        if (Current?.Disposition is not { } currentDisposition)
+        {
+            return;
+        }
+
+        if (nextDisposition == SceneImageAttemptDisposition.Rejected
+            && !await JS.InvokeAsync<bool>("confirm", "Reject this image?"))
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await ProductionService.SetDispositionAsync(Current.Id, BatchId, currentDisposition, nextDisposition);
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ApproveStudioAsync()
+    {
+        if (Current is null || string.IsNullOrWhiteSpace(Current.Sha256))
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await ProductionService.ApproveAsync(BatchId, Current.Id, Current.Sha256, "Review Deck", null);
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SetAssetDecisionAsync(SceneAssetCandidateDecision decision)
+    {
+        if (Current is null)
+            return;
+        if (decision is SceneAssetCandidateDecision.Rejected or SceneAssetCandidateDecision.Revoked
+            && !await JS.InvokeAsync<bool>("confirm", $"Set this asset image to {decision}?"))
+            return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            await AssetService.SetImageCandidateDecisionAsync(Current.Id, decision, null);
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void BeginDelete(string imageId)
+    {
+        _deleteConfirmId = imageId;
+        _error = null;
+    }
+
+    private void CancelDelete() => _deleteConfirmId = null;
+
+    private async Task DeleteItemAsync(string imageId)
+    {
+        if (!string.Equals(_deleteConfirmId, imageId, StringComparison.Ordinal))
+            return;
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            if (IsAssetRoute)
+            {
+                await AssetService.DeleteImageAsync(imageId);
+            }
+            else
+            {
+                var image = _items.First(item => item.Id == imageId);
+                await ImageService.DeleteImageAsync(image.SessionId ?? string.Empty, imageId);
+            }
+
+            var deletedIndex = _items.FindIndex(item => item.Id == imageId);
+            _items.RemoveAt(deletedIndex);
+            _deleteConfirmId = null;
+            if (deletedIndex < _index)
+                _index--;
+            _index = Math.Clamp(_index, 0, Math.Max(0, _items.Count - 1));
+            await LoadCurrentAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _items = IsStudioRoute
+            ? await LoadStudioItemsAsync()
+            : IsAssetRoute
+                ? await LoadAssetItemsAsync()
+            : (await ProducedImages.ListByBatchAsync(BatchId)).Select(MapLegacyItem).ToList();
+        _index = Math.Clamp(_index, 0, Math.Max(0, _items.Count - 1));
+        await LoadCurrentAsync();
+    }
+
+    private async Task<List<ReviewDeckItem>> LoadStudioItemsAsync()
+    {
+        var attempts = await ProductionService.ListAttemptsAsync(BatchId);
+        var decisions = await ProductionService.ListApprovalDecisionsAsync(BatchId);
+        var approvedImageIds = decisions
+            .Where(decision => decision.Decision == ApprovedSceneFrameDecisionState.Approved)
+            .Select(decision => decision.SceneImageId)
+            .ToHashSet(StringComparer.Ordinal);
+        return attempts.Select(attempt => MapStudioItem(attempt, approvedImageIds.Contains(attempt.Id))).ToList();
+    }
+
+    private async Task<List<ReviewDeckItem>> LoadAssetItemsAsync()
+        => (await AssetService.ListImagesByCandidateBatchAsync(BatchId)).Select(MapAssetItem).ToList();
+
+    private static ReviewDeckItem MapLegacyItem(ProducedImage image) => new(
+        image.Id,
+        image.StoragePath,
+        image.SessionId,
+        image.InteractionId,
+        null,
+        null,
+        image.ParentImageId,
+        image.Kind.ToString(),
+        image.Status.ToString(),
+        null,
+        null,
+        image.PromptCompiled ?? image.PromptEdited,
+        image.NegativePrompt,
+        image.ModelId,
+        null,
+        image.CreatedUtc,
+        null,
+        null,
+        image.ReferenceKind,
+        image.VisionSource,
+        image.VisionText,
+        image.PromptCompiled,
+        image.PromptEdited,
+        image.Seed,
+        image.EndpointId,
+        image.IdentityStrategy,
+        image.RefusalMode,
+        image.AppliedReferencesJson,
+        image.CostJson,
+        image.ScoreJson,
+        image.CandidateNotes);
+
+    private static ReviewDeckItem MapStudioItem(SceneImageRecord image, bool isApproved) => new(
+        image.Id,
+        image.FileRelativePath,
+        image.SessionId,
+        image.InteractionId,
+        null,
+        image.ProductionGroupId,
+        image.SourceImageId ?? image.RegenerateOfId,
+        image.Operation.ToString(),
+        isApproved ? "Approved" : image.Disposition?.ToString() ?? "Undecided",
+        image.ProductionStage,
+        image.Status,
+        image.PromptSnapshot,
+        image.NegativePromptSnapshot,
+        image.ModelIdentifier,
+        image.Sha256,
+        image.CreatedUtc.ToString("O"),
+        image.ErrorMessage,
+        image.Disposition,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null);
+
+    private static ReviewDeckItem MapAssetItem(SceneAssetImage image) => new(
+        image.Id,
+        image.FileRelativePath,
+        null,
+        null,
+        image.AssetId,
+        null,
+        image.SourceImageId,
+        image.Kind.ToString(),
+        image.CandidateDecision?.ToString() ?? "Undecided",
+        null,
+        null,
+        image.Prompt,
+        null,
+        image.ModelSnapshotJson,
+        image.Sha256,
+        image.CreatedUtc.ToString("O"),
+        image.ErrorMessage,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        image.CandidateNotes);
+
+    private static string Display(object? value) => value?.ToString() ?? "—";
+
+    private static string ShortId(string id) => id.Length <= 12 ? id : id[..12];
+
+    private static string GetStatusBadgeClass(string status) => status switch
+    {
+        "Accepted" or "Approved" => "text-bg-success",
+        "Shortlisted" => "text-bg-info",
+        "Rejected" or "Revoked" => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+
+    private static RenderFragment RenderImage(ReviewDeckItem image) => builder =>
+    {
+        if (!string.IsNullOrWhiteSpace(image.StoragePath))
+        {
+            builder.OpenElement(0, "img");
+            builder.AddAttribute(1, "src", $"/scene-images/{image.StoragePath}");
+            builder.AddAttribute(2, "class", "img-fluid w-100");
+            builder.AddAttribute(3, "style", "max-height:480px;object-fit:contain;");
+            builder.AddAttribute(4, "alt", $"Review image {image.Id}");
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "d-flex align-items-center justify-content-center bg-light text-muted");
+            builder.AddAttribute(2, "style", "height:480px;");
+            builder.AddContent(3, "Image pending");
+            builder.CloseElement();
+        }
+    };
+
+    private sealed record ReviewDeckItem(
+        string Id,
+        string? StoragePath,
+        string? SessionId,
+        string? InteractionId,
+        string? AssetId,
+        string? ProductionGroupId,
+        string? ParentImageId,
+        string Kind,
+        string Status,
+        SceneImageProductionStage? Stage,
+        SceneImageStatus? ExecutionStatus,
+        string? Prompt,
+        string? NegativePrompt,
+        string? Model,
+        string? Sha256,
+        string CreatedUtc,
+        string? Details,
+        SceneImageAttemptDisposition? Disposition,
+        ProducedImageReferenceKind? ReferenceKind,
+        ProducedImageVisionSource? VisionSource,
+        string? VisionText,
+        string? PromptCompiled,
+        string? PromptEdited,
+        long? Seed,
+        string? EndpointId,
+        string? IdentityStrategy,
+        SceneImageRefusalMode? RefusalMode,
+        string? AppliedReferencesJson,
+        string? CostJson,
+        string? ScoreJson,
+        string? CandidateNotes);
+}

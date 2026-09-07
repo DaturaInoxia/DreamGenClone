@@ -48,6 +48,7 @@ public sealed class RunPodServerlessImageClient : IImageGenerationClient
         var stopwatch = Stopwatch.StartNew();
         var baseUrl = RequireEndpointBase(model);
         var apiKey = RequireApiKey(model);
+        var jobId = string.Empty;
 
         try
         {
@@ -93,6 +94,23 @@ public sealed class RunPodServerlessImageClient : IImageGenerationClient
             {
                 ["input"] = new JsonObject { ["workflow"] = workflow }
             };
+            var policy = new JsonObject();
+            if (options?.IsLowPriority == true)
+            {
+                policy["lowPriority"] = true;
+            }
+            if (options?.ExecutionTimeoutMilliseconds is int executionTimeoutMilliseconds)
+            {
+                policy["executionTimeout"] = executionTimeoutMilliseconds;
+            }
+            if (options?.TtlMilliseconds is int ttlMilliseconds)
+            {
+                policy["ttl"] = ttlMilliseconds;
+            }
+            if (policy.Count > 0)
+            {
+                payload["policy"] = policy;
+            }
 
             _logger.LogInformation(
                 "RunPod serverless image generation start: Provider={ProviderName}, Checkpoint={Checkpoint}, PromptChars={PromptChars}",
@@ -109,7 +127,7 @@ public sealed class RunPodServerlessImageClient : IImageGenerationClient
             }
 
             var submitBody = await submitResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken);
-            var jobId = submitBody?["id"]?.GetValue<string>();
+            jobId = submitBody?["id"]?.GetValue<string>() ?? string.Empty;
             if (string.IsNullOrEmpty(jobId))
             {
                 throw new ImageGenerationException(
@@ -181,13 +199,43 @@ public sealed class RunPodServerlessImageClient : IImageGenerationClient
             {
                 b64 = b64[(b64.IndexOf(',') + 1)..];
             }
-            var bytes = Convert.FromBase64String(b64);
+            byte[] bytes;
+            try
+            {
+                bytes = Convert.FromBase64String(b64);
+            }
+            catch (FormatException)
+            {
+                throw new ImageGenerationException(
+                    $"RunPod serverless job {jobId} returned malformed base64 output.",
+                    model.ProviderName,
+                    reasonCode: "runpod_bad_base64");
+            }
 
             stopwatch.Stop();
             _logger.LogInformation(
                 "RunPod serverless image generation completed: Provider={ProviderName}, Bytes={Bytes}, JobId={JobId}, DurationMs={DurationMs}",
                 model.ProviderName, bytes.Length, jobId, stopwatch.ElapsedMilliseconds);
             return bytes;
+        }
+        catch (OperationCanceledException)
+        {
+            if (!string.IsNullOrEmpty(jobId))
+            {
+                try
+                {
+                    using var cancelTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    var client = _httpClientFactory.CreateClient("CompletionClient");
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                    using var cancelResponse = await client.PostAsync(
+                        $"{baseUrl}/cancel/{jobId}", content: null, cancelTimeout.Token);
+                }
+                catch
+                {
+                }
+            }
+
+            throw;
         }
         catch (ImageGenerationException)
         {

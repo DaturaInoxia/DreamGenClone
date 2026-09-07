@@ -264,7 +264,8 @@ public sealed class ProductionMediaRepositoryTests
             fixture.Repository,
             new ProductionMediaCompilerRegistry([new SdxlProductionMediaCompiler()]),
             fixture.LoraRepository,
-            fixture.ModelRepository);
+            fixture.ModelRepository,
+            new TestReferenceStrategyResolver());
 
         var result = await service.CompileAndPersistAsync(
             "compiled-by-service", intent.Id, persistedProfile.Id, cell.Id,
@@ -292,7 +293,7 @@ public sealed class ProductionMediaRepositoryTests
             requestId, selected.Profile.Id, selected.Cell.Id, CharacterIdentityStrategyKind.ReferenceConditioning);
         var service = new ProductionMediaCompilationService(
             fixture.Repository, new ProductionMediaCompilerRegistry([new SdxlProductionMediaCompiler()]),
-            fixture.LoraRepository, fixture.ModelRepository);
+            fixture.LoraRepository, fixture.ModelRepository, new TestReferenceStrategyResolver());
 
         var result = await service.CompileIdentityAndPersistAsync(
             requestId, intent.Id, selected.Profile.Id, selected.Cell.Id,
@@ -320,7 +321,7 @@ public sealed class ProductionMediaRepositoryTests
             requestId, capability.Profile.Id, capability.Cell.Id, CharacterIdentityStrategyKind.Lora);
         var service = new ProductionMediaCompilationService(
             fixture.Repository, new ProductionMediaCompilerRegistry([new SdxlProductionMediaCompiler()]),
-            fixture.LoraRepository, fixture.ModelRepository);
+            fixture.LoraRepository, fixture.ModelRepository, new TestReferenceStrategyResolver());
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CompileIdentityAndPersistAsync(
@@ -374,7 +375,7 @@ public sealed class ProductionMediaRepositoryTests
             requestId, capability.Profile.Id, capability.Cell.Id, CharacterIdentityStrategyKind.ReferenceConditioning);
         var service = new ProductionMediaCompilationService(
             fixture.Repository, new ProductionMediaCompilerRegistry([new SdxlProductionMediaCompiler()]),
-            fixture.LoraRepository, fixture.ModelRepository);
+            fixture.LoraRepository, fixture.ModelRepository, new TestReferenceStrategyResolver());
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CompileIdentityAndPersistAsync(
@@ -486,7 +487,7 @@ public sealed class ProductionMediaRepositoryTests
         public OrderedMediaReferenceBinding Binding(string requestId, SceneAsset asset) => new()
         {
             Id = Guid.NewGuid().ToString("N"), CompiledRequestId = requestId, Ordinal = 0,
-            SemanticRole = "composition source", SceneAssetId = asset.Id,
+            SemanticRole = "composition source", Strategy = "TextOnly", SceneAssetId = asset.Id,
             SceneAssetVersion = asset.ProductionVersion!.Value, SceneAssetSha256 = asset.Sha256,
             BindingSnapshotJson = "{}", CreatedUtc = DateTime.UtcNow
         };

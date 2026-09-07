@@ -13,9 +13,23 @@ public sealed class SceneImageStudioUiContractTests
         FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageStudio.razor"));
     private static readonly string ProductionWorkspaceSource = File.ReadAllText(Path.Combine(
         FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "ProductionWorkspace.razor"));
+    private static readonly string RunTraySource = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Shared", "RunTray.razor"));
+    private static readonly string CompositionComposerSource = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "CompositionComposer.razor"));
+    private static readonly string SceneImageEditorSource = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageEditor.razor"));
+    private static readonly string EditIterateWorkbenchSource = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Shared", "EditIterateWorkbench.razor"));
+    private static readonly string SceneImageStudioStylesheet = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageStudio.razor.css"));
+    private static readonly string SceneImageServiceSource = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Application", "RolePlay", "SceneImageService.cs"));
+    private static readonly string SceneImageEditingJobHandlerSource = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Application", "RolePlay", "SceneImageEditingJobHandler.cs"));
 
     [Fact]
-    public void ProductionCommands_AreProgressivelyGatedAndUseExactCompositionContract()
+    public void ProductionStudio_HandsCompositionToTheDedicatedComposer()
     {
         var studioStart = IndexOf("<div class=\"card mb-3 scene-production-studio\">");
         var createBranch = IndexOf("@if (IsSelectedMomentEnriched)", studioStart);
@@ -24,35 +38,70 @@ public sealed class SceneImageStudioUiContractTests
         Assert.True(createBranch < createCommand && createCommand < productionBody,
             "Create / Load Production must remain inside the enriched-Moment header branch.");
         Assert.Single(Regex.Matches(Source, "@onclick=\"CreateOrLoadProductionAsync\"", RegexOptions.CultureInvariant).Cast<Match>());
+        Assert.Contains("Composition Composer", Source, StringComparison.Ordinal);
+        Assert.Contains("/production/@_productionGroup.Id/composition", Source, StringComparison.Ordinal);
+        Assert.Contains("Nav.NavigateTo($\"/roleplay/studio/{sessionId}/{interactionId}/production/{_productionGroup.Id}/composition\")", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("@onclick=\"GenerateProductionCompositionAsync\"", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("@bind=\"_selectedProductionModelId\"", Source, StringComparison.Ordinal);
 
-        var compositionCommand = IndexOf("@onclick=\"GenerateProductionCompositionAsync\"", productionBody);
-        var compositionButtonStart = Source.LastIndexOf("<button", compositionCommand, StringComparison.Ordinal);
-        var compositionButton = Source[compositionButtonStart..compositionCommand];
-        Assert.Contains("_productionGroup is null", compositionButton, StringComparison.Ordinal);
-        Assert.Contains("_compiledMediaBrief is null", compositionButton, StringComparison.Ordinal);
-        Assert.Contains("_activePrompt?.Status != SceneImagePromptStatus.Complete", compositionButton, StringComparison.Ordinal);
-        Assert.Contains("string.IsNullOrWhiteSpace(_editablePrompt)", compositionButton, StringComparison.Ordinal);
+        Assert.Contains("@page \"/roleplay/studio/{sessionId}/{interactionId}/production/{productionGroupId}/composition\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"GeneratePromptAsync\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"GenerateCompositionAsync\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("@bind=\"_selectedModelId\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("ReferenceApplyPanel", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("ProductionGroupId = _productionGroup!.Id", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("CompiledMediaBriefId = _compiledMediaBrief!.Id", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("SceneImageProductionStage.Composition", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("Take(100)", CompositionComposerSource, StringComparison.Ordinal);
+    }
 
-        var requestStart = IndexOf("new SceneRenderRequest", compositionCommand);
-        var requestEnd = IndexOf("});", requestStart);
-        var request = Source[requestStart..requestEnd];
-        Assert.Contains("ProductionGroupId = _productionGroup.Id", request, StringComparison.Ordinal);
-        Assert.Contains("CompiledMediaBriefId = _activePrompt.CompiledMediaBriefId", request, StringComparison.Ordinal);
-        Assert.DoesNotContain("TypedReferenceSnapshotJson", request, StringComparison.Ordinal);
+    [Fact]
+    public void CompletedMomentEnrichment_OpensProductionStudioBeforePovSelection()
+    {
+        Assert.Contains("@page \"/roleplay/studio/{sessionId}/{interactionId}/production/moment/{momentEnrichmentId}\"", Source, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"OpenProductionStudioForMoment\"", Source, StringComparison.Ordinal);
+        Assert.Contains("private async Task RestoreProductionMomentSelectionAsync(string enrichmentId)", Source, StringComparison.Ordinal);
+        Assert.Contains("MomentEnrichmentService.GetAsync(enrichmentId)", Source, StringComparison.Ordinal);
+        Assert.Contains("?momentEnrichmentId={Uri.EscapeDataString(ActiveMomentEnrichmentId)}", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("_productionPov = SceneImagePovFramer.Omniscient;", Source, StringComparison.Ordinal);
     }
 
     [Fact]
     public void CurrentGeneration_UsesDurableWorkspaceAndPreservesExistingGenerationSurfaces()
     {
-        Assert.Contains("<ProductionWorkspace @key=\"_durableWorkspaceRefreshKey\" SessionId=\"@sessionId\" />", Source, StringComparison.Ordinal);
+        Assert.Contains("<RunTray SessionId=\"@sessionId\" InteractionId=\"@interactionId\" MomentEnrichmentId=\"@(_productionGroup?.MomentEnrichmentId ?? _momentEnrichment?.Id)\" />", Source, StringComparison.Ordinal);
         Assert.Contains("SceneImageProductionSchema.CurrentGeneration", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("<div hidden=\"@IsCurrentProductionSession\">", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("scene-image-legacy-tools\" hidden=\"@IsCurrentProductionSession\"", Source, StringComparison.Ordinal);
         Assert.Contains("@if (IsSelectedMomentEnriched)", Source, StringComparison.Ordinal);
-        Assert.Contains("@bind=\"_selectedProductionModelId\"", Source, StringComparison.Ordinal);
+        Assert.Contains("Composition Composer", Source, StringComparison.Ordinal);
         Assert.Contains("@bind=\"_selectedGenericModelId\"", Source, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"() => OpenImageEditor(img)\"", Source, StringComparison.Ordinal);
         Assert.Contains("This session predates the current production schema. Create a new session", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProductionStudio_SeparatesPovWorkbenchFromReusableDurableJobsTray()
+    {
+        Assert.Contains("ProductionStudioTab.ProductionPov", Source, StringComparison.Ordinal);
+        Assert.Contains("ProductionStudioTab.Jobs", Source, StringComparison.Ordinal);
+        Assert.Contains("<RunTray SessionId=\"@sessionId\" InteractionId=\"@interactionId\" MomentEnrichmentId=\"@(_productionGroup?.MomentEnrichmentId ?? _momentEnrichment?.Id)\" />", Source, StringComparison.Ordinal);
+        Assert.Contains("public string? MomentEnrichmentId", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("ProductionGroupRepository.ListByInteractionAsync(SessionId, InteractionId)", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("group.MomentEnrichmentId, MomentEnrichmentId", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("ImageService.ListImagesByProductionGroupAsync(group.Id)", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("JobRepository.ListRecentAsync(200)", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("Take(100)", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("JobQueue.TryActivateAsync(jobId, DateTime.UtcNow)", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("JobQueue.TryCancelAsync(jobId, cancelledUtc)", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("ImageService.TryCancelImageAsync(SessionId, imageRecordId, cancelledUtc)", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("<th>Target</th>", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("ModelRepository.GetByIdAsync(attempt.RequestedModelId)", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("ProviderRepository.GetByIdAsync(model.ProviderId)", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("model?.DisplayName", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("DurableBackgroundJobStatus.Staged", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("Confirm cancel", RunTraySource, StringComparison.Ordinal);
+        Assert.Contains("Queue payload", RunTraySource, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -80,7 +129,7 @@ public sealed class SceneImageStudioUiContractTests
         Assert.DoesNotContain("Compiler settings JSON", ProductionWorkspaceSource, StringComparison.Ordinal);
         Assert.DoesNotContain("@onclick=\"PrepareRevisionAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"SubmitSelectedAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
-        Assert.Contains("@onclick=\"CancelSelectedAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"BeginCancelConfirmation\"", ProductionWorkspaceSource, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"RetrySelectedAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
         Assert.Contains("ReviewSelectedAsync", ProductionWorkspaceSource, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"ApproveSelectedAsync\"", ProductionWorkspaceSource, StringComparison.Ordinal);
@@ -112,13 +161,17 @@ public sealed class SceneImageStudioUiContractTests
     }
 
     [Fact]
-    public void ApplyProductionIdentity_UsesResolvedReadinessInsteadOfHiddenPackSelection()
+    public void ApplyProductionIdentity_UsesTheProductionIdentityOperationInsteadOfHiddenPackSelection()
     {
         var methodStart = IndexOf("private async Task ApplyProductionIdentityAsync()");
         var methodEnd = IndexOf("private async Task SkipProductionIdentityAsync()", methodStart);
         var method = Source[methodStart..methodEnd];
 
-        Assert.Contains("_productionIdentityReadiness.Select(binding => binding.CharacterName)", method, StringComparison.Ordinal);
+        Assert.Contains("Instruction = \"Face-only identity correction.\"", method, StringComparison.Ordinal);
+        Assert.Contains("ReferenceApplications = _productionReferenceApplications", method, StringComparison.Ordinal);
+        Assert.Contains("Image 1 is the existing scene and must remain the base image.", SceneImageServiceSource, StringComparison.Ordinal);
+        Assert.Contains("additional approved face images are identity references only, not replacement images or composition sources.", SceneImageServiceSource, StringComparison.Ordinal);
+        Assert.Contains("Treat the existing scene's visible neck and body skin tone as authoritative", SceneImageServiceSource, StringComparison.Ordinal);
         Assert.DoesNotContain("Select at least one approved identity pack", method, StringComparison.Ordinal);
         Assert.DoesNotContain("_productionIdentityPacks.Where(option => option.Selected)", method, StringComparison.Ordinal);
     }
@@ -139,9 +192,53 @@ public sealed class SceneImageStudioUiContractTests
     }
 
     [Fact]
+    public void ProductionAttempts_ShowEveryStageAcrossTheFullWorkspaceWithAnEditorLink()
+    {
+        Assert.Contains("new[] { SceneImageProductionStage.Composition, SceneImageProductionStage.Identity, SceneImageProductionStage.Finish }", Source, StringComparison.Ordinal);
+        Assert.Contains("href=\"/roleplay/image-editor/@sessionId/@interactionId/@attempt.Id\"", Source, StringComparison.Ordinal);
+        Assert.Contains("var editAttempts = _productionAttempts", Source, StringComparison.Ordinal);
+        Assert.Contains("aria-label=\"Image edits\"", Source, StringComparison.Ordinal);
+        Assert.Contains("title=\"Open this edit in the image editor\"", Source, StringComparison.Ordinal);
+        Assert.Contains(".scene-production-attempts {\r\n    grid-row: 6;", SceneImageStudioStylesheet, StringComparison.Ordinal);
+        Assert.Contains(".scene-production-canvas-actions,\r\n.scene-production-attempts {\r\n    grid-column: 1 / -1;", SceneImageStudioStylesheet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SceneImageEditor_AutomaticallyAnalyzesSourceAndExposesNativeQwenReferences()
+    {
+        Assert.Contains("await CompilationService.EnqueueDescriptionAsync(_editSession.Id);", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("_descriptionPending = true;", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("EditorReferenceStrategies = [\"TextOnly\", \"NativeMultiReference\"]", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("EditorModelId = _selectedEditorModelId!", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("ReferenceApplications = _referenceApplications", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("_sourceImage = routedImage;", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("SourceImageId = _sourceImage.Id", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("_lineageRootId = FindLineageRootId(images, _sourceImage)", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("_lineage = BuildLineage(images, _lineageRootId ?? _sourceImage.Id)", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("private static string FindLineageRootId", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("image.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(image.FileRelativePath)", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("class=\"scene-edit-lineage-thumb\"", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("Exact edit prompt", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("@image.PromptSnapshot", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("Nav.NavigateTo($\"/roleplay/studio/{sessionId}/{interactionId}\", forceLoad: true);", SceneImageEditorSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EditIterateWorkbench_ForwardsBoundFieldsToItsParent()
+    {
+        Assert.Contains("@bind:set=\"SetIntentAsync\"", EditIterateWorkbenchSource, StringComparison.Ordinal);
+        Assert.Contains("await IntentChanged.InvokeAsync(value);", EditIterateWorkbenchSource, StringComparison.Ordinal);
+        Assert.Contains("await ClarificationChanged.InvokeAsync(value);", EditIterateWorkbenchSource, StringComparison.Ordinal);
+        Assert.Contains("await EditablePromptChanged.InvokeAsync(value);", EditIterateWorkbenchSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void StagedWorkbench_ExposesReadinessParentSelectionAndSkipDialog()
     {
         Assert.Contains("StageState(SceneImageProductionStage.Composition)", Source, StringComparison.Ordinal);
+        Assert.Contains("CompletedProductionAttempts()", Source, StringComparison.Ordinal);
+        Assert.Contains("OpenIdentityEdit", Source, StringComparison.Ordinal);
+        Assert.Contains("only to selected faces", Source, StringComparison.Ordinal);
         Assert.Contains("ReadyIdentityCount(characters)", Source, StringComparison.Ordinal);
         Assert.Contains("IdentityReadinessFor(character.Name)", Source, StringComparison.Ordinal);
         Assert.Contains("EligibleFinishParents()", Source, StringComparison.Ordinal);
@@ -158,6 +255,8 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("Identity-stale", Source, StringComparison.Ordinal);
         Assert.Contains("CompareDifferences()", Source, StringComparison.Ordinal);
         Assert.Contains("IdentityReferenceBindingsJson", Source, StringComparison.Ordinal);
+        Assert.Contains("Reference image {selected.Ordinal + 1}", SceneImageServiceSource, StringComparison.Ordinal);
+        Assert.Contains("selected face identity reference for {binding.CharacterName} (CharacterFace:{binding.CharacterId})", SceneImageEditingJobHandlerSource, StringComparison.Ordinal);
         Assert.Contains("Attempt @", Source, StringComparison.Ordinal);
         Assert.Contains("aria-label=\"Attempt @(compareIndex == 0 ? \"A\" : \"B\")\"", Source, StringComparison.Ordinal);
     }
@@ -249,6 +348,22 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("CatalogueId = productionGroup?.CatalogueId", imageService, StringComparison.Ordinal);
         Assert.Contains("MomentEnrichmentId = productionGroup?.MomentEnrichmentId", imageService, StringComparison.Ordinal);
         Assert.Contains("ProductionStage = productionGroup is null ? null", imageService, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenericSceneImageEdit_DoesNotEnterProductionFinishWorkflow()
+    {
+        var imageService = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "DreamGenClone.Web", "Application", "RolePlay", "SceneImageService.cs"));
+        var genericEditStart = imageService.IndexOf("public async Task<SceneImageRecord> EnqueueEditAsync", StringComparison.Ordinal);
+        var genericEditEnd = imageService.IndexOf("public Task<SceneImagePromptRecord?> GetPromptAsync", genericEditStart, StringComparison.Ordinal);
+
+        Assert.True(genericEditStart >= 0 && genericEditEnd > genericEditStart,
+            "Could not isolate SceneImageService.EnqueueEditAsync.");
+        var genericEditSource = imageService[genericEditStart..genericEditEnd];
+        Assert.Contains("ProductionGroupId = source.ProductionGroupId", genericEditSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProductionStage = SceneImageProductionStage.Finish", genericEditSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Disposition = SceneImageAttemptDisposition.Active", genericEditSource, StringComparison.Ordinal);
     }
 
     private static int IndexOf(string value, int startIndex = 0)

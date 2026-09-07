@@ -53,6 +53,11 @@ public sealed class SceneMomentDiscoveryPipelineService : ISceneMomentDiscoveryP
         CancellationToken cancellationToken = default)
         => _momentSetRepository.GetCurrentAsync(beatProductionPlanId, cancellationToken);
 
+    public Task<SceneMomentSet?> GetAsync(
+        string momentSetId,
+        CancellationToken cancellationToken = default)
+        => _momentSetRepository.GetAsync(momentSetId, cancellationToken);
+
     public async Task CancelAsync(string momentSetId, CancellationToken cancellationToken = default)
     {
         var momentSet = await _momentSetRepository.GetAsync(momentSetId, cancellationToken)

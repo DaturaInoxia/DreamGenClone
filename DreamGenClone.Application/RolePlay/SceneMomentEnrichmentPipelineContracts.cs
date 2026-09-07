@@ -25,5 +25,9 @@ public interface ISceneMomentEnrichmentPipelineService
         string momentId,
         CancellationToken cancellationToken = default);
 
+    Task<SceneMomentEnrichment?> GetAsync(
+        string enrichmentId,
+        CancellationToken cancellationToken = default);
+
     Task CancelAsync(string enrichmentId, CancellationToken cancellationToken = default);
 }

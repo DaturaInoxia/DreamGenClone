@@ -27,7 +27,4 @@ public sealed class WorkspaceSettingsState
     /// <summary>Default image size (e.g. "1024x1024").</summary>
     public string ImageSize { get; set; } = "1024x1024";
 
-    /// <summary>Default selected. Honored only when the resolved image provider content policy is
-    /// adult-allowed; the studio clamps to safe-for-work otherwise.</summary>
-    public bool AllowExplicitImage { get; set; } = true;
 }

@@ -32,7 +32,7 @@ public sealed class DurableBackgroundJobRepository : IDurableBackgroundJobReposi
                 NextAttemptUtc, LeaseOwner, LeaseExpiresUtc, ErrorCode, ErrorMessage,
                 CreatedUtc, UpdatedUtc, CompletedUtc)
             VALUES (
-                $id, $jobType, $lane, $payloadJson, $dedupeKey, 'Queued', 0, $maxAttempts,
+                $id, $jobType, $lane, $payloadJson, $dedupeKey, $status, 0, $maxAttempts,
                 NULL, NULL, NULL, NULL, NULL, $createdUtc, $createdUtc, NULL);
             """;
         command.Parameters.AddWithValue("$id", job.Id.Trim());
@@ -40,11 +40,31 @@ public sealed class DurableBackgroundJobRepository : IDurableBackgroundJobReposi
         command.Parameters.AddWithValue("$lane", job.Lane.ToString());
         command.Parameters.AddWithValue("$payloadJson", job.PayloadJson);
         command.Parameters.AddWithValue("$dedupeKey", job.DedupeKey.Trim());
+        command.Parameters.AddWithValue("$status", job.Status.ToString());
         command.Parameters.AddWithValue("$maxAttempts", job.MaxAttempts);
         command.Parameters.AddWithValue("$createdUtc", FormatUtc(job.CreatedUtc));
         var inserted = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
         await transaction.CommitAsync(cancellationToken);
         return inserted;
+    }
+
+    public async Task<bool> TryActivateAsync(
+        string jobId,
+        DateTime activatedUtc,
+        CancellationToken cancellationToken = default)
+    {
+        Require(jobId, "Job id");
+        RequireUtc(activatedUtc, "Activated UTC");
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE DurableBackgroundJobs
+            SET Status = 'Queued', UpdatedUtc = $activatedUtc
+            WHERE Id = $id AND Status = 'Staged';
+            """;
+        command.Parameters.AddWithValue("$id", jobId.Trim());
+        command.Parameters.AddWithValue("$activatedUtc", FormatUtc(activatedUtc));
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
     public async Task<DurableBackgroundJob?> GetAsync(
@@ -58,6 +78,25 @@ public sealed class DurableBackgroundJobRepository : IDurableBackgroundJobReposi
         command.Parameters.AddWithValue("$id", jobId.Trim());
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? Read(reader) : null;
+    }
+
+    public async Task<IReadOnlyList<DurableBackgroundJob>> ListRecentAsync(
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit <= 0)
+            throw new InvalidOperationException("Durable job list limit must be positive.");
+
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = CreateSelect(connection);
+        command.CommandText += " ORDER BY UpdatedUtc DESC, Id ASC LIMIT $limit;";
+        command.Parameters.AddWithValue("$limit", limit);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var jobs = new List<DurableBackgroundJob>();
+        while (await reader.ReadAsync(cancellationToken))
+            jobs.Add(Read(reader));
+
+        return jobs;
     }
 
     public async Task<bool> HasActiveJobsAsync(
@@ -215,7 +254,7 @@ public sealed class DurableBackgroundJobRepository : IDurableBackgroundJobReposi
             UPDATE DurableBackgroundJobs
             SET Status = 'Cancelled', LeaseOwner = NULL, LeaseExpiresUtc = NULL,
                 NextAttemptUtc = NULL, UpdatedUtc = $cancelledUtc, CompletedUtc = $cancelledUtc
-            WHERE Id = $id AND Status IN ('Queued', 'Processing', 'RetryScheduled');
+            WHERE Id = $id AND Status IN ('Staged', 'Queued', 'Processing', 'RetryScheduled');
             """;
         command.Parameters.AddWithValue("$id", jobId.Trim());
         command.Parameters.AddWithValue("$cancelledUtc", FormatUtc(cancelledUtc));
@@ -302,7 +341,7 @@ public sealed class DurableBackgroundJobRepository : IDurableBackgroundJobReposi
             );
             CREATE UNIQUE INDEX IF NOT EXISTS UX_DurableBackgroundJobs_ActiveDedupe
                 ON DurableBackgroundJobs (DedupeKey)
-                WHERE Status IN ('Queued', 'Processing', 'RetryScheduled');
+                WHERE Status IN ('Staged', 'Queued', 'Processing', 'RetryScheduled');
             CREATE INDEX IF NOT EXISTS IX_DurableBackgroundJobs_Claim
                 ON DurableBackgroundJobs (Lane, Status, NextAttemptUtc, CreatedUtc);
             CREATE INDEX IF NOT EXISTS IX_DurableBackgroundJobs_Lease
@@ -352,8 +391,9 @@ public sealed class DurableBackgroundJobRepository : IDurableBackgroundJobReposi
         Require(job.PayloadJson, "Payload JSON");
         Require(job.DedupeKey, "Dedupe key");
         RequireUtc(job.CreatedUtc, "Created UTC");
-        if (job.Status != DurableBackgroundJobStatus.Queued || job.AttemptCount != 0)
-            throw new InvalidOperationException("A new durable job must be Queued with zero attempts.");
+        if (job.Status is not (DurableBackgroundJobStatus.Staged or DurableBackgroundJobStatus.Queued)
+            || job.AttemptCount != 0)
+            throw new InvalidOperationException("A new durable job must be Staged or Queued with zero attempts.");
         if (job.MaxAttempts < 1)
             throw new InvalidOperationException("A durable job requires a positive configured maximum attempt count.");
         if (job.NextAttemptUtc is not null || job.LeaseOwner is not null || job.LeaseExpiresUtc is not null

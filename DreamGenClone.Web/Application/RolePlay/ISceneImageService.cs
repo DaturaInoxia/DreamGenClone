@@ -35,6 +35,13 @@ public interface ISceneImageService
     Task<SceneImageRecord> EnqueueFinishAsync(
         SceneImageFinishRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Marks an exact in-flight image attempt as cancelled after its durable job is cancelled.</summary>
+    Task<bool> TryCancelImageAsync(
+        string sessionId,
+        string imageId,
+        DateTime cancelledUtc,
+        CancellationToken cancellationToken = default);
+
     Task<SceneImagePromptRecord?> GetPromptAsync(
         string sessionId, string promptId, CancellationToken cancellationToken = default);
 

@@ -1,0 +1,9 @@
+facenet-pytorch==2.6.0
+torch==2.2.2
+torchvision==0.17.2
+# open-clip pinned to a version that fetches the OpenAI 'openai' CLIP weights from the Azure CDN, because Hugging Face is TLS-blocked on this machine.
+open-clip-torch==2.24.0
+pillow==10.2.0
+numpy==1.26.4
+pytest==9.1.1
+# DINOv2 loads via torch.hub; CLIP via open-clip. Isolated Python 3.12 venv (app venv is 3.14).

@@ -13,9 +13,6 @@ public sealed class SceneImageStudioSettings
 
     public string? AspectRatio { get; set; }
 
-    /// <summary>Honored only when the resolved provider content policy is adult-allowed.</summary>
-    public bool AllowExplicitImage { get; set; } = true;
-
     /// <summary>
     /// Optional camera angle override applied to the Omniscient (external fly-on-the-wall) POV. When
     /// null the frame defaults to a neutral wide composition. Ignored for participant POVs.

@@ -56,6 +56,7 @@ public sealed class RunPodServerlessEditingClient : IImageEditingClient
         var client = _httpClientFactory.CreateClient("CompletionClient");
         client.Timeout = TimeSpan.FromSeconds(model.ProviderTimeoutSeconds);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _encryptionService.Decrypt(model.ApiKeyEncrypted));
+        var jobId = string.Empty;
 
         try
         {
@@ -101,7 +102,7 @@ public sealed class RunPodServerlessEditingClient : IImageEditingClient
             }
 
             var submitBody = await submitResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken);
-            var jobId = submitBody?["id"]?.GetValue<string>();
+            jobId = submitBody?["id"]?.GetValue<string>() ?? string.Empty;
             if (string.IsNullOrEmpty(jobId))
             {
                 throw new ImageGenerationException(
@@ -171,11 +172,43 @@ public sealed class RunPodServerlessEditingClient : IImageEditingClient
                 b64 = b64[(b64.IndexOf(',') + 1)..];
             }
 
-            var bytes = Convert.FromBase64String(b64);
+            byte[] bytes;
+            try
+            {
+                bytes = Convert.FromBase64String(b64);
+            }
+            catch (FormatException)
+            {
+                throw new ImageGenerationException(
+                    $"RunPod serverless job {jobId} returned malformed base64 output.",
+                    model.ProviderName,
+                    reasonCode: "runpod_bad_base64");
+            }
+
             _logger.LogInformation(
                 "RunPod serverless source-image edit completed: Provider={ProviderName}, Bytes={Bytes}, JobId={JobId}",
                 model.ProviderName, bytes.Length, jobId);
             return bytes;
+        }
+        catch (OperationCanceledException)
+        {
+            if (!string.IsNullOrEmpty(jobId))
+            {
+                try
+                {
+                    using var cancelTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    var cancelClient = _httpClientFactory.CreateClient("CompletionClient");
+                    cancelClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                        "Bearer", _encryptionService.Decrypt(model.ApiKeyEncrypted));
+                    using var cancelResponse = await cancelClient.PostAsync(
+                        $"{baseUrl}/cancel/{jobId}", content: null, cancelTimeout.Token);
+                }
+                catch
+                {
+                }
+            }
+
+            throw;
         }
         catch (ImageGenerationException)
         {
@@ -220,6 +253,7 @@ public sealed class RunPodServerlessEditingClient : IImageEditingClient
         var client = _httpClientFactory.CreateClient("CompletionClient");
         client.Timeout = TimeSpan.FromSeconds(model.ProviderTimeoutSeconds);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _encryptionService.Decrypt(model.ApiKeyEncrypted));
+        var jobId = string.Empty;
 
         try
         {
@@ -258,7 +292,7 @@ public sealed class RunPodServerlessEditingClient : IImageEditingClient
             }
 
             var submitBody = await submitResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken);
-            var jobId = submitBody?["id"]?.GetValue<string>();
+            jobId = submitBody?["id"]?.GetValue<string>() ?? string.Empty;
             if (string.IsNullOrEmpty(jobId))
                 throw new ImageGenerationException("RunPod serverless returned no job id for the reference image edit.", model.ProviderName, reasonCode: "runpod_edit_no_job_id");
 
@@ -290,7 +324,37 @@ public sealed class RunPodServerlessEditingClient : IImageEditingClient
             if (string.IsNullOrWhiteSpace(base64))
                 throw new ImageGenerationException($"RunPod serverless edit job {jobId} produced no output image.", model.ProviderName, reasonCode: "runpod_edit_no_output");
             if (base64.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) base64 = base64[(base64.IndexOf(',') + 1)..];
-            return Convert.FromBase64String(base64);
+            try
+            {
+                return Convert.FromBase64String(base64);
+            }
+            catch (FormatException)
+            {
+                throw new ImageGenerationException(
+                    $"RunPod serverless job {jobId} returned malformed base64 output.",
+                    model.ProviderName,
+                    reasonCode: "runpod_bad_base64");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (!string.IsNullOrEmpty(jobId))
+            {
+                try
+                {
+                    using var cancelTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    var cancelClient = _httpClientFactory.CreateClient("CompletionClient");
+                    cancelClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                        "Bearer", _encryptionService.Decrypt(model.ApiKeyEncrypted));
+                    using var cancelResponse = await cancelClient.PostAsync(
+                        $"{baseUrl}/cancel/{jobId}", content: null, cancelTimeout.Token);
+                }
+                catch
+                {
+                }
+            }
+
+            throw;
         }
         catch (ImageGenerationException)
         {

@@ -34,6 +34,7 @@ DreamGenClone.Web/data/*
 # Python
 __pycache__/
 *.py[cod]
+tools/consistency-scoring/.venv/
 
 # IDE/editor
 .vscode/

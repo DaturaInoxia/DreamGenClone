@@ -43,6 +43,9 @@ internal sealed class RecordingDurableQueue : IDurableBackgroundJobQueue
         return Task.FromResult(true);
     }
 
+    public Task<bool> TryActivateAsync(string jobId, DateTime activatedUtc, CancellationToken cancellationToken = default)
+        => Task.FromResult(_jobs.Any(item => item.Id == jobId));
+
     public Task<DurableBackgroundJob?> GetAsync(string jobId, CancellationToken cancellationToken = default)
         => Task.FromResult(_jobs.SingleOrDefault(item => item.Id == jobId));
 

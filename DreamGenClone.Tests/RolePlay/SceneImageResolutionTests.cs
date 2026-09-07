@@ -63,7 +63,15 @@ public sealed class SceneImageResolutionTests
 
     private sealed class FakeSecretProvider : IModelManagerSecretProvider
     {
-        public string? Resolve(string? keyName) => null;
+        private readonly IReadOnlyDictionary<string, string> _secrets;
+
+        public FakeSecretProvider(IReadOnlyDictionary<string, string>? secrets = null)
+        {
+            _secrets = secrets ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        public string? Resolve(string? keyName) =>
+            keyName is not null && _secrets.TryGetValue(keyName, out var secret) ? secret : null;
     }
 
     private sealed class FakeApiKeyEncryptionService : IApiKeyEncryptionService
@@ -72,14 +80,15 @@ public sealed class SceneImageResolutionTests
         public string Decrypt(string encryptedApiKey) => encryptedApiKey;
     }
 
-    private static (ModelResolutionService service, FakeFunctionDefaultRepository funcDefaults, FakeRegisteredModelRepository models, FakeProviderRepository providers) Build()
+    private static (ModelResolutionService service, FakeFunctionDefaultRepository funcDefaults, FakeRegisteredModelRepository models, FakeProviderRepository providers) Build(
+        IReadOnlyDictionary<string, string>? secrets = null)
     {
         var funcDefaults = new FakeFunctionDefaultRepository();
         var models = new FakeRegisteredModelRepository();
         var providers = new FakeProviderRepository();
         var service = new ModelResolutionService(
             funcDefaults, models, providers,
-            new FakeSecretProvider(), new FakeApiKeyEncryptionService(),
+            new FakeSecretProvider(secrets), new FakeApiKeyEncryptionService(),
             NullLogger<ModelResolutionService>.Instance);
         return (service, funcDefaults, models, providers);
     }
@@ -372,6 +381,25 @@ public sealed class SceneImageResolutionTests
         Assert.Equal(0.2, resolved.Temperature);
         Assert.Equal("runtime-1", resolved.RuntimeRevision);
         Assert.Contains("image/webp", resolved.AcceptedInputMediaTypes);
+    }
+
+    [Fact]
+    public async Task ResolveMultimodalModel_UsesOnlyTheConfiguredCredentialReferenceWhenDatabaseCredentialIsAbsent()
+    {
+        var (service, defaults, models, providers) = Build(new Dictionary<string, string>
+        {
+            ["vision-api-key"] = "configured-local-credential",
+            ["Vision"] = "provider-name-credential",
+            ["RunPod"] = "default-credential"
+        });
+        SeedMultimodal(defaults, models, providers, AppFunction.RolePlaySceneImageEditPromptCompiler, "compiler-default");
+        var provider = await providers.GetByIdAsync("provider-vl");
+        provider!.ApiKeyEncrypted = null;
+
+        var resolved = await ((IMultimodalModelResolutionService)service)
+            .ResolveAsync(AppFunction.RolePlaySceneImageEditPromptCompiler);
+
+        Assert.Equal("configured-local-credential", resolved.ApiKeyEncrypted);
     }
 
     [Fact]

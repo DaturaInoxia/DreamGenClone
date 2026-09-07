@@ -3,6 +3,7 @@ using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Application.Processing;
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
@@ -23,6 +24,7 @@ public sealed class SceneAssetEditingJobHandler : IBackgroundJobHandler, IDurabl
     private readonly ISceneAssetStorageService _storage;
     private readonly IImageEditorModelResolver _modelResolver;
     private readonly IImageEditingClient _imageEditingClient;
+    private readonly IReferenceStrategyResolver _referenceStrategyResolver;
     private readonly ILogger<SceneAssetEditingJobHandler> _logger;
 
     public SceneAssetEditingJobHandler(
@@ -30,12 +32,14 @@ public sealed class SceneAssetEditingJobHandler : IBackgroundJobHandler, IDurabl
         ISceneAssetStorageService storage,
         IImageEditorModelResolver modelResolver,
         IImageEditingClient imageEditingClient,
+        IReferenceStrategyResolver referenceStrategyResolver,
         ILogger<SceneAssetEditingJobHandler> logger)
     {
         _repository = repository;
         _storage = storage;
         _modelResolver = modelResolver;
         _imageEditingClient = imageEditingClient;
+        _referenceStrategyResolver = referenceStrategyResolver;
         _logger = logger;
     }
 
@@ -83,7 +87,7 @@ public sealed class SceneAssetEditingJobHandler : IBackgroundJobHandler, IDurabl
         {
             var editor = await _modelResolver.ResolveByIdAsync(payload.ModelId, cancellationToken);
             await using var sourceStream = await _storage.OpenReadAsync(source.FileRelativePath, cancellationToken);
-            var bytes = await _imageEditingClient.EditAsync(editor, sourceStream, $"{source.Id}.png", image.Prompt, cancellationToken);
+            var bytes = await ExecuteEditAsync(image, payload, editor, sourceStream, source.Id, cancellationToken);
             image.ModelSnapshotJson = JsonSerializer.Serialize(new
             {
                 requestedModelId = payload.ModelId,
@@ -106,6 +110,61 @@ public sealed class SceneAssetEditingJobHandler : IBackgroundJobHandler, IDurabl
             await _repository.UpsertImageAsync(image, cancellationToken);
             _logger.LogWarning("Scene asset image editing failed: AssetId={AssetId}, ImageId={ImageId}, Error={Error}", asset.Id, image.Id, ex.Message);
             throw;
+        }
+    }
+
+    private async Task<byte[]> ExecuteEditAsync(
+        SceneAssetImage image,
+        SceneAssetEditingJobPayload payload,
+        ResolvedImageEditorModel editor,
+        Stream sourceStream,
+        string sourceImageId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(payload.ReferenceApplicationsJson))
+            return await _imageEditingClient.EditAsync(editor, sourceStream, $"{sourceImageId}.png", image.Prompt, cancellationToken);
+
+        var applications = JsonSerializer.Deserialize<IReadOnlyList<ReferenceApplicationSelection>>(payload.ReferenceApplicationsJson, JsonOptions)
+            ?? throw new InvalidOperationException("Asset edit reference applications are invalid.");
+        var referenceApplications = applications.Where(application => application.UsesReference).ToList();
+        if (referenceApplications.Count == 0)
+            return await _imageEditingClient.EditAsync(editor, sourceStream, $"{sourceImageId}.png", image.Prompt, cancellationToken);
+        if (string.IsNullOrWhiteSpace(editor.RegisteredModelId))
+            throw new InvalidOperationException("Asset reference editing requires the exact registered editor model id.");
+
+        var streams = new List<Stream>(referenceApplications.Count);
+        try
+        {
+            var references = new List<ImageEditingReference>(referenceApplications.Count);
+            for (var index = 0; index < referenceApplications.Count; index++)
+            {
+                var application = referenceApplications[index];
+                var resolution = await _referenceStrategyResolver.ResolveAsync(editor.RegisteredModelId, application.Strategy, cancellationToken);
+                if (!resolution.IsAvailable)
+                    throw new InvalidOperationException($"Asset edit reference strategy '{application.Strategy}' for '{application.ElementKey}' is unavailable: {resolution.Reason}");
+                if (!string.Equals(resolution.Strategy, "ReferenceConditioning", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"Asset edit reference strategy '{resolution.Strategy}' for '{application.ElementKey}' is qualified but has no implemented Qwen reference-edit graph.");
+                var assetImage = await _repository.GetImageAsync(application.SceneAssetImageId!, cancellationToken)
+                    ?? throw new InvalidOperationException($"Asset edit reference image '{application.SceneAssetImageId}' was not found.");
+                if (!string.Equals(assetImage.AssetId, application.SceneAssetId, StringComparison.Ordinal)
+                    || assetImage.ProductionApprovalStatus != SceneAssetProductionApprovalStatus.Approved
+                    || assetImage.ProductionVersion != application.SceneAssetVersion
+                    || !string.Equals(assetImage.Sha256, application.SceneAssetSha256, StringComparison.Ordinal)
+                    || assetImage.Status != SceneAssetStatus.Complete
+                    || string.IsNullOrWhiteSpace(assetImage.FileRelativePath))
+                {
+                    throw new InvalidOperationException($"Asset edit reference image '{application.SceneAssetImageId}' no longer matches its approved immutable selection.");
+                }
+                var stream = await _storage.OpenReadAsync(assetImage.FileRelativePath, cancellationToken);
+                streams.Add(stream);
+                references.Add(new ImageEditingReference(index + 1, application.SemanticRole, stream, $"{assetImage.Id}.png", assetImage.Sha256));
+            }
+            return await _imageEditingClient.EditWithReferencesAsync(editor, sourceStream, $"{sourceImageId}.png", image.Prompt, references, cancellationToken);
+        }
+        finally
+        {
+            foreach (var stream in streams)
+                await stream.DisposeAsync();
         }
     }
 

@@ -1,9 +1,8 @@
 namespace DreamGenClone.Domain.ModelManager;
 
 /// <summary>
-/// Adult-content policy of an image provider. Resolved at generation time from the provider
-/// record — never assumed. Explicit content is only generated when the policy is adult-allowed;
-/// a filtered provider is clamped to safe-for-work output (logged, never silently bypassed).
+/// Adult-content capability of an image provider. Resolved at generation time from the provider
+/// record — never assumed. The capability is retained for provider refusal and edit enforcement.
 /// </summary>
 public enum ImageContentPolicy
 {

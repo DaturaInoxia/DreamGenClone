@@ -233,7 +233,7 @@ public sealed class ProductionMediaCompilerTests
         roles.Select((role, index) => new OrderedMediaReferenceBinding
         {
             Id = $"binding-{index}", CompiledRequestId = requestId, Ordinal = index,
-            SemanticRole = role, ActorKey = index == 0 ? null : "actor-a", SceneAssetId = $"asset-{index}",
+            SemanticRole = role, Strategy = "TextOnly", ActorKey = index == 0 ? null : "actor-a", SceneAssetId = $"asset-{index}",
             SceneAssetVersion = 1, SceneAssetSha256 = new string((char)('A' + index), 64),
             BindingSnapshotJson = "{}", CreatedUtc = new DateTime(2026, 9, 2, 12, 0, 0, DateTimeKind.Utc)
         }).ToList();

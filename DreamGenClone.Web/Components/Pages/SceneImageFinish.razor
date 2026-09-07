@@ -1,0 +1,64 @@
+@page "/roleplay/studio/{sessionId}/{interactionId}/finish/{productionGroupId}/{sourceImageId}"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Models
+
+@inject ISceneImageProductionService ProductionService
+@inject ISceneImageService ImageService
+
+<PageTitle>Finish Moment Image - DreamGenClone</PageTitle>
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <a class="btn btn-sm btn-outline-secondary" href="/roleplay/studio/@sessionId/@interactionId/compose/@productionGroupId"><i class="bi bi-arrow-left me-1"></i>Back to Compose</a>
+        <a class="btn btn-sm btn-outline-primary" href="/review-deck/studio/@productionGroupId"><i class="bi bi-images me-1"></i>Review Deck</a>
+    </div>
+    <h4>Finish image</h4>
+    @if (!string.IsNullOrWhiteSpace(_errorMessage)) { <div class="alert alert-danger">@_errorMessage</div> }
+    @if (!string.IsNullOrWhiteSpace(_statusMessage)) { <div class="alert alert-info">@_statusMessage</div> }
+    @if (_group is not null)
+    {
+        <div class="alert alert-secondary small"><strong>Moment:</strong> @_group.MomentId <span class="ms-2"><strong>POV:</strong> @_group.Pov</span></div>
+        <section class="card" aria-label="Finish inputs"><div class="card-header"><strong>3. Finish</strong></div><div class="card-body">
+            <label class="form-label" for="finish-parent">Eligible parent</label><select id="finish-parent" class="form-select" @bind="sourceImageId">@foreach (var attempt in _eligibleParents) { <option value="@attempt.Id">@attempt.ProductionStage - @attempt.Id</option> }</select>
+            <label class="form-label mt-3" for="finish-instruction">Change instruction</label><textarea id="finish-instruction" class="form-control" rows="4" @bind="_instruction"></textarea>
+            <fieldset class="mt-3"><legend class="form-label">Change class</legend><div class="d-flex gap-3"><label class="form-check"><input class="form-check-input" type="radio" value="Cosmetic" checked="@(_changeClass == SceneImageFinishChangeClass.Cosmetic)" @onchange="() => _changeClass = SceneImageFinishChangeClass.Cosmetic" /> Cosmetic</label><label class="form-check"><input class="form-check-input" type="radio" value="Geometry" checked="@(_changeClass == SceneImageFinishChangeClass.Geometry)" @onchange="() => _changeClass = SceneImageFinishChangeClass.Geometry" /> Geometry</label></div></fieldset>
+            <details class="mt-3"><summary class="small fw-semibold">View what will be submitted</summary><dl class="row small mt-2 mb-0"><dt class="col-sm-3">Group</dt><dd class="col-sm-9 font-monospace">@productionGroupId</dd><dt class="col-sm-3">Parent</dt><dd class="col-sm-9 font-monospace">@sourceImageId</dd><dt class="col-sm-3">Instruction</dt><dd class="col-sm-9">@_instruction</dd></dl></details>
+            <button class="btn btn-primary mt-4" disabled="@(_busy || string.IsNullOrWhiteSpace(_instruction) || !_changeClass.HasValue)" @onclick="EnqueueAsync"><i class="bi bi-sliders me-1"></i>Run Finish</button>
+        </div></section>
+    }
+</div>
+
+@code {
+    [Parameter] public string sessionId { get; set; } = string.Empty;
+    [Parameter] public string interactionId { get; set; } = string.Empty;
+    [Parameter] public string productionGroupId { get; set; } = string.Empty;
+    [Parameter] public string sourceImageId { get; set; } = string.Empty;
+    private SceneImageProductionGroup? _group;
+    private IReadOnlyList<SceneImageRecord> _eligibleParents = [];
+    private string _instruction = string.Empty;
+    private SceneImageFinishChangeClass? _changeClass;
+    private string? _errorMessage;
+    private string? _statusMessage;
+    private bool _busy;
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _group = await ProductionService.GetGroupAsync(productionGroupId) ?? throw new InvalidOperationException("The requested production group was not found.");
+            if (!string.Equals(_group.SessionId, sessionId, StringComparison.Ordinal) || !string.Equals(_group.InteractionId, interactionId, StringComparison.Ordinal)) throw new InvalidOperationException("The requested production group does not belong to this Studio Moment.");
+            _eligibleParents = (await ProductionService.ListAttemptsAsync(_group.Id)).Where(item => item.Status == SceneImageStatus.Complete && (item.ProductionStage == SceneImageProductionStage.Identity || (item.ProductionStage == SceneImageProductionStage.Composition && _group.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser))).ToList();
+            if (!_eligibleParents.Any(item => item.Id == sourceImageId)) throw new InvalidOperationException("Finish requires a completed Identity parent, or a Composition parent after an explicit identity skip.");
+        }
+        catch (Exception exception) { _errorMessage = exception.Message; }
+    }
+    private async Task EnqueueAsync()
+    {
+        _busy = true; _errorMessage = null;
+        try { var record = await ImageService.EnqueueFinishAsync(new SceneImageFinishRequest { SessionId = sessionId, InteractionId = interactionId, ProductionGroupId = productionGroupId, SourceImageId = sourceImageId, Instruction = _instruction.Trim(), FinishChangeClass = _changeClass }); _statusMessage = record.Status == SceneImageStatus.Complete ? $"Finish {record.Id} completed immediately through the hosted or dedicated provider." : $"Finish {record.Id} queued for the self-built serverless endpoint. Return to Compose to refresh the production attempts."; }
+        catch (Exception exception) { _errorMessage = exception.Message; }
+        finally { _busy = false; }
+    }
+}

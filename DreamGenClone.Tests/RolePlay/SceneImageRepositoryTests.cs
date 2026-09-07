@@ -284,7 +284,7 @@ public sealed class SceneImageRepositoryTests
                 PromptRecordId = "p1",
                 PromptSnapshot = "a cat in a hat",
                 Status = SceneImageStatus.Pending,
-                SettingsJson = "{\"Style\":\"cartoon\",\"ImageSize\":\"1024x1024\",\"AllowExplicitImage\":true}",
+                SettingsJson = "{\"Style\":\"cartoon\",\"ImageSize\":\"1024x1024\"}",
                 Style = "cartoon"
             };
             await repo.InsertImageAsync(image);
@@ -310,7 +310,7 @@ public sealed class SceneImageRepositoryTests
             Assert.Equal("Together", loaded.ProviderName);
             // CR-003: full settings snapshot persisted with the image.
             Assert.Equal("cartoon", loaded.Style);
-            Assert.Contains("AllowExplicitImage", loaded.SettingsJson, StringComparison.Ordinal);
+            Assert.Contains("1024x1024", loaded.SettingsJson, StringComparison.Ordinal);
 
             var byInteraction = await repo.ListImagesByInteractionAsync("s1", "i1");
             Assert.Single(byInteraction);
@@ -340,6 +340,41 @@ public sealed class SceneImageRepositoryTests
             await repo.DeleteImageAsync(image.Id);
             Assert.Null(await repo.GetImageAsync(image.Id));
             Assert.Single(await repo.ListImagesBySessionAsync("s1")); // failed remains
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task TryCancelImage_ChangesOnlyAnInFlightImageToCancelled()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "cancel me",
+                Status = SceneImageStatus.Pending
+            };
+            await repo.InsertImageAsync(image);
+
+            Assert.True(await repo.TryCancelImageAsync(image.Id, "s1", DateTime.UtcNow));
+            var cancelled = await repo.GetImageAsync(image.Id);
+            Assert.Equal(SceneImageStatus.Cancelled, cancelled!.Status);
+            Assert.Contains("Cancelled from Production Studio", cancelled.ErrorMessage, StringComparison.Ordinal);
+            Assert.NotNull(cancelled.CompletedUtc);
+            Assert.False(await repo.TryCancelImageAsync(image.Id, "s1", DateTime.UtcNow));
+
+            cancelled.Status = SceneImageStatus.Complete;
+            cancelled.CompletedUtc = DateTime.UtcNow;
+            cancelled.UpdatedUtc = DateTime.UtcNow;
+            Assert.False(await repo.TryCompleteImageAsync(cancelled));
+            Assert.Equal(SceneImageStatus.Cancelled, (await repo.GetImageAsync(image.Id))!.Status);
         }
         finally
         {

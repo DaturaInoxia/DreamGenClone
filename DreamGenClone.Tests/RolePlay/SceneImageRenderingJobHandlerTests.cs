@@ -15,9 +15,14 @@ public sealed class SceneImageRenderingJobHandlerTests
     public async Task HandleAsync_CompletedImage_IsIdempotentAndSkipsAllCollaborators()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"scene-image-render-handler-{Guid.NewGuid():N}.db");
+        var producedImagesDatabasePath = Path.Combine(Path.GetTempPath(), $"produced-images-render-handler-{Guid.NewGuid():N}.db");
         var repository = new SceneImageRepository(Options.Create(new PersistenceOptions
         {
             ConnectionString = $"Data Source={databasePath}"
+        }));
+        var producedImages = new ProducedImageRepository(Options.Create(new PersistenceOptions
+        {
+            ConnectionString = $"Data Source={producedImagesDatabasePath}"
         }));
         var image = new SceneImageRecord
         {
@@ -44,7 +49,8 @@ public sealed class SceneImageRenderingJobHandlerTests
                 identityRequestCompiler: null!,
                 compilerRegistry: null!,
                 debugEventSink: null!,
-                NullLogger<SceneImageRenderingJobHandler>.Instance);
+                NullLogger<SceneImageRenderingJobHandler>.Instance,
+                producedImages);
             var job = new BackgroundJobEnvelope
             {
                 JobType = BackgroundJobTypes.SceneImageRendering,
@@ -72,6 +78,8 @@ public sealed class SceneImageRenderingJobHandlerTests
                 {
                     if (File.Exists(databasePath + suffix))
                         File.Delete(databasePath + suffix);
+                    if (File.Exists(producedImagesDatabasePath + suffix))
+                        File.Delete(producedImagesDatabasePath + suffix);
                 }
                 catch
                 {

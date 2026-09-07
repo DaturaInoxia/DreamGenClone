@@ -21,6 +21,7 @@ public interface ISceneImageProductionService
 {
     Task<IReadOnlyList<SceneImageIdentityReadiness>> ResolveIdentityReadinessAsync(
         string productionGroupId,
+        IReadOnlyList<SceneImageIdentityReferenceSelection>? selections = null,
         CancellationToken cancellationToken = default);
 
     Task<CompiledMediaBrief> GetOrCreateStillBriefAsync(
@@ -43,6 +44,10 @@ public interface ISceneImageProductionService
     Task<SceneImageProductionGroup?> GetCurrentGroupAsync(
         string momentEnrichmentId,
         string pov,
+        CancellationToken cancellationToken = default);
+
+    Task<SceneImageProductionGroup?> GetGroupAsync(
+        string groupId,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<SceneImageRecord>> ListAttemptsAsync(

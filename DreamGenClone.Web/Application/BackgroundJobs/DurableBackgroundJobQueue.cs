@@ -23,6 +23,17 @@ public sealed class DurableBackgroundJobQueue : IDurableBackgroundJobQueue
         return enqueued;
     }
 
+    public async Task<bool> TryActivateAsync(
+        string jobId,
+        DateTime activatedUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var activated = await _repository.TryActivateAsync(jobId, activatedUtc, cancellationToken);
+        if (activated && _workSignal.CurrentCount == 0)
+            _workSignal.Release();
+        return activated;
+    }
+
     public Task<DurableBackgroundJob?> GetAsync(
         string jobId,
         CancellationToken cancellationToken = default)

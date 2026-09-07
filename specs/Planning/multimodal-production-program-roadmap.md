@@ -1,8 +1,24 @@
 # Multimodal Production Program Roadmap
 
-**State:** Active coordination plan  
-**Updated:** 2026-08-31  
+**State:** Active coordination plan — **partially superseded, see banner**
+**Updated:** 2026-09-05
 **Scope:** current `001-scene-image-generator` branch only; B-032, B-097, B-098, B-099, B-100, B-101, and B-102
+
+> ### ⛔ Partially superseded by B-111 (2026-09-05)
+>
+> The **image generation / editing / visual-consistency / provider-execution** layer of this roadmap
+> is now owned by **B-111 — Consistent Visual Production Program**
+> (`specs/Planning/B-111-consistent-visual-production/`). That covers everything this document says
+> about B-032 Phases 2–4, B-097, B-102, and the Program Phases 1 (Track A + Track B), 5 and 8 below.
+>
+> **This document still controls** the B-100 ↔ B-101 relationship, the canonical-ownership table for
+> story semantics, and Program Phases 2, 3, 4, 6, 7 and 9. B-111 declares a read contract to B-100
+> and B-101 and does not reinterpret story semantics.
+>
+> Where this roadmap and B-111 disagree on the visual layer, **B-111 controls**. The reason for the
+> handover is recorded in `B-111-consistent-visual-production/superseded-map.md` §3: the packages
+> sequenced here specified mechanisms rather than outcomes, so they could complete without producing
+> the wanted result — and each then spawned a follow-up fix-plan.
 
 > **Evidence boundary:** status and sequencing in this document use only commit `6fd483c` and the
 > current dirty worktree. Other branches are intentionally excluded.

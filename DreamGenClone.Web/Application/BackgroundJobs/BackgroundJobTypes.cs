@@ -12,7 +12,11 @@ public static class BackgroundJobTypes
     public const string SceneImageEditing = "scene-image-editing";
     public const string SceneImageEditPromptCompilation = "scene-image-edit-prompt-compilation";
     public const string SceneImageEditDescription = "scene-image-edit-description";
+    public const string SceneAssetImageEditPromptCompilation = "scene-asset-image-edit-prompt-compilation";
+    public const string SceneAssetImageEditDescription = "scene-asset-image-edit-description";
+    public const string SceneAssetImageEditing = "scene-asset-image-editing";
     public const string SceneAssetGeneration = "scene-asset-generation";
+    public const string ProducedImageGeneration = "produced-image-generation";
     public const string SceneAssetEditing = "scene-asset-editing";
     public const string SceneAssetProfilePackGeneration = "scene-asset-profile-pack-generation";
 }

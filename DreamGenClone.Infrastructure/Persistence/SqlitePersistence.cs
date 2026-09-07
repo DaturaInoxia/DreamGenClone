@@ -781,6 +781,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 IdentityAdapterRef TEXT NULL,
                 IdentityClipVisionRef TEXT NULL,
                 SupportedIdentityStrategiesJson TEXT NOT NULL DEFAULT '[]',
+                SupportedVisualStrategiesJson TEXT NOT NULL DEFAULT '[]',
+                CapabilityQualificationsJson TEXT NOT NULL DEFAULT '[]',
                 FOREIGN KEY (ProviderId) REFERENCES Providers(Id) ON DELETE CASCADE,
                 UNIQUE (ProviderId, ModelIdentifier)
             );
@@ -1491,7 +1493,9 @@ public sealed class SqlitePersistence : ISqlitePersistence
             ("IdentityStrength", "ALTER TABLE RegisteredModels ADD COLUMN IdentityStrength REAL NULL"),
             ("IdentityAdapterRef", "ALTER TABLE RegisteredModels ADD COLUMN IdentityAdapterRef TEXT NULL"),
             ("IdentityClipVisionRef", "ALTER TABLE RegisteredModels ADD COLUMN IdentityClipVisionRef TEXT NULL"),
-            ("SupportedIdentityStrategiesJson", "ALTER TABLE RegisteredModels ADD COLUMN SupportedIdentityStrategiesJson TEXT NOT NULL DEFAULT '[]'")
+            ("SupportedIdentityStrategiesJson", "ALTER TABLE RegisteredModels ADD COLUMN SupportedIdentityStrategiesJson TEXT NOT NULL DEFAULT '[]'"),
+            ("SupportedVisualStrategiesJson", "ALTER TABLE RegisteredModels ADD COLUMN SupportedVisualStrategiesJson TEXT NOT NULL DEFAULT '[]'"),
+            ("CapabilityQualificationsJson", "ALTER TABLE RegisteredModels ADD COLUMN CapabilityQualificationsJson TEXT NOT NULL DEFAULT '[]'")
         };
         foreach (var (column, ddl) in registeredModelIdentityColumns)
         {

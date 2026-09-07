@@ -119,9 +119,15 @@ public sealed class ProductionReconciliationService : IProductionReconciliationS
             var item = await _repository.GetWorkloadItemAsync(attempt.WorkloadItemId, cancellationToken)
                 ?? throw new InvalidOperationException($"Production workload item '{attempt.WorkloadItemId}' was not found.");
             var workload = await FindWorkloadAsync(item, cancellationToken);
+            var request = await _repository.GetCompiledRequestAsync(item.CompiledRequestId, cancellationToken)
+                ?? throw new InvalidOperationException($"Compiled media request '{item.CompiledRequestId}' was not found.");
             var output = result.Outputs[0];
             var bytes = await ReadOutputAsync(output, cancellationToken);
-            if (bytes.Length == 0) throw new InvalidOperationException("Provider output was empty.");
+            if (bytes.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    SceneImageRefusalMessage.ForUser(request.ModelId, request.ProviderKey, SceneImageRefusalMode.EmptyOutput));
+            }
             var extension = output.MediaType switch
             {
                 "image/png" => ".png",

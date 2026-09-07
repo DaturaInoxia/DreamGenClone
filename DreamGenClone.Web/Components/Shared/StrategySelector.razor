@@ -1,0 +1,75 @@
+@using DreamGenClone.Web.Application.RolePlay
+
+@inject IReferenceStrategyResolver ReferenceStrategyResolver
+
+<div>
+    <select class="form-select form-select-sm" value="@SelectedStrategy" @onchange="ChangeStrategy" disabled="@_loading">
+        @foreach (var strategy in Strategies)
+        {
+            var resolution = ResolutionFor(strategy);
+            <option value="@strategy" disabled="@(resolution is not null && !resolution.IsAvailable)">@strategy</option>
+        }
+    </select>
+    @if (_loading)
+    {
+        <div class="form-text">Checking model capability...</div>
+    }
+    else if (SelectedResolution is { IsAvailable: false } resolution)
+    {
+        <div class="form-text text-warning">@resolution.Reason <a href="/model-manager">Review Model Manager</a></div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string ModelId { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<string> Strategies { get; set; } = [];
+
+    [Parameter]
+    public string SelectedStrategy { get; set; } = "TextOnly";
+
+    [Parameter]
+    public EventCallback<string> SelectedStrategyChanged { get; set; }
+
+    private readonly Dictionary<string, ReferenceStrategyResolution> _resolutions = new(StringComparer.OrdinalIgnoreCase);
+    private bool _loading;
+
+    private ReferenceStrategyResolution? SelectedResolution => ResolutionFor(SelectedStrategy);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(ModelId))
+            throw new InvalidOperationException("A Model Manager model id is required for strategy selection.");
+        if (Strategies.Count == 0)
+            throw new InvalidOperationException("At least one visual strategy is required for strategy selection.");
+
+        _loading = true;
+        try
+        {
+            _resolutions.Clear();
+            foreach (var strategy in Strategies.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                _resolutions[strategy] = await ReferenceStrategyResolver.ResolveAsync(ModelId, strategy);
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private ReferenceStrategyResolution? ResolutionFor(string strategy) =>
+        _resolutions.TryGetValue(strategy, out var resolution) ? resolution : null;
+
+    private async Task ChangeStrategy(ChangeEventArgs args)
+    {
+        var strategy = args.Value?.ToString()?.Trim() ?? string.Empty;
+        var resolution = ResolutionFor(strategy)
+            ?? throw new InvalidOperationException($"Strategy '{strategy}' was not resolved for the selected model.");
+        if (!resolution.IsAvailable)
+            return;
+        await SelectedStrategyChanged.InvokeAsync(strategy);
+    }
+}

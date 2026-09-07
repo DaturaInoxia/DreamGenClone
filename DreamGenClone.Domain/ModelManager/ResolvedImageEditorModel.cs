@@ -24,4 +24,5 @@ public sealed record ResolvedImageEditorModel(
     double Denoise,
     double AuraFlowShift,
     double CfgNormStrength,
-    ImageProtocol ImageProtocol = ImageProtocol.ComfyUi);
+    ImageProtocol ImageProtocol = ImageProtocol.ComfyUi,
+    string? RegisteredModelId = null);

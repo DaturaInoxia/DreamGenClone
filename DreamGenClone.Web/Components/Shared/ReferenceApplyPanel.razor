@@ -1,0 +1,94 @@
+@using DreamGenClone.Web.Application.RolePlay
+
+<section class="border rounded p-3" aria-label="Reference application">
+    <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
+        <strong>References</strong>
+        <span class="small text-muted">Text remains active even when an approved image is selected.</span>
+    </div>
+    <div class="row g-3">
+        @foreach (var selection in Selections)
+        {
+            <div class="col-12" @key="selection.ElementKey">
+                <div class="border rounded p-2">
+                    <div class="d-flex justify-content-between gap-2 mb-2">
+                        <strong>@selection.ElementKey</strong>
+                        <span class="small text-muted">@selection.SemanticRole</span>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1">Approved reference</label>
+                            <ReferencePicker AssetType="@selection.AssetType" SelectedAssetImageId="@selection.SceneAssetImageId"
+                                             SelectedAssetChanged="asset => SetAssetAsync(selection, asset)" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1">Strategy</label>
+                            <StrategySelector ModelId="@ModelId" Strategies="@StrategiesFor(selection.ElementKey)"
+                                              SelectedStrategy="@selection.Strategy"
+                                              SelectedStrategyChanged="strategy => SetStrategyAsync(selection, strategy)" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1">Strength</label>
+                            <input class="form-control form-control-sm" type="number" min="0" max="1" step="0.05"
+                                   value="@selection.Strength" @onchange="args => SetStrengthAsync(selection, args)" />
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(selection.ActorKey))
+                    {
+                        <div class="form-text">Actor: @selection.ActorKey</div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public string ModelId { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ReferenceApplicationSelection> Selections { get; set; } = [];
+
+    [Parameter]
+    public EventCallback SelectionsChanged { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<string> ExecutableStrategies { get; set; } = ["TextOnly"];
+
+    private IReadOnlyList<string> StrategiesFor(string elementKey)
+    {
+        var supportedStrategies = elementKey switch
+        {
+            "Identity" => new[] { "TextOnly", "ReferenceConditioning", "NativeMultiReference", "Lora" },
+            "Body" => new[] { "TextOnly", "Lora" },
+            "Wardrobe" => new[] { "TextOnly", "WardrobeTryOn" },
+            "Location" => new[] { "TextOnly", "ControlNet" },
+            _ => throw new InvalidOperationException($"Unknown reference element '{elementKey}'.")
+        };
+        var executableStrategies = new HashSet<string>(ExecutableStrategies, StringComparer.OrdinalIgnoreCase);
+        return supportedStrategies.Where(executableStrategies.Contains).ToArray();
+    }
+
+    private async Task SetAssetAsync(ReferenceApplicationSelection selection, SceneAssetReferenceChoice? choice)
+    {
+        selection.SceneAssetId = choice?.Asset.Id;
+        selection.SceneAssetImageId = choice?.Image.Id;
+        selection.SceneAssetVersion = choice?.Image.ProductionVersion;
+        selection.SceneAssetSha256 = choice?.Image.Sha256;
+        await SelectionsChanged.InvokeAsync();
+    }
+
+    private async Task SetStrategyAsync(ReferenceApplicationSelection selection, string strategy)
+    {
+        selection.Strategy = strategy;
+        await SelectionsChanged.InvokeAsync();
+    }
+
+    private async Task SetStrengthAsync(ReferenceApplicationSelection selection, ChangeEventArgs args)
+    {
+        if (!decimal.TryParse(args.Value?.ToString(), out var strength) || strength < 0m || strength > 1m)
+            throw new InvalidOperationException("Reference strength must be a number between 0 and 1.");
+        selection.Strength = strength;
+        await SelectionsChanged.InvokeAsync();
+    }
+}

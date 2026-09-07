@@ -10,8 +10,10 @@ IP-Adapter result.
 ## Frozen Cases
 
 The matrix contains six cases: C1, C2, and C3 at seeds 1001 and 1002. Each case uses the matching
-committed image under `../images/matrix/` as image 1, `../refs/dean_face.png` as image 2, and the
-available `../refs/becky_face.*` file as image 3.
+committed image under `../images/matrix/` as image 1 and a role-appropriate pair from the supplied
+five-angle identity packs under `../refs/multiangle/`: `dean_front` and `becky_front` for C1;
+`dean_34r` and `becky_34l` for C2/C3's inward-facing compositions. Dean is always image 2 and Becky
+is always image 3.
 
 | Cell | Role | Required result |
 |---|---|---|

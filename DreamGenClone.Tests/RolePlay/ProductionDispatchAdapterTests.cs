@@ -38,6 +38,24 @@ public sealed class ProductionDispatchAdapterTests
     }
 
     [Fact]
+    public async Task RunPod_LowPriorityPolicyIsIncludedInRunRequest()
+    {
+        var requests = new List<(HttpMethod Method, string Uri, string Body, string? Authorization)>();
+        var handler = new QueueHandler(requests, Json(HttpStatusCode.OK, "{\"id\":\"runpod-job-low-priority\"}"));
+        var provider = Provider("runpod-endpoint", ImageProtocol.ComfyUiServerless, ProviderType.TogetherAI);
+        var adapter = new RunPodProductionDispatchAdapter(
+            new SingleClientFactory(handler), new ProviderStub(provider), new EncryptionStub());
+        var endpoint = Endpoint(provider, RunPodProductionDispatchAdapter.Key);
+        var group = Group(endpoint, RunPodProductionDispatchAdapter.Key, nativeVariations: false, attemptCount: 1,
+            lowPriority: true);
+
+        await adapter.SubmitAsync(group);
+
+        using var body = JsonDocument.Parse(Assert.Single(requests).Body);
+        Assert.True(body.RootElement.GetProperty("policy").GetProperty("lowPriority").GetBoolean());
+    }
+
+    [Fact]
     public async Task Together_UsesNativeVariationCountAndMapsEveryOutputToAnAttempt()
     {
         var requests = new List<(HttpMethod Method, string Uri, string Body, string? Authorization)>();
@@ -108,7 +126,8 @@ public sealed class ProductionDispatchAdapterTests
         ProductionProviderEndpoint endpoint,
         string adapterKey,
         bool nativeVariations,
-        int attemptCount)
+        int attemptCount,
+        bool lowPriority = false)
     {
         var request = new CompiledMediaRequest
         {
@@ -121,7 +140,8 @@ public sealed class ProductionDispatchAdapterTests
             new ProductionAttempt { Id = $"attempt-{index}" }, request)).ToList();
         return new ProductionDispatchGroup(
             "group-1", endpoint,
-            new ProductionDispatchPolicy(adapterKey, nativeVariations, 4, "worker:v1", "artifacts:v1", "inline", 600),
+            new ProductionDispatchPolicy(adapterKey, nativeVariations, 4, "worker:v1", "artifacts:v1", "inline", 600,
+                lowPriority),
             attempts);
     }
 

@@ -36,6 +36,22 @@ public sealed class TextAnalysisDurableJobExecutorTests
     }
 
     [Fact]
+    public async Task Execute_ImageLaneDoesNotUseStructuredTextTimeout()
+    {
+        var repository = new RecordingRepository();
+        var executor = CreateExecutor(repository, new Handler("catalogue", async (_, cancellationToken) =>
+            await Task.Delay(TimeSpan.FromMilliseconds(150), cancellationToken)));
+
+        await executor.ExecuteAsync(
+            CreateClaimedJob(lane: DurableJobLane.ImageEdit),
+            CreateAnalyzer() with { Model = CreateAnalyzer().Model with { ProviderTimeoutSeconds = 1 } });
+
+        Assert.Equal(1, repository.CompleteCalls);
+        Assert.Equal(0, repository.RetryCalls);
+        Assert.Equal(0, repository.FailCalls);
+    }
+
+    [Fact]
     public async Task Execute_TransientFailureSchedulesConfiguredRetryForClaimedAttempt()
     {
         var repository = new RecordingRepository();
@@ -103,7 +119,7 @@ public sealed class TextAnalysisDurableJobExecutorTests
         await executor.ExecuteAsync(CreateClaimedJob(), CreateAnalyzer());
 
         Assert.Equal("durable_handler_unclassified_failure", repository.ErrorCode);
-        Assert.Equal("The durable job handler failed permanently.", repository.ErrorMessage);
+        Assert.Equal("private detail", repository.ErrorMessage);
     }
 
     [Fact]
@@ -268,8 +284,10 @@ public sealed class TextAnalysisDurableJobExecutorTests
 
         public Task<bool> TryEnqueueAsync(DurableBackgroundJob job, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<DurableBackgroundJob?> GetAsync(string jobId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<DurableBackgroundJob>> ListRecentAsync(int limit, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> HasActiveJobsAsync(DurableJobLane lane, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<DurableBackgroundJob?> TryClaimNextAsync(DurableJobLane lane, string leaseOwner, DateTime claimedUtc, DateTime leaseExpiresUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> TryActivateAsync(string jobId, DateTime activatedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> TryCancelAsync(string jobId, DateTime cancelledUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<int> RecoverExpiredLeasesAsync(DateTime recoveredUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
