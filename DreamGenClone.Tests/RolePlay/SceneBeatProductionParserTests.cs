@@ -25,7 +25,7 @@ public sealed class SceneBeatProductionParserTests
             {
               "cueKey": "d1", "order": 1, "kind": "Dialogue", "eventKey": "e1",
               "exactSourceText": "You're still awake.", "displayText": "You're still awake.", "normalizedSpokenText": "You're still awake.",
-              "normalizationMethod": "identity", "normalizationVersion": "1", "sourceKey": "c1", "startOffset": 0, "endOffset": 19,
+              "normalizationMethod": "identity", "normalizationVersion": "1", "sourceKey": "c1",
               "speakerKey": "p1", "addresseeKeys": ["p0"],
               "performance": { "speakerKey": "p1", "languageCode": "en", "locale": null, "emotion": "quiet surprise", "intensity": "low", "pace": "measured", "accentIntent": null, "pauseCues": [], "overlapOrInterruption": null, "pronunciationLexemes": [], "nonVerbalVocalEvents": [] },
               "window": { "startSeconds": 1, "endSeconds": 2, "startEventKey": "e1", "endEventKey": "e1", "durationIntent": "one second", "precision": "Estimated", "overlapPolicy": "Allow", "continuityLeadIn": false, "continuityTail": false },
@@ -94,7 +94,7 @@ public sealed class SceneBeatProductionParserTests
 
       var error = Assert.Throws<InvalidOperationException>(() => Parse(response));
 
-      Assert.Contains("source span text does not match", error.Message, StringComparison.OrdinalIgnoreCase);
+      Assert.Contains("was not found verbatim", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -176,14 +176,13 @@ public sealed class SceneBeatProductionParserTests
       }
 
       [Fact]
-      public void Parse_AcceptsExactTextDifferingOnlyByBoundaryWhitespace()
+      public void Parse_AcceptsExactTextWhenEvidenceHasTrailingWhitespace()
       {
-        var response = MutateResponse(root => root["dialogue"]![0]!["endOffset"] = 20);
         var snapshot = CreateTrailingNewlineSnapshot();
 
-        var cue = Assert.Single(new SceneBeatProductionParser().Parse("plan-1", response, snapshot).DialogueCues);
+        var cue = Assert.Single(new SceneBeatProductionParser().Parse("plan-1", ValidResponse, snapshot).DialogueCues);
 
-        Assert.Equal("You're still awake.\n", cue.ExactSourceText);
+        Assert.Equal("You're still awake.", cue.ExactSourceText);
       }
 
       [Fact]
@@ -195,8 +194,6 @@ public sealed class SceneBeatProductionParserTests
           cue["exactSourceText"] = "Pale-blue shirt.";
           cue["displayText"] = "Pale-blue shirt.";
           cue["normalizedSpokenText"] = "Pale blue shirt.";
-          cue["startOffset"] = 0;
-          cue["endOffset"] = 16;
         });
         var snapshot = CreateHyphenatedSnapshot();
 

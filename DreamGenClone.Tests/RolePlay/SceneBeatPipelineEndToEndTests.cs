@@ -61,7 +61,7 @@ public sealed class SceneBeatPipelineEndToEndTests
             var plan = await productionService.EnqueueAsync(new(catalogue.Id, entry.BeatId));
             await new SceneBeatProductionPlanJobHandler(
                     plans, providerRepository, new CompletionClient(SceneBeatProductionParserTests.ValidResponse),
-                    new SceneBeatProductionParser(), TimeProvider.System)
+                    new SceneBeatProductionParser(), new SceneBeatProductionContract(), TimeProvider.System)
                 .HandleAsync(queue.TakeLast(SceneBeatProductionPipelineService.JobType));
             plan = (await plans.GetCurrentAsync(catalogue.Id, entry.BeatId))!;
 

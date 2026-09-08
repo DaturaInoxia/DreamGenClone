@@ -55,7 +55,10 @@ public sealed class SceneBeatProductionParser
             var beatWindow = response.Timeline.BeatWindow;
             var dialogueInputs = response.Narration.Concat(response.Dialogue).ToList();
             ValidateUniqueOrdered(dialogueInputs, item => item.CueKey, item => item.Order, "dialogue and narration cues");
-            var dialogue = dialogueInputs.Select(item => ParseDialogue(planId, item, resolver, eventKeys, beatWindow)).ToList();
+            var spansByCue = ResolveDialogueSpans(dialogueInputs, resolver);
+            var dialogue = dialogueInputs
+                .Select(item => ParseDialogue(planId, item, resolver, eventKeys, beatWindow, spansByCue[item.CueKey]))
+                .ToList();
 
             ValidateAmbience(response.Ambience, eventKeys, beatWindow, snapshot.Beat.PrimaryLocation);
             ValidateUniqueOrdered(response.SoundEvents, item => item.CueKey, item => item.Order, "sound cues");
@@ -118,15 +121,31 @@ public sealed class SceneBeatProductionParser
         }
     }
 
+    private static IReadOnlyDictionary<string, ResolvedProductionSourceSpan> ResolveDialogueSpans(
+        IReadOnlyList<DialogueInput> dialogueInputs,
+        SceneBeatProductionSourceResolver resolver)
+    {
+        var spansByCue = new Dictionary<string, ResolvedProductionSourceSpan>(StringComparer.Ordinal);
+        var cursorByEvidence = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var item in dialogueInputs.OrderBy(input => input.Order))
+        {
+            var cursor = cursorByEvidence.TryGetValue(item.SourceKey, out var existing) ? existing : 0;
+            var span = resolver.ResolveExactSpanBySearch(item.SourceKey, item.ExactSourceText, cursor);
+            cursorByEvidence[item.SourceKey] = span.EndOffset;
+            spansByCue[item.CueKey] = span;
+        }
+        return spansByCue;
+    }
+
     private static SceneBeatDialogueCue ParseDialogue(
         string planId,
         DialogueInput item,
         SceneBeatProductionSourceResolver resolver,
         HashSet<string> eventKeys,
-        WindowInput beatWindow)
+        WindowInput beatWindow,
+        ResolvedProductionSourceSpan span)
     {
         RequireEvent(item.EventKey, eventKeys, $"Dialogue cue '{item.CueKey}'");
-        var span = resolver.ResolveExactSpan(item.SourceKey, item.StartOffset, item.EndOffset, item.ExactSourceText);
         Require(item.DisplayText, $"Dialogue cue '{item.CueKey}' display text");
         ValidateSpokenNormalization(span.ExactText, item.NormalizedSpokenText, item.CueKey);
         Require(item.NormalizationMethod, $"Dialogue cue '{item.CueKey}' normalization method");
@@ -454,7 +473,7 @@ public sealed class SceneBeatProductionParser
         public required string CueKey { get; init; } public required int Order { get; init; } public required SceneBeatDialogueKind Kind { get; init; }
         public required string EventKey { get; init; } public required string ExactSourceText { get; init; } public required string DisplayText { get; init; }
         public required string NormalizedSpokenText { get; init; } public required string NormalizationMethod { get; init; } public required string NormalizationVersion { get; init; }
-        public required string SourceKey { get; init; } public required int StartOffset { get; init; } public required int EndOffset { get; init; }
+        public required string SourceKey { get; init; }
         public required string? SpeakerKey { get; init; } public required List<string> AddresseeKeys { get; init; } public required PerformanceInput Performance { get; init; }
         public required WindowInput Window { get; init; } public required bool LipSyncRelevant { get; init; } public required ProductionReviewStatus ReviewStatus { get; init; }
         public required string? ReviewReason { get; init; }

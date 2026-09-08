@@ -197,6 +197,36 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
             cancellationToken);
     }
 
+    public async Task<bool> TryUpdateProgressAsync(
+        string planId,
+        string attemptId,
+        string progressJson,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default)
+    {
+        Require(planId, "Beat Production Plan id");
+        Require(attemptId, "Beat Production attempt id");
+        Require(progressJson, "Beat Production progress JSON");
+
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneBeatProductionAttempts
+            SET ValidationDetailsJson = $progressJson, UpdatedUtc = $updatedUtc
+            WHERE Id = $attemptId
+              AND OwnerRecordId = $planId
+              AND Status = 'Processing'
+              AND EXISTS (
+                  SELECT 1 FROM SceneBeatProductionPlans
+                  WHERE Id = $planId AND CurrentAttemptId = $attemptId AND Status = 'Processing');
+            """;
+        command.Parameters.AddWithValue("$progressJson", progressJson);
+        command.Parameters.AddWithValue("$updatedUtc", FormatUtc(updatedUtc));
+        command.Parameters.AddWithValue("$attemptId", attemptId.Trim());
+        command.Parameters.AddWithValue("$planId", planId.Trim());
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
     public async Task<bool> TryCompleteAttemptAsync(
         string planId,
         SceneBeatAnalysisAttempt attempt,

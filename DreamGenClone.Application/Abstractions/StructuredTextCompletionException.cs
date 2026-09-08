@@ -6,12 +6,15 @@ public sealed class StructuredTextCompletionException : Exception
         string errorCode,
         string message,
         bool isTransient,
-        Exception? innerException = null) : base(message, innerException)
+        Exception? innerException = null,
+        string? providerResponseBody = null) : base(message, innerException)
     {
         ErrorCode = errorCode;
         IsTransient = isTransient;
+        ProviderResponseBody = providerResponseBody;
     }
 
     public string ErrorCode { get; }
     public bool IsTransient { get; }
+    public string? ProviderResponseBody { get; }
 }

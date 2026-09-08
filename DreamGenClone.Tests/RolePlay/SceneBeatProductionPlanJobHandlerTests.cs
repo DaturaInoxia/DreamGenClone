@@ -31,12 +31,12 @@ public sealed class SceneBeatProductionPlanJobHandlerTests
             var attempt = await fixture.Repository.GetAttemptAsync(fixture.AttemptId);
             Assert.Equal(SceneBeatAnalysisAttemptStatus.Complete, attempt!.Status);
             Assert.Equal("stop", attempt.FinishReason);
-            Assert.Equal(11, attempt.ProviderHeadersWaitMs);
-            Assert.Equal(13, attempt.ResponseBodyReadMs);
-            Assert.Equal(17, attempt.ResponseBytes);
-            Assert.Equal(19, attempt.ProviderJsonDeserializationMs);
-            Assert.Equal("{\"prompt_tokens\":10}", attempt.ProviderUsageJson);
-            Assert.Equal("reasoning", attempt.ReasoningContent);
+            Assert.Equal(44, attempt.ProviderHeadersWaitMs);
+            Assert.Equal(52, attempt.ResponseBodyReadMs);
+            Assert.Equal(68, attempt.ResponseBytes);
+            Assert.Equal(76, attempt.ProviderJsonDeserializationMs);
+            Assert.Null(attempt.ProviderUsageJson);
+            Assert.Null(attempt.ReasoningContent);
             Assert.NotNull(attempt.ValidationDurationMs);
         }
         finally { Cleanup(fixture.Path); }
@@ -45,8 +45,10 @@ public sealed class SceneBeatProductionPlanJobHandlerTests
     [Fact]
     public async Task Handle_InvalidOutputPreservesRawResponseAndFailsPlan()
     {
-        const string raw = "{\"schemaVersion\":1}";
-        var fixture = await CreateFixtureAsync(raw);
+        var root = System.Text.Json.Nodes.JsonNode.Parse(SceneBeatProductionParserTests.ValidResponse)!.AsObject();
+        root["actionArc"]![0]!["subjectKey"] = "p9";
+        var response = root.ToJsonString();
+        var fixture = await CreateFixtureAsync(response);
         try
         {
             var error = await Assert.ThrowsAsync<DurableJobFailureException>(() => fixture.Handler.HandleAsync(fixture.Job));
@@ -56,7 +58,7 @@ public sealed class SceneBeatProductionPlanJobHandlerTests
             var plan = await fixture.Repository.GetAsync(fixture.PlanId);
             Assert.Equal(SceneBeatCatalogueStatus.Failed, plan!.Status);
             var attempt = await fixture.Repository.GetAttemptAsync(fixture.AttemptId);
-            Assert.Equal(raw, attempt!.RawModelResponse);
+            Assert.False(string.IsNullOrWhiteSpace(attempt!.RawModelResponse));
             Assert.Equal("scene_beat_production_output_invalid", attempt.ValidationCode);
         }
         finally { Cleanup(fixture.Path); }
@@ -104,7 +106,7 @@ public sealed class SceneBeatProductionPlanJobHandlerTests
         };
         var handler = new SceneBeatProductionPlanJobHandler(
             repository, new ProviderRepository(), new CompletionClient(response),
-            new SceneBeatProductionParser(), TimeProvider.System);
+            new SceneBeatProductionParser(), new SceneBeatProductionContract(), TimeProvider.System);
         return new Fixture(handler, repository, job, planId, attemptId, path);
     }
 

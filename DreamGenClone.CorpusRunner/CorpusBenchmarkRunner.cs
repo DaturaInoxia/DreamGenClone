@@ -153,7 +153,7 @@ public sealed class CorpusBenchmarkRunner
         stages.Add(await ExecuteStageAsync(
             BenchmarkStages.BeatProduction,
             queue.TakeLast(SceneBeatProductionPipelineService.JobType),
-            new SceneBeatProductionPlanJobHandler(composition.ProductionPlans, composition.Providers, completion, new SceneBeatProductionParser(), timeProvider),
+            new SceneBeatProductionPlanJobHandler(composition.ProductionPlans, composition.Providers, completion, new SceneBeatProductionParser(), new SceneBeatProductionContract(), timeProvider),
             () => composition.ProductionPlans.GetAttemptAsync(plan.CurrentAttemptId!, cancellationToken),
             () => composition.ProductionPlans.GetAsync(plan.Id, cancellationToken),
             record => record is null ? new() : new(record.CatalogueId, record.CatalogueVersion, record.BeatId, record.Id, record.Version),

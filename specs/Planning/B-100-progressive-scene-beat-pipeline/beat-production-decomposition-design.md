@@ -240,3 +240,67 @@ choice alone does not fix the offset or the latency problem. Not a substitute fo
 - Source of truth for the single-response contract: `DreamGenClone.Web/Application/RolePlay/SceneBeatProductionContract.cs`,
   `SceneBeatProductionParser.cs`, `SceneBeatProductionSourceResolver.cs`, `SceneBeatProductionPlanJobHandler.cs`.
 - Provider client discards error bodies: `DreamGenClone.Infrastructure/Models/OpenAiStructuredTextCompletionClient.cs`.
+
+---
+
+## 9. Latency Addendum & Corrected Decomposition Rationale (2026-09-07)
+
+The §2.3 latency note has been extended with a per-attempt timing breakdown pulled from the live dev DB
+(`SceneBeatProductionAttempts`, most recent 15 attempts). This changes *why* decomposition is justified, not
+*whether* — but the correction matters, because the original "smaller passes ⇒ faster single run" framing is
+not supported by the evidence.
+
+### 9.1 The 6-minute runs are decode-bound, not reasoning-bound or context-bound
+
+| Metric (per attempt) | Observed range | Interpretation |
+|---|---|---|
+| `ResponseBodyReadMs` (streamed decode) | **43,000–370,000 ms** | **98%+ of total wall-clock in every row** |
+| `ProviderHeadersWaitMs` (prefill / time-to-first-byte) | 480–10,289 ms | Input context cost is small |
+| `ReasoningLen` | **null on every row** | Thinking mode is OFF — **no chain-of-thought tokens** are spent |
+| `ValidationDurationMs` | 0–75 ms | App-side validation is free |
+| `OutputCharacters` | 10K–25K (tail cases 13K / 2K) | Output volume, not input, drives time |
+
+Consequences that correct earlier assumptions:
+
+- **The "huge context" is not the latency driver.** Prefill/time-to-first-byte is only 0.5–10 s; the cost is
+  streaming the large JSON *out*.
+- **There is no internal "reasoning/re-reasoning" token spend.** `ReasoningLen` is empty — the model is not
+  emitting hidden chain-of-thought. Per-token decode speed does not change with task difficulty.
+- **The two worst runs (328 s / 370 s) are provider throughput collapse** on a single large request
+  (370 s produced only ~2K chars), i.e. tail latency, not more output.
+
+### 9.2 Why decomposition is still the right call — corrected justification
+
+Serial 4-pass decomposition does **not** speed up a single happy-path run: total output tokens across the
+passes ≈ the monolith, and you add 4× prefill plus re-sent context. The real, evidence-backed wins are at the
+**workflow** level, i.e. *time-to-a-working-plan* given the ~76% failure rate:
+
+1. **Retry economics ("re-reasoning" = re-generation).** The felt "re-reasoning" cost is real, but it is
+   **full re-generation of the entire 10–25K-char plan on every failure**, not internal CoT. The 09-01
+   *12-versions-for-one-beat* history is twelve complete regenerations. Decomposition re-runs only the failing
+   pass (~¼ of the output), so retries stop re-paying for already-correct sections.
+2. **Lower per-pass failure rate.** A pass doing only offset localization (with a smaller schema and a focused
+   instruction) is more accurate than one juggling offsets + music + video roles + wardrobe keys + continuity
+   simultaneously. Fewer failures ⇒ fewer retries ⇒ less total generation. This compounds with (1).
+3. **Tail-latency isolation.** Smaller requests have far less exposure to a single provider throughput
+   collapse, and a stalled pass is retried cheaply.
+
+Rough (unmeasured) estimate: monolith at ~76% fail needs ~3–4 full ~80 s regenerations to reach green
+(~4–5+ min); an isolated hard pass plus first-try-passing easy passes (P2/P3 parallel) plausibly reaches green
+in ~2 min — a 2–3× improvement measured as **time-to-green**, not single-shot wall-clock.
+
+### 9.3 Corrected design constraints
+
+- **Justify decomposition on retry economics + per-pass accuracy + p95 tail, not on single-run p50.**
+- **Parallelize independent passes.** Only P2 and P3 are independent (both depend on P1); serial passes gain
+  nothing on wall-clock. Best case ≈ `decode(P1) + max(decode(P2), decode(P3)) + decode(P4)`.
+- **Slim the per-pass output.** Dropping model-supplied offsets (§5.2, strengthened to *remove offsets from the
+  contract* and resolve app-side) and not echoing full `exactSourceText`/`displayText`/`normalizedSpokenText`
+  per cue cuts output tokens on every pass — the one lever that improves p50 latency *and* the failure rate at
+  once.
+- **Start at 2 passes, not 4.** Split first into (A) spoken/offset track — where *all* observed validation
+  failures live — and (B) everything else, to keep the contract/persistence/test surface controlled before
+  going more granular.
+
+Evidence source: `artifacts/tmp/prod_attempt_timings.sql` against `dreamgenclone.dev.db`,
+`SceneBeatProductionAttempts` (2026-09-07).

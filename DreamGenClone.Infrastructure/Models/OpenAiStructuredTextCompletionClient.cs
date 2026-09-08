@@ -82,11 +82,19 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
         headersStopwatch.Stop();
         if (!response.IsSuccessStatusCode)
         {
+            var errorBody = await ReadErrorBodyAsync(response, requestTimeout.Token).ConfigureAwait(false);
+            _logger.LogWarning(
+                "Structured text completion failed: Provider={ProviderName}, Model={ModelIdentifier}, Status={StatusCode}, Body={Body}",
+                resolved.ProviderName,
+                resolved.ModelIdentifier,
+                (int)response.StatusCode,
+                errorBody);
             throw new StructuredTextCompletionException(
                 $"structured_text_http_{(int)response.StatusCode}",
                 $"Structured text completion failed for provider '{resolved.ProviderName}' with HTTP {(int)response.StatusCode}.",
                 response.StatusCode == System.Net.HttpStatusCode.TooManyRequests
-                    || (int)response.StatusCode >= 500);
+                    || (int)response.StatusCode >= 500,
+                providerResponseBody: errorBody);
         }
 
         ChatCompletionResponse parsed;
@@ -203,6 +211,24 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
                 jsonStopwatch.ElapsedMilliseconds,
                 parsed.Usage is null ? null : JsonSerializer.Serialize(parsed.Usage),
                 parsed.Choices[0].Message?.ReasoningContent));
+    }
+
+    private static async Task<string> ReadErrorBodyAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        const int maxBodyLength = 8192;
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(body))
+                return "<empty response body>";
+            return body.Length > maxBodyLength ? body[..maxBodyLength] : body;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return $"<error body unavailable: {ex.GetType().Name}>";
+        }
     }
 
     private HttpClient CreateClient(ResolvedModel resolved)

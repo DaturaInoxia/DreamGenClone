@@ -37,6 +37,11 @@ public sealed class SceneBeatProductionContractTests
         Assert.Contains("must not invent Moment IDs", messages.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("actionArc", messages.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("must never be used as profile keys", messages.SystemPrompt, StringComparison.Ordinal);
+
+        var assembly = new SceneBeatProductionContract().BuildAssemblyPass(snapshot, "{\"events\":[]}");
+        Assert.Contains("complete union of dialogueCueKeys, soundCueKeys, and musicSectionKeys", assembly.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("exactly one audioOwnership entry for every key", assembly.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("no referenced audio keys must have an empty audioOwnership array", assembly.SystemPrompt, StringComparison.Ordinal);
     }
 
     [Fact]

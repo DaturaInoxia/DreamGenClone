@@ -453,6 +453,22 @@
                                                     <dd class="col-sm-8">scheduled @(_productionJob.NextAttemptUtc?.ToLocalTime().ToString("g") ?? "")</dd>
                                                 }
                                             </dl>
+                                            @if (ProductionPassProgress(_productionAttempt) is { } passProgress)
+                                            {
+                                                <div class="border-top mt-2 pt-2">
+                                                    <div class="fw-semibold">Pass progress</div>
+                                                    <div class="text-muted">@ProductionCurrentPassLabel(passProgress)</div>
+                                                    <div class="d-grid gap-1 mt-1">
+                                                        @foreach (var pass in passProgress.PassTrace)
+                                                        {
+                                                            <div class="d-flex justify-content-between gap-2">
+                                                                <span>@pass.PassId</span>
+                                                                <span class="text-muted">@pass.Status@(pass.DurationMs is null ? "" : $" · {pass.DurationMs:N0} ms")</span>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
                                         </div>
                                         <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="CancelProductionPlanAsync">
                                             <i class="bi bi-x-circle me-1"></i> Cancel
@@ -468,6 +484,24 @@
                                             <span class="d-block mt-1">@_productionPlan.ErrorMessage</span>
                                         }
                                     </div>
+                                    @if (_productionAttempt is not null)
+                                    {
+                                        var validationDetail = ProductionValidationDetail(_productionAttempt);
+                                        if (!string.IsNullOrWhiteSpace(validationDetail))
+                                        {
+                                            <details class="mb-2">
+                                                <summary class="small text-muted">Validation detail</summary>
+                                                <pre class="small border rounded p-2 mb-0 scene-beat-production-detail">@validationDetail</pre>
+                                            </details>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(_productionAttempt.RawModelResponse))
+                                        {
+                                            <details class="mb-2">
+                                                <summary class="small text-muted">Raw model response (@_productionAttempt.RawModelResponse.Length chars)</summary>
+                                                <pre class="small border rounded p-2 mb-0 scene-beat-production-detail">@_productionAttempt.RawModelResponse</pre>
+                                            </details>
+                                        }
+                                    }
                                     <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => _replaceProductionRequested = true">
                                         <i class="bi bi-arrow-repeat me-1"></i> Retry
                                     </button>
@@ -2112,6 +2146,19 @@
         public string Label { get; init; } = string.Empty;
     }
 
+    private sealed class PassProgressView
+    {
+        public IReadOnlyList<string> CurrentPasses { get; init; } = [];
+        public IReadOnlyList<PassTraceView> PassTrace { get; init; } = [];
+    }
+
+    private sealed class PassTraceView
+    {
+        public string PassId { get; init; } = string.Empty;
+        public string Status { get; init; } = string.Empty;
+        public long? DurationMs { get; init; }
+    }
+
     private sealed class IdentityPackOption
     {
         public string PackId { get; set; } = string.Empty;
@@ -2285,6 +2332,44 @@
             ? duration.ToString(@"h\:mm\:ss")
             : duration.ToString(@"m\:ss");
     }
+
+    private static string? ProductionValidationDetail(SceneBeatAnalysisAttempt attempt)
+    {
+        if (string.IsNullOrWhiteSpace(attempt.ValidationDetailsJson)
+            || string.Equals(attempt.ValidationDetailsJson.Trim(), "{}", StringComparison.Ordinal))
+            return null;
+        try
+        {
+            using var document = JsonDocument.Parse(attempt.ValidationDetailsJson);
+            return JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (JsonException)
+        {
+            return attempt.ValidationDetailsJson;
+        }
+    }
+
+    private static PassProgressView? ProductionPassProgress(SceneBeatAnalysisAttempt attempt)
+    {
+        if (string.IsNullOrWhiteSpace(attempt.ValidationDetailsJson))
+            return null;
+        try
+        {
+            return JsonSerializer.Deserialize<PassProgressView>(attempt.ValidationDetailsJson, JsonOptions)
+                is { PassTrace.Count: > 0 } progress
+                ? progress
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string ProductionCurrentPassLabel(PassProgressView progress)
+        => progress.CurrentPasses.Count == 0
+            ? "No provider pass is currently running."
+            : $"Running: {string.Join(", ", progress.CurrentPasses)}";
 
     private static IEnumerable<string> ProductionReviewIssues(SceneBeatProductionPlan plan)
     {
