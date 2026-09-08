@@ -1,0 +1,22 @@
+{
+  "model": "FLUX.1-dev fp8 — LoRA A/B cells (poses missing a +LoRA@0.7 half)",
+  "recipe": "euler / simple / 28 steps / cfg 1.0 / FluxGuidance 3.5 / empty negative / 896x1152 + aidmaNSFWunlock-FLUX-V0.2.safetensors @0.7",
+  "note": "LoRA-vs-stock A/B matrix, all distinct poses. These cells are rendered WITH the unlock LoRA at 0.7 and paired against the already-persisted stock image of the same prompt/seed (20260907). kneeling-implied and bed-headfoot are NOT listed here — their +LoRA@0.7 halves already exist in runs/20260907-b112-implied-proof. Visual review of every LoRA output required.",
+  "cells": [
+    { "id": "campfire-couple", "prompt": "a couple sitting close together by a campfire at night in a forest clearing, the man on a log on the left with his arm around her, the woman leaning against him on the right, warm firelight on their faces, cozy intimate mood, 35mm photograph, natural skin texture" },
+    { "id": "garden-fours", "prompt": "a woman in a garden on all fours, her clothed bottom turned toward the camera, looking back over her shoulder at the viewer, tasteful implied scene, bright daylight, lush greenery, 35mm photograph, natural skin texture" },
+    { "id": "standing-behind-seated", "prompt": "a man standing behind a seated woman at a table, his hands on her shoulders, both clothed, domestic intimate mood, window light, 35mm photograph" },
+    { "id": "lap-facingaway", "prompt": "a woman sitting sideways on a man lap on a couch, facing away from him, his arms wrapped around her waist, her hands resting on his knees, both fully clothed, cozy intimate living room, soft evening light, 35mm photograph" },
+    { "id": "embrace-behind", "prompt": "a man standing behind a woman, his arms wrapped around her waist from behind, her head leaning back against his chest, eyes closed, both fully clothed, golden hour light, 35mm photograph" },
+    { "id": "lying-ontop", "prompt": "a woman lying on top of a man on a bed, facing him, her body stretched out over his, heads together, both fully clothed, tender intimate mood, soft warm light, 35mm photograph" },
+    { "id": "legs-intertwined", "prompt": "a couple sitting on the floor facing each other with legs intertwined, foreheads touching, eyes closed, both fully clothed, warm candlelight, 35mm photograph" },
+    { "id": "lying-ontop-retry", "prompt": "a man lying on his back on a bed, a woman lying on top of him facing him with her body stretched out over his, both wearing t-shirts and pajama pants, tender intimate mood, soft warm light, 35mm photograph" },
+    { "id": "embrace-behind-clothed", "prompt": "a man standing behind a woman, his arms wrapped around her waist from behind, her head leaning back against his shoulder, both wearing shirts and trousers, fully clothed, golden hour light, 35mm photograph" },
+    { "id": "spooning-bed", "prompt": "a man and a woman lying on a bed spooning on their sides, the man behind the woman, his arm wrapped over her waist, both wearing pajamas, soft morning light, 35mm photograph" },
+    { "id": "dance-close", "prompt": "a man and a woman slow dancing closely in a dim living room, her head resting against his chest, his arms around her back, both in evening clothes, warm intimate light, 35mm photograph" },
+    { "id": "straddle-seated-facing", "prompt": "a woman sitting on a man lap facing him on a couch, her legs on either side of his hips, his hands resting on her waist, both fully clothed, warm evening light, 35mm photograph" },
+    { "id": "stand-between-legs", "prompt": "a man sitting upright on a wooden chair, a woman standing directly in front of him between his knees facing him, her hands on his shoulders, both fully clothed, bright window light, 35mm photograph" },
+    { "id": "bent-over-counter", "prompt": "a woman leaning forward over a kitchen counter with her hands on it, a man standing behind her with his hands on the counter on either side of her, both fully clothed, bright modern kitchen, 35mm photograph" },
+    { "id": "bridal-carry", "prompt": "a man carrying a woman in his arms bridal style, her arms around his neck, both smiling, both clothed, warm evening light outside a doorway, 35mm photograph" }
+  ]
+}

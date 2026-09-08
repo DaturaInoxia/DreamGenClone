@@ -30,6 +30,7 @@ rubber-stamping.
 |---|---|---|
 | `20260907-b112-implied-proof` | Canonical 4-cell stock baseline + kneeling LoRA A/B (0.7/0.4) + bed-headfoot probes + first implied-pose probes | Stock qualifies 3/4 canonical cells; `kneeling-implied` fails all configs (over-explicit, blocking never bound). Unlock LoRA does not rescue blocking. |
 | `20260907-deep-probe` | 8 implied-pose probes (stock, retries + new families) | 6/8 PASS, 2 FAIL. Upright/seated/facing + counter/embrace/carry bind well; bed behind/opposite orientations collapse to heads-together (`spooning-bed` FAIL); `straddle-seated-facing` FAIL (arrangement + shirtless). Explicit "man and woman" + "wearing X" phrasing fixes gender/undress drift. |
+| `20260907-lora-ab` | **LoRA-vs-stock A/B across all ~17 distinct poses** (+LoRA@0.7 half per pose, paired with its persisted stock) | 9 PASS / 6 FAIL / 2 arrangement-only. LoRA is neutral on reliable clothed cells, **over-indexes** (undress/sheer) on `dance-close`, `lying-ontop-retry`, `lying-ontop`, `garden-fours`; only clearly **improves** `spooning-bed`. It never makes a passing stock cell more rubric-compliant. |
 
 ## Re-running
 

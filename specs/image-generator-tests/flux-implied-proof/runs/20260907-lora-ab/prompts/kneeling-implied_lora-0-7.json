@@ -1,0 +1,7 @@
+﻿{
+    "id":  "kneeling-implied",
+    "config":  "stock+lora@0.7",
+    "seed":  20260907,
+    "prompt":  "a woman kneeling on the floor, a man standing directly in front of her facing her, both clothed, tasteful implied scene, soft warm bedroom light, shallow depth of field, 35mm photograph",
+    "result":  "FAIL"
+}

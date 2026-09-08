@@ -1,0 +1,180 @@
+﻿{
+    "suite":  "lora-ab-matrix",
+    "model":  "flux1-dev-fp8.safetensors",
+    "runDir":  "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\flux-implied-proof\\runs\\20260907-lora-ab",
+    "generatedUtc":  "2026-09-08T02:48:05.3092941Z",
+    "endpoint":  "http://127.0.0.1:8188 (local 5080 ComfyUI)",
+    "note":  "LoRA-vs-stock A/B across all ~17 distinct implied poses. Each cell: stockImage (persisted earlier run) + +LoRA@0.7 half (this run), identical prompt + seed 20260907. aidmaNSFWunlock-FLUX-V0.2.safetensors @0.7. Visual review per LoRA half. Takeaway: LoRA is neutral on the reliable clothed cells, actively over-indexes (undress/sheer) on several (dance-close, lying-ontop-retry, lying-ontop), only clearly improves spooning-bed; it does NOT make a passing stock cell more rubric-compliant.",
+    "cells":  [
+                  {
+                      "id":  "campfire-couple",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a couple sitting close together by a campfire at night in a forest clearing, the man on a log on the left with his arm around her, the woman leaning against him on the right, warm firelight on their faces, cozy intimate mood, 35mm photograph, natural skin texture",
+                      "result":  "PASS",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/campfire-couple_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/campfire-couple_lora-0-7.png",
+                      "sha256":  "FC1D42182095A9914BC0CFFD95C68E01D3C4B47493BCAADA9ACA6F95678AD868"
+                  },
+                  {
+                      "id":  "garden-fours",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a woman in a garden on all fours, her clothed bottom turned toward the camera, looking back over her shoulder at the viewer, tasteful implied scene, bright daylight, lush greenery, 35mm photograph, natural skin texture",
+                      "result":  "FAIL",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/garden-fours_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/garden-fours_lora-0-7.png",
+                      "sha256":  "F6B5546F734118E7ADE03E65A1EA9A64A44F84A1A156E22ECB0347368CEEA210"
+                  },
+                  {
+                      "id":  "standing-behind-seated",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a man standing behind a seated woman at a table, his hands on her shoulders, both clothed, domestic intimate mood, window light, 35mm photograph",
+                      "result":  "PASS",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/standing-behind-seated_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/standing-behind-seated_lora-0-7.png",
+                      "sha256":  "19ACB1D45D9F8CB08E09F9924A418707BB448F021EAA46542765718104315E81"
+                  },
+                  {
+                      "id":  "kneeling-implied",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a woman kneeling on the floor, a man standing directly in front of her facing her, both clothed, tasteful implied scene, soft warm bedroom light, shallow depth of field, 35mm photograph",
+                      "result":  "FAIL",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/kneeling-implied_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/kneeling-implied_lora-0-7.png",
+                      "sha256":  "EC56CF83BFC3F3D554A59EE0614957C9EC211B846460830DA44E9A23ACAD07B6"
+                  },
+                  {
+                      "id":  "bed-headfoot",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  null,
+                      "result":  "FAIL",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/bed-headfoot_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/bed-headfoot_lora-0-7.png",
+                      "sha256":  "8F63040F06A6BF478ECE1DB0442CE4B140BB33ACF78F1108284CDDEC3C5D1AC1"
+                  },
+                  {
+                      "id":  "lap-facingaway",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a woman sitting sideways on a man lap on a couch, facing away from him, his arms wrapped around her waist, her hands resting on his knees, both fully clothed, cozy intimate living room, soft evening light, 35mm photograph",
+                      "result":  "PASS",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/lap-facingaway_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/lap-facingaway_lora-0-7.png",
+                      "sha256":  "6065CA00141EA54C0534002E0F5B6CA4ED6EEDA373570932FFF73005D40719BD"
+                  },
+                  {
+                      "id":  "embrace-behind",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a man standing behind a woman, his arms wrapped around her waist from behind, her head leaning back against his chest, eyes closed, both fully clothed, golden hour light, 35mm photograph",
+                      "result":  "PASS-ARRANGEMENT/FAIL-CLOTHING",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/embrace-behind_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/embrace-behind_lora-0-7.png",
+                      "sha256":  "ED4B68163731535B83CE140375DE0B887E3331A100E55AADD4B3CD223B311F8C"
+                  },
+                  {
+                      "id":  "lying-ontop",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a woman lying on top of a man on a bed, facing him, her body stretched out over his, heads together, both fully clothed, tender intimate mood, soft warm light, 35mm photograph",
+                      "result":  "FAIL",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/lying-ontop_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/lying-ontop_lora-0-7.png",
+                      "sha256":  "B5CADCCBC2F194EB02BB778E216FBDC878203886B674CF50FBDAB72528710272"
+                  },
+                  {
+                      "id":  "legs-intertwined",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a couple sitting on the floor facing each other with legs intertwined, foreheads touching, eyes closed, both fully clothed, warm candlelight, 35mm photograph",
+                      "result":  "PASS",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/legs-intertwined_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/legs-intertwined_lora-0-7.png",
+                      "sha256":  "50868D0AA604D18AD5E6EBD5BC7421DD28EBFDB5F340CBEF82B579F71A2E1C89"
+                  },
+                  {
+                      "id":  "lying-ontop-retry",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a man lying on his back on a bed, a woman lying on top of him facing him with her body stretched out over his, both wearing t-shirts and pajama pants, tender intimate mood, soft warm light, 35mm photograph",
+                      "result":  "FAIL",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/lying-ontop-retry_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/lying-ontop-retry_lora-0-7.png",
+                      "sha256":  "FC59206D9ABAE3B8D00BDD218CE218BBC6A99BC02F84A0697AB11814C329F0CF"
+                  },
+                  {
+                      "id":  "embrace-behind-clothed",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a man standing behind a woman, his arms wrapped around her waist from behind, her head leaning back against his shoulder, both wearing shirts and trousers, fully clothed, golden hour light, 35mm photograph",
+                      "result":  "PASS",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/embrace-behind-clothed_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/embrace-behind-clothed_lora-0-7.png",
+                      "sha256":  "6E4CE18990EE69BA713309CAD17D0A3333389A92FF3B8077CC0A1EA461A36AFD"
+                  },
+                  {
+                      "id":  "spooning-bed",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a man and a woman lying on a bed spooning on their sides, the man behind the woman, his arm wrapped over her waist, both wearing pajamas, soft morning light, 35mm photograph",
+                      "result":  "PASS",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/spooning-bed_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/spooning-bed_lora-0-7.png",
+                      "sha256":  "9258F10CEF020F14D0DC876AB0EE7F0F4EB1A5601A0CB2777508A2E3391CBB05"
+                  },
+                  {
+                      "id":  "dance-close",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a man and a woman slow dancing closely in a dim living room, her head resting against his chest, his arms around her back, both in evening clothes, warm intimate light, 35mm photograph",
+                      "result":  "FAIL",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/dance-close_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/dance-close_lora-0-7.png",
+                      "sha256":  "F3F3BD489CE25BCAFD51D1D0900E0534C3290DCBA3C7EA58D3FA3C2654A97B00"
+                  },
+                  {
+                      "id":  "straddle-seated-facing",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a woman sitting on a man lap facing him on a couch, her legs on either side of his hips, his hands resting on her waist, both fully clothed, warm evening light, 35mm photograph",
+                      "result":  "PASS-ARRANGEMENT/FAIL-CLOTHING",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/straddle-seated-facing_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/straddle-seated-facing_lora-0-7.png",
+                      "sha256":  "90680582A83D0E8ACE381EF240A0E265FBA0097F3D7FB906A30962C4C616A707"
+                  },
+                  {
+                      "id":  "stand-between-legs",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a man sitting upright on a wooden chair, a woman standing directly in front of him between his knees facing him, her hands on his shoulders, both fully clothed, bright window light, 35mm photograph",
+                      "result":  "PASS",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/stand-between-legs_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/stand-between-legs_lora-0-7.png",
+                      "sha256":  "91A84FE2F4BD8AC126AEF173E4B04203F229C69F85A327DF45EAAF0BB2736052"
+                  },
+                  {
+                      "id":  "bent-over-counter",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a woman leaning forward over a kitchen counter with her hands on it, a man standing behind her with his hands on the counter on either side of her, both fully clothed, bright modern kitchen, 35mm photograph",
+                      "result":  "PASS",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/bent-over-counter_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/bent-over-counter_lora-0-7.png",
+                      "sha256":  "10BA78DE1CC9D586403342F5F090F225CFAA17573212471CE652D2590D7EE6A3"
+                  },
+                  {
+                      "id":  "bridal-carry",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a man carrying a woman in his arms bridal style, her arms around his neck, both smiling, both clothed, warm evening light outside a doorway, 35mm photograph",
+                      "result":  "PASS",
+                      "stockImage":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/bridal-carry_stock.png",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-lora-ab/images/bridal-carry_lora-0-7.png",
+                      "sha256":  "54CB96E2007FBA376293289D47EC9FB31963CEC1A176BBCE998942C712F4013B"
+                  }
+              ]
+}

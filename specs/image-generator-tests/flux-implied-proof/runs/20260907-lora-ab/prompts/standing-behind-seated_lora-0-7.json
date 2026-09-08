@@ -1,0 +1,7 @@
+﻿{
+    "id":  "standing-behind-seated",
+    "config":  "stock+lora@0.7",
+    "seed":  20260907,
+    "prompt":  "a man standing behind a seated woman at a table, his hands on her shoulders, both clothed, domestic intimate mood, window light, 35mm photograph",
+    "result":  "PASS"
+}
