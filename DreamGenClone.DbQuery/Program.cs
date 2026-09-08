@@ -17,7 +17,7 @@ if (!File.Exists(databasePath))
     return 2;
 }
 
-var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
+var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "local-comfyui-configure" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -66,6 +66,9 @@ try
         "b100-analyzer-openrouter-configure" => await ConfigureB100OpenRouterAnalyzerAsync(connection),
         "biglust-image-configure" => await ConfigureBigLustImageAsync(connection),
         "qwen-edit-serverless-configure" => await ConfigureQwenEditServerlessAsync(connection),
+        "local-comfyui-configure" => await ConfigureLocalComfyUiAsync(
+            connection,
+            RequireArgument(args, 1, "baseUrl")),
         "set-identity-strength" => await SetIdentityStrengthAsync(
             connection,
             RequireArgument(args, 1, "modelIdentifier"),
@@ -760,6 +763,180 @@ static async Task<int> ConfigureBigLustImageAsync(SqliteConnection connection)
 
     await transaction.CommitAsync();
     Console.WriteLine($"BigLust image configured: {functionName} | {providerName} | {modelIdentifier} (Sdxl / SdxlNaturalLanguage)");
+    return 0;
+}
+
+/// <summary>
+/// Registers the local WOOD-GAME-MAIN ComfyUI host (RTX 5080, port 8188) as an additive
+/// ImageProtocol.ComfyUi provider and registers its SDXL checkpoints as enabled image models.
+/// This is NOT a RunPod pod: it is a direct ComfyUI HTTP endpoint on the dev machine itself and
+/// can replace OR run alongside the RunPod Serverless image endpoints. Additive only: it never
+/// repoints function defaults and never disables an existing provider/model.
+///
+/// FLUX.1-dev fp8 is registered as a present-but-DISABLED row: the app's SceneImageModelFamily has
+/// no Flux value and the ComfyUI client only builds Pony/SDXL workflows, so an enabled FLUX row
+/// would route an SDXL workflow at a FLUX checkpoint and fail. It is added disabled so Model Manager
+/// records that the checkpoint exists locally until the B-112 Flux-family code slice lands.
+///
+/// Idempotent: re-running updates BaseUrl and the model rows in place. Base URL is a required
+/// argument (e.g. http://127.0.0.1:8188 on the ComfyUI host, http://192.168.0.16:8188 from other hosts).
+/// </summary>
+static async Task<int> ConfigureLocalComfyUiAsync(SqliteConnection connection, string baseUrl)
+{
+    if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var parsed) || parsed.Scheme is not ("http" or "https"))
+        throw new ArgumentException($"Base URL '{baseUrl}' must be an absolute http(s) URL; no database changes were made.");
+
+    const string providerName = "Local ComfyUI (WOOD-GAME-MAIN 5080)";
+    const string providerNotes =
+        "Direct ComfyUI 0.34.0 on WOOD-GAME-MAIN (RTX 5080 16 GB, 192.168.0.16:8188) hosting FLUX.1-dev fp8 + "
+        + "Juggernaut XL Ragnarok + BigLust v1.6 + Pony V6 XL checkpoints and the IP-Adapter/PuLID/FaceID "
+        + "identity stack. ImageProtocol=ComfyUi (direct /prompt), NOT a RunPod pod and NOT serverless. "
+        + "Additive alternative to the RunPod Serverless image endpoints.";
+
+    // (modelIdentifier, displayName, SceneImageModelFamily, SceneImagePromptDialect, enabled, notes)
+    var models = new[]
+    {
+        ("juggernautXL_ragnarok.safetensors", "Juggernaut XL Ragnarok (Local ComfyUI)", 2, 2, true,
+            "Local Juggernaut XL Ragnarok checkpoint on WOOD-GAME-MAIN ComfyUI (Sdxl / SdxlNaturalLanguage)."),
+        ("bigLust_v16.safetensors", "BigLust v1.6 (Local ComfyUI)", 2, 2, true,
+            "Local BigLust v1.6 checkpoint on WOOD-GAME-MAIN ComfyUI (Sdxl / SdxlNaturalLanguage)."),
+        ("ponyDiffusionV6XL_v6.safetensors", "Pony V6 XL (Local ComfyUI)", 1, 1, true,
+            "Local Pony V6 XL checkpoint on WOOD-GAME-MAIN ComfyUI (Pony / PonyV6Tags)."),
+        ("flux1-dev-fp8.safetensors", "FLUX.1-dev fp8 (Local ComfyUI)", 0, 0, false,
+            "DISABLED: SceneImageModelFamily has no Flux value and the ComfyUI client only builds "
+            + "Pony/SDXL workflows, so this row cannot be routed yet. Enable only after the B-112 "
+            + "Flux-family code slice (plan.md section 7) lands."),
+    };
+
+    var now = DateTime.UtcNow.ToString("o");
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    string providerId;
+    await using (var selectProvider = connection.CreateCommand())
+    {
+        selectProvider.Transaction = transaction;
+        selectProvider.CommandText = "SELECT Id FROM Providers WHERE Name = $name;";
+        selectProvider.Parameters.AddWithValue("$name", providerName);
+        var existingProviderId = await selectProvider.ExecuteScalarAsync();
+        if (existingProviderId is string foundProviderId)
+        {
+            providerId = foundProviderId;
+            await using var updateProvider = connection.CreateCommand();
+            updateProvider.Transaction = transaction;
+            updateProvider.CommandText = """
+                UPDATE Providers
+                SET BaseUrl = $baseUrl,
+                    ProviderType = 0,
+                    TimeoutSeconds = 600,
+                    ImageCapability = 2,
+                    ImageGenerationPath = '/prompt',
+                    ContentPolicy = 2,
+                    ImageProtocol = 1,
+                    CredentialReference = NULL,
+                    LifecycleStrategyIdentifier = NULL,
+                    ReadinessPath = NULL,
+                    ReadinessSuccessContractJson = NULL,
+                    IsEnabled = 1,
+                    Notes = $notes,
+                    UpdatedUtc = $now
+                WHERE Id = $providerId;
+                """;
+            updateProvider.Parameters.AddWithValue("$baseUrl", baseUrl);
+            updateProvider.Parameters.AddWithValue("$notes", providerNotes);
+            updateProvider.Parameters.AddWithValue("$now", now);
+            updateProvider.Parameters.AddWithValue("$providerId", providerId);
+            if (await updateProvider.ExecuteNonQueryAsync() != 1)
+                throw new InvalidOperationException("Local ComfyUI provider update failed; no database changes were made.");
+        }
+        else
+        {
+            providerId = Guid.NewGuid().ToString();
+            await using var insertProvider = connection.CreateCommand();
+            insertProvider.Transaction = transaction;
+            insertProvider.CommandText = """
+                INSERT INTO Providers (
+                    Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, TimeoutSeconds,
+                    IsEnabled, CreatedUtc, UpdatedUtc, Notes, ImageCapability, ImageGenerationPath,
+                    ContentPolicy, ImageProtocol)
+                VALUES (
+                    $id, $name, 0, $baseUrl, '/v1/chat/completions', 600,
+                    1, $now, $now, $notes, 2, '/prompt',
+                    2, 1);
+                """;
+            insertProvider.Parameters.AddWithValue("$id", providerId);
+            insertProvider.Parameters.AddWithValue("$name", providerName);
+            insertProvider.Parameters.AddWithValue("$baseUrl", baseUrl);
+            insertProvider.Parameters.AddWithValue("$now", now);
+            insertProvider.Parameters.AddWithValue("$notes", providerNotes);
+            await insertProvider.ExecuteNonQueryAsync();
+        }
+    }
+
+    foreach (var (modelIdentifier, displayName, family, dialect, enabled, modelNotes) in models)
+    {
+        string modelId;
+        await using (var selectModel = connection.CreateCommand())
+        {
+            selectModel.Transaction = transaction;
+            selectModel.CommandText = "SELECT Id FROM RegisteredModels WHERE ProviderId = $providerId AND ModelIdentifier = $modelIdentifier;";
+            selectModel.Parameters.AddWithValue("$providerId", providerId);
+            selectModel.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
+            var existingModelId = await selectModel.ExecuteScalarAsync();
+            if (existingModelId is string foundModelId)
+            {
+                modelId = foundModelId;
+                await using var updateModel = connection.CreateCommand();
+                updateModel.Transaction = transaction;
+                updateModel.CommandText = """
+                    UPDATE RegisteredModels
+                    SET DisplayName = $displayName,
+                        ModelKind = 1,
+                        SceneImageModelFamily = $family,
+                        PromptDialect = $dialect,
+                        Notes = $notes,
+                        IsEnabled = $enabled
+                    WHERE Id = $modelId;
+                    """;
+                updateModel.Parameters.AddWithValue("$displayName", displayName);
+                updateModel.Parameters.AddWithValue("$family", family);
+                updateModel.Parameters.AddWithValue("$dialect", dialect);
+                updateModel.Parameters.AddWithValue("$notes", modelNotes);
+                updateModel.Parameters.AddWithValue("$enabled", enabled ? 1 : 0);
+                updateModel.Parameters.AddWithValue("$modelId", modelId);
+                await updateModel.ExecuteNonQueryAsync();
+            }
+            else
+            {
+                modelId = Guid.NewGuid().ToString();
+                await using var insertModel = connection.CreateCommand();
+                insertModel.Transaction = transaction;
+                insertModel.CommandText = """
+                    INSERT INTO RegisteredModels (
+                        Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, CreatedUtc,
+                        ContextWindowSize, Quantization, ParameterCount, Notes, SupportsThinkingControl,
+                        ModelKind, SceneImageModelFamily, PromptDialect)
+                    VALUES (
+                        $id, $providerId, $modelIdentifier, $displayName, $enabled, $now,
+                        0, '', '', $notes, 0,
+                        1, $family, $dialect);
+                    """;
+                insertModel.Parameters.AddWithValue("$id", modelId);
+                insertModel.Parameters.AddWithValue("$providerId", providerId);
+                insertModel.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
+                insertModel.Parameters.AddWithValue("$displayName", displayName);
+                insertModel.Parameters.AddWithValue("$enabled", enabled ? 1 : 0);
+                insertModel.Parameters.AddWithValue("$now", now);
+                insertModel.Parameters.AddWithValue("$notes", modelNotes);
+                insertModel.Parameters.AddWithValue("$family", family);
+                insertModel.Parameters.AddWithValue("$dialect", dialect);
+                await insertModel.ExecuteNonQueryAsync();
+            }
+        }
+    }
+
+    await transaction.CommitAsync();
+    var enabledList = string.Join(", ", models.Where(m => m.Item5).Select(m => m.Item1));
+    Console.WriteLine($"Local ComfyUI configured: {providerName} | {baseUrl} | enabled={enabledList}");
     return 0;
 }
 
@@ -1505,5 +1682,5 @@ static string FindDatabasePath()
 static void PrintUsage()
 {
     Console.Error.WriteLine("Usage: dotnet run --project DreamGenClone.DbQuery -- <command> [args]");
-    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, qwen-edit-serverless-configure, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <weight> <bustSize> <buttSize>, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
+    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, qwen-edit-serverless-configure, local-comfyui-configure <baseUrl>, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <weight> <bustSize> <buttSize>, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
 }

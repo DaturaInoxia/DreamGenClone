@@ -125,9 +125,10 @@ def get_json(base, path):
         return json.loads(resp.read().decode())
 
 
-def run_one(base, cell, seed, dean_ref, becky_ref, masks_dir, out_dir, strength):
+def run_one(base, cell, seed, dean_ref, becky_ref, masks_dir, out_dir, strength, checkpoint="juggernautXL_ragnarok.safetensors"):
     os.makedirs(out_dir, exist_ok=True)
-    workflow = build_workflow(cell, seed, dean_ref, becky_ref, masks_dir, strength=strength)
+    workflow = build_workflow(cell, seed, dean_ref, becky_ref, masks_dir,
+                              checkpoint=checkpoint, strength=strength)
     for local in (dean_ref, becky_ref):
         upload_image(base, os.path.basename(local), local)
     left_mask, right_mask, _ = CELLS[cell]
@@ -180,6 +181,8 @@ def main():
     ap.add_argument("--ref-dir", default=DEFAULT_REF_DIR, help="dir holding dean_face / becky_face")
     ap.add_argument("--cell", choices=list(CELLS))
     ap.add_argument("--seed", type=int, default=1001)
+    ap.add_argument("--checkpoint", default="juggernautXL_ragnarok.safetensors",
+                    help="checkpoint filename served by the ComfyUI host")
     ap.add_argument("--strength", type=float, default=0.8)
     ap.add_argument("--all", action="store_true", help="run all 6 cells")
     ap.add_argument("--seeds", nargs="+", type=int, default=[1001])
@@ -193,7 +196,8 @@ def main():
         sys.exit(1)
 
     if args.dump_json:
-        wf = build_workflow(args.cell, args.seed, dean_ref, becky_ref, args.masks, strength=args.strength)
+        wf = build_workflow(args.cell, args.seed, dean_ref, becky_ref, args.masks,
+                            checkpoint=args.checkpoint, strength=args.strength)
         print(json.dumps({"prompt": wf, "client_id": f"two-char-{args.cell}-{args.seed}"}, indent=2))
         return
 
@@ -203,7 +207,8 @@ def main():
         sys.exit(1)
     for cell in cells:
         for seed in args.seeds:
-            run_one(args.base, cell, seed, dean_ref, becky_ref, args.masks, args.out, args.strength)
+            run_one(args.base, cell, seed, dean_ref, becky_ref, args.masks, args.out,
+                    args.strength, checkpoint=args.checkpoint)
 
 
 if __name__ == "__main__":

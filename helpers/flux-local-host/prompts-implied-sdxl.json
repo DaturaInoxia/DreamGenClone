@@ -1,0 +1,27 @@
+{
+  "model": "SDXL comparison for B-112 implied cells (non-explicit)",
+  "recipe": "per-family canonical recipe; Pony uses tag dialect with rating_safe",
+  "note": "Same 4 implied cells as prompts-implied.json, but expressed per model family: natural-language prose for Juggernaut/BigLust (SDXL), dense tag form for Pony V6 (rating_safe). All non-explicit.",
+  "cells": [
+    {
+      "id": "campfire-couple",
+      "sdxl": "a couple sitting close together by a campfire at night in a forest clearing, the man on a log on the left with his arm around her, the woman leaning against him on the right, warm firelight on their faces, cozy intimate mood, 35mm photograph, natural skin texture",
+      "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1boy, 1girl, couple, sitting on a log by a campfire at night, forest clearing, man on left with arm around woman, woman leaning against man on right, warm firelight, cozy intimate mood, front view, eye level"
+    },
+    {
+      "id": "kneeling-implied",
+      "sdxl": "a woman kneeling on the floor, a man standing directly in front of her facing her, both clothed, tasteful implied scene, soft warm bedroom light, shallow depth of field, 35mm photograph",
+      "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1boy, 1girl, woman kneeling on floor, man standing in front of her facing her, both clothed, implied scene, soft warm bedroom light, shallow depth of field, front view, eye level"
+    },
+    {
+      "id": "garden-fours",
+      "sdxl": "a woman in a garden on all fours, her clothed bottom turned toward the camera, looking back over her shoulder at the viewer, tasteful implied scene, bright daylight, lush greenery, 35mm photograph, natural skin texture",
+      "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, woman on all fours in a garden, clothed bottom toward viewer, looking back over shoulder, tasteful implied scene, bright daylight, lush greenery, from behind, eye level"
+    },
+    {
+      "id": "standing-behind-seated",
+      "sdxl": "a man standing behind a seated woman at a table, his hands on her shoulders, both clothed, domestic intimate mood, window light, 35mm photograph",
+      "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1boy, 1girl, man standing behind a seated woman at a table, hands on her shoulders, both clothed, domestic intimate mood, window light, front view, eye level"
+    }
+  ]
+}

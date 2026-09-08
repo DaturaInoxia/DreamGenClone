@@ -1,0 +1,81 @@
+{
+  "suite": "identity-two-character",
+  "run": "20260908-local-sdxl-ipadapter",
+  "purpose": "Local-host (WOOD-GAME-MAIN, RTX 5080 16GB, ComfyUI 0.34.0) run of the two-character
+    IP-Adapter regional identity matrix (c1..c6, seed 1001) across all local SDXL-family
+    checkpoints that support the IP-Adapter PLUS FACE mechanism. Answers: which local SDXL
+    models hold two distinct character identities (Dean left / Becky right) from image
+    references via regional IP-Adapter? FLUX.1-dev fp8 is EXCLUDED - it is not SDXL and has no
+    IP-Adapter PLUS FACE path.",
+  "generatedUtc": "2026-09-08T00:00:00+00:00",
+  "endpoint": "http://127.0.0.1:8188 (local ComfyUI, --listen 0.0.0.0 --port 8188)",
+  "runner": "runners/run_matrix.py --all --seeds 1001 --checkpoint <model> --base http://127.0.0.1:8188",
+  "runnerNote": "Added --checkpoint CLI override (default remains juggernautXL_ragnarok.safetensors) so the
+    committed matrix runner can target any checkpoint served by the host. Backward compatible.",
+  "mechanism": "IP-Adapter PLUS FACE (portraits), regional attn_mask per character",
+  "settings": {
+    "sampler": { "steps": 30, "cfg": 5.0, "sampler": "dpmpp_2m_sde", "scheduler": "karras", "denoise": 1.0 },
+    "size": { "width": 1024, "height": 1024 },
+    "seed": 1001,
+    "ipAdapterWeight": 0.8,
+    "refs": ["refs/dean_face.png", "refs/becky_face.jpg"],
+    "masks": "masks/c1..c6"
+  },
+  "models": {
+    "juggernaut": { "checkpoint": "juggernautXL_ragnarok.safetensors", "support": "IP-Adapter PLUS FACE" },
+    "biglust": { "checkpoint": "bigLust_v16.safetensors", "support": "IP-Adapter PLUS FACE" },
+    "pony": { "checkpoint": "ponyDiffusionV6XL_v6.safetensors", "support": "IP-Adapter PLUS FACE (mechanism loads, distribution off-model)" },
+    "flux": { "checkpoint": "flux1-dev-fp8.safetensors", "support": "NONE - not SDXL, excluded from IP-Adapter" }
+  },
+  "results": {
+    "juggernaut": {
+      "verdict": "PASS",
+      "note": "All 6 cells photoreal, Dean holds identity on left (brown hair, blue shirt, watch),
+        Becky on right (brown updo, striped tank, freckles). Consistent across c1-c6. Baseline model.",
+      "cells": {
+        "c1": "PASS", "c2": "PASS", "c3": "PASS (embrace, bikini top - clothed SFW)",
+        "c4": "PASS", "c5": "PASS", "c6": "PASS"
+      }
+    },
+    "biglust": {
+      "verdict": "PASS",
+      "note": "All 6 cells photoreal and on-model. Dean holds identity incl. forearm tattoo (c1/c2),
+        Becky holds identity (striped tank, freckles). Strongest tattoo-fidelity of the local SDXL set.",
+      "cells": {
+        "c1": "PASS", "c2": "PASS", "c3": "PASS (embrace, bra - clothed SFW)",
+        "c4": "PASS", "c5": "PASS", "c6": "PASS"
+      }
+    },
+    "pony": {
+      "verdict": "FAIL",
+      "note": "Mechanism loads and queues, but output drifts to Pony's stylized/anime distribution
+        (no score tags in the photoreal Juggernaut-tuned matrix prompts -> wrong distribution).
+        Dean/Becky identity NOT held; some cells surreal/off-composition. Pony requires its own
+        score-tagged prompt style, out of scope of the photoreal matrix suite. No Pony images committed.",
+      "cells": {
+        "c1": "FAIL (stylized, identity not held)", "c2": "FAIL (stylized, identity not held)",
+        "c3": "FAIL (off-model)", "c4": "FAIL (off-model)", "c5": "FAIL (off-model)",
+        "c6": "FAIL (off-model / content drift)"
+      }
+    }
+  },
+  "scorecards": {
+    "juggernaut": { "identityA": 4, "identityB": 4, "crossContam": 2, "composition": 4, "quality": 4 },
+    "biglust": { "identityA": 4, "identityB": 4, "crossContam": 2, "composition": 4, "quality": 4 },
+    "pony": { "identityA": 1, "identityB": 1, "crossContam": 3, "composition": 1, "quality": 1 }
+  },
+  "images": {
+    "images/juggernaut/c1_s1001.png": "40975E851A70CDD3CD9F3239F2DDBB6B0B909CF78B4AB1958B4265697ABE8EB0",
+    "images/juggernaut/c2_s1001.png": "EDE1A3C5CA2F1543C6720354957AB4F00ADBB4CA48C6959CB4C2385FBFE3A3F7",
+    "images/juggernaut/c3_s1001.png": "4B5DCC1DE39A903997CBD5D5ED7E867031351F8043CDFB0888C7C64E70DAB388",
+    "images/juggernaut/c4_s1001.png": "AA459AAE3101D0606D9CB696B8F5CD3218B4131CD0A226B6054FA036A6EC81E8",
+    "images/juggernaut/c5_s1001.png": "9A9FAEE36168C4F6ADD45F0865FFD74123226F41EEEAA2D2216A3CBDF9DBAEDE",
+    "images/juggernaut/c6_s1001.png": "1F0099175B26454CA611705BBEF98FC06AE7B5BBC7E292490C6A214173C15CDD",
+    "images/biglust/c1_s1001.png": "75E22145FE4FC1A63B3D903BDFF931C4EE1126B78F1DB3911F534E5C2AC530ED",
+    "images/biglust/c2_s1001.png": "B919E4D4CF23ED5137F3FB16C5B349D93E85387D4E17C7CDBEF36C2518FF14C5",
+    "images/biglust/c3_s1001.png": "60AE53F3BDC740A5BE3B1CEC3FDBD704CE762C4E75E7F24E400E78DCAFBDC542",
+    "images/biglust/c4_s1001.png": "24CA854B1B668324FC8881C57F7F92C83734CD66C0766FD43B695C88BCCE41F5",
+    "images/biglust/c5_s1001.png": "2CC55A3A93362974896EEB49BA2453B48B27B43B5C19BAE86EF362BB1AE617A3",
+    "images/biglust/c6_s1001.png": "97221FA5CF4110C1A95AD6618D3C540C3027D4B9452B426A496ECEDFA186056A"
+  }
+}

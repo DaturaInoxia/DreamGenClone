@@ -121,6 +121,32 @@ checkpoint exists**:
 | `t8star/flux.1-dev-abliterated-V2-GGUF` | Q8_0 / Q6_K / Q4_K_M `.gguf` | 12.7 / 9.9 / 6.9 GB | Highest adoption (~9.3k dl); needs ComfyUI-GGUF. |
 | `aoxo/flux.1dev-abliterated[v2]` | fp16 diffusers (transformer shards ~23.8 GB + T5 ~11.5 GB) | — | Not ComfyUI-loadable as-is; needs diffusers→ComfyUI fp8 conversion. |
 
+## Phase 2 addendum — SDXL coexistence (executed 2026-09-07)
+
+ComfyUI natively serves multiple model families from one instance. Stock single-file SDXL
+checkpoints drop into `models/checkpoints/` (loaded by `CheckpointLoaderSimple`) and coexist with
+the FLUX UNet in `models/diffusion_models/`. The user asked to keep the stock FLUX setup as-is and
+add SDXL-class checkpoints as a second family — all three below are the app's own canonical
+production artifacts (same Civitai model/version IDs the pod registry + model-manager export pin).
+Scope: **stock models only** (no abliterated builds, no unlock LoRA).
+
+| Checkpoint | Local path (name = loader id) | Source (pinned) | Size | Verified |
+|---|---|---|---|---|
+| Juggernaut XL Ragnarok | `models/checkpoints/juggernautXL_ragnarok.safetensors` | `civitai.com/api/download/models/1759168?fileId=1659952` (pod-registry pinned) | 6.62 GB | size OK; visible in `CheckpointLoaderSimple`; smoke render PASS |
+| BigLust v1.6 | `models/checkpoints/bigLust_v16.safetensors` | `civitai.com/api/download/models/1081768` (model-manager pinned; SHA-256 `4C1E...`) | 6.46 GB | SHA-256 **match**; smoke render PASS |
+| Pony V6 XL | `models/checkpoints/ponyDiffusionV6XL_v6.safetensors` | `civitai.com/api/download/models/290640` (version of Civitai model 257749; SHA-256 `67AB2FD8...` matches app-pinned hash) | 6.46 GB | SHA-256 **match**; smoke render PASS |
+
+Download commands (idempotent; `curl -C -` resumes a partial):
+```powershell
+curl.exe -L --fail -o D:\ComfyUI\models\checkpoints\juggernautXL_ragnarok.safetensors "https://civitai.com/api/download/models/1759168?fileId=1659952"
+curl.exe -L --fail -o D:\ComfyUI\models\checkpoints\bigLust_v16.safetensors "https://civitai.com/api/download/models/1081768"
+curl.exe -L --fail -o D:\ComfyUI\models\checkpoints\ponyDiffusionV6XL_v6.safetensors "https://civitai.com/api/download/models/290640"
+```
+Smoke run: `helpers/flux-local-host/run-sdxl-smoke.ps1 -ComfyUiUrl http://127.0.0.1:8188` bakes
+each checkpoint into `sdxl-t2i-smoke.json` node 1 (`CheckpointLoaderSimple`) and renders one
+832×1216 image per model (DPM++ 2M SDE / Karras / CFG 6 / 28 steps) → git-ignored
+`artifacts/tmp/images/sdxl-coexist-smoke/`. All three produced valid, distinct renders.
+
 ## Phase 3 — Launch + verify
 
 ```powershell

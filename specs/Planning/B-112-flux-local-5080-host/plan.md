@@ -1,8 +1,46 @@
 # B-112 — Local uncensored FLUX.1-dev on the RTX 5080 host (ComfyUI) + app integration
 
-**Status:** planned (2026-09-07). **State:** `designed` — runbook + proof assets exist;
+**Status:** executed in part on the 5080 host (2026-09-07). **State:** `designed` → infra done;
 **Decision D1 resolved 2026-09-07** (Route 1 = stock `flux1-dev-fp8` + optional unlock LoRA;
-exact downloads pinned in the runbook). Ready to execute on the 5080 host.
+exact downloads pinned in the runbook).
+**Host execution 2026-09-07 (WOOD-GAME-MAIN):** ComfyUI 0.34.0 installed (`D:\ComfyUI`, torch
+2.14.0+cu130 — cu130 upgrade approved by user, deviates from runbook cu128 pin), stock
+`flux1-dev-fp8` + T5/CLIP/VAE placed, full 4-cell qualification proof **run + visually reviewed**:
+`campfire-couple` PASS, `standing-behind-seated` PASS, `kneeling-implied` FAIL (composition:
+man standing not kneeling; clothing), `garden-fours` FAIL (composition: upright kneeling not
+all-fours; clothing). All four stock-FLUX cells rendered **without any safety refusal/distortion** —
+failures were composition/clothing fidelity, so the unlock-LoRA fallback is NOT needed (and is
+out of scope per safety boundary). ~23–24 s/img steady-state (28 steps, ~1.25–1.31 it/s).
+**SDXL coexistence added (user request):** stock Juggernaut XL Ragnarok, BigLust v1.6, and Pony V6
+XL single-file checkpoints downloaded into `D:\ComfyUI\models\checkpoints\`, all visible to
+`CheckpointLoaderSimple`, each smoke-rendered successfully on the same host (proves FLUX + all
+three SDXL checkpoints coexist). See runbook §Phase 2 addendum.
+
+## 6a. SDXL-vs-FLUX implied-cell comparison (2026-09-07, local host)
+
+Ran the same 4 implied (NON-explicit) cells on the three stock SDXL checkpoints using their family
+recipes (Juggernaut/BigLust = SDXL natural-language `sdxl-t2i-smoke.json`; Pony = Pony tag dialect
+`pony-t2i-smoke.json`, `rating_safe`) via `helpers/flux-local-host/run-sdxl-implied-compare.ps1`
+(`prompts-implied-sdxl.json`). Outputs: `artifacts/tmp/images/sdxl-implied-compare/` (git-ignored).
+Visually reviewed (PASS rubric = arrangement honored AND implied-but-not-explicit):
+
+| Cell | Juggernaut | BigLust | Pony V6 |
+|---|---|---|---|
+| campfire-couple | PASS (man left/woman right, arm around, firelight) | PASS (couple + arm, firelight) | PASS (arrangement; anime style, side swap minor) |
+| kneeling-implied | PASS (kneeling woman + standing man, clothed, tasteful) | **FAIL — went explicit** (unclothed; not implied) | PASS (squatting woman + standing figure, clothed) |
+| garden-fours | **FAIL — went explicit** (nude; not on-all-fours implied) | **FAIL — went explicit** (bottomless; pose ok but explicit) | PASS-ish (kneeling, clothed, but not all-fours bottom-to-cam) |
+| standing-behind-seated | PASS (man behind seated woman, hands/shoulders) | **FAIL — reversed** (woman behind seated man) | PASS (man behind woman, hands on shoulders) |
+
+**Takeaway (matches B-112 hypothesis):** the NSFW-capable stock SDXL checkpoints (Juggernaut,
+BigLust) **over-index to explicit** on the kneeling/garden "implied" cells despite `tasteful implied
+scene`/clothed phrasing, and BigLust reversed the standing-behind-seated arrangement. Pony stayed
+non-explicit (`rating_safe`) but is anime-style and less faithful on all-fours. **Stock FLUX stayed
+implied-but-non-explicit on all four cells** and only failed on composition fidelity — i.e., FLUX is
+the right family for text-driven implied/softcore arrangement; the SDXL models need explicit content
+policy routing (they are the app's NSFW production path). This is why FLUX integration is the B-112
+goal rather than trying to force SDXL to stay implied.
+**Repo suite on localhost:** `run-juggernaut-simple-people-base.ps1` (committed SFW 2-adult base)
+ran clean against `http://127.0.0.1:8188` → `artifacts/tmp/images/juggernaut-simple-people-replay/`.
 **Related:** B-111 (Consistent Visual Production Program — model/endpoint expansion family),
 B-100 (future canonical moment consumption). Not part of the B-111 superseded map; additive infra.
 
