@@ -89,6 +89,35 @@ public sealed class SceneBeatProductionSourceResolver
             resolved);
     }
 
+    public ResolvedProductionSourceSpan ResolveExactSpanBySearch(
+        string evidenceKey,
+        string exactText,
+        int minStartOffset)
+    {
+        var evidence = ResolveEvidence(evidenceKey);
+        if (string.IsNullOrWhiteSpace(exactText))
+            throw new InvalidOperationException($"Beat Production cue source text is required for evidence '{evidenceKey}'.");
+        var content = NormalizeLineEndings(evidence.Content);
+        var needle = NormalizeLineEndings(exactText).Trim();
+        if (needle.Length == 0)
+            throw new InvalidOperationException($"Beat Production cue source text is empty after trimming for evidence '{evidenceKey}'.");
+
+        var searchStart = Math.Clamp(minStartOffset, 0, content.Length);
+        var index = content.IndexOf(needle, searchStart, StringComparison.Ordinal);
+        if (index < 0 && searchStart > 0)
+            index = content.IndexOf(needle, StringComparison.Ordinal);
+        if (index < 0)
+            throw new InvalidOperationException(
+                $"Beat Production cue source text was not found verbatim in evidence '{evidenceKey}'.");
+        var endOffset = index + needle.Length;
+        return new ResolvedProductionSourceSpan(
+            evidence.Key,
+            evidence.InteractionId,
+            index,
+            endOffset,
+            content[index..endOffset]);
+    }
+
     public void ValidateBeatEvidenceKey(string key)
     {
         ResolveEvidence(key);

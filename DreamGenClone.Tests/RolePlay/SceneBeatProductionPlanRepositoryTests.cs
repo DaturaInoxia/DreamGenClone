@@ -104,6 +104,37 @@ public sealed class SceneBeatProductionPlanRepositoryTests
         }
     }
 
+    [Fact]
+    public async Task UpdateProgress_PersistsOnlyForCurrentProcessingAttempt()
+    {
+        var fixture = CreateFixture();
+        try
+        {
+            var (plan, attempt) = CreateVersion(1, "progress");
+            await fixture.Repository.CreateVersionAsync(plan, attempt);
+            Assert.True(await fixture.Repository.TryStartAttemptAsync(
+                plan.Id, attempt.Id, "model", "Provider", DateTime.UtcNow));
+
+            const string progressJson = "{\"currentPasses\":[\"spoken\"],\"passTrace\":[]}";
+            Assert.True(await fixture.Repository.TryUpdateProgressAsync(
+                plan.Id, attempt.Id, progressJson, DateTime.UtcNow));
+
+            var processingAttempt = await fixture.Repository.GetAttemptAsync(attempt.Id);
+            Assert.Equal(progressJson, processingAttempt!.ValidationDetailsJson);
+
+            attempt.RawModelResponse = "{}";
+            attempt.FinishReason = "stop";
+            Assert.True(await fixture.Repository.TryCompleteAttemptAsync(
+                plan.Id, attempt, CreateData(plan.Id), DateTime.UtcNow));
+            Assert.False(await fixture.Repository.TryUpdateProgressAsync(
+                plan.Id, attempt.Id, "{\"stale\":true}", DateTime.UtcNow));
+        }
+        finally
+        {
+            Cleanup(fixture.DatabasePath);
+        }
+    }
+
     private static TestFixture CreateFixture()
     {
         var path = Path.Combine(Path.GetTempPath(), $"scene-beat-production-{Guid.NewGuid():N}.db");

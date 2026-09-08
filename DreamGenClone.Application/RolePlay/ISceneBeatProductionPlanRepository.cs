@@ -33,6 +33,13 @@ public interface ISceneBeatProductionPlanRepository
         DateTime startedUtc,
         CancellationToken cancellationToken = default);
 
+    Task<bool> TryUpdateProgressAsync(
+        string planId,
+        string attemptId,
+        string progressJson,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default);
+
     Task<bool> TryCompleteAttemptAsync(
         string planId,
         SceneBeatAnalysisAttempt attempt,

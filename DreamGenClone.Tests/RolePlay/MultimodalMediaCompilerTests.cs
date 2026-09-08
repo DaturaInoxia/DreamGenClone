@@ -487,6 +487,7 @@ public sealed class MultimodalMediaCompilerTests
         public Task CreateVersionAsync(SceneBeatProductionPlan plan, SceneBeatAnalysisAttempt attempt, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<SceneBeatAnalysisAttempt?> GetAttemptAsync(string attemptId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> TryStartAttemptAsync(string planId, string attemptId, string modelIdentifier, string providerName, DateTime startedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> TryUpdateProgressAsync(string planId, string attemptId, string progressJson, DateTime updatedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> TryCompleteAttemptAsync(string planId, SceneBeatAnalysisAttempt attempt, SceneBeatProductionPlanData data, DateTime completedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> TryFailAttemptAsync(string planId, SceneBeatAnalysisAttempt attempt, string errorCode, string errorMessage, DateTime completedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> TryCancelCurrentAsync(string planId, string attemptId, DateTime cancelledUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();

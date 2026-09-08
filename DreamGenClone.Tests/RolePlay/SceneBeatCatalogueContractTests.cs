@@ -38,7 +38,11 @@ public sealed class SceneBeatCatalogueContractTests
         Assert.Equal(SceneBeatCatalogueContract.ContractVersion, messages.ContractVersion);
         Assert.Equal(SceneBeatCatalogueContract.ResponseSchemaName, messages.ResponseSchemaName);
         Assert.Contains("1 to 6", messages.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("speaks, responds, moves, touches, gestures", messages.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("never mark all participants observer", messages.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("observer only for someone who is present", messages.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("[n0] Narrative", messages.UserPrompt, StringComparison.Ordinal);
+        Assert.Contains("application attaches the authoritative Narrative evidence automatically", messages.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("[p0] Becky", messages.UserPrompt, StringComparison.Ordinal);
         Assert.DoesNotContain("narrative-id", messages.UserPrompt, StringComparison.Ordinal);
         Assert.DoesNotContain("character-becky", messages.UserPrompt, StringComparison.Ordinal);
@@ -92,14 +96,23 @@ public sealed class SceneBeatCatalogueContractTests
     }
 
     [Fact]
-    public void Parse_RequiresNarrativeEvidence()
+    public void Parse_AutoAnchorsNarrativeEvidence()
     {
         var response = ValidResponse.Replace("[\"n0\", \"c2\"]", "[\"c2\"]");
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
-            CreateContract().Parse("catalogue-1", response, CreateSnapshot(), 6));
+        var entry = Assert.Single(CreateContract().Parse("catalogue-1", response, CreateSnapshot(), 6));
 
-        Assert.Contains("must cite Narrative evidence key n0", error.Message, StringComparison.Ordinal);
+        Assert.Equal(["narrative-id", "becky-id"], JsonSerializer.Deserialize<string[]>(entry.EvidenceInteractionIdsJson));
+    }
+
+    [Fact]
+    public void Parse_AcceptsNarrativeOnlyEvidenceKeys()
+    {
+        var response = ValidResponse.Replace("[\"n0\", \"c2\"]", "[]");
+
+        var entry = Assert.Single(CreateContract().Parse("catalogue-1", response, CreateSnapshot(), 6));
+
+        Assert.Equal(["narrative-id"], JsonSerializer.Deserialize<string[]>(entry.EvidenceInteractionIdsJson));
     }
 
     [Fact]
@@ -115,6 +128,35 @@ public sealed class SceneBeatCatalogueContractTests
             CreateContract().Parse("catalogue-1", observerOnly, CreateSnapshot(), 6));
         Assert.Contains("at least one active participant", observerError.Message, StringComparison.Ordinal);
     }
+
+        [Fact]
+        public void Parse_AcceptsBeatWithMultipleMeaningfullyInvolvedParticipants()
+        {
+                const string response = """
+                        {
+                            "schemaVersion": 1,
+                            "beats": [
+                                {
+                                    "beatId": "b5",
+                                    "order": 5,
+                                    "label": "Conversation at the trailer deck",
+                                    "beatSynopsis": "Dean and Becky respond as the conversation develops.",
+                                    "primaryLocation": "Husband and Wife Trailer — Shared Private Space - the trailer deck",
+                                    "participants": [
+                                        { "name": "Dean", "involvement": "active" },
+                                        { "name": "Becky", "involvement": "active" }
+                                    ],
+                                    "evidenceKeys": ["n0", "c1", "c2"]
+                                }
+                            ]
+                        }
+                        """;
+
+                var entry = Assert.Single(CreateContract().Parse("catalogue-1", response, CreateSnapshot(), 6));
+
+                Assert.Equal("b5", entry.BeatId);
+                Assert.Contains("\"involvement\":\"active\"", entry.ParticipantSummaryJson, StringComparison.Ordinal);
+        }
 
     [Fact]
     public void Parse_AcceptsHierarchicalAndEmptyLocationAndRejectsMaximumOverflow()

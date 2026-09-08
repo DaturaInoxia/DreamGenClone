@@ -14,7 +14,7 @@ public sealed record SceneBeatCatalogueContractMessages(
 
 public sealed class SceneBeatCatalogueContract
 {
-    public const string ContractVersion = "scene-beat-catalogue-v1";
+    public const string ContractVersion = "scene-beat-catalogue-v3";
     public const string ResponseSchemaName = "scene_beat_catalogue";
     public const int LabelMaxLength = 80;
     public const int BeatSynopsisMaxLength = 400;
@@ -175,9 +175,11 @@ public sealed class SceneBeatCatalogueContract
             throw new InvalidOperationException($"Beat Catalogue beat '{beatId}' must contain at least one active participant.");
 
         var evidenceKeys = RequiredStringArray(element, "evidenceKeys", $"Beat Catalogue beat '{beatId}'");
-        if (!evidenceKeys.Contains("n0", StringComparer.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"Beat Catalogue beat '{beatId}' must cite Narrative evidence key n0.");
-        var interactionIds = _snapshotBuilder.ResolveEvidenceInteractionIds(snapshot, evidenceKeys);
+        var resolvedEvidenceKeys = evidenceKeys
+            .Prepend("n0")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var interactionIds = _snapshotBuilder.ResolveEvidenceInteractionIds(snapshot, resolvedEvidenceKeys);
 
         return new SceneBeatCatalogueEntry
         {
@@ -221,7 +223,7 @@ public sealed class SceneBeatCatalogueContract
                 ["participants"] = new JsonObject
                 {
                     ["type"] = "array",
-                    ["minItems"] = 1,
+                    ["minItems"] = 0,
                     ["items"] = new JsonObject
                     {
                         ["type"] = "object",
@@ -258,7 +260,7 @@ public sealed class SceneBeatCatalogueContract
 
             Treat [n0] Narrative as the authoritative chronology and shared-scene synthesis. Use [c#] evidence only to support that chronology. Merge parallel accounts of the same development. Start a new Beat only for a material change in action, arrangement, location, clothing state, time, or scene purpose.
 
-            Every Beat must cite n0 and every supporting evidence key. Use only supplied evidence keys and known participant names. Every Beat requires at least one active participant; people who only watch or notice are observers. primaryLocation names the known location where the beat happens, followed by ' - ' and the specific spot within it whenever you can determine one (for example 'Husband and Wife Trailer — Shared Private Space - the trailer deck'). Choose the parent from KNOWN LOCATIONS when one matches; otherwise describe the location briefly. Return the bare location name without a spot only when no specific spot can be determined. If no location applies, return an empty string.
+            Cite only the supplied character evidence keys that specifically support each Beat; the application attaches the authoritative Narrative evidence automatically. Use only supplied evidence keys and known participant names. Classify involvement by meaningful participation in this Beat: use active when a participant speaks, responds, moves, touches, gestures, performs an action, is directly interacted with, or deliberately observes/reacts in a way that contributes to the Beat's dramatic development. A participant may be active even when their behavior is restrained, indirect, emotional, or observational. Use observer only for someone who is present in the cited evidence but has no meaningful physical, conversational, reactive, or consequential role in the Beat. Every Beat requires at least one active participant; never mark all participants observer when the evidence describes any meaningful action, dialogue, response, contact, or deliberate reaction. primaryLocation names the known location where the beat happens, followed by ' - ' and the specific spot within it whenever you can determine one (for example 'Husband and Wife Trailer — Shared Private Space - the trailer deck'). Choose the parent from KNOWN LOCATIONS when one matches; otherwise describe the location briefly. Return the bare location name without a spot only when no specific spot can be determined. If no location applies, return an empty string.
 
             Keep labels under {{LabelMaxLength}} characters, synopses under {{BeatSynopsisMaxLength}} characters, and locations under {{PrimaryLocationMaxLength}} characters. Return only JSON matching the supplied schema. Do not use markdown fences or explanatory text.
             """;
@@ -323,7 +325,7 @@ public sealed class SceneBeatCatalogueContract
             item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString())
                 ? item.GetString()!.Trim()
                 : throw new InvalidOperationException($"{context} {name} contains an invalid value.")).ToList();
-        if (values.Count == 0 || values.Distinct(StringComparer.OrdinalIgnoreCase).Count() != values.Count)
+        if (values.Distinct(StringComparer.OrdinalIgnoreCase).Count() != values.Count)
             throw new InvalidOperationException($"{context} {name} must contain unique non-empty values.");
         return values;
     }
