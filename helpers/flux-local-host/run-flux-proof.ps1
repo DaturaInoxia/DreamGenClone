@@ -1,10 +1,13 @@
 # run-flux-proof.ps1 - qualification runner for uncensored FLUX.1-dev on a local ComfyUI host.
 # Runs the implied/softcore cells in prompts-implied.json through helpers/runpod/generate-one.ps1
 # (one submit per cell, no resubmit), producing dated PNGs under a git-ignored artifacts path.
+# Pass -LoraFile to re-run with the NSFW "unlock" LoRA applied via a LoraLoaderModelOnly node.
 # Visual review of every output is REQUIRED before declaring PASS (see prompts-implied.json rubric).
 param(
     [Parameter(Mandatory=$true)][string]$ComfyUiUrl,
     [Parameter(Mandatory=$false)][string]$ModelFile = "flux1-dev-fp8.safetensors",
+    [Parameter(Mandatory=$false)][string]$LoraFile = "",   # optional NSFW "unlock" LoRA filename (must exist in models/loras on the host), e.g. "aidmaNSFWunlock-FLUX-V0.2.safetensors"
+    [Parameter(Mandatory=$false)][double]$LoraStrength = 0.7,
     [Parameter(Mandatory=$false)][string]$Only,            # comma-separated cell ids, e.g. "-Only kneeling-implied,garden-fours"
     [Parameter(Mandatory=$false)][int]$Seed = -1,          # fixed seed applied to every cell; -1 = keep workflow seed
     [Parameter(Mandatory=$false)][int]$TimeoutSec = 900,   # FLUX fp8 on a 5080 ~1-2 min/img; allow cold-start headroom
@@ -28,8 +31,8 @@ if ($Only) {
     $cells = @($cells | Where-Object { $_.id -in $onlyIds })
     if ($cells.Count -eq 0) { throw "No cells matched -Only '$Only'." }
 }
-
-Write-Host "FLUX proof: model=$ModelFile  cells=$($cells.Count)  url=$ComfyUiUrl"
+$loraTxt = if ($LoraFile) { "  lora=$LoraFile x $LoraStrength" } else { "  (no lora)" }
+Write-Host "FLUX proof: model=$ModelFile$loraTxt  cells=$($cells.Count)  url=$ComfyUiUrl"
 $resolvedOut = Join-Path $repoRoot $OutputDir
 
 foreach ($cell in $cells) {
@@ -37,6 +40,13 @@ foreach ($cell in $cells) {
     # overrides CheckpointLoaderSimple (ckpt_name), so we handle unet_name here.
     $wf = Get-Content -Raw $workflowPath | ConvertFrom-Json
     $wf.PSObject.Properties["4"].Value.inputs.unet_name = $ModelFile
+
+    if ($LoraFile) {
+        # Wire LoraLoaderModelOnly (node 12) between UNETLoader (4) and KSampler.model (3).
+        $wf.PSObject.Properties["12"].Value.inputs.lora_name = $LoraFile
+        $wf.PSObject.Properties["12"].Value.inputs.strength_model = $LoraStrength
+        $wf.PSObject.Properties["3"].Value.inputs.model = @("12", 0)
+    }
 
     $tmpWf = Join-Path ([IO.Path]::GetTempPath()) ("flux_" + $cell.id + "_" + [guid]::NewGuid().ToString("N") + ".json")
     [IO.File]::WriteAllText($tmpWf, ($wf | ConvertTo-Json -Depth 20))

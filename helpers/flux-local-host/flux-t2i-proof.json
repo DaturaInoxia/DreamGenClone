@@ -71,6 +71,14 @@
       "vae": ["10", 0]
     }
   },
+  "12": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": ["4", 0],
+      "lora_name": "",
+      "strength_model": 0.7
+    }
+  },
   "9": {
     "class_type": "SaveImage",
     "inputs": {
