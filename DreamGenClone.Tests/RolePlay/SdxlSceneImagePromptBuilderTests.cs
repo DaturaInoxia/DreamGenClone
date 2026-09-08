@@ -110,29 +110,25 @@ public sealed class SdxlSceneImagePromptBuilderTests
     }
 
     [Fact]
-    public void BuildDeterministicBeatNegativePrompt_UsesSdxlGuardSet()
+    public void BuildDeterministicBeatNegativePrompt_IsEmptyForSdxl()
     {
+        // SDXL scene images carry no negative (model-author guidance, 2026-09-08): BigLust v1.6's
+        // own example workflows use an empty negative, Juggernaut Hyper specifies none, and SDXL
+        // base guidance is "easy on negative prompts". See sdxl instruction file.
         var negative = _preprocessor.BuildDeterministicBeatNegativePrompt(MakeThreeCharacterBeat(), SceneImagePovFramer.Omniscient);
 
-        // SDXL needs the heavier guard set (limb/leg artifacts, censored genitals, non-photo styles).
-        Assert.Contains("four legs", negative, StringComparison.Ordinal);
-        Assert.Contains("fused legs", negative, StringComparison.Ordinal);
-        Assert.Contains("blurry genitals", negative, StringComparison.Ordinal);
-        Assert.Contains("censored", negative, StringComparison.Ordinal);
-        Assert.Contains("cartoon", negative, StringComparison.Ordinal);
-        Assert.Contains("bad anatomy", negative, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, negative);
     }
 
     [Fact]
-    public void BuildDeterministicBeatNegativePrompt_ExcludesAbsentCharacter()
+    public void BuildDeterministicBeatNegativePrompt_IsEmptyEvenWithAbsentObserver()
     {
-        // From Becky's POV, Dean is in frame and Ken (porch observer) is not.
+        // From Becky's POV Ken (porch observer) is not in frame, but who is/isn't in frame is
+        // expressed in the POSITIVE prompt (visible-cast description + count/gender), never via
+        // "absent from frame" negative exclusions.
         var negative = _preprocessor.BuildDeterministicBeatNegativePrompt(MakeThreeCharacterBeat(), "Becky");
 
-        Assert.Contains("Ken absent from frame", negative, StringComparison.OrdinalIgnoreCase);
-        // Visible characters are not excluded.
-        Assert.DoesNotContain("Becky absent from frame", negative, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Dean absent from frame", negative, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(string.Empty, negative);
     }
 
     // ---- Canonical (B-100 CompiledMediaBrief) path — B-104 / B-103 part B ----

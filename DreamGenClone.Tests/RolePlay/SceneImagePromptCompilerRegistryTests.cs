@@ -14,10 +14,12 @@ public sealed class SceneImagePromptCompilerRegistryTests
     {
         var pony = new PonySceneImagePromptCompiler(new PonySceneImagePromptBuilder());
         var sdxl = new SdxlSceneImagePromptCompiler(new SdxlSceneImagePromptBuilder());
-        var registry = new SceneImagePromptCompilerRegistry([pony, sdxl]);
+        var flux = new FluxSceneImagePromptCompiler(new SdxlSceneImagePromptBuilder());
+        var registry = new SceneImagePromptCompilerRegistry([pony, sdxl, flux]);
 
         Assert.Same(pony, registry.Resolve(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags));
         Assert.Same(sdxl, registry.Resolve(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage));
+        Assert.Same(flux, registry.Resolve(SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage));
     }
 
     [Fact]

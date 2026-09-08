@@ -69,7 +69,9 @@ public sealed class SceneBeatPipelineEndToEndTests
             Assert.Equal(catalogue.Id, plan.CatalogueId);
             Assert.Equal(catalogue.Version, plan.CatalogueVersion);
             Assert.Equal("character-dean", Assert.Single(plan.DialogueCues).SpeakerCharacterId);
-            Assert.Equal(SceneVideoCoverageKind.MomentTransition, Assert.Single(plan.VideoCoveragePlans).CoverageKind);
+            // The deterministic assembler emits a single WholeBeat coverage (see
+            // SceneBeatProductionAssembler) instead of the former model-authored coverage kind.
+            Assert.Equal(SceneVideoCoverageKind.WholeBeat, Assert.Single(plan.VideoCoveragePlans).CoverageKind);
 
             var discoveryBuilder = new SceneMomentDiscoverySnapshotBuilder();
             var discoveryService = new SceneMomentDiscoveryPipelineService(

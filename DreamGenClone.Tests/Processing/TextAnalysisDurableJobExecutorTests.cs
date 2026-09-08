@@ -177,6 +177,36 @@ public sealed class TextAnalysisDurableJobExecutorTests
         Assert.True(await handlerStopped.Task.WaitAsync(TimeSpan.FromSeconds(1)));
     }
 
+    [Fact]
+    public async Task Execute_MultiPassHandlerDeclaredBudgetScalesOperationWatchdogPastSingleProviderTimeout()
+    {
+        // A multi-pass handler (e.g. decomposed Beat Production) that legitimately needs more
+        // wall-clock than one provider timeout should complete instead of being killed by the
+        // whole-run operation watchdog, because it declares an operation-timeout multiplier.
+        var repository = new RecordingRepository();
+        var executor = CreateExecutor(repository, new BudgetHandler("catalogue", async (_, cancellationToken) =>
+            await Task.Delay(TimeSpan.FromMilliseconds(1500), cancellationToken), multiplier: 4));
+
+        await executor.ExecuteAsync(
+            CreateClaimedJob(),
+            CreateAnalyzer() with { Model = CreateAnalyzer().Model with { ProviderTimeoutSeconds = 1 } });
+
+        Assert.Equal(1, repository.CompleteCalls);
+        Assert.Equal(0, repository.RetryCalls);
+        Assert.Equal(0, repository.FailCalls);
+    }
+
+    private sealed class BudgetHandler(
+        string jobType,
+        Func<DurableBackgroundJob, CancellationToken, Task> handle,
+        int multiplier) : IDurableBackgroundJobHandler, IDurableJobOperationBudget
+    {
+        public string JobType { get; } = jobType;
+        public int OperationTimeoutMultiplier => multiplier;
+        public Task HandleAsync(DurableBackgroundJob job, CancellationToken cancellationToken = default)
+            => handle(job, cancellationToken);
+    }
+
     private static TextAnalysisDurableJobExecutor CreateExecutor(
         RecordingRepository repository,
         params IDurableBackgroundJobHandler[] handlers)

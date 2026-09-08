@@ -295,4 +295,91 @@ public sealed class ComfyUIImageClientTests
         Assert.Equal("invalid_image_prompt_metadata", ex.ReasonCode);
         Assert.False(called);
     }
+
+    [Fact]
+    public void BuildFluxWorkflow_UsesFluxSplitTopologyAndSettings()
+    {
+        var wf = ComfyUIImageClient.BuildFluxWorkflow(
+            "flux1-dev-fp8.safetensors",
+            "a woman in a garden on all fours, tasteful implied scene, 35mm photograph",
+            "896x1152",
+            seed: 20260907L);
+
+        var json = wf.ToJsonString();
+        Assert.Contains("\"class_type\":\"UNETLoader\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"unet_name\":\"flux1-dev-fp8.safetensors\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"class_type\":\"DualCLIPLoader\"", json, StringComparison.Ordinal);
+        Assert.Contains("t5xxl_fp8_e4m3fn.safetensors", json, StringComparison.Ordinal);
+        Assert.Contains("clip_l.safetensors", json, StringComparison.Ordinal);
+        Assert.Contains("\"class_type\":\"FluxGuidance\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"guidance\":3.5", json, StringComparison.Ordinal);
+        Assert.Contains("\"cfg\":1", json, StringComparison.Ordinal);
+        Assert.Contains("\"sampler_name\":\"euler\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"scheduler\":\"simple\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"steps\":28", json, StringComparison.Ordinal);
+        Assert.Contains("\"vae_name\":\"ae.safetensors\"", json, StringComparison.Ordinal);
+        // FLUX uses split loaders, never the merged SDXL/Pony checkpoint loader.
+        Assert.DoesNotContain("CheckpointLoaderSimple", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_FluxMetadataWithOpaqueCheckpoint_UsesFluxWorkflow()
+    {
+        var pngBytes = new byte[] { 137, 80, 78, 71, 1, 2, 3 };
+        var promptId = "flux-1";
+        HttpRequestMessage? submitRequest = null;
+        var client = BuildClient(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/prompt"))
+            {
+                submitRequest = req;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(JsonNode.Parse($"{{\"prompt_id\":\"{promptId}\"}}")!.ToJsonString())
+                };
+            }
+            if (req.RequestUri!.AbsolutePath.Contains($"/history/{promptId}"))
+            {
+                var history = JsonNode.Parse($$"""
+                {
+                  "{{promptId}}": {
+                    "status": { "status_str": "success" },
+                    "outputs": {
+                      "9": { "images": [ { "filename": "out.png", "subfolder": "", "type": "output" } ] }
+                    }
+                  }
+                }
+                """);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(history!.ToJsonString())
+                };
+            }
+            if (req.RequestUri!.AbsolutePath.EndsWith("/view"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(pngBytes)
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var model = Resolve() with
+        {
+            ModelIdentifier = "flux1-dev-fp8.safetensors",
+            SceneImageModelFamily = SceneImageModelFamily.Flux,
+            PromptDialect = SceneImagePromptDialect.FluxNaturalLanguage
+        };
+        var result = await client.GenerateAsync(model, "a woman in a garden on all fours", "896x1152", null, seed: 20260907L, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.NotNull(submitRequest);
+        var body = await submitRequest!.Content!.ReadAsStringAsync();
+        // Flux family routes to the split UNETLoader workflow, not the merged checkpoint loader.
+        Assert.Contains("UNETLoader", body, StringComparison.Ordinal);
+        Assert.Contains("flux1-dev-fp8.safetensors", body, StringComparison.Ordinal);
+        Assert.Contains("FluxGuidance", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("CheckpointLoaderSimple", body, StringComparison.Ordinal);
+    }
 }

@@ -39,14 +39,13 @@ A single provider row (one ComfyUI endpoint hosts every checkpoint) named
 | `juggernautXL_ragnarok.safetensors` | Juggernaut XL Ragnarok (Local ComfyUI) | Sdxl / SdxlNaturalLanguage | ✅ |
 | `bigLust_v16.safetensors` | BigLust v1.6 (Local ComfyUI) | Sdxl / SdxlNaturalLanguage | ✅ |
 | `ponyDiffusionV6XL_v6.safetensors` | Pony V6 XL (Local ComfyUI) | Pony / PonyV6Tags | ✅ |
-| `flux1-dev-fp8.safetensors` | FLUX.1-dev fp8 (Local ComfyUI) | **Unknown / Unknown** | ⛔ **disabled** |
+| `flux1-dev-fp8.safetensors` | FLUX.1-dev fp8 (Local ComfyUI) | Flux / FluxNaturalLanguage | ✅ |
 
-> **Why FLUX is disabled (not a fallback — a hard constraint):** the app's `SceneImageModelFamily`
-> enum only has `Pony / Sdxl / Api`, and the ComfyUI client only builds Pony/SDXL workflows. An
-> **enabled** FLUX row would make the app route an SDXL workflow at a FLUX checkpoint and fail. The
-> FLUX row is registered **present-but-disabled** so Model Manager records the local checkpoint
-> exists; it becomes routable only after the B-112 Flux-family code slice lands
-> (`specs/Planning/B-112-flux-local-5080-host/plan.md` §7). Do not enable it before then.
+> **FLUX enabled 2026-09-08:** the B-112 §7 Flux-family code slice landed (`SceneImageModelFamily.Flux`
+> + `FluxNaturalLanguage`, ComfyUI split-UNET `BuildFluxWorkflow`, `FluxSceneImagePromptCompiler`,
+> validation arms + dropdowns). The FLUX row is now **enabled** and routable — additive, and it is
+> NOT the `RolePlaySceneImage` default. Do not repoint the default unless you intend FLUX to replace
+> the active model. See `specs/Planning/B-112-flux-local-5080-host/plan.md` §7.
 
 This is **additive**: it never repoints function defaults and never disables an existing RunPod
 provider/model, so the local endpoint can replace or run alongside the RunPod Serverless endpoints

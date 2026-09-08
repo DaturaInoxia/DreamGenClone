@@ -76,6 +76,33 @@ public sealed class SceneBeatProductionPipelineService : ISceneBeatProductionPip
         var job = attempt is null
             ? null
             : await _jobQueue.GetAsync(attempt.JobId, cancellationToken);
+
+        // If the durable job reached a terminal Failed state but the owning plan was never
+        // reconciled (e.g. the executor's operation watchdog or a host outage ended the run
+        // before the handler's FailAttemptAsync path ran), surface the failure by transitioning
+        // the still-Pending/Processing plan to Failed with the durable job's recorded error.
+        // This is idempotent (compare-and-set guarded by current ownership/status) so repeated
+        // reads converge to the terminal Failed state instead of showing an eternal spinner.
+        if (plan.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing
+            && attempt is not null
+            && job?.Status == DurableBackgroundJobStatus.Failed
+            && !string.IsNullOrWhiteSpace(job.ErrorCode)
+            && !string.IsNullOrWhiteSpace(job.ErrorMessage))
+        {
+            var completedUtc = job.CompletedUtc ?? _timeProvider.GetUtcNow().UtcDateTime;
+            if (await _planRepository.TryFailAttemptAsync(
+                    plan.Id, attempt, job.ErrorCode, job.ErrorMessage, completedUtc, cancellationToken))
+            {
+                plan = await _planRepository.GetLatestAsync(catalogueId, beatId, cancellationToken) ?? plan;
+                attempt = string.IsNullOrWhiteSpace(plan.CurrentAttemptId)
+                    ? null
+                    : await _planRepository.GetAttemptAsync(plan.CurrentAttemptId, cancellationToken);
+                job = attempt is null
+                    ? null
+                    : await _jobQueue.GetAsync(attempt.JobId, cancellationToken);
+            }
+        }
+
         return new SceneBeatProductionStatus(plan, attempt, job);
     }
 

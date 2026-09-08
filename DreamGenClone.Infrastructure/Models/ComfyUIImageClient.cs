@@ -179,6 +179,92 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
         return wf;
     }
 
+    /// <summary>
+    /// FLUX.1-dev text-to-image workflow (split loaders; mirrors
+    /// helpers/flux-local-host/flux-t2i-proof.json). Uses DualCLIPLoader (t5xxl_fp8_e4m3fn + clip_l,
+    /// type "flux") -> FluxGuidance 3.5 -> KSampler cfg 1.0 / euler / simple / 28 steps with an EMPTY
+    /// negative (FLUX does not use negatives — describe the desired state positively), and the shared
+    /// VAE (ae.safetensors). The diffusion model identifier is the UNETLoader unet_name. cfg stays 1.0;
+    /// the real strength control is FluxGuidance. Resolution from <paramref name="size"/> (ParseSize
+    /// default 1024x1024; FLUX requires multiples of 16). The LoRA unlock is intentionally NOT applied
+    /// by default (stock-fp8 proof; non-explicit scenes).
+    /// </summary>
+    internal static JsonObject BuildFluxWorkflow(string unetName, string prompt, string? size, long? seed)
+    {
+        var (width, height) = ParseSize(size);
+        var wf = new JsonObject
+        {
+            ["2"] = new JsonObject
+            {
+                ["class_type"] = "DualCLIPLoader",
+                ["inputs"] = new JsonObject
+                {
+                    ["clip_name1"] = "t5xxl_fp8_e4m3fn.safetensors",
+                    ["clip_name2"] = "clip_l.safetensors",
+                    ["type"] = "flux"
+                }
+            },
+            ["4"] = new JsonObject
+            {
+                ["class_type"] = "UNETLoader",
+                ["inputs"] = new JsonObject { ["unet_name"] = unetName, ["weight_dtype"] = "default" }
+            },
+            ["6"] = new JsonObject
+            {
+                ["class_type"] = "CLIPTextEncode",
+                ["inputs"] = new JsonObject { ["text"] = prompt, ["clip"] = new JsonArray("2", 0) }
+            },
+            ["7"] = new JsonObject
+            {
+                ["class_type"] = "CLIPTextEncode",
+                ["inputs"] = new JsonObject { ["text"] = "", ["clip"] = new JsonArray("2", 0) }
+            },
+            ["8"] = new JsonObject
+            {
+                ["class_type"] = "FluxGuidance",
+                ["inputs"] = new JsonObject { ["conditioning"] = new JsonArray("6", 0), ["guidance"] = 3.5 }
+            },
+            ["3"] = new JsonObject
+            {
+                ["class_type"] = "KSampler",
+                ["inputs"] = new JsonObject
+                {
+                    ["seed"] = seed ?? Random.Shared.Next(0, int.MaxValue),
+                    ["steps"] = 28,
+                    ["cfg"] = 1.0,
+                    ["sampler_name"] = "euler",
+                    ["scheduler"] = "simple",
+                    ["denoise"] = 1.0,
+                    ["model"] = new JsonArray("4", 0),
+                    ["positive"] = new JsonArray("8", 0),
+                    ["negative"] = new JsonArray("7", 0),
+                    ["latent_image"] = new JsonArray("5", 0)
+                }
+            },
+            ["5"] = new JsonObject
+            {
+                ["class_type"] = "EmptyLatentImage",
+                ["inputs"] = new JsonObject { ["width"] = width, ["height"] = height, ["batch_size"] = 1 }
+            },
+            ["10"] = new JsonObject
+            {
+                ["class_type"] = "VAELoader",
+                ["inputs"] = new JsonObject { ["vae_name"] = "ae.safetensors" }
+            },
+            ["11"] = new JsonObject
+            {
+                ["class_type"] = "VAEDecode",
+                ["inputs"] = new JsonObject { ["samples"] = new JsonArray("3", 0), ["vae"] = new JsonArray("10", 0) }
+            },
+            ["9"] = new JsonObject
+            {
+                ["class_type"] = "SaveImage",
+                ["inputs"] = new JsonObject { ["filename_prefix"] = "dreamgen_app", ["images"] = new JsonArray("11", 0) }
+            }
+        };
+        return wf;
+    }
+
     private static (int Width, int Height) ParseSize(string? size)
     {
         if (!string.IsNullOrWhiteSpace(size))
@@ -230,12 +316,16 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
             }
             var checkpoint = model.ModelIdentifier;
 
-            // Model-family aware baseline negative: SDXL/Juggernaut needs a heavier guard set than
-            // Pony. When a deterministic per-scene negative is provided it takes precedence.
+            // Model-family aware baseline negative: SDXL-family (Juggernaut/BigLust) and FLUX scene
+            // images carry NO negative (model-author/BFL guidance, 2026-09-08 — see the sdxl + flux
+            // instruction files); Pony keeps its short guard set. A provided per-scene negative
+            // still takes precedence.
             ValidatePromptMetadata(model);
-            var baselineNegative = model.SceneImageModelFamily == SceneImageModelFamily.Sdxl
-                ? "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin"
-                : "extra penis, multiple penises, two penises, duplicate anatomy, blurry, low quality, ugly, deformed, extra limbs, bad anatomy, watermark, text, censored, mosaic, airbrushed, plastic skin";
+            var baselineNegative = model.SceneImageModelFamily switch
+            {
+                SceneImageModelFamily.Pony => "extra penis, multiple penises, two penises, duplicate anatomy, blurry, low quality, ugly, deformed, extra limbs, bad anatomy, watermark, text, censored, mosaic, airbrushed, plastic skin",
+                _ => string.Empty
+            };
             var effectiveNegative = string.IsNullOrWhiteSpace(negativePrompt)
                 ? baselineNegative
                 : negativePrompt.Trim();
@@ -246,6 +336,7 @@ public sealed class ComfyUIImageClient : IImageGenerationClient
             {
                 SceneImageModelFamily.Pony => BuildDefaultWorkflow(checkpoint, prompt, effectiveNegative, size, seed),
                 SceneImageModelFamily.Sdxl => BuildSdxlWorkflow(checkpoint, prompt, effectiveNegative, size, seed, options),
+                SceneImageModelFamily.Flux => BuildFluxWorkflow(checkpoint, prompt, size, seed),
                 _ => throw new ImageGenerationException(
                         $"Unsupported scene-image family '{model.SceneImageModelFamily}'. Configure the model family and prompt dialect in Model Manager.",
                     model.ProviderName,

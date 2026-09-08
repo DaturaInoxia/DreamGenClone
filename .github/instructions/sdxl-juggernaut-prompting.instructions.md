@@ -50,13 +50,18 @@ Used by: `SceneImagePromptGenerationJobHandler` (picks the LLM prompt builder), 
    level allows it.
 6. **No CLIP skip by default.** The SDXL workflow (`ComfyUIImageClient.BuildSdxlWorkflow`) adds the `CLIPSetLastLayer` node only when a clip-skip value is explicitly set; the studio default is "None". Pony keeps its own CLIP-skip-2 workflow untouched.
 7. **Sampler for Juggernaut (studio-configurable):** default `dpmpp_2m_sde` / `karras` / 30 steps / CFG 5.0 (matches the validated test prompts and the author's guidance). Pony keeps `euler_ancestral` / 25 / 7.
-8. **Heavier negative than Pony** (SDXL needs a bigger guard set):
-   `deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms,
-   missing limbs, malformed hands, malformed feet, blurry genitals, featureless genitals, censored,
-   cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin`.
-9. **For explicit content, SDXL needs concrete anatomy language in the positive** ("erect penis
-   penetrating her vagina, correct penis and vagina anatomy") AND the genital guards above in the
-   negative. Base SDXL avoids genitals even then; Juggernaut renders them correctly.
+8. **No negative prompt** (2026-09-08, per-model author research — see canonical §3.2): the SDXL
+   checkpoints in use carry an EMPTY negative. BigLust v1.6's own example workflows use an empty
+   negative, Juggernaut Hyper specifies "negative prompt: none", and SDXL base guidance is "easy on
+   negative prompts … only include things you want to avoid". Because this app renders adult
+   content, the Juggernaut authors' "add NSFW tokens to the negative" (an SFW-avoidance practice)
+   does not apply. SDXL scene images are generated with no negative
+   (`SdxlSceneImagePromptBuilder.DefaultNegativePrompt == ""` — studio default, canonical negative,
+   and deterministic beat negative all resolve to empty) and the positive prompt describes the
+   desired state, including who is in frame.
+9. **For explicit content, describe concrete anatomy in the positive** ("erect penis penetrating
+   her vagina, correct penis and vagina anatomy"). Base SDXL avoids genitals even then; Juggernaut
+   renders them correctly.
 
 ## Phase → explicitness (SDXL prose, the analogue of the Pony rating tag)
 

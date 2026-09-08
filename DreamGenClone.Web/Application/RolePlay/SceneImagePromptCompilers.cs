@@ -63,6 +63,33 @@ public sealed class ApiSceneImagePromptCompiler : ISceneImagePromptCompiler
     public string BuildNegativePrompt(SceneImageBeat beat, string pov) => string.Empty;
 }
 
+/// <summary>
+/// Natural-language compiler for local FLUX.1-dev scene images (ComfyUI split-UNET workflow).
+/// FLUX shares SDXL's natural-language photography-brief dialect (no tag vocabulary, no heavy
+/// negative), so the same natural-language builder produces its positive prompts; FLUX differs only
+/// in the render workflow (UNETLoader + FluxGuidance, cfg 1.0) and carries NO negative (BFL: most
+/// FLUX models do not support negatives — describe the desired state positively).
+/// NOTE (follow-up): the shared natural-language system prompt is SDXL-branded; a FLUX-grounded
+/// system prompt is a documented follow-up, not required to route FLUX. See
+/// sdxl-juggernaut-prompting.instructions.md and the B-112 plan.
+/// </summary>
+public sealed class FluxSceneImagePromptCompiler : ISceneImagePromptCompiler
+{
+    private readonly SdxlSceneImagePromptBuilder _builder;
+
+    public FluxSceneImagePromptCompiler(SdxlSceneImagePromptBuilder builder)
+    {
+        _builder = builder;
+    }
+
+    public SceneImageModelFamily Family => SceneImageModelFamily.Flux;
+    public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.FluxNaturalLanguage;
+    public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
+    public string CanonicalNegativePrompt => string.Empty;
+
+    public string BuildNegativePrompt(SceneImageBeat beat, string pov) => string.Empty;
+}
+
 public sealed class SceneImagePromptCompilerRegistry : ISceneImagePromptCompilerRegistry
 {
     private readonly IReadOnlyList<ISceneImagePromptCompiler> _compilers;
@@ -119,6 +146,10 @@ public static class SceneAssetPromptCompiler
                 semanticDescription),
             (SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage) => new(
                 "scene-asset-api-natural-language",
+                "1",
+                semanticDescription),
+            (SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage) => new(
+                "scene-asset-flux-natural-language",
                 "1",
                 semanticDescription),
             _ => throw new InvalidOperationException(

@@ -232,10 +232,16 @@ steps / CFG 5.0 / 1024×1024 (per `ComfyUIImageClient.BuildSdxlWorkflow` and the
 
 - The SDXL art guide is explicit: **easy on negative prompts** — include only what you want to
   avoid. A giant negative list fights the model.
-- **Our documented exception (must keep, with reason):** because we render explicit/NSFW content on
-  an NSFW-trained family, we DO carry a heavier anatomy/style guard set
-  (`SdxlSceneImagePromptBuilder.DefaultNegativePrompt`). This is a deliberate, commented deviation
-  from "start minimal" (rule 6). Keep the guard set tight and justified — do not grow it ad hoc.
+- **SDXL default is EMPTY (2026-09-08, per-model author research — supersedes the old "heavier
+  guard set" exception):** re-researching the specific SDXL checkpoints in use showed none of them
+  recommend a heavy negative — BigLust v1.6's own example workflows use an empty negative, Juggernaut
+  Hyper specifies "negative prompt: none", and SDXL base guidance is "easy on negative prompts… only
+  include things you want to avoid". The Juggernaut author's "add NSFW tokens to the negative"
+  guidance is an SFW-avoidance practice that does not apply to this app's adult-content renders.
+  `SdxlSceneImagePromptBuilder.DefaultNegativePrompt` is therefore `""` — the studio default, the
+  canonical compiler negative, and the deterministic beat negative all resolve to empty; the positive
+  prompt describes the desired state (including who is in frame). A user-supplied negative in the
+  Studio is still honored verbatim.
 - Negations ("no X") belong in the negative, never as "no X" in the positive.
 - SDXL-family finetunes can carry **BOORU anatomical tokens**; if any appear, they belong in the
   **negative** to avoid accidental outputs (Juggernaut guide, "Keep it safe for work").
@@ -253,7 +259,7 @@ steps / CFG 5.0 / 1024×1024 (per `ComfyUIImageClient.BuildSdxlWorkflow` and the
 
 | Family | Prompt language | Count/quality tokens | Camera | Sampler / steps / CFG | Negative | Doc |
 |---|---|---|---|---|---|---|
-| **SDXL / Juggernaut / Big Lust** | natural-language photography brief | none — state gender+number in prose | name it (`wide shot`, `from behind`, distance) | DPM++ 2M SDE / 30–40 / 3–6 | minimal-ish; anatomy guards for NSFW | this doc + `sdxl-juggernaut-prompting.instructions.md` |
+| **SDXL / Juggernaut / Big Lust** | natural-language photography brief | none — state gender+number in prose | name it (`wide shot`, `from behind`, distance) | DPM++ 2M SDE / 30–40 / 3–6 | **empty** (no negative for adult use; §3.2) | this doc + `sdxl-juggernaut-prompting.instructions.md` |
 | **Pony V6 XL** | dense comma tags | `score_9…score_4_up` (full string, first) + `rating_*` + `1boy/1girl/2people` | explicit (`front view, eye level`) | `euler_ancestral` / 25 / 7 · CLIP skip 2 | short (~6 terms) | `pony-v6-prompting.instructions.md` |
 | **Qwen Image Edit** | edit instruction over a source image | n/a | n/a (edit) | see its doc | see its doc | `qwen-image-edit-2511.instructions.md` |
 | **FLUX.2** | natural language or structured JSON | explicit ordered subjects | explicit structured camera | variant/profile-specific | **unsupported; field forbidden** | `flux2-prompting.instructions.md` |

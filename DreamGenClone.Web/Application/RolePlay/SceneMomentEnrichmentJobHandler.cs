@@ -142,7 +142,8 @@ public sealed class SceneMomentEnrichmentJobHandler : IDurableBackgroundJobHandl
                     attempt.UserPrompt,
                     SceneMomentEnrichmentContract.ResponseSchemaName,
                     SceneMomentEnrichmentContract.CreateResponseSchema(
-                        sourceSnapshot.Moment.Participants.Select(profile => profile.ProfileKey).ToArray())),
+                        sourceSnapshot.Moment.Participants.Select(profile => profile.ProfileKey).ToArray(),
+                        SceneMomentEnrichmentContract.VideoRolesFrom(sourceSnapshot.Moment.ProductionRoles))),
                 cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

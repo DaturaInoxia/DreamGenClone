@@ -32,14 +32,13 @@ public sealed class SceneImageStudioUiContractTests
     public void ProductionStudio_HandsCompositionToTheDedicatedComposer()
     {
         var studioStart = IndexOf("<div class=\"card mb-3 scene-production-studio\">");
-        var createBranch = IndexOf("@if (IsSelectedMomentEnriched)", studioStart);
-        var createCommand = IndexOf("@onclick=\"CreateOrLoadProductionAsync\"", createBranch);
-        var productionBody = IndexOf("<div class=\"card-body\">", createCommand);
-        Assert.True(createBranch < createCommand && createCommand < productionBody,
-            "Create / Load Production must remain inside the enriched-Moment header branch.");
+        var povSection = IndexOf("<div class=\"scene-production-pov mb-3\">", studioStart);
+        var povGate = IndexOf("@if (!string.IsNullOrWhiteSpace(_productionPov))", povSection);
+        var createCommand = IndexOf("@onclick=\"CreateOrLoadProductionAsync\"", povGate);
+        Assert.True(povSection < povGate && povGate < createCommand,
+            "Open Composition Composer must appear in the Production POV section once a POV is selected.");
         Assert.Single(Regex.Matches(Source, "@onclick=\"CreateOrLoadProductionAsync\"", RegexOptions.CultureInvariant).Cast<Match>());
-        Assert.Contains("Composition Composer", Source, StringComparison.Ordinal);
-        Assert.Contains("/production/@_productionGroup.Id/composition", Source, StringComparison.Ordinal);
+        Assert.Contains("Open Composition Composer", Source, StringComparison.Ordinal);
         Assert.Contains("Nav.NavigateTo($\"/roleplay/studio/{sessionId}/{interactionId}/production/{_productionGroup.Id}/composition\")", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("@onclick=\"GenerateProductionCompositionAsync\"", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("@bind=\"_selectedProductionModelId\"", Source, StringComparison.Ordinal);
@@ -73,7 +72,7 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("SceneImageProductionSchema.CurrentGeneration", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("<div hidden=\"@IsCurrentProductionSession\">", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("scene-image-legacy-tools\" hidden=\"@IsCurrentProductionSession\"", Source, StringComparison.Ordinal);
-        Assert.Contains("@if (IsSelectedMomentEnriched)", Source, StringComparison.Ordinal);
+        Assert.Contains("@if (!IsSelectedMomentEnriched)", Source, StringComparison.Ordinal);
         Assert.Contains("Composition Composer", Source, StringComparison.Ordinal);
         Assert.Contains("@bind=\"_selectedGenericModelId\"", Source, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"() => OpenImageEditor(img)\"", Source, StringComparison.Ordinal);

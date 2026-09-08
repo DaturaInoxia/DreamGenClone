@@ -88,6 +88,37 @@ public sealed class SceneBeatProductionParserTests
     }
 
     [Fact]
+    public void Parse_AllowsDialogueAndNarrationToShareOneChronologicalOrder()
+    {
+        // The spoken track may interleave narration and dialogue chronologically. The response
+        // lists a narration cue (order 2) while the dialogue line is order 1, so the combined
+        // order [1,2] is contiguous only when validated across BOTH arrays by order, not by the
+        // array-concatenation (narration-then-dialogue) order.
+        var response = MutateResponse(root =>
+        {
+            var narration = JsonNode.Parse("""
+                {
+                  "cueKey": "n1", "order": 2, "kind": "Narration", "eventKey": "e1",
+                  "exactSourceText": "Dean speaks to Becky.", "displayText": "Dean speaks to Becky.",
+                  "normalizedSpokenText": "Dean speaks to Becky.", "normalizationMethod": "identity", "normalizationVersion": "1",
+                  "sourceKey": "n0", "speakerKey": null, "addresseeKeys": [],
+                  "performance": { "speakerKey": null, "languageCode": "en", "locale": null, "emotion": "neutral", "intensity": "low", "pace": "measured", "accentIntent": null, "pauseCues": [], "overlapOrInterruption": null, "pronunciationLexemes": [], "nonVerbalVocalEvents": [] },
+                  "window": { "startSeconds": 0, "endSeconds": 2, "startEventKey": "e1", "endEventKey": "e1", "durationIntent": "brief", "precision": "Estimated", "overlapPolicy": "Allow", "continuityLeadIn": false, "continuityTail": false },
+                  "lipSyncRelevant": false, "reviewStatus": "Validated", "reviewReason": null
+                }
+                """)!;
+            root["dialogue"]![0]!["order"] = 1;
+            root["narration"] = new JsonArray(narration);
+        });
+
+        var result = Parse(response);
+
+        Assert.Equal(2, result.DialogueCues.Count);
+        Assert.Equal([1, 2], result.DialogueCues.Select(cue => cue.Order).ToArray());
+        Assert.Contains(result.DialogueCues, cue => cue.Kind == SceneBeatDialogueKind.Narration);
+    }
+
+    [Fact]
     public void Parse_RejectsModelExactTextThatDiffersFromImmutableSourceSpan()
     {
         var response = ValidResponse.Replace("You're still awake.\", \"displayText", "You're still asleep.\", \"displayText");

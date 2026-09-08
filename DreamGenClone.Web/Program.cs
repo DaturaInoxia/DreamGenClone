@@ -451,6 +451,7 @@ builder.Services.AddSingleton<ISdxlSceneImagePromptBuilder>(sp => sp.GetRequired
 builder.Services.AddSingleton<ISceneImagePromptCompiler, PonySceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, SdxlSceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, ApiSceneImagePromptCompiler>();
+builder.Services.AddSingleton<ISceneImagePromptCompiler, FluxSceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompilerRegistry, SceneImagePromptCompilerRegistry>();
 
 // Prompt-queue navigation resilience (B-027)

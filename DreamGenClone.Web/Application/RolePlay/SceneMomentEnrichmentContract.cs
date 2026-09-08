@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -85,14 +86,28 @@ public sealed record SceneMomentEnrichmentMomentSnapshot(
 public sealed class SceneMomentEnrichmentContract
 {
     public const int CurrentSchemaVersion = 1;
-    public const string ContractVersion = "scene-moment-enrichment-v1";
+    public const string ContractVersion = "scene-moment-enrichment-v2";
     public const string ResponseSchemaName = "scene_moment_enrichment";
+
+    /// <summary>Returns the subset of a Moment's production roles that are video key-state roles.</summary>
+    public static string[] VideoRolesFrom(IEnumerable<string> productionRoles)
+        => productionRoles
+            .Where(role => role is nameof(SceneMomentProductionRole.VideoStart)
+                or nameof(SceneMomentProductionRole.VideoEnd)
+                or nameof(SceneMomentProductionRole.VideoInternalKeyframe))
+            .ToArray();
 
     public SceneMomentEnrichmentContractMessages BuildMessages(SceneMomentEnrichmentSourceSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (snapshot.SchemaVersion != CurrentSchemaVersion)
             throw new InvalidOperationException($"Moment enrichment source schemaVersion {snapshot.SchemaVersion} is unsupported.");
+
+        var selectedVideoRoles = VideoRolesFrom(snapshot.Moment.ProductionRoles);
+        var videoRolesText = string.Join(", ", selectedVideoRoles);
+        var videoKeyStateConstraint = selectedVideoRoles.Length == 0
+            ? "VIDEO KEY-STATE CONSTRAINT: the selected Moment declares no video role, so videoKeyState.roles must be an empty array."
+            : $"VIDEO KEY-STATE CONSTRAINT: videoKeyState.roles must contain exactly the selected Moment's video roles and no others: {videoRolesText}. Do not add or omit any video role.";
 
         var user = new StringBuilder();
         user.AppendLine("SELECTED BEAT:");
@@ -127,16 +142,21 @@ public sealed class SceneMomentEnrichmentContract
             user.AppendLine(evidence.Content);
         }
         user.AppendLine($"FINAL CHARACTER OUTPUT CONSTRAINT: characters must contain exactly {snapshot.Moment.Participants.Count} object(s), with exactly these profile keys: {string.Join(", ", snapshot.Moment.Participants.Select(profile => profile.ProfileKey))}. Do not add any other character, including characters mentioned in the evidence but absent from SELECTED CAST.");
+        user.AppendLine(videoKeyStateConstraint);
 
         return new SceneMomentEnrichmentContractMessages(
             ContractVersion,
             SystemPrompt,
             user.ToString().TrimEnd(),
             ResponseSchemaName,
-                CreateResponseSchema(snapshot.Moment.Participants.Select(profile => profile.ProfileKey).ToArray()));
+            CreateResponseSchema(
+                snapshot.Moment.Participants.Select(profile => profile.ProfileKey).ToArray(),
+                selectedVideoRoles));
     }
 
-            public static JsonElement CreateResponseSchema(IReadOnlyList<string> selectedProfileKeys)
+            public static JsonElement CreateResponseSchema(
+            IReadOnlyList<string> selectedProfileKeys,
+            IReadOnlyList<string> selectedVideoRoles)
         => JsonSerializer.SerializeToElement(Object(
             ("schemaVersion", new JsonObject { ["const"] = CurrentSchemaVersion }),
             ("catalogueBeatId", String()),
@@ -151,7 +171,7 @@ public sealed class SceneMomentEnrichmentContract
             ("objects", UniqueStringArray()),
             ("instantaneousSoundCueKeys", UniqueStringArray()),
             ("videoKeyState", Object(
-                ("roles", UniqueEnumArray("VideoStart", "VideoEnd", "VideoInternalKeyframe")),
+                ("roles", ExactUniqueEnumArray(selectedVideoRoles)),
                 ("stateChangeAllowed", Boolean())))));
 
     private static JsonObject Character(IReadOnlyList<string> selectedProfileKeys) => Object(
@@ -170,7 +190,7 @@ public sealed class SceneMomentEnrichmentContract
 
         Describe exactly one instant. Do not write a sequence, transition, before-and-after state, montage, shot list, or action progression. Include exactly and only the selected Moment cast, using each supplied profile key and exact profile name once; never add a participant or profile key from the wider Beat cast who is not listed in SELECTED CAST. Use visibleCharacterNames only for supplied cast members visible to that character.
 
-        Use only supplied evidence, profile facts, Beat continuity, sound cue keys, and selected production roles. instantaneousSoundCueKeys must be empty unless the selected Moment's productionRoles includes SoundEventAnchor; when it does include SoundEventAnchor, list at least one instantaneous cue, and never list cues otherwise. videoKeyState.roles must contain only the selected Moment's VideoStart, VideoEnd, and VideoInternalKeyframe roles exactly; never put SoundEventAnchor in videoKeyState.roles because it belongs only in instantaneousSoundCueKeys. stateChangeAllowed must be false.
+        Use only supplied evidence, profile facts, Beat continuity, sound cue keys, and selected production roles. instantaneousSoundCueKeys must be empty unless the selected Moment's productionRoles includes SoundEventAnchor; when it does include SoundEventAnchor, list at least one instantaneous cue, and never list cues otherwise. videoKeyState.roles must equal exactly the selected Moment's video roles listed in the VIDEO KEY-STATE CONSTRAINT, with no additions and no omissions; never put SoundEventAnchor in videoKeyState.roles because it belongs only in instantaneousSoundCueKeys. stateChangeAllowed must be false.
 
         Never invent UUIDs, people, profile keys, cue keys, events, clothing, continuity, source facts, or media assets. Return only JSON matching the supplied schema. Do not use markdown fences, explanatory text, provider tags, prompts, model names, camera-provider syntax, generation settings, inferred missing fields, or alternate roots.
         """;
@@ -222,6 +242,14 @@ public sealed class SceneMomentEnrichmentContract
     {
         var schema = Array(Enum(values));
         schema["uniqueItems"] = true;
+        return schema;
+    }
+
+    private static JsonObject ExactUniqueEnumArray(IReadOnlyList<string> values)
+    {
+        var schema = UniqueEnumArray(values.ToArray());
+        schema["minItems"] = values.Count;
+        schema["maxItems"] = values.Count;
         return schema;
     }
 }

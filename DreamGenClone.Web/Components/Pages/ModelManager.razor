@@ -437,6 +437,7 @@
                                             <option value="Pony">Pony V6 XL</option>
                                             <option value="Sdxl">SDXL / Juggernaut</option>
                                             <option value="Api">API / natural language</option>
+                                            <option value="Flux">FLUX.1-dev</option>
                                         </select>
                                     </div>
                                     <div class="col-md-6">
@@ -446,8 +447,9 @@
                                             <option value="PonyV6Tags">Pony V6 tags</option>
                                             <option value="SdxlNaturalLanguage">SDXL natural language</option>
                                             <option value="NaturalLanguage">Natural language</option>
+                                            <option value="FluxNaturalLanguage">FLUX natural language</option>
                                         </select>
-                                        <div class="form-text">Pony requires Pony V6 tags. SDXL / Juggernaut requires SDXL natural language. API models use plain natural language.</div>
+                                        <div class="form-text">Pony requires Pony V6 tags. SDXL / Juggernaut requires SDXL natural language. API models use plain natural language. FLUX models use FLUX natural language.</div>
                                     </div>
                                     <div class="col-12"><hr class="my-1" /><strong>Qwen Source-Image Editor Settings</strong></div>
                                     <div class="col-md-4">
@@ -1568,7 +1570,7 @@
 
         error = SceneImagePromptMetadata.IsUnconfigured(model.SceneImageModelFamily, model.PromptDialect)
             ? "Scene-image generation models require an image family and prompt dialect. Configure both before assigning this model to RP Scene Image."
-            : $"Image family '{model.SceneImageModelFamily}' is incompatible with prompt dialect '{model.PromptDialect}'. Pony requires Pony V6 tags; SDXL / Juggernaut requires SDXL natural language; API models use natural language.";
+            : $"Image family '{model.SceneImageModelFamily}' is incompatible with prompt dialect '{model.PromptDialect}'. Pony requires Pony V6 tags; SDXL / Juggernaut requires SDXL natural language; FLUX uses FLUX natural language; API models use natural language.";
         return false;
     }
 

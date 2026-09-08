@@ -802,10 +802,9 @@ static async Task<int> ConfigureLocalComfyUiAsync(SqliteConnection connection, s
             "Local BigLust v1.6 checkpoint on WOOD-GAME-MAIN ComfyUI (Sdxl / SdxlNaturalLanguage)."),
         ("ponyDiffusionV6XL_v6.safetensors", "Pony V6 XL (Local ComfyUI)", 1, 1, true,
             "Local Pony V6 XL checkpoint on WOOD-GAME-MAIN ComfyUI (Pony / PonyV6Tags)."),
-        ("flux1-dev-fp8.safetensors", "FLUX.1-dev fp8 (Local ComfyUI)", 0, 0, false,
-            "DISABLED: SceneImageModelFamily has no Flux value and the ComfyUI client only builds "
-            + "Pony/SDXL workflows, so this row cannot be routed yet. Enable only after the B-112 "
-            + "Flux-family code slice (plan.md section 7) lands."),
+        ("flux1-dev-fp8.safetensors", "FLUX.1-dev fp8 (Local ComfyUI)", 4, 4, true,
+            "Local FLUX.1-dev fp8 checkpoint on WOOD-GAME-MAIN ComfyUI (Flux / FluxNaturalLanguage). "
+            + "Additive image model — NOT the RolePlaySceneImage default."),
     };
 
     var now = DateTime.UtcNow.ToString("o");

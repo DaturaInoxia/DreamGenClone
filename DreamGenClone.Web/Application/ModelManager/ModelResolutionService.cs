@@ -504,6 +504,7 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             (SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags) => true,
             (SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage) => true,
             (SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage) => true,
+            (SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage) => true,
             _ => false
         };
 

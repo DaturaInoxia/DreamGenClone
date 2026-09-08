@@ -10,8 +10,14 @@ using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
-public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHandler
+public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHandler, IDurableJobOperationBudget
 {
+    // The decomposed v3 flow issues up to four structured-text provider calls in one durable
+    // execution: structure, spoken, soundscape, assembly. The durable executor's whole-run
+    // operation watchdog must be scaled by this count so a healthy multi-pass run is not cut
+    // off after a single provider-timeout window.
+    public int OperationTimeoutMultiplier => SceneBeatProductionContract.ProviderPassCount;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly ISceneBeatProductionPlanRepository _repository;
@@ -176,7 +182,7 @@ public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHan
             const string code = "durable_handler_unclassified_failure";
             attempt.ValidationDetailsJson = progress.Serialize(ex.Message);
             await FailAttemptAsync(plan, attempt, code, ex.Message, cancellationToken);
-            throw new DurableJobFailureException(code, "The Beat Production handler failed unexpectedly.", false);
+            throw new DurableJobFailureException(code, $"The Beat Production handler failed unexpectedly: {ex.Message}", false);
         }
 
         attempt.RawModelResponse = result.Content;
@@ -262,36 +268,11 @@ public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHan
         var spoken = ParsePassObject(spokenResult.Content, "spoken");
         var soundscape = ParsePassObject(soundscapeResult.Content, "soundscape");
 
-        var established = new JsonObject
-        {
-            ["events"] = RequireSection(structure, "events", "structure").DeepClone(),
-            ["narration"] = RequireSection(spoken, "narration", "spoken").DeepClone(),
-            ["dialogue"] = RequireSection(spoken, "dialogue", "spoken").DeepClone(),
-            ["soundEvents"] = RequireSection(soundscape, "soundEvents", "soundscape").DeepClone(),
-            ["music"] = RequireSection(soundscape, "music", "soundscape").DeepClone()
-        }.ToJsonString();
+        var continuityResult = await RunPassAsync(analyzer, _contract.BuildContinuityPass(snapshot, eventsJson), progress, cancellationToken);
+        Accumulate(continuityResult);
+        var continuity = ParsePassObject(continuityResult.Content, "continuity");
 
-        var assemblyResult = await RunPassAsync(analyzer, _contract.BuildAssemblyPass(snapshot, established), progress, cancellationToken);
-        Accumulate(assemblyResult);
-        var assembly = ParsePassObject(assemblyResult.Content, "assembly");
-
-        var combined = new JsonObject
-        {
-            ["schemaVersion"] = SceneBeatProductionSnapshotBuilder.CurrentSchemaVersion,
-            ["catalogueBeatId"] = snapshot.Beat.BeatId,
-            ["events"] = RequireSection(structure, "events", "structure").DeepClone(),
-            ["timeline"] = RequireSection(structure, "timeline", "structure").DeepClone(),
-            ["narration"] = RequireSection(spoken, "narration", "spoken").DeepClone(),
-            ["dialogue"] = RequireSection(spoken, "dialogue", "spoken").DeepClone(),
-            ["ambience"] = RequireSection(soundscape, "ambience", "soundscape").DeepClone(),
-            ["soundEvents"] = RequireSection(soundscape, "soundEvents", "soundscape").DeepClone(),
-            ["music"] = RequireSection(soundscape, "music", "soundscape").DeepClone(),
-            ["actionArc"] = RequireSection(structure, "actionArc", "structure").DeepClone(),
-            ["startContinuity"] = RequireSection(assembly, "startContinuity", "assembly").DeepClone(),
-            ["endContinuity"] = RequireSection(assembly, "endContinuity", "assembly").DeepClone(),
-            ["typedReferences"] = RequireSection(assembly, "typedReferences", "assembly").DeepClone(),
-            ["videoCoverage"] = RequireSection(assembly, "videoCoverage", "assembly").DeepClone()
-        };
+        var combined = SceneBeatProductionAssembler.Assemble(snapshot, structure, spoken, soundscape, continuity);
 
         totalStopwatch.Stop();
         return new StructuredTextCompletionResult(

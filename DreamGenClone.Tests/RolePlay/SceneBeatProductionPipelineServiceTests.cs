@@ -94,6 +94,50 @@ public sealed class SceneBeatProductionPipelineServiceTests
         }
     }
 
+    [Fact]
+    public async Task GetCurrentStatus_ProcessingPlanWithTerminalFailedJobReconcilesToFailed()
+    {
+        var fixture = await CreateFixtureAsync();
+        try
+        {
+            // Enqueue a production plan (Pending + queued attempt + durable job).
+            var plan = await fixture.Service.EnqueueAsync(new("catalogue-1", "b1"));
+            var options = Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={fixture.Path}" });
+            var plans = new SceneBeatProductionPlanRepository(options);
+            var startedUtc = DateTime.UtcNow;
+
+            // Simulate the executor claiming and starting the attempt -> plan/attempt Processing.
+            Assert.True(await plans.TryStartAttemptAsync(
+                plan.Id, plan.CurrentAttemptId, "model-1", "provider-1", startedUtc));
+
+            // Simulate the orphan scenario: the durable job permanently failed (e.g. executor
+            // operation watchdog after the final attempt) but the handler's FailAttemptAsync
+            // never ran, leaving the plan stuck Processing with no terminal transition.
+            var job = Assert.Single(fixture.Queue.Jobs);
+            job.Status = DurableBackgroundJobStatus.Failed;
+            job.ErrorCode = "structured_text_timeout";
+            job.ErrorMessage = "The structured text provider exceeded its configured timeout.";
+            job.CompletedUtc = startedUtc.AddSeconds(10);
+
+            // The single status boundary the Studio reads must reconcile the orphaned plan to
+            // Failed with the durable job's recorded error so the failure details + Retry appear.
+            var status = await fixture.Service.GetCurrentStatusAsync("catalogue-1", "b1");
+            Assert.NotNull(status);
+            Assert.Equal(SceneBeatCatalogueStatus.Failed, status!.Plan.Status);
+            Assert.Equal("structured_text_timeout", status.Plan.ErrorCode);
+            Assert.Equal(SceneBeatAnalysisAttemptStatus.Failed, status.Attempt!.Status);
+
+            // Reconciliation is idempotent: a second read returns the same terminal Failed state.
+            var second = await fixture.Service.GetCurrentStatusAsync("catalogue-1", "b1");
+            Assert.Equal(SceneBeatCatalogueStatus.Failed, second!.Plan.Status);
+            Assert.Equal(SceneBeatAnalysisAttemptStatus.Failed, second.Attempt!.Status);
+        }
+        finally
+        {
+            Cleanup(fixture.Path);
+        }
+    }
+
     private static async Task<Fixture> CreateFixtureAsync()
     {
         var path = Path.Combine(Path.GetTempPath(), $"scene-production-service-{Guid.NewGuid():N}.db");

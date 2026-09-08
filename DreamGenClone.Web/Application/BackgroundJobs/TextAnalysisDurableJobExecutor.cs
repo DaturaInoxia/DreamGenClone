@@ -52,7 +52,18 @@ public sealed class TextAnalysisDurableJobExecutor
         using var operationTimeout = CancellationTokenSource.CreateLinkedTokenSource(executionCancellation.Token);
         var hasStructuredTextTimeout = job.Lane is DurableJobLane.TextAnalysis or DurableJobLane.PromptCompilation;
         if (hasStructuredTextTimeout)
-            operationTimeout.CancelAfter(TimeSpan.FromSeconds(analyzer.Model.ProviderTimeoutSeconds));
+        {
+            // A handler may perform more than one structured-text provider call in a single
+            // execution (e.g. the decomposed multi-pass Beat Production flow). When it declares
+            // that budget, scale the whole-run operation watchdog accordingly so a healthy
+            // multi-pass run is not killed after a single provider-timeout window. Handlers
+            // that do not opt in keep the default multiplier of 1.
+            var multiplier = matchingHandlers.Count == 1
+                && matchingHandlers[0] is IDurableJobOperationBudget budget
+                ? Math.Max(1, budget.OperationTimeoutMultiplier)
+                : 1;
+            operationTimeout.CancelAfter(TimeSpan.FromSeconds(analyzer.Model.ProviderTimeoutSeconds * multiplier));
+        }
         var renewalTask = RenewLeaseAsync(
             job,
             analyzer.LeaseSeconds,

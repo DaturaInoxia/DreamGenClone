@@ -218,6 +218,38 @@ public sealed class SceneImageResolutionTests
     }
 
     [Fact]
+    public async Task ResolveImageModel_FluxFamily_HappyPath_ReturnsFluxModel()
+    {
+        var (service, funcDefaults, models, providers) = Build();
+        SeedHappyPath(funcDefaults, models, providers);
+        models.Add(new RegisteredModel
+        {
+            Id = "model-flux",
+            ProviderId = "prov-1",
+            ModelIdentifier = "flux1-dev-fp8.safetensors",
+            DisplayName = "FLUX.1-dev fp8 (Local ComfyUI)",
+            ModelKind = ModelKind.Image,
+            SceneImageModelFamily = SceneImageModelFamily.Flux,
+            PromptDialect = SceneImagePromptDialect.FluxNaturalLanguage,
+            IsEnabled = true
+        });
+        funcDefaults.Set(AppFunction.RolePlaySceneImage, new FunctionModelDefault
+        {
+            FunctionName = AppFunction.RolePlaySceneImage.ToString(),
+            ModelId = "model-flux",
+            Temperature = 0.7,
+            TopP = 0.9,
+            MaxTokens = 500
+        });
+
+        var resolved = await service.ResolveImageModelAsync(null, CancellationToken.None);
+
+        Assert.Equal("flux1-dev-fp8.safetensors", resolved.ModelIdentifier);
+        Assert.Equal(SceneImageModelFamily.Flux, resolved.SceneImageModelFamily);
+        Assert.Equal(SceneImagePromptDialect.FluxNaturalLanguage, resolved.PromptDialect);
+    }
+
+    [Fact]
     public async Task ResolveImageModel_UnconfiguredPromptMetadata_FailsFast()
     {
         var (service, funcDefaults, models, providers) = Build();

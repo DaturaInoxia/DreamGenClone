@@ -829,14 +829,6 @@
                                 <i class="bi bi-images me-1"></i> Review Deck
                             </a>
                         }
-                        @if (IsSelectedMomentEnriched)
-                        {
-                            <button class="btn btn-sm btn-primary"
-                                    disabled="@(_busy || string.IsNullOrWhiteSpace(_productionPov))"
-                                    @onclick="CreateOrLoadProductionAsync">
-                                <i class="bi bi-image me-1"></i> Compose image for this Moment
-                            </button>
-                        }
                     </div>
                     @if (_productionStudioOpen)
                     {
@@ -912,11 +904,11 @@
                                     }
                                 </div>
                                 <div class="form-text">POV is pinned with this exact Moment enrichment. Changing it loads a separate production group.</div>
-                                @if (_productionGroup is not null)
+                                @if (!string.IsNullOrWhiteSpace(_productionPov))
                                 {
-                                    <a class="btn btn-sm btn-primary mt-2" href="/roleplay/studio/@sessionId/@interactionId/production/@_productionGroup.Id/composition">
-                                        <i class="bi bi-vector-pen me-1"></i>Composition Composer
-                                    </a>
+                                    <button class="btn btn-sm btn-primary mt-2" disabled="@_busy" @onclick="CreateOrLoadProductionAsync">
+                                        <i class="bi bi-vector-pen me-1"></i>Open Composition Composer
+                                    </button>
                                 }
                             </div>
 
@@ -2255,7 +2247,7 @@
     private IReadOnlyList<string> _productionPovOptions
         => SceneImagePovFramer.GetPovOptions(
             _productionFrozenState?.Characters
-                .SelectMany(character => character.VisibleCharacterNames)
+                .Select(character => character.Name)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList() ?? []);
 
@@ -3380,7 +3372,27 @@
             _approvalDecisions = (await ProductionService.ListApprovalDecisionsAsync(_productionGroup.Id)).ToList();
             PreserveProductionStateKeys();
         }
+
+        // While a beat-pipeline stage (catalogue, production plan, moments, or enrichment) is
+        // in flight, reload the persisted beat state so its terminal transition (Complete,
+        // Failed, or Cancelled) surfaces without a manual page refresh. The status projection
+        // reconciles an orphaned Processing plan whose durable job has terminal-failed, so the
+        // failure details and Retry action appear automatically.
+        if (HasInFlightBeatPipelineWork())
+        {
+            await LoadCatalogueAsync();
+        }
     }
+
+    private bool HasInFlightBeatPipelineWork()
+        => (_catalogue is not null
+                && _catalogue.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing)
+            || (_productionPlan is not null
+                && _productionPlan.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing)
+            || (_momentSet is not null
+                && _momentSet.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing)
+            || (_momentEnrichment is not null
+                && _momentEnrichment.Status is SceneBeatCatalogueStatus.Pending or SceneBeatCatalogueStatus.Processing);
 
     private async Task LoadCatalogueAsync()
     {
@@ -3486,6 +3498,31 @@
 
     private async Task SelectProductionPovAsync(string pov)
     {
+        // On a pinned production-group route the URL's group is bound to exactly one POV, yet the
+        // POV switch control still lets the user pick any of the Moment's POVs. Switching POV must
+        // surface that POV's own separate production group ("POV is pinned with this exact Moment
+        // enrichment. Changing it loads a separate production group."). Swapping the pinned group in
+        // place would trip the exact-lineage + POV guard (EnsureProductionGroupMatchesSelection), so
+        // navigate to the sibling group when it exists, otherwise to the Moment route where a new
+        // production group can be created for the selected POV.
+        var currentGroup = _productionGroup;
+        if (currentGroup is not null
+            && !string.IsNullOrWhiteSpace(ActiveProductionGroupId)
+            && !string.Equals(currentGroup.Pov, pov, StringComparison.Ordinal)
+            && _momentEnrichment is not null)
+        {
+            var sibling = await ProductionService.GetCurrentGroupAsync(_momentEnrichment.Id, pov);
+            if (sibling is not null)
+            {
+                Nav.NavigateTo($"/roleplay/studio/{sessionId}/{interactionId}/production/{sibling.Id}");
+            }
+            else
+            {
+                Nav.NavigateTo($"/roleplay/studio/{sessionId}/{interactionId}/production/moment/{_momentEnrichment.Id}");
+            }
+            return;
+        }
+
         _productionPov = pov;
         _productionGroup = null;
         _compiledMediaBrief = null;

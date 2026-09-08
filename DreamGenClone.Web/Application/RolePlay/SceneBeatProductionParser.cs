@@ -53,7 +53,12 @@ public sealed class SceneBeatProductionParser
 
             ValidateWindow(response.Timeline.BeatWindow, eventKeys, null, "Beat timeline window");
             var beatWindow = response.Timeline.BeatWindow;
-            var dialogueInputs = response.Narration.Concat(response.Dialogue).ToList();
+            // Narration and dialogue share ONE chronological order across both arrays: dialogue
+            // lines may interleave between narration cues. Sort by order so the contiguous check
+            // validates the spoken-track sequence, not the array-concatenation order.
+            var dialogueInputs = response.Narration.Concat(response.Dialogue)
+                .OrderBy(input => input.Order)
+                .ToList();
             ValidateUniqueOrdered(dialogueInputs, item => item.CueKey, item => item.Order, "dialogue and narration cues");
             var spansByCue = ResolveDialogueSpans(dialogueInputs, resolver);
             var dialogue = dialogueInputs

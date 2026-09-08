@@ -22,20 +22,25 @@ public sealed class SceneAssetServiceJobTests
     {
         var pony = Model(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags);
         var sdxl = Model(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage);
+        var flux = Model(SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage);
         const string description = "A detective in a rain-soaked alley.";
 
         var ponyCompilation = SceneAssetPromptCompiler.Compile(
             description, SceneAssetType.CharacterBody, pony);
         var sdxlCompilation = SceneAssetPromptCompiler.Compile(
             description, SceneAssetType.CharacterBody, sdxl);
+        var fluxCompilation = SceneAssetPromptCompiler.Compile(
+            description, SceneAssetType.CharacterBody, flux);
 
         Assert.StartsWith(
             "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1person,",
             ponyCompilation.Prompt);
         Assert.Contains("A detective in a rain-soaked alley", ponyCompilation.Prompt);
         Assert.Equal(description, sdxlCompilation.Prompt);
+        Assert.Equal(description, fluxCompilation.Prompt);
         Assert.Equal("scene-asset-pony-v6", ponyCompilation.CompilerId);
         Assert.Equal("scene-asset-sdxl-natural-language", sdxlCompilation.CompilerId);
+        Assert.Equal("scene-asset-flux-natural-language", fluxCompilation.CompilerId);
     }
 
     private sealed class CapturingBackgroundJobQueue : IDurableBackgroundJobQueue

@@ -7,6 +7,7 @@ public sealed class SceneImageModelFamilyTests
     [Theory]
     [InlineData(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags)]
     [InlineData(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage)]
+    [InlineData(SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage)]
     public void IsCompatible_RegisteredPair_ReturnsTrue(
         SceneImageModelFamily family,
         SceneImagePromptDialect dialect)

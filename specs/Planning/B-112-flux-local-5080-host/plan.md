@@ -1,6 +1,7 @@
 # B-112 — Local uncensored FLUX.1-dev on the RTX 5080 host (ComfyUI) + app integration
 
-**Status:** executed in part on the 5080 host (2026-09-07). **State:** `designed` → infra done;
+**Status:** executed in part on the 5080 host (2026-09-07); **app slice landed 2026-09-08**. **State:**
+infra done + app integration implemented (additive; default untouched).
 **Decision D1 resolved 2026-09-07** (Route 1 = stock `flux1-dev-fp8` + optional unlock LoRA;
 exact downloads pinned in the runbook).
 **Host execution 2026-09-07 (WOOD-GAME-MAIN):** ComfyUI 0.34.0 installed (`D:\ComfyUI`, torch
@@ -122,17 +123,24 @@ Runner: `helpers/flux-local-host/run-flux-proof.ps1` (now supports `-LoraFile`/`
 - **Visual review of every PNG is mandatory** (no rubber-stamping). Expect ~1–3 min/img fp8 on 5080.
 - B-112 is only executable/trustworthy after a clean PASS set.
 
-## 7. App integration (future code slice, gated on §6)
+## 7. App integration — LANDED 2026-09-08 (additive; RolePlaySceneImage default untouched)
 
-Separate plan-first code workstream (repo rule: no engine/image-pipeline code without plan +
-confirmation):
-- New `SceneImageModelFamily.Flux` + prompt dialect + `SceneImagePromptMetadata.IsCompatible` pair.
-- ComfyUI client FLUX workflow builder (the ComfyUi transport the host exposes) — mirrors
-  `flux-t2i-proof.json`.
-- `FluxSceneImagePromptCompiler`: natural-language, **empty negative**, no "fully clothed" guard.
-- Model Manager: provider (`ImageProtocol.ComfyUi`) + model row + dropdown options; Studio model
-  picker; optional `RolePlaySceneImage` function-default.
-- Tests green before done.
+Implemented 2026-09-08 after plan + user confirmation:
+- `SceneImageModelFamily.Flux` (=4) + `SceneImagePromptDialect.FluxNaturalLanguage` (=4) +
+  `SceneImagePromptMetadata.IsCompatible` pair (Domain).
+- `ComfyUIImageClient.BuildFluxWorkflow` (split UNETLoader / DualCLIPLoader / FluxGuidance 3.5 /
+  cfg 1.0 / euler / simple / 28 steps / empty negative) + Flux dispatch in the ComfyUI and
+  serverless clients.
+- `FluxSceneImagePromptCompiler` — natural language via the shared SDXL brief builder, empty
+  negative, no "fully clothed" guard — plus the scene-asset Flux arm and DI registration.
+- Validation arms: `ModelResolutionService`, `RegisteredModelRepository`, and FLUX dropdown options
+  in `ModelDetailsEditor.razor` + `ModelManager.razor`.
+- Local FLUX row enabled (Family=Flux, Dialect=FluxNaturalLanguage) on the dev DB via
+  `local-comfyui-configure http://192.168.0.16:8188` — additive, NOT the `RolePlaySceneImage` default.
+- Live verify 2026-09-08: `campfire-couple` implied cell rendered PASS on the 5080 host with the
+  app recipe (arrangement honored, implied-but-non-explicit).
+- NOTE (follow-up): the shared natural-language system prompt is SDXL-branded; a FLUX-grounded
+  system prompt is a documented follow-up, not required to route FLUX.
 
 ## 8. Risks / notes
 

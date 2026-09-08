@@ -20,8 +20,13 @@ public sealed record SceneBeatProductionPassMessages(
 
 public sealed class SceneBeatProductionContract
 {
-    public const string ContractVersion = "scene-beat-production-v3";
+    public const string ContractVersion = "scene-beat-production-v6";
     public const string ResponseSchemaName = "scene_beat_production";
+
+    // The decomposed v3 production flow performs this many structured-text provider calls in
+    // one durable execution (structure, spoken, soundscape, assembly). Used by the durable
+    // executor to scale the whole-run operation watchdog for this multi-pass handler.
+    public const int ProviderPassCount = 4;
 
     public SceneBeatProductionContractMessages BuildMessages(SceneBeatProductionSourceSnapshot snapshot)
     {
@@ -90,8 +95,8 @@ public sealed class SceneBeatProductionContract
             JsonSerializer.SerializeToElement(Object(
                 ("schemaVersion", VersionConst()),
                 ("catalogueBeatId", String()),
-                ("narration", Array(DialogueCue())),
-                ("dialogue", Array(DialogueCue())))));
+                ("narration", Array(SpokenCue())),
+                ("dialogue", Array(SpokenCue())))));
     }
 
     public SceneBeatProductionPassMessages BuildSoundscapePass(
@@ -112,23 +117,21 @@ public sealed class SceneBeatProductionContract
                 ("music", Array(MusicSection())))));
     }
 
-    public SceneBeatProductionPassMessages BuildAssemblyPass(
+    public SceneBeatProductionPassMessages BuildContinuityPass(
         SceneBeatProductionSourceSnapshot snapshot,
-        string establishedJson)
+        string establishedEventsJson)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         return new SceneBeatProductionPassMessages(
-            "assembly",
-            AssemblySystemPrompt,
-            BuildBaseUserContext(snapshot) + "\n\nESTABLISHED PRODUCTION DATA (events, cues, sound, music):\n" + establishedJson,
-            "scene_beat_production_assembly",
+            "continuity",
+            ContinuitySystemPrompt,
+            BuildBaseUserContext(snapshot) + "\n\nESTABLISHED EVENTS (chronological anchors):\n" + establishedEventsJson,
+            "scene_beat_production_continuity",
             JsonSerializer.SerializeToElement(Object(
                 ("schemaVersion", VersionConst()),
                 ("catalogueBeatId", String()),
                 ("startContinuity", Continuity()),
-                ("endContinuity", Continuity()),
-                ("typedReferences", Array(TypedReference())),
-                ("videoCoverage", Array(VideoCoverage())))));
+                ("endContinuity", Continuity()))));
     }
 
     private static JsonObject VersionConst()
@@ -162,6 +165,8 @@ public sealed class SceneBeatProductionContract
 
         Video coverage is semantic intent, not provider syntax. requiredMomentRoles must be the literal canonical key-state roles 'start' and 'end' - exactly ['start'] for MomentHold and ['start','end'] for MomentAction, MomentTransition, BeatExcerpt, and WholeBeat - never descriptive or free-form role names, and must not invent Moment IDs. Declare audio ownership per referenced cue. Typed references describe required roles and lineage placeholders; sourceRecordId and assetId must be null during analysis (they are filled downstream) - never set them to profile keys or any identifier, and they do not select assets that were not supplied.
 
+        Cue order is one global chronological sequence across the narration and dialogue arrays together: assign order 1, 2, 3, ... over every cue in both arrays in the order they occur, so a dialogue line may sit between narration cues; never restart numbering per array and never duplicate or skip an order.
+
         Return only JSON matching the supplied schema. Do not use markdown fences, explanatory text, provider tags, prompts, model names, frame numbers, sampling settings, or inferred missing fields.
         """;
 
@@ -176,7 +181,7 @@ public sealed class SceneBeatProductionContract
     private const string SpokenSystemPrompt = """
         You are a multimodal narrative production analyst. Produce the spoken track (narration and dialogue cues) for one selected Beat, anchored to the already-established events supplied in the prompt.
 
-        Dialogue and narration must preserve exact source text drawn from one supplied evidence item. For every cue, set sourceKey to that evidence key and set exactSourceText to a character-for-character contiguous substring of that evidence content, including any newlines and internal whitespace; never trim, reflow, re-case, paraphrase, or stitch together non-contiguous fragments. The application locates each cue by searching its evidence for exactSourceText, so it must appear verbatim. Keep immutable display text separate from normalized spoken text and record normalization method/version. If attribution is ambiguous, set reviewStatus to ReviewRequired, leave speakerKey null, and explain reviewReason. Narration cues have no speaker: leave speakerKey null and set reviewStatus to Validated. Each cue's eventKey must be one of the established eventKeys.
+        Dialogue and narration must preserve exact source text drawn from one supplied evidence item. For every cue, set sourceKey to that evidence key and set exactSourceText to a character-for-character contiguous substring of that evidence content, including any newlines and internal whitespace; never trim, reflow, re-case, paraphrase, or stitch together non-contiguous fragments. The application locates each cue by searching its evidence for exactSourceText, so it must appear verbatim. Keep immutable display text separate from normalized spoken text and record normalization method/version. If attribution is ambiguous, set reviewStatus to ReviewRequired, leave speakerKey null, and explain reviewReason. Narration cues have no speaker: leave speakerKey null and set reviewStatus to Validated. Cue order is one global chronological sequence across the narration and dialogue arrays together: assign order 1, 2, 3, ... over every cue in both arrays in the order they occur, so a dialogue line may sit between narration cues; never restart numbering per array and never duplicate or skip an order. Each cue's eventKey must be one of the established eventKeys.
 
         Return only JSON matching the supplied schema. Do not use markdown fences, explanatory text, or inferred missing fields.
         """;
@@ -189,10 +194,10 @@ public sealed class SceneBeatProductionContract
         Return only JSON matching the supplied schema. Do not use markdown fences, explanatory text, or inferred missing fields.
         """;
 
-    private const string AssemblySystemPrompt = """
-        You are a multimodal narrative production analyst. Produce the start/end continuity key-states, typed references, and video coverage for one selected Beat, anchored to the already-established events, dialogue/narration cues, sound cues, and music sections supplied in the prompt.
+    private const string ContinuitySystemPrompt = """
+        You are a multimodal narrative production analyst. Produce the start and end continuity key-states for one selected Beat, anchored to the already-established events supplied in the prompt.
 
-        In startContinuity and endContinuity, characterStates and wardrobeStates keys are the participant profile keys (e.g. p0) - never suffix them (e.g. p0-wardrobe is invalid); objectStates keys are free-form object identifiers (e.g. porch-light); typedReferences.subjectKey is a participant profile key. Typed references describe required roles and lineage placeholders; sourceRecordId and assetId must be null during analysis (they are filled downstream) - never set them to profile keys or any identifier. Video coverage is semantic intent, not provider syntax. requiredMomentRoles must be the literal canonical key-state roles 'start' and 'end' - exactly ['start'] for MomentHold and ['start','end'] for MomentAction, MomentTransition, BeatExcerpt, and WholeBeat - never descriptive or free-form role names, and must not invent Moment IDs. For each video coverage item, first form the complete union of dialogueCueKeys, soundCueKeys, and musicSectionKeys. Emit exactly one audioOwnership entry for every key in that union, with the same key spelling; emit no duplicate entries and do not omit keys. A coverage item with no referenced audio keys must have an empty audioOwnership array. Reference only established eventKeys, dialogue/sound cue keys, and music section keys.
+        In startContinuity and endContinuity, characterStates and wardrobeStates keys are the participant profile keys (e.g. p0) - never suffix them (e.g. p0-wardrobe is invalid); objectStates keys are free-form object identifiers (e.g. porch-light). Describe each present participant's state at that boundary from the evidence; do not invent characters, wardrobe, objects, or facts not supported by the evidence. Set location to the selected Beat's location value shown in the prompt (the `location=` line) copied verbatim with no added detail. Provide a concise lighting and stateSummary for that boundary.
 
         Return only JSON matching the supplied schema. Do not use markdown fences, explanatory text, or inferred missing fields.
         """;
@@ -203,6 +208,21 @@ public sealed class SceneBeatProductionContract
 
     private static JsonObject Timeline() => Object(
         ("durationIntent", String()), ("beatWindow", Window()));
+
+    private static JsonObject SpokenCue() => Object(
+        ("cueKey", String()),
+        ("order", PositiveInteger()),
+        ("kind", Enum("Dialogue", "Narration", "Thought")),
+        ("eventKey", String()),
+        ("exactSourceText", String()),
+        ("sourceKey", String()),
+        ("speakerKey", NullableString()),
+        ("addresseeKeys", UniqueStringArray()),
+        ("performance", Performance()),
+        ("window", Window()),
+        ("lipSyncRelevant", Boolean()),
+        ("reviewStatus", Enum("Validated", "ReviewRequired")),
+        ("reviewReason", NullableString()));
 
     private static JsonObject DialogueCue() => Object(
         ("cueKey", String()),

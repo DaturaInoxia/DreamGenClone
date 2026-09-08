@@ -69,12 +69,16 @@ public sealed class RunPodServerlessImageClient : IImageGenerationClient
 
             var checkpoint = model.ModelIdentifier;
 
-            // Model-family aware baseline negative: SDXL/Juggernaut needs a heavier guard set than
-            // Pony. When a deterministic per-scene negative is provided it takes precedence.
+            // Model-family aware baseline negative: SDXL-family (Juggernaut/BigLust) and FLUX scene
+            // images carry NO negative (model-author/BFL guidance, 2026-09-08 — see the sdxl + flux
+            // instruction files); Pony keeps its short guard set. A provided per-scene negative
+            // still takes precedence.
             ValidatePromptMetadata(model);
-            var baselineNegative = model.SceneImageModelFamily == SceneImageModelFamily.Sdxl
-                ? "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, missing limbs, malformed hands, malformed feet, blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, watermark, text, low quality, oversaturated, plastic skin"
-                : "extra penis, multiple penises, two penises, duplicate anatomy, blurry, low quality, ugly, deformed, extra limbs, bad anatomy, watermark, text, censored, mosaic, airbrushed, plastic skin";
+            var baselineNegative = model.SceneImageModelFamily switch
+            {
+                SceneImageModelFamily.Pony => "extra penis, multiple penises, two penises, duplicate anatomy, blurry, low quality, ugly, deformed, extra limbs, bad anatomy, watermark, text, censored, mosaic, airbrushed, plastic skin",
+                _ => string.Empty
+            };
             var effectiveNegative = string.IsNullOrWhiteSpace(negativePrompt)
                 ? baselineNegative
                 : negativePrompt.Trim();
@@ -84,6 +88,7 @@ public sealed class RunPodServerlessImageClient : IImageGenerationClient
             {
                 SceneImageModelFamily.Pony => ComfyUIImageClient.BuildDefaultWorkflow(checkpoint, prompt, effectiveNegative, size, seed),
                 SceneImageModelFamily.Sdxl => ComfyUIImageClient.BuildSdxlWorkflow(checkpoint, prompt, effectiveNegative, size, seed, options),
+                SceneImageModelFamily.Flux => ComfyUIImageClient.BuildFluxWorkflow(checkpoint, prompt, size, seed),
                 _ => throw new ImageGenerationException(
                         $"Unsupported scene-image family '{model.SceneImageModelFamily}'. Configure the model family and prompt dialect in Model Manager.",
                     model.ProviderName,

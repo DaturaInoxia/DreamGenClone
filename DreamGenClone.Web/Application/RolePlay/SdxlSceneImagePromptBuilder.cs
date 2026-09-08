@@ -26,15 +26,17 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
     private static readonly JsonSerializerOptions FrozenStateJsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>
-    /// Default SDXL/Juggernaut negative guard set. Exposed as the studio's editable negative
-    /// default and reused by the deterministic beat negative builder.
+    /// SDXL-family default negative prompt — EMPTY (2026-09-08, per-model author research).
+    /// The specific SDXL checkpoints in use do not recommend a negative: BigLust v1.6's own example
+    /// workflows use an empty negative, Juggernaut Hyper specifies "negative prompt: none", and SDXL
+    /// base guidance is "easy on negative prompts … only include things you want to avoid". Because
+    /// this app renders adult content (the authors' "add NSFW tokens to the negative" reason is an
+    /// SFW-avoidance practice that does not apply here), SDXL scene images are generated with NO
+    /// negative and the positive prompt describes the desired state. Kept as a named constant so the
+    /// studio default, the canonical compiler negative, and the deterministic beat negative all
+    /// resolve to the same empty value. See sdxl-juggernaut-prompting.instructions.md.
     /// </summary>
-    public const string DefaultNegativePrompt =
-        "deformed, bad anatomy, extra limbs, extra legs, four legs, fused legs, extra fingers, extra arms, " +
-        "missing limbs, malformed hands, malformed feet, misplaced genitals, penis on arm, penis on hand, " +
-        "detached penis, extra penis, penis from mouth, mouth to mouth, wrong attachment, double mouth, " +
-        "blurry genitals, featureless genitals, censored, cartoon, anime, illustration, painting, sketch, " +
-        "watermark, text, low quality, oversaturated, plastic skin";
+    public const string DefaultNegativePrompt = "";
 
     public (string SystemPrompt, string UserPrompt) BuildMessages(
         CompiledMediaBrief brief,
@@ -176,25 +178,11 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
     /// <inheritdoc/>
     public string BuildDeterministicBeatNegativePrompt(SceneImageBeat beat, string pov)
     {
-        // SDXL-family models need a heavier guard set than Pony: limb/leg artifacts, censored or
-        // featureless genitals, and non-photoreal styles. Validated on pod 2026-08-23.
-        var artifacts = DefaultNegativePrompt;
-
-        var excludedNames = SceneImageRenderBriefBuilder.ResolveVisibleCharacters(beat, pov)
-            .Select(character => character.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var absent = beat.Characters
-            .Select(character => character.Name)
-            .Where(name => !excludedNames.Contains(name))
-            .ToList();
-
-        var negative = new List<string> { artifacts };
-        foreach (var name in absent)
-        {
-            negative.Add(name);
-            negative.Add($"{name} absent from frame");
-        }
-        return string.Join(", ", negative).Trim();
+        // SDXL-family scene images carry no negative (model-author guidance, 2026-09-08 — see the
+        // DefaultNegativePrompt note). Who is and is not in frame is expressed in the POSITIVE
+        // prompt (visible-cast description + count/gender), never via "absent from frame" negative
+        // exclusions. See sdxl-juggernaut-prompting.instructions.md.
+        return string.Empty;
     }
 
     /// <summary>

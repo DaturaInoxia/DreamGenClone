@@ -40,8 +40,9 @@ public sealed class StructuredTextCompletionClientTests
         Assert.Equal(0.2, body.GetProperty("temperature").GetDouble());
         Assert.Equal(0.8, body.GetProperty("top_p").GetDouble());
         Assert.Equal(4096, body.GetProperty("max_tokens").GetInt32());
-        var reasoning = body.GetProperty("reasoning");
-        Assert.Equal("none", reasoning.GetProperty("effort").GetString());
+        // Disabled thinking must omit the `reasoning` block (OpenRouter glm-4.7 rejects
+        // `effort:"none"` — see debug 044) and must not set chat_template_kwargs.
+        Assert.False(body.TryGetProperty("reasoning", out _));
         Assert.False(body.TryGetProperty("chat_template_kwargs", out _));
         var responseFormat = body.GetProperty("response_format");
         Assert.Equal("json_schema", responseFormat.GetProperty("type").GetString());
@@ -49,6 +50,30 @@ public sealed class StructuredTextCompletionClientTests
         Assert.Equal("scene_beat_catalogue_v1", jsonSchema.GetProperty("name").GetString());
         Assert.True(jsonSchema.GetProperty("strict").GetBoolean());
         Assert.True(JsonElement.DeepEquals(request.ResponseSchema, jsonSchema.GetProperty("schema")));
+    }
+
+    [Fact]
+    public async Task GenerateAsync_EnabledThinkingSendsChatTemplateKwargsAndNoReasoning()
+    {
+        string? capturedBody = null;
+        var client = BuildClient(async request =>
+        {
+            capturedBody = await request.Content!.ReadAsStringAsync();
+            return JsonResponse(HttpStatusCode.OK, """
+                {"model":"structured-model","choices":[{"message":{"content":"{}"},"finish_reason":"stop"}]}
+                """);
+        });
+        var analyzer = CreateAnalyzer() with
+        {
+            Model = CreateAnalyzer().Model with { ThinkingMode = ThinkingMode.Enabled }
+        };
+
+        await client.GenerateAsync(analyzer, CreateRequest());
+
+        var body = JsonSerializer.Deserialize<JsonElement>(capturedBody!);
+        Assert.True(body.TryGetProperty("chat_template_kwargs", out var kwargs));
+        Assert.True(kwargs.GetProperty("thinking").GetBoolean());
+        Assert.False(body.TryGetProperty("reasoning", out _));
     }
 
     [Fact]

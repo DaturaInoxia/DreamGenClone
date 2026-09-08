@@ -54,9 +54,12 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
                 "The configured structured-output mode is unsupported.",
                 false)
         };
-        var reasoning = resolved.ThinkingMode == ThinkingMode.Disabled
-            ? new ReasoningOptions("none")
-            : null;
+        // Disabled thinking OMITS the `reasoning` block entirely. OpenRouter routes glm-4.7 to
+        // upstreams (e.g. Google) that reject `reasoning:{effort:"none"}` with HTTP 400
+        // (see specs/001-final-writing-instruction/debug/044). Omission matches Default mode,
+        // which glm-4.7/OpenRouter handles reliably. Enabled thinking is expressed via
+        // chat_template_kwargs below, never via `reasoning`.
+        var reasoning = (ReasoningOptions?)null;
         var chatTemplateKwargs = resolved.ThinkingMode == ThinkingMode.Enabled
             ? new Dictionary<string, object> { ["thinking"] = true }
             : null;
