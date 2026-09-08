@@ -103,9 +103,11 @@ curl.exe -L --fail -o D:\ComfyUI\models\loras\aidmaNSFWunlock-FLUX-V0.2.safetens
 **LoRA rule (Route 1):** run the stock-fp8 proof FIRST with no LoRA (the scenes are NON-explicit;
 stock FLUX may already pass). Only if a cell fails the rubric (arrangement honored AND
 implied-but-not-explicit) because stock FLUX is too timid, re-run that cell with the unlock LoRA at
-**0.7**: insert a `LoraLoaderModelOnly` node (`model` = UNETLoader output, `lora_name` =
-`aidmaNSFWunlock-FLUX-V0.2.safetensors`, `strength_model` = 0.7) between UNETLoader and
-FluxGuidance. Anatomy/NSFW LoRAs are NOT required for any route (non-explicit, non-nude).
+**0.7**: re-run the proof with `run-flux-proof.ps1 -LoraFile aidmaNSFWunlock-FLUX-V0.2.safetensors`
+(the runner wires a `LoraLoaderModelOnly` node — node 12 — between UNETLoader and KSampler's
+`model` input at `strength_model` 0.7). Ensure the LoRA file is in the host's `models/loras/`
+(the Route-1 download step put it there). Anatomy/NSFW LoRAs are NOT required for any route
+(non-explicit, non-nude).
 
 **Option A (abliterated — NOT the proof artifact; separate follow-up).** Verified 2026-09-07 via HF
 API: every public abliterated FLUX.1-dev is fp16 or GGUF — **no pre-built fp8 single-file ComfyUI
@@ -137,17 +139,61 @@ ComfyUI directly to the public internet.
 
 ## Phase 4 — Qualification proof (the actual "test")
 
-From the dev box (or host) against the local origin:
+**Agent executes these steps IN ORDER.** The runner is `helpers/flux-local-host/run-flux-proof.ps1` on
+the **dev box** (repo root); it talks to the 5080 host's ComfyUI over HTTP, and PNGs land under the
+dev box repo's git-ignored `artifacts/tmp/images/flux-implied-proof/<cell-id>/` (not on the host).
+
+**Prereq (dev box):** repo must be current — `-LoraFile`/`-LoraStrength` + workflow node 12 were
+added 2026-09-07:
+```powershell
+git pull
+powershell -ExecutionPolicy RemoteSigned -File helpers/flux-local-host/run-flux-proof.ps1 -?   # params incl. -LoraFile/-LoraStrength
+```
+
+**Step 1 — Confirm the host is up and both files are visible to ComfyUI** (`<HOST>` = 5080 host LAN
+IP/hostname):
+```powershell
+curl.exe http://<HOST>:8188/system_stats
+# UNETLoader must list flux1-dev-fp8.safetensors:
+curl.exe "http://<HOST>:8188/object_info/UNETLoader"
+# LoraLoaderModelOnly must list aidmaNSFWunlock-FLUX-V0.2.safetensors:
+curl.exe "http://<HOST>:8188/object_info/LoraLoaderModelOnly"
+```
+If the LoRA is missing, download it to `D:\ComfyUI\models\loras\` on the host (Decision 1
+download #5) and restart ComfyUI.
+
+**Step 2 — Stock fp8 baseline (NO LoRA), all 4 cells, fixed seed:**
 ```powershell
 powershell -ExecutionPolicy RemoteSigned -File helpers/flux-local-host/run-flux-proof.ps1 `
-  -ComfyUiUrl http://<host>:8188 `
-  -ModelFile "flux1-dev-fp8.safetensors"   # run-flux-proof.ps1 already defaults to this; omit to use it
-# optional: -Only kneeling-implied,garden-fours   -Seed 20260907
+  -ComfyUiUrl http://<HOST>:8188 -Seed 20260907
 ```
-Then **visually review every PNG** (repo rule — never rubber-stamp). Rubric per cell
-(`prompts-implied.json`): PASS only if the prompt's **blocking/arrangement is honored** AND the
-result is **implied-but-not-explicit** (no nudity/genital detail). Record per-cell PASS/FAIL.
-Expect ~1–2 min/image fp8 on the 5080.
+(~1–3 min/image fp8 via offload on the 5080; baseline ≈ 6–12 min for 4 cells. Model default is
+`flux1-dev-fp8.safetensors`; no `-LoraFile` = stock.)
+
+**Step 3 — Visual review (MANDATORY, never rubber-stamp).** Open every PNG under
+`artifacts/tmp/images/flux-implied-proof/<cell-id>/` and record per-cell PASS/FAIL against the
+rubric in `prompts-implied.json`: **PASS = the prompt's blocking/arrangement is honored AND the
+result is implied-but-not-explicit** (no nudity/genital detail). Cells: `campfire-couple`,
+`kneeling-implied`, `garden-fours`, `standing-behind-seated`.
+
+**Step 4 — Decision / LoRA A/B.**
+- If **all 4 PASS**: stop — stock fp8 is sufficient; the LoRA is not needed. Record the result.
+- If **≥1 FAILED because stock was too timid** (arrangement OK but the implied point was flattened or
+  refused): re-run ONLY the failing cell(s) with the unlock LoRA at 0.7, **same seed**:
+```powershell
+powershell -ExecutionPolicy RemoteSigned -File helpers/flux-local-host/run-flux-proof.ps1 `
+  -ComfyUiUrl http://<HOST>:8188 -Seed 20260907 `
+  -Only <failing-cell-ids-comma-separated> `
+  -LoraFile aidmaNSFWunlock-FLUX-V0.2.safetensors -LoraStrength 0.7
+```
+
+**Step 5 — Visual review the LoRA outputs** (same mandatory rule) and A/B each cell against its stock
+baseline (same seed). Record per-cell PASS/FAIL. If a result over-indexes toward explicit framing
+(against the non-explicit goal), retry at `-LoraStrength 0.4`.
+
+**Step 6 — Report back** with a per-cell table `cell | stock PASS/FAIL | +LoRA PASS/FAIL | note` and
+the final verdict: which configuration qualifies (stock, stock+LoRA@0.7, or stock+LoRA@0.4). Only a
+clean PASS set makes B-112 executable.
 
 ## Phase 5 — Optional: keep it running (restart-proof)
 

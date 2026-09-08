@@ -72,14 +72,17 @@ B-100 (future canonical moment consumption). Not part of the B-111 superseded ma
 
 ## 6. Verification (proof — the actual test)
 
-```
-powershell -File helpers/flux-local-host/run-flux-proof.ps1 -ComfyUiUrl http://<host>:8188 -ModelFile "<D1 file>"
-```
+Exact ordered agent steps are in the runbook **§Phase 4 Steps 1–6** (2026-09-07): host check →
+stock-fp8 baseline (all 4 cells, `-Seed 20260907`, no LoRA) → mandatory visual review → if a cell
+failed as "too timid", LoRA A/B on the same seed (`-LoraFile aidmaNSFWunlock-FLUX-V0.2.safetensors
+-LoraStrength 0.7`, retry 0.4 if it over-indexes explicit) → visual review → per-cell report.
+
+Runner: `helpers/flux-local-host/run-flux-proof.ps1` (now supports `-LoraFile`/`-LoraStrength`).
 - Cells: `campfire-couple`, `kneeling-implied`, `garden-fours`, `standing-behind-seated`
   (`prompts-implied.json`).
 - **PASS rubric:** blocking/arrangement honored AND implied-but-not-explicit (no nudity/anatomy).
-- **Visual review of every PNG is mandatory** (no rubber-stamping). Expect ~1–2 min/img fp8 on 5080.
-- B-112 is only executable/trustworthy after this PASS.
+- **Visual review of every PNG is mandatory** (no rubber-stamping). Expect ~1–3 min/img fp8 on 5080.
+- B-112 is only executable/trustworthy after a clean PASS set.
 
 ## 7. App integration (future code slice, gated on §6)
 
