@@ -1,0 +1,47 @@
+{
+  "model": "FLUX.1-dev fp8 (stock) — local ComfyUI deep implied-pose probe",
+  "recipe": "euler / simple / 28 steps / cfg 1.0 / FluxGuidance 3.5 / empty negative / 896x1152",
+  "note": "Deeper exploration of which implied/softcore blocking arrangements FLUX binds and which it collapses or over-indexes on. All NON-explicit, both subjects clothed. Seed fixed (default 20260907). Visual review required. PASS = arrangement honored AND implied-but-not-explicit.",
+  "cells": [
+    {
+      "id": "lying-ontop-retry",
+      "prompt": "a man lying on his back on a bed, a woman lying on top of him facing him with her body stretched out over his, both wearing t-shirts and pajama pants, tender intimate mood, soft warm light, 35mm photograph",
+      "expected": "man AND woman present; woman lengthwise on top facing him; both clothed"
+    },
+    {
+      "id": "embrace-behind-clothed",
+      "prompt": "a man standing behind a woman, his arms wrapped around her waist from behind, her head leaning back against his shoulder, both wearing shirts and trousers, fully clothed, golden hour light, 35mm photograph",
+      "expected": "behind-embrace arrangement; BOTH clothed including the man"
+    },
+    {
+      "id": "spooning-bed",
+      "prompt": "a man and a woman lying on a bed spooning on their sides, the man behind the woman, his arm wrapped over her waist, both wearing pajamas, soft morning light, 35mm photograph",
+      "expected": "same-direction spoon; man behind woman; both clothed"
+    },
+    {
+      "id": "dance-close",
+      "prompt": "a man and a woman slow dancing closely in a dim living room, her head resting against his chest, his arms around her back, both in evening clothes, warm intimate light, 35mm photograph",
+      "expected": "two people close upright; her head on his chest; both clothed"
+    },
+    {
+      "id": "straddle-seated-facing",
+      "prompt": "a woman sitting on a man lap facing him on a couch, her legs on either side of his hips, his hands resting on her waist, both fully clothed, warm evening light, 35mm photograph",
+      "expected": "facing straddle-seated arrangement; both clothed"
+    },
+    {
+      "id": "stand-between-legs",
+      "prompt": "a man sitting upright on a wooden chair, a woman standing directly in front of him between his knees facing him, her hands on his shoulders, both fully clothed, bright window light, 35mm photograph",
+      "expected": "standing woman between seated man knees, facing; both clothed"
+    },
+    {
+      "id": "bent-over-counter",
+      "prompt": "a woman leaning forward over a kitchen counter with her hands on it, a man standing behind her with his hands on the counter on either side of her, both fully clothed, bright modern kitchen, 35mm photograph",
+      "expected": "woman bent forward at counter; man behind; both clothed"
+    },
+    {
+      "id": "bridal-carry",
+      "prompt": "a man carrying a woman in his arms bridal style, her arms around his neck, both smiling, both clothed, warm evening light outside a doorway, 35mm photograph",
+      "expected": "physical carry arrangement; both present and clothed"
+    }
+  ]
+}

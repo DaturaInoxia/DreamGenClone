@@ -1,0 +1,82 @@
+﻿{
+    "suite":  "deep-probe",
+    "model":  "flux1-dev-fp8.safetensors",
+    "runDir":  "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\flux-implied-proof\\runs\\20260907-deep-probe",
+    "generatedUtc":  "2026-09-08T02:29:11.2070636Z",
+    "endpoint":  "http://127.0.0.1:8188 (local 5080 ComfyUI)",
+    "note":  "B-112 follow-up deep probe: which implied/softcore blocking arrangements stock FLUX binds vs collapses/over-indexes. Seed fixed 20260907. Visual review recorded per cell. Key: upright/seated/facing arrangements bind well; any behind/opposite/side-by-side bed orientation collapses to heads-together; \u0027man and woman\u0027 + clothing emphasis fixes gender/undress drift.",
+    "cells":  [
+                  {
+                      "id":  "bent-over-counter",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a woman leaning forward over a kitchen counter with her hands on it, a man standing behind her with his hands on the counter on either side of her, both fully clothed, bright modern kitchen, 35mm photograph",
+                      "result":  "PASS",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/bent-over-counter_stock.png",
+                      "sha256":  "4C50E531E01249BD5ACCE8F390D027779A8A66C3C85F5C155AC0D982277FD7E3"
+                  },
+                  {
+                      "id":  "bridal-carry",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a man carrying a woman in his arms bridal style, her arms around his neck, both smiling, both clothed, warm evening light outside a doorway, 35mm photograph",
+                      "result":  "PASS",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/bridal-carry_stock.png",
+                      "sha256":  "09A2E387D5E34C5C6EDA46975C39986357DC3F149D94D2AA7859B40CEE84545F"
+                  },
+                  {
+                      "id":  "dance-close",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a man and a woman slow dancing closely in a dim living room, her head resting against his chest, his arms around her back, both in evening clothes, warm intimate light, 35mm photograph",
+                      "result":  "PASS",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/dance-close_stock.png",
+                      "sha256":  "07F32FEDDBFC32456E9514CFD0A476FB06E39866D86E250A6DD669186C1272B8"
+                  },
+                  {
+                      "id":  "embrace-behind-clothed",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a man standing behind a woman, his arms wrapped around her waist from behind, her head leaning back against his shoulder, both wearing shirts and trousers, fully clothed, golden hour light, 35mm photograph",
+                      "result":  "PASS",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/embrace-behind-clothed_stock.png",
+                      "sha256":  "46D31DB5762162C2CA1CEAFA4C9B0A02DE3A5A6671C208ADF4ECEEC9D25A5A91"
+                  },
+                  {
+                      "id":  "lying-ontop-retry",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a man lying on his back on a bed, a woman lying on top of him facing him with her body stretched out over his, both wearing t-shirts and pajama pants, tender intimate mood, soft warm light, 35mm photograph",
+                      "result":  "PASS",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/lying-ontop-retry_stock.png",
+                      "sha256":  "5EAAD58ECECFFEA5554C1CE3600E0265D08DE2C2BE1C5378EB8A4E016B5B15FA"
+                  },
+                  {
+                      "id":  "spooning-bed",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a man and a woman lying on a bed spooning on their sides, the man behind the woman, his arm wrapped over her waist, both wearing pajamas, soft morning light, 35mm photograph",
+                      "result":  "FAIL",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/spooning-bed_stock.png",
+                      "sha256":  "398FD77ECFAEBAC457FAA3FDC82E7E30F52E158E2F15278BBD701DB7FF9EE494"
+                  },
+                  {
+                      "id":  "stand-between-legs",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a man sitting upright on a wooden chair, a woman standing directly in front of him between his knees facing him, her hands on his shoulders, both fully clothed, bright window light, 35mm photograph",
+                      "result":  "PASS",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/stand-between-legs_stock.png",
+                      "sha256":  "E044C41318FF8BCC5AB11A7EF9C145C84883DB2681AC2EF9A4CDDDE1B71641F4"
+                  },
+                  {
+                      "id":  "straddle-seated-facing",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a woman sitting on a man lap facing him on a couch, her legs on either side of his hips, his hands resting on her waist, both fully clothed, warm evening light, 35mm photograph",
+                      "result":  "FAIL",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-deep-probe/images/straddle-seated-facing_stock.png",
+                      "sha256":  "A85E64FB592489DC917E6CBA22D1E0F25A6AE7CB6FB23183BEE87B2FD6F7AB20"
+                  }
+              ]
+}

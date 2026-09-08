@@ -1,0 +1,145 @@
+﻿{
+    "suite":  "b112-implied-proof",
+    "model":  "flux1-dev-fp8.safetensors",
+    "runDir":  "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\flux-implied-proof\\runs\\20260907-b112-implied-proof",
+    "generatedUtc":  "2026-09-08T02:20:04.3822827Z",
+    "endpoint":  "http://127.0.0.1:8188 (local 5080 ComfyUI)",
+    "note":  "B-112 FLUX.1-dev implied/softcore blocking qualification + probe exploration. Stock fp8 vs aidmaNSFWunlock LoRA (0.7/0.4) A/B; seed fixed 20260907. Visual review mandatory; results recorded per cell. Local host ComfyUI v0.34.0.",
+    "cells":  [
+                  {
+                      "id":  "campfire-couple",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a couple sitting close together by a campfire at night in a forest clearing, the man on a log on the left with his arm around her, the woman leaning against him on the right, warm firelight on their faces, cozy intimate mood, 35mm photograph, natural skin texture",
+                      "result":  "PASS",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/campfire-couple_stock.png",
+                      "sha256":  "28AD9ABE1B5240D13ABE2B9BE5EB4662CF6142CFA48976D0FE0B8C1476F7A8D6"
+                  },
+                  {
+                      "id":  "garden-fours",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a woman in a garden on all fours, her clothed bottom turned toward the camera, looking back over her shoulder at the viewer, tasteful implied scene, bright daylight, lush greenery, 35mm photograph, natural skin texture",
+                      "result":  "PASS",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/garden-fours_stock.png",
+                      "sha256":  "8E3ECF3B21CD01AC079587FDA56552CF57636F10F661026342D28C5F9E107144"
+                  },
+                  {
+                      "id":  "standing-behind-seated",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a man standing behind a seated woman at a table, his hands on her shoulders, both clothed, domestic intimate mood, window light, 35mm photograph",
+                      "result":  "PASS",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/standing-behind-seated_stock.png",
+                      "sha256":  "BEECC261E234D04EADA56C4E69C164186867715AB0A9C49F7D91F971A4698EFF"
+                  },
+                  {
+                      "id":  "kneeling-implied",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a woman kneeling on the floor, a man standing directly in front of her facing her, both clothed, tasteful implied scene, soft warm bedroom light, shallow depth of field, 35mm photograph",
+                      "result":  "FAIL",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/kneeling-implied_stock.png",
+                      "sha256":  "98B2BFD0B5ACEC7A2B5CAC2C873E70F5436ED123538B4E798A8A8E1AC22BBECF"
+                  },
+                  {
+                      "id":  "kneeling-implied",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a woman kneeling on the floor, a man standing directly in front of her facing her, both clothed, tasteful implied scene, soft warm bedroom light, shallow depth of field, 35mm photograph",
+                      "result":  "FAIL",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/kneeling-implied_stock-lora-0-7.png",
+                      "sha256":  "EC56CF83BFC3F3D554A59EE0614957C9EC211B846460830DA44E9A23ACAD07B6"
+                  },
+                  {
+                      "id":  "kneeling-implied",
+                      "config":  "stock+lora@0.4",
+                      "seed":  20260907,
+                      "prompt":  "a woman kneeling on the floor, a man standing directly in front of her facing her, both clothed, tasteful implied scene, soft warm bedroom light, shallow depth of field, 35mm photograph",
+                      "result":  "FAIL",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/kneeling-implied_stock-lora-0-4.png",
+                      "sha256":  "DF4888383C21D5B0B31A1C212ACD5BEB70EE13E5745AFCAD600E2C4CE6CD9F8D"
+                  },
+                  {
+                      "id":  "bed-headfoot",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a man and a woman lying on a bed head to foot in opposite directions, his head near her feet and her head near his feet, both clothed, tasteful implied scene, soft warm bedroom light, shallow depth of field, 35mm photograph",
+                      "result":  "FAIL",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/bed-headfoot_stock.png",
+                      "sha256":  "32A9227D24986CB112683552DB9E4A762236C3A785162F921CA1F5836E07D9A6"
+                  },
+                  {
+                      "id":  "bed-headfoot",
+                      "config":  "stock+lora@0.7",
+                      "seed":  20260907,
+                      "prompt":  "a man and a woman lying on a bed head to foot in opposite directions, his head near her feet and her head near his feet, both clothed, tasteful implied scene, soft warm bedroom light, shallow depth of field, 35mm photograph",
+                      "result":  "FAIL",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/bed-headfoot_stock-lora-0-7.png",
+                      "sha256":  "8F63040F06A6BF478ECE1DB0442CE4B140BB33ACF78F1108284CDDEC3C5D1AC1"
+                  },
+                  {
+                      "id":  "bed-headfoot",
+                      "config":  "stock (v2 rephrase)",
+                      "seed":  20260907,
+                      "prompt":  "a man and a woman lying on a bed in opposite directions head to foot, the woman head at the man feet and the man head at the woman feet, both wearing pajamas, tasteful implied scene, warm bedroom light, shallow depth of field, 35mm photograph",
+                      "result":  "FAIL",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/bed-headfoot_stock-v2-rephrase-.png",
+                      "sha256":  "73E71117CB9B1BC3BA580E5D47E7F60486B7C36E6BE5567027DCC93734053568"
+                  },
+                  {
+                      "id":  "bed-headfoot",
+                      "config":  "stock (overhead)",
+                      "seed":  20260907,
+                      "prompt":  "overhead view from directly above of a man and a woman lying on a bed on their sides in opposite directions head to foot, the man head near the woman feet and the woman head near the man feet, both wearing pajamas, tasteful implied scene, soft warm bedroom light, 35mm photograph",
+                      "result":  "FAIL",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/bed-headfoot_stock-overhead-.png",
+                      "sha256":  "264AED14AD9351D7CB5E67548A0B3F1D7BFAA9628E984CC8CB13991FC0173B8C"
+                  },
+                  {
+                      "id":  "bed-headfoot",
+                      "config":  "stock (overhead frame-anchored)",
+                      "seed":  20260907,
+                      "prompt":  "bird eye view straight down from above onto a bed, the man lying on his side with his head at the top of the frame, the woman lying on her side in the opposite direction head to foot with her head at the bottom of the frame, each head beside the other feet, both in pajamas, tasteful implied, warm light, 35mm photograph",
+                      "result":  "FAIL",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/bed-headfoot_stock-overhead-frame-anchored-.png",
+                      "sha256":  "494F8E529B3CB85CCB7BE04ADB0DE34AB079BB57BA1BDCE91FF6E1AEB4FF946D"
+                  },
+                  {
+                      "id":  "lap-facingaway",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a woman sitting sideways on a man lap on a couch, facing away from him, his arms wrapped around her waist, her hands resting on his knees, both fully clothed, cozy intimate living room, soft evening light, 35mm photograph",
+                      "result":  "PASS",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/lap-facingaway_stock.png",
+                      "sha256":  "20CF551EDE089069A476833C2AB831883E0516A6733D38D0E29311077C8E2573"
+                  },
+                  {
+                      "id":  "embrace-behind",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a man standing behind a woman, his arms wrapped around her waist from behind, her head leaning back against his chest, eyes closed, both fully clothed, golden hour light, 35mm photograph",
+                      "result":  "PASS-ARRANGEMENT/FAIL-CLOTHING",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/embrace-behind_stock.png",
+                      "sha256":  "5CEB41A8EAB63F650AF316EBCAD76C842F40341EE03E1BFF26F9FA2722BBCA38"
+                  },
+                  {
+                      "id":  "lying-ontop",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a woman lying on top of a man on a bed, facing him, her body stretched out over his, heads together, both fully clothed, tender intimate mood, soft warm light, 35mm photograph",
+                      "result":  "FAIL",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/lying-ontop_stock.png",
+                      "sha256":  "8DA177537D348FB6EA922FA8F6AA87BDDCD33D476A29E5B960294D49644B5BCF"
+                  },
+                  {
+                      "id":  "legs-intertwined",
+                      "config":  "stock",
+                      "seed":  20260907,
+                      "prompt":  "a couple sitting on the floor facing each other with legs intertwined, foreheads touching, eyes closed, both fully clothed, warm candlelight, 35mm photograph",
+                      "result":  "PASS",
+                      "image":  "specs/image-generator-tests/flux-implied-proof/runs/20260907-b112-implied-proof/images/legs-intertwined_stock.png",
+                      "sha256":  "77E27558AFB0483D21A5DD4250F9E4CC531B0615B5BABA38864C11CBED14550E"
+                  }
+              ]
+}
