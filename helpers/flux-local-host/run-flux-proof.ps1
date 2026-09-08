@@ -33,10 +33,13 @@ Write-Host "FLUX proof: model=$ModelFile  cells=$($cells.Count)  url=$ComfyUiUrl
 $resolvedOut = Join-Path $repoRoot $OutputDir
 
 foreach ($cell in $cells) {
-    # Bake the diffusion model filename into the UNETLoader (node 4). generate-one.ps1 only
-    # overrides CheckpointLoaderSimple (ckpt_name), so we handle unet_name here.
+    # Bake the diffusion model filename into the UNETLoader (node 4), and the cell's prompt
+    # into the positive CLIPTextEncode (node 6). generate-one.ps1 only overrides
+    # CheckpointLoaderSimple (ckpt_name), so we handle unet_name + prompt text here.
     $wf = Get-Content -Raw $workflowPath | ConvertFrom-Json
     $wf.PSObject.Properties["4"].Value.inputs.unet_name = $ModelFile
+    $wf.PSObject.Properties["6"].Value.inputs.text = $cell.prompt
+    $wf.PSObject.Properties["7"].Value.inputs.text = ""   # empty negative
 
     $tmpWf = Join-Path ([IO.Path]::GetTempPath()) ("flux_" + $cell.id + "_" + [guid]::NewGuid().ToString("N") + ".json")
     [IO.File]::WriteAllText($tmpWf, ($wf | ConvertTo-Json -Depth 20))
