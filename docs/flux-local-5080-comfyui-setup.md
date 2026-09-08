@@ -19,8 +19,10 @@ for **non-explicit, implied/softcore** scenes that a safety-filtered model would
 App integration (driving it from Model Manager) is a **separate, later** code feature — see §8.
 
 Host facts (from `helpers/jer-win-hardware.txt`): Windows 11, i7-14700K, 64 GB RAM, **RTX 5080
-16 GB** (Blackwell sm_120), NVIDIA driver **576.88** (CUDA 12.8+ capable), ample disk. 16 GB VRAM
-fits FLUX.1-dev fp8 (~12 GB) with headroom.
+16 GB** (Blackwell sm_120), NVIDIA driver **576.88** (CUDA 12.8+ capable), ample disk. NOTE: stock
+`flux1-dev-fp8.safetensors` is a **17.25 GB file / ~16.1 GiB fp8 payload** (verified 2026-09-07), so
+on 16 GB it runs via ComfyUI's automatic model offload (64 GB RAM makes that fine) — not fully
+VRAM-resident. See Decision 1 for exact numbers and the fully-resident GGUF alternative.
 
 ## Files in this package
 
@@ -38,7 +40,8 @@ python --version        # need 3.11 or 3.12
 git --version
 ```
 - Driver must be ≥ 570 for Blackwell + cu128 torch. 576.88 is fine.
-- Enough disk: FLUX fp8 + encoders + VAE ≈ 18–20 GB; ComfyUI + venv ≈ 6 GB.
+- Enough disk: stock fp8 UNet 17.25 GB + T5 4.9 GB + CLIP 0.25 GB + VAE 0.33 GB + LoRA 0.02 GB
+  ≈ **23 GB**; ComfyUI + venv ≈ 6 GB.
 
 ## Phase 1 — Install ComfyUI (deterministic path)
 
@@ -66,23 +69,55 @@ FLUX.1-dev needs **three** separate components in ComfyUI:
 The T5/CLIP/VAE come from the stock FLUX.1-dev split (Comfy-Org / black-forest-labs repackages).
 The UNet is where the uncensored choice lives:
 
-**Decision 1 — the diffusion model (do not fabricate; pin the real artifact at execution):**
-- **Option A — uncensored/abliterated FLUX.1-dev fp8 (preferred).** Download the exact
-  community build you selected (Civitai / HuggingFace), place in `models/diffusion_models/`, and
-  pass its filename as `-ModelFile` to the proof runner. Name/URL must be recorded here once chosen.
-- **Option B — stock `flux1-dev-fp8.safetensors` + NSFW "unlock" LoRA (~0.7).** Stock FLUX refuses
-  implied-sexual scenes; the unlock LoRA neutralizes the refusal. LoRA goes in `models/loras/` and
-  is applied via a `LoraLoaderModelOnly` node between UNETLoader and KSampler.
-- **Anatomy/NSFW LoRAs are NOT required** for this use case (non-explicit, non-nude).
+**Decision 1 — the diffusion model (PINNED 2026-09-07; every URL verified live + gating checked):**
 
-If a chosen build is GGUF (quantized), install the `ComfyUI-GGUF` custom node and use the `.gguf`
-filename; the rest of this runbook is unchanged.
+**Route 1 (PRIMARY — execute now): stock Comfy-Org `flux1-dev-fp8.safetensors`; the unlock LoRA is a
+FALLBACK, applied only if a stock cell fails the proof rubric.**
 
-Download helper example (fill in the real URL at execution; outputs are git-ignored if staged in
-`artifacts/tmp`):
+Verified facts (HF API + safetensors header parse, 2026-09-07):
+- `flux1-dev-fp8.safetensors` (Comfy-Org/flux1-dev, ungated) is a **17.25 GB file** ≈ **16.1 GiB**
+  of `F8_E4M3` tensors (+ ~0.55 GB f32/f16). It is **NOT ~11.6 GB** and is **not fully
+  VRAM-resident** on a 16 GB card — ComfyUI runs it via automatic model offload (host has 64 GB
+  RAM, so fine; expect ~1–3 min/image fp8). A fully-resident fp8 alternative = GGUF Q8 below.
+- Download sources below verified ungated except where noted.
+
+Exact downloads (file → ComfyUI folder):
+
+| # | File → destination | Verified URL (2026-09-07) | Size |
+|---|---|---|---|
+| 1 | `flux1-dev-fp8.safetensors` → `models/diffusion_models/` | `https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors` | 17.25 GB |
+| 2 | `t5xxl_fp8_e4m3fn.safetensors` → `models/text_encoders/` | `https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors` | 4.9 GB |
+| 3 | `clip_l.safetensors` → `models/text_encoders/` | `https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors` | 0.25 GB |
+| 4 | `ae.safetensors` → `models/vae/` | `https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main/ae.safetensors` (gated: accept the FLUX.1-dev license once, then export `HF_TOKEN`); ungated fallback (standard FLUX VAE): `https://huggingface.co/raidenzeke/flux.1dev-abliterated-gguf/resolve/main/ae.safetensors` | 0.33 GB |
+| 5 | *(fallback only)* `aidmaNSFWunlock-FLUX-V0.2.safetensors` → `models/loras/` | `https://huggingface.co/akash-guptag/NSFW-Flux-Lora/resolve/main/aidmaNSFWunlock-FLUX-V0.2.safetensors` | 19 MB |
+
+Route 1 download commands (run on the 5080 host):
 ```powershell
-curl.exe -L --fail -o D:\ComfyUI\models\diffusion_models\<your-file>.safetensors "<pinned-url>"
+curl.exe -L --fail -o D:\ComfyUI\models\diffusion_models\flux1-dev-fp8.safetensors "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors"
+curl.exe -L --fail -o D:\ComfyUI\models\text_encoders\t5xxl_fp8_e4m3fn.safetensors "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors"
+curl.exe -L --fail -o D:\ComfyUI\models\text_encoders\clip_l.safetensors "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors"
+curl.exe -L --fail -o D:\ComfyUI\models\vae\ae.safetensors "https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main/ae.safetensors"
+curl.exe -L --fail -o D:\ComfyUI\models\loras\aidmaNSFWunlock-FLUX-V0.2.safetensors "https://huggingface.co/akash-guptag/NSFW-Flux-Lora/resolve/main/aidmaNSFWunlock-FLUX-V0.2.safetensors"
 ```
+
+**LoRA rule (Route 1):** run the stock-fp8 proof FIRST with no LoRA (the scenes are NON-explicit;
+stock FLUX may already pass). Only if a cell fails the rubric (arrangement honored AND
+implied-but-not-explicit) because stock FLUX is too timid, re-run that cell with the unlock LoRA at
+**0.7**: insert a `LoraLoaderModelOnly` node (`model` = UNETLoader output, `lora_name` =
+`aidmaNSFWunlock-FLUX-V0.2.safetensors`, `strength_model` = 0.7) between UNETLoader and
+FluxGuidance. Anatomy/NSFW LoRAs are NOT required for any route (non-explicit, non-nude).
+
+**Option A (abliterated — NOT the proof artifact; separate follow-up).** Verified 2026-09-07 via HF
+API: every public abliterated FLUX.1-dev is fp16 or GGUF — **no pre-built fp8 single-file ComfyUI
+checkpoint exists**:
+
+| Build | Format / file | Size | Note |
+|---|---|---|---|
+| `georgesung/flux.1-dev-abliterated-merged` | `flux_ablit_v2.safetensors` single-file fp16 UNet | 23.8 GB | Full set (`t5_xxl_ablit_v2` 9.5 GB, `clip_l_ablit_v2`, `ae_ablit_v2`); ungated. Too big to be resident on 16 GB → convert to fp8 (~11.9 GB) for the real drop-in. |
+| `rednox/flux.1dev-abliteratedv2_merged` | `TransparentFLUX.safetensors` | 23.8 GB | fp16 single-file merged; same conversion story. |
+| `raidenzeke/flux.1dev-abliterated-gguf` | `flux.1dev_abliterated_Q8_0.gguf` | 12.7 GB | Fits 16 GB fully; needs ComfyUI-GGUF node + GGUF loader. |
+| `t8star/flux.1-dev-abliterated-V2-GGUF` | Q8_0 / Q6_K / Q4_K_M `.gguf` | 12.7 / 9.9 / 6.9 GB | Highest adoption (~9.3k dl); needs ComfyUI-GGUF. |
+| `aoxo/flux.1dev-abliterated[v2]` | fp16 diffusers (transformer shards ~23.8 GB + T5 ~11.5 GB) | — | Not ComfyUI-loadable as-is; needs diffusers→ComfyUI fp8 conversion. |
 
 ## Phase 3 — Launch + verify
 
@@ -106,7 +141,7 @@ From the dev box (or host) against the local origin:
 ```powershell
 powershell -ExecutionPolicy RemoteSigned -File helpers/flux-local-host/run-flux-proof.ps1 `
   -ComfyUiUrl http://<host>:8188 `
-  -ModelFile "<your-pinned-uncensored-file>.safetensors"
+  -ModelFile "flux1-dev-fp8.safetensors"   # run-flux-proof.ps1 already defaults to this; omit to use it
 # optional: -Only kneeling-implied,garden-fours   -Seed 20260907
 ```
 Then **visually review every PNG** (repo rule — never rubber-stamp). Rubric per cell

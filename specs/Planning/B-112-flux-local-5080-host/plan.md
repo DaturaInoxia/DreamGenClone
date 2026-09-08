@@ -1,7 +1,8 @@
 # B-112 — Local uncensored FLUX.1-dev on the RTX 5080 host (ComfyUI) + app integration
 
-**Status:** planned (2026-09-07). **State:** `designed` — runbook + proof assets exist; open
-**Decision D1** (uncensored artifact pin) blocks execution.
+**Status:** planned (2026-09-07). **State:** `designed` — runbook + proof assets exist;
+**Decision D1 resolved 2026-09-07** (Route 1 = stock `flux1-dev-fp8` + optional unlock LoRA;
+exact downloads pinned in the runbook). Ready to execute on the 5080 host.
 **Related:** B-111 (Consistent Visual Production Program — model/endpoint expansion family),
 B-100 (future canonical moment consumption). Not part of the B-111 superseded map; additive infra.
 
@@ -23,7 +24,7 @@ B-100 (future canonical moment consumption). Not part of the B-111 superseded ma
 
 | # | Decision | Status |
 |---|---|---|
-| D1 | Uncensored FLUX.1-dev artifact to pin: (A) abliterated/uncensored FLUX fp8 **or** (B) stock `flux1-dev-fp8` + NSFW **unlock** LoRA ~0.7 | **OPEN — needs the real artifact URL/filename.** Anatomy LoRAs NOT needed (non-explicit). |
+| D1 | **RESOLVED 2026-09-07** — Route 1 = stock `flux1-dev-fp8.safetensors` (Comfy-Org; 17.25 GB file / ~16.1 GiB fp8 payload, verified by header parse — runs on 16 GB via ComfyUI offload) + fallback unlock LoRA `aidmaNSFWunlock-FLUX-V0.2.safetensors` (akash-guptag/NSFW-Flux-Lora) applied at 0.7 **only if** a stock-fp8 proof cell fails. Stock files pinned w/ exact URLs in runbook §Phase 2 Decision 1 (Comfy-Org UNet, comfyanonymous T5/CLIP, bfl or raidenzeke VAE). Option A (abliterated) verified: NO pre-built fp8 single-file exists — fp16 single-file (georgesung/rednox 23.8 GB → needs fp8 conversion) or GGUF (raidenzeke/t8star Q8 12.7 GB → needs ComfyUI-GGUF) or fp16 diffusers (aoxo). Follow-up only. Anatomy LoRAs NOT needed (non-explicit). |
 | D2 | Runtime = **ComfyUI** on the target host (Windows, torch cu128, `--listen 0.0.0.0 --port 8188`) | Made |
 | D3 | **Proof-first:** qualify the model (`helpers/flux-local-host/`) before any app code | Made |
 | D4 | App integration = new **Flux scene-image family** (code). The Api/NaturalLanguage path is **rejected** — its compiler applies a "fully clothed, non-explicit" guard that fights implied scenes | Made |
@@ -33,7 +34,7 @@ B-100 (future canonical moment consumption). Not part of the B-111 superseded ma
 | Fact | Value |
 |---|---|
 | OS | Windows 11 (host of `helpers/jer-win-hardware.txt`) |
-| GPU | RTX 5080, 16 GB (Blackwell sm_120) — FLUX fp8 ~12 GB fits |
+| GPU | RTX 5080, 16 GB (Blackwell sm_120). Stock `flux1-dev-fp8` = 17.25 GB file / ~16.1 GiB fp8 payload (verified 2026-09-07) → NOT fully resident in 16 GB; ComfyUI auto-offloads (64 GB RAM fine). GGUF Q8 (12.7 GB) = fully-resident alternative. |
 | Driver | 576.88 (≥ 570 required for cu128; OK) |
 | CPU / RAM | i7-14700K / 64 GB |
 | Reachability | app reaches ComfyUI over HTTP, same pattern as the Qwen VL compiler provider (Model Manager BaseUrl) |
@@ -45,14 +46,17 @@ B-100 (future canonical moment consumption). Not part of the B-111 superseded ma
    to `D:\ComfyUI`, create venv, `pip install torch torchvision torchaudio --index-url
    https://download.pytorch.org/whl/cu128`, then `pip install -r requirements.txt`.
 3. *(Optional)* **ComfyUI-GGUF** custom node if a GGUF-quantized uncensored build is chosen.
-4. **Model files** to place:
-   - `models/text_encoders/t5xxl_fp8_e4m3fn.safetensors` (~4.9 GB)
-   - `models/text_encoders/clip_l.safetensors` (~0.25 GB)
-   - `models/vae/ae.safetensors` (~0.3 GB)
-   - `models/diffusion_models/<D1 file>` (fp8 UNet or GGUF)
-   - *(Option B)* `models/loras/<unlock LoRA>` — applied at ~0.7
-   - Download via `curl.exe -L --fail`; **record the pinned URL + SHA** in the runbook's
-     "Decision 1" section before executing.
+4. **Model files** to place — exact URLs pinned in runbook §Phase 2 Decision 1 (verified 2026-09-07):
+   - `models/diffusion_models/flux1-dev-fp8.safetensors` (17.25 GB) — Comfy-Org/flux1-dev (ungated)
+   - `models/text_encoders/t5xxl_fp8_e4m3fn.safetensors` (4.9 GB) + `clip_l.safetensors` (0.25 GB)
+     — comfyanonymous/flux_text_encoders (ungated)
+   - `models/vae/ae.safetensors` (0.33 GB) — black-forest-labs/FLUX.1-dev (gated: accept license +
+     HF_TOKEN) or ungated raidenzeke mirror
+   - `models/loras/aidmaNSFWunlock-FLUX-V0.2.safetensors` (19 MB, **fallback only**, apply at 0.7)
+     — akash-guptag/NSFW-Flux-Lora (ungated)
+   - Download via `curl.exe -L --fail` (commands in the runbook). Abliterated builds (georgesung
+     fp16 single-file / raidenzeke+t8star GGUF / aoxo fp16 diffusers) are documented Option A
+     follow-up — none is a pre-built fp8 drop-in.
 5. *(Optional, restart-proof)* Windows Task Scheduler "At log on" entry or NSSM service running the
    Phase 3 launch line.
 
@@ -92,6 +96,10 @@ confirmation):
 ## 8. Risks / notes
 
 - FLUX fp8 is slow locally (~1–2 min/img) — acceptable: it is free and iteration is the point.
+- No pre-built fp8 single-file abliterated FLUX.1-dev exists (verified 2026-09-07): abliterated =
+  fp16 single-file (georgesung/rednox, 23.8 GB → needs fp8 conversion), GGUF (raidenzeke/t8star,
+  Q8 12.7 GB → needs ComfyUI-GGUF node), or fp16 diffusers (aoxo). Route 1 (stock fp8 + optional
+  unlock LoRA) is therefore the proof artifact.
 - **cfg must stay 1.0**; the real strength control is FluxGuidance (3.5). Raising CFG breaks FLUX.
 - **Empty/minimal negative** — a heavy SDXL negative will fight implied scenes.
 - Blackwell requires **cu128** (a cu124 build fails with "no kernel image" on sm_120).
