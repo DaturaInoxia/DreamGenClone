@@ -391,9 +391,59 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
                 model.DisplayName,
                 model.ModelIdentifier,
                 provider?.Name ?? "Unknown",
-                HasIdentity: !string.IsNullOrWhiteSpace(model.IdentityMechanism)));
+                HasIdentity: !string.IsNullOrWhiteSpace(model.IdentityMechanism))
+            {
+                Family = model.SceneImageModelFamily,
+                Dialect = model.PromptDialect
+            });
         }
         return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<ResolvedImageModel> ResolveImagePromptGenerationModelAsync(
+        SceneImagePromptStyle promptStyle,
+        string? preferredModelId,
+        CancellationToken cancellationToken = default)
+    {
+        // Single deterministic decision path for the model whose compiler + content policy shape a
+        // drafted prompt: (1) the user-pinned model when its family produces the requested style;
+        // (2) otherwise the first enabled image model that produces that style (stable display-name
+        // order, matching the Studio dropdown). No silent fallback values: if no enabled model can
+        // produce the requested style this fails fast. Within a style the compiler is identical, so
+        // the tie-break never changes the generated dialect.
+        var effective = SceneImagePromptStyleResolver.Effective(promptStyle);
+
+        if (!string.IsNullOrWhiteSpace(preferredModelId))
+        {
+            var preferred = await ResolveImageModelByIdAsync(preferredModelId, cancellationToken);
+            if (SceneImagePromptStyleResolver.FromFamily(preferred.SceneImageModelFamily) == effective)
+            {
+                _logger.LogInformation(
+                    "Scene-image prompt generation model resolved from the pinned selection: Model={ModelIdentifier}, Style={Style}",
+                    preferred.ModelIdentifier,
+                    effective);
+                return preferred;
+            }
+        }
+
+        var choices = await ListSceneImageModelsAsync(identityCapableOnly: false, cancellationToken);
+        foreach (var choice in choices)
+        {
+            if (SceneImagePromptStyleResolver.FromFamilyDialect(choice.Family, choice.Dialect) != effective)
+                continue;
+            var resolved = await ResolveImageModelByIdAsync(choice.ModelId, cancellationToken);
+            _logger.LogInformation(
+                "Scene-image prompt generation model resolved from the {Style} family: Model={ModelIdentifier}, Provider={ProviderName}",
+                effective,
+                resolved.ModelIdentifier,
+                choice.ProviderName);
+            return resolved;
+        }
+
+        throw new ModelResolutionException(
+            $"No enabled image model produces {SceneImagePromptStyleResolver.DisplayLabel(effective)} prompts. " +
+            $"Enable a {SceneImagePromptStyleResolver.DisplayLabel(effective)} image model in Model Manager (/model-manager).");
     }
 
     public async Task<ResolvedMultimodalModel> ResolveAsync(

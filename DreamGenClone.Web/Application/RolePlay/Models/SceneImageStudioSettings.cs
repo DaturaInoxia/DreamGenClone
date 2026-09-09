@@ -47,4 +47,26 @@ public sealed class SceneImageStudioSettings
 
     /// <summary>CLIP skip layer ("" = none, matching the validated test prompts).</summary>
     public string? ClipSkip { get; set; } = "";
+
+    /// <summary>
+    /// Optional OpenPose ControlNet conditioning for a pose-controlled composition (B-117). When set
+    /// the render job routes to the pose-conditioned client on the pinned local ComfyUI SDXL model.
+    /// </summary>
+    public SceneImagePoseReference? PoseReference { get; set; }
+}
+
+/// <summary>
+/// Optional OpenPose ControlNet conditioning attached to a composition render (B-117). When present,
+/// the render is routed to the pose-conditioned client on the resolved local ComfyUI SDXL model
+/// instead of a bare text-to-image call. The pose image is stored through the scene image storage
+/// service and its relative path is persisted here.
+/// </summary>
+public sealed class SceneImagePoseReference
+{
+    /// <summary>Stored pose skeleton image path (as returned by <c>SaveAsync</c>), e.g.
+    /// "{sessionId}/{fileName}.png".</summary>
+    public string StoragePath { get; set; } = string.Empty;
+
+    /// <summary>ControlNet conditioning strength (0 &lt; strength &lt;= 1).</summary>
+    public double Strength { get; set; } = 0.8;
 }

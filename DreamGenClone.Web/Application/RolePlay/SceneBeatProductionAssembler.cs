@@ -5,10 +5,10 @@ using DreamGenClone.Domain.RolePlay;
 namespace DreamGenClone.Web.Application.RolePlay;
 
 /// <summary>
-/// Deterministically assembles the final Beat Production plan JSON from the four structured passes
-/// (structure, spoken, soundscape, continuity). The LLM authors the semantic sections; this class
-/// computes the mechanical sections — typed references and video coverage — that previously forced a
-/// large, fragile assembly LLM pass. See
+/// Deterministically assembles the final Beat Production plan JSON from the three structured passes
+/// (structure, spoken, continuity). The LLM authors the semantic sections; this class computes the
+/// mechanical sections — typed references, video coverage, and a default authored-silence soundscape —
+/// that previously forced a large, fragile assembly LLM pass and a separate soundscape LLM pass. See
 /// specs/Planning/B-100-progressive-scene-beat-pipeline/beat-production-deterministic-assembly-design.md.
 /// </summary>
 public static class SceneBeatProductionAssembler
@@ -19,7 +19,6 @@ public static class SceneBeatProductionAssembler
         SceneBeatProductionSourceSnapshot snapshot,
         JsonObject structure,
         JsonObject spoken,
-        JsonObject soundscape,
         JsonObject continuity)
     {
         var events = RequireArray(structure, "events", "structure");
@@ -27,9 +26,8 @@ public static class SceneBeatProductionAssembler
         var actionArc = RequireArray(structure, "actionArc", "structure");
         var narration = ExpandSpokenCues(RequireArray(spoken, "narration", "spoken"));
         var dialogue = ExpandSpokenCues(RequireArray(spoken, "dialogue", "spoken"));
-        var ambience = Require(soundscape, "ambience", "soundscape");
-        var soundEvents = RequireArray(soundscape, "soundEvents", "soundscape");
-        var music = RequireArray(soundscape, "music", "soundscape");
+        var beatWindow = timeline["beatWindow"]!.DeepClone();
+        var (ambience, soundEvents, music) = BuildDefaultSoundscape(snapshot, beatWindow);
         var startContinuity = Require(continuity, "startContinuity", "continuity");
         var endContinuity = Require(continuity, "endContinuity", "continuity");
 
@@ -62,14 +60,78 @@ public static class SceneBeatProductionAssembler
         {
             var cue = (JsonObject)node!;
             var exact = cue["exactSourceText"]!.GetValue<string>();
-            var full = (JsonObject)cue.DeepClone();
-            full["displayText"] = exact;
-            full["normalizedSpokenText"] = exact;
-            full["normalizationMethod"] = "verbatim";
-            full["normalizationVersion"] = "1";
-            expanded.Add(full);
+            var eventKey = cue["eventKey"]!.GetValue<string>();
+            var speakerKey = cue["speakerKey"] is JsonValue sv ? sv.GetValue<string>() : null;
+            var reviewReason = cue["reviewReason"] is JsonValue rv ? rv.GetValue<string>() : null;
+
+            var performance = JsonSerializer.SerializeToElement(new
+            {
+                speakerKey = speakerKey,
+                languageCode = "en-US",
+                locale = (string?)null,
+                emotion = "Neutral",
+                intensity = "Medium",
+                pace = "Medium",
+                accentIntent = (string?)null,
+                pauseCues = Array.Empty<string>(),
+                overlapOrInterruption = (string?)null,
+                pronunciationLexemes = Array.Empty<object>(),
+                nonVerbalVocalEvents = Array.Empty<string>()
+            }, JsonOptions);
+
+            var window = JsonSerializer.SerializeToElement(new
+            {
+                startSeconds = (decimal?)null,
+                endSeconds = (decimal?)null,
+                startEventKey = eventKey,
+                endEventKey = eventKey,
+                durationIntent = "Beat",
+                precision = "Exact",
+                overlapPolicy = "Allow",
+                continuityLeadIn = false,
+                continuityTail = false
+            }, JsonOptions);
+
+            expanded.Add(Node(new
+            {
+                cueKey = cue["cueKey"]!.GetValue<string>(),
+                order = cue["order"]!.GetValue<int>(),
+                kind = cue["kind"]!.GetValue<string>(),
+                eventKey = eventKey,
+                exactSourceText = exact,
+                displayText = exact,
+                normalizedSpokenText = exact,
+                normalizationMethod = "verbatim",
+                normalizationVersion = "1",
+                sourceKey = cue["sourceKey"]!.GetValue<string>(),
+                speakerKey = speakerKey,
+                addresseeKeys = Array.Empty<string>(),
+                performance = performance,
+                window = window,
+                lipSyncRelevant = false,
+                reviewStatus = cue["reviewStatus"]!.GetValue<string>(),
+                reviewReason = reviewReason
+            }));
         }
         return expanded;
+    }
+
+    private static (JsonObject ambience, JsonArray soundEvents, JsonArray music) BuildDefaultSoundscape(
+        SceneBeatProductionSourceSnapshot snapshot,
+        JsonNode beatWindow)
+    {
+        var ambience = (JsonObject)Node(new
+        {
+            location = snapshot.Beat.PrimaryLocation,
+            timeContext = "Beat duration",
+            soundSources = Array.Empty<string>(),
+            intensityEnvelope = "Silence",
+            spatialIntent = "None",
+            authoredSilence = true,
+            continuityIntent = "None",
+            window = JsonSerializer.SerializeToElement(beatWindow, JsonOptions)
+        })!;
+        return (ambience, new JsonArray(), new JsonArray());
     }
 
     private static JsonArray BuildTypedReferences(SceneBeatProductionSourceSnapshot snapshot, JsonArray dialogue)

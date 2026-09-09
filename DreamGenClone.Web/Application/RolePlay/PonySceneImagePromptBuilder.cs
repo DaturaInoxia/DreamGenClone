@@ -35,10 +35,26 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         SceneImageStudioSettings settings,
         ImageContentPolicy resolvedPolicy,
         string? refineInstruction)
+        => BuildMessages(brief, pov, settings, resolvedPolicy, refineInstruction, null);
+
+    /// <summary>
+    /// Canonical composition-path variant that also receives the scenario characters so each
+    /// depicted character's fixed physical appearance (age, weight, body type, iris colour, figure)
+    /// reaches the Pony pre-processor as a labelled per-character block. Without this the compiled
+    /// brief carries no physical attributes and the Pony prompt would lose per-character likeness.
+    /// Mirrors the SDXL canonical overload (see <see cref="CanonicalCharacterAppearance"/>).
+    /// </summary>
+    public (string SystemPrompt, string UserPrompt) BuildMessages(
+        CompiledMediaBrief brief,
+        string pov,
+        SceneImageStudioSettings settings,
+        ImageContentPolicy resolvedPolicy,
+        string? refineInstruction,
+        IReadOnlyList<Character>? characters)
     {
         ValidateCanonicalBrief(brief, pov);
         var systemPrompt = BuildCanonicalSystemPrompt();
-        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction);
+        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters);
         return (systemPrompt, userPrompt);
     }
 
@@ -575,6 +591,8 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         sb.AppendLine("- For explicit scenes use concrete anatomical language; for safe/questionable scenes imply rather than spell out.");
         sb.AppendLine($@"- Keep the ENTIRE prompt under {OutputPromptTargetChars} characters and under ~40 tags. Short and dense beats verbose.");
         sb.AppendLine("- Return ONLY the final comma-separated image prompt as plain text. No commentary, quotes, or markdown.");
+        sb.AppendLine("- Use female/male (danbooru vocabulary) rather than woman/man when a single gender tag fits the character.");
+        sb.AppendLine("- The Pony family spans the base V6 checkpoint and photorealistic human merges (e.g. Pony Realism) that all read the same danbooru tags. Do not force a cartoon/anime style, and do not invent style words the scene does not state.");
 
         sb.AppendLine("- Choose the rating tag and scene explicitness from the depicted content; do not use narrative phase or a user setting as a substitute for reading the scene.");
 
@@ -587,6 +605,8 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         sb.AppendLine("Convert the supplied immutable canonical Still brief into one short dense comma-separated prompt for the PONY DIFFUSION V6 XL image model. Do not invent or rediscover story facts.");
         sb.AppendLine($"Start verbatim with: {PonyQualityTags}, then choose the rating tag from the depicted content: rating_explicit for explicit sexual acts or visible genitals, rating_questionable for suggestive content or partial nudity, and rating_safe for non-sexual content.");
         sb.AppendLine("Then include the exact visible cast count, short visual identity/wardrobe/action tags, location, lighting, mood, one camera-view tag, and the {{style}} and {{size}} placeholders.");
+        sb.AppendLine("Keep every visible person's tags in its OWN self-contained cluster (one 1girl run, one 1boy run) and never merge or reorder attributes between people. Repeat each person's age token — Pony/Pony Realism faces skew young, so age must be stated explicitly and more than once.");
+        sb.AppendLine("Use female/male danbooru vocabulary. The checkpoint may be a photorealistic Pony merge (e.g. Pony Realism) or the base V6 checkpoint — both read dense danbooru tags; do not impose a cartoon/anime style.");
         sb.AppendLine("Keep the result under 800 characters and about 40 tags. Return only the final prompt as plain text.");
         return sb.ToString();
     }
@@ -596,13 +616,20 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         string pov,
         SceneImageStudioSettings settings,
         ImageContentPolicy policy,
-        string? refineInstruction)
+        string? refineInstruction,
+        IReadOnlyList<Character>? characters)
     {
         var sb = new StringBuilder();
         sb.AppendLine("CANONICAL STILL BRIEF (immutable; this is the complete semantic source):");
         sb.AppendLine(brief.SemanticInputSnapshotJson);
         sb.AppendLine("CANONICAL PROVIDER REQUEST SNAPSHOT (immutable):");
         sb.AppendLine(brief.ProviderRequestSnapshotJson);
+        var appearanceBlock = CanonicalCharacterAppearance.BuildBlock(brief, pov, characters);
+        if (!string.IsNullOrWhiteSpace(appearanceBlock))
+        {
+            sb.AppendLine(appearanceBlock);
+            sb.AppendLine();
+        }
         sb.AppendLine($"PRODUCTION POV: {pov}");
         sb.AppendLine($"IMAGE SETTINGS: style={settings.Style}; size={settings.ImageSize}; aspect={settings.AspectRatio}; policy={policy}");
         if (!string.IsNullOrWhiteSpace(refineInstruction))

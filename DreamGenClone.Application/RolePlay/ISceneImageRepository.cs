@@ -25,11 +25,17 @@ public interface ISceneImageRepository
         string beatId,
         string pov,
         CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Most recent completed production prompt for a group/brief. Pass <paramref name="promptStyle"/>
+    /// to restrict to one prompt style (natural language vs Pony tags); legacy Unknown rows are
+    /// treated as natural language. When null, the latest completed prompt of any style is returned.
+    /// </summary>
     Task<SceneImagePromptRecord?> GetLatestCompletedProductionPromptAsync(
         string sessionId,
         string interactionId,
         string productionGroupId,
         string compiledMediaBriefId,
+        SceneImagePromptStyle? promptStyle = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Persist the user-edited prompt text to a prompt record's OutputPrompt.</summary>

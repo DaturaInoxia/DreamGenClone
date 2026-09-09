@@ -38,6 +38,13 @@ public sealed class SceneImagePromptRecord
     /// <summary>The editable image prompt produced by the pre-processor.</summary>
     public string OutputPrompt { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Which prompt style this record was drafted in (<see cref="SceneImagePromptStyle.NaturalLanguage"/>
+    /// vs <see cref="SceneImagePromptStyle.PonyV6Tags"/>). Records generated before this field existed
+    /// carry <see cref="SceneImagePromptStyle.Unknown"/> and are treated as natural-language.
+    /// </summary>
+    public SceneImagePromptStyle PromptStyle { get; set; } = SceneImagePromptStyle.Unknown;
+
     /// <summary>Optional user instruction threaded into the pre-processor on a refine pass.
     /// Persisted so the job handler can apply it — not editable after enqueue.</summary>
     public string? RefineInstruction { get; set; }

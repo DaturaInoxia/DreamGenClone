@@ -105,6 +105,11 @@ consistency + one-pass audio) is a perfect fit — watch gate B-115.**
 3.12; ComfyUI 0.34.0 already exposes native Wan 2.2 nodes (no core bump needed). Official 5B set and the
 uncensored-14B set are downloading **in parallel** onto the host (~47.5 GB total, resumable curl). Next:
 verify loader registration via `/object_info`, then build + run the POC graph.
+**POC results (official TI2V-5B, 2026-09-08) — see `poc-log.md` in this folder:** T2V 2 s PASS (70 s);
+I2V 2 s PARTIAL (identity anchors, but model adds a pregnancy belly absent from the source);
+I2V 5 s/720p FAIL on body fidelity (250 s; belly recurs mid-clip despite `pregnancy` negatives — **not
+prompt-addressable on the official 5B**, so prompting it further is explicitly out of scope). Next:
+uncensored-14B I2V A/B on the same frame + Lightx2v 4-step + CubeyAI LoRAs, and FLF2V first/last-frame.
 
 **Open questions to resolve at Stage-2 design:** whether the uncensored 5B class exists yet (the
 verified uncensored artifacts are 14B I2V/T2V) vs. running a GGUF-quantized 14B on the 5080; exact

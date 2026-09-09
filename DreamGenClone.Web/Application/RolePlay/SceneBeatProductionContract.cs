@@ -20,13 +20,14 @@ public sealed record SceneBeatProductionPassMessages(
 
 public sealed class SceneBeatProductionContract
 {
-    public const string ContractVersion = "scene-beat-production-v6";
+    public const string ContractVersion = "scene-beat-production-v8";
     public const string ResponseSchemaName = "scene_beat_production";
 
-    // The decomposed v3 production flow performs this many structured-text provider calls in
-    // one durable execution (structure, spoken, soundscape, assembly). Used by the durable
-    // executor to scale the whole-run operation watchdog for this multi-pass handler.
-    public const int ProviderPassCount = 4;
+    // The image-tier production flow performs this many structured-text provider calls in one
+    // durable execution (structure, spoken, continuity). Soundscape is deterministically authored
+    // as silence by the assembler instead of a fourth LLM pass. Used by the durable executor to
+    // scale the whole-run operation watchdog for this multi-pass handler.
+    public const int ProviderPassCount = 3;
 
     public SceneBeatProductionContractMessages BuildMessages(SceneBeatProductionSourceSnapshot snapshot)
     {
@@ -217,10 +218,6 @@ public sealed class SceneBeatProductionContract
         ("exactSourceText", String()),
         ("sourceKey", String()),
         ("speakerKey", NullableString()),
-        ("addresseeKeys", UniqueStringArray()),
-        ("performance", Performance()),
-        ("window", Window()),
-        ("lipSyncRelevant", Boolean()),
         ("reviewStatus", Enum("Validated", "ReviewRequired")),
         ("reviewReason", NullableString()));
 

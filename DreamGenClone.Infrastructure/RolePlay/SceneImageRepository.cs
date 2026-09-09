@@ -130,11 +130,11 @@ public sealed class SceneImageRepository : ISceneImageRepository
             INSERT INTO SceneImagePrompts (
                 Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, ProductionGroupId, CompiledMediaBriefId,
                 Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
-                Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc)
+                Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle)
             VALUES (
                 $id, $sessionId, $interactionId, $beatAnalysisId, $beatSnapshotJson, $productionGroupId, $compiledMediaBriefId,
                 $pov, $settingsJson, $inputExcerpt, $outputPrompt, $refineInstruction,
-                $status, $modelIdentifier, $errorMessage, $createdUtc, $updatedUtc)
+                $status, $modelIdentifier, $errorMessage, $createdUtc, $updatedUtc, $promptStyle)
             ON CONFLICT(Id) DO UPDATE SET
                 SessionId = excluded.SessionId,
                 InteractionId = excluded.InteractionId,
@@ -150,7 +150,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 Status = excluded.Status,
                 ModelIdentifier = excluded.ModelIdentifier,
                 ErrorMessage = excluded.ErrorMessage,
-                UpdatedUtc = excluded.UpdatedUtc;
+                UpdatedUtc = excluded.UpdatedUtc,
+                PromptStyle = excluded.PromptStyle;
             """;
         command.Parameters.AddWithValue("$id", prompt.Id);
         command.Parameters.AddWithValue("$sessionId", prompt.SessionId.Trim());
@@ -169,6 +170,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$errorMessage", (object?)prompt.ErrorMessage ?? DBNull.Value);
         command.Parameters.AddWithValue("$createdUtc", prompt.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", prompt.UpdatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$promptStyle", (int)prompt.PromptStyle);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -188,7 +190,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
              SELECT Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, ProductionGroupId, CompiledMediaBriefId,
                  Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
-                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc
+                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle
             FROM SceneImagePrompts
             WHERE Id = $id;
             """;
@@ -219,7 +221,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
              SELECT Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, ProductionGroupId, CompiledMediaBriefId,
                  Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
-                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc
+                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle
             FROM SceneImagePrompts
             WHERE SessionId = $sessionId AND InteractionId = $interactionId
             ORDER BY UpdatedUtc DESC
@@ -262,7 +264,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
              SELECT Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, ProductionGroupId, CompiledMediaBriefId,
                  Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
-                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc
+                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle
             FROM SceneImagePrompts
             WHERE SessionId = $sessionId
               AND InteractionId = $interactionId
@@ -288,6 +290,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         string interactionId,
         string productionGroupId,
         string compiledMediaBriefId,
+        SceneImagePromptStyle? promptStyle = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(sessionId)
@@ -302,17 +305,28 @@ public sealed class SceneImageRepository : ISceneImageRepository
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, cancellationToken);
 
+        // A prompt-style filter is expressed as an inclusive PromptStyle range so legacy Unknown (0)
+        // rows are matched by the NaturalLanguage style (they predate the style column and were
+        // drafted by the default natural-language model path). No style = any style.
+        var (styleMin, styleMax) = promptStyle switch
+        {
+            SceneImagePromptStyle.PonyV6Tags => (2, 2),
+            SceneImagePromptStyle.NaturalLanguage => (0, 1),
+            _ => (0, 2)
+        };
+
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, ProductionGroupId, CompiledMediaBriefId,
                    Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
-                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc
+                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle
             FROM SceneImagePrompts
             WHERE SessionId = $sessionId
               AND InteractionId = $interactionId
               AND ProductionGroupId = $productionGroupId
               AND CompiledMediaBriefId = $compiledMediaBriefId
               AND Status = 'Complete'
+              AND PromptStyle BETWEEN $styleMin AND $styleMax
             ORDER BY UpdatedUtc DESC
             LIMIT 1;
             """;
@@ -320,6 +334,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$interactionId", interactionId.Trim());
         command.Parameters.AddWithValue("$productionGroupId", productionGroupId.Trim());
         command.Parameters.AddWithValue("$compiledMediaBriefId", compiledMediaBriefId.Trim());
+        command.Parameters.AddWithValue("$styleMin", styleMin);
+        command.Parameters.AddWithValue("$styleMax", styleMax);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? ReadPrompt(reader) : null;
@@ -1012,7 +1028,10 @@ public sealed class SceneImageRepository : ISceneImageRepository
             ModelIdentifier = reader.IsDBNull(13) ? null : reader.GetString(13),
             ErrorMessage = reader.IsDBNull(14) ? null : reader.GetString(14),
             CreatedUtc = ParseUtc(reader.GetString(15), sessionId, interactionId, "CreatedUtc"),
-            UpdatedUtc = ParseUtc(reader.GetString(16), sessionId, interactionId, "UpdatedUtc")
+            UpdatedUtc = ParseUtc(reader.GetString(16), sessionId, interactionId, "UpdatedUtc"),
+            PromptStyle = reader.IsDBNull(17)
+                ? SceneImagePromptStyle.Unknown
+                : (SceneImagePromptStyle)reader.GetInt32(17)
         };
     }
 
@@ -1119,7 +1138,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 ModelIdentifier  TEXT NULL,
                 ErrorMessage     TEXT NULL,
                 CreatedUtc       TEXT NOT NULL,
-                UpdatedUtc       TEXT NOT NULL
+                UpdatedUtc       TEXT NOT NULL,
+                PromptStyle      INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS IX_SceneImagePrompts_SessionInteraction
                 ON SceneImagePrompts (SessionId, InteractionId);
@@ -1211,7 +1231,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
             ("BeatSnapshotJson", "ALTER TABLE SceneImagePrompts ADD COLUMN BeatSnapshotJson TEXT NOT NULL DEFAULT '{}'"),
             ("ProductionGroupId", "ALTER TABLE SceneImagePrompts ADD COLUMN ProductionGroupId TEXT NULL"),
             ("CompiledMediaBriefId", "ALTER TABLE SceneImagePrompts ADD COLUMN CompiledMediaBriefId TEXT NULL"),
-            ("Pov", "ALTER TABLE SceneImagePrompts ADD COLUMN Pov TEXT NOT NULL DEFAULT ''")
+            ("Pov", "ALTER TABLE SceneImagePrompts ADD COLUMN Pov TEXT NOT NULL DEFAULT ''"),
+            ("PromptStyle", "ALTER TABLE SceneImagePrompts ADD COLUMN PromptStyle INTEGER NOT NULL DEFAULT 0")
         })
         {
             await using var check = connection.CreateCommand();

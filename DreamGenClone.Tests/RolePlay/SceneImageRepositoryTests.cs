@@ -775,6 +775,115 @@ public sealed class SceneImageRepositoryTests
         }
     }
 
+    [Fact]
+    public async Task PromptStyle_IsPersistedAndFiltersLatestCompletedProductionPrompt()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            // Legacy record predates the style column: PromptStyle stays Unknown.
+            var legacy = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                ProductionGroupId = "group-1",
+                CompiledMediaBriefId = "brief-1",
+                Pov = "Omniscient",
+                Status = SceneImagePromptStatus.Complete,
+                OutputPrompt = "legacy natural-language prompt",
+                PromptStyle = SceneImagePromptStyle.Unknown
+            };
+            await repo.UpsertPromptAsync(legacy);
+
+            var pony = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                ProductionGroupId = "group-1",
+                CompiledMediaBriefId = "brief-1",
+                Pov = "Omniscient",
+                Status = SceneImagePromptStatus.Complete,
+                OutputPrompt = "score_9, score_8_up, 1girl, rating_explicit, front view",
+                PromptStyle = SceneImagePromptStyle.PonyV6Tags,
+                UpdatedUtc = DateTime.UtcNow.AddSeconds(1)
+            };
+            await repo.UpsertPromptAsync(pony);
+
+            var naturalLanguage = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                ProductionGroupId = "group-1",
+                CompiledMediaBriefId = "brief-1",
+                Pov = "Omniscient",
+                Status = SceneImagePromptStatus.Complete,
+                OutputPrompt = "a woman on a stone bench, natural light",
+                PromptStyle = SceneImagePromptStyle.NaturalLanguage,
+                UpdatedUtc = DateTime.UtcNow.AddSeconds(2)
+            };
+            await repo.UpsertPromptAsync(naturalLanguage);
+
+            // Per-style latest completed prompts stay independent.
+            var ponyLatest = await repo.GetLatestCompletedProductionPromptAsync(
+                "s1", "i1", "group-1", "brief-1", SceneImagePromptStyle.PonyV6Tags);
+            Assert.NotNull(ponyLatest);
+            Assert.Equal(pony.OutputPrompt, ponyLatest!.OutputPrompt);
+            Assert.Equal(SceneImagePromptStyle.PonyV6Tags, ponyLatest.PromptStyle);
+
+            var nlLatest = await repo.GetLatestCompletedProductionPromptAsync(
+                "s1", "i1", "group-1", "brief-1", SceneImagePromptStyle.NaturalLanguage);
+            Assert.NotNull(nlLatest);
+            Assert.Equal(naturalLanguage.OutputPrompt, nlLatest!.OutputPrompt);
+            Assert.Equal(SceneImagePromptStyle.NaturalLanguage, nlLatest.PromptStyle);
+
+            // No style = the latest completed prompt of any style.
+            var anyLatest = await repo.GetLatestCompletedProductionPromptAsync(
+                "s1", "i1", "group-1", "brief-1");
+            Assert.NotNull(anyLatest);
+            Assert.Equal(naturalLanguage.OutputPrompt, anyLatest!.OutputPrompt);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task PromptStyle_LegacyUnknownRecord_ServedByNaturalLanguageFilter()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var legacy = new SceneImagePromptRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                ProductionGroupId = "group-1",
+                CompiledMediaBriefId = "brief-1",
+                Pov = "Omniscient",
+                Status = SceneImagePromptStatus.Complete,
+                OutputPrompt = "legacy natural-language prompt",
+                PromptStyle = SceneImagePromptStyle.Unknown
+            };
+            await repo.UpsertPromptAsync(legacy);
+
+            var loaded = await repo.GetLatestCompletedProductionPromptAsync(
+                "s1", "i1", "group-1", "brief-1", SceneImagePromptStyle.NaturalLanguage);
+            Assert.NotNull(loaded);
+            Assert.Equal(legacy.OutputPrompt, loaded!.OutputPrompt);
+            Assert.Equal(SceneImagePromptStyle.Unknown, loaded.PromptStyle);
+
+            // Legacy Unknown is NOT served by the Pony filter.
+            var pony = await repo.GetLatestCompletedProductionPromptAsync(
+                "s1", "i1", "group-1", "brief-1", SceneImagePromptStyle.PonyV6Tags);
+            Assert.Null(pony);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
     private static void Cleanup(string dbPath)
     {
         foreach (var suffix in new[] { "", "-wal", "-shm" })

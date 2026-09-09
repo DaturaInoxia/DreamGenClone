@@ -118,6 +118,61 @@ public sealed class SceneImageServiceJobTests
         public Task<bool> DeleteAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult(true);
     }
 
+    /// <summary>
+    /// Minimal <see cref="IModelResolutionService"/> used only by render-enqueue tests, which reach
+    /// <c>ResolveRenderModelForDispatchAsync</c>. Returns a fixed SDXL-family resolved model.
+    /// </summary>
+    private sealed class TestModelResolutionService : IModelResolutionService
+    {
+        public Task<ResolvedModel> ResolveAsync(
+            AppFunction function, string? sessionModelId = null, double? sessionTemperature = null,
+            double? sessionTopP = null, int? sessionMaxTokens = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Text model resolution is not used in these render tests.");
+
+        public Task<ResolvedModel> ResolveImagePromptModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Text model resolution is not used in these render tests.");
+
+        public Task<ResolvedImageModel> ResolveImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(CreateModel(SceneImagePromptStyle.NaturalLanguage));
+
+        public Task<ResolvedImageModel> ResolveImageModelByIdAsync(string modelId, CancellationToken cancellationToken = default)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(modelId));
+            return Task.FromResult(CreateModel(SceneImagePromptStyle.NaturalLanguage));
+        }
+
+        public Task<ResolvedIdentityImageModel> ResolveIdentityImageModelAsync(string? sessionOverrideId = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Identity resolution is not used in these render tests.");
+
+        public Task<ResolvedIdentityImageModel> ResolveIdentityImageModelByIdAsync(string modelId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Identity resolution is not used in these render tests.");
+
+        public Task<ResolvedImageModel> ResolveImagePromptGenerationModelAsync(
+            SceneImagePromptStyle promptStyle, string? preferredModelId, CancellationToken cancellationToken = default)
+            => Task.FromResult(CreateModel(promptStyle));
+
+        public Task<IReadOnlyList<SceneImageModelChoice>> ListSceneImageModelsAsync(bool identityCapableOnly, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<SceneImageModelChoice>>([]);
+
+        private static ResolvedImageModel CreateModel(SceneImagePromptStyle style)
+        {
+            var isPony = style == SceneImagePromptStyle.PonyV6Tags;
+            return new ResolvedImageModel(
+                "https://img.test",
+                "/generate",
+                60,
+                null,
+                isPony ? "ponyRealism_V23ULTRA.safetensors" : "bigLust_v16.safetensors",
+                ImageContentPolicy.AdultAllowed,
+                "Test Provider",
+                false,
+                isPony ? SceneImageModelFamily.Pony : SceneImageModelFamily.Sdxl,
+                isPony ? SceneImagePromptDialect.PonyV6Tags : SceneImagePromptDialect.SdxlNaturalLanguage,
+                ImageProtocol.ComfyUi,
+                "http://comfy.test:8188");
+        }
+    }
+
     private static (SceneImageService service, CapturingBackgroundJobQueue queue, SceneImageRepository repo, SceneImageStorageService storage, string dbPath, string root)
         Build(RolePlaySession? session, string beatsJson = CurrentBeatsJson)
     {
@@ -164,7 +219,7 @@ public sealed class SceneImageServiceJobTests
             momentEnrichmentRepository,
             new CompiledMediaBriefRepository(persistenceOptions),
             null,
-            null,
+            new TestModelResolutionService(),
             NullLogger<SceneImageService>.Instance,
             imageEditorModelResolver: new TestImageEditorModelResolver(),
             imageEditorEndpointReadiness: new WarmImageEditorEndpointReadiness(),

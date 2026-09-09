@@ -253,6 +253,26 @@ steps / CFG 5.0 / 1024×1024 (per `ComfyUIImageClient.BuildSdxlWorkflow` and the
 - Use realism tokens carefully (`detailed skin`, `natural`, `realistic texture` enhance anatomical
   fidelity — pair with a hard SFW clamp when the provider is SFW-filtered).
 
+### 3.4 Pony Realism v2.3 ULTRA (photorealistic Pony V6 merge — researched 2026-09-08)
+
+Fetched from the model's Civitai card (model 372465, version 1920896; `ponyRealism_V23ULTRA.safetensors`).
+This is a Pony-V6-based photorealistic merge, so it keeps the Pony tag vocabulary (§4) — never feed it
+natural-language SDXL prose.
+
+| Setting | Author value | Note |
+|---|---|---|
+| CLIP skip | 2 | same as Pony V6 |
+| Sampler | **Euler A** or **DPM2 A** (best detail) | avoid DPM++ 2M Karras (author) |
+| Steps | ≥ 30 | |
+| CFG | 6–7 | |
+| Resolution | > 1024px | |
+| Vocabulary | Danbooru tags; `female`/`male` preferred over `woman`/`man`; per-tag weight ≤ 1.5 | |
+
+Prompt-shape consequences (fuller notes in `pony-v6-prompting.instructions.md`): the full 6-tag quality
+string stays in the positive; explicit count tags are mandatory (reported "two female → one figure");
+repeat mature-age tokens because the model's faces skew young; the short guard negative is retained
+(score-drops in the negative are weak — V6 author's `score_9` explainer).
+
 ---
 
 ## 4. Family quick reference (do not mix vocabularies)
@@ -260,7 +280,7 @@ steps / CFG 5.0 / 1024×1024 (per `ComfyUIImageClient.BuildSdxlWorkflow` and the
 | Family | Prompt language | Count/quality tokens | Camera | Sampler / steps / CFG | Negative | Doc |
 |---|---|---|---|---|---|---|
 | **SDXL / Juggernaut / Big Lust** | natural-language photography brief | none — state gender+number in prose | name it (`wide shot`, `from behind`, distance) | DPM++ 2M SDE / 30–40 / 3–6 | **empty** (no negative for adult use; §3.2) | this doc + `sdxl-juggernaut-prompting.instructions.md` |
-| **Pony V6 XL** | dense comma tags | `score_9…score_4_up` (full string, first) + `rating_*` + `1boy/1girl/2people` | explicit (`front view, eye level`) | `euler_ancestral` / 25 / 7 · CLIP skip 2 | short (~6 terms) | `pony-v6-prompting.instructions.md` |
+| **Pony V6 XL / Pony Realism** | dense comma tags | `score_9…score_4_up` (full string, first) + `rating_*` + `1girl/1boy/2people` | explicit (`front view, eye level`) | `euler_ancestral` / 25 / 7 · CLIP skip 2 (V6); **Euler A / DPM2 A / ≥30 steps / CFG 6–7 / >1024px** (Pony Realism, §3.4) | short (~6 terms) | `pony-v6-prompting.instructions.md` |
 | **Qwen Image Edit** | edit instruction over a source image | n/a | n/a (edit) | see its doc | see its doc | `qwen-image-edit-2511.instructions.md` |
 | **FLUX.2** | natural language or structured JSON | explicit ordered subjects | explicit structured camera | variant/profile-specific | **unsupported; field forbidden** | `flux2-prompting.instructions.md` |
 | **Qwen Image 2512** | descriptive natural language | explicit subject clauses | explicit framing/lighting | 50 steps / true CFG 4 in official recipe | persisted profile value | `qwen-image-generation.instructions.md` |
@@ -318,6 +338,8 @@ steps / CFG 5.0 / 1024×1024 (per `ComfyUIImageClient.BuildSdxlWorkflow` and the
 | **RunDiffusion — Juggernaut X Prompt Guide** (Adam Stewart / Team Juggernaut) — `https://www.rundiffusion.com/prompting-guide-for-juggernaut-x/` | The 17-component anatomy with worked example prompts (coffee-shop reader, urban fashion portrait); NSFW/SFW settings (DPM++ 2M Karras, 30–40 steps, CFG 6–7, ≤75 tokens); token-bleed guidance; clothing + negative-token handling for the NSFW-trained model. |
 | **Stable Diffusion Art — "How to generate realistic people"** — `https://stable-diffusion-art.com/realistic-people/` | Photorealistic-people prompt construction: clothing terms in the positive suppress explicit output on NSFW-prone models; camera/lighting/facial-detail keywords; minimal negative prompt approach. |
 | **Stable Diffusion Art — "Regional Prompter: Control image composition"** — `https://stable-diffusion-art.com/regional-prompter/` | Multi-subject attribute bleed ("self-attention incorrectly associates the hair color and the person"); the common count+gender prompt requirement; per-region BREAK prompting (~75% reliable, batch it); ControlNet OpenPose as the structural pose/composition fix for multiple people. |
+| **Pony Diffusion V6 XL official card + author `score_9` explainer** (PurpleSmartAI) — `https://civitai.com/models/257749/pony-diffusion-v6-xl` and `https://civitai.com/articles/4248` | Full 6-tag quality string first is a training quirk (short `score_9` "much weaker"); rating_safe/questionable/explicit; both NL and tags understood; CLIP skip 2; Euler a / 25 / 1024; no/minimal negative; score tags are weak in the negative. (fetched 2026-09-08) |
+| **Civitai — Pony Realism v2.3 ULTRA model card (author: ZyloO)** — `https://civitai.com/models/372465/ponyrealism` (version 1920896) | Pony-V6-based photorealistic merge; CLIP skip 2; Danbooru tags; `female`/`male`; Euler A / DPM2 A (avoid DPM++ 2M Karras); steps ≥ 30; CFG 6–7; resolution > 1024px; weights ≤ 1.5; ULTRA improves lighting/skin realism; count-tag and mature-age-token emphasis from user reports. (fetched 2026-09-08) |
 
 Re-verify before relying on a source older than ~6 months; model cards and guides are updated by
 their authors.

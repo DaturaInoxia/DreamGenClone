@@ -173,6 +173,7 @@ public sealed class SceneImageService : ISceneImageService
             SettingsJson = JsonSerializer.Serialize(request.Settings),
             InputExcerpt = request.ExcerptOverride ?? string.Empty,
             RefineInstruction = string.IsNullOrWhiteSpace(request.RefineInstruction) ? null : request.RefineInstruction.Trim(),
+            PromptStyle = SceneImagePromptStyleResolver.Effective(request.PromptStyle),
             Status = SceneImagePromptStatus.Pending
         };
 
@@ -182,7 +183,8 @@ public sealed class SceneImageService : ISceneImageService
         {
             SessionId = session.Id,
             InteractionId = interaction.Id,
-                PromptRecordId = record.Id
+                PromptRecordId = record.Id,
+                RequestedImageModelId = request.RequestedImageModelId
         });
 
         _backgroundJobQueue.Enqueue(
@@ -418,6 +420,7 @@ public sealed class SceneImageService : ISceneImageService
             SettingsJson = JsonSerializer.Serialize(request.Settings),
             InputExcerpt = request.ExcerptOverride ?? string.Empty,
             RefineInstruction = string.IsNullOrWhiteSpace(request.RefineInstruction) ? null : request.RefineInstruction.Trim(),
+            PromptStyle = SceneImagePromptStyleResolver.Effective(request.PromptStyle),
             Status = SceneImagePromptStatus.Pending
         };
         await _repository.UpsertPromptAsync(record, cancellationToken);
@@ -427,7 +430,8 @@ public sealed class SceneImageService : ISceneImageService
             {
                 SessionId = sessionId,
                 InteractionId = interactionId,
-                PromptRecordId = record.Id
+                PromptRecordId = record.Id,
+                RequestedImageModelId = request.RequestedImageModelId
             }),
             dedupeKey: $"{BackgroundJobTypes.SceneImagePromptGeneration}:{record.Id}");
         _logger.LogInformation(
@@ -558,6 +562,27 @@ public sealed class SceneImageService : ISceneImageService
             // The settings snapshot is informational; a malformed snapshot does not block rendering.
         }
 
+        // Pose-controlled composition: fail fast before queueing when the pose cannot be honoured
+        // (a pinned local ComfyUI model is required). Full capability qualification is re-validated at
+        // render time by the pose resolver — this is the enqueue gate, never a fallback.
+        var poseReference = ReadPoseReferenceFromSettings(settingsJson);
+        if (poseReference is not null)
+        {
+            if (string.IsNullOrWhiteSpace(request.RequestedModelId))
+            {
+                throw new InvalidOperationException(
+                    "Pose-controlled rendering requires a user-pinned image model. Pin an SDXL-family local ComfyUI model (BigLust/Juggernaut) in the Studio, then retry.");
+            }
+            if (string.IsNullOrWhiteSpace(poseReference.StoragePath))
+            {
+                throw new InvalidOperationException("Pose-controlled rendering requires a stored pose image.");
+            }
+            if (poseReference.Strength is <= 0 or > 1)
+            {
+                throw new InvalidOperationException($"Pose ControlNet strength must be in (0, 1], but was {poseReference.Strength}.");
+            }
+        }
+
         await _repository.InsertImageAsync(record, cancellationToken);
 
         var resolvedImageModel = await ResolveRenderModelForDispatchAsync(record, cancellationToken);
@@ -568,6 +593,19 @@ public sealed class SceneImageService : ISceneImageService
             ImageRecordId = record.Id
         };
         return await DispatchRenderAsync(record, payload, resolvedImageModel.ImageProtocol, cancellationToken);
+    }
+
+    private static SceneImagePoseReference? ReadPoseReferenceFromSettings(string settingsJson)
+    {
+        try
+        {
+            var settings = JsonSerializer.Deserialize<SceneImageStudioSettings>(settingsJson, JsonOptions);
+            return settings?.PoseReference is { StoragePath.Length: > 0 } ? settings.PoseReference : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static string? SerializeReferenceApplications(
@@ -787,9 +825,10 @@ public sealed class SceneImageService : ISceneImageService
         string interactionId,
         string productionGroupId,
         string compiledMediaBriefId,
+        SceneImagePromptStyle? promptStyle = null,
         CancellationToken cancellationToken = default)
         => _repository.GetLatestCompletedProductionPromptAsync(
-            sessionId, interactionId, productionGroupId, compiledMediaBriefId, cancellationToken);
+            sessionId, interactionId, productionGroupId, compiledMediaBriefId, promptStyle, cancellationToken);
 
     public async Task UpdatePromptOutputAsync(string sessionId, string promptId, string outputPrompt, CancellationToken cancellationToken = default)
     {

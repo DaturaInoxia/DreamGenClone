@@ -9,8 +9,10 @@ applyTo: DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs,D
 
 ## The model's real nature
 
-- **Pony V6 XL is an anime/cartoon/furry model.** Its official card states the training data is a ~1:1 mix of anime / cartoon / furry / pony images. It is *designed* to output anime/cartoon style. Do NOT try to force photorealism out of it — that is a model-selection problem, not a prompt problem.
-- **If the user wants realistic output, switch models**, not prompts: use `sd_xl_base_1.0.safetensors` or the **Juggernaut XL** path (photorealistic + NSFW-capable) with natural-language photographic prompts. See `sdxl-juggernaut-prompting.instructions.md` for the fully-separate SDXL/Juggernaut implementation (B-099). The Pony code path is untouched.
+- **Pony V6 XL is an anime/cartoon/furry model.** Its official card states the training data is a ~1:1 mix of anime / cartoon / furry / pony images. It is *designed* to output anime/cartoon style. Do NOT try to force photorealism out of the base V6 checkpoint — that is a model-selection problem, not a prompt problem.
+- **The Pony family also includes photorealistic human merges built on V6** (e.g. **Pony Realism v2.3 ULTRA**), which keep the same danbooru-tag vocabulary but render photoreal humans. Selecting one of those checkpoints is how realism is achieved *within* the Pony tag path — do not paste natural-language SDXL prose at them.
+- **Routing is model-family driven.** Prompt generation now targets the prompt style of the selected/enabled image model family (Pony → tag compiler; SDXL/FLUX/API → natural-language compiler) and records the style on the prompt record. Registering a photoreal Pony merge as `Pony`/`PonyV6Tags` sends it through this tag compiler. See `SceneImagePromptStyle`/`SceneImagePromptStyleResolver` and `ModelResolutionService.ResolveImagePromptGenerationModelAsync`.
+- If the user wants a non-Pony natural-language realistic render, that is the separate **Juggernaut XL / Big Lust / SDXL** path (`sdxl-juggernaut-prompting.instructions.md`).
 
 ## Non-negotiable Pony rules (all validated)
 
@@ -19,7 +21,8 @@ applyTo: DreamGenClone.Web/Application/RolePlay/PonySceneImagePromptBuilder.cs,D
    score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up
    ```
    The short `score_9` form is documented as "much weaker" (a training quirk — the model learned the whole long string correlates with good images). Using the short form yields low-quality, deformed, collapsed output.
-   - **The app constant `PonySceneImagePromptBuilder.PonyQualityTags` is currently WRONG** — it is `"score_9, score_8_up, score_7_up, rating_explicit"` (short form + hardcoded explicit). It must become the full 6-tag string with the `rating_*` tag chosen separately by content policy.
+   - **The app constant `PonySceneImagePromptBuilder.PonyQualityTags` is the full 6-tag string** (`score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up`) with the `rating_*` tag chosen separately by content policy. Do not shorten it or hardcode `rating_explicit`.
+   - Photoreal Pony merges (Pony Realism) are V6-derived, so they inherit the same full-string training quirk; the full string remains correct for them. (Pony Realism's author page shows a short `score_9, score_8_up, score_7_up, BREAK` example — treat that as a community shortcut, not a replacement for the full V6 string, which is the pod-validated app default.)
 2. **Always include a `rating_*` tag** — `rating_safe`, `rating_questionable`, or `rating_explicit` — chosen from the resolved content policy, never hardcoded.
 3. **Keep prompts short and tag-like.** Pony is trained on tags + short phrases. Long narrative caption prose (e.g. "Late morning on a small lake beach. Ken sits on a striped towel...") degrades output severely. The Beat Prose must be **converted to dense comma-separated tags**, never pasted verbatim as a sentence.
 4. **Use count tags for people** — `1boy`, `1girl`, `2people`, `1girl and 1boy`, etc. Without an explicit count Pony collapses "a man and a woman" into a single figure (validated: "only 1 person" failures).
@@ -62,7 +65,27 @@ The `rating_*` tag is chosen by `NarrativePhase` in `ResolveRatingTag(phase, pol
 This replaces the old policy-only rating (`settings.AllowExplicitImage`). The user prompt line `Pony rating tag to use: <tag>` carries the resolved rating to the model.
 
 ### Negative prompt
-`BuildDeterministicBeatNegativePrompt` (kept, short guard set: `lowres, bad anatomy, bad hands, extra digits, watermark, text, blurry` + absent characters). The render handler uses this as the per-scene negative.
+`BuildDeterministicBeatNegativePrompt` (kept, short guard set: `lowres, bad anatomy, bad hands, extra digits, watermark, text, blurry` + absent characters). The render handler uses this as the per-scene negative. Do NOT add `score_4/score_5/score_6` drops: the Pony V6 author's own `score_9` explainer states score tags in the negative are weak ("they will not push you away from really bad images") — the minimal guard set is the researched choice for Pony-family checkpoints including Pony Realism.
+
+## Pony Realism v2.3 ULTRA (photorealistic Pony merge) — researched 2026-09-08
+
+Civitai model 372465, version 1920896 (`ponyRealism_V23ULTRA.safetensors`); base **Pony**, CreativeML Open RAIL++-M, NSFW-capable, photoreal-leaning. Author-recommended settings (from the model card, fetched 2026-09-08):
+
+| Setting | Value (author) | Note |
+|---|---|---|
+| Base | Pony | Same danbooru-tag vocabulary as V6; **not** natural-language |
+| CLIP skip | 2 | Same as V6 |
+| Sampler | **Euler A** or **DPM2 A** ("best for detail") | Avoid DPM++ 2M Karras (author: not recommended) |
+| Steps | ≥ 30 | |
+| CFG | 6–7 | |
+| Resolution | > 1024px | |
+| Vocabulary | Danbooru tags; use `female`/`male` over `woman`/`man` | Individual tag weights ≤ 1.5 |
+
+Generation notes validated from the model's discussion + card:
+- Strong on explicit poses/position fit; **explicit count tags are mandatory** ("two female" → single figure reported otherwise) — repeat the count tag and keep `1girl`/`1boy` style tokens.
+- Faces skew young; repeat explicit mature-age tokens when the moment calls for an older character.
+- v2.3 ULTRA specifically improves natural/balanced lighting and skin detail/realism.
+- The app keeps the **full V6 quality string** in the positive and the **short guard negative** (no score drops) for Pony-family models including Pony Realism.
 
 ## Verification protocol
 - After any change to the prompt builder, run the affected tests (`DreamGenClone.Tests/RolePlay/SceneImagePromptPreprocessorTests.cs`) and the full test suite — repo hard rule.

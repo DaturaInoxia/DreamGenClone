@@ -77,10 +77,7 @@ public sealed class SceneBeatPipelineEndToEndTests
             var discoveryService = new SceneMomentDiscoveryPipelineService(
                 plans, momentSets, resolver, discoveryBuilder, new SceneMomentDiscoveryContract(), queue, TimeProvider.System);
             var momentSet = await discoveryService.EnqueueAsync(new(plan.Id));
-            var discoveryResponse = SceneBeatMomentDiscoveryJobHandlerTests.ValidResponse.Replace(
-                "[\"StillCandidate\",\"VideoEnd\"]",
-                "[\"StillCandidate\",\"VideoEnd\",\"SoundEventAnchor\"]",
-                StringComparison.Ordinal);
+            var discoveryResponse = SceneBeatMomentDiscoveryJobHandlerTests.ValidResponse;
             await new SceneBeatMomentDiscoveryJobHandler(
                     momentSets, providerRepository, new CompletionClient(discoveryResponse),
                     discoveryBuilder, new SceneMomentDiscoveryParser(), TimeProvider.System)
@@ -102,7 +99,11 @@ public sealed class SceneBeatPipelineEndToEndTests
             var enrichmentResponse = SceneMomentEnrichmentJobHandlerTests.ValidResponse.Replace(
                 "\"profileKey\": \"p1\", \"involvement\": \"observer\"",
                 "\"profileKey\": \"p1\", \"involvement\": \"active\"",
-                StringComparison.Ordinal);
+                StringComparison.Ordinal)
+                .Replace(
+                    "\"instantaneousSoundCueKeys\": [\"s1\"]",
+                    "\"instantaneousSoundCueKeys\": []",
+                    StringComparison.Ordinal);
             await new SceneMomentEnrichmentJobHandler(
                     enrichments, providerRepository, new CompletionClient(enrichmentResponse),
                     enrichmentBuilder, new SceneMomentEnrichmentParser(), TimeProvider.System)

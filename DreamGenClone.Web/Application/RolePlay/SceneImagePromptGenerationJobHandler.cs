@@ -99,7 +99,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         if (!string.IsNullOrWhiteSpace(record.ProductionGroupId)
             || !string.IsNullOrWhiteSpace(record.CompiledMediaBriefId))
         {
-            await HandleCanonicalAsync(record, cancellationToken);
+            await HandleCanonicalAsync(record, payload.RequestedImageModelId, cancellationToken);
             return;
         }
 
@@ -159,7 +159,10 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             // photography brief. Explicitness (Pony rating_* tag / SDXL explicitness prose) is
             // driven by the narrative phase (theme intensity) per the approved mapping. Missing
             // compiler metadata fails fast (no fallback).
-            var resolvedImageModel = await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken);
+            var resolvedImageModel = await ResolveTargetImageModelAsync(
+                record.PromptStyle,
+                payload.RequestedImageModelId,
+                cancellationToken);
             var compiler = _compilerRegistry.Resolve(
                 resolvedImageModel.SceneImageModelFamily,
                 resolvedImageModel.PromptDialect);
@@ -190,6 +193,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 pov = record.Pov,
                 turnInteractionCount = fullTurn.Interactions.Count,
                 modelIdentifier = resolvedTextModel.ModelIdentifier,
+                imageModelIdentifier = resolvedImageModel.ModelIdentifier,
                 systemPrompt,
                 userPrompt
             }, cancellationToken);
@@ -234,6 +238,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 
     private async Task HandleCanonicalAsync(
         SceneImagePromptRecord record,
+        string? requestedImageModelId,
         CancellationToken cancellationToken)
     {
         try
@@ -268,7 +273,10 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 
             var settings = JsonSerializer.Deserialize<SceneImageStudioSettings>(record.SettingsJson, JsonOptions)
                 ?? throw new InvalidOperationException("Canonical scene image prompt SettingsJson cannot be null.");
-            var resolvedImageModel = await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken);
+            var resolvedImageModel = await ResolveTargetImageModelAsync(
+                record.PromptStyle,
+                requestedImageModelId,
+                cancellationToken);
             var compiler = _compilerRegistry.Resolve(
                 resolvedImageModel.SceneImageModelFamily,
                 resolvedImageModel.PromptDialect);
@@ -296,6 +304,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 settingsJson = record.SettingsJson,
                 pov = group.Pov,
                 modelIdentifier = resolvedTextModel.ModelIdentifier,
+                imageModelIdentifier = resolvedImageModel.ModelIdentifier,
                 systemPrompt,
                 userPrompt
             }, cancellationToken);
@@ -368,6 +377,29 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         record.UpdatedUtc = DateTime.UtcNow;
         await _repository.UpsertPromptAsync(record, cancellationToken);
         _logger.LogWarning("Scene image prompt generation failed: PromptRecordId={PromptRecordId}, Error={ErrorMessage}", record.Id, errorMessage);
+    }
+
+    /// <summary>
+    /// Resolves the target diffusion model whose compiler and content policy shape this prompt.
+    /// Legacy requests (no pinned model, no recorded style) keep the historical RolePlaySceneImage
+    /// function-default behavior. Requests that name a prompt style and/or pin a model resolve
+    /// through the single per-style decision path so the correct compiler runs for the family the
+    /// prompt will be rendered on. Fails fast when no enabled model can produce the style.
+    /// </summary>
+    private async Task<ResolvedImageModel> ResolveTargetImageModelAsync(
+        SceneImagePromptStyle promptStyle,
+        string? requestedImageModelId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(requestedImageModelId) && promptStyle == SceneImagePromptStyle.Unknown)
+        {
+            return await _modelResolutionService.ResolveImageModelAsync(null, cancellationToken);
+        }
+
+        return await _modelResolutionService.ResolveImagePromptGenerationModelAsync(
+            promptStyle,
+            requestedImageModelId,
+            cancellationToken);
     }
 
     /// <summary>

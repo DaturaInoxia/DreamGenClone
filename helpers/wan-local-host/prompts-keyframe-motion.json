@@ -1,0 +1,35 @@
+{
+  "_comment": "Motion-only I2V cells: start frames are the BigLust implied-adult KEYFRAMES (helpers/wan-local-host/prompts-keyframes.json -> artifacts/tmp/wan-proof/keyframes/). Target scene already present, so the model only adds subtle motion — no scene replacement. 20-step for quality (no LoRA default); use --lora lightx2v --steps 4 for drafts.",
+  "cells": [
+    {
+      "id": "kf-motion-embrace-bed",
+      "kind": "implied-adult-motion",
+      "start_image": "artifacts/tmp/wan-proof/keyframes/kf-embrace-bed.png",
+      "length": 49,
+      "steps": 20,
+      "split": 10,
+      "positive": "The same two people in the input image lie on the bed in the same warm lamp-lit bedroom, holding the exact same poses, bodies, and clothing throughout. Subtle motion only: the man gently strokes her back, she shifts her head closer to his, her hand moves softly on his shoulder, slow breathing, the blanket barely moves. The camera does an extremely slow push-in. Natural, realistic, subtle. Faces, bodies, flat stomachs, and clothing remain identical to the input image.",
+      "negative": "scene change, location change, wardrobe change, clothes change, body change, pregnancy, belly bump, body morphing, face morphing, extra limbs, distorted hands, blurry, censorship, mosaic, watermark, text, worst quality, low quality, deformed"
+    },
+    {
+      "id": "kf-motion-lingerie",
+      "kind": "implied-adult-motion",
+      "start_image": "artifacts/tmp/wan-proof/keyframes/kf-lingerie-seated.png",
+      "length": 49,
+      "steps": 20,
+      "split": 10,
+      "positive": "The same single woman in the input image kneels on the bed in the same warm bedroom wearing the same lace lingerie, body and outfit unchanged throughout. Subtle motion only: she slowly turns her head further toward the camera over her shoulder, shifts her weight, takes a slow breath, hair moves slightly. The camera does an extremely slow push-in. Natural, realistic, subtle. Her face, body, flat stomach, and lingerie remain identical to the input image.",
+      "negative": "second person, another person, scene change, location change, wardrobe change, body change, pregnancy, belly bump, body morphing, face morphing, extra limbs, distorted hands, blurry, censorship, mosaic, watermark, text, worst quality, low quality, deformed"
+    },
+    {
+      "id": "kf-motion-kiss",
+      "kind": "implied-adult-motion",
+      "start_image": "artifacts/tmp/wan-proof/keyframes/kf-couple-kiss.png",
+      "length": 49,
+      "steps": 20,
+      "split": 10,
+      "positive": "The same fully clothed couple in the input image, same faces, bodies, and clothing throughout. Subtle motion only: they close the final gap and share a soft tender kiss, her hand on his chest, his hand gently on her jaw, warm golden backlight, very slow camera drift. Natural, realistic, subtle. Faces, bodies, and full clothing remain identical to the input image.",
+      "negative": "nude, naked, undressed, clothing removal, scene change, location change, wardrobe change, body change, pregnancy, belly bump, body morphing, face morphing, extra limbs, distorted hands, blurry, censorship, mosaic, watermark, text, worst quality, low quality, deformed"
+    }
+  ]
+}

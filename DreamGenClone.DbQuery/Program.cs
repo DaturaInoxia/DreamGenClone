@@ -789,9 +789,9 @@ static async Task<int> ConfigureLocalComfyUiAsync(SqliteConnection connection, s
     const string providerName = "Local ComfyUI (WOOD-GAME-MAIN 5080)";
     const string providerNotes =
         "Direct ComfyUI 0.34.0 on WOOD-GAME-MAIN (RTX 5080 16 GB, 192.168.0.16:8188) hosting FLUX.1-dev fp8 + "
-        + "Juggernaut XL Ragnarok + BigLust v1.6 + Pony V6 XL checkpoints and the IP-Adapter/PuLID/FaceID "
-        + "identity stack. ImageProtocol=ComfyUi (direct /prompt), NOT a RunPod pod and NOT serverless. "
-        + "Additive alternative to the RunPod Serverless image endpoints.";
+        + "Juggernaut XL Ragnarok + BigLust v1.6 + Pony V6 XL + Pony Realism v2.3 ULTRA checkpoints and the "
+        + "IP-Adapter/PuLID/FaceID identity stack. ImageProtocol=ComfyUi (direct /prompt), NOT a RunPod pod "
+        + "and NOT serverless. Additive alternative to the RunPod Serverless image endpoints.";
 
     // (modelIdentifier, displayName, SceneImageModelFamily, SceneImagePromptDialect, enabled, notes)
     var models = new[]
@@ -802,6 +802,10 @@ static async Task<int> ConfigureLocalComfyUiAsync(SqliteConnection connection, s
             "Local BigLust v1.6 checkpoint on WOOD-GAME-MAIN ComfyUI (Sdxl / SdxlNaturalLanguage)."),
         ("ponyDiffusionV6XL_v6.safetensors", "Pony V6 XL (Local ComfyUI)", 1, 1, true,
             "Local Pony V6 XL checkpoint on WOOD-GAME-MAIN ComfyUI (Pony / PonyV6Tags)."),
+        ("ponyRealism_V23ULTRA.safetensors", "Pony Realism v2.3 ULTRA (Local ComfyUI)", 1, 1, true,
+            "Local Pony Realism v2.3 ULTRA (Civitai 372465 / version 1920896) photoreal Pony-architecture "
+            + "checkpoint on WOOD-GAME-MAIN ComfyUI (Pony / PonyV6Tags). Additive image model - NOT the "
+            + "RolePlaySceneImage default."),
         ("flux1-dev-fp8.safetensors", "FLUX.1-dev fp8 (Local ComfyUI)", 4, 4, true,
             "Local FLUX.1-dev fp8 checkpoint on WOOD-GAME-MAIN ComfyUI (Flux / FluxNaturalLanguage). "
             + "Additive image model — NOT the RolePlaySceneImage default."),

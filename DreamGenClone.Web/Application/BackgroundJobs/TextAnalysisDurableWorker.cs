@@ -69,34 +69,60 @@ public sealed class TextAnalysisDurableWorker : BackgroundService
         var nextLeaseRecoveryUtc = DateTime.MinValue;
         while (!stoppingToken.IsCancellationRequested)
         {
-            var claimedUtc = _timeProvider.GetUtcNow().UtcDateTime;
-            if (claimedUtc >= nextLeaseRecoveryUtc)
+            try
             {
-                var recoveredCount = await _repository.RecoverExpiredLeasesAsync(claimedUtc, stoppingToken);
-                if (recoveredCount > 0)
-                    _logger.LogWarning("Recovered {RecoveredCount} expired durable job lease(s)", recoveredCount);
-                nextLeaseRecoveryUtc = claimedUtc.AddSeconds(Math.Max(1, analyzer.LeaseSeconds / 2d));
-            }
+                var claimedUtc = _timeProvider.GetUtcNow().UtcDateTime;
+                if (claimedUtc >= nextLeaseRecoveryUtc)
+                {
+                    var recoveredCount = await _repository.RecoverExpiredLeasesAsync(claimedUtc, stoppingToken);
+                    if (recoveredCount > 0)
+                        _logger.LogWarning("Recovered {RecoveredCount} expired durable job lease(s)", recoveredCount);
+                    nextLeaseRecoveryUtc = claimedUtc.AddSeconds(Math.Max(1, analyzer.LeaseSeconds / 2d));
+                }
 
-            var job = await _repository.TryClaimNextAsync(
-                lane,
-                leaseOwner,
-                claimedUtc,
-                claimedUtc.AddSeconds(analyzer.LeaseSeconds),
-                stoppingToken);
-            if (job is null)
-            {
-                await Task.Delay(
-                    TimeSpan.FromMilliseconds(analyzer.PollIntervalMilliseconds),
-                    _timeProvider,
+                var job = await _repository.TryClaimNextAsync(
+                    lane,
+                    leaseOwner,
+                    claimedUtc,
+                    claimedUtc.AddSeconds(analyzer.LeaseSeconds),
                     stoppingToken);
-                continue;
-            }
+                if (job is null)
+                {
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(analyzer.PollIntervalMilliseconds),
+                        _timeProvider,
+                        stoppingToken);
+                    continue;
+                }
 
-            await using var executionScope = _scopeFactory.CreateAsyncScope();
-            await executionScope.ServiceProvider
-                .GetRequiredService<TextAnalysisDurableJobExecutor>()
-                .ExecuteAsync(job, analyzer, stoppingToken);
+                await using var executionScope = _scopeFactory.CreateAsyncScope();
+                await executionScope.ServiceProvider
+                    .GetRequiredService<TextAnalysisDurableJobExecutor>()
+                    .ExecuteAsync(job, analyzer, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Durable worker loop faulted and will resume: Lane={Lane}, WorkerIndex={WorkerIndex}",
+                    lane,
+                    workerIndex);
+                try
+                {
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(Math.Max(1000, analyzer.PollIntervalMilliseconds)),
+                        _timeProvider,
+                        stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    return;
+                }
+            }
         }
     }
 }

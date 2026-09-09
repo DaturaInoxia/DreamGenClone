@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Application.ModelManager;
 
@@ -54,6 +55,25 @@ public interface IModelResolutionService
     Task<ResolvedIdentityImageModel> ResolveIdentityImageModelByIdAsync(
         string modelId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolve the single model whose compiler + content policy should draft a prompt of the given
+    /// style. Prefers <paramref name="preferredModelId"/> when that model's family produces the
+    /// style; otherwise returns the first enabled image model that produces the style (stable
+    /// display-name order). Fails fast when no enabled model produces the style.
+    /// <para>
+    /// Default implementation throws so test doubles that do not exercise per-style generation keep
+    /// compiling; the production <c>ModelResolutionService</c> overrides this with the real,
+    /// deterministic resolution. Any test double that actually triggers prompt generation hits the
+    /// loud failure rather than a silent fallback.
+    /// </para>
+    /// </summary>
+    Task<ResolvedImageModel> ResolveImagePromptGenerationModelAsync(
+        SceneImagePromptStyle promptStyle,
+        string? preferredModelId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            $"This model-resolution implementation does not support {nameof(ResolveImagePromptGenerationModelAsync)}.");
 
     /// <summary>
     /// List enabled image models for the Studio model selector. When <paramref name="identityCapableOnly"/>

@@ -39,13 +39,37 @@ A single provider row (one ComfyUI endpoint hosts every checkpoint) named
 | `juggernautXL_ragnarok.safetensors` | Juggernaut XL Ragnarok (Local ComfyUI) | Sdxl / SdxlNaturalLanguage | ✅ |
 | `bigLust_v16.safetensors` | BigLust v1.6 (Local ComfyUI) | Sdxl / SdxlNaturalLanguage | ✅ |
 | `ponyDiffusionV6XL_v6.safetensors` | Pony V6 XL (Local ComfyUI) | Pony / PonyV6Tags | ✅ |
+| `ponyRealism_V23ULTRA.safetensors` | Pony Realism v2.3 ULTRA (Local ComfyUI) | Pony / PonyV6Tags | ✅ |
 | `flux1-dev-fp8.safetensors` | FLUX.1-dev fp8 (Local ComfyUI) | Flux / FluxNaturalLanguage | ✅ |
+
+> **Pony Realism v2.3 ULTRA added 2026-09-08** (Civitai model `372465`, version `1920896`, file
+> `ponyRealism_V23ULTRA.safetensors`, ~6.6 GB). A **photorealistic Pony V6 XL** merge — keeps Pony's
+> tag dialect + uncensored rating system but renders photoreal people (the "photoreal Pony" the user
+> asked to find). Registered through the idempotent `local-comfyui-configure` command (Pony /
+> PonyV6Tags, enabled, additive — NOT the default). Download: `civitai.com/api/download/models/1920896`
+> with the Civitai token. Smoke render PASS on the 5080 host 2026-09-08. **Identity-capable
+> 2026-09-08:** `IdentityMechanism=IpAdapter`, `IdentityAdapterRef='PLUS FACE (portraits)'`,
+> `IdentityStrength=0.8`; PLUS FACE proof on the host (Dean front ref) rendered likeness held (minor
+> eye-color drift at 0.8). Proof workflow: `artifacts/tmp/dbquery/workflows/ponyrealism-ipadapter-proof.json`.
 
 > **FLUX enabled 2026-09-08:** the B-112 §7 Flux-family code slice landed (`SceneImageModelFamily.Flux`
 > + `FluxNaturalLanguage`, ComfyUI split-UNET `BuildFluxWorkflow`, `FluxSceneImagePromptCompiler`,
 > validation arms + dropdowns). The FLUX row is now **enabled** and routable — additive, and it is
 > NOT the `RolePlaySceneImage` default. Do not repoint the default unless you intend FLUX to replace
 > the active model. See `specs/Planning/B-112-flux-local-5080-host/plan.md` §7.
+
+> **ControlNet + DWPose present 2026-09-08 (proof-verified on this host):** the full pose-conditioning
+> stack works locally. Nodes: `comfyui_controlnet_aux` (incl. `DWPreprocessor`), Impact Pack,
+> IP-Adapter/PuLID — all present. ControlNet weight:
+> `D:\ComfyUI\models\controlnet\thibaud-openpose-xl2\OpenPoseXL2.safetensors` (thibaud
+> `controlnet-openpose-sdxl-1.0`, 5,004,167,829 B — the exact file the RunPod pose workflows use;
+> on Windows ComfyUI lists it as `thibaud-openpose-xl2\OpenPoseXL2.safetensors`, backslash path).
+> DWPose TorchScript ckpts seeded in
+> `custom_nodes\comfyui_controlnet_aux\ckpts\dwpose\` (`yolox_l.torchscript.pt`,
+> `dw-ll_ucoco_384_bs5.torchscript.pt`). Proof 2026-09-09 (Dean v7 front ref, BigLust 1024²):
+> DWPose extract PASS + OpenPoseXL2 ControlNet render PASS. Proof workflows (git-ignored):
+> `artifacts/tmp/controlnet-local-proof/*.json`. **No Model Manager rows** — ControlNet/DWPose are
+> workflow-side conditioning, not served checkpoints.
 
 This is **additive**: it never repoints function defaults and never disables an existing RunPod
 provider/model, so the local endpoint can replace or run alongside the RunPod Serverless endpoints

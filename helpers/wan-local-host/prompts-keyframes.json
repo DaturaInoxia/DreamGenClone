@@ -1,0 +1,18 @@
+{
+  "_comment": "BigLust (SDXL, NSFW-capable, local ComfyUI) implied-adult KEYFRAME cells. These become the start frames for the uncensored-14B video proof cells — rendered in the TARGET scene so I2V only adds motion (never scene-replaces). Portrait 832x1216. Implied/softcore register (see README safety boundary).",
+  "recipe": "sdxl-t2i-smoke.json natural-language recipe; BigLust v1.6",
+  "cells": [
+    {
+      "id": "kf-embrace-bed",
+      "sdxl": "a man and a woman lying on a bed in a dim warm bedroom, embracing in a tender intimate moment, tasteful implied scene, clothing partly loosened but decent, soft golden lamp light, close intimate framing, natural skin texture, 35mm photograph, sensual but non-explicit mood"
+    },
+    {
+      "id": "kf-lingerie-seated",
+      "sdxl": "a single woman seated on the edge of a bed in a softly lit bedroom, wearing tasteful lace lingerie, one knee raised, looking over her shoulder toward the camera with a confident expression, suggestive but non-explicit pose, natural skin texture, warm lamp light, 35mm photograph, soft focus background"
+    },
+    {
+      "id": "kf-couple-kiss",
+      "sdxl": "a man and a woman both fully clothed, standing close in warm golden light about to kiss, his hand gently on her cheek, her hand on his chest, everyone wearing full clothing the whole time, intimate romantic but non-explicit mood, shallow depth of field, natural skin texture, 35mm photograph"
+    }
+  ]
+}

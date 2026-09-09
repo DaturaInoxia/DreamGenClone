@@ -26,15 +26,16 @@ public sealed class SceneBeatProductionPlanJobHandlerTests
             var plan = await fixture.Repository.GetAsync(fixture.PlanId);
             Assert.Equal(SceneBeatCatalogueStatus.Complete, plan!.Status);
             Assert.Single(plan.DialogueCues);
-            Assert.Equal(2, plan.SoundCues.Count);
+            // Image tier: soundscape is skipped (authored-silence ambience only).
+            Assert.Single(plan.SoundCues);
             Assert.Single(plan.VideoCoveragePlans);
             var attempt = await fixture.Repository.GetAttemptAsync(fixture.AttemptId);
             Assert.Equal(SceneBeatAnalysisAttemptStatus.Complete, attempt!.Status);
             Assert.Equal("stop", attempt.FinishReason);
-            Assert.Equal(44, attempt.ProviderHeadersWaitMs);
-            Assert.Equal(52, attempt.ResponseBodyReadMs);
-            Assert.Equal(68, attempt.ResponseBytes);
-            Assert.Equal(76, attempt.ProviderJsonDeserializationMs);
+            Assert.Equal(33, attempt.ProviderHeadersWaitMs);
+            Assert.Equal(39, attempt.ResponseBodyReadMs);
+            Assert.Equal(51, attempt.ResponseBytes);
+            Assert.Equal(57, attempt.ProviderJsonDeserializationMs);
             Assert.Null(attempt.ProviderUsageJson);
             Assert.Null(attempt.ReasoningContent);
             Assert.NotNull(attempt.ValidationDurationMs);

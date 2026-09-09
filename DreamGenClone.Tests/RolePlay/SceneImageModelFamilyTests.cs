@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Tests.RolePlay;
 
@@ -36,12 +37,26 @@ public sealed class SceneImageModelFamilyTests
     }
 
     [Theory]
-    [InlineData(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags)]
-    [InlineData(SceneImageModelFamily.Unknown, SceneImagePromptDialect.PonyV6Tags)]
-    public void IsUnconfigured_AnyConfiguredValue_ReturnsFalse(
+    [InlineData(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags, SceneImagePromptStyle.PonyV6Tags)]
+    [InlineData(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
+    [InlineData(SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
+    [InlineData(SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
+    public void PromptStyleResolver_MapsFamilyDialectToStyle(
         SceneImageModelFamily family,
-        SceneImagePromptDialect dialect)
+        SceneImagePromptDialect dialect,
+        SceneImagePromptStyle expected)
     {
-        Assert.False(SceneImagePromptMetadata.IsUnconfigured(family, dialect));
+        Assert.Equal(expected, SceneImagePromptStyleResolver.FromFamilyDialect(family, dialect));
+    }
+
+    [Theory]
+    [InlineData(SceneImagePromptStyle.Unknown, SceneImagePromptStyle.NaturalLanguage)]
+    [InlineData(SceneImagePromptStyle.NaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
+    [InlineData(SceneImagePromptStyle.PonyV6Tags, SceneImagePromptStyle.PonyV6Tags)]
+    public void PromptStyleResolver_Effective_NormalizesUnknownToNaturalLanguage(
+        SceneImagePromptStyle style,
+        SceneImagePromptStyle expected)
+    {
+        Assert.Equal(expected, SceneImagePromptStyleResolver.Effective(style));
     }
 }

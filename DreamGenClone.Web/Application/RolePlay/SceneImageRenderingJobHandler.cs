@@ -9,6 +9,7 @@ using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.ModelManager;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using Microsoft.Extensions.Logging;
 
@@ -28,6 +29,8 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
     private readonly IImageGenerationClient _imageClient;
     private readonly IIdentityConditionedImageClient _identityClient;
     private readonly IIdentityControlledRequestCompiler _identityRequestCompiler;
+    private readonly IPoseConditionedImageClient _poseClient;
+    private readonly IPoseImageModelResolver _poseResolver;
     private readonly ISceneImagePromptCompilerRegistry _compilerRegistry;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<SceneImageRenderingJobHandler> _logger;
@@ -40,6 +43,8 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         IImageGenerationClient imageClient,
         IIdentityConditionedImageClient identityClient,
         IIdentityControlledRequestCompiler identityRequestCompiler,
+        IPoseConditionedImageClient poseClient,
+        IPoseImageModelResolver poseResolver,
         ISceneImagePromptCompilerRegistry compilerRegistry,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<SceneImageRenderingJobHandler> logger,
@@ -51,6 +56,8 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         _imageClient = imageClient;
         _identityClient = identityClient;
         _identityRequestCompiler = identityRequestCompiler;
+        _poseClient = poseClient;
+        _poseResolver = poseResolver;
         _compilerRegistry = compilerRegistry;
         _debugEventSink = debugEventSink;
         _logger = logger;
@@ -125,9 +132,18 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
             }, cancellationToken);
 
             byte[] bytes;
+            var poseReference = ReadPoseReference(image.SettingsJson);
             if (image.RenderMode == SceneImageRenderMode.IdentityControlled)
             {
+                if (poseReference is not null)
+                {
+                    throw new InvalidOperationException("Pose conditioning cannot be combined with identity-controlled rendering.");
+                }
                 bytes = await RenderIdentityControlledAsync(image, injectedPrompt, negative, seed, payload, cancellationToken);
+            }
+            else if (poseReference is not null)
+            {
+                bytes = await RenderPoseControlledAsync(image, injectedPrompt, negative, seed, poseReference, payload, cancellationToken);
             }
             else
             {
@@ -284,6 +300,89 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         }, cancellationToken);
 
         return await _identityClient.GenerateAsync(identityModel, compiled.Request, cancellationToken);
+    }
+
+    private async Task<byte[]> RenderPoseControlledAsync(
+        SceneImageRecord image,
+        string prompt,
+        string? negative,
+        long? seed,
+        SceneImagePoseReference pose,
+        SceneImageRenderingJobPayload payload,
+        CancellationToken cancellationToken)
+    {
+        // Pose conditioning is routed to the pose-conditioned client on the pinned local ComfyUI SDXL
+        // model only. The resolver fails fast unless the model declares + qualifies the
+        // PoseControlNet capability on a ComfyUI provider — no silent text-only fallback.
+        if (string.IsNullOrWhiteSpace(image.RequestedModelId))
+        {
+            throw new InvalidOperationException(
+                "Pose-controlled rendering requires a user-pinned local ComfyUI image model. Pin an SDXL-family local model (e.g. BigLust/Juggernaut) in the Studio, then retry.");
+        }
+        var poseModel = await _poseResolver.ResolveAsync(image.RequestedModelId, cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(pose.StoragePath))
+        {
+            throw new InvalidOperationException("Pose-controlled rendering requires a stored pose image.");
+        }
+        if (pose.Strength is <= 0 or > 1)
+        {
+            throw new InvalidOperationException($"Pose ControlNet strength must be in (0, 1], but was {pose.Strength}.");
+        }
+
+        byte[] poseBytes;
+        await using (var source = await _storage.OpenReadAsync(pose.StoragePath, cancellationToken))
+        using (var buffer = new MemoryStream())
+        {
+            await source.CopyToAsync(buffer, cancellationToken);
+            poseBytes = buffer.ToArray();
+        }
+        if (poseBytes.Length == 0)
+        {
+            throw new InvalidOperationException($"Stored pose image '{pose.StoragePath}' contains no image bytes.");
+        }
+
+        await WriteDebugEventAsync("PoseRenderRequestSubmitted", payload.SessionId, payload.InteractionId, new
+        {
+            recordId = image.Id,
+            checkpoint = poseModel.ModelIdentifier,
+            controlNet = poseModel.ControlNetAdapterRef,
+            strength = pose.Strength,
+            poseStoragePath = pose.StoragePath,
+            seed = seed.HasValue ? seed.Value.ToString() : "random",
+            positive = prompt,
+            negative = negative ?? string.Empty
+        }, cancellationToken);
+
+        return await _poseClient.GenerateAsync(poseModel, new PoseConditionedImageRequest
+        {
+            PositivePrompt = prompt,
+            NegativePrompt = negative ?? string.Empty,
+            Size = image.ImageSize,
+            Seed = seed,
+            PoseImageBytes = poseBytes,
+            Strength = pose.Strength,
+            CorrelationId = image.Id
+        }, cancellationToken);
+    }
+
+    /// <summary>Reads the optional pose conditioning from the settings snapshot; null when absent or malformed.</summary>
+    private static SceneImagePoseReference? ReadPoseReference(string? settingsJson)
+    {
+        if (string.IsNullOrWhiteSpace(settingsJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            var settings = JsonSerializer.Deserialize<SceneImageStudioSettings>(settingsJson, JsonOptions);
+            return settings?.PoseReference is { StoragePath.Length: > 0 } ? settings.PoseReference : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private async Task WriteDebugEventAsync<T>(string kind, string sessionId, string interactionId, T metadata, CancellationToken cancellationToken)

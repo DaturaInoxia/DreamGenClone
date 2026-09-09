@@ -12,10 +12,10 @@ namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHandler, IDurableJobOperationBudget
 {
-    // The decomposed v3 flow issues up to four structured-text provider calls in one durable
-    // execution: structure, spoken, soundscape, assembly. The durable executor's whole-run
-    // operation watchdog must be scaled by this count so a healthy multi-pass run is not cut
-    // off after a single provider-timeout window.
+    // The image-tier flow issues three structured-text provider calls in one durable execution:
+    // structure, spoken, continuity. Soundscape is authored as silence by the assembler (no LLM
+    // pass). The durable executor's whole-run operation watchdog must be scaled by this count so
+    // a healthy multi-pass run is not cut off after a single provider-timeout window.
     public int OperationTimeoutMultiplier => SceneBeatProductionContract.ProviderPassCount;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -258,21 +258,15 @@ public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHan
 
         var eventsJson = RequireSection(structure, "events", "structure").ToJsonString();
 
-        var spokenTask = RunPassAsync(analyzer, _contract.BuildSpokenPass(snapshot, eventsJson), progress, cancellationToken);
-        var soundscapeTask = RunPassAsync(analyzer, _contract.BuildSoundscapePass(snapshot, eventsJson), progress, cancellationToken);
-        await Task.WhenAll(spokenTask, soundscapeTask);
-        var spokenResult = await spokenTask;
-        var soundscapeResult = await soundscapeTask;
+        var spokenResult = await RunPassAsync(analyzer, _contract.BuildSpokenPass(snapshot, eventsJson), progress, cancellationToken);
         Accumulate(spokenResult);
-        Accumulate(soundscapeResult);
         var spoken = ParsePassObject(spokenResult.Content, "spoken");
-        var soundscape = ParsePassObject(soundscapeResult.Content, "soundscape");
 
         var continuityResult = await RunPassAsync(analyzer, _contract.BuildContinuityPass(snapshot, eventsJson), progress, cancellationToken);
         Accumulate(continuityResult);
         var continuity = ParsePassObject(continuityResult.Content, "continuity");
 
-        var combined = SceneBeatProductionAssembler.Assemble(snapshot, structure, spoken, soundscape, continuity);
+        var combined = SceneBeatProductionAssembler.Assemble(snapshot, structure, spoken, continuity);
 
         totalStopwatch.Stop();
         return new StructuredTextCompletionResult(

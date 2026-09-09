@@ -21,10 +21,6 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
     public const int OutputPromptMaxChars = 2000;
     public const int OutputPromptTargetChars = 800;
 
-    private const int CharacterAppearanceDescriptionMaxChars = 240;
-
-    private static readonly JsonSerializerOptions FrozenStateJsonOptions = new(JsonSerializerDefaults.Web);
-
     /// <summary>
     /// SDXL-family default negative prompt — EMPTY (2026-09-08, per-model author research).
     /// The specific SDXL checkpoints in use do not recommend a negative: BigLust v1.6's own example
@@ -267,97 +263,16 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
 
     /// <summary>
     /// Builds the AUTHORITATIVE FIXED IDENTITY appearance block for the canonical composition path.
-    /// Maps the compiled brief's frozen-state characters (keyed by CharacterId, then Name) to their
-    /// scenario <see cref="Character.PhysicalAttributes"/> and formats each via
-    /// <see cref="PhysicalAttributesFormatter.FormatVisualBlock"/> (visual-only — no measurements or
-    /// intimate fields). The POV character is excluded for a named observer POV (rule 1: never in
-    /// frame); an Omniscient POV includes every frozen character. Characters with no appearance data
-    /// are omitted entirely. This closes the B-100 design gap where the canonical compiler was told
-    /// to "describe by appearance" but the brief carried no appearance to describe ("one woman").
+    /// Delegates to <see cref="CanonicalCharacterAppearance.BuildBlock"/> (shared with the Pony
+    /// builder) so per-character physical appearance reaches the pre-processor. The POV character
+    /// is excluded for a named observer POV (rule 1: never in frame); an Omniscient POV includes
+    /// every frozen character. Characters with no appearance data are omitted entirely.
     /// </summary>
     private static string BuildCanonicalCharacterAppearanceBlock(
         CompiledMediaBrief brief,
         string pov,
         IReadOnlyList<Character>? characters)
-    {
-        if (characters is null || characters.Count == 0)
-            return string.Empty;
-
-        var frozen = ReadFrozenCharacters(brief);
-        if (frozen.Count == 0)
-            return string.Empty;
-
-        var isOmniscient = string.Equals(pov, SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase);
-        var depicted = frozen
-            .Where(character => isOmniscient
-                || (!string.Equals(character.CharacterId, pov, StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(character.Name, pov, StringComparison.OrdinalIgnoreCase)))
-            .ToList();
-        if (depicted.Count == 0)
-            return string.Empty;
-
-        var charactersById = characters
-            .Where(character => !string.IsNullOrWhiteSpace(character.Id))
-            .ToDictionary(character => character.Id!, StringComparer.OrdinalIgnoreCase);
-        var charactersByName = characters
-            .Where(character => !string.IsNullOrWhiteSpace(character.Name))
-            .GroupBy(character => character.Name!.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-
-        var sb = new StringBuilder();
-        sb.AppendLine("DEPICTED CHARACTER APPEARANCE (AUTHORITATIVE FIXED IDENTITY — describe each person by these traits, never by name or relationship):");
-        var emittedAny = false;
-        foreach (var frozenCharacter in depicted)
-        {
-            var character = ResolveCharacter(frozenCharacter, charactersById, charactersByName);
-            var appearance = character is null
-                ? string.Empty
-                : PhysicalAttributesFormatter.FormatVisualBlock(character.PhysicalAttributes);
-            if (string.IsNullOrWhiteSpace(appearance) && character is not null && !string.IsNullOrWhiteSpace(character.Description))
-                appearance = "Description — " + Truncate(character.Description, CharacterAppearanceDescriptionMaxChars);
-            if (string.IsNullOrWhiteSpace(appearance))
-                continue;
-
-            var label = string.IsNullOrWhiteSpace(frozenCharacter.Name) ? frozenCharacter.CharacterId : frozenCharacter.Name;
-            sb.AppendLine($"- {label}: {appearance}");
-            emittedAny = true;
-        }
-
-        return emittedAny ? sb.ToString() : string.Empty;
-    }
-
-    private static Character? ResolveCharacter(
-        FrozenCharacterRef frozen,
-        IReadOnlyDictionary<string, Character> charactersById,
-        IReadOnlyDictionary<string, Character> charactersByName)
-    {
-        if (!string.IsNullOrWhiteSpace(frozen.CharacterId)
-            && charactersById.TryGetValue(frozen.CharacterId, out var byId))
-            return byId;
-        if (!string.IsNullOrWhiteSpace(frozen.Name)
-            && charactersByName.TryGetValue(frozen.Name.Trim(), out var byName))
-            return byName;
-        return null;
-    }
-
-    private static IReadOnlyList<FrozenCharacterRef> ReadFrozenCharacters(CompiledMediaBrief brief)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(brief.SemanticInputSnapshotJson);
-            if (!document.RootElement.TryGetProperty("frozenState", out var frozenState)
-                || !frozenState.TryGetProperty("characters", out var characters)
-                || characters.ValueKind != JsonValueKind.Array)
-                return [];
-            return characters.Deserialize<List<FrozenCharacterRef>>(FrozenStateJsonOptions) ?? [];
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
-    }
-
-    private sealed record FrozenCharacterRef(string? CharacterId, string? Name);
+        => CanonicalCharacterAppearance.BuildBlock(brief, pov, characters);
 
     private static string BuildUserPrompt(
         RolePlaySession session,

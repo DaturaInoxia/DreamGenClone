@@ -302,6 +302,10 @@ builder.Services.AddSingleton<IImageEditorEndpointReadiness, ImageEditorEndpoint
 builder.Services.AddSingleton<ComfyUIIdentityConditionedClient>();
 builder.Services.AddSingleton<RunPodServerlessIdentityClient>();
 builder.Services.AddSingleton<IIdentityConditionedImageClient, IdentityConditionedImageClientDispatcher>();
+// Pose-conditioned (ControlNet OpenPose) image path: local ComfyUI only (B-117).
+builder.Services.AddSingleton<ComfyUIPoseConditionedImageClient>();
+builder.Services.AddSingleton<IPoseConditionedImageClient, PoseConditionedImageClientDispatcher>();
+builder.Services.AddSingleton<IPoseImageModelResolver, PoseImageModelResolver>();
 builder.Services.AddSingleton<ISceneImageRepository, SceneImageRepository>();
 builder.Services.AddSingleton<ISceneImageEditRepository, SceneImageEditRepository>();
 builder.Services.AddSingleton<ISceneBeatCatalogueRepository, SceneBeatCatalogueRepository>();

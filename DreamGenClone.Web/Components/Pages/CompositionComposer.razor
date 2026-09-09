@@ -2,19 +2,27 @@
 @rendermode InteractiveServer
 
 @using System.Text.Json
+@using DreamGenClone.Application.Abstractions
 @using DreamGenClone.Application.ModelManager
 @using DreamGenClone.Application.RolePlay
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.RolePlay.Models
+@using DreamGenClone.Web.Application.Sessions
+@using DreamGenClone.Web.Application.Scenarios
 @implements IAsyncDisposable
 
 @inject ISceneImageService ImageService
 @inject ISceneImageProductionService ProductionService
+@inject ISceneImageStorageService SceneImageStorage
 @inject IModelResolutionService ModelResolutionService
 @inject NavigationManager Nav
 @inject ILogger<CompositionComposer> Logger
+@inject ISessionService SessionService
+@inject IScenarioService ScenarioService
+@inject ICharacterImageIdentityService IdentityService
+@inject IReferenceStrategyResolver ReferenceStrategyResolver
 
 <PageTitle>Composition Composer - DreamGenClone</PageTitle>
 
@@ -58,30 +66,61 @@
                     </div>
                     <div class="card-body">
                         <div class="d-flex flex-wrap align-items-center gap-2">
-                            <button class="btn btn-sm btn-primary" disabled="@(_busy || _activePrompt?.Status == SceneImagePromptStatus.Pending)" @onclick="GeneratePromptAsync">
+                            <button class="btn btn-sm btn-primary" disabled="@(_busy || IsPromptPending || _modelChoices.Count == 0)" @onclick="GeneratePromptAsync">
                                 <i class="bi bi-magic me-1"></i>Generate Prompt
                             </button>
                             <button class="btn btn-sm btn-success"
-                                    disabled="@(_busy || _activePrompt?.Status != SceneImagePromptStatus.Complete || string.IsNullOrWhiteSpace(_editablePrompt))"
+                                    disabled="@(!CanGenerateComposition)"
                                     @onclick="GenerateCompositionAsync">
                                 <i class="bi bi-image me-1"></i>Generate Composition
                             </button>
                         </div>
 
-                        @if (_activePrompt?.Status == SceneImagePromptStatus.Pending)
-                        {
-                            <div class="small text-muted mt-2"><span class="spinner-border spinner-border-sm me-1"></span>Generating prompt...</div>
-                        }
-                        else if (_activePrompt?.Status == SceneImagePromptStatus.Failed)
-                        {
-                            <div class="alert alert-danger py-2 small mt-2 mb-0">Prompt generation failed: @_activePrompt.ErrorMessage</div>
-                        }
+                        <div class="mt-2 small text-muted">
+                            Each prompt style has its own draft. The selected model's family decides which draft a Composition renders
+                            (<strong>Pony</strong> family = score-tag prompt; <strong>SDXL / FLUX / API</strong> = natural-language prompt), and switching the model
+                            auto-switches to that tab.
+                        </div>
 
-                        <div class="mt-3">
-                            <label class="form-label small fw-semibold mb-1">Image Prompt</label>
-                            <textarea class="form-control font-monospace" rows="6" @bind="_editablePrompt"
-                                      placeholder="Generate a prompt, then edit it before generating a Composition."></textarea>
-                            <div class="form-text">@WordCount(_editablePrompt) words · ~@EstimateTokens(_editablePrompt) tokens</div>
+                        <ul class="nav nav-tabs small mt-3" role="tablist" aria-label="Scene image prompt style">
+                            <li class="nav-item" role="presentation">
+                                <button type="button" class="nav-link @(_activeStyle == SceneImagePromptStyle.NaturalLanguage ? "active" : "")"
+                                        @onclick="() => SelectPromptStyleAsync(SceneImagePromptStyle.NaturalLanguage)">
+                                    SDXL / natural language
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button type="button" class="nav-link @(_activeStyle == SceneImagePromptStyle.PonyV6Tags ? "active" : "")"
+                                        @onclick="() => SelectPromptStyleAsync(SceneImagePromptStyle.PonyV6Tags)">
+                                    Pony (score tags)
+                                </button>
+                            </li>
+                        </ul>
+
+                        <div class="border border-top-0 p-2">
+                            @if (IsPromptPending && PendingPromptStyle == _activeStyle)
+                            {
+                                <div class="small text-muted mb-2"><span class="spinner-border spinner-border-sm me-1"></span>Generating @SceneImagePromptStyleResolver.DisplayLabel(_activeStyle) prompt...</div>
+                            }
+                            else if (_pendingPrompt?.Status == SceneImagePromptStatus.Failed && PendingPromptStyle == _activeStyle)
+                            {
+                                <div class="alert alert-danger py-2 small mb-2">Prompt generation failed: @_pendingPrompt.ErrorMessage</div>
+                            }
+
+                            @if (_activeStyle == SceneImagePromptStyle.PonyV6Tags)
+                            {
+                                <label class="form-label small fw-semibold mb-1">Pony prompt (dense comma tags)</label>
+                                <textarea class="form-control font-monospace" rows="6" @bind="_ponyPromptText"
+                                          placeholder="Generate a Pony tag prompt (score_9 …, rating_*, count tag, camera view) for Pony-family checkpoints (Pony Realism, Pony V6 XL), then edit it before generating a Composition."></textarea>
+                                <div class="form-text">@WordCount(_ponyPromptText) words · ~@EstimateTokens(_ponyPromptText) tokens · Pony checkpoints read dense comma-separated tags, not prose.</div>
+                            }
+                            else
+                            {
+                                <label class="form-label small fw-semibold mb-1">Natural-language prompt</label>
+                                <textarea class="form-control font-monospace" rows="6" @bind="_sdxlPromptText"
+                                          placeholder="Generate a natural-language photography brief for SDXL / FLUX / API image models, then edit it before generating a Composition."></textarea>
+                                <div class="form-text">@WordCount(_sdxlPromptText) words · ~@EstimateTokens(_sdxlPromptText) tokens</div>
+                            }
                         </div>
 
                         <div class="mt-3">
@@ -114,12 +153,118 @@
                             </div>
                         }
 
+                        <div class="border-top mt-3 pt-3" aria-label="Pose reference">
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <div>
+                                    <strong>Pose reference</strong>
+                                    <span class="d-block small text-muted">Bind the blocking/pose with an OpenPose ControlNet (OpenPoseXL2) on the local ComfyUI. Upload an OpenPose skeleton PNG (from the pose library or a DWPose extract of a reference photo). Qualified today on SDXL-family local ComfyUI models (BigLust / Juggernaut); others fail fast rather than rendering without the pose.</span>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(_poseStoragePath))
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ClearPose">Clear pose</button>
+                                }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_poseUploadError))
+                            {
+                                <div class="alert alert-danger py-1 small mb-2">@_poseUploadError</div>
+                            }
+                            <div class="mt-2">
+                                @if (_poseBusy)
+                                {
+                                    <span class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Saving pose...</span>
+                                }
+                                else if (string.IsNullOrWhiteSpace(_poseStoragePath))
+                                {
+                                    <InputFile accept=".png,.jpg,.jpeg,.webp" OnChange="OnPoseFileSelectedAsync" />
+                                    <div class="form-text">OpenPose skeleton PNG (pose library or DWPose extract). When attached, the render uses the OpenPose ControlNet graph instead of plain text.</div>
+                                }
+                                else
+                                {
+                                    <div class="d-flex align-items-center gap-3">
+                                        <img src="/scene-images/@_poseStoragePath" alt="Pose reference" style="max-height: 90px;" class="border rounded" />
+                                        <div>
+                                            <div class="small text-break">@_poseImageName</div>
+                                            <label class="form-label small fw-semibold mb-0 mt-1">ControlNet strength</label>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <input type="range" class="form-range" min="0.1" max="1" step="0.05" style="width: 180px;" @bind="_poseStrength" />
+                                                <span class="small text-muted">@_poseStrength.ToString("0.00")</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="border-top mt-4 pt-3" aria-label="Identity on create">
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <div>
+                                    <strong>Identity on create</strong>
+                                    <span class="d-block small text-muted">Applies the approved canonical identity pack while creating this Composition (IP-Adapter face conditioning).</span>
+                                </div>
+                                @if (_identityResolution is not null)
+                                {
+                                    <span class="badge @IdentityBadgeClass()">@_identityResolution.Status</span>
+                                }
+                            </div>
+                            @if (_identityResolution is not null)
+                            {
+                                <div class="small mt-2">@_identityResolution.Reason</div>
+                            }
+                            <div class="form-check mt-2">
+                                <input id="compose-with-identity" class="form-check-input" type="checkbox" @bind="_applyIdentityOnCreate"
+                                       disabled="@(!IdentityAvailable)" />
+                                <label class="form-check-label" for="compose-with-identity">Apply identity while creating this composition</label>
+                            </div>
+                            @if (_applyIdentityOnCreate)
+                            {
+                                <div class="mt-3">
+                                    <label class="form-label small fw-semibold mb-1">Identity model (identity-capable)</label>
+                                    @if (_identityModelChoices.Count == 0)
+                                    {
+                                        <span class="text-muted d-block">No identity-capable image models are enabled. Configure an identity mechanism (IP-Adapter/PuLID) in Model Manager.</span>
+                                    }
+                                    else
+                                    {
+                                        <select class="form-select form-select-sm mb-2" @bind="_selectedIdentityModelId" @bind:after="RefreshIdentityResolutionAsync">
+                                            @foreach (var choice in _identityModelChoices)
+                                            {
+                                                <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
+                                            }
+                                        </select>
+                                    }
+                                </div>
+                                @if (_identityPackOptions.Count == 0)
+                                {
+                                    <span class="text-muted small">No approved identity packs yet. Create and approve one in <a href="/characters/identity">Character Identity</a>.</span>
+                                }
+                                else
+                                {
+                                    <label class="form-label small fw-semibold mb-1">Approved identity pack</label>
+                                    <select class="form-select form-select-sm mb-2" @bind="_selectedIdentityPackId">
+                                        <option value="">Select an approved pack</option>
+                                        @foreach (var opt in _identityPackOptions)
+                                        {
+                                            <option value="@opt.PackId">@opt.Label</option>
+                                        }
+                                    </select>
+                                    @if (SelectedIdentityPack is not null)
+                                    {
+                                        <label class="form-label small fw-semibold mb-1">Strength override (optional)</label>
+                                        <input type="number" class="form-control form-control-sm" style="width: 120px;"
+                                               @bind="SelectedIdentityPack.Strength" min="0" max="2" step="0.05" placeholder="model default" />
+                                    }
+                                    <div class="form-text">A single character pack applies one face to the whole image; describe exactly one person in the prompt for best results. Strength overrides the model's configured identity strength.</div>
+                                }
+                            }
+                        </div>
+
                         <details class="mt-3">
                             <summary class="small fw-semibold">View what will be submitted</summary>
                             <dl class="row small mt-2 mb-0">
                                 <dt class="col-sm-3">POV</dt><dd class="col-sm-9">@_productionGroup.Pov</dd>
                                 <dt class="col-sm-3">Model</dt><dd class="col-sm-9">@(string.IsNullOrWhiteSpace(_selectedModelId) ? "Select an enabled image model" : SelectedModelLabel())</dd>
-                                <dt class="col-sm-3">Prompt</dt><dd class="col-sm-9 text-break">@(_editablePrompt.Length == 0 ? "Generate or enter a prompt" : _editablePrompt)</dd>
+                                <dt class="col-sm-3">Prompt style</dt><dd class="col-sm-9">@SceneImagePromptStyleResolver.DisplayLabel(RenderStyle) (chosen from the selected model's family)</dd>
+                                <dt class="col-sm-3">Prompt</dt><dd class="col-sm-9 text-break">@(string.IsNullOrWhiteSpace(PromptTextFor(RenderStyle)) ? "Generate or enter a prompt for the selected model's style" : PromptTextFor(RenderStyle))</dd>
                             </dl>
                         </details>
                     </div>
@@ -178,14 +323,30 @@
 
     private SceneImageProductionGroup? _productionGroup;
     private CompiledMediaBrief? _compiledMediaBrief;
-    private SceneImagePromptRecord? _activePrompt;
     private List<SceneImageRecord> _compositionAttempts = [];
     private List<SceneImageModelChoice> _modelChoices = [];
-    private string? _selectedModelId;
-    private string _editablePrompt = string.Empty;
+    private string _sdxlPromptText = string.Empty;
+    private string _ponyPromptText = string.Empty;
+    private readonly Dictionary<SceneImagePromptStyle, SceneImagePromptRecord> _completedByStyle = new();
+    private SceneImagePromptStyle _activeStyle = SceneImagePromptStyle.NaturalLanguage;
+    private SceneImagePromptRecord? _pendingPrompt;
+    private bool _promptsInitialized;
     private string _errorMessage = string.Empty;
     private string _statusMessage = string.Empty;
     private bool _busy;
+
+    private string? _selectedModelBacking;
+    private string? _selectedModelId
+    {
+        get => _selectedModelBacking;
+        set
+        {
+            if (string.Equals(_selectedModelBacking, value, StringComparison.Ordinal)) return;
+            _selectedModelBacking = value;
+            // Auto-switch the prompt tab to the family of the newly selected model.
+            _activeStyle = RenderStyle;
+        }
+    }
     private CancellationTokenSource? _pollingCts;
     private Task? _pollingTask;
     private readonly List<ReferenceApplicationSelection> _referenceApplications =
@@ -195,6 +356,27 @@
         new() { ElementKey = "Wardrobe", SemanticRole = "wardrobe continuity", AssetType = SceneAssetType.Wardrobe },
         new() { ElementKey = "Location", SemanticRole = "location continuity", AssetType = SceneAssetType.Location }
     ];
+
+    private List<SceneImageModelChoice> _identityModelChoices = [];
+    private string? _selectedIdentityModelId;
+    private List<IdentityPackOption> _identityPackOptions = [];
+    private string? _selectedIdentityPackId;
+    private ReferenceStrategyResolution? _identityResolution;
+    private bool _applyIdentityOnCreate;
+
+    // Pose reference (OpenPose ControlNet conditioning, B-117).
+    private bool _poseBusy;
+    private string _poseImageName = string.Empty;
+    private string? _poseStoragePath;
+    private double _poseStrength = 0.8;
+    private string? _poseUploadError;
+
+    private sealed class IdentityPackOption
+    {
+        public string PackId { get; set; } = string.Empty;
+        public string Label { get; set; } = string.Empty;
+        public double? Strength { get; set; }
+    }
 
     private string StudioUrl => $"/roleplay/studio/{sessionId}/{interactionId}/production/{productionGroupId}";
 
@@ -213,12 +395,29 @@
             throw new InvalidOperationException("The requested production group does not belong to this Studio context.");
 
         _compiledMediaBrief = await ProductionService.GetOrCreateStillBriefAsync(_productionGroup.Id);
-        _activePrompt = _activePrompt?.Status == SceneImagePromptStatus.Pending
-            ? await ImageService.GetPromptAsync(sessionId, _activePrompt.Id)
-            : await ImageService.GetLatestCompletedProductionPromptAsync(
-                sessionId, interactionId, _productionGroup.Id, _compiledMediaBrief.Id);
-        if (_activePrompt?.Status == SceneImagePromptStatus.Complete)
-            _editablePrompt = _activePrompt.OutputPrompt;
+
+        if (_pendingPrompt is not null && _pendingPrompt.Status == SceneImagePromptStatus.Pending)
+        {
+            _pendingPrompt = await ImageService.GetPromptAsync(sessionId, _pendingPrompt.Id);
+        }
+
+        if (_pendingPrompt is not null && _pendingPrompt.Status != SceneImagePromptStatus.Pending)
+        {
+            // A generation this page started finished: adopt its result into the matching style tab.
+            if (_pendingPrompt.Status == SceneImagePromptStatus.Complete)
+                AdoptCompletedPrompt(_pendingPrompt);
+            _pendingPrompt = null;
+        }
+
+        if (!_promptsInitialized && _pendingPrompt is null)
+        {
+            // First load on this page: hydrate the latest completed prompt for each style so both
+            // tabs show their last drafted prompt. Polls later never overwrite in-progress edits.
+            await RefreshCompletedPromptAsync(SceneImagePromptStyle.NaturalLanguage);
+            await RefreshCompletedPromptAsync(SceneImagePromptStyle.PonyV6Tags);
+            _promptsInitialized = true;
+        }
+
         _compositionAttempts = (await ProductionService.ListAttemptsAsync(_productionGroup.Id))
             .Where(attempt => attempt.ProductionStage == SceneImageProductionStage.Composition)
             .OrderByDescending(attempt => attempt.CreatedUtc)
@@ -227,12 +426,37 @@
         _modelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
         if (string.IsNullOrWhiteSpace(_selectedModelId))
             _selectedModelId = _modelChoices.FirstOrDefault()?.ModelId;
+
+        _identityModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: true)).ToList();
+        if (string.IsNullOrWhiteSpace(_selectedIdentityModelId))
+            _selectedIdentityModelId = _identityModelChoices.FirstOrDefault()?.ModelId;
+        if (_identityPackOptions.Count == 0)
+            await LoadIdentityPackOptionsAsync();
+        if (_identityResolution is null)
+            await RefreshIdentityResolutionAsync();
+    }
+
+    private async Task RefreshCompletedPromptAsync(SceneImagePromptStyle style)
+    {
+        var record = await ImageService.GetLatestCompletedProductionPromptAsync(
+            sessionId, interactionId, _productionGroup!.Id, _compiledMediaBrief!.Id, style);
+        if (record is null) return;
+        _completedByStyle[style] = record;
+        SetPromptText(style, record.OutputPrompt);
+    }
+
+    private void AdoptCompletedPrompt(SceneImagePromptRecord record)
+    {
+        var style = SceneImagePromptStyleResolver.Effective(record.PromptStyle);
+        _completedByStyle[style] = record;
+        SetPromptText(style, record.OutputPrompt);
     }
 
     private async Task GeneratePromptAsync()
     {
         await RunAsync(async () =>
         {
+            var style = _activeStyle;
             var record = await ImageService.EnqueuePromptAsync(new ScenePromptRequest
             {
                 SessionId = sessionId,
@@ -240,11 +464,14 @@
                 Settings = new SceneImageStudioSettings(),
                 ProductionGroupId = _productionGroup!.Id,
                 CompiledMediaBriefId = _compiledMediaBrief!.Id,
-                Pov = _productionGroup.Pov
+                Pov = _productionGroup.Pov,
+                PromptStyle = style,
+                RequestedImageModelId = _selectedModelId
             });
-            _activePrompt = record;
-            _editablePrompt = string.Empty;
-            _statusMessage = "Prompt generation queued.";
+            _pendingPrompt = record;
+            SetPromptText(style, string.Empty);
+            _activeStyle = style;
+            _statusMessage = $"Prompt generation queued ({SceneImagePromptStyleResolver.DisplayLabel(style)}).";
             EnsurePollingWhenNeeded();
         });
     }
@@ -255,25 +482,65 @@
 
     private async Task EnqueueCompositionAsync(string? regenerateOfId)
     {
-        if (_activePrompt?.Status != SceneImagePromptStatus.Complete || string.IsNullOrWhiteSpace(_editablePrompt))
-            throw new InvalidOperationException("A completed nonblank Composition prompt is required.");
+        // A Composition always renders with the prompt style that matches the SELECTED model's
+        // family (Pony => tag prompt; SDXL/FLUX/API => natural language), independent of which tab
+        // is currently visible, so the right dialect is never sent to the wrong checkpoint.
+        var style = RenderStyle;
+        if (!_completedByStyle.TryGetValue(style, out var promptRecord)
+            || promptRecord.Status != SceneImagePromptStatus.Complete)
+            throw new InvalidOperationException(
+                $"A completed {SceneImagePromptStyleResolver.DisplayLabel(style)} prompt is required before generating a Composition.");
+        var prompt = PromptTextFor(style);
+        if (string.IsNullOrWhiteSpace(prompt))
+            throw new InvalidOperationException(
+                $"The {SceneImagePromptStyleResolver.DisplayLabel(style)} prompt cannot be empty.");
+
+        _activeStyle = style;
 
         await RunAsync(async () =>
         {
-            await ImageService.UpdatePromptOutputAsync(sessionId, _activePrompt.Id, _editablePrompt.Trim());
+            await ImageService.UpdatePromptOutputAsync(sessionId, promptRecord.Id, prompt.Trim());
+            var identityPacks = _applyIdentityOnCreate
+                ? _identityPackOptions
+                    .Where(option => string.Equals(option.PackId, _selectedIdentityPackId, StringComparison.Ordinal))
+                    .Select(option => new IdentityPackSelection
+                    {
+                        PackId = option.PackId,
+                        CharacterLabel = option.Label,
+                        Strength = option.Strength
+                    })
+                    .ToList()
+                : null;
+            if (_applyIdentityOnCreate && !string.IsNullOrWhiteSpace(_poseStoragePath))
+            {
+                throw new InvalidOperationException("Pose conditioning and 'Identity on create' cannot be combined. Clear one before generating a Composition.");
+            }
+            var firstPackId = identityPacks?.FirstOrDefault()?.PackId;
+            var renderSettings = new SceneImageStudioSettings();
+            if (!string.IsNullOrWhiteSpace(_poseStoragePath))
+            {
+                renderSettings.PoseReference = new SceneImagePoseReference
+                {
+                    StoragePath = _poseStoragePath,
+                    Strength = _poseStrength
+                };
+            }
             await ImageService.EnqueueRenderAsync(new SceneRenderRequest
             {
                 SessionId = sessionId,
                 InteractionId = interactionId,
-                PromptRecordId = _activePrompt.Id,
-                Prompt = _editablePrompt.Trim(),
-                RequestedModelId = _selectedModelId,
-                SettingsJson = JsonSerializer.Serialize(new SceneImageStudioSettings()),
+                PromptRecordId = promptRecord.Id,
+                Prompt = prompt.Trim(),
+                RequestedModelId = _applyIdentityOnCreate ? _selectedIdentityModelId : _selectedModelId,
+                SettingsJson = JsonSerializer.Serialize(renderSettings),
                 RegenerateOfId = regenerateOfId,
                 ProductionGroupId = _productionGroup!.Id,
                 CompiledMediaBriefId = _compiledMediaBrief!.Id,
                 BeatId = _productionGroup.BeatId,
                 Pov = _productionGroup.Pov,
+                RenderMode = _applyIdentityOnCreate ? SceneImageRenderMode.IdentityControlled : SceneImageRenderMode.PromptOnly,
+                IdentityPackId = firstPackId,
+                IdentityPacks = identityPacks,
                 ReferenceApplications = _referenceApplications
             });
             _statusMessage = regenerateOfId is null ? "Composition queued." : "Sibling Composition queued.";
@@ -282,10 +549,189 @@
         });
     }
 
+    private Task SelectPromptStyleAsync(SceneImagePromptStyle style)
+    {
+        _activeStyle = style;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>The prompt style that matches the currently selected image model's family.</summary>
+    private SceneImagePromptStyle RenderStyle
+    {
+        get
+        {
+            var choice = _modelChoices.FirstOrDefault(model => model.ModelId == _selectedModelId);
+            return choice is null
+                ? SceneImagePromptStyle.NaturalLanguage
+                : SceneImagePromptStyleResolver.FromFamilyDialect(choice.Family, choice.Dialect);
+        }
+    }
+
+    private SceneImagePromptStyle PendingPromptStyle
+        => _pendingPrompt is null
+            ? SceneImagePromptStyle.NaturalLanguage
+            : SceneImagePromptStyleResolver.Effective(_pendingPrompt.PromptStyle);
+
+    private bool IsPromptPending => _pendingPrompt?.Status == SceneImagePromptStatus.Pending;
+
+    private bool CanGenerateComposition
+    {
+        get
+        {
+            if (_busy || _productionGroup is null || _compiledMediaBrief is null || string.IsNullOrWhiteSpace(_selectedModelId))
+                return false;
+            if (_applyIdentityOnCreate && !CanApplyIdentityOnCreate)
+                return false;
+            if (!_completedByStyle.TryGetValue(RenderStyle, out var record)
+                || record.Status != SceneImagePromptStatus.Complete)
+                return false;
+            return !string.IsNullOrWhiteSpace(PromptTextFor(RenderStyle));
+        }
+    }
+
+    private bool IdentityAvailable =>
+        _identityResolution?.IsAvailable == true
+        && _identityModelChoices.Count > 0
+        && _identityPackOptions.Count > 0;
+
+    private bool CanApplyIdentityOnCreate =>
+        IdentityAvailable
+        && !string.IsNullOrWhiteSpace(_selectedIdentityPackId)
+        && !string.IsNullOrWhiteSpace(_selectedIdentityModelId);
+
+    private IdentityPackOption? SelectedIdentityPack =>
+        _identityPackOptions.FirstOrDefault(option => string.Equals(option.PackId, _selectedIdentityPackId, StringComparison.Ordinal));
+
+    private string IdentityBadgeClass() => _identityResolution?.Status switch
+    {
+        ReferenceStrategyResolutionStatus.Possible => "text-bg-success",
+        ReferenceStrategyResolutionStatus.Unqualified => "text-bg-warning",
+        ReferenceStrategyResolutionStatus.Impossible => "text-bg-secondary",
+        _ => "text-bg-secondary"
+    };
+
+    private async Task RefreshIdentityResolutionAsync()
+    {
+        _identityResolution = null;
+        if (string.IsNullOrWhiteSpace(_selectedIdentityModelId))
+        {
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+        try
+        {
+            _identityResolution = await ReferenceStrategyResolver.ResolveAsync(_selectedIdentityModelId, "ReferenceConditioning");
+        }
+        catch (Exception ex)
+        {
+            _identityResolution = new ReferenceStrategyResolution(ReferenceStrategyResolutionStatus.Unqualified, "ReferenceConditioning", ex.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadIdentityPackOptionsAsync()
+    {
+        try
+        {
+            var session = await SessionService.LoadRolePlaySessionAsync(sessionId);
+            if (session is null || string.IsNullOrWhiteSpace(session.ScenarioId))
+            {
+                return;
+            }
+            var scenario = await ScenarioService.GetScenarioAsync(session.ScenarioId);
+            var characters = scenario?.Characters;
+            if (characters is null)
+            {
+                return;
+            }
+            var options = new List<IdentityPackOption>();
+            foreach (var character in characters)
+            {
+                IReadOnlyList<CharacterImageIdentityPack> packs;
+                try
+                {
+                    packs = await IdentityService.ListPacksAsync(character.Id);
+                }
+                catch
+                {
+                    continue;
+                }
+                foreach (var pack in packs.Where(p => p.Status == CharacterImageIdentityPackStatus.Approved))
+                {
+                    options.Add(new IdentityPackOption
+                    {
+                        PackId = pack.Id,
+                        Label = $"{character.Name ?? character.Id} — v{pack.Version}"
+                    });
+                }
+            }
+            _identityPackOptions = options;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load identity packs for composition: SessionId={SessionId}", sessionId);
+        }
+    }
+
+    private string PromptTextFor(SceneImagePromptStyle style)
+        => style == SceneImagePromptStyle.PonyV6Tags ? _ponyPromptText : _sdxlPromptText;
+
+    private void SetPromptText(SceneImagePromptStyle style, string value)
+    {
+        if (style == SceneImagePromptStyle.PonyV6Tags) _ponyPromptText = value;
+        else _sdxlPromptText = value;
+    }
+
     private Task OnReferenceApplicationsChanged()
     {
         StateHasChanged();
         return Task.CompletedTask;
+    }
+
+    private async Task OnPoseFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _poseUploadError = string.Empty;
+        var file = e.File;
+        if (file is null || file.Size == 0)
+        {
+            _poseUploadError = "The pose file is empty. Choose an OpenPose skeleton PNG.";
+            StateHasChanged();
+            return;
+        }
+        if (file.Size > 20L * 1024 * 1024)
+        {
+            _poseUploadError = "The pose file is larger than 20 MB.";
+            StateHasChanged();
+            return;
+        }
+
+        _poseBusy = true;
+        try
+        {
+            var name = $"pose_{Guid.NewGuid():N}.png";
+            await using var stream = file.OpenReadStream(maxAllowedSize: 20L * 1024 * 1024);
+            _poseStoragePath = await SceneImageStorage.SaveAsync(sessionId, name, stream);
+            _poseImageName = file.Name;
+            _poseStrength = 0.8;
+        }
+        catch (Exception ex)
+        {
+            _poseUploadError = $"Failed to store the pose image: {ex.Message}";
+        }
+        finally
+        {
+            _poseBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ClearPose()
+    {
+        _poseStoragePath = null;
+        _poseImageName = string.Empty;
+        _poseStrength = 0.8;
+        StateHasChanged();
     }
 
     private string SelectedModelLabel()
@@ -313,7 +759,7 @@
     }
 
     private bool HasInFlightWork()
-        => _activePrompt?.Status == SceneImagePromptStatus.Pending
+        => _pendingPrompt?.Status == SceneImagePromptStatus.Pending
             || _compositionAttempts.Any(attempt => attempt.Status is SceneImageStatus.Pending or SceneImageStatus.Generating);
 
     private void EnsurePollingWhenNeeded()

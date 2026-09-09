@@ -47,6 +47,8 @@ public sealed class SceneImageRenderingJobHandlerTests
                 imageClient: null!,
                 identityClient: null!,
                 identityRequestCompiler: null!,
+                poseClient: null!,
+                poseResolver: null!,
                 compilerRegistry: null!,
                 debugEventSink: null!,
                 NullLogger<SceneImageRenderingJobHandler>.Instance,
