@@ -5,12 +5,20 @@
 
 The corpus is executed once with the pinned Qwen2.5-VL 7B AWQ artifact, served model identity
 `qwen2.5-vl-7b-edit-compiler`, compiler schema `scene-image-edit-compiler-v1`, system prompt
-`qwen-edit-rules-v2`, temperature `0`, top-p `1`, and maximum output of 1,024 tokens. There are no
+`qwen-edit-rules-v3`, temperature `0`, top-p `1`, and maximum output of 1,024 tokens. There are no
 retries, alternate models, alternate providers, or text-only requests.
 
 **Note (2026-08-27):** the system prompt moved to `qwen-edit-rules-v2` (user-requested changes are
 authoritative; preservation is surgical). Corpus re-validation by re-running the proof harness is
 pending.
+
+**Note (2026-09-11):** the system prompt moved to `qwen-edit-rules-v3`. A requested change is the state
+the image must have *after* the edit, so the compiler verifies only that the **target** is visible and
+never that the requested change is already present in the source — the v2 clause "the thing to change
+is not visible in the source" was being read as "the requested state is absent, therefore invalid", and
+"a visible detail is uncertain" let subjective states (expressions such as *mid orgasm*) be rejected as
+unconfirmable. Subjective/emotional/physiological states are now explicitly valid expression edits that
+compile to concrete visible facial cues. Corpus re-validation by re-running the proof harness is pending.
 
 ## Automatic Gates
 

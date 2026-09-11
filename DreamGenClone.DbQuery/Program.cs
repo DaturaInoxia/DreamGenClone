@@ -17,7 +17,7 @@ if (!File.Exists(databasePath))
     return 2;
 }
 
-var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "local-comfyui-configure" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
+var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "qwen-edit-local-aio-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "local-comfyui-configure" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -66,6 +66,7 @@ try
         "b100-analyzer-openrouter-configure" => await ConfigureB100OpenRouterAnalyzerAsync(connection),
         "biglust-image-configure" => await ConfigureBigLustImageAsync(connection),
         "qwen-edit-serverless-configure" => await ConfigureQwenEditServerlessAsync(connection),
+        "qwen-edit-local-aio-configure" => await ConfigureQwenEditLocalAioAsync(connection),
         "local-comfyui-configure" => await ConfigureLocalComfyUiAsync(
             connection,
             RequireArgument(args, 1, "baseUrl")),
@@ -612,6 +613,11 @@ static async Task<int> ConfigureBigLustImageAsync(SqliteConnection connection)
     const string modelArtifact = "Civitai 575395 / 1081768 / SHA-256 4C1E096B9493DBB5C0AB84FD80FD20AA64817544E565DDA95A45C637FC839AAF";
     const string providerNotes = "RunPod Serverless BigLust v1.6 endpoint img-biglust-serverless (worker-comfyui + IP-Adapter). API key resolved via CredentialReference 'runpod'.";
     const string modelNotes = "BigLust v1.6 SDXL T2I via RunPod serverless endpoint; checkpoint on network volume xkslgh6xo0.";
+    // ReferenceConditioning (IP-Adapter PLUS FACE) is declared AND qualified for this serverless
+    // endpoint so Model Manager resolves identity-on-create as Possible (declaration alone leaves it
+    // Unqualified). The ProofId references the dated serverless IP-Adapter identity run artifact under
+    // specs/image-generator-tests/biglust/runs/2026-09-02_132309-deanv6-front/.
+    const string referenceConditioningDeclaration = "[\"ReferenceConditioning\"]";
 
     var now = DateTime.UtcNow.ToString("o");
     await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
@@ -673,6 +679,9 @@ static async Task<int> ConfigureBigLustImageAsync(SqliteConnection connection)
         }
     }
 
+    var capabilityQualificationsJson =
+        $"[{{\"Strategy\":\"ReferenceConditioning\",\"EndpointId\":\"{providerId}\",\"Qualified\":true,\"ProofId\":\"2026-09-02_132309-deanv6-front\"}}]";
+
     string modelId;
     await using (var selectModel = connection.CreateCommand())
     {
@@ -695,11 +704,16 @@ static async Task<int> ConfigureBigLustImageAsync(SqliteConnection connection)
                     IdentityMechanism = 'IpAdapter',
                     IdentityStrength = 0.8,
                     IdentityAdapterRef = 'PLUS FACE (portraits)',
+                    SupportedIdentityStrategiesJson = $referenceConditioning,
+                    SupportedVisualStrategiesJson = $referenceConditioning,
+                    CapabilityQualificationsJson = $qualifications,
                     ArtifactRevision = $artifact,
                     Notes = $notes,
                     IsEnabled = 1
                 WHERE Id = $modelId;
                 """;
+            updateModel.Parameters.AddWithValue("$referenceConditioning", referenceConditioningDeclaration);
+            updateModel.Parameters.AddWithValue("$qualifications", capabilityQualificationsJson);
             updateModel.Parameters.AddWithValue("$displayName", modelDisplayName);
             updateModel.Parameters.AddWithValue("$artifact", modelArtifact);
             updateModel.Parameters.AddWithValue("$notes", modelNotes);
@@ -716,13 +730,17 @@ static async Task<int> ConfigureBigLustImageAsync(SqliteConnection connection)
                     Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, CreatedUtc,
                     ContextWindowSize, Quantization, ParameterCount, Notes, SupportsThinkingControl,
                     ModelKind, IdentityMechanism, IdentityStrength, IdentityAdapterRef, ArtifactRevision,
-                    SceneImageModelFamily, PromptDialect)
+                    SceneImageModelFamily, PromptDialect,
+                    SupportedIdentityStrategiesJson, SupportedVisualStrategiesJson, CapabilityQualificationsJson)
                 VALUES (
                     $id, $providerId, $modelIdentifier, $displayName, 1, $now,
                     0, '', '', $notes, 0,
                     1, 'IpAdapter', 0.8, 'PLUS FACE (portraits)', $artifact,
-                    2, 2);
+                    2, 2,
+                    $referenceConditioning, $referenceConditioning, $qualifications);
                 """;
+            insertModel.Parameters.AddWithValue("$referenceConditioning", referenceConditioningDeclaration);
+            insertModel.Parameters.AddWithValue("$qualifications", capabilityQualificationsJson);
             insertModel.Parameters.AddWithValue("$id", modelId);
             insertModel.Parameters.AddWithValue("$providerId", providerId);
             insertModel.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
@@ -793,22 +811,32 @@ static async Task<int> ConfigureLocalComfyUiAsync(SqliteConnection connection, s
         + "IP-Adapter/PuLID/FaceID identity stack. ImageProtocol=ComfyUi (direct /prompt), NOT a RunPod pod "
         + "and NOT serverless. Additive alternative to the RunPod Serverless image endpoints.";
 
-    // (modelIdentifier, displayName, SceneImageModelFamily, SceneImagePromptDialect, enabled, notes)
+    // (modelIdentifier, displayName, SceneImageModelFamily, SceneImagePromptDialect, enabled, notes, referenceConditioningProofId)
+    // proofId is non-null only for models with a passing local IP-Adapter PLUS FACE identity proof:
+    // juggernaut/biglust = identity-two-character run 20260908-local-sdxl-ipadapter (all cells PASS);
+    // ponyRealism = local ponyrealism-ipadapter proof 2026-09-08 (Dean front likeness held). Pony V6
+    // (mechanism loads but off-model in the identity matrix) and FLUX (no IP-Adapter PLUS FACE path)
+    // intentionally stay unqualified.
     var models = new[]
     {
         ("juggernautXL_ragnarok.safetensors", "Juggernaut XL Ragnarok (Local ComfyUI)", 2, 2, true,
-            "Local Juggernaut XL Ragnarok checkpoint on WOOD-GAME-MAIN ComfyUI (Sdxl / SdxlNaturalLanguage)."),
+            "Local Juggernaut XL Ragnarok checkpoint on WOOD-GAME-MAIN ComfyUI (Sdxl / SdxlNaturalLanguage).",
+            (string?)"20260908-local-sdxl-ipadapter-juggernaut"),
         ("bigLust_v16.safetensors", "BigLust v1.6 (Local ComfyUI)", 2, 2, true,
-            "Local BigLust v1.6 checkpoint on WOOD-GAME-MAIN ComfyUI (Sdxl / SdxlNaturalLanguage)."),
+            "Local BigLust v1.6 checkpoint on WOOD-GAME-MAIN ComfyUI (Sdxl / SdxlNaturalLanguage).",
+            (string?)"20260908-local-sdxl-ipadapter-biglust"),
         ("ponyDiffusionV6XL_v6.safetensors", "Pony V6 XL (Local ComfyUI)", 1, 1, true,
-            "Local Pony V6 XL checkpoint on WOOD-GAME-MAIN ComfyUI (Pony / PonyV6Tags)."),
+            "Local Pony V6 XL checkpoint on WOOD-GAME-MAIN ComfyUI (Pony / PonyV6Tags).",
+            (string?)null),
         ("ponyRealism_V23ULTRA.safetensors", "Pony Realism v2.3 ULTRA (Local ComfyUI)", 1, 1, true,
             "Local Pony Realism v2.3 ULTRA (Civitai 372465 / version 1920896) photoreal Pony-architecture "
             + "checkpoint on WOOD-GAME-MAIN ComfyUI (Pony / PonyV6Tags). Additive image model - NOT the "
-            + "RolePlaySceneImage default."),
+            + "RolePlaySceneImage default.",
+            (string?)"ponyrealism-ipadapter-proof-2026-09-08"),
         ("flux1-dev-fp8.safetensors", "FLUX.1-dev fp8 (Local ComfyUI)", 4, 4, true,
             "Local FLUX.1-dev fp8 checkpoint on WOOD-GAME-MAIN ComfyUI (Flux / FluxNaturalLanguage). "
-            + "Additive image model — NOT the RolePlaySceneImage default."),
+            + "Additive image model — NOT the RolePlaySceneImage default.",
+            (string?)null),
     };
 
     var now = DateTime.UtcNow.ToString("o");
@@ -875,7 +903,7 @@ static async Task<int> ConfigureLocalComfyUiAsync(SqliteConnection connection, s
         }
     }
 
-    foreach (var (modelIdentifier, displayName, family, dialect, enabled, modelNotes) in models)
+    foreach (var (modelIdentifier, displayName, family, dialect, enabled, modelNotes, proofId) in models)
     {
         string modelId;
         await using (var selectModel = connection.CreateCommand())
@@ -935,12 +963,94 @@ static async Task<int> ConfigureLocalComfyUiAsync(SqliteConnection connection, s
                 await insertModel.ExecuteNonQueryAsync();
             }
         }
+        if (!string.IsNullOrWhiteSpace(proofId))
+        {
+            await ApplyLocalIdentityQualificationAsync(connection, transaction, modelId, providerId, proofId);
+        }
     }
 
     await transaction.CommitAsync();
     var enabledList = string.Join(", ", models.Where(m => m.Item5).Select(m => m.Item1));
     Console.WriteLine($"Local ComfyUI configured: {providerName} | {baseUrl} | enabled={enabledList}");
     return 0;
+}
+
+/// <summary>
+/// Declares + qualifies IP-Adapter PLUS FACE <c>ReferenceConditioning</c> on a local ComfyUI model
+/// that has a passing local identity proof. Merges (never clobbers) existing visual-strategy and
+/// capability-qualification JSON, so ControlNet/PoseControlNet entries already on the row survive.
+/// </summary>
+static async Task ApplyLocalIdentityQualificationAsync(
+    SqliteConnection connection,
+    SqliteTransaction transaction,
+    string modelId,
+    string providerId,
+    string proofId)
+{
+    var visualJson = "[]";
+    var qualificationsJson = "[]";
+    await using (var select = connection.CreateCommand())
+    {
+        select.Transaction = transaction;
+        select.CommandText = "SELECT SupportedVisualStrategiesJson, CapabilityQualificationsJson FROM RegisteredModels WHERE Id = $modelId;";
+        select.Parameters.AddWithValue("$modelId", modelId);
+        await using var reader = await select.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            visualJson = reader.IsDBNull(0) ? "[]" : reader.GetString(0);
+            qualificationsJson = reader.IsDBNull(1) ? "[]" : reader.GetString(1);
+        }
+    }
+
+    var visual = JsonNode.Parse(visualJson) as JsonArray ?? new JsonArray();
+    var hasVisual = visual.Any(node => node is not null
+        && string.Equals(node.GetValue<string>(), "ReferenceConditioning", StringComparison.OrdinalIgnoreCase));
+    if (!hasVisual)
+        visual.Add("ReferenceConditioning");
+
+    var qualifications = JsonNode.Parse(qualificationsJson) as JsonArray ?? new JsonArray();
+    var matched = false;
+    foreach (var node in qualifications)
+    {
+        if (node is not JsonObject entry) continue;
+        var strategy = entry["Strategy"]?.GetValue<string>();
+        var endpointId = entry["EndpointId"]?.GetValue<string>();
+        if (string.Equals(strategy, "ReferenceConditioning", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(endpointId, providerId, StringComparison.OrdinalIgnoreCase))
+        {
+            entry["Qualified"] = true;
+            entry["ProofId"] = proofId;
+            matched = true;
+        }
+    }
+    if (!matched)
+    {
+        qualifications.Add(new JsonObject
+        {
+            ["Strategy"] = "ReferenceConditioning",
+            ["EndpointId"] = providerId,
+            ["Qualified"] = true,
+            ["ProofId"] = proofId
+        });
+    }
+
+    await using var update = connection.CreateCommand();
+    update.Transaction = transaction;
+    update.CommandText = """
+        UPDATE RegisteredModels
+        SET IdentityMechanism = 'IpAdapter',
+            IdentityStrength = 0.8,
+            IdentityAdapterRef = 'PLUS FACE (portraits)',
+            SupportedIdentityStrategiesJson = '["ReferenceConditioning"]',
+            SupportedVisualStrategiesJson = $visual,
+            CapabilityQualificationsJson = $qualifications
+        WHERE Id = $modelId;
+        """;
+    update.Parameters.AddWithValue("$visual", visual.ToJsonString());
+    update.Parameters.AddWithValue("$qualifications", qualifications.ToJsonString());
+    update.Parameters.AddWithValue("$modelId", modelId);
+    if (await update.ExecuteNonQueryAsync() != 1)
+        throw new InvalidOperationException($"Local identity qualification update failed for model '{modelId}'; no database changes were made.");
 }
 
 static async Task<int> ConfigureQwenEditServerlessAsync(SqliteConnection connection)
@@ -1047,6 +1157,164 @@ static async Task<int> ConfigureQwenEditServerlessAsync(SqliteConnection connect
     await transaction.CommitAsync();
     Console.WriteLine(
         $"Qwen editor configured: {functionName} | {providerName} | {modelIdentifier} | {providerBaseUrl} | ExistingIdsPreserved={providerId}/{modelId}");
+    return 0;
+}
+
+static async Task<int> ConfigureQwenEditLocalAioAsync(SqliteConnection connection)
+{
+    const string functionName = "RolePlaySceneImageEditor";
+    const string providerName = "Local ComfyUI (WOOD-GAME-MAIN 5080)";
+    const string diffusionModel = "Qwen-Rapid-AIO-NSFW-v23.safetensors";
+    const string graphKind = "MergedCheckpoint";
+    const string displayName = "Qwen Image Edit Rapid-AIO NSFW v23 (Local ComfyUI)";
+    const int steps = 8;
+    const double cfg = 1.0;
+    const string sampler = "euler_ancestral";
+    const string scheduler = "beta";
+    const double denoise = 1.0;
+    const double auraFlowShift = 3.1;
+    const double cfgNormStrength = 1.0;
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    string providerId;
+    long imageProtocol;
+    await using (var selectProvider = connection.CreateCommand())
+    {
+        selectProvider.Transaction = transaction;
+        selectProvider.CommandText = "SELECT Id, ImageProtocol FROM Providers WHERE Name = $name;";
+        selectProvider.Parameters.AddWithValue("$name", providerName);
+        await using var reader = await selectProvider.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            throw new InvalidOperationException($"Provider '{providerName}' was not found; no database changes were made.");
+        providerId = reader.GetString(0);
+        imageProtocol = reader.GetInt64(1);
+    }
+
+    if (imageProtocol != 1)
+        throw new InvalidOperationException($"Provider '{providerName}' is not a direct ComfyUI HTTP provider (ImageProtocol={imageProtocol}); the merged-checkpoint graph applies to ComfyUI editors. No database changes were made.");
+
+    string modelId;
+    string? currentDiffusionModel;
+    string? currentGraphKind;
+    string? currentDisplayName;
+    long? currentSteps;
+    double? currentCfg;
+    string? currentSampler;
+    string? currentScheduler;
+    double? currentDenoise;
+    double? currentAuraFlowShift;
+    double? currentCfgNormStrength;
+    await using (var selectModel = connection.CreateCommand())
+    {
+        selectModel.Transaction = transaction;
+        selectModel.CommandText = """
+            SELECT Id, DisplayName, ImageEditorDiffusionModel, ImageEditorGraphKind, ImageEditorSteps, ImageEditorCfg,
+                   ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength
+            FROM RegisteredModels
+            WHERE ProviderId = $providerId AND ImageEditorDiffusionModel IS NOT NULL;
+            """;
+        selectModel.Parameters.AddWithValue("$providerId", providerId);
+        var candidateIds = new List<string>();
+        await using var reader = await selectModel.ExecuteReaderAsync();
+        modelId = string.Empty;
+        currentDiffusionModel = null;
+        currentGraphKind = null;
+        currentDisplayName = null;
+        currentSteps = null;
+        currentCfg = null;
+        currentSampler = null;
+        currentScheduler = null;
+        currentDenoise = null;
+        currentAuraFlowShift = null;
+        currentCfgNormStrength = null;
+        while (await reader.ReadAsync())
+        {
+            candidateIds.Add(reader.GetString(0));
+            modelId = reader.GetString(0);
+            currentDisplayName = reader.GetString(1);
+            currentDiffusionModel = reader.IsDBNull(2) ? null : reader.GetString(2);
+            currentGraphKind = reader.IsDBNull(3) ? null : reader.GetString(3);
+            currentSteps = reader.IsDBNull(4) ? null : reader.GetInt64(4);
+            currentCfg = reader.IsDBNull(5) ? null : reader.GetDouble(5);
+            currentSampler = reader.IsDBNull(6) ? null : reader.GetString(6);
+            currentScheduler = reader.IsDBNull(7) ? null : reader.GetString(7);
+            currentDenoise = reader.IsDBNull(8) ? null : reader.GetDouble(8);
+            currentAuraFlowShift = reader.IsDBNull(9) ? null : reader.GetDouble(9);
+            currentCfgNormStrength = reader.IsDBNull(10) ? null : reader.GetDouble(10);
+        }
+        if (candidateIds.Count != 1)
+            throw new InvalidOperationException($"Expected exactly one editor model on provider '{providerName}'; found {candidateIds.Count}. No database changes were made.");
+    }
+
+    string? functionDefaultModelId;
+    await using (var selectFunction = connection.CreateCommand())
+    {
+        selectFunction.Transaction = transaction;
+        selectFunction.CommandText = "SELECT ModelId FROM FunctionModelDefaults WHERE FunctionName = $functionName;";
+        selectFunction.Parameters.AddWithValue("$functionName", functionName);
+        functionDefaultModelId = await selectFunction.ExecuteScalarAsync() as string;
+    }
+
+    if (!string.Equals(functionDefaultModelId, modelId, StringComparison.Ordinal))
+        throw new InvalidOperationException($"'{functionName}' is not assigned to the local editor model ({modelId}); assign it in Model Manager before running this command. No database changes were made.");
+
+    var alreadyConfigured =
+        string.Equals(currentDiffusionModel, diffusionModel, StringComparison.Ordinal) &&
+        string.Equals(currentGraphKind, graphKind, StringComparison.Ordinal) &&
+        string.Equals(currentDisplayName, displayName, StringComparison.Ordinal) &&
+        currentSteps == steps &&
+        currentCfg == cfg &&
+        string.Equals(currentSampler, sampler, StringComparison.Ordinal) &&
+        string.Equals(currentScheduler, scheduler, StringComparison.Ordinal) &&
+        currentDenoise == denoise &&
+        currentAuraFlowShift == auraFlowShift &&
+        currentCfgNormStrength == cfgNormStrength;
+
+    if (alreadyConfigured)
+    {
+        await transaction.RollbackAsync();
+        Console.WriteLine($"Local Qwen editor already configured: {providerName} | {diffusionModel} | {graphKind} | {steps} steps / CFG {cfg} / {sampler} / {scheduler}. No changes made.");
+        return 0;
+    }
+
+    await using (var update = connection.CreateCommand())
+    {
+        update.Transaction = transaction;
+        update.CommandText = """
+            UPDATE RegisteredModels
+            SET DisplayName = $displayName,
+                ImageEditorDiffusionModel = $diffusionModel,
+                ImageEditorGraphKind = $graphKind,
+                ImageEditorSteps = $steps,
+                ImageEditorCfg = $cfg,
+                ImageEditorSampler = $sampler,
+                ImageEditorScheduler = $scheduler,
+                ImageEditorDenoise = $denoise,
+                ImageEditorAuraFlowShift = $auraFlowShift,
+                ImageEditorCfgNormStrength = $cfgNormStrength
+            WHERE Id = $modelId
+              AND ProviderId = $providerId;
+            """;
+        update.Parameters.AddWithValue("$displayName", displayName);
+        update.Parameters.AddWithValue("$diffusionModel", diffusionModel);
+        update.Parameters.AddWithValue("$graphKind", graphKind);
+        update.Parameters.AddWithValue("$steps", steps);
+        update.Parameters.AddWithValue("$cfg", cfg);
+        update.Parameters.AddWithValue("$sampler", sampler);
+        update.Parameters.AddWithValue("$scheduler", scheduler);
+        update.Parameters.AddWithValue("$denoise", denoise);
+        update.Parameters.AddWithValue("$auraFlowShift", auraFlowShift);
+        update.Parameters.AddWithValue("$cfgNormStrength", cfgNormStrength);
+        update.Parameters.AddWithValue("$modelId", modelId);
+        update.Parameters.AddWithValue("$providerId", providerId);
+        if (await update.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("Local Qwen editor update failed; no database changes were made.");
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine(
+        $"Local Qwen editor configured: {functionName} | {providerName} | {diffusionModel} | graph={graphKind} | {steps} steps / CFG {cfg} / {sampler} / {scheduler} | ModelId={modelId}");
     return 0;
 }
 
@@ -1685,5 +1953,5 @@ static string FindDatabasePath()
 static void PrintUsage()
 {
     Console.Error.WriteLine("Usage: dotnet run --project DreamGenClone.DbQuery -- <command> [args]");
-    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, qwen-edit-serverless-configure, local-comfyui-configure <baseUrl>, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <weight> <bustSize> <buttSize>, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
+    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, qwen-edit-serverless-configure, qwen-edit-local-aio-configure, local-comfyui-configure <baseUrl>, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <weight> <bustSize> <buttSize>, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
 }

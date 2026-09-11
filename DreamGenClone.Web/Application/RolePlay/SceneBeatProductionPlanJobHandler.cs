@@ -258,12 +258,16 @@ public sealed class SceneBeatProductionPlanJobHandler : IDurableBackgroundJobHan
 
         var eventsJson = RequireSection(structure, "events", "structure").ToJsonString();
 
-        var spokenResult = await RunPassAsync(analyzer, _contract.BuildSpokenPass(snapshot, eventsJson), progress, cancellationToken);
+        // Spoken and continuity are independent of each other (both depend only on the structure
+        // pass), so run them in parallel to cut one pass of wall-clock latency.
+        var spokenTask = RunPassAsync(analyzer, _contract.BuildSpokenPass(snapshot, eventsJson), progress, cancellationToken);
+        var continuityTask = RunPassAsync(analyzer, _contract.BuildContinuityPass(snapshot, eventsJson), progress, cancellationToken);
+        await Task.WhenAll(spokenTask, continuityTask);
+        var spokenResult = await spokenTask;
+        var continuityResult = await continuityTask;
         Accumulate(spokenResult);
-        var spoken = ParsePassObject(spokenResult.Content, "spoken");
-
-        var continuityResult = await RunPassAsync(analyzer, _contract.BuildContinuityPass(snapshot, eventsJson), progress, cancellationToken);
         Accumulate(continuityResult);
+        var spoken = ParsePassObject(spokenResult.Content, "spoken");
         var continuity = ParsePassObject(continuityResult.Content, "continuity");
 
         var combined = SceneBeatProductionAssembler.Assemble(snapshot, structure, spoken, continuity);

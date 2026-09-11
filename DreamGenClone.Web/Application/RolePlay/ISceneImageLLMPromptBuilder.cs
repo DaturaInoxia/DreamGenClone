@@ -23,9 +23,11 @@ public interface ISceneImageLLMPromptBuilder
 
     /// <summary>
     /// Canonical composition-path variant that also receives the scenario characters so the builder
-    /// can inject each depicted character's fixed physical appearance. The default implementation
-    /// delegates to the character-less overload (Pony/API builders ignore characters); the SDXL
-    /// builder overrides this to append the authoritative appearance block.
+    /// can inject each depicted character's fixed physical appearance, plus optional per-character
+    /// appearance overrides/removals (key = character id or name; empty string = drop that character's
+    /// appearance line). The default implementation delegates to the character-less overload
+    /// (Pony/API builders ignore characters); the SDXL builder overrides this to append the
+    /// authoritative appearance block.
     /// </summary>
     (string SystemPrompt, string UserPrompt) BuildMessages(
         CompiledMediaBrief brief,
@@ -33,7 +35,8 @@ public interface ISceneImageLLMPromptBuilder
         SceneImageStudioSettings settings,
         ImageContentPolicy resolvedPolicy,
         string? refineInstruction,
-        IReadOnlyList<Character>? characters)
+        IReadOnlyList<Character>? characters,
+        IReadOnlyDictionary<string, string>? appearanceOverrides = null)
         => BuildMessages(brief, pov, settings, resolvedPolicy, refineInstruction);
 
     /// <summary>Compose the system + user messages for the pre-processor model.</summary>

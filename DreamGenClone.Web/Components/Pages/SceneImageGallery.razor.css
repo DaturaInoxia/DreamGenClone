@@ -11,6 +11,31 @@
     box-shadow: 0 0 0 2px #355b63;
 }
 
+/* Image card: metadata line above a full-width action row */
+.scene-gallery-card {
+    width: 240px;
+}
+
+.scene-gallery-meta {
+    margin-top: 6px;
+}
+
+.scene-gallery-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.scene-gallery-actions .btn {
+    flex: 1 1 auto;
+    min-width: 64px;
+    padding: 4px 10px;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
 /* Full-window image viewer (lightbox) */
 .scene-image-viewer-overlay {
     position: fixed;

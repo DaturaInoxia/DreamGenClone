@@ -52,6 +52,23 @@ A single provider row (one ComfyUI endpoint hosts every checkpoint) named
 > `IdentityStrength=0.8`; PLUS FACE proof on the host (Dean front ref) rendered likeness held (minor
 > eye-color drift at 0.8). Proof workflow: `artifacts/tmp/dbquery/workflows/ponyrealism-ipadapter-proof.json`.
 
+> **Qwen Image Edit 2511 (Local ComfyUI) — editor model added 2026-09-09.** Files (public HF,
+> ~30 GB): `qwen_image_edit_2511_fp8mixed.safetensors` → `models/diffusion_models`,
+> `qwen_2.5_vl_7b_fp8_scaled.safetensors` → `models/text_encoders`, `qwen_image_vae.safetensors` →
+> `models/vae` (Comfy-Org repos; the split UNET graph, matching `ComfyUIImageEditingClient`). The
+> ComfyUI 0.34.0 host already ships the full Qwen-Image-Edit node set
+> (`TextEncodeQwenImageEditPlus`, `FluxKontext*`, `ModelSamplingAuraFlow`, `CFGNorm`). Local smoke
+> **PASS 2026-09-09**: 40-step single-edit ~2 min 54 s on the 5080 (offload), edit applied + identity
+> held. Registered under the `Local ComfyUI` provider with editor settings 40 steps / CFG 4 /
+> euler / simple / denoise 1 / AuraFlow 3.1 / CFGNorm 1, and `RolePlaySceneImageEditor` function
+> default **repointed to local** (RunPod editor row kept intact as fallback).
+> **CAVEAT — stock is SFW-aligned:** this local model is the stock `qwen_image_edit_2511_fp8mixed`,
+> NOT the `Qwen-Rapid-AIO-NSFW-v23` serverless variant, so explicit/adult edits are safety-blanked
+> (genital region → mannequin). Use local for implied/SFW edits; switch the default back to the
+> RunPod NSFW-AIO editor for explicit edits. Registration was done via direct DB
+> (model id `7bc5d932-4596-4b96-ac73-5162516a162f`); `local-comfyui-configure` does NOT create
+> editor rows yet.
+
 > **FLUX enabled 2026-09-08:** the B-112 §7 Flux-family code slice landed (`SceneImageModelFamily.Flux`
 > + `FluxNaturalLanguage`, ComfyUI split-UNET `BuildFluxWorkflow`, `FluxSceneImagePromptCompiler`,
 > validation arms + dropdowns). The FLUX row is now **enabled** and routable — additive, and it is
@@ -70,6 +87,15 @@ A single provider row (one ComfyUI endpoint hosts every checkpoint) named
 > DWPose extract PASS + OpenPoseXL2 ControlNet render PASS. Proof workflows (git-ignored):
 > `artifacts/tmp/controlnet-local-proof/*.json`. **No Model Manager rows** — ControlNet/DWPose are
 > workflow-side conditioning, not served checkpoints.
+
+> **Identity / ReferenceConditioning declarations 2026-09-09:** `local-comfyui-configure` now
+> declares **and** qualifies `ReferenceConditioning` (IP-Adapter PLUS FACE, strength 0.8) for the
+> three local models with a passing local identity proof — **Juggernaut XL Ragnarok**, **BigLust
+> v1.6 (Local)**, and **Pony Realism v2.3 ULTRA**. Proof ids: `20260908-local-sdxl-ipadapter-juggernaut`,
+> `20260908-local-sdxl-ipadapter-biglust`, `ponyrealism-ipadapter-proof-2026-09-08` (endpoint =
+> this provider). Existing Pose/ControlNet strategy + qualification entries are preserved (merged).
+> **Pony V6 XL and FLUX.1-dev fp8 intentionally stay unqualified**: Pony V6's IP-Adapter mechanism
+> loads but the identity matrix is off-model (FAIL), and FLUX has no IP-Adapter PLUS FACE path.
 
 This is **additive**: it never repoints function defaults and never disables an existing RunPod
 provider/model, so the local endpoint can replace or run alongside the RunPod Serverless endpoints

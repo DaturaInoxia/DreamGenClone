@@ -89,6 +89,13 @@ public sealed class SceneImageEditTarget
     public string Key { get; set; } = string.Empty;
     public string VisibleLocator { get; set; } = string.Empty;
     public SceneImageEditTargetRegion? Region { get; set; }
+
+    /// <summary>
+    /// Vision-estimated head direction of this person, used to pick the identity-pack face
+    /// reference whose angle best matches the target pose (front / three-quarter / profile).
+    /// Null when the compiler did not classify it.
+    /// </summary>
+    public SceneImageReferenceFaceView? HeadView { get; set; }
 }
 
 public sealed class SceneImageEditTargetRegion

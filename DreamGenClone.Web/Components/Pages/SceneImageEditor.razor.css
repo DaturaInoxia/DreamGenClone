@@ -15,6 +15,96 @@
     padding: 16px;
 }
 
+/* The face-reference picker floats a thumbnail menu out of the panel, so the workbench must not
+   clip its descendants. */
+.scene-edit-workbench {
+    overflow: visible;
+}
+
+.scene-face-picker-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    background: #1c1c1c;
+    color: #e6e6e6;
+    font-size: 0.875rem;
+    text-align: left;
+}
+
+.scene-face-picker-toggle:disabled {
+    opacity: 0.55;
+}
+
+.scene-face-picker-toggle-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scene-face-picker-thumb {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    object-fit: cover;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    background: #0c0c0c;
+}
+
+.scene-face-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1050;
+}
+
+.scene-face-picker-menu {
+    position: absolute;
+    z-index: 1051;
+    top: calc(100% + 4px);
+    right: 0;
+    left: 0;
+    max-height: 320px;
+    padding: 4px;
+    overflow-y: auto;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    background: #141414;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+}
+
+.scene-face-picker-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 10px;
+    padding: 6px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #e6e6e6;
+    text-align: left;
+}
+
+.scene-face-picker-item:hover,
+.scene-face-picker-item.is-selected {
+    background: #223a40;
+}
+
+.scene-face-picker-item-label {
+    display: grid;
+    min-width: 0;
+    gap: 1px;
+}
+
+.scene-face-picker-item-label span {
+    color: #9aa4aa;
+    font-size: 0.75rem;
+}
+
 .scene-edit-panel-heading {
     display: flex;
     align-items: center;

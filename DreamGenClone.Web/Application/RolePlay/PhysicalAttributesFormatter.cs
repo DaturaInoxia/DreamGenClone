@@ -126,6 +126,24 @@ internal static class PhysicalAttributesFormatter
     }
 
     /// <summary>
+    /// Returns a compact, single-line **body** description for the Composition Composer's Body
+    /// reference row: weight, body type and the prose figure line (bust/waist/hips/rear) — the
+    /// renderable body anchors only, with no face/hair/eye anchors. Returns
+    /// <see cref="string.Empty"/> when nothing body-related is configured.
+    /// </summary>
+    internal static string FormatVisualBody(PhysicalAttributes? attrs)
+    {
+        if (attrs is null) return string.Empty;
+
+        var sb = new StringBuilder();
+        Append(sb, "Weight", attrs.Weight);
+        Append(sb, "Body type", attrs.BodyType);
+        Append(sb, "Figure", BuildFigure(attrs));
+
+        return sb.Length == 0 ? string.Empty : sb.ToString();
+    }
+
+    /// <summary>
     /// Builds the body-proportion "Figure" descriptor (bust, waist, hips, rear) from the prose
     /// scale fields. Returns null when none are set so the line is omitted entirely.
     /// </summary>

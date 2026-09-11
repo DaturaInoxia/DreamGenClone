@@ -235,9 +235,16 @@ public sealed class ProductionMediaRepositoryTests
         var capability = await fixture.CreateCapabilityAsync();
         capability.Profile.CompilerId = "sdxl-photographic";
         capability.Profile.CompilerVersion = "1";
+        var registeredModel = new RegisteredModel
+        {
+            Id = "sdxl-registered-model", ProviderId = "provider-1",
+            ModelIdentifier = "juggernautXL_ragnarok.safetensors",
+            DisplayName = "Juggernaut XL Ragnarok", ModelKind = ModelKind.Image, IsEnabled = true
+        };
+        await fixture.ModelRepository.SaveAsync(registeredModel);
         var persistedProfile = new MediaCapabilityProfile
         {
-            Id = "sdxl-profile", ProviderKey = capability.Profile.ProviderKey,
+            Id = "sdxl-profile", RegisteredModelId = registeredModel.Id, ProviderKey = capability.Profile.ProviderKey,
             ModelId = "juggernautXL_ragnarok.safetensors", ModelVersion = capability.Profile.ModelVersion,
             Operation = MediaOperation.Generate, CompilerId = "sdxl-photographic", CompilerVersion = "1",
             WorkflowRevision = capability.Profile.WorkflowRevision, NodeRevision = capability.Profile.NodeRevision,

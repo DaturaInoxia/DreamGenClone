@@ -15,6 +15,8 @@ public sealed class AssetStudioUiContractTests
         Root, "DreamGenClone.Web", "Components", "Pages", "AssetReview.razor"));
     private static readonly string EditComponentSource = File.ReadAllText(Path.Combine(
         Root, "DreamGenClone.Web", "Components", "Assets", "ImageEditWorkbench.razor"));
+    private static readonly string PromptCreatorSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "Assets", "PromptAssetCreator.razor"));
     [Fact]
     public void Manager_ListsAssetsAndLinksDedicatedManagementWorkflows()
     {
@@ -52,7 +54,7 @@ public sealed class AssetStudioUiContractTests
         Assert.Contains("await InvokeAsync(async () =>", DetailSource, StringComparison.Ordinal);
         Assert.DoesNotContain("EnqueueEditAsync", DetailSource, StringComparison.Ordinal);
         Assert.DoesNotContain("ApproveForProductionAsync", DetailSource, StringComparison.Ordinal);
-        Assert.Contains("Math.Clamp(_outputCount, 1, 8)", EditComponentSource, StringComparison.Ordinal);
+        Assert.Contains("Math.Clamp(_outputCount, 1, 8)", PromptCreatorSource, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

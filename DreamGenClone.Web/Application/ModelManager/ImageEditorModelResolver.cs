@@ -80,6 +80,21 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
                 $"Image content policy not configured for image editor provider '{provider.Name}'. Set its content policy in Model Manager (/model-manager).");
         }
 
+        // The graph shape is configured data, never inferred from artifact names. A ComfyUI-protocol
+        // editor must declare it; a serverless editor always runs the merged-checkpoint graph, so any
+        // other declared value is a configuration conflict rather than something to silently ignore.
+        var graphKind = ImageEditorGraphKinds.ParseOrNull(model.ImageEditorGraphKind);
+        if (provider.ImageProtocol == ImageProtocol.ComfyUi && graphKind is null)
+        {
+            throw new ModelResolutionException(
+                $"Image editor model '{model.DisplayName}' has no editor graph configured. Set 'Editor Graph' in Model Manager (/model-manager): '{ImageEditorGraphKinds.SplitUnet}' for separate diffusion-model/text-encoder/VAE artifacts, or '{ImageEditorGraphKinds.MergedCheckpoint}' for a single merged checkpoint such as Qwen-Rapid-AIO-NSFW-v23.safetensors.");
+        }
+        if (provider.ImageProtocol == ImageProtocol.ComfyUiServerless && graphKind is not null && graphKind != ImageEditorGraphKind.MergedCheckpoint)
+        {
+            throw new ModelResolutionException(
+                $"Image editor model '{model.DisplayName}' uses the RunPod Serverless protocol, which requires the '{ImageEditorGraphKinds.MergedCheckpoint}' editor graph. Set 'Editor Graph' to '{ImageEditorGraphKinds.MergedCheckpoint}' or clear it in Model Manager (/model-manager).");
+        }
+
         // Serverless image editors need the RunPod API key. Prefer the DB-encrypted key; if the
         // provider has none, fall back to the git-ignored ModelManagerSecrets (by CredentialReference,
         // then provider name, then the default "RunPod" key) and encrypt it for the client path —
@@ -115,7 +130,8 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
             AuraFlowShift: RequiredNonNegative(model.ImageEditorAuraFlowShift, "AuraFlow shift", model),
             CfgNormStrength: RequiredNonNegative(model.ImageEditorCfgNormStrength, "CFGNorm strength", model),
             ImageProtocol: provider.ImageProtocol,
-            RegisteredModelId: model.Id);
+            RegisteredModelId: model.Id,
+            GraphKind: graphKind);
     }
 
     public async Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(

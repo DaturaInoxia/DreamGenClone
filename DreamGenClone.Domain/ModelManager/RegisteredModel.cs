@@ -32,6 +32,12 @@ public sealed class RegisteredModel
     /// <summary>Qwen VAE artifact for source-image editing.</summary>
     public string? ImageEditorVae { get; set; }
 
+    /// <summary>
+    /// ComfyUI graph shape the editor workflow builder must emit for this model
+    /// (<see cref="ImageEditorGraphKinds.SplitUnet"/> or <see cref="ImageEditorGraphKinds.MergedCheckpoint"/>).
+    /// Empty = not configured; a ComfyUI-protocol editor then fails fast at resolution.</summary>
+    public string? ImageEditorGraphKind { get; set; }
+
     public int? ImageEditorSteps { get; set; }
     public double? ImageEditorCfg { get; set; }
     public string? ImageEditorSampler { get; set; }

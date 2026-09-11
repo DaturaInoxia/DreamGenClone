@@ -1,5 +1,5 @@
 {
-  "_comment": "Identity pack VERSION folder per character under specs/image-generator-tests/refs/<character>/<version>/. This is the SINGLE pointer every identity proof runner resolves its reference images from. To switch a character to a different approved pack for the next test run, change ONLY the version value here (e.g. \"v7\" -> \"v8\") — no runner code changes needed. Latest approved packs as of 2026-09-02: dean = v7, becky = v4.",
-  "dean": "v7",
-  "becky": "v4"
+  "_comment": "Identity pack VERSION folder per character under specs/image-generator-tests/refs/<character>/<version>/. This is the SINGLE pointer every identity proof runner resolves its reference images from. To switch a character to a different approved pack for the next test run, change ONLY the version value here (e.g. \"v7\" -> \"v8\") - no runner code changes needed. Active packs: dean = v8 - rendered 5-view pack from the local Qwen Image Edit 2511 (40 steps): front + 3/4 left/right + profile left/right, no clothing at all (neck and shoulders kept) with head direction verified per view; becky = v5 - same treatment (clothing removed by edit from her approved front, neck/shoulders kept, necklace retained). Previous: dean v8 photo-crop refs with clothing visible (replaced 2026-09-10), becky v5 chin-cut crops, dean v7 (clothing bled into every identity edit).",
+  "dean": "v8",
+  "becky": "v5"
 }

@@ -29,13 +29,13 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.CommandText = """
             INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported, SceneImageModelFamily, PromptDialect,
                 SupportsImageInput, MaximumInputImages, MaximumInputImageBytes, MaximumInputImagePixels, MaximumInputImageDimension, AcceptedInputMediaTypes, MaximumResponseBytes, RuntimeRevision, ArtifactRevision,
-                ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength,
+                ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorGraphKind, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength,
                 IdentityMechanism, IdentityStrength, IdentityAdapterRef, IdentityClipVisionRef, SupportedIdentityStrategiesJson,
                 SupportedVisualStrategiesJson, CapabilityQualificationsJson,
                 StructuredOutputMode, MaximumContextTokens, MaximumOutputTokens)
             VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported, $sceneImageModelFamily, $promptDialect,
                 $supportsImageInput, $maximumInputImages, $maximumInputImageBytes, $maximumInputImagePixels, $maximumInputImageDimension, $acceptedInputMediaTypes, $maximumResponseBytes, $runtimeRevision, $artifactRevision,
-                $imageEditorDiffusionModel, $imageEditorTextEncoder, $imageEditorVae, $imageEditorSteps, $imageEditorCfg, $imageEditorSampler, $imageEditorScheduler, $imageEditorDenoise, $imageEditorAuraFlowShift, $imageEditorCfgNormStrength,
+                $imageEditorDiffusionModel, $imageEditorTextEncoder, $imageEditorVae, $imageEditorGraphKind, $imageEditorSteps, $imageEditorCfg, $imageEditorSampler, $imageEditorScheduler, $imageEditorDenoise, $imageEditorAuraFlowShift, $imageEditorCfgNormStrength,
                 $identityMechanism, $identityStrength, $identityAdapterRef, $identityClipVisionRef, $supportedIdentityStrategies,
                 $supportedVisualStrategies, $capabilityQualifications,
                 $structuredOutputMode, $maximumContextTokens, $maximumOutputTokens)
@@ -65,6 +65,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                 ImageEditorDiffusionModel = $imageEditorDiffusionModel,
                 ImageEditorTextEncoder = $imageEditorTextEncoder,
                 ImageEditorVae = $imageEditorVae,
+                ImageEditorGraphKind = $imageEditorGraphKind,
                 ImageEditorSteps = $imageEditorSteps,
                 ImageEditorCfg = $imageEditorCfg,
                 ImageEditorSampler = $imageEditorSampler,
@@ -111,6 +112,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.Parameters.AddWithValue("$imageEditorDiffusionModel", (object?)model.ImageEditorDiffusionModel ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorTextEncoder", (object?)model.ImageEditorTextEncoder ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorVae", (object?)model.ImageEditorVae ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorGraphKind", (object?)model.ImageEditorGraphKind ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorSteps", (object?)model.ImageEditorSteps ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorCfg", (object?)model.ImageEditorCfg ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorSampler", (object?)model.ImageEditorSampler ?? DBNull.Value);
@@ -186,7 +188,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                      rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
                      rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef, rm.SupportedIdentityStrategiesJson,
                      rm.SupportedVisualStrategiesJson, rm.CapabilityQualificationsJson,
-                                         rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens,
+                     rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens, rm.ImageEditorGraphKind,
                    p.Name AS ProviderName
             FROM RegisteredModels rm
             INNER JOIN Providers p ON rm.ProviderId = p.Id
@@ -244,7 +246,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
                rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef, rm.SupportedIdentityStrategiesJson,
                rm.SupportedVisualStrategiesJson, rm.CapabilityQualificationsJson,
-               rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens
+               rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens, rm.ImageEditorGraphKind
         FROM RegisteredModels rm
         """;
 
@@ -293,7 +295,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         CapabilityQualificationsJson = reader.GetString(40),
         StructuredOutputMode = (StructuredOutputMode)reader.GetInt32(41),
         MaximumContextTokens = reader.IsDBNull(42) ? null : reader.GetInt32(42),
-        MaximumOutputTokens = reader.IsDBNull(43) ? null : reader.GetInt32(43)
+        MaximumOutputTokens = reader.IsDBNull(43) ? null : reader.GetInt32(43),
+        ImageEditorGraphKind = reader.IsDBNull(44) ? null : reader.GetString(44)
     };
 
     private static void ValidateImagePromptMetadata(RegisteredModel model)

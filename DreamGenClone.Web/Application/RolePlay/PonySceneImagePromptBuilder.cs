@@ -50,11 +50,12 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         SceneImageStudioSettings settings,
         ImageContentPolicy resolvedPolicy,
         string? refineInstruction,
-        IReadOnlyList<Character>? characters)
+        IReadOnlyList<Character>? characters,
+        IReadOnlyDictionary<string, string>? appearanceOverrides = null)
     {
         ValidateCanonicalBrief(brief, pov);
         var systemPrompt = BuildCanonicalSystemPrompt();
-        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters);
+        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides);
         return (systemPrompt, userPrompt);
     }
 
@@ -617,14 +618,15 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         SceneImageStudioSettings settings,
         ImageContentPolicy policy,
         string? refineInstruction,
-        IReadOnlyList<Character>? characters)
+        IReadOnlyList<Character>? characters,
+        IReadOnlyDictionary<string, string>? appearanceOverrides)
     {
         var sb = new StringBuilder();
         sb.AppendLine("CANONICAL STILL BRIEF (immutable; this is the complete semantic source):");
         sb.AppendLine(brief.SemanticInputSnapshotJson);
         sb.AppendLine("CANONICAL PROVIDER REQUEST SNAPSHOT (immutable):");
         sb.AppendLine(brief.ProviderRequestSnapshotJson);
-        var appearanceBlock = CanonicalCharacterAppearance.BuildBlock(brief, pov, characters);
+        var appearanceBlock = CanonicalCharacterAppearance.BuildBlock(brief, pov, characters, appearanceOverrides);
         if (!string.IsNullOrWhiteSpace(appearanceBlock))
         {
             sb.AppendLine(appearanceBlock);

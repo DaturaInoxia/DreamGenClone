@@ -15,6 +15,14 @@
     [Parameter, EditorRequired]
     public SceneAssetType AssetType { get; set; }
 
+    /// <summary>
+    /// Optional character profile id. When set, only approved assets owned by that character are
+    /// offered (identity/body/wardrobe rows are character-scoped); null = all approved assets of
+    /// the <see cref="AssetType"/> (e.g. Location).
+    /// </summary>
+    [Parameter]
+    public string? CharacterProfileId { get; set; }
+
     [Parameter]
     public string? SelectedAssetImageId { get; set; }
 
@@ -31,6 +39,8 @@
         {
             var assets = (await AssetService.ListAssetsAsync())
                 .Where(asset => asset.Type == AssetType)
+                .Where(asset => string.IsNullOrWhiteSpace(CharacterProfileId)
+                    || string.Equals(asset.CharacterProfileId, CharacterProfileId, StringComparison.Ordinal))
                 .ToList();
             var choices = new List<SceneAssetReferenceChoice>();
             foreach (var asset in assets)

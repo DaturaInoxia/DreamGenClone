@@ -28,6 +28,27 @@ public sealed class QwenSceneImageEditPromptCompilerTests
         Assert.False(messages.ResponseSchema.GetProperty("additionalProperties").GetBoolean());
     }
 
+    /// <summary>
+    /// v3: a requested change is the state the image should have AFTER the edit. The compiler must only
+    /// verify that the target is visible, never that the requested change is already present, which was
+    /// the v2 over-rejection cause for "the man is looking down" / "mid orgasm" intents.
+    /// </summary>
+    [Fact]
+    public void BuildMessages_RequestedChangeIsNeverValidatedAgainstTheSource()
+    {
+        var messages = _compiler.BuildMessages(new SceneImageEditCompilerContext(
+            "change to that the man is looking down, change his facial expression so he looks mid orgasm",
+            []));
+
+        Assert.Contains("A requested change describes the state the image should have after the edit", messages.SystemMessage, StringComparison.Ordinal);
+        Assert.Contains("never require the requested change itself to be present in the source", messages.SystemMessage, StringComparison.Ordinal);
+        Assert.Contains("The source not already showing the requested change is never a reason", messages.SystemMessage, StringComparison.Ordinal);
+        Assert.Contains("mid orgasm", messages.SystemMessage, StringComparison.Ordinal);
+        Assert.Contains("subjective, emotional, or physiological state", messages.SystemMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("the thing to change is not visible in the source", messages.SystemMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("a visible detail is uncertain", messages.SystemMessage, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void BuildMessages_EmptyIntent_Fails()
     {
@@ -152,6 +173,38 @@ public sealed class QwenSceneImageEditPromptCompilerTests
                             "compiledPrompt":"Change the selected shirt to red."
                         }
                         """;
+
+        Assert.Throws<InvalidOperationException>(() => _compiler.Parse(json));
+    }
+
+    [Fact]
+    public void Parse_TargetHeadView_ClassifiesHeadDirection()
+    {
+        var json = ReadyJson().Replace(
+            "\"region\":{\"x\":0.20,\"y\":0.10,\"width\":0.30,\"height\":0.70}",
+            "\"region\":{\"x\":0.20,\"y\":0.10,\"width\":0.30,\"height\":0.70},\"headView\":\"profile_left\"",
+            StringComparison.Ordinal);
+
+        var result = _compiler.Parse(json);
+
+        Assert.Equal(SceneImageReferenceFaceView.ProfileLeft, result.Targets[0].HeadView);
+    }
+
+    [Fact]
+    public void Parse_TargetWithoutHeadView_LeavesHeadViewNull()
+    {
+        var result = _compiler.Parse(ReadyJson());
+
+        Assert.Null(result.Targets[0].HeadView);
+    }
+
+    [Fact]
+    public void Parse_UnknownHeadViewToken_Fails()
+    {
+        var json = ReadyJson().Replace(
+            "\"region\":{\"x\":0.20,\"y\":0.10,\"width\":0.30,\"height\":0.70}",
+            "\"region\":{\"x\":0.20,\"y\":0.10,\"width\":0.30,\"height\":0.70},\"headView\":\"up\"",
+            StringComparison.Ordinal);
 
         Assert.Throws<InvalidOperationException>(() => _compiler.Parse(json));
     }

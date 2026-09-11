@@ -373,6 +373,110 @@ public sealed class SceneImageService : ISceneImageService
             cancellationToken);
     }
 
+    public async Task<SceneImageRecord> EnqueueEditorIdentityAsync(
+        SceneImageEditorIdentityRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var session = await LoadSessionAsync(request.SessionId, cancellationToken);
+        var interaction = FindInteraction(session, request.InteractionId);
+        Require(request.SourceImageId, "Identity source image id");
+        var selections = request.Selections ?? [];
+        if (selections.Count == 0)
+            throw new InvalidOperationException("Identity requires at least one bound character.");
+        var parent = await _repository.GetImageAsync(request.SourceImageId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene image '{request.SourceImageId}' was not found.");
+        if (parent.Status != SceneImageStatus.Complete
+            || string.IsNullOrWhiteSpace(parent.FileRelativePath)
+            || string.IsNullOrWhiteSpace(parent.Sha256))
+            throw new InvalidOperationException("Identity requires a completed, stored source image with a checksum.");
+        if (!string.Equals(parent.SessionId, session.Id, StringComparison.Ordinal)
+            || !string.Equals(parent.InteractionId, interaction.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException("The source scene image does not belong to the selected session and interaction.");
+        if (selections.Any(selection => string.IsNullOrWhiteSpace(selection.CharacterId)
+            || string.IsNullOrWhiteSpace(selection.ReferenceAssetId)
+            || string.IsNullOrWhiteSpace(selection.CharacterName)
+            || string.IsNullOrWhiteSpace(selection.VisibleLocator)))
+            throw new InvalidOperationException("Every identity selection requires a character, character name, approved face reference, and visible locator.");
+        if (selections.Select(selection => selection.CharacterId.Trim()).Distinct(StringComparer.Ordinal).Count() != selections.Count)
+            throw new InvalidOperationException("Each selected character may correct at most one detected person per identity edit.");
+        var productionService = _productionService
+            ?? throw new InvalidOperationException("Identity enqueue requires the production service.");
+        var resolved = await productionService.ResolveCharacterIdentitySelectionsAsync(
+            selections
+                .Select(selection => new SceneImageIdentityReferenceSelection(selection.CharacterId.Trim(), selection.ReferenceAssetId.Trim()))
+                .ToList(),
+            cancellationToken);
+        var resolvedByCharacter = resolved.ToDictionary(item => item.CharacterId, StringComparer.Ordinal);
+        if (resolvedByCharacter.Count != selections.Count)
+            throw new InvalidOperationException("Every selected character reference must resolve to its approved identity pack.");
+        var bindings = selections.Select((selection, index) =>
+        {
+            var item = resolvedByCharacter[selection.CharacterId.Trim()];
+            return new
+            {
+                ordinal = index + 1,
+                characterId = item.CharacterId,
+                characterName = selection.CharacterName.Trim(),
+                identityPackId = item.IdentityPackId,
+                identityPackVersion = item.IdentityPackVersion,
+                canonicalFaceAssetId = item.CanonicalFaceAssetId,
+                faceView = item.FaceView,
+                fileRelativePath = item.FileRelativePath,
+                sha256 = item.Sha256,
+                targetKey = selection.TargetKey.Trim(),
+                visibleLocator = selection.VisibleLocator.Trim()
+            };
+        }).ToArray();
+        var instruction = BuildEditorIdentityInstruction(
+            bindings
+                .Select(binding => (
+                    binding.ordinal,
+                    SubjectLabel: string.IsNullOrWhiteSpace(binding.targetKey) ? binding.characterName : binding.targetKey,
+                    binding.visibleLocator))
+                .ToList());
+
+        var record = new SceneImageRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interaction.Id,
+            PromptRecordId = parent.PromptRecordId,
+            PromptSnapshot = instruction,
+            Status = SceneImageStatus.Pending,
+            Operation = SceneImageOperation.Edit,
+            SourceImageId = parent.Id,
+            ImageSize = parent.ImageSize,
+            Style = parent.Style,
+            SettingsJson = parent.SettingsJson,
+            BeatId = parent.BeatId,
+            Pov = parent.Pov,
+            CompiledMediaBriefId = parent.CompiledMediaBriefId,
+            ProductionStage = SceneImageProductionStage.Identity,
+            Disposition = SceneImageAttemptDisposition.Active,
+            CatalogueId = parent.CatalogueId,
+            BeatProductionPlanId = parent.BeatProductionPlanId,
+            BeatProductionPlanVersion = parent.BeatProductionPlanVersion,
+            MomentSetId = parent.MomentSetId,
+            MomentSetVersion = parent.MomentSetVersion,
+            MomentId = parent.MomentId,
+            MomentEnrichmentId = parent.MomentEnrichmentId,
+            MomentEnrichmentRevision = parent.MomentEnrichmentRevision,
+            IdentityReferenceBindingsJson = JsonSerializer.Serialize(bindings, JsonOptions)
+        };
+        await _repository.InsertImageAsync(record, cancellationToken);
+        var resolvedEditorModel = await ResolveEditorModelForDispatchAsync(cancellationToken);
+        return await DispatchEditAsync(
+            record,
+            new SceneImageEditingJobPayload
+            {
+                SessionId = session.Id,
+                InteractionId = interaction.Id,
+                ImageRecordId = record.Id
+            },
+            resolvedEditorModel.ImageProtocol,
+            resolvedEditorModel,
+            cancellationToken);
+    }
+
     internal static string BuildFaceOnlyIdentityInstruction(
         IReadOnlyList<(int Ordinal, string CharacterName)> selectedCharacters)
     {
@@ -396,6 +500,24 @@ public sealed class SceneImageService : ISceneImageService
             "Preserve everything outside those selected face regions exactly: every person and unselected face, bodies, poses, hands, clothing, accessories, expression, action, scene geometry, framing, camera, crop, background, objects, lighting, color, and composition. " +
             "Do not copy the reference image framing, background, body, pose, clothing, or lighting. " +
             "Do not add, remove, move, restyle, or otherwise alter anything outside the selected character face regions.";
+    }
+
+    internal static string BuildEditorIdentityInstruction(
+        IReadOnlyList<(int Ordinal, string SubjectLabel, string VisibleLocator)> selectedPeople)
+    {
+        if (selectedPeople.Count == 0)
+            throw new InvalidOperationException("Identity requires at least one bound person.");
+        if (selectedPeople.Any(person => string.IsNullOrWhiteSpace(person.SubjectLabel) || string.IsNullOrWhiteSpace(person.VisibleLocator)))
+            throw new InvalidOperationException("Every identity person requires a subject label and a visible locator.");
+
+        // Proven face-application recipe (base-then-edit-pipeline): short, face-primary, uses
+        // "Picture N" for the reference inputs, and ends with an explicit everything-else-unchanged
+        // clause. Long hedged instructions make Qwen follow the leading prose instead of swapping faces.
+        var mapping = string.Join(" ", selectedPeople.Select(person =>
+            $"Apply the face of the person shown in Picture {person.Ordinal + 1} to the {person.SubjectLabel.Trim()} at {person.VisibleLocator.Trim()}. " +
+            $"Keep that person's facial identity consistent with Picture {person.Ordinal + 1} for the entire image; do not change anyone else."));
+        var faces = selectedPeople.Count > 1 ? "faces" : "face";
+        return $"{mapping} Keep the pose, bodies, position, clothing, lighting, and everything else in the image exactly unchanged except the selected {faces}.";
     }
 
     private async Task<SceneImagePromptRecord> EnqueueProductionPromptAsync(

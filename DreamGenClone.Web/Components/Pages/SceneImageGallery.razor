@@ -56,7 +56,7 @@
                     <div class="d-flex flex-wrap gap-3">
                         @foreach (var img in group.Images)
                         {
-                            <div class="border rounded p-2" style="width: 220px;">
+                            <div class="border rounded p-2 scene-gallery-card">
                                 @if (img.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(img.FileRelativePath))
                                 {
                                     <img src="/scene-images/@img.FileRelativePath" class="img-fluid rounded scene-image-thumb" alt="Scene image"
@@ -72,19 +72,19 @@
                                 {
                                     <div class="alert alert-danger py-2 small mb-0">@img.ErrorMessage</div>
                                 }
-                                <div class="d-flex justify-content-between align-items-center mt-1">
+                                <div class="scene-gallery-meta">
                                     <small class="text-muted">@img.Style · @img.ImageSize</small>
-                                    <span>
-                                        @if (img.Status == SceneImageStatus.Complete)
-                                        {
-                                            <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Edit this image"
-                                                @onclick="() => OpenEditor(group.InteractionId, img.Id)"><i class="bi bi-pencil-square"></i></button>
-                                        }
-                                        <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Open in studio"
-                                            @onclick="() => OpenStudio(group.InteractionId)"><i class="bi bi-box-arrow-up-right"></i></button>
-                                        <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete image"
-                                                @onclick="() => DeleteImageAsync(img)">&#x2715;</button>
-                                    </span>
+                                </div>
+                                <div class="scene-gallery-actions">
+                                    @if (img.Status == SceneImageStatus.Complete)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-primary" title="Edit this image"
+                                                @onclick="() => OpenEditor(img.InteractionId, img.Id)">Edit</button>
+                                    }
+                                    <button type="button" class="btn btn-sm btn-outline-primary" title="Open this image in Production Studio"
+                                            @onclick="() => OpenStudio(img)">Studio</button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" title="Delete image"
+                                            @onclick="() => DeleteImageAsync(img)">Delete</button>
                                 </div>
                             </div>
                         }
@@ -101,8 +101,8 @@
         <div class="scene-image-viewer" @onclick:stopPropagation="true">
             <div class="scene-image-viewer-header">
                 <span class="text-muted small">@_viewerImage.Style · @_viewerImage.ImageSize</span>
-                <button class="btn btn-sm btn-outline-secondary" @onclick="CloseViewer" title="Close (Esc)">
-                    <i class="bi bi-x-lg"></i>
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CloseViewer" title="Close (Esc)">
+                    &#x2715;
                 </button>
             </div>
             <img src="/scene-images/@_viewerImage.FileRelativePath" class="scene-image-viewer-img" alt="Scene image" />
@@ -186,9 +186,27 @@
         }
     }
 
-    private void OpenStudio(string interactionId)
+    /// <summary>
+    /// Opens the Production Studio for the image's own production lineage. The exact production
+    /// group is preferred because it already pins the beat, moment, and POV the image was rendered
+    /// from; the Moment route is used when the image has no group yet, and the plain studio route
+    /// remains for legacy images that predate the production pipeline.
+    /// </summary>
+    private void OpenStudio(SceneImageRecord image)
     {
-        Nav.NavigateTo($"/roleplay/studio/{sessionId}/{interactionId}");
+        if (!string.IsNullOrWhiteSpace(image.ProductionGroupId))
+        {
+            Nav.NavigateTo($"/roleplay/studio/{sessionId}/{image.InteractionId}/production/{image.ProductionGroupId}");
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(image.MomentEnrichmentId))
+        {
+            Nav.NavigateTo($"/roleplay/studio/{sessionId}/{image.InteractionId}/production/moment/{image.MomentEnrichmentId}");
+            return;
+        }
+
+        Nav.NavigateTo($"/roleplay/studio/{sessionId}/{image.InteractionId}");
     }
 
     private void OpenEditor(string interactionId, string imageId)

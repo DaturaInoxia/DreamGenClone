@@ -19,6 +19,12 @@ public sealed class SceneImageStudioUiContractTests
         FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "CompositionComposer.razor"));
     private static readonly string SceneImageEditorSource = File.ReadAllText(Path.Combine(
         FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageEditor.razor"));
+    private static readonly string SceneImageEditorStylesheet = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageEditor.razor.css"));
+    private static readonly string SceneImageGallerySource = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageGallery.razor"));
+    private static readonly string SceneImageGalleryStylesheet = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageGallery.razor.css"));
     private static readonly string EditIterateWorkbenchSource = File.ReadAllText(Path.Combine(
         FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Shared", "EditIterateWorkbench.razor"));
     private static readonly string SceneImageStudioStylesheet = File.ReadAllText(Path.Combine(
@@ -47,7 +53,22 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("@onclick=\"GeneratePromptAsync\"", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"GenerateCompositionAsync\"", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("@bind=\"_selectedModelId\"", CompositionComposerSource, StringComparison.Ordinal);
+        // B-111 composer rework: real-payload prompt-input inspector (edit/remove per element, remove
+        // whole characters) with the approved-reference-image panel, plus per-attempt actions.
+        Assert.Contains("Selected Moment &amp; production context", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("Prompt input (what the compiler receives)", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("BuildPromptOverrides", CompositionComposerSource, StringComparison.Ordinal);
+        // Removal uses two-way binding (the previous checked + @onchange pattern inverted the logic),
+        // and removed characters are derived from the bound group state.
+        Assert.Contains("@bind=\"row.Removed\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("@bind=\"group.Removed\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("RemovedCharacterKeys", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("ReferenceApplyPanel", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("SetCompositionDispositionAsync", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("ApproveCompositionAttemptAsync", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("ConfirmDeleteCompositionAsync", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("Regenerate Sibling", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("OnModelChangedAsync", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("ProductionGroupId = _productionGroup!.Id", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("CompiledMediaBriefId = _compiledMediaBrief!.Id", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("SceneImageProductionStage.Composition", CompositionComposerSource, StringComparison.Ordinal);
@@ -219,7 +240,50 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("class=\"scene-edit-lineage-thumb\"", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("Exact edit prompt", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("@image.PromptSnapshot", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("Nav.NavigateTo($\"/roleplay/studio/{sessionId}/{interactionId}\", forceLoad: true);", SceneImageEditorSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SceneImageEditor_RunsEditsInPlaceInsteadOfReturningToTheStudio()
+    {
+        Assert.DoesNotContain("Nav.NavigateTo($\"/roleplay/studio/{sessionId}/{interactionId}\"", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("_statusMessage = \"Image edit queued.\";", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("_statusMessage = \"Identity correction queued.\";", SceneImageEditorSource, StringComparison.Ordinal);
+        // Both run actions must keep the page polling so the result renders in the in-place lineage.
+        Assert.Matches("_statusMessage = \"Image edit queued\\.\";\\s*EnsurePolling\\(\\);", SceneImageEditorSource);
+        Assert.Matches("_statusMessage = \"Identity correction queued\\.\";\\s*EnsurePolling\\(\\);", SceneImageEditorSource);
+        Assert.Contains("private SceneImageRecord? ResolveResultImage(IReadOnlyList<SceneImageRecord> images)", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("_resultImage = ResolveResultImage(images);", SceneImageEditorSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SceneImageEditor_FaceReferencePickerListsApprovedFacesAsThumbnails()
+    {
+        var pickerStart = SceneImageEditorSource.IndexOf("class=\"scene-face-picker-toggle\"", StringComparison.Ordinal);
+        var pickerEnd = SceneImageEditorSource.IndexOf("</div>", SceneImageEditorSource.IndexOf("scene-face-picker-menu", pickerStart, StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.True(pickerStart > 0 && pickerEnd > pickerStart, "The face reference picker markup must exist.");
+        var pickerMarkup = SceneImageEditorSource[pickerStart..pickerEnd];
+        Assert.Contains("/scene-images/@face.FileRelativePath", pickerMarkup, StringComparison.Ordinal);
+        Assert.Contains("class=\"scene-face-picker-thumb\"", pickerMarkup, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"() => SelectIdentityFaceAsync(target, face.Id)\"", pickerMarkup, StringComparison.Ordinal);
+        Assert.Contains("@IdentityFaceLabel(face)", pickerMarkup, StringComparison.Ordinal);
+        Assert.Contains(".scene-face-picker-thumb {", SceneImageEditorStylesheet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SceneImageGallery_OpensStudioAtTheImageProductionAndUsesFullSizeActions()
+    {
+        // "Open in studio" must land on the image's own production lineage, not the legacy studio.
+        Assert.Contains("/roleplay/studio/{sessionId}/{image.InteractionId}/production/{image.ProductionGroupId}", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.Contains("/roleplay/studio/{sessionId}/{image.InteractionId}/production/moment/{image.MomentEnrichmentId}", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"() => OpenStudio(img)\"", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("OpenStudio(group.InteractionId)", SceneImageGallerySource, StringComparison.Ordinal);
+        // The card actions must be labelled, full-size buttons (the icon-only py-0/px-1 stubs rendered as slivers).
+        Assert.Contains(">Edit</button>", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.Contains(">Studio</button>", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.Contains(">Delete</button>", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("py-0 px-1", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.Contains("class=\"scene-gallery-actions\"", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.Contains(".scene-gallery-actions .btn {", SceneImageGalleryStylesheet, StringComparison.Ordinal);
     }
 
     [Fact]

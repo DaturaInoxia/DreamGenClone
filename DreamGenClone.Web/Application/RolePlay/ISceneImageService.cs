@@ -32,6 +32,15 @@ public interface ISceneImageService
     Task<SceneImageRecord> EnqueueIdentityAsync(
         SceneImageIdentityRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Enqueue a separate identity-correction edit from the scene image editor. Binds approved
+    /// identity-pack faces to the detected people of a completed source image and produces an
+    /// immutable Identity-stage child lineage image. No typed content prompt is required — the
+    /// face-only instruction is service-authored from the per-person bindings.
+    /// </summary>
+    Task<SceneImageRecord> EnqueueEditorIdentityAsync(
+        SceneImageEditorIdentityRequest request, CancellationToken cancellationToken = default);
+
     Task<SceneImageRecord> EnqueueFinishAsync(
         SceneImageFinishRequest request, CancellationToken cancellationToken = default);
 

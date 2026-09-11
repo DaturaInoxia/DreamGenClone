@@ -8,7 +8,7 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptCompiler
 {
     public const string SchemaVersion = "scene-image-edit-compiler-v1";
-    public const string SystemPromptVersion = "qwen-edit-rules-v2";
+    public const string SystemPromptVersion = "qwen-edit-rules-v3";
     public const string ResponseSchemaName = "scene_image_edit_compilation";
 
     private static readonly HashSet<string> RootFields = new(StringComparer.Ordinal)
@@ -97,13 +97,17 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
     private static string BuildSystemMessage() => """
         You are a vision-grounded compiler for Qwen Image Edit. Inspect the supplied source image and compile the user's request into one concise edit instruction.
 
-        Observe only visible facts needed to satisfy the request. Identify targets with visible locators such as clothing, position, laterality, or nearby objects. When multiple people are visible, give every person a distinct target key and location-qualified locator using image-relative placement (for example, "woman on image left" and "man on image right"), plus visible appearance or clothing. Do not invent names, relationships, hidden anatomy, unseen details, or story facts.
+        Observe only visible facts needed to satisfy the request. Identify targets with visible locators such as clothing, position, laterality, or nearby objects. When multiple people are visible, give every person a distinct target key and location-qualified locator using image-relative placement (for example, "woman on image left" and "man on image right"), plus visible appearance or clothing. For every visible person, also record their head direction as headView using exactly one of: front, three_quarter_left, three_quarter_right, profile_left, profile_right. Do not invent names, relationships, hidden anatomy, unseen details, or story facts.
 
         The user's request is authoritative. If they ask to add, remove, or alter a specific visible thing — clothing, an accessory such as glasses, an object (including moving or repositioning it), pose (looking another way, standing, lowering the head, opening the mouth), framing or zoom, or facial expression — compile that change directly. Never reject a request merely because it changes a category named in the preservation list.
 
+        A requested change describes the state the image should have after the edit, not a state you must already see. Confirm only that the target the request refers to is visible; never require the requested change itself to be present in the source. The source showing the old state is the reason to edit. For example, for "the man is looking down" with a visible man who is currently looking to the side, compile the edit and return ready — never return invalid because he is not yet looking down, and never describe the request as contradicting the image.
+
         Preserve only what the request did not ask to change: the location and surroundings, the subject's identity, and any unaffected people. When a request changes framing or moves an object, keep the surrounding location and identity intact while applying the change.
 
-        Return clarification_required only when the target is ambiguous (more than one visible candidate) or a visible detail is uncertain. Return invalid only when the request is genuinely impossible or self-contradictory (for example, two mutually exclusive outcomes), the thing to change is not visible in the source, or the content is clearly harmful or illegal. This editor is used for private, consensual adult fictional scenes; do not refuse an edit merely because it is sexual or adult in nature when the target and change are visible and feasible. Never guess a ready edit.
+        Requests may name a subjective, emotional, or physiological state — happy, angry, surprised, in pain, aroused, ecstatic, mid orgasm, and similar. These are valid expression and pose edits. Never test whether such a state is visible in the source and never return invalid because it cannot be confirmed from the current image. Compile them into concrete visible cues in the compiled prompt, such as brow shape, eye openness, gaze direction, mouth shape, jaw tension, head angle, skin flush, sweat, and muscle tension.
+
+        Return clarification_required only when the target is ambiguous (more than one visible candidate matches the request) or two different readings of the request would change different visible things. Return invalid only when the request is genuinely impossible or self-contradictory (for example, two mutually exclusive outcomes), when the target the request refers to is not visible in the source at all, or when the content is clearly harmful or illegal. The source not already showing the requested change is never a reason for clarification_required or invalid. This editor is used for private, consensual adult fictional scenes; do not refuse an edit merely because it is sexual or adult in nature when the target and change are visible and feasible. Never guess a ready edit.
 
         Ready instructions must be direct and feasible, describe only the requested change, and state the specific things to keep unchanged (usually the setting and identity). For a multi-person edit, repeat the location-qualified target in the compiled prompt so an image editor can distinguish the people without character names. Return only JSON matching the supplied schema. Do not use markdown fences or explanatory text.
         """;
@@ -128,6 +132,7 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
                                         "properties": {
                                             "key": { "type": "string", "minLength": 1 },
                                             "visibleLocator": { "type": "string", "minLength": 1 },
+                                            "headView": { "enum": ["front", "three_quarter_left", "three_quarter_right", "profile_left", "profile_right"] },
                                             "region": {
                                                 "anyOf": [
                                                     { "type": "null" },
@@ -206,15 +211,38 @@ public sealed class QwenSceneImageEditPromptCompiler : ISceneImageEditPromptComp
             if (value.ValueKind != JsonValueKind.Object)
                 throw new InvalidOperationException("A compiler target must be an object.");
             var properties = value.EnumerateObject().ToList();
-            if (properties.Count != 3 || properties.Any(property => property.Name is not ("key" or "visibleLocator" or "region")))
+            if (properties.Count is < 3 or > 4 || properties.Any(property => property.Name is not ("key" or "visibleLocator" or "region" or "headView")))
                 throw new InvalidOperationException("A compiler target has unknown, missing, or duplicate fields.");
 
             var key = RequiredString(value, "key");
             if (!keys.Add(key))
                 throw new InvalidOperationException("Compiler target keys must be unique.");
-            targets.Add(new SceneImageEditTarget { Key = key, VisibleLocator = RequiredString(value, "visibleLocator"), Region = ParseRegion(Required(value, "region"), imageWidth, imageHeight) });
+            targets.Add(new SceneImageEditTarget
+            {
+                Key = key,
+                VisibleLocator = RequiredString(value, "visibleLocator"),
+                Region = ParseRegion(Required(value, "region"), imageWidth, imageHeight),
+                HeadView = ParseHeadView(value)
+            });
         }
         return targets;
+    }
+
+    private static SceneImageReferenceFaceView? ParseHeadView(JsonElement value)
+    {
+        if (!value.TryGetProperty("headView", out var headView) || headView.ValueKind == JsonValueKind.Null)
+            return null;
+        if (headView.ValueKind != JsonValueKind.String)
+            throw new InvalidOperationException("Compiler target headView must be a string or null.");
+        return headView.GetString() switch
+        {
+            "front" => SceneImageReferenceFaceView.Front,
+            "three_quarter_left" => SceneImageReferenceFaceView.ThreeQuarterLeft,
+            "three_quarter_right" => SceneImageReferenceFaceView.ThreeQuarterRight,
+            "profile_left" => SceneImageReferenceFaceView.ProfileLeft,
+            "profile_right" => SceneImageReferenceFaceView.ProfileRight,
+            _ => throw new InvalidOperationException("Compiler target headView has an unknown head-direction token.")
+        };
     }
 
     private static SceneImageEditTargetRegion? ParseRegion(JsonElement element, int imageWidth, int imageHeight)

@@ -159,6 +159,73 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         return results;
     }
 
+    public async Task<IReadOnlyList<SceneImageIdentityReadiness>> ResolveCharacterIdentitySelectionsAsync(
+        IReadOnlyList<SceneImageIdentityReferenceSelection> selections,
+        CancellationToken cancellationToken = default)
+    {
+        if (selections is not { Count: > 0 })
+            throw new InvalidOperationException("Identity requires at least one selected character reference.");
+        var identity = _identityRepository
+            ?? throw new InvalidOperationException("Identity resolution requires the character identity repository.");
+        var groups = selections
+            .Select(selection => new SceneImageIdentityReferenceSelection(selection.CharacterId.Trim(), selection.ReferenceAssetId.Trim()))
+            .GroupBy(selection => selection.CharacterId, StringComparer.Ordinal)
+            .ToList();
+        if (groups.Any(group => string.IsNullOrWhiteSpace(group.Key)))
+            throw new InvalidOperationException("Every identity selection requires a character id.");
+        if (groups.Any(group => group.Count() != 1))
+            throw new InvalidOperationException("Each character may be bound to at most one identity face reference.");
+
+        var results = new List<SceneImageIdentityReadiness>(groups.Count);
+        foreach (var group in groups)
+        {
+            var characterId = group.Key;
+            var packs = await identity.ListPacksAsync(characterId, cancellationToken);
+            var approvedPacks = packs
+                .Where(pack => pack.Status == CharacterImageIdentityPackStatus.Approved)
+                .OrderByDescending(pack => pack.Version)
+                .ToArray();
+            if (approvedPacks.Length != 1)
+            {
+                var reason = approvedPacks.Length == 0
+                    ? $"Character '{characterId}' has no approved identity pack."
+                    : $"Character '{characterId}' has multiple approved identity packs; exactly one is required.";
+                throw new InvalidOperationException(reason);
+            }
+
+            var pack = approvedPacks[0];
+            var selection = group.Single();
+            var selectedAssetId = string.IsNullOrWhiteSpace(selection.ReferenceAssetId)
+                ? pack.CanonicalFaceAssetId
+                : selection.ReferenceAssetId;
+            if (string.IsNullOrWhiteSpace(selectedAssetId))
+                throw new InvalidOperationException($"Character '{characterId}' approved identity pack v{pack.Version} has no canonical face.");
+            var asset = await identity.GetAssetAsync(selectedAssetId, cancellationToken);
+            if (asset is null
+                || !string.Equals(asset.IdentityPackId, pack.Id, StringComparison.Ordinal)
+                || asset.AssetKind != SceneImageReferenceAssetKind.Face
+                || !asset.IsApproved
+                || string.IsNullOrWhiteSpace(asset.FileRelativePath)
+                || string.IsNullOrWhiteSpace(asset.Sha256))
+            {
+                throw new InvalidOperationException(
+                    $"Character '{characterId}' approved identity pack v{pack.Version} has no approved owned face asset.");
+            }
+
+            results.Add(new SceneImageIdentityReadiness(
+                characterId,
+                string.Empty,
+                pack.Id,
+                pack.Version,
+                asset.Id,
+                asset.FileRelativePath,
+                asset.Sha256,
+                asset.FaceView));
+        }
+
+        return results;
+    }
+
     public async Task<CompiledMediaBrief> GetOrCreateStillBriefAsync(
         string productionGroupId,
         CancellationToken cancellationToken = default)

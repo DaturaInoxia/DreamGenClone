@@ -82,6 +82,68 @@ public sealed class SceneImageIdentityReadinessTests
         Assert.Equal("pack-a", result.IdentityPackId);
     }
 
+    [Fact]
+    public async Task ResolveCharacterIdentitySelections_UsesSelectedAssetWhenProvidedAndCanonicalWhenOmitted()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Identity.Add("char-a", "A", "pack-a", 3, "face-a", "refs/a.png", "SHA-A");
+        fixture.Identity.Add("char-b", "B", "pack-b", 7, "face-b", "refs/b.png", "SHA-B");
+
+        var readiness = await fixture.Service.ResolveCharacterIdentitySelectionsAsync(
+        [
+            new SceneImageIdentityReferenceSelection("char-a", string.Empty),
+            new SceneImageIdentityReferenceSelection("char-b", "face-b")
+        ]);
+
+        Assert.Collection(
+            readiness,
+            first =>
+            {
+                Assert.Equal("char-a", first.CharacterId);
+                Assert.Equal("face-a", first.CanonicalFaceAssetId);
+                Assert.Equal("pack-a", first.IdentityPackId);
+                Assert.Equal("SHA-A", first.Sha256);
+            },
+            second =>
+            {
+                Assert.Equal("char-b", second.CharacterId);
+                Assert.Equal("face-b", second.CanonicalFaceAssetId);
+                Assert.Equal("pack-b", second.IdentityPackId);
+                Assert.Equal("SHA-B", second.Sha256);
+            });
+    }
+
+    [Fact]
+    public async Task ResolveCharacterIdentitySelections_MissingPackFailsFastNamingCharacter()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Identity.Add("char-a", "A", "pack-a", 3, "face-a", "refs/a.png", "SHA-A");
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.ResolveCharacterIdentitySelectionsAsync(
+            [
+                new SceneImageIdentityReferenceSelection("char-c", string.Empty)
+            ]));
+
+        Assert.Contains("'char-c'", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ResolveCharacterIdentitySelections_RejectsAssetNotOwnedBySelectedCharactersPack()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Identity.Add("char-a", "A", "pack-a", 3, "face-a", "refs/a.png", "SHA-A");
+        fixture.Identity.Add("char-b", "B", "pack-b", 7, "face-b", "refs/b.png", "SHA-B");
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.ResolveCharacterIdentitySelectionsAsync(
+            [
+                new SceneImageIdentityReferenceSelection("char-a", "face-b")
+            ]));
+
+        Assert.Contains("has no approved owned face asset", error.Message, StringComparison.Ordinal);
+    }
+
     private static SceneMomentFrozenCharacter Character(string id, string name, IReadOnlyList<string> visible)
         => new(id, id, name, "active", "room", "center", "standing", "direct", visible, "plain");
 

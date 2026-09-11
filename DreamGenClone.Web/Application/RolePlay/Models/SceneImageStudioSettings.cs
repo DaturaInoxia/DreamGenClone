@@ -53,6 +53,15 @@ public sealed class SceneImageStudioSettings
     /// the render job routes to the pose-conditioned client on the pinned local ComfyUI SDXL model.
     /// </summary>
     public SceneImagePoseReference? PoseReference { get; set; }
+
+    /// <summary>
+    /// User-authored per-element overrides/removals for the canonical prompt payload (the Composition
+    /// Composer "Prompt input" inspector). Applied as hard substitutions to the compiled brief's
+    /// semantic snapshot at prompt-build time so the prompt compiler sees exactly one value per
+    /// element — never the original plus an override. Null/empty = the compiled brief is used
+    /// unchanged (default behavior).
+    /// </summary>
+    public ScenePromptOverrides? PromptOverrides { get; set; }
 }
 
 /// <summary>

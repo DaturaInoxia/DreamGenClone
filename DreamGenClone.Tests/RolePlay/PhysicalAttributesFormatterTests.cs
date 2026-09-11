@@ -127,4 +127,34 @@ public class PhysicalAttributesFormatterTests
         Assert.DoesNotContain("waist", output, StringComparison.Ordinal);
         Assert.DoesNotContain("hips", output, StringComparison.Ordinal);
     }
+
+    // ── Body-only block (Composition Composer Body reference row) ────────────
+
+    [Fact]
+    public void FormatVisualBody_IncludesBodyTypeAndFigure_ButNoFaceAnchors()
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualBody(new PhysicalAttributes
+        {
+            Weight = "Average",
+            BodyType = "Athletic",
+            BustSize = "Medium",
+            HipSize = "Wide",
+            HairColour = "brown",
+            EyeColour = "blue"
+        });
+
+        Assert.Contains("Weight: Average", output, StringComparison.Ordinal);
+        Assert.Contains("Body type: Athletic", output, StringComparison.Ordinal);
+        Assert.Contains("Figure: bust Medium, hips Wide", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hair", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iris", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatVisualBody_ReturnsEmpty_WhenNoBodyFieldsSet()
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualBody(new PhysicalAttributes { EyeColour = "blue" });
+
+        Assert.Equal(string.Empty, output);
+    }
 }

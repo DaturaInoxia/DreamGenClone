@@ -119,6 +119,15 @@
                 </div>
                 <div class="col-12"><hr class="my-1" /><strong>Qwen Source-Image Editor Settings</strong></div>
                 <div class="col-md-4">
+                    <label class="form-label">Editor Graph</label>
+                    <select class="form-select" @bind="Model.ImageEditorGraphKind">
+                        <option value="">Not configured</option>
+                        <option value="SplitUnet">Split UNET + text encoder + VAE</option>
+                        <option value="MergedCheckpoint">Merged checkpoint (one file)</option>
+                    </select>
+                    <div class="form-text">Required for ComfyUI editors; the workflow graph is never guessed.</div>
+                </div>
+                <div class="col-md-4">
                     <label class="form-label">Diffusion Model</label>
                     <input type="text" class="form-control" @bind="Model.ImageEditorDiffusionModel" placeholder="qwen_image_edit_2511_fp8mixed.safetensors" />
                 </div>

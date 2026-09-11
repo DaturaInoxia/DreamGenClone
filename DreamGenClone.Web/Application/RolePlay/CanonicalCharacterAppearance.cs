@@ -33,7 +33,8 @@ internal static class CanonicalCharacterAppearance
     internal static string BuildBlock(
         CompiledMediaBrief brief,
         string pov,
-        IReadOnlyList<Character>? characters)
+        IReadOnlyList<Character>? characters,
+        IReadOnlyDictionary<string, string>? appearanceOverrides = null)
     {
         if (characters is null || characters.Count == 0)
             return string.Empty;
@@ -48,6 +49,10 @@ internal static class CanonicalCharacterAppearance
                 || (!string.Equals(character.CharacterId, pov, StringComparison.OrdinalIgnoreCase)
                     && !string.Equals(character.Name, pov, StringComparison.OrdinalIgnoreCase)))
             .ToList();
+        var removedByOverride = depicted
+            .Where(character => ResolveAppearanceOverride(character, appearanceOverrides) is { Length: 0 })
+            .ToHashSet();
+        depicted = depicted.Where(character => !removedByOverride.Contains(character)).ToList();
         if (depicted.Count == 0)
             return string.Empty;
 
@@ -70,6 +75,11 @@ internal static class CanonicalCharacterAppearance
                 : PhysicalAttributesFormatter.FormatVisualBlock(character.PhysicalAttributes);
             if (string.IsNullOrWhiteSpace(appearance) && character is not null && !string.IsNullOrWhiteSpace(character.Description))
                 appearance = "Description — " + Truncate(character.Description, AppearanceDescriptionMaxChars);
+
+            // A user-authored override replaces this character's appearance text (single authoritative source).
+            if (ResolveAppearanceOverride(frozenCharacter, appearanceOverrides) is { Length: > 0 } overrideText)
+                appearance = overrideText;
+
             if (string.IsNullOrWhiteSpace(appearance))
                 continue;
 
@@ -79,6 +89,23 @@ internal static class CanonicalCharacterAppearance
         }
 
         return emittedAny ? sb.ToString() : string.Empty;
+    }
+
+    /// <summary>
+    /// Resolves a user-authored appearance override for a frozen character by character id or name.
+    /// Returns null when no override exists, an empty string when the appearance is to be removed.
+    /// </summary>
+    private static string? ResolveAppearanceOverride(
+        FrozenCharacterRef frozen,
+        IReadOnlyDictionary<string, string>? overrides)
+    {
+        if (overrides is null || overrides.Count == 0) return null;
+        foreach (var key in new[] { frozen.CharacterId, frozen.Name })
+        {
+            if (string.IsNullOrWhiteSpace(key)) continue;
+            if (overrides.TryGetValue(key.Trim(), out var value)) return value ?? string.Empty;
+        }
+        return null;
     }
 
     private static Character? ResolveCharacter(

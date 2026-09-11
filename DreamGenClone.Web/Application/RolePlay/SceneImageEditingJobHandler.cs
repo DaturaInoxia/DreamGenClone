@@ -376,7 +376,8 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler, IDurabl
         IReadOnlyList<ReferenceApplicationSelection> applications)
     {
         var identityApplications = applications
-            .Where(application => string.Equals(application.ElementKey, "Identity", StringComparison.OrdinalIgnoreCase))
+            .Where(application => application.AssetType == SceneAssetType.CharacterFace
+                || string.Equals(application.ElementKey, "Identity", StringComparison.OrdinalIgnoreCase))
             .ToList();
         var identityConstraint = identityApplications.Count == 0
             ? string.Empty

@@ -5,7 +5,8 @@ namespace DreamGenClone.Domain.ModelManager;
 /// <see cref="ComfyUiUrl"/> is the provider base URL for both protocols (a ComfyUI pod origin for
 /// <see cref="ImageProtocol.ComfyUi"/>, or the RunPod serverless <c>/v2/&#123;endpointId&#125;</c> base
 /// for <see cref="ImageProtocol.ComfyUiServerless"/>). The editing client dispatcher selects the
-/// transport from <see cref="ImageProtocol"/>.
+/// transport from <see cref="ImageProtocol"/>, and the ComfyUI HTTP client selects the graph shape
+/// from <see cref="GraphKind"/> (configured in Model Manager, never guessed).
 /// </remarks>
 public sealed record ResolvedImageEditorModel(
     string ComfyUiUrl,
@@ -25,4 +26,5 @@ public sealed record ResolvedImageEditorModel(
     double AuraFlowShift,
     double CfgNormStrength,
     ImageProtocol ImageProtocol = ImageProtocol.ComfyUi,
-    string? RegisteredModelId = null);
+    string? RegisteredModelId = null,
+    ImageEditorGraphKind? GraphKind = null);

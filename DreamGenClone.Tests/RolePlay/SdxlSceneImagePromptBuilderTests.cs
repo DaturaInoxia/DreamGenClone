@@ -184,10 +184,54 @@ public sealed class SdxlSceneImagePromptBuilderTests
         Assert.DoesNotContain("score_9", system, StringComparison.Ordinal);
         Assert.DoesNotContain("rating_explicit", system, StringComparison.Ordinal);
 
-        // The user prompt still carries the production POV and the immutable snapshots.
+        // The user prompt still carries the production POV and the single semantic source.
         Assert.Contains("PRODUCTION POV: Dean", user, StringComparison.Ordinal);
         Assert.Contains("CANONICAL STILL BRIEF", user, StringComparison.Ordinal);
-        Assert.Contains("CANONICAL PROVIDER REQUEST SNAPSHOT", user, StringComparison.Ordinal);
+        // The provider-request snapshot duplicates the semantic input and is NOT sent to the
+        // pre-processor: it used to hand back every element the user had removed (debug 052).
+        Assert.DoesNotContain("CANONICAL PROVIDER REQUEST SNAPSHOT", user, StringComparison.Ordinal);
+        Assert.DoesNotContain("still-v1", user, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_WithUserRemovals_EmitsAuthoritativeRemovalNotice()
+    {
+        var settings = new SceneImageStudioSettings
+        {
+            Style = "realistic",
+            ImageSize = "1024x1024",
+            PromptOverrides = new ScenePromptOverrides
+            {
+                Fields =
+                [
+                    new ScenePromptFieldOverride { ElementKey = "scene.mood", Removed = true },
+                    new ScenePromptFieldOverride { ElementKey = "frozenState.visualDescription", Removed = true }
+                ],
+                RemovedCharacters = ["dean"]
+            }
+        };
+        IReadOnlyList<Character> characters = [new Character { Id = "dean", Name = "Dean" }];
+
+        var (system, user) = _preprocessor.BuildMessages(
+            MakeCanonicalStillBrief(), "Omniscient", settings, ImageContentPolicy.AdultAllowed, null, characters);
+
+        Assert.Contains("USER REMOVALS — AUTHORITATIVE", user, StringComparison.Ordinal);
+        Assert.Contains("Removed elements: the mood, the visual description", user, StringComparison.Ordinal);
+        Assert.Contains("Removed characters: Dean", user, StringComparison.Ordinal);
+        Assert.Contains("do NOT substitute an equivalent", user, StringComparison.Ordinal);
+        Assert.Contains("USER REMOVALS ARE AUTHORITATIVE", system, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_WithoutRemovals_OmitsTheNotice()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+
+        var (system, user) = _preprocessor.BuildMessages(
+            MakeCanonicalStillBrief(), "Dean", settings, ImageContentPolicy.AdultAllowed, null);
+
+        Assert.DoesNotContain("USER REMOVALS", user, StringComparison.Ordinal);
+        Assert.Contains("USER REMOVALS ARE AUTHORITATIVE", system, StringComparison.Ordinal);
     }
 
     [Fact]

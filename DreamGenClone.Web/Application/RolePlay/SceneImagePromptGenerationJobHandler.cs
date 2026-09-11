@@ -293,8 +293,11 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 characters = scenario?.Characters;
             }
 
+            // Apply user-authored element overrides/removals (and whole-character removals) as hard
+            // substitutions so the compiler sees exactly one value per element.
+            var promptPayload = ScenePromptOverridesApplier.Apply(brief, settings.PromptOverrides);
             var (systemPrompt, userPrompt) = compiler.PromptBuilder.BuildMessages(
-                brief, group.Pov, settings, resolvedImageModel.ContentPolicy, record.RefineInstruction, characters);
+                promptPayload.Brief, group.Pov, settings, resolvedImageModel.ContentPolicy, record.RefineInstruction, characters, promptPayload.AppearanceOverrides);
 
             await WriteDebugEventAsync("SceneImagePromptProjected", record.SessionId, record.InteractionId, new
             {

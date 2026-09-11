@@ -24,6 +24,16 @@ public interface ISceneImageProductionService
         IReadOnlyList<SceneImageIdentityReferenceSelection>? selections = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Resolve an explicit list of (character, chosen face) identity selections to their approved
+    /// pack assets, independent of any production group or Moment. Exactly one approved pack per
+    /// character is required, and each chosen face must be an approved, owned
+    /// <see cref="SceneImageReferenceAssetKind.Face"/> asset of that pack.
+    /// </summary>
+    Task<IReadOnlyList<SceneImageIdentityReadiness>> ResolveCharacterIdentitySelectionsAsync(
+        IReadOnlyList<SceneImageIdentityReferenceSelection> selections,
+        CancellationToken cancellationToken = default);
+
     Task<CompiledMediaBrief> GetOrCreateStillBriefAsync(
         string productionGroupId,
         CancellationToken cancellationToken = default);

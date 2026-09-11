@@ -6,7 +6,7 @@ namespace DreamGenClone.Tests.RolePlay;
 
 public sealed class ComfyUIImageEditingClientTests
 {
-    private static ResolvedImageEditorModel Resolve() => new(
+    private static ResolvedImageEditorModel Resolve(ImageEditorGraphKind? graphKind = null) => new(
         ComfyUiUrl: "https://qwen.example.test",
         ProviderTimeoutSeconds: 120,
         ApiKeyEncrypted: null,
@@ -22,7 +22,79 @@ public sealed class ComfyUIImageEditingClientTests
         Scheduler: "simple",
         Denoise: 1.0,
         AuraFlowShift: 3.1,
-        CfgNormStrength: 1.0);
+        CfgNormStrength: 1.0,
+        GraphKind: graphKind);
+
+    [Fact]
+    public void BuildResolvedWorkflow_SplitUnetGraph_EmitsSeparateLoaderGraph()
+    {
+        var workflow = ComfyUIImageEditingClient.BuildResolvedWorkflow(
+            Resolve(ImageEditorGraphKind.SplitUnet),
+            "input/source.png",
+            "Move only the hand to the center of the shirt-covered chest.");
+        var json = workflow.ToJsonString();
+
+        Assert.Contains("UNETLoader", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("CheckpointLoaderSimple", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A merged checkpoint (for example Qwen-Rapid-AIO-NSFW-v23 on a local ComfyUI host or the RunPod
+    /// serverless endpoint) bundles model+clip+vae, so the graph must load it with
+    /// <c>CheckpointLoaderSimple</c> and use that checkpoint's own sampler settings.
+    /// </summary>
+    [Fact]
+    public void BuildResolvedWorkflow_MergedCheckpointGraph_EmitsCheckpointLoaderGraphWithResolvedSettings()
+    {
+        var model = Resolve(ImageEditorGraphKind.MergedCheckpoint) with
+        {
+            DiffusionModel = "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+            Steps = 8,
+            Cfg = 1.0,
+            Sampler = "euler_ancestral",
+            Scheduler = "beta"
+        };
+
+        var workflow = ComfyUIImageEditingClient.BuildResolvedWorkflow(
+            model,
+            "input/source.png",
+            "The man is now looking down.");
+        var json = workflow.ToJsonString();
+        var sampler = workflow["3"]!["inputs"]!.AsObject();
+
+        Assert.Contains("CheckpointLoaderSimple", json, StringComparison.Ordinal);
+        Assert.Contains("Qwen-Rapid-AIO-NSFW-v23.safetensors", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("UNETLoader", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("CLIPLoader", json, StringComparison.Ordinal);
+        Assert.Equal(8, sampler["steps"]!.GetValue<int>());
+        Assert.Equal(1.0, sampler["cfg"]!.GetValue<double>());
+        Assert.Equal("euler_ancestral", sampler["sampler_name"]!.GetValue<string>());
+        Assert.Equal("beta", sampler["scheduler"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void BuildResolvedWorkflow_UnconfiguredGraph_FailsFastWithoutGuessing()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ComfyUIImageEditingClient.BuildResolvedWorkflow(
+                Resolve(),
+                "input/source.png",
+                "Change only the shirt to red."));
+
+        Assert.Contains("Editor Graph", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GraphKindPersistence_RoundTripsKnownValuesAndRejectsUnknown()
+    {
+        Assert.Null(ImageEditorGraphKinds.ParseOrNull(null));
+        Assert.Null(ImageEditorGraphKinds.ParseOrNull("  "));
+        Assert.Equal(ImageEditorGraphKind.SplitUnet, ImageEditorGraphKinds.ParseOrNull("SplitUnet"));
+        Assert.Equal(ImageEditorGraphKind.MergedCheckpoint, ImageEditorGraphKinds.ParseOrNull(" MergedCheckpoint "));
+        Assert.Equal("SplitUnet", ImageEditorGraphKinds.ToPersistedValue(ImageEditorGraphKind.SplitUnet));
+        Assert.Equal("MergedCheckpoint", ImageEditorGraphKinds.ToPersistedValue(ImageEditorGraphKind.MergedCheckpoint));
+        Assert.Throws<InvalidOperationException>(() => ImageEditorGraphKinds.ParseOrNull("Split"));
+    }
 
     [Fact]
     public void BuildWorkflow_UsesOnlyResolvedQwenArtifactsAndSamplerSettings()

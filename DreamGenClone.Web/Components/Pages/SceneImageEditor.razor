@@ -7,11 +7,16 @@
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.RolePlay.Models
+@using DreamGenClone.Web.Application.Sessions
+@using DreamGenClone.Web.Application.Scenarios
 @implements IAsyncDisposable
 
 @inject ISceneImageService ImageService
 @inject ISceneImageEditCompilationService CompilationService
 @inject IImageEditorModelResolver ImageEditorModelResolver
+@inject ISessionService SessionService
+@inject IScenarioService ScenarioService
+@inject ICharacterImageIdentityService IdentityService
 @inject NavigationManager Nav
 @inject ILogger<SceneImageEditor> Logger
 
@@ -163,21 +168,32 @@
                             </div>
                         </div>
                         <div class="mb-3">
-                            <p class="small text-muted">Apply an approved face identity to each character detected in this image. Identity references are attached to the correct person and submitted with the compiled edit.</p>
+                            <p class="small text-muted">Bind each detected person to a scenario character's approved identity pack, then run a separate face-only identity correction. No typed prompt is required — identity compiles from the source image and runs independently of the Edit tab.</p>
                             @if (_compilationResult?.Status != SceneImageEditCompilationResultStatus.Ready)
                             {
-                                <div class="small text-muted">Run <strong>Prepare edit</strong> on the Edit tab first; identity targets are derived from the vision analysis of the source image.</div>
+                                <div class="alert alert-info py-2 small mb-2">Identity needs a vision analysis of this image to detect the people to correct.</div>
+                                <button type="button" class="btn btn-sm btn-outline-info" disabled="@_busy" @onclick="IdentityPrepareAsync">
+                                    <i class="bi bi-person-badge me-1"></i> Analyze faces
+                                </button>
                             }
                             else if (_identityTargetSelections.Count == 0)
                             {
-                                <div class="small text-muted">No character targets were detected in this image, so there are no faces to bind an identity reference to.</div>
+                                <div class="small text-muted">No people were detected in this image, so there are no faces to bind an identity reference to.</div>
                             }
                             else
                             {
-                                <section class="border rounded p-3 mt-3" aria-label="Vision-qualified character identity references">
+                                @if (!string.IsNullOrWhiteSpace(_identityRosterStatus))
+                                {
+                                    <div class="alert alert-warning py-2 small">@_identityRosterStatus</div>
+                                }
+                                else if (_identityCharacters.Count == 0)
+                                {
+                                    <div class="alert alert-warning py-2 small">No scenario characters with an approved identity pack are available for this session. Create and approve identity packs in <a href="/characters/identity">Character Identity</a>.</div>
+                                }
+                                <section class="border rounded p-3 mt-3" aria-label="Identity-pack character targets">
                                     <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
                                         <strong>Character identity targets</strong>
-                                        <span class="small text-muted">Vision-qualified locations keep references attached to the correct person.</span>
+                                        <span class="small text-muted">Bind a character identity pack face to each detected person.</span>
                                     </div>
                                     @foreach (var target in _identityTargetSelections)
                                     {
@@ -190,30 +206,75 @@
                                             {
                                                 <div class="form-text mb-2">Region: x @target.Target.Region.X.ToString("0.###"), y @target.Target.Region.Y.ToString("0.###"), width @target.Target.Region.Width.ToString("0.###"), height @target.Target.Region.Height.ToString("0.###")</div>
                                             }
+                                            @if (target.Target.HeadView is not null)
+                                            {
+                                                <div class="form-text mb-2">Detected pose: @FaceViewLabel(target.Target.HeadView)</div>
+                                            }
                                             <div class="row g-2">
                                                 <div class="col-md-6">
-                                                    <label class="form-label small mb-1">Approved face identity</label>
-                                                    <ReferencePicker AssetType="@SceneAssetType.CharacterFace"
-                                                                     SelectedAssetImageId="@target.Application.SceneAssetImageId"
-                                                                     SelectedAssetChanged="asset => SetIdentityTargetAssetAsync(target, asset)" />
-                                                </div>
-                                                <div class="col-md-3">
-                                                    <label class="form-label small mb-1">Strategy</label>
-                                                    <select class="form-select form-select-sm" value="@target.Application.Strategy" @onchange="args => SetIdentityTargetStrategy(target, args)">
-                                                        @foreach (var strategy in EditorReferenceStrategies)
+                                                    <label class="form-label small mb-1">Scenario character</label>
+                                                    <select class="form-select form-select-sm" value="@target.CharacterId" disabled="@_busy" @onchange="args => SetIdentityTargetCharacterAsync(target, args)">
+                                                        <option value="">Select character…</option>
+                                                        @foreach (var choice in _identityCharacters)
                                                         {
-                                                            <option value="@strategy">@strategy</option>
+                                                            <option value="@choice.CharacterId">@choice.CharacterName</option>
                                                         }
                                                     </select>
                                                 </div>
-                                                <div class="col-md-3">
-                                                    <label class="form-label small mb-1">Strength</label>
-                                                    <input class="form-control form-control-sm" type="number" min="0" max="1" step="0.05"
-                                                           value="@target.Application.Strength" @onchange="args => SetIdentityTargetStrengthAsync(target, args)" />
+                                                <div class="col-md-6">
+                                                    <label class="form-label small mb-1">Face reference (approved pack)</label>
+                                                    <div class="position-relative">
+                                                        <button type="button"
+                                                                class="scene-face-picker-toggle"
+                                                                disabled="@(_busy || target.Faces is not { Count: > 0 })"
+                                                                aria-haspopup="listbox"
+                                                                aria-expanded="@(_openFacePickerTargetKey == target.Target.Key)"
+                                                                @onclick="() => ToggleIdentityFacePicker(target.Target.Key)">
+                                                            @{
+                                                                var selectedFace = target.Faces?.FirstOrDefault(face => string.Equals(face.Id, target.ReferenceAssetId, StringComparison.Ordinal));
+                                                            }
+                                                            @if (selectedFace is not null)
+                                                            {
+                                                                <img src="/scene-images/@selectedFace.FileRelativePath" alt="@IdentityFaceLabel(selectedFace)" class="scene-face-picker-thumb" />
+                                                                <span class="scene-face-picker-toggle-label">@IdentityFaceLabel(selectedFace)</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="scene-face-picker-toggle-label text-muted">@IdentityFacePlaceholder(target)</span>
+                                                            }
+                                                            <i class="bi bi-chevron-down ms-auto"></i>
+                                                        </button>
+                                                        @if (_openFacePickerTargetKey == target.Target.Key)
+                                                        {
+                                                            <div class="scene-face-picker-backdrop" @onclick="CloseIdentityFacePicker"></div>
+                                                            <div class="scene-face-picker-menu" role="listbox" aria-label="Face reference (approved pack)">
+                                                                @foreach (var face in target.Faces ?? [])
+                                                                {
+                                                                    <button type="button"
+                                                                            class="scene-face-picker-item @(string.Equals(face.Id, target.ReferenceAssetId, StringComparison.Ordinal) ? "is-selected" : "")"
+                                                                            role="option"
+                                                                            aria-selected="@(string.Equals(face.Id, target.ReferenceAssetId, StringComparison.Ordinal))"
+                                                                            @onclick="() => SelectIdentityFaceAsync(target, face.Id)">
+                                                                        <img src="/scene-images/@face.FileRelativePath" alt="@IdentityFaceLabel(face)" class="scene-face-picker-thumb" />
+                                                                        <span class="scene-face-picker-item-label">
+                                                                            <strong>@FaceViewLabel(face.FaceView)</strong>
+                                                                            <span>@face.QualityRating</span>
+                                                                        </span>
+                                                                    </button>
+                                                                }
+                                                            </div>
+                                                        }
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
                                     }
+                                    <div class="d-flex align-items-center gap-2 mt-3">
+                                        <button type="button" class="btn btn-sm btn-outline-success" disabled="@(_busy || !_identityTargetSelections.Any(target => target.IsBound) || _resultImage?.Status is SceneImageStatus.Pending or SceneImageStatus.Generating)" @onclick="RunIdentityEditAsync">
+                                            <i class="bi bi-person-badge me-1"></i> Run identity edit
+                                        </button>
+                                        <span class="small text-muted">Runs a separate face-only identity correction that becomes its own image; content edits on the Edit tab are independent.</span>
+                                    </div>
                                 </section>
                             }
                         </div>
@@ -346,6 +407,10 @@
 @code {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>Fixed identity-only vision intent so the Identity flow compiles without a user-typed prompt.</summary>
+    private const string IdentityAnalysisIntent =
+        "Apply the approved face identity to the visible people only. List every visible person as a target with a distinct image-relative key and locator and a normalized face region. Do not propose any content, clothing, pose, expression, or background change.";
+
     [Parameter]
     public string sessionId { get; set; } = string.Empty;
 
@@ -373,6 +438,9 @@
         new() { ElementKey = "Location", SemanticRole = "location continuity", AssetType = SceneAssetType.Location }
     ];
     private readonly List<EditIdentityTargetSelection> _identityTargetSelections = [];
+    private string _openFacePickerTargetKey = string.Empty;
+    private IReadOnlyList<IdentityCharacterChoice> _identityCharacters = [];
+    private string _identityRosterStatus = string.Empty;
     private readonly List<string> _clarificationHistory = [];
     private string _rawIntent = string.Empty;
     private string _preparedIntent = string.Empty;
@@ -456,6 +524,7 @@
             });
             _editorModelChoices = await ImageEditorModelResolver.ListImageEditorModelsAsync();
             _selectedEditorModelId = _editorModelChoices.FirstOrDefault()?.ModelId;
+            await LoadIdentityRosterAsync();
             await CompilationService.EnqueueDescriptionAsync(_editSession.Id);
             _descriptionPending = true;
             await RefreshAsync();
@@ -548,12 +617,10 @@
                 SourceImageSha256 = _editSession.SourceImageSha256,
                 PromptSha256 = revision.PromptSha256,
                 EditorModelId = _selectedEditorModelId!,
-                ReferenceApplications = _referenceApplications
-                    .Concat(_identityTargetSelections.Select(selection => selection.Application))
-                    .ToList()
+                ReferenceApplications = _referenceApplications.ToList()
             });
             _statusMessage = "Image edit queued.";
-            Nav.NavigateTo($"/roleplay/studio/{sessionId}/{interactionId}", forceLoad: true);
+            EnsurePolling();
         });
     }
 
@@ -581,11 +648,27 @@
         }
 
         var images = await ImageService.ListImagesByInteractionAsync(sessionId, interactionId);
-        _resultImage = images
-            .Where(image => string.Equals(image.EditSessionId, _editSession.Id, StringComparison.Ordinal))
+        _resultImage = ResolveResultImage(images);
+        _lineage = BuildLineage(images, _lineageRootId ?? _sourceImage.Id);
+    }
+
+    /// <summary>
+    /// Keeps the tracked result image visible in place while it progresses. The tracked id is
+    /// preferred because identity edits are dispatched outside the content edit session and carry
+    /// no edit-session id; the edit session's latest image only seeds the first render.
+    /// </summary>
+    private SceneImageRecord? ResolveResultImage(IReadOnlyList<SceneImageRecord> images)
+    {
+        if (_resultImage is not null)
+        {
+            var tracked = images.FirstOrDefault(image => string.Equals(image.Id, _resultImage.Id, StringComparison.Ordinal));
+            if (tracked is not null)
+                return tracked;
+        }
+        return images
+            .Where(image => string.Equals(image.EditSessionId, _editSession?.Id, StringComparison.Ordinal))
             .OrderByDescending(image => image.CreatedUtc)
             .FirstOrDefault();
-        _lineage = BuildLineage(images, _lineageRootId ?? _sourceImage.Id);
     }
 
     private async Task StartNewEditSessionIfCompletedAsync()
@@ -613,10 +696,24 @@
         return Task.CompletedTask;
     }
 
+    private sealed class IdentityCharacterChoice
+    {
+        public string CharacterId { get; set; } = string.Empty;
+        public string CharacterName { get; set; } = string.Empty;
+        public string IdentityPackId { get; set; } = string.Empty;
+        public int IdentityPackVersion { get; set; }
+        public string CanonicalFaceAssetId { get; set; } = string.Empty;
+        public IReadOnlyList<SceneImageReferenceAsset> Faces { get; set; } = [];
+    }
+
     private sealed class EditIdentityTargetSelection
     {
         public SceneImageEditTarget Target { get; set; } = new();
-        public ReferenceApplicationSelection Application { get; init; } = new();
+        public string CharacterId { get; set; } = string.Empty;
+        public string CharacterName { get; set; } = string.Empty;
+        public string ReferenceAssetId { get; set; } = string.Empty;
+        public IReadOnlyList<SceneImageReferenceAsset>? Faces { get; set; }
+        public bool IsBound => !string.IsNullOrWhiteSpace(CharacterId) && !string.IsNullOrWhiteSpace(ReferenceAssetId);
     }
 
     private void SyncIdentityTargetSelections()
@@ -631,57 +728,220 @@
             if (existing.TryGetValue(target.Key, out var current))
             {
                 current.Target = target;
-                current.Application.BindingSnapshotJson = SerializeTargetBinding(target);
                 _identityTargetSelections.Add(current);
                 continue;
             }
 
-            _identityTargetSelections.Add(new EditIdentityTargetSelection
-            {
-                Target = target,
-                Application = new ReferenceApplicationSelection
-                {
-                    ElementKey = "Identity",
-                    SemanticRole = $"character identity at {target.VisibleLocator}",
-                    AssetType = SceneAssetType.CharacterFace,
-                    ActorKey = target.Key,
-                    Strategy = "NativeMultiReference",
-                    BindingSnapshotJson = SerializeTargetBinding(target)
-                }
-            });
+            _identityTargetSelections.Add(new EditIdentityTargetSelection { Target = target });
         }
     }
 
-    private static string SerializeTargetBinding(SceneImageEditTarget target)
-        => JsonSerializer.Serialize(new
+    private async Task SetIdentityTargetCharacterAsync(EditIdentityTargetSelection target, ChangeEventArgs args)
+    {
+        var characterId = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(characterId))
         {
-            targetKey = target.Key,
-            visibleLocator = target.VisibleLocator,
-            region = target.Region
-        }, JsonOptions);
+            target.CharacterId = string.Empty;
+            target.CharacterName = string.Empty;
+            target.ReferenceAssetId = string.Empty;
+            target.Faces = null;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
 
-    private async Task SetIdentityTargetAssetAsync(EditIdentityTargetSelection target, SceneAssetReferenceChoice? choice)
-    {
-        target.Application.SceneAssetId = choice?.Asset.Id;
-        target.Application.SceneAssetImageId = choice?.Image.Id;
-        target.Application.SceneAssetVersion = choice?.Image.ProductionVersion;
-        target.Application.SceneAssetSha256 = choice?.Image.Sha256;
+        var choice = _identityCharacters.FirstOrDefault(item => string.Equals(item.CharacterId, characterId, StringComparison.Ordinal));
+        target.CharacterId = choice?.CharacterId ?? characterId;
+        target.CharacterName = choice?.CharacterName ?? string.Empty;
+        target.Faces = choice?.Faces ?? [];
+        target.ReferenceAssetId = choice is null
+            ? string.Empty
+            : ResolvePreferredIdentityFace(choice, target.Target.HeadView);
+        _openFacePickerTargetKey = string.Empty;
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task SetIdentityTargetStrategy(EditIdentityTargetSelection target, ChangeEventArgs args)
+    /// <summary>
+    /// Prefer the approved pack face whose angle matches the vision-detected head direction; fall
+    /// back to the pack's configured canonical face, then the first approved face. Never invents a
+    /// face: every candidate is an approved asset of the character's approved pack.
+    /// </summary>
+    private static string ResolvePreferredIdentityFace(IdentityCharacterChoice choice, SceneImageReferenceFaceView? headView)
     {
-        target.Application.Strategy = args.Value?.ToString() ?? "TextOnly";
+        if (headView is { } view)
+        {
+            var matched = choice.Faces.FirstOrDefault(face => face.FaceView == view);
+            if (matched is not null)
+                return matched.Id;
+        }
+        var canonical = choice.Faces.FirstOrDefault(face => string.Equals(face.Id, choice.CanonicalFaceAssetId, StringComparison.Ordinal));
+        return canonical?.Id ?? choice.Faces.FirstOrDefault()?.Id ?? string.Empty;
+    }
+
+    private static string IdentityFacePlaceholder(EditIdentityTargetSelection target) => target.Faces switch
+    {
+        null => "Select a character first…",
+        { Count: 0 } => "No approved face in this pack…",
+        _ => "No face selected…"
+    };
+
+    private void ToggleIdentityFacePicker(string targetKey)
+        => _openFacePickerTargetKey = string.Equals(_openFacePickerTargetKey, targetKey, StringComparison.Ordinal)
+            ? string.Empty
+            : targetKey;
+
+    private void CloseIdentityFacePicker() => _openFacePickerTargetKey = string.Empty;
+
+    private async Task SelectIdentityFaceAsync(EditIdentityTargetSelection target, string assetId)
+    {
+        target.ReferenceAssetId = assetId;
+        _openFacePickerTargetKey = string.Empty;
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task SetIdentityTargetStrengthAsync(EditIdentityTargetSelection target, ChangeEventArgs args)
+    private async Task IdentityPrepareAsync()
     {
-        if (!decimal.TryParse(args.Value?.ToString(), out var strength) || strength < 0m || strength > 1m)
-            throw new InvalidOperationException("Identity reference strength must be a number between 0 and 1.");
-        target.Application.Strength = strength;
-        await InvokeAsync(StateHasChanged);
+        if (_editSession is null)
+            return;
+        await RunAsync(async () =>
+        {
+            await StartNewEditSessionIfCompletedAsync();
+            _attempt = await CompilationService.EnqueueCompilationAsync(new EnqueueSceneImageEditCompilationRequest
+            {
+                EditSessionId = _editSession.Id,
+                RawIntent = IdentityAnalysisIntent,
+                ClarificationHistory = []
+            });
+            _preparedIntent = IdentityAnalysisIntent;
+            _compilationResult = null;
+            _identityTargetSelections.Clear();
+            _activeRevision = null;
+            _editablePrompt = string.Empty;
+            _statusMessage = "Identity analysis queued.";
+            EnsurePolling();
+        });
     }
+
+    private async Task RunIdentityEditAsync()
+    {
+        if (_editSession is null || _sourceImage is null)
+            return;
+        await RunAsync(async () =>
+        {
+            var selections = _identityTargetSelections
+                .Where(target => target.IsBound)
+                .Select(target => new SceneImageEditorIdentitySelection
+                {
+                    TargetKey = target.Target.Key,
+                    VisibleLocator = target.Target.VisibleLocator,
+                    Region = target.Target.Region,
+                    CharacterId = target.CharacterId,
+                    CharacterName = target.CharacterName,
+                    ReferenceAssetId = target.ReferenceAssetId
+                })
+                .ToList();
+            if (selections.Count == 0)
+                throw new InvalidOperationException("Select a character and an approved face for at least one detected person before running an identity edit.");
+            _resultImage = await ImageService.EnqueueEditorIdentityAsync(new SceneImageEditorIdentityRequest
+            {
+                SessionId = sessionId,
+                InteractionId = interactionId,
+                SourceImageId = _sourceImage.Id,
+                Selections = selections
+            });
+            _statusMessage = "Identity correction queued.";
+            EnsurePolling();
+        });
+    }
+
+    private async Task LoadIdentityRosterAsync()
+    {
+        _identityCharacters = [];
+        _identityRosterStatus = string.Empty;
+        try
+        {
+            var session = await SessionService.LoadRolePlaySessionAsync(sessionId);
+            if (session is null || string.IsNullOrWhiteSpace(session.ScenarioId))
+            {
+                _identityRosterStatus = "This role-play session has no scenario characters to bind identity packs to.";
+                return;
+            }
+            var scenario = await ScenarioService.GetScenarioAsync(session.ScenarioId);
+            if (scenario?.Characters is not { Count: > 0 } characters)
+            {
+                _identityRosterStatus = "This scenario defines no characters, so no identity packs can be applied.";
+                return;
+            }
+
+            var choices = new List<IdentityCharacterChoice>();
+            foreach (var character in characters)
+            {
+                if (string.IsNullOrWhiteSpace(character.Id))
+                    continue;
+                IReadOnlyList<CharacterImageIdentityPack> packs;
+                try
+                {
+                    packs = await IdentityService.ListPacksAsync(character.Id);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to load identity packs for character: CharacterId={CharacterId}", character.Id);
+                    continue;
+                }
+                var approved = packs
+                    .Where(pack => pack.Status == CharacterImageIdentityPackStatus.Approved)
+                    .OrderByDescending(pack => pack.Version)
+                    .ToArray();
+                if (approved.Length != 1)
+                    continue;
+                var pack = approved[0];
+                var assets = await IdentityService.ListAssetsAsync(pack.Id);
+                var faces = assets
+                    .Where(asset => asset.AssetKind == SceneImageReferenceAssetKind.Face
+                        && asset.IsApproved
+                        && asset.FaceView.HasValue
+                        && !string.IsNullOrWhiteSpace(asset.FileRelativePath)
+                        && !string.IsNullOrWhiteSpace(asset.Sha256))
+                    .OrderBy(asset => asset.FaceView)
+                    .ToList();
+                if (faces.Count == 0)
+                    continue;
+                choices.Add(new IdentityCharacterChoice
+                {
+                    CharacterId = character.Id,
+                    CharacterName = string.IsNullOrWhiteSpace(character.Name) ? character.Id : character.Name,
+                    IdentityPackId = pack.Id,
+                    IdentityPackVersion = pack.Version,
+                    CanonicalFaceAssetId = faces.Any(face => string.Equals(face.Id, pack.CanonicalFaceAssetId, StringComparison.Ordinal))
+                        ? pack.CanonicalFaceAssetId!
+                        : faces[0].Id,
+                    Faces = faces
+                });
+            }
+            _identityCharacters = choices
+                .OrderBy(choice => choice.CharacterName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (_identityCharacters.Count == 0)
+                _identityRosterStatus = "No scenario characters currently have an approved identity pack with approved face references.";
+        }
+        catch (Exception ex)
+        {
+            _identityRosterStatus = $"Identity packs could not be loaded: {ex.Message}";
+            Logger.LogWarning(ex, "SceneImageEditor identity roster load failed: SessionId={SessionId}", sessionId);
+        }
+    }
+
+    private static string IdentityFaceLabel(SceneImageReferenceAsset face)
+        => $"{FaceViewLabel(face.FaceView)} · {face.QualityRating}";
+
+    private static string FaceViewLabel(SceneImageReferenceFaceView? view) => view switch
+    {
+        SceneImageReferenceFaceView.Front => "Front",
+        SceneImageReferenceFaceView.ThreeQuarterLeft => "3/4 left",
+        SceneImageReferenceFaceView.ThreeQuarterRight => "3/4 right",
+        SceneImageReferenceFaceView.ProfileLeft => "Profile left",
+        SceneImageReferenceFaceView.ProfileRight => "Profile right",
+        _ => "Front"
+    };
 
     private static SceneImageEditCompilationResult? ParseResult(string? json)
     {

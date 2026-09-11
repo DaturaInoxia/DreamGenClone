@@ -86,6 +86,7 @@ internal static class ModelManagerTransfer
         new Column("ImageEditorDiffusionModel", ColumnType.Text),
         new Column("ImageEditorTextEncoder", ColumnType.Text),
         new Column("ImageEditorVae", ColumnType.Text),
+        new Column("ImageEditorGraphKind", ColumnType.Text),
         new Column("ImageEditorSteps", ColumnType.Int),
         new Column("ImageEditorCfg", ColumnType.Real),
         new Column("ImageEditorSampler", ColumnType.Text),

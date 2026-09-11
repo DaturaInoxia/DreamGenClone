@@ -39,6 +39,21 @@ public sealed class SceneImageServiceJobTests
         Assert.Contains("Preserve everything outside those selected face regions exactly", instruction, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void BuildEditorIdentityInstructionUsesFacePrimaryPictureRecipe()
+    {
+        var instruction = SceneImageService.BuildEditorIdentityInstruction(
+        [
+            (1, "woman", "image left"),
+            (2, "man", "image right")
+        ]);
+
+        Assert.Contains("Apply the face of the person shown in Picture 2 to the woman at image left.", instruction, StringComparison.Ordinal);
+        Assert.Contains("Keep that person's facial identity consistent with Picture 2 for the entire image; do not change anyone else.", instruction, StringComparison.Ordinal);
+        Assert.Contains("Apply the face of the person shown in Picture 3 to the man at image right.", instruction, StringComparison.Ordinal);
+        Assert.Contains("Keep the pose, bodies, position, clothing, lighting, and everything else in the image exactly unchanged except the selected faces.", instruction, StringComparison.Ordinal);
+    }
+
     private sealed class CapturingBackgroundJobQueue : IBackgroundJobQueue, IDurableBackgroundJobQueue
     {
         public List<(string JobType, string PayloadJson, string? DedupeKey)> Enqueued { get; } = [];
@@ -1009,7 +1024,7 @@ public sealed class SceneImageServiceJobTests
             Status = SceneImageEditCompilationAttemptStatus.Pending,
             ResolvedModelSnapshotJson = "{\"modelIdentifier\":\"qwen-vl\"}",
             CompilerSchemaVersion = "scene-image-edit-compiler-v1",
-            SystemPromptVersion = "qwen-edit-rules-v2"
+            SystemPromptVersion = QwenSceneImageEditPromptCompiler.SystemPromptVersion
         };
         await repository.CreateAttemptAsync(attempt);
         attempt.Status = SceneImageEditCompilationAttemptStatus.Compiling;

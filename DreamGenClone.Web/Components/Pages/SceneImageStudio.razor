@@ -453,7 +453,7 @@
                                                     <dd class="col-sm-8">scheduled @(_productionJob.NextAttemptUtc?.ToLocalTime().ToString("g") ?? "")</dd>
                                                 }
                                             </dl>
-                                            @if (ProductionPassProgress(_productionAttempt) is { } passProgress)
+                                            @if (_productionAttempt is not null && ProductionPassProgress(_productionAttempt) is { } passProgress)
                                             {
                                                 <div class="border-top mt-2 pt-2">
                                                     <div class="fw-semibold">Pass progress</div>

@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 
 @using System.Text.Json
+@using System.Text.Json.Nodes
 @using DreamGenClone.Application.Abstractions
 @using DreamGenClone.Application.ModelManager
 @using DreamGenClone.Application.RolePlay
@@ -23,6 +24,7 @@
 @inject IScenarioService ScenarioService
 @inject ICharacterImageIdentityService IdentityService
 @inject IReferenceStrategyResolver ReferenceStrategyResolver
+@inject ISceneMomentEnrichmentPipelineService MomentEnrichmentService
 
 <PageTitle>Composition Composer - DreamGenClone</PageTitle>
 
@@ -57,6 +59,42 @@
     }
     else
     {
+        <details class="card mb-3">
+            <summary class="card-header fw-semibold small py-2">
+                <i class="bi bi-info-circle me-1"></i>Selected Moment &amp; production context
+                @if (_frozenState is not null) { <span class="text-muted">· @_frozenState.Location</span> }
+                <span class="text-muted">· @_productionGroup.Pov POV</span>
+            </summary>
+            <div class="card-body small">
+                @if (_momentEnrichment is null || _frozenState is null)
+                {
+                    <span class="text-muted">The selected Moment enrichment is not loaded yet. Complete Moment enrichment before generating references/prompts.</span>
+                }
+                else
+                {
+                    <dl class="row mb-2">
+                        <dt class="col-sm-3">Moment</dt>
+                        <dd class="col-sm-9">@_productionGroup.MomentId <span class="text-muted">· enrichment r@_momentEnrichment.Revision · @_momentEnrichment.Status</span></dd>
+                        <dt class="col-sm-3">POV</dt><dd class="col-sm-9">@_productionGroup.Pov</dd>
+                        <dt class="col-sm-3">Visual description</dt><dd class="col-sm-9">@_frozenState.VisualDescription</dd>
+                        <dt class="col-sm-3">Location</dt><dd class="col-sm-9">@_frozenState.Location · @_frozenState.TimeOfDay · @_frozenState.Lighting</dd>
+                        <dt class="col-sm-3">Environment</dt><dd class="col-sm-9">@_frozenState.Environment</dd>
+                        <dt class="col-sm-3">Mood</dt><dd class="col-sm-9">@_frozenState.Mood</dd>
+                        <dt class="col-sm-3">Objects</dt><dd class="col-sm-9">@string.Join(", ", _frozenState.Objects)</dd>
+                        <dt class="col-sm-3">Continuity</dt><dd class="col-sm-9">@_frozenState.ContinuityState</dd>
+                    </dl>
+                    <div class="fw-semibold mb-1">Visible cast (source of the reference tabs)</div>
+                    @foreach (var character in _frozenState.Characters)
+                    {
+                        <div class="d-flex justify-content-between gap-2 border-top py-1">
+                            <span><strong>@character.Name</strong> · @character.Position · @character.ActionOrObservation</span>
+                            <span class="text-muted text-truncate ms-2">@character.Clothing</span>
+                        </div>
+                    }
+                }
+            </div>
+        </details>
+
         <div class="row g-3">
             <div class="col-xl-7">
                 <section class="card">
@@ -131,7 +169,7 @@
                             }
                             else
                             {
-                                <select class="form-select form-select-sm" @bind="_selectedModelId">
+                                <select class="form-select form-select-sm" @bind="_selectedModelId" @bind:after="OnModelChangedAsync">
                                     @foreach (var choice in _modelChoices)
                                     {
                                         <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
@@ -152,6 +190,52 @@
                                 </div>
                             </div>
                         }
+
+                        <div class="border-top mt-3 pt-3" aria-label="Prompt input inspector">
+                            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                <div>
+                                    <strong>Prompt input (what the compiler receives)</strong>
+                                    <span class="d-block small text-muted">The real payload fields from the compiled brief. Edit a value to override it, or tick remove to drop it. Overrides replace the field in the payload (no duplicates); removing a character drops them, their appearance line, and their identity/reference conditioning from the render.</span>
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_castReferenceError))
+                            {
+                                <div class="alert alert-warning py-1 small mb-2">@_castReferenceError</div>
+                            }
+                            @if (!_promptRowsInitialized)
+                            {
+                                <span class="text-muted small">Loading the compiled brief payload...</span>
+                            }
+                            else
+                            {
+                                @foreach (var group in _promptGroups)
+                                {
+                                    <div class="fw-semibold small mt-3 mb-1 d-flex justify-content-between align-items-center gap-2">
+                                        <span>@PromptGroupHeader(group)</span>
+                                        @if (group.CharacterKey is not null)
+                                        {
+                                            <label class="form-check-label small">
+                                                <input class="form-check-input me-1" type="checkbox" @bind="group.Removed" />
+                                                remove character
+                                            </label>
+                                        }
+                                    </div>
+                                    @foreach (var row in group.Rows)
+                                    {
+                                        <div class="border rounded p-2 mb-2 @(row.Removed ? "opacity-50" : "")">
+                                            <div class="d-flex justify-content-between align-items-baseline gap-2 mb-1">
+                                                <strong class="small">@row.Label</strong>
+                                                <label class="form-check-label small">
+                                                    <input class="form-check-input me-1" type="checkbox" @bind="row.Removed" />
+                                                    remove
+                                                </label>
+                                            </div>
+                                            <textarea class="form-control form-control-sm font-monospace" rows="2" value="@row.Value" @oninput="args => SetPromptRowValue(row, args.Value?.ToString())" disabled="@row.Removed"></textarea>
+                                        </div>
+                                    }
+                                }
+                            }
+                        </div>
 
                         <div class="border-top mt-3 pt-3" aria-label="Pose reference">
                             <div class="d-flex justify-content-between align-items-start gap-2">
@@ -283,17 +367,57 @@
                             <div class="d-grid gap-3">
                                 @foreach (var attempt in _compositionAttempts)
                                 {
+                                    var isApproved = _approvedAttemptIds.Contains(attempt.Id);
+                                    var canApproveComposition = _productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser;
                                     <article class="border p-2">
                                         <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
-                                            <span class="badge text-bg-secondary">@attempt.Status</span>
+                                            <span class="badge @(isApproved ? "text-bg-success" : "text-bg-secondary")">@(isApproved ? "Approved" : attempt.Status.ToString())</span>
                                             <span class="small text-muted">@attempt.CreatedUtc.ToLocalTime().ToString("g")</span>
                                         </div>
                                         @if (attempt.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(attempt.FileRelativePath))
                                         {
                                             <img src="/scene-images/@attempt.FileRelativePath" class="img-fluid" alt="Generated Composition" />
-                                            <button class="btn btn-sm btn-outline-secondary mt-2" disabled="@_busy" @onclick="() => RegenerateCompositionAsync(attempt)">
-                                                <i class="bi bi-arrow-repeat me-1"></i>Regenerate Sibling
-                                            </button>
+                                            <div class="d-flex flex-wrap gap-1 mt-2">
+                                                <a class="btn btn-sm btn-outline-secondary" href="/roleplay/image-editor/@sessionId/@interactionId/@attempt.Id" title="Open this Composition in the image editor">
+                                                    <i class="bi bi-pencil-square me-1"></i>Edit
+                                                </a>
+                                                @if (attempt.Disposition == SceneImageAttemptDisposition.Shortlisted)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-warning" disabled="@_busy" @onclick="() => SetCompositionDispositionAsync(attempt, SceneImageAttemptDisposition.Active)" title="Return to active">
+                                                        <i class="bi bi-star-fill me-1"></i>Shortlist
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="btn btn-sm btn-outline-warning" disabled="@_busy" @onclick="() => SetCompositionDispositionAsync(attempt, SceneImageAttemptDisposition.Shortlisted)" title="Shortlist this Composition">
+                                                        <i class="bi bi-star me-1"></i>Shortlist
+                                                    </button>
+                                                }
+                                                <button class="btn btn-sm btn-outline-success"
+                                                        disabled="@(_busy || !canApproveComposition || string.IsNullOrWhiteSpace(attempt.Sha256))"
+                                                        title="@(canApproveComposition ? "Approve this Composition as the production frame" : "Approval requires an identity skip (a Composition cannot be approved while identity is Required)")"
+                                                        @onclick="() => ApproveCompositionAttemptAsync(attempt)">
+                                                    <i class="bi bi-check2-circle me-1"></i>Approve
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => RegenerateCompositionAsync(attempt)">
+                                                    <i class="bi bi-arrow-repeat me-1"></i>Regenerate Sibling
+                                                </button>
+                                                @if (_deleteConfirmImageId == attempt.Id)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="() => ConfirmDeleteCompositionAsync(attempt)">Confirm delete</button>
+                                                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelDeleteComposition">Cancel</button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="() => RequestDeleteCompositionAsync(attempt)">
+                                                        <i class="bi bi-trash me-1"></i>Delete
+                                                    </button>
+                                                }
+                                            </div>
+                                            @if (attempt.Disposition == SceneImageAttemptDisposition.Shortlisted)
+                                            {
+                                                <div class="small text-warning mt-1"><i class="bi bi-star-fill me-1"></i>Shortlisted</div>
+                                            }
                                         }
                                         else if (attempt.Status is SceneImageStatus.Pending or SceneImageStatus.Generating)
                                         {
@@ -349,6 +473,23 @@
     }
     private CancellationTokenSource? _pollingCts;
     private Task? _pollingTask;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    // Selected Moment / production-context state, hydrated from the group's completed Moment enrichment.
+    private SceneMomentEnrichment? _momentEnrichment;
+    private SceneMomentFrozenStateContract? _frozenState;
+    private bool _referenceCastInitialized;
+
+    // Prompt-input inspector: the REAL payload elements from the compiled brief, editable + removable.
+    private readonly List<PromptFieldRow> _promptRows = [];
+    private List<PromptGroup> _promptGroups = [];
+    private bool _promptRowsInitialized;
+    private IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character>? _scenarioCharacters;
+    private string? _castReferenceError;
+    private HashSet<string> _approvedAttemptIds = [];
+    private string? _deleteConfirmImageId;
+
+    // Approved reference images attached to the render (pre-existing behaviour).
     private readonly List<ReferenceApplicationSelection> _referenceApplications =
     [
         new() { ElementKey = "Identity", SemanticRole = "character identity", AssetType = SceneAssetType.CharacterFace },
@@ -375,7 +516,27 @@
     {
         public string PackId { get; set; } = string.Empty;
         public string Label { get; set; } = string.Empty;
+        public string CharacterKey { get; set; } = string.Empty;
         public double? Strength { get; set; }
+    }
+
+    private sealed class PromptFieldRow
+    {
+        public string ElementKey { get; set; } = string.Empty;
+        public string Label { get; set; } = string.Empty;
+        public string Group { get; set; } = string.Empty;
+        public string? CharacterKey { get; set; }
+        public string OriginalValue { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
+        public bool Removed { get; set; }
+    }
+
+    private sealed class PromptGroup
+    {
+        public string Key { get; set; } = string.Empty;
+        public string? CharacterKey { get; set; }
+        public bool Removed { get; set; }
+        public List<PromptFieldRow> Rows { get; set; } = [];
     }
 
     private string StudioUrl => $"/roleplay/studio/{sessionId}/{interactionId}/production/{productionGroupId}";
@@ -434,6 +595,19 @@
             await LoadIdentityPackOptionsAsync();
         if (_identityResolution is null)
             await RefreshIdentityResolutionAsync();
+
+        if (_momentEnrichment is null)
+            await LoadMomentEnrichmentAsync();
+        await LoadScenarioCharactersAsync();
+        if (!_promptRowsInitialized && _compiledMediaBrief is not null)
+        {
+            _castReferenceError = null;
+            BuildPromptRows();
+        }
+        _approvedAttemptIds = (await ProductionService.ListApprovalDecisionsAsync(_productionGroup.Id))
+            .Where(decision => decision.Decision == ApprovedSceneFrameDecisionState.Approved)
+            .Select(decision => decision.SceneImageId)
+            .ToHashSet(StringComparer.Ordinal);
     }
 
     private async Task RefreshCompletedPromptAsync(SceneImagePromptStyle style)
@@ -461,7 +635,7 @@
             {
                 SessionId = sessionId,
                 InteractionId = interactionId,
-                Settings = new SceneImageStudioSettings(),
+                Settings = new SceneImageStudioSettings { PromptOverrides = BuildPromptOverrides() },
                 ProductionGroupId = _productionGroup!.Id,
                 CompiledMediaBriefId = _compiledMediaBrief!.Id,
                 Pov = _productionGroup.Pov,
@@ -502,7 +676,8 @@
             await ImageService.UpdatePromptOutputAsync(sessionId, promptRecord.Id, prompt.Trim());
             var identityPacks = _applyIdentityOnCreate
                 ? _identityPackOptions
-                    .Where(option => string.Equals(option.PackId, _selectedIdentityPackId, StringComparison.Ordinal))
+                    .Where(option => string.Equals(option.PackId, _selectedIdentityPackId, StringComparison.Ordinal)
+                        && !RemovedCharacterKeys.Contains(option.CharacterKey))
                     .Select(option => new IdentityPackSelection
                     {
                         PackId = option.PackId,
@@ -662,7 +837,8 @@
                     options.Add(new IdentityPackOption
                     {
                         PackId = pack.Id,
-                        Label = $"{character.Name ?? character.Id} — v{pack.Version}"
+                        Label = $"{character.Name ?? character.Id} — v{pack.Version}",
+                        CharacterKey = character.Id ?? character.Name ?? string.Empty
                     });
                 }
             }
@@ -674,6 +850,197 @@
         }
     }
 
+    // ── Selected Moment / per-character reference (base text) helpers ──────────────────────
+
+    private async Task LoadMomentEnrichmentAsync()
+    {
+        try
+        {
+            _momentEnrichment = await MomentEnrichmentService.GetAsync(_productionGroup!.MomentEnrichmentId);
+            if (_momentEnrichment is not null
+                && _momentEnrichment.Status == SceneBeatCatalogueStatus.Complete
+                && !string.IsNullOrWhiteSpace(_momentEnrichment.FrozenStateContractJson))
+            {
+                _frozenState = JsonSerializer.Deserialize<SceneMomentFrozenStateContract>(
+                    _momentEnrichment.FrozenStateContractJson, JsonOptions);
+            }
+        }
+        catch (Exception ex)
+        {
+            _castReferenceError = ex.Message;
+            Logger.LogWarning(ex, "Composition Composer could not load the Moment enrichment: MomentEnrichmentId={MomentEnrichmentId}", _productionGroup?.MomentEnrichmentId);
+        }
+    }
+
+    private async Task LoadScenarioCharactersAsync()
+    {
+        if (_scenarioCharacters is not null) return;
+        try
+        {
+            var session = await SessionService.LoadRolePlaySessionAsync(sessionId);
+            if (session is null || string.IsNullOrWhiteSpace(session.ScenarioId))
+            {
+                _scenarioCharacters = [];
+                return;
+            }
+            var scenario = await ScenarioService.GetScenarioAsync(session.ScenarioId);
+            _scenarioCharacters = scenario?.Characters ?? [];
+        }
+        catch (Exception ex)
+        {
+            _scenarioCharacters = [];
+            Logger.LogWarning(ex, "Composition Composer could not load scenario characters: SessionId={SessionId}", sessionId);
+        }
+    }
+
+    private DreamGenClone.Web.Domain.Scenarios.Character? ResolveScenarioCharacter(string? characterId, string? name, string? profileKey)
+    {
+        if (_scenarioCharacters is null || _scenarioCharacters.Count == 0) return null;
+        foreach (var candidate in new[] { characterId, profileKey, name })
+        {
+            if (string.IsNullOrWhiteSpace(candidate)) continue;
+            var byId = _scenarioCharacters.FirstOrDefault(character =>
+                string.Equals(character.Id, candidate, StringComparison.OrdinalIgnoreCase));
+            if (byId is not null) return byId;
+            var byName = _scenarioCharacters.FirstOrDefault(character =>
+                string.Equals(character.Name, candidate, StringComparison.OrdinalIgnoreCase));
+            if (byName is not null) return byName;
+        }
+        return null;
+    }
+
+    private void BuildPromptRows()
+    {
+        _promptRows.Clear();
+        if (_compiledMediaBrief is null) return;
+        JsonObject? root;
+        try
+        {
+            root = JsonNode.Parse(_compiledMediaBrief.SemanticInputSnapshotJson) as JsonObject;
+        }
+        catch (JsonException ex)
+        {
+            _castReferenceError = $"The compiled brief semantic snapshot is invalid: {ex.Message}";
+            return;
+        }
+        if (root is null)
+        {
+            _castReferenceError = "The compiled brief semantic snapshot is not a JSON object.";
+            return;
+        }
+        var frozen = root["frozenState"] as JsonObject;
+        var moment = root["moment"] as JsonObject;
+
+        AddPromptRow("scene.location", "Location", "scene", null, StringValue(frozen, "location"));
+        AddPromptRow("scene.environment", "Environment", "scene", null, StringValue(frozen, "environment"));
+        AddPromptRow("scene.timeOfDay", "Time of day", "scene", null, StringValue(frozen, "timeOfDay"));
+        AddPromptRow("scene.lighting", "Lighting", "scene", null, StringValue(frozen, "lighting"));
+        AddPromptRow("scene.mood", "Mood", "scene", null, StringValue(frozen, "mood"));
+        AddPromptRow("scene.objects", "Objects / props (one per line)", "scene", null, StringValue(frozen, "objects"));
+        AddPromptRow("moment.visualDescription", "Visual description", "moment", null, StringValue(moment, "visualDescription"));
+        AddPromptRow("moment.visibleAction", "Visible action", "moment", null, StringValue(moment, "visibleAction"));
+        AddPromptRow("frozenState.continuityState", "Continuity (global)", "moment", null, StringValue(frozen, "continuityState"));
+
+        if (frozen?["characters"] is JsonArray characters)
+        {
+            foreach (var node in characters)
+            {
+                if (node is not JsonObject character) continue;
+                var id = StringValue(character, "characterId");
+                var name = StringValue(character, "name");
+                var profileKey = StringValue(character, "profileKey");
+                var key = FirstNonEmpty(id, name, profileKey);
+                if (string.IsNullOrWhiteSpace(key)) continue;
+                var label = string.IsNullOrWhiteSpace(name) ? key : name;
+                AddPromptRow($"character:{key}.physicalLocation", $"{label} — physical location", key, key, StringValue(character, "physicalLocation"));
+                AddPromptRow($"character:{key}.position", $"{label} — position", key, key, StringValue(character, "position"));
+                AddPromptRow($"character:{key}.actionOrObservation", $"{label} — action / observation", key, key, StringValue(character, "actionOrObservation"));
+                AddPromptRow($"character:{key}.sightline", $"{label} — sightline", key, key, StringValue(character, "sightline"));
+                AddPromptRow($"character:{key}.clothing", $"{label} — wardrobe", key, key, StringValue(character, "clothing"));
+                AddPromptRow($"character:{key}.appearance", $"{label} — appearance (auto)", key, key, AppearanceTextFor(id, name, profileKey));
+            }
+        }
+        _promptGroups = _promptRows
+            .GroupBy(row => row.CharacterKey ?? row.Group)
+            .Select(group => new PromptGroup
+            {
+                Key = group.Key,
+                CharacterKey = group.First().CharacterKey,
+                Rows = group.ToList()
+            })
+            .ToList();
+        _promptRowsInitialized = true;
+    }
+
+    private static string PromptGroupHeader(PromptGroup group)
+        => group.CharacterKey is null
+            ? (string.Equals(group.Key, "scene", StringComparison.Ordinal) ? "Scene" : "Moment")
+            : $"Character — {group.CharacterKey}";
+
+    private void AddPromptRow(string elementKey, string label, string group, string? characterKey, string value)
+        => _promptRows.Add(new PromptFieldRow
+        {
+            ElementKey = elementKey,
+            Label = label,
+            Group = group,
+            CharacterKey = characterKey,
+            OriginalValue = value ?? string.Empty,
+            Value = value ?? string.Empty
+        });
+
+    private static string StringValue(JsonObject? obj, string property)
+    {
+        if (obj?[property] is JsonValue value && value.TryGetValue<string>(out var text)) return text ?? string.Empty;
+        if (obj?[property] is JsonArray array)
+            return string.Join(Environment.NewLine, array.Select(item => item?.GetValue<string>() ?? string.Empty).Where(item => item.Length > 0));
+        return string.Empty;
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+
+    private string AppearanceTextFor(string id, string name, string profileKey)
+    {
+        var character = ResolveScenarioCharacter(id, name, profileKey);
+        if (character is null) return string.Empty;
+        var appearance = PhysicalAttributesFormatter.FormatVisualBlock(character.PhysicalAttributes);
+        if (!string.IsNullOrWhiteSpace(appearance)) return appearance;
+        return string.IsNullOrWhiteSpace(character.Description) ? string.Empty : character.Description.Trim();
+    }
+
+    private void SetPromptRowValue(PromptFieldRow row, string value) => row.Value = value ?? string.Empty;
+
+    /// <summary>Character keys ticked for removal (derived from the inspector groups).</summary>
+    private IReadOnlySet<string> RemovedCharacterKeys => _promptGroups
+        .Where(group => group.CharacterKey is not null && group.Removed)
+        .Select(group => group.CharacterKey!)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private ScenePromptOverrides? BuildPromptOverrides()
+    {
+        var removed = RemovedCharacterKeys;
+        var overrides = new ScenePromptOverrides();
+        foreach (var row in _promptRows)
+        {
+            if (row.CharacterKey is not null && removed.Contains(row.CharacterKey)) continue;
+            if (row.Removed)
+            {
+                overrides.Fields.Add(new ScenePromptFieldOverride { ElementKey = row.ElementKey, Removed = true });
+                continue;
+            }
+            if (!string.Equals(row.Value, row.OriginalValue, StringComparison.Ordinal))
+                overrides.Fields.Add(new ScenePromptFieldOverride { ElementKey = row.ElementKey, Value = row.Value });
+        }
+        overrides.RemovedCharacters.AddRange(removed);
+        return overrides.IsEmpty ? null : overrides;
+    }
+
+    private Task OnReferenceApplicationsChanged()
+    {
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
     private string PromptTextFor(SceneImagePromptStyle style)
         => style == SceneImagePromptStyle.PonyV6Tags ? _ponyPromptText : _sdxlPromptText;
 
@@ -681,12 +1048,6 @@
     {
         if (style == SceneImagePromptStyle.PonyV6Tags) _ponyPromptText = value;
         else _sdxlPromptText = value;
-    }
-
-    private Task OnReferenceApplicationsChanged()
-    {
-        StateHasChanged();
-        return Task.CompletedTask;
     }
 
     private async Task OnPoseFileSelectedAsync(InputFileChangeEventArgs e)
@@ -732,6 +1093,68 @@
         _poseImageName = string.Empty;
         _poseStrength = 0.8;
         StateHasChanged();
+    }
+
+    private async Task OnModelChangedAsync()
+    {
+        // Re-derive the identity-capable model options and re-check the ReferenceConditioning
+        // capability whenever the Composition image model changes, so Model Manager edits or model
+        // switches are reflected immediately (not only on the identity-model dropdown).
+        _identityModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: true)).ToList();
+        if (!_identityModelChoices.Any(choice => choice.ModelId == _selectedIdentityModelId))
+            _selectedIdentityModelId = _identityModelChoices.FirstOrDefault()?.ModelId;
+        _applyIdentityOnCreate = false;
+        await RefreshIdentityResolutionAsync();
+    }
+
+    private async Task SetCompositionDispositionAsync(SceneImageRecord attempt, SceneImageAttemptDisposition next)
+    {
+        await RunAsync(async () =>
+        {
+            var expected = attempt.Disposition ?? SceneImageAttemptDisposition.Active;
+            await ProductionService.SetDispositionAsync(attempt.Id, _productionGroup!.Id, expected, next);
+            _statusMessage = next == SceneImageAttemptDisposition.Shortlisted
+                ? "Composition shortlisted."
+                : "Composition returned to active.";
+            await LoadAsync();
+        });
+    }
+
+    private async Task ApproveCompositionAttemptAsync(SceneImageRecord attempt)
+    {
+        await RunAsync(async () =>
+        {
+            if (_productionGroup?.IdentityPolicy != SceneImageIdentityPolicy.SkippedByUser)
+                throw new InvalidOperationException("A Composition can only be approved after identity is skipped for this production group (Production Studio > Identity > Record identity skip).");
+            if (string.IsNullOrWhiteSpace(attempt.Sha256))
+                throw new InvalidOperationException("Approval requires the Composition checksum; the image may still be processing.");
+            await ProductionService.ApproveAsync(_productionGroup!.Id, attempt.Id, attempt.Sha256, "Composition Composer", null);
+            _statusMessage = "Composition approved.";
+            await LoadAsync();
+        });
+    }
+
+    private void RequestDeleteCompositionAsync(SceneImageRecord attempt)
+    {
+        _deleteConfirmImageId = attempt.Id;
+        StateHasChanged();
+    }
+
+    private void CancelDeleteComposition()
+    {
+        _deleteConfirmImageId = null;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmDeleteCompositionAsync(SceneImageRecord attempt)
+    {
+        await RunAsync(async () =>
+        {
+            await ImageService.DeleteImageAsync(sessionId, attempt.Id);
+            _deleteConfirmImageId = null;
+            _statusMessage = "Composition deleted.";
+            await LoadAsync();
+        });
     }
 
     private string SelectedModelLabel()

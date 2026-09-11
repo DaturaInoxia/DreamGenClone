@@ -36,7 +36,7 @@ public sealed class ImageEditingClientDispatcherTests
         public HttpClient CreateClient(string name) => _client;
     }
 
-    private static ResolvedImageEditorModel Resolve(ImageProtocol protocol) => new(
+    private static ResolvedImageEditorModel Resolve(ImageProtocol protocol, ImageEditorGraphKind? graphKind = null) => new(
         ComfyUiUrl: "https://editor.example.test",
         ProviderTimeoutSeconds: 10,
         ApiKeyEncrypted: "enc:sekret",
@@ -53,7 +53,8 @@ public sealed class ImageEditingClientDispatcherTests
         Denoise: 1.0,
         AuraFlowShift: 3.1,
         CfgNormStrength: 1.0,
-        ImageProtocol: protocol);
+        ImageProtocol: protocol,
+        GraphKind: graphKind);
 
     private static ImageEditingClientDispatcher BuildDispatcher(Func<HttpRequestMessage, HttpResponseMessage> responder)
     {
@@ -102,7 +103,7 @@ public sealed class ImageEditingClientDispatcherTests
 
         await using var source = new MemoryStream(new byte[] { 9, 8, 7, 6, 5 });
         var result = await dispatcher.EditAsync(
-            Resolve(ImageProtocol.ComfyUi), source, "source.png", "Rotate the head left.", CancellationToken.None);
+            Resolve(ImageProtocol.ComfyUi, ImageEditorGraphKind.SplitUnet), source, "source.png", "Rotate the head left.", CancellationToken.None);
 
         Assert.Equal(pngBytes, result);
         Assert.Equal("/upload/image", firstRequestPath);

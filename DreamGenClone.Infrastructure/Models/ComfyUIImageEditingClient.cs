@@ -143,12 +143,34 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
     }
 
     /// <summary>
-    /// Builds the Qwen-Image-Edit workflow for the merged AIO checkpoint
+    /// Selects the ComfyUI graph for a resolved editor model from its configured
+    /// <see cref="ResolvedImageEditorModel.GraphKind"/> (Model Manager, persisted per model). The graph is
+    /// never inferred from artifact names: an unconfigured kind fails fast here, and the resolver already
+    /// rejects a ComfyUI-protocol editor that has none configured.
+    /// </summary>
+    internal static JsonObject BuildResolvedWorkflow(
+        ResolvedImageEditorModel model,
+        string sourceImageName,
+        string instruction,
+        IReadOnlyList<string>? referenceImageNames = null) => model.GraphKind switch
+        {
+            ImageEditorGraphKind.SplitUnet =>
+                BuildWorkflow(model, sourceImageName, instruction, referenceImageNames),
+            ImageEditorGraphKind.MergedCheckpoint =>
+                BuildAioMergedCheckpointWorkflow(model, sourceImageName, instruction, referenceImageNames),
+            _ => throw new InvalidOperationException(
+                $"Image editor model '{model.ModelIdentifier}' has no editor graph kind configured. Set 'Editor Graph' for it in Model Manager (/model-manager).")
+        };
+
+    /// <summary>
+    /// Builds the Qwen-Image-Edit workflow for a merged AIO checkpoint
     /// (e.g. <c>Qwen-Rapid-AIO-NSFW-v23.safetensors</c>) which bundles model+clip+vae in one file
     /// (B-101 MODEL DECISION). Uses <c>CheckpointLoaderSimple</c> (model/clip/vae together) instead
-    /// of the pod split (<c>UNETLoader</c>+<c>CLIPLoader</c>+<c>VAELoader</c>) — the AIO serverless
-    /// worker validates/accepts only this graph. The checkpoint name comes from the resolved
-    /// <c>DiffusionModel</c> field; sampler settings come from the resolved model, never hardcoded.
+    /// of the split (<c>UNETLoader</c>+<c>CLIPLoader</c>+<c>VAELoader</c>) graph. Used by the RunPod
+    /// serverless editing client, which accepts only this graph, and by any ComfyUI-protocol editor
+    /// configured with <see cref="ImageEditorGraphKind.MergedCheckpoint"/>. The checkpoint name comes
+    /// from the resolved <c>DiffusionModel</c> field; sampler settings come from the resolved model,
+    /// never hardcoded.
     /// </summary>
     internal static JsonObject BuildAioMergedCheckpointWorkflow(
         ResolvedImageEditorModel model,
@@ -307,7 +329,7 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
         try
         {
             var uploadedName = await UploadAsync(client, baseUrl, sourceImage, sourceFileName, model.ProviderName, cancellationToken);
-            var workflow = BuildWorkflow(model, uploadedName, instruction.Trim());
+            var workflow = BuildResolvedWorkflow(model, uploadedName, instruction.Trim());
             var payload = new JsonObject { ["prompt"] = workflow, ["client_id"] = "dreamgen-app" };
 
             _logger.LogInformation("ComfyUI source-image edit start: Provider={ProviderName}, DiffusionModel={DiffusionModel}, InstructionChars={InstructionChars}", model.ProviderName, model.DiffusionModel, instruction.Length);
@@ -362,7 +384,7 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                 uploadedReferenceNames.Add(await UploadAsync(client, baseUrl, reference.Image, reference.FileName, model.ProviderName, cancellationToken));
             }
 
-            var workflow = BuildWorkflow(model, uploadedSourceName, instruction.Trim(), uploadedReferenceNames);
+            var workflow = BuildResolvedWorkflow(model, uploadedSourceName, instruction.Trim(), uploadedReferenceNames);
             var payload = new JsonObject { ["prompt"] = workflow, ["client_id"] = "dreamgen-app" };
             using var submitResponse = await client.PostAsJsonAsync($"{baseUrl}/prompt", payload, cancellationToken);
             if (!submitResponse.IsSuccessStatusCode)

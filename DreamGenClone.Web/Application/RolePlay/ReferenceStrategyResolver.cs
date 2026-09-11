@@ -143,11 +143,15 @@ public sealed class ReferenceStrategyResolver : IReferenceStrategyResolver
         }
     }
 
+    private static readonly JsonSerializerOptions QualificationJsonOptions = new(JsonSerializerDefaults.Web);
+
     private static CapabilityQualification[] ParseQualifications(string json)
     {
         try
         {
-            return JsonSerializer.Deserialize<CapabilityQualification[]>(json)
+            // Case-insensitive property binding so qualification entries authored as PascalCase
+            // (Model Details editor / SQL) or camelCase (unit fixtures) both bind to the CLR shape.
+            return JsonSerializer.Deserialize<CapabilityQualification[]>(json, QualificationJsonOptions)
                 ?? throw new InvalidOperationException("Model Manager field 'CapabilityQualificationsJson' must contain a JSON array.");
         }
         catch (JsonException exception)
