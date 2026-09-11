@@ -54,7 +54,9 @@ before a task is checked. This package must never reference `CharacterLoraDatase
   for character seed templates.
   *File:* `DreamGenClone.Domain/RolePlay/` (new records file)
 - [ ] B121-002 Add `ReferenceWorkflowSettings` (global row + optional per-character override) with the
-  settings in `seed-prompts.md` §2. Store model **ids** only — no sampling parameters (FR21-009/011).
+  settings in `seed-prompts.md` §2, including `EyeToolPythonPath`. Store model **ids** only — no
+  sampling parameters (FR21-009/011). Every required value resolves from persisted configuration;
+  missing values fail fast by key and no machine path is inferred.
   *File:* same as B121-001
 - [ ] B121-003 Add the SQLite tables, additive schema and repository read/write mapping for B121-001/002.
   *File:* `DreamGenClone.Infrastructure/RolePlay/` (new repository)
@@ -156,6 +158,9 @@ before a task is checked. This package must never reference `CharacterLoraDatase
   `ThreeQuarterRight`/`ProfileRight` = image-right (FR21-024).
 - [ ] B121-025 Add angle orchestration in the fixed order 3/4L → 3/4R → ProfileL → ProfileR, each view
   independently re-runnable (FR21-022).
+- [ ] B121-025a Add a user-driven **single extended view** action for configured pitch/intermediate-
+  yaw descriptors. One request produces one artifact with `ViewDescriptorJson` and no canonical
+  `FaceView`; there is no multi-angle sweep or generate-all action (FR21-036).
 - [ ] B121-026 Add the gate-and-remedy: measure yaw sign; when it violates the convention apply the
   configured remedy (default: mirror the left render into the right slot) and record
   `MirrorDerived = true`; when the remedy is disabled, block the view with a stated reason
@@ -165,26 +170,29 @@ before a task is checked. This package must never reference `CharacterLoraDatase
 - [ ] B121-028 [P] Add tests: convention asserted per view; a deliberately wrong-sided render is either
   mirrored (flag set) or blocked with a reason; **the gate is never evaluated on `irisDy%` or
   interocular** (a regression test should fail if someone adds such a check); re-running one view
-  leaves the other three untouched.
+  leaves the other three untouched; one extended-view request produces exactly one descriptor-only
+  artifact and cannot dispatch a sweep.
   *File:* `DreamGenClone.Tests/RolePlay/`
 
 ---
 
 ## G. Promotion with view tagging
 
-- [ ] B121-029 Extend face promotion to carry the intended `SceneImageReferenceFaceView` per artifact
-  instead of hardcoding `Front` (FR21-027, D7). **The legacy single-face promote path must keep
-  working and continue to produce `Front`.**
+- [ ] B121-029 Extend face promotion to carry the intended `SceneImageReferenceFaceView` canonical
+  slot plus `ViewDescriptorJson` per artifact instead of hardcoding `Front` (FR21-027, D7). Extended
+  views carry a descriptor and no canonical slot. **The legacy single-face promote path must keep
+  working and continue to produce `Front` in an explicit `FaceOnly` pack.**
   *File:* `DreamGenClone.Web/Application/RolePlay/ReferenceBootstrapService.cs`
 - [ ] B121-030 Add promotion gates: refuse a view whose validate gate failed, whose yaw is wrong, or
   whose quality is below the configured bar, naming the offending view(s) (FR21-028).
-- [ ] B121-031 Write the accepted view set into a draft pack, reusing the verified pack-resolution
+- [ ] B121-031 Write the accepted view set into an explicit `FaceOnly` draft pack, reusing the verified pack-resolution
   sequence and the per-view `SceneAsset` + `UploadAssetAsync(..., view, ...)` pattern from
   `SceneAssetProfilePackJobHandler`; record the produced pack id on the build (FR21-029/030).
-- [ ] B121-032 [P] Add tests: five views land with five distinct correct `FaceView` values; refusing a
-  failed/yaw-wrong/low-quality view names it; the legacy promote path still writes `Front`; candidate
-  rows are unmodified by promotion (FR21-029); the existing reference-bootstrap test file still passes
-  unchanged (acceptance scenario 11).
+- [ ] B121-032 [P] Add tests: five canonical views land with five distinct correct `FaceView` values;
+  configured extended views land with descriptor data and no canonical slot; pack scope is explicitly
+  `FaceOnly`; refusing a failed/yaw-wrong/low-quality view names it; the legacy promote path still
+  writes `Front` with explicit scope; candidate rows are unmodified by promotion (FR21-029); the
+  existing reference-bootstrap test file still passes unchanged (acceptance scenario 11).
   *File:* `DreamGenClone.Tests/RolePlay/`
 
 ---

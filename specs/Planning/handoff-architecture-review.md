@@ -20,9 +20,10 @@ plans before a coding agent is dispatched.
 4. `specs/Planning/B-121-character-identity-studio/` — stage 2 (README, spec, plan, tasks,
    ui-contract, seed-prompts).
 5. `specs/Planning/B-122-body-complete-identity-and-lora-image-studio/` — B-122 Phase 0 + B-123
-   (plan.md + tasks.md).
+   (`plan.md`, `b122-tasks.md`, and B-123 `tasks.md`).
 6. Scan: `B-117-pose-controlnet-render/plan.md`, `B-118-pose-studio/plan.md`,
-   `B-119-multi-character-layout-workflow/`, `B-120-asset-layout-extraction/`.
+   their `tasks.md` files, `B-119-multi-character-layout-workflow/`, and
+   `B-120-asset-layout-extraction/`.
 
 **Validate that these locked decisions are coherent and mutually consistent — flag any that is
 violated, ambiguous, or contradicted somewhere in the docs:**
@@ -31,8 +32,9 @@ violated, ambiguous, or contradicted somewhere in the docs:**
 2. View model: `SceneImageReferenceFaceView` stays the canonical-slot enum (contract);
    `ViewDescriptorJson` carries the extended set (up/down pitch, intermediate yaw). Enum = contract,
    variety = data.
-3. Body: base + angle slots are the canonical minimum; `BodyRotationDeg` / `BodyPositionKey` are
-   free data for rotations/positions.
+3. Body: typed base + angle slots are the canonical minimum; `BodyRotationDeg` /
+   `BodyPositionKey` are free data for rotations/positions; `BodyState` explicitly distinguishes
+   required clothed/unclothed sets.
 4. Asset Manager is **grouped-only** (no flat mode), and **root-agnostic**: group key
    `(RootKind, RootId, AssetKind, ViewKey?)` covers Character / Location / Wardrobe / Prop / Style.
 5. Every capability is a UI tool the user drives, never a batch ("generate 30" must not exist).
@@ -41,6 +43,8 @@ violated, ambiguous, or contradicted somewhere in the docs:**
 7. NSFW is in scope end-to-end (unclothed body refs, ~50/50 nude cells).
 8. Ownership splits: faceid/IP-Adapter render wiring = B-111 P3, scoring-CLI wiring = B-123;
    B-123 **depends on** B-117/B-118/B-120, it does not build them.
+9. Approval is staged through required persisted `PackScope`: B-121 produces `FaceOnly`, B-122
+   produces `BodyComplete`, and B-123 rejects anything except `BodyComplete`.
 
 **Produce:**
 

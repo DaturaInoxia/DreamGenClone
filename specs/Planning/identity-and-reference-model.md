@@ -49,8 +49,19 @@ ReferenceViewDescriptor
   BodyRotationDeg  int?                 torso rotation relative to camera                   [Body]
   BodyPositionKey  string?              standing | sitting | kneeling | lying | …           [Body]
   Label            string               human label, e.g. "looking down 30°"
-  CanonicalSlot    string?              Front|ThreeQuarterLeft|ThreeQuarterRight|ProfileLeft|ProfileRight — null for extended views
+  FaceCanonicalSlot SceneImageReferenceFaceView?  canonical face contract — null for body/extended face views
+  BodyCanonicalSlot SceneImageReferenceBodyView?  canonical body contract — null for face/extended body views
 ```
+
+`SceneImageReferenceBodyView` is a new five-value canonical-slot enum: `Front`,
+`ThreeQuarterLeft`, `ThreeQuarterRight`, `ProfileLeft`, `ProfileRight`. It is deliberately separate
+from `SceneImageReferenceFaceView`: both are bounded compiler/approval contracts, while yaw, pitch,
+rotation and position remain unbounded descriptor data. Exactly one canonical-slot field may be set,
+and it must match `Axis`; extended views set neither.
+
+Full-body assets also carry a required `SceneImageReferenceBodyState` (`Clothed` | `Unclothed`).
+This is an asset-state contract, not a viewing angle: B-122 requires matching canonical angle sets in
+both states, and the two must never be inferred from prompts, filenames or image analysis.
 
 ### 2.2 Canonical slots become a *minimum*, not the whole set
 
@@ -70,12 +81,20 @@ positions" first-class instead of special cases.
   angle-matching reads it and must keep working unchanged.
 - **Add** to `SceneImageReferenceAsset` and to `SceneAsset`:
   - `ViewDescriptorJson` (the descriptor above, serialised)
-  - `CanonicalSlot` already derivable from `FaceView`; the JSON holds the fine-grained part.
+  - `BodyView` (`SceneImageReferenceBodyView?`) for the canonical body-slot contract. `FaceView`
+    remains the canonical face-slot contract; the JSON carries the fine-grained and extended data.
+  - `BodyState` (`SceneImageReferenceBodyState?`), required exactly when the asset is `FullBody`.
 - **Body views** use `AssetKind = FullBody` with `ViewDescriptorJson` carrying rotation/position;
-  `FaceView` stays null for body assets (its "Face only" rule is unchanged).
-- **Canonical view set** — the pack's *required* set. Add `CanonicalFullBodyAssetId` (mirror of the
-  existing `CanonicalFaceAssetId`), and keep the required-set rule: approval requires the canonical
-  face slots **and** the canonical body base. Optional, additive columns only.
+  `BodyView` carries a canonical slot when applicable, and `FaceView` stays null for body assets.
+- **Canonical view set** — add `CanonicalFullBodyAssetId` (mirror of the existing
+  `CanonicalFaceAssetId`) and a required, persisted `PackScope` (`FaceOnly` | `BodyComplete`). There
+  is no inferred/default scope: migrated existing packs are explicitly written as `FaceOnly`, B-121
+  creates `FaceOnly` drafts, and B-122 creates or promotes `BodyComplete` drafts. Approval validates
+  the declared scope: `FaceOnly` requires all five canonical face slots; `BodyComplete` requires all
+  five canonical face slots, matching clothed and unclothed five-slot body sets, and the canonical
+  body base. `CanonicalFullBodyAssetId` points to the approved unclothed `Front` asset, the invariant
+  anatomical base; the clothed front remains a required canonical reference. B-123 rejects any pack
+  whose persisted scope is not `BodyComplete`.
 
 ### 2.4 Why this and not a bigger enum
 
@@ -137,10 +156,18 @@ Wardrobe / Prop / Style   → same pattern: root → version/profile → assets
 ### 4.2 Mechanics
 
 - The group key is `(RootKind, RootId, AssetKind, ViewKey?)` where `RootKind` ∈ `Character` /
-  `Location` / `Wardrobe` / `Prop` / `Style`, `RootId` is the owning aggregate (character profile,
-  location profile, wardrobe look version, …), and `ViewKey` comes from `CanonicalSlot` or
-  `ViewDescriptorJson`. `ViewKey` is null for kinds that have no view axis (location plates, props,
-  derived control assets).
+  `Location` / `Wardrobe` / `Prop` / `Style`. `RootId` is always the **immediate versioned/profile
+  aggregate that owns the asset**: identity-pack id for character identity assets, location-profile
+  id for location assets, wardrobe-look-version id for wardrobe assets, and the corresponding
+  version/profile id for props and styles. The tree projection separately carries the stable
+  top-level owner id/name used for the outer node. `ViewKey` comes from the axis-appropriate
+  canonical slot or a normalized descriptor key; body keys include state (for example,
+  `body:unclothed:front` or `body:clothed:rotation:-45:standing`). It is null for kinds that have no
+  view axis.
+- The shell reads multiple stores through one explicit projection whose row identity is
+  `(SourceStore, SourceAssetId)`. That row identity prevents collisions and is not a second grouping
+  mode. Each projected row must provide the group-key fields, top-level owner metadata,
+  version/status metadata and an asset role (`Reference`, `Derived`, `Wardrobe`, `DatasetCell`).
 - **Root-agnostic**: the shell groups by root kind, so locations and any future type plug into the
   same tree without changing the shell. `ReferenceViewDescriptor` applies only to *viewable* kinds
   (face/body); locations and props group by root + kind + role, not by view.
@@ -197,7 +224,7 @@ it is a prerequisite rather than a polish item.
 | Plan | Change |
 |---|---|
 | **B-121** | (a) Face step must produce a **view set**, not just 5 slots — add extended views (up/down, intermediate yaw). (b) The angle step and the promote step operate on `ViewDescriptorJson`, not only the enum. |
-| **B-122** | Body refs carry `ViewDescriptorJson` (rotation + position), so "base and angles, rotations, positions" is expressed, not five fixed body shots. |
+| **B-122** | Body refs carry typed `BodyView` + `BodyState` for matching clothed/unclothed canonical sets and `ViewDescriptorJson` for extended rotation/position data. Promotion produces an explicit `BodyComplete` pack. |
 | **B-123** | The coverage plan's face-angle and body-framing axes **read from the view sets** produced by B-121/B-122 — the cells are projections of the reference model, not a separately invented matrix. |
 | **B-117/B-118/B-120/B-119** | Unchanged — they are component tools; the reference model does not touch their internal scope. |
 | **B-124 (new)** | Asset Manager grouping + surfacing the identity view sets. |
@@ -207,9 +234,13 @@ it is a prerequisite rather than a polish item.
 1. **View model — the split.** Keep `SceneImageReferenceFaceView` as the canonical-slot contract
    (the multi-angle compiler's minimum, unchanged); add `ViewDescriptorJson` for the **extended** set
    (up/down pitch, intermediate yaw). Additive; the compiler keeps working.
-2. **Body descriptor — the same split.** Base + angle slots are the canonical body minimum;
-   `BodyRotationDeg` + `BodyPositionKey` are free data for rotations/positions.
-3. **Asset Manager refactor (B-124) — early.** The grouped navigation precedes B-123's cell
+2. **Body descriptor — the same split.** `SceneImageReferenceBodyView` carries the base + angle
+  minimum, `SceneImageReferenceBodyState` distinguishes the required clothed/unclothed sets, and
+  `BodyRotationDeg` + `BodyPositionKey` remain free data for rotations/positions.
+3. **Approval is staged and explicit.** Required `PackScope` is `FaceOnly` or `BodyComplete`; approval
+  validates the declared scope and never infers it. B-121 produces `FaceOnly`, B-122 produces
+  `BodyComplete`, and B-123 requires `BodyComplete`.
+4. **Asset Manager refactor (B-124) — early.** The grouped navigation precedes B-123's cell
    workspace; it is the lens through which every view set is navigated.
-4. **Identity scoring split — confirmed.** FaceID/IP-Adapter **render** wiring stays **B-111 P3**;
+5. **Identity scoring split — confirmed.** FaceID/IP-Adapter **render** wiring stays **B-111 P3**;
    the scoring-CLI **wiring into the UI** is **B-123**. Neither builds the other.

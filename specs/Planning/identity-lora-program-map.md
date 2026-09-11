@@ -51,6 +51,9 @@ That is the whole spine of the sequence below.
 6. **Foundation first.** The reference data model and the Asset Manager shell (B-124) are built
    before any feature stage. Features consume the stable schema and shell; they never define a slice
    of either as a side effect. This is why B-124 is stage 1.
+7. **Completeness is explicit data.** `PackScope` is required: B-121 produces `FaceOnly`, B-122
+   produces `BodyComplete`, and B-123 accepts only `BodyComplete`. Canonical body slots and
+   clothed/unclothed `BodyState` are typed contracts; none is inferred from available assets or text.
 
 ## 2. Stage flow
 
@@ -141,7 +144,7 @@ Each hand-off is a concrete artifact list, so "flows together" is checkable rath
 | The prompt-template store (seeded, editable, scoped, reset-to-default) | Body prompts become **additional seeded rows keyed by target kind**, not a second store. |
 | The eye/face-landmark subprocess capability + manual override | B-122 Phase 0.4 extends the *discipline* to body invariants; B-123 Phase 4 reuses the call. |
 | The quality gate (`ReferenceImageQualityAnalyzer` thresholds) | Reference gating is shared. |
-| **View-tagged promotion into identity packs** (`SceneImageReferenceFaceView` carried per artifact) | B-122's full-body views need the same tagging; today face promotion hardcodes `Front`. |
+| **View-tagged promotion into identity packs** (face/body canonical slot, descriptor and body state carried per artifact) | B-122 reuses the same promotion path for `BodyView`/`BodyState`; today face promotion hardcodes `Front`. |
 | The same-image edit primitive + editor-model resolution | B-123 Phase 3 normalization reuses it. |
 
 **Design requirement this imposes on B-121 (add before implementation):** the pipeline must be
@@ -154,13 +157,14 @@ five face views, B-122 is forced to fork the studio and the two will drift.
 
 **B-122 delivers:** the `BodyCard` (shape/build/skin/body-hair/tattoos/scars/grooming, all `[DECIDE]`
 items resolved and recorded), full-body multi-angle references in **both** clothed and unclothed
-states, and body-invariant validation results.
+states, body-invariant validation results, and a persisted `BodyComplete` pack scope.
 
 **B-123 consumes:** the BodyCard as the single source of truth pasted into every training-generation
 prompt, and the body references as the conditioning/normalization source for body cells.
 
-**Hard precondition:** no training cell may generate before the BodyCard `[DECIDE]` items are fixed —
-otherwise the set trains an inconsistent body and the whole dataset is wasted.
+**Hard precondition:** no training cell may generate before the BodyCard `[DECIDE]` items are fixed
+and the selected pack is explicitly `BodyComplete` — otherwise the set trains an inconsistent body.
+B-123 rejects `FaceOnly` packs; it never infers completeness from whatever assets happen to exist.
 
 ### 4.3 B-118 / B-117 / B-120 / B-119 → B-123
 
@@ -172,6 +176,18 @@ otherwise the set trains an inconsistent body and the whole dataset is wasted.
 | B-119 | The layout decision workflow for forced/awkward layouts (lying, all-fours, multi-body) + depth/canny render path |
 
 B-123's coverage plan **consumes** these per cell; it does not own them.
+
+**Pose-control handoff:** B-118 owns immutable `PosePreset` keypoints/skeleton bytes. B-117 accepts
+an explicit `PoseControlSource` discriminated as either `PosePreset` (available after B-118) or
+`DerivedStructureAsset` (available after B-120); it resolves exactly the selected source and never
+falls back between them. B-120 may catalogue a preset-backed skeleton as a derived asset by
+reference/provenance, but does not duplicate pose authoring or bytes. B-123 persists the selected
+source kind + id on each cell attempt.
+
+**Acceptance handoff:** B-118 completes browse/extract/edit/save plus the render-request contract;
+its real **Apply** action is activated and accepted by B-117. B-117 is accepted with graph/provenance
+tests and a recorded visual proof against known-good poses. The quantitative joint-geometry gate is
+owned and accepted later by B-123, so neither earlier item depends on a future scorer.
 
 ---
 
@@ -191,11 +207,11 @@ stable schema, they never define it as a side effect.
 | 1 | **B-124** | Reference model (view descriptors + canonical body) **and** the grouped Asset Manager shell | — |
 | 2 | B-121 | Front source → Validate → De-clothe → Crop → Enhance → Angles → Promote | B-124 model |
 | 3 | B-122 Phase 0 | BodyCard editor + body ref tools + body validation | B-124 model, B-121 machinery |
-| 4 | B-118 | Pose Studio: search / extract / edit / **save new** / **apply** | — |
-| 5 | B-117 | Pose-conditioned render + strength UI | B-118 |
+| 4 | B-118 | Pose Studio: search / extract / edit / **save new** + render-request contract | — |
+| 5 | B-117 | Pose-conditioned render + strength UI + activate **apply** | B-118 |
 | 6 | B-120 | Derived-asset extraction (depth / canny / segmentation) | — |
 | 7 | B-119 | Layout render + decision workflow | B-120 |
-| 8 | B-123 Ph1–7 | Coverage editor + cell workspace + normalize + gates + captions + freeze | B-124, B-121, B-122, B-118, B-117 (B-119/B-120 only for layout cells) |
+| 8 | B-123 Ph1–7 | Coverage editor + cell workspace + normalize + gates + captions + freeze | Start: B-124, B-121, B-122, B-118, B-117. Full completion: B-119/B-120 also, because required layout cells must execute rather than degrade. |
 | 9 | B-123 Ph8 | LoRA use (LoraLoader + trigger + per-model artifact picker) | a trained artifact |
 
 **Rationale for the order:**
@@ -207,8 +223,9 @@ stable schema, they never define it as a side effect.
   machinery, now consuming the already-stable model instead of defining it.
 - **B-122 Phase 0 third** — the BodyCard is a hard precondition for any training cell.
 - **B-118 → B-117 before B-123's cell workspace** — the user applies poses *during* cell creation.
-- **B-120 → B-119** are needed only by layout-controlled cells (lying / all-fours); they can land
-  during B-123.
+- **B-120 → B-119** are needed by layout-controlled cells (lying / all-fours). B-123 schema/editor
+   work may start before they land, but those cells remain explicitly unavailable and cannot be
+   accepted or frozen; full B-123 completion waits for both.
 - **B-123 Phase 8** is small and blocks nothing else.
 
 **Parallelism that remains safe:** B-118 (stage 4) and B-120 (stage 6) depend on nothing and may
@@ -220,12 +237,12 @@ start in parallel with B-124; B-117 (stage 5) starts once B-118 lands.
 
 | # | Gap | Impact | Resolution needed |
 |---|---|---|---|
-| G1 | **B-117 and B-118 have no design artifacts anywhere on disk** — yet B-119, B-120 and B-123 all cite them as canonical ("do not duplicate"). B-117 is `designed`, B-118 is `new` in the backlog with no file. | A coding agent cannot implement or even size them; B-123's plan assumes they exist. | Either write both plans, or explicitly fold them into the items that own them and re-point the citations. **RESOLVED 2026-09-11:** keep them separate — B-118 is the Pose Studio, B-117 is the pose-conditioned render. Their plans now exist (`B-118-pose-studio/plan.md`, `B-117-pose-controlnet-render/plan.md`); B-123 depends on them. |
+| G1 | **RESOLVED 2026-09-11:** B-117/B-118 originally had no implementation artifacts while later items cited them. | No remaining block. | Keep them separate: B-118 owns Pose Studio and its Apply request contract; B-117 owns pose-conditioned rendering and activates Apply. Both now have `plan.md` + `tasks.md`; B-123 consumes them. |
 | G2 | **B-107 is not in the backlog**, but B-121/B-122/B-123 text references it for LoRA qualification/activation. | Dangling reference; the inference gap could be re-opened by someone "implementing B-107". | Treat LoraLoader/trigger-injection as **B-123 Phase 8**; record the B-107 → B-111 P3 absorption. |
 | G3 | **Pose store claimed three times** (B-118 library, B-120 derived assets, B-123 T04). | Likely triple implementation or silent divergence. | Resolved by §3: B-118 owns the store, B-120 owns derived records, B-123 owns the picker only. |
 | G4 | **Eye/face-landmark capability claimed by B-121 and B-123.** | Two implementations of a validator the repo forbids re-deriving. | Resolved by §3: B-121 only. |
 | G5 | **"LoRA for one or more models" is structurally supported but not specified as a flow.** `CharacterLoraDataset`, `CharacterLoraTrainingProfile` and artifact records all carry `TargetModelFamily` / `BaseModelId` / `BaseModelVersion` / `BaseModelSha256` (verified in `CharacterLoraModels.cs`), so the machinery exists. | Without an explicit flow, "more than one model" will be treated as an afterthought: one dataset, N profiles, N artifacts, and inference that picks the artifact by base model. | Add to B-123: the dataset is base-model-agnostic (images + captions); a **training profile per base model** produces a **separate artifact**; inference must select the artifact whose `BaseModelId`/`Sha256` matches the render model, and fail fast when no artifact matches. |
-| G6 | **B-122 and B-123 share one plan file** (`B-122-.../plan.md`, titled "B-122 / B-123"), but are two backlog items. | Task numbering and "done" state can blur between them. | Keep the shared file, but every task must declare which item it closes. |
+| G6 | **RESOLVED 2026-09-11:** B-122 and B-123 share one plan file but are separate backlog items. | No remaining dispatch ambiguity. | B-122 dispatches from `b122-tasks.md`; B-123 dispatches from `tasks.md`. Each completion state is independent. |
 
 ---
 
@@ -233,12 +250,12 @@ start in parallel with B-124; B-117 (stage 5) starts once B-118 lands.
 
 | Item | Backlog state | Design artifact | Notes |
 |---|---|---|---|
-| B-117 | `designed` | plan | Stage 5; consumes B-118 |
-| B-118 | `designed` | plan | Stage 4 |
+| B-117 | `planned` | plan + tasks | Stage 5; consumes B-118 and activates Apply |
+| B-118 | `planned` | plan + tasks | Stage 4; delivers pose store/extract/editor + Apply contract |
 | B-119 | `designed` | plan + workflow + tasks | Structurally independent of the identity spine |
 | B-120 | `designed` | plan + tasks | Consumed by B-117/B-119/B-116 |
 | B-121 | `planned` | README, spec, plan, tasks, ui-contract, seed-prompts | **Plan only — handoff ready; no code** |
-| B-122 | `planned` | shared plan (Phase 0) | Phase 0 hard-blocks B-123 |
+| B-122 | `planned` | shared plan (Phase 0) + `b122-tasks.md` | Phase 0 hard-blocks B-123 |
 | B-123 | `planned` | shared plan (Phases 1–8) | Owns B-123 Phase 8 inference wiring |
 | B-124 | `planned` | plan | **Stage 1 — the foundation (reference model + Asset Manager shell)** |
 | B-111 P2 | — | tasks | Already absorbed B-108; much of the reference-bootstrap machinery is **implemented** (see B-121 `plan.md` "Verified current state") |
@@ -248,7 +265,8 @@ start in parallel with B-124; B-117 (stage 5) starts once B-118 lands.
 ## 8. Decisions (answered 2026-09-11)
 
 1. **B-117/B-118 — RESOLVED: keep them as separate items.** B-118 is the **Pose Studio** (search the
-   library, extract from an image, edit the 2D skeleton, save new, apply) and B-117 is the
+   library, extract from an image, edit the 2D skeleton, save new, and emit an Apply request) and
+   B-117 activates that request through the
    **pose-conditioned render** (pick pose + model + strength → one render). These are exactly the
    interactive pose tools described; folding them into B-123 would bury the pose workflow inside the
    LoRA studio and duplicate B-119/B-120's claims. Both plans are now written and B-123 depends on

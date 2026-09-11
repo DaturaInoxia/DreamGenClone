@@ -7,7 +7,8 @@
 > `specs/Planning/identity-lora-program-map.md`, not on the identity → body → LoRA critical path.
 > It becomes load-bearing for B-123 only for **forced/awkward layout** training cells (lying,
 > all-fours, multi-body). It **consumes** B-120's derived-asset store and **does not** duplicate
-> B-117's OpenPose path. Scheduled in parallel — it does not block B-121/B-122/B-123.
+> B-117's OpenPose path. Scheduled in parallel — it does not block B-121/B-122 or B-123's schema and
+> ordinary-cell work, but required layout cells cannot execute or freeze until B-119/B-120 exist.
 **Companions (canonical numbers already allocated by parallel work):**
 - **B-117 — Pose-controlled scene compositions via local ControlNet (DWPose + OpenPoseXL2)** = the OpenPose blocking/render implementation (Route C2 here). This item does NOT duplicate it.
 - **B-118 — Pose Studio** (2D wireframe pose editor + DWPose extract + pose library) = pose authoring (feeds B-117).
