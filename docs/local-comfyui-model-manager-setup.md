@@ -62,12 +62,38 @@ A single provider row (one ComfyUI endpoint hosts every checkpoint) named
 > held. Registered under the `Local ComfyUI` provider with editor settings 40 steps / CFG 4 /
 > euler / simple / denoise 1 / AuraFlow 3.1 / CFGNorm 1, and `RolePlaySceneImageEditor` function
 > default **repointed to local** (RunPod editor row kept intact as fallback).
-> **CAVEAT — stock is SFW-aligned:** this local model is the stock `qwen_image_edit_2511_fp8mixed`,
-> NOT the `Qwen-Rapid-AIO-NSFW-v23` serverless variant, so explicit/adult edits are safety-blanked
-> (genital region → mannequin). Use local for implied/SFW edits; switch the default back to the
-> RunPod NSFW-AIO editor for explicit edits. Registration was done via direct DB
-> (model id `7bc5d932-4596-4b96-ac73-5162516a162f`); `local-comfyui-configure` does NOT create
-> editor rows yet.
+> **UPDATED 2026-09-11 — the local editor now runs the same merged checkpoint as the serverless
+> endpoint.** `Qwen-Rapid-AIO-NSFW-v23.safetensors` is installed at
+> `D:\ComfyUI\models\checkpoints\` (28,431,840,023 bytes, SHA-256
+> `FDB919FC81BEA63F13759967FC92C9118142E5C70D4E6795199233A35EEFA233`), fetched with
+> `helpers/local-comfyui-host/fetch-qwen-aio-parallel.ps1` + `assemble-qwen-aio-chunks.ps1`
+> (8 parallel range requests — a single connection is throttled to ~2 MB/s for this artifact).
+> The local editor row `7bc5d932-4596-4b96-ac73-5162516a162f` was repointed with
+> `qwen-edit-local-aio-configure` (idempotent): `ImageEditorDiffusionModel` =
+> `Qwen-Rapid-AIO-NSFW-v23.safetensors`, **8 steps / CFG 1 / euler_ancestral / beta** (Lightning
+> merge — never 40/4), denoise 1, AuraFlow shift 3.1, CFGNorm 1.
+>
+> **This is why the local model is no longer the stock 2511.** The previous caveat applied to
+> `qwen_image_edit_2511_fp8mixed`, the safety-aligned Comfy-Org repack (genital region → mannequin).
+> It remains installed and can be restored by setting the row back to `SplitUnet` +
+> `qwen_image_edit_2511_fp8mixed.safetensors` + 40/4/euler/simple.
+>
+> **New required setting — Editor Graph.** The ComfyUI workflow graph is configured data, never
+> inferred from artifact names. `RegisteredModels.ImageEditorGraphKind` (`SplitUnet` |
+> `MergedCheckpoint`) is exposed in Model Manager as **Editor Graph** and is **required** for a
+> ComfyUI-protocol editor (the resolver fails fast when it is blank). `SplitUnet` = separate
+> diffusion model + text encoder + VAE; `MergedCheckpoint` = one checkpoint bundling model+clip+vae
+> (`CheckpointLoaderSimple`). A merged checkpoint with `SplitUnet` will not render.
+>
+> **Proof (non-explicit, 2026-09-11):** `helpers/local-comfyui-host/run-local-aio-edit-proof.ps1`
+> submitted the app's exact merged graph plus `"Change only the man's shirt from blue to solid red."`
+> against `specs/image-generator-tests/qwen/images/base.png`; the shirt turned red, the second
+> person/pose/background/identity held, and the garment *style* drifted (button-up → polo) — expected
+> at 8 steps / CFG 1. Output: `artifacts/tmp/proofs/qwen-edit-local/`.
+>
+> Host gotchas recorded in `helpers/local-comfyui-host/README.md`: PowerShell is **5.1** (no `?.`),
+> and `Start-Process`-detached transfers launched over SSH **survive the disconnect** and can silently
+> compete with later downloads.
 
 > **FLUX enabled 2026-09-08:** the B-112 §7 Flux-family code slice landed (`SceneImageModelFamily.Flux`
 > + `FluxNaturalLanguage`, ComfyUI split-UNET `BuildFluxWorkflow`, `FluxSceneImagePromptCompiler`,

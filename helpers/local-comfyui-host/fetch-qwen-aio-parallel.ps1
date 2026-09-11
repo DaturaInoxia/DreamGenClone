@@ -71,9 +71,10 @@ for ($i = 0; $i -lt $Chunks; $i++) {
 }
 
 foreach ($process in $pending) { $process.WaitForExit() }
-foreach ($process in $pending) {
-    if ($process.ExitCode -ne 0) { throw "A chunk download failed with exit code $($process.ExitCode)." }
-}
+
+# Do NOT assert on $process.ExitCode here: on Windows PowerShell 5.1 a Start-Process -PassThru object
+# can report a null ExitCode even for a successful transfer, which aborts a completed download. The
+# per-chunk byte-count verification below is the authoritative check and catches a truncated chunk.
 
 # Verify every chunk before assembling anything.
 $total = 0

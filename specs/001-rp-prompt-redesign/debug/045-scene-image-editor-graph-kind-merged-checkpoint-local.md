@@ -88,12 +88,23 @@ Infra:
 
 ## Validated
 
-- [x] Build green: tests project `0 Error(s)`, DbQuery project `0 Error(s)`.
-- [x] Affected tests green (11/11 editing/dispatcher/repository tests).
-- [ ] Artifact download complete + byte count verified (running).
-- [ ] `qwen-edit-local-aio-configure` executed against the dev DB.
-- [ ] Proof render through the app on the local host, visually verified.
-- [ ] Docs (`docs/local-comfyui-model-manager-setup.md`), memory, and this record updated with the result.
+- [x] Build green: tests project `0 Error(s)`, DbQuery project `0 Error(s)`, web project `0 Error(s)`.
+- [x] Affected tests green (11/11 editing/dispatcher/repository tests); new graph tests included.
+- [x] Artifact downloaded + byte-verified: `Qwen-Rapid-AIO-NSFW-v23.safetensors`,
+      28,431,840,023 bytes, SHA-256 `FDB919FC81BEA63F13759967FC92C9118142E5C70D4E6795199233A35EEFA233`
+      (8 parallel range chunks, assembled + size-verified).
+- [x] ComfyUI registers the checkpoint in `/object_info/CheckpointLoaderSimple`.
+- [x] Webapp rebuilt and restarted (Development, cwd `DreamGenClone.Web`, HTTP 200 on :5177; dev DB
+      confirmed by 52 fresh `HealthCheckResults` rows).
+- [x] `qwen-edit-local-aio-configure` executed: editor row `7bc5d932` → AIO checkpoint,
+      `MergedCheckpoint`, 8 steps / CFG 1 / euler_ancestral / beta; second run reports
+      "already configured … No changes made" (idempotent).
+- [x] Non-explicit proof render through the app's exact merged graph on the local host: shirt changed
+      to solid red, second person/pose/background/identity held; garment style drifted (button-up →
+      polo) — expected at 8 steps / CFG 1. Output:
+      `artifacts/tmp/proofs/qwen-edit-local/local-aio-qwen-edit-local_00001_.png`.
+- [ ] End-to-end edit driven from the Scene Image Editor UI (needs a user-initiated edit).
+- [x] Docs (`docs/local-comfyui-model-manager-setup.md`), helper README, and memory updated.
 
 ## Pre-existing failures (NOT caused by this change)
 
