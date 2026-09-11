@@ -55,7 +55,8 @@ Validate these before writing code; each is a design decision already made in th
   Sha256`) and `CharacterLoraTrainingProfile`, and the freeze `ManifestSha256` flow.
   *Evidence:* fields quoted.
 - [ ] B123-000d Confirm the B-124 view-set model (`ViewDescriptorJson`) and B-121/B-122 outputs are
-  consumable, and record the exact service methods the cell workspace will read them through.
+  consumable, including explicit `PackScope=BodyComplete`, and record the exact service methods the
+  cell workspace will read them through. A `FaceOnly` or missing-scope pack must fail fast.
   *Evidence:* method names + file paths.
 
 ---
@@ -80,7 +81,9 @@ Validate these before writing code; each is a design decision already made in th
 - [ ] B123-004 Add the cell-workspace route + per-cell state (source / pose / model / attempts /
   status `draft → in-progress → accepted / rejected`).
 - [ ] B123-005 Source selection: generate fresh, reuse a reference from the view set, or upload.
-- [ ] B123-006 Pose attach: from the B-118 library, a fresh DWPose extraction, or none.
+- [ ] B123-006 Pose attach: use an explicit `PoseControlSource` (`PosePreset` from B-118 or
+  `DerivedStructureAsset` from B-120), persist source kind + id + explicit mirror transform, or
+  explicitly mark the cell as requiring no pose. Never fall back between source kinds.
 - [ ] B123-007 Model selection + single render (one image per request; no sweep).
 - [ ] B123-008 Attempt history: keep an attempt as the cell's accepted image or discard; never
   collapse several attempts into one shot.
@@ -107,13 +110,17 @@ Validate these before writing code; each is a design decision already made in th
   canonical (`tools/consistency-scoring identity`, frame-normalised band), eye check (subprocess from
   B-121, face-close cells only), near-duplicate (subject/CLIP similarity, threshold from
   `CurationPolicy`).
-- [ ] B123-014 Build the pose-adherence scorer: joint geometry vs the library skeleton JSON. Never
-  raster-IoU, never auto-caption prose.
+- [ ] B123-014 Build the pose-adherence scorer to the plan's Phase 4 contract: confidence-filtered
+  shared COCO-18 joints; required head anchors + configured minimum joint count; translation/torso-
+  scale normalization without rotation; explicit-only mirroring; weighted normalized joint RMSE +
+  connected-limb angle error; `NotScorable` on insufficient joints. All limits come from persisted
+  `CurationPolicy`. Never raster-IoU, never auto-caption prose.
 - [ ] B123-015 Manual gates (anatomy — the primary gate for nude cells; no reliable automated
   detector) with persisted verdicts. The skin-fraction `sanitisation` scorer is **not** applied.
 - [ ] B123-016 [P] Tests: a single favourable metric is never a pass; pose scorer validated against
-  known-good and known-bad renders before it gates anything; the eye check is delegated to B-121's
-  capability (no second implementation).
+  versioned known-good and known-bad renders before it gates anything; insufficient joints return
+  `NotScorable`; missing policy limits fail fast; the eye check is delegated to B-121's capability
+  (no second implementation).
 
 ---
 
@@ -142,7 +149,8 @@ Validate these before writing code; each is a design decision already made in th
 
 - [ ] B123-021 Freeze (computes `ManifestSha256`) + export (`.txt` sidecars / `dataset.toml`) into the
   existing training dispatch — no new training dispatch work.
-- [ ] B123-022 [P] Tests: freeze requires all members accepted; export contents match the manifest.
+- [ ] B123-022 [P] Tests: freeze requires every required coverage cell accepted; unavailable pose or
+  layout cells block freeze with their missing capability named; export contents match the manifest.
 
 ---
 
@@ -189,12 +197,13 @@ Validate these before writing code; each is a design decision already made in th
 
 ## Dependency notes
 
-- Phase 0 blocks everything. Phase A blocks B. Phase B blocks C–G. Phase H (inference) depends only
-  on a training profile existing.
+- Phase 0 blocks everything. Phase A blocks B. Phase B blocks C–G. Phase H (inference) depends on a
+  trained artifact and an exact render-model identity match.
 - **B-123 depends on stages 1–3 of the program map:** B-124 (the `ViewDescriptorJson` model),
   B-121 (the edit primitive, template store, eye-check capability, face view set) and B-122 Phase 0
-  (the BodyCard + body view set). Do not start B before those exist; the cell workspace degrades
-  without B-118/B-117 (pose) and B-119/B-120 (layout) — it must run without them, just with weaker
-  pose/layout control.
+  (the BodyCard + body view set). Do not start B before those exist. B-118/B-117 must exist before
+  pose-conditioned cells execute. B-120/B-119 must exist before required layout-controlled cells
+  execute. Missing capability leaves the affected cell explicitly unavailable; it cannot be accepted
+  or included at freeze, and the workflow never substitutes weaker pose/layout control.
 - **B-122 Phase 0** (the BodyCard + body refs) is its own backlog item; the tasks above that touch
   the body (B123-006, B123-011, B123-026) consume it and must not build it.

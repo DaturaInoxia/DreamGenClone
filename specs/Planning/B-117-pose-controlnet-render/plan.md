@@ -1,7 +1,7 @@
 # B-117 — Pose-controlled composition render (OpenPose ControlNet)
 
 **State:** `planned` (design artifact — no code written). **Scope:** large.
-**Program:** `specs/Planning/identity-lora-program-map.md` — stage 4 of the component-readiness
+**Program:** `specs/Planning/identity-lora-program-map.md` — stage 5 of the component-readiness
 order. Consumes B-118's pose store. Consumed by B-123 (pose-conditioned cells) and the scene-image
 Composer.
 
@@ -28,6 +28,9 @@ verify.
 2. **OpenPose ControlNet workflow builder** in `ComfyUIImageClient`:
    `LoadImage(pose skeleton) → DWPreprocessor → ControlNetLoader(OpenPoseXL2) / ControlNetApply →
    KSampler`, strength 0.35–0.85 per the prompt-compiler standards.
+   The request carries an explicit `PoseControlSource`: `PosePreset` resolves immutable bytes from
+   B-118; `DerivedStructureAsset` resolves one approved OpenPose asset from B-120. Missing or invalid
+   selected source fails fast; the resolver never falls back from one source kind to the other.
 3. **Render route** in `SceneImageRenderingJobHandler`, gated on the resolved model declaring **and**
    qualifying ControlNet on a ComfyUI provider.
 4. **Pose picker + strength UI**: reads the B-118 library, shows skeleton preview + `known-good`
@@ -35,9 +38,9 @@ verify.
 
 ## User workflow
 
-Pick a pose (from B-118) → pick a model → set strength → render → inspect the result. The pose source
-is always a skeleton image from B-118's store (authored, extracted, or from the library) — never a
-prose description.
+Pick a pose source → pick a model → set strength → render → inspect the result. The source is an
+explicit B-118 `PosePreset` or B-120 approved OpenPose `DerivedStructureAsset`, never prose. This
+stage activates B-118's Apply action and records source kind, source id, transform and model.
 
 ## Non-goals
 
@@ -47,14 +50,17 @@ prose description.
 
 ## Acceptance
 
-1. Picking a saved pose and a qualified model produces one image whose joint geometry matches the
-   skeleton within the B-123 pose-adherence scorer's tolerance.
+1. Picking a saved pose and a qualified model produces exactly one image; graph tests prove the
+   selected skeleton enters ControlNet, provenance records the exact source/model/strength, and a
+   versioned known-good pose proof is visually reviewed. Quantitative pose scoring remains B-123.
 2. Picking a model that does not declare ControlNet fails fast naming the model — no plain-render
    fallback.
-3. The B-123 cell workspace can invoke this route for a single cell and keep or discard the result.
+3. B-118's Apply action invokes this route, and the B-123 cell workspace can invoke it for one cell
+   and keep or discard the result.
 
 ## Files
 
 - This plan: `specs/Planning/B-117-pose-controlnet-render/plan.md`.
+- Coding-agent dispatch: `specs/Planning/B-117-pose-controlnet-render/tasks.md`.
 - Canonical hard rules: `.github/instructions/scene-image-prompt-compiler-standards.instructions.md`.
 - Pose source: `specs/Planning/B-118-pose-studio/plan.md`.

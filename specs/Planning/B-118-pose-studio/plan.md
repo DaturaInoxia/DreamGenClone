@@ -1,7 +1,7 @@
 # B-118 — Pose Studio (interactive pose tool)
 
 **State:** `planned` (design artifact — no code written). **Scope:** medium.
-**Program:** `specs/Planning/identity-lora-program-map.md` — stage 3 of the component-readiness
+**Program:** `specs/Planning/identity-lora-program-map.md` — stage 4 of the component-readiness
 order; **owns** the pose store + DWPose extract + pose library. Feeds B-117 (render) and B-123
 (cell-workspace pose picker).
 
@@ -23,8 +23,9 @@ actions around a pose library.
    undo, reset. Hands/face are not edited (OpenPoseXL2 does not reliably honour them).
 4. **Save** as a named preset (`name`, `category`, keypoint JSON, skeleton PNG, thumbnail,
    `known-good` flag).
-5. **Apply** any saved/extracted pose with a chosen model — this is a single render the user requests,
-   delegated to B-117. The apply action is one pose, one model, one render; there is no sweep.
+5. **Apply** any saved/extracted pose with a chosen model — B-118 defines the render-request contract;
+   B-117 activates and accepts the real action. The apply action is one pose, one model, one render;
+   there is no sweep.
 
 ## Components (one = one user-facing capability)
 
@@ -34,7 +35,7 @@ actions around a pose library.
 | Seed importer | imports the git-tracked 472-pose NSFW OpenPose pack (`helpers/runpod/openposeNSWFPosePackage_final/`) idempotently |
 | DWPose extract client | LoadImage → DWPreprocessor → SaveImage on local ComfyUI, returning keypoints + skeleton PNG |
 | 2D skeleton editor | Blazor + JS canvas; drag joints, mirror, undo; COCO-18 body joints only |
-| Apply action | hands a `PosePreset` + chosen model to the B-117 render route |
+| Apply contract | hands a `PoseControlSource(PosePreset)` + chosen model + strength to B-117; B-117 owns activation and render acceptance |
 
 ## Seams
 
@@ -59,12 +60,13 @@ actions around a pose library.
 2. Extracting a pose from an image shows the skeleton overlaid; a faceless image is rejected with the
    head-keypoint reason.
 3. Editing a skeleton and saving it creates a preset that reloads identically.
-4. Applying a saved pose with a chosen model produces exactly one image (via B-117), whose provenance
-   names the pose and model.
+4. The Apply request contract round-trips a selected preset/model/strength with no batch fields. Its
+   real one-image render and provenance acceptance are B-117's completion gate, not B-118's.
 5. The B-123 cell workspace can open this tool and pick a pose without leaving the workflow.
 
 ## Files
 
 - This plan: `specs/Planning/B-118-pose-studio/plan.md`.
+- Coding-agent dispatch: `specs/Planning/B-118-pose-studio/tasks.md`.
 - Pose pack: `helpers/runpod/openposeNSWFPosePackage_final/` (git-tracked).
 - Render hand-off: `specs/Planning/B-117-pose-controlnet-render/plan.md`.

@@ -110,22 +110,21 @@ wiring **owned here** (Phase 8) and the pose/layout pieces **consumed from their
 | Curation UI + freeze | ✅ complete (manual checkboxes + caption textarea) |
 | Coverage plan / curation policy **JSON schemas** | ❌ missing — free-form strings, validated only as valid JSON |
 | DWPose **pose extraction** client (in-app) | ❌ missing — only pose *consumption* scaffolding + external Python scripts |
-| ControlNet **pose render** (B-117) | ❌ `designed`, not implemented |
+| ControlNet **pose render** (B-117) | ❌ `planned`, not implemented |
 | Quality scoring (identity / eye) | ✅ exists as external Python CLIs (`tools/consistency-scoring`, `tools/eye-validation`); ❌ not wired into the UI |
 | Pose-adherence scorer | ❌ missing entirely |
 
-The durable backbone is done and strict. The gap is entirely in **creation automation**: the
+The durable backbone is done and strict. The gap is entirely in the **interactive creation workflow**:
 workflow is a raw-JSON form, and five automation pieces are absent (member registration,
 coverage-plan generator, caption builder, pose/DWPose surface, automated quality gates).
 
 ---
 
-## Prerequisites — owned by this plan (built first, tracked as their own backlog items)
+## Prerequisites — separately owned and consumed here
 
 The following do not exist in code today (verified 2026-09-11). This plan **sequences** them and
-integrates them; ownership follows `identity-lora-program-map.md` §3 — only the LoRA inference path
-is owned here. Where a row below says a piece is built by this plan but is claimed elsewhere, the map
-controls.
+integrates them; ownership follows `identity-lora-program-map.md` §3. B-122 owns body-complete
+identity; B-123 owns its dataset/scorer/inference work; B-117/B-118/B-120 remain separate owners.
 
 | Prereq | State today | Built by (owner) | Backlog |
 |---|---|---|---|
@@ -157,8 +156,10 @@ just the head.
 2. **Full-body references at multiple angles.** In addition to the 5 face views, the pack gains
    full-body reference assets (front / 3/4 / profile, framed full-body, the same body across all
    of them). These become the identity source for full-body cells and for the body-normalization
-   edit in Phase 3. Body views carry a `ViewDescriptorJson` (`BodyRotationDeg` + `BodyPositionKey`)
-   so **base + angles + rotations + positions** are first-class
+  edit in Phase 3. Canonical views carry `SceneImageReferenceBodyView`; every body asset carries
+  explicit `SceneImageReferenceBodyState` (`Clothed` or `Unclothed`); extended views carry
+  `ViewDescriptorJson` (`BodyRotationDeg` + `BodyPositionKey`) without a canonical slot. This makes
+  **base + angles + rotations + positions** first-class
    (`identity-and-reference-model.md` §2), not five fixed body shots.
 3. **Wardrobe/body split — includes unclothed.** Two states of the same body, both captured at
    the same angles so the LoRA learns one invariant body:
@@ -171,6 +172,11 @@ just the head.
 4. **Validation gates for the body.** Reuse the eye-validation discipline, extended to body
    invariants: tattoo present and in the exact spot, body shape/proportions consistent across all
    body refs, no drift between views.
+
+Promotion creates or supersedes a draft with explicit `PackScope=BodyComplete`; it never mutates an
+approved `FaceOnly` pack in place. Approval requires the canonical face set plus matching clothed and
+unclothed canonical body sets, with `CanonicalFullBodyAssetId` pointing at the approved unclothed
+front. B-123 rejects any pack that is not explicitly `BodyComplete`.
 
 Reuses: `ICharacterImageIdentityService` (draft/supersede/approve), `IImageEditingClient`
 (Qwen full-body edit to stamp marks/shape), `SceneAssetService.CreateFromUploadAsync`.
@@ -235,7 +241,8 @@ run the selected operation, not because of a preference. Options per cell:
   content and are flagged as such, but no model is hard-blocked — the user chooses and accepts the
   result.
 
-Reuses `CharacterAssetGenerationService.CreateBatchAsync` (already produces draft `SceneAsset`s)
+Reuses `CharacterAssetGenerationService.CreateBatchAsync` only through a one-output adapter that
+hard-validates requested count `= 1` (the existing API name does not authorize a multi-image UI)
 and `SceneImageService` enqueue paths. Generation provenance stays exact (source render hash +
 normalized hash + seed + prompt).
 
@@ -271,6 +278,16 @@ Wire the external scorers into the workflow and add the missing one:
 **Hard rule from prior work:** pose claims come from measured joint geometry, never from
 auto-caption prose; identity scores are only comparable within a fixed face-size band; a single
 favourable metric is never a pass — report identity + adherence + diversity.
+
+**Pose-adherence contract:** compare only named COCO-18 joints present above the configured
+confidence floor in both target and render. Require nose, neck and both shoulders plus the configured
+minimum shared-joint count; otherwise return `NotScorable` and require manual review. Translate both
+skeletons to the neck/shoulder-midpoint origin and scale by torso length (shoulder midpoint to hip
+midpoint); do not rotate either skeleton. Mirror only when the cell's persisted pose-source transform
+explicitly requests it. Report (a) confidence-weighted normalized joint RMSE and (b) mean absolute
+connected-limb angle error. `CurationPolicy` stores the confidence floor, minimum joint count, RMSE
+limit and limb-angle limit; missing values fail fast. A pass requires both limits. Calibrate and lock
+the limits against versioned known-good and known-bad fixtures before the scorer gates a real cell.
 
 ## Phase 5 — Caption builder
 
@@ -309,15 +326,16 @@ output is approved, register it as a `CharacterLoraDatasetMember`:
 - `ICaptionBuilder` — build/revise captions from cell axes + trigger.
 - `ILoraImageWorkflowService` — orchestrate generate → normalize → score → register → curate.
 - `IPoseAdherenceScorer` — joint-geometry pose scorer (subprocess wrapper or .NET port).
-- `IDwpPoseExtractionClient` — DWPreprocessor extraction client (prereq, B-117/B-118 seam).
-- OpenPose ControlNet workflow builder in `ComfyUIImageClient` (prereq, B-117).
+- `IDwpPoseExtractionClient` — consumed from B-118; not implemented by B-122/B-123.
+- OpenPose ControlNet workflow builder in `ComfyUIImageClient` — consumed from B-117; not
+  implemented by B-122/B-123.
 - `LoraLoader` node builder + trigger-token injection (Phase 8).
 - Member-registration call site in the reconciliation/approval path.
 
 ## UI deltas
 
 - `LoraDatasetGeneration.razor` → guided wizard: (1) dataset identity prefilled from character,
-  (2) generated coverage checklist with pose picker + skeleton preview, (3) generate queue with
+  (2) generated coverage checklist with pose picker + skeleton preview, (3) active-cell render
   progress, (4) normalization + quality-review gallery, (5) captions, (6) freeze.
 - `LoraDatasetCuration.razor` → add automated quality signals.
 - `LoraDatasetTraining.razor` → unchanged (works).
@@ -351,26 +369,18 @@ closes the gap flagged earlier (the app knows what a LoRA *is* but cannot *use* 
 - Not a two-person LoRA. One character per dataset (the blend problem stands); two-character
   frames stay on the staged/IP-Adapter path.
 - Not a training service — that already exists and works.
-- Not a rebuild of the pose store / pose editor (B-118) or ControlNet render (B-117) — those are
-  built as prerequisites (owned by this plan) and consumed, not duplicated.
+- Not a rebuild of the pose store / pose editor (B-118), ControlNet render (B-117), or derived/layout
+  tools (B-120/B-119). They are separately owned prerequisites and are consumed, not duplicated.
 
-## Task breakdown (summary — see tasks.md)
+## Dispatch lists
 
-> **Authoritative dispatch list:** [tasks.md](tasks.md) — per-task, cell-workspace granularity, with
-> architecture review points for the first pass. The T01–T12 list below is a summary only.
+- **B-122 Phase 0:** [b122-tasks.md](b122-tasks.md) — BodyCard, body target, explicit clothed/
+  unclothed canonical and extended views, body validation, `BodyComplete` promotion and UI.
+- **B-123 Phases 1–8:** [tasks.md](tasks.md) — coverage plan, cell workspace, normalization, gates,
+  captions, registration, freeze/export and LoRA inference.
 
-1. **T01** Phase 0: BodyCard model + full-body clothed **and unclothed** references + validation (B-122).
-2. **T02** Typed coverage/curation/findings schemas + validation.
-3. **T03** Coverage-plan editor (incl. wardrobe-state axis) + dataset workspace grid — authored/seeded, never auto-run.
-4. **T04** Pose picker + pose-store seed + DW extract (B-118 seam) + head-keypoint validation.
-5. **T05** ControlNet pose render builder + model capability declaration (B-117 prereq).
-6. **T06** Cell workspace: per-cell interactive generation (create/edit/pose/model attempts, incl. nude route) + member registration on accept.
-7. **T07** Normalization step (face + body Qwen edits, incl. unclothed body ref) (Phase 3).
-8. **T08** Quality gates incl. the joint-geometry pose scorer + anatomy manual gate + wiring into curation.
-9. **T09** Caption builder (Phase 5).
-10. **T10** Freeze + export + training hand-off (Phase 7).
-11. **T11** LoRA inference wiring: `LoraLoader` node + trigger injection + strength UI (Phase 8).
-12. **T12** Tests (repository, workflow, scorer) + full suite green (repo hard rule).
+Neither dispatch list may absorb B-117/B-118/B-119/B-120 implementation. Their contracts must exist
+before the consuming B-123 tasks are marked complete.
 
 ## Open questions / risks
 

@@ -56,7 +56,8 @@ scripts and no direct DB writes.
   repo's no-fallback rule satisfied while still shipping working defaults.)
 - **FR21-009:** Step *behaviour controls* are equally persisted and editable, not code constants:
   editor model id, upscaling model + target long edge, crop parameters, the direction/mirror flags,
-  the eye-gate threshold, and the quality-gate threshold.
+  the eye-tool Python path, the eye-gate threshold, and the quality-gate threshold. Missing values
+  fail fast by key; migration seeds are configuration data, not runtime fallbacks.
 - **FR21-010:** The UI shows, for each step, the resolved prompt text and which scope supplied it
   (character override vs global), and allows editing either scope.
 - **FR21-011:** Model ids resolve through Model Manager. Sampling parameters are never duplicated into
@@ -111,8 +112,10 @@ scripts and no direct DB writes.
 ### H. Promotion
 
 - **FR21-027:** Promotion writes the accepted view set into a draft identity pack, tagging each view
-  with its correct `SceneImageReferenceFaceView`. **Promotion must not hardcode `Front`** — the
-  current `PromoteAcceptedCharacterFaceAsync` does, and must be extended to carry the view.
+  with its correct `SceneImageReferenceFaceView` canonical slot when applicable and its
+  `ViewDescriptorJson`. Extended views have no canonical slot. The resulting pack has explicit
+  `PackScope = FaceOnly`. **Promotion must not hardcode `Front`** — the current
+  `PromoteAcceptedCharacterFaceAsync` does, and must be extended to carry the view contract.
 - **FR21-028:** Promotion refuses a view whose validate gate failed, whose yaw is wrong, or whose
   quality rating is below the configured bar, naming the offending view.
 - **FR21-029:** Promotion reuses the existing identity-pack mechanics (`CreateDraftPackAsync`,
@@ -150,8 +153,8 @@ scripts and no direct DB writes.
 ## Acceptance Scenarios
 
 1. Creating a build for a character with no pack, generating a front from a description, and running
-   every step through to promotion produces a draft identity pack with five correctly angle-tagged
-   views.
+  every step through to promotion produces an explicit `FaceOnly` draft identity pack with five
+  correctly angle-tagged canonical views plus any accepted configured extended views.
 2. Uploading an existing image as the front enters the identical pipeline from the validate step, and
    reaches the same outcome.
 3. Editing the garment-removal template text changes the actual prompt dispatched on the next run, and

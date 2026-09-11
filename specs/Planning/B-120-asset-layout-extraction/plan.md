@@ -41,6 +41,10 @@ The user must be able to **create a layout/control image from an arbitrary sourc
    - Gated: requires a source image that is Complete/Approved; fail-fast otherwise.
 3. **Semantic bindings**: bind a derived asset to a meaning (per location / per pose / per beat-set) so a composer picks "canonical blocking for the pine-clearing rock" rather than a raw file. Reuse/extend the location-profile bootstrap (`ReferenceBootstrapLocationProfile`/`LocationReference`) as the anchor for Location-derived assets.
 4. **Consumption contract**: a composition render request carries `{ LayoutReferenceImageId, StructureType, ControlStrength }`; the resolver runs a ControlNet render **only** when the resolved model declares the corresponding graph strategy on a ComfyUI provider — no fallback to a plain render (mirror identity resolver rules). Raw plates additionally feed B-116 re-skin.
+5. **Pose bridge**: B-118 remains the owner of `PosePreset` keypoints and skeleton bytes. B-120 may
+   create a `DerivedStructureAsset(OpenPose)` that references a preset in provenance or derives from
+   another source; it never copies pose-authoring state. B-117's explicit `PoseControlSource` accepts
+   either id and never silently converts or falls back between them.
 
 ## 5. Gating / no-fallback rules
 - StructureKind extraction only executes on local ComfyUI (`ImageProtocol.ComfyUi`) with the preprocessor present; explicit diagnostic otherwise.

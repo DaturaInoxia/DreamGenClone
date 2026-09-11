@@ -109,9 +109,11 @@ name or table.
 ### D2 — Behaviour controls are persisted settings, not constants
 
 A `ReferenceWorkflowSettings` row (global, optional per-character override) holds: editor model id,
-upscaler model name, target long edge, crop parameters, mirror/derive flags, eye-gate threshold
-(`|irisDy%| ≤ x`, default 1.5), quality-gate threshold (default 250). Only **model ids** are stored —
-sampling parameters stay in Model Manager (FR21-011).
+upscaler model name, target long edge, crop parameters, mirror/derive flags, eye-tool Python path,
+eye-gate threshold (`|irisDy%| ≤ x`, seeded 1.5), quality-gate threshold (seeded 250). Only **model
+ids** are stored — sampling parameters stay in Model Manager (FR21-011). Every field is resolved
+from persisted configuration; missing values fail fast by key. The seeded values are migration data,
+never runtime fallback constants.
 
 ### D3 — The existing `AngleEdits` constants are deleted, not copied
 
@@ -153,8 +155,10 @@ was rejected: it exists today only as a git-ignored artifact under `artifacts/tm
 ### D7 — Promotion carries the view; it must stop hardcoding `Front`
 
 The current face promotion path uploads one asset tagged `Front`. The studio must pass the intended
-`SceneImageReferenceFaceView` per artifact (FR21-027). This is a change to existing behaviour and must
-keep the legacy caller working (the current panel promotes a single face candidate → `Front`).
+`SceneImageReferenceFaceView` per canonical artifact and `ViewDescriptorJson` for every canonical or
+extended artifact (FR21-027). B-121 creates an explicitly `FaceOnly` pack under B-124's `PackScope`
+contract. This is a change to existing behaviour and must keep the legacy caller working: the
+current panel promotes a single face candidate as `Front` into an explicit `FaceOnly` pack.
 
 ### D8 — Build state is a first-class resumable record
 
@@ -195,8 +199,9 @@ Ordered 3/4-L → 3/4-R → profile-L → profile-R, yaw measurement, convention
 mirror remedy, per-view gate. *Exit:* acceptance scenario 7.
 
 **Phase G — Promotion with view tagging**
-Extend face promotion to carry the view; gate on validate/yaw/quality; write the five views into a
-draft pack. *Exit:* acceptance scenarios 8, 9, 11 — and the existing reference-bootstrap tests stay green.
+Extend face promotion to carry the canonical slot plus descriptor; gate on validate/yaw/quality;
+write the five canonical and any accepted extended views into an explicit `FaceOnly` draft pack.
+*Exit:* acceptance scenarios 8, 9, 11 — and the existing reference-bootstrap tests stay green.
 
 **Phase H — UI**
 The studio surface per [ui-contract.md](ui-contract.md), including the prompt editor with scope
