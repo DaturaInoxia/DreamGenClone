@@ -265,3 +265,23 @@ the recommended approaches:** (1) view model = canonical-slot enum + `ViewDescri
 extended set (up/down pitch, intermediate yaw); (2) body = base+angle canonical minimum +
 `BodyRotationDeg`/`BodyPositionKey` free data; (3) **B-124 grouping precedes B-123's cell
 workspace**; (4) faceid/IP-Adapter render wiring stays B-111 P3, scoring-CLI wiring is B-123.
+
+---
+
+## 9. Handoff & review order
+
+The first pass is an **architecture review agent**, not a coding agent. Review order:
+
+1. `identity-lora-program-map.md` — sequencing + ownership; confirm the stage order and the
+   single-owner table.
+2. `identity-and-reference-model.md` — the reference model + component stack; confirm the
+   canonical-slot + descriptor split and the root-agnostic group model.
+3. `B-124-reference-model-and-asset-manager-shell/plan.md` (stage 1) — confirm the additive schema
+   and the grouped-only shell.
+4. `B-121-character-identity-studio/` (stage 2) — confirm the target-extensible pipeline and the
+   view-set model it consumes.
+5. `B-122-body-complete-identity-and-lora-image-studio/tasks.md` (B-123, stage 8) — confirm the
+   cell-workspace centerpiece and the base-model-agnostic inference path.
+
+Only after review: dispatch coding in stage order (B-124 → B-121 → B-122 Phase 0 → B-118 → B-117 →
+B-120 → B-119 → B-123).

@@ -354,7 +354,10 @@ closes the gap flagged earlier (the app knows what a LoRA *is* but cannot *use* 
 - Not a rebuild of the pose store / pose editor (B-118) or ControlNet render (B-117) — those are
   built as prerequisites (owned by this plan) and consumed, not duplicated.
 
-## Task breakdown (ordered)
+## Task breakdown (summary — see tasks.md)
+
+> **Authoritative dispatch list:** [tasks.md](tasks.md) — per-task, cell-workspace granularity, with
+> architecture review points for the first pass. The T01–T12 list below is a summary only.
 
 1. **T01** Phase 0: BodyCard model + full-body clothed **and unclothed** references + validation (B-122).
 2. **T02** Typed coverage/curation/findings schemas + validation.
