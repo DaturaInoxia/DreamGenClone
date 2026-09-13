@@ -30,12 +30,14 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
             INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported, SceneImageModelFamily, PromptDialect,
                 SupportsImageInput, MaximumInputImages, MaximumInputImageBytes, MaximumInputImagePixels, MaximumInputImageDimension, AcceptedInputMediaTypes, MaximumResponseBytes, RuntimeRevision, ArtifactRevision,
                 ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorGraphKind, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength,
+                ImageEditorLoraName, ImageEditorLoraStrength,
                 IdentityMechanism, IdentityStrength, IdentityAdapterRef, IdentityClipVisionRef, SupportedIdentityStrategiesJson,
                 SupportedVisualStrategiesJson, CapabilityQualificationsJson,
                 StructuredOutputMode, MaximumContextTokens, MaximumOutputTokens)
             VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported, $sceneImageModelFamily, $promptDialect,
                 $supportsImageInput, $maximumInputImages, $maximumInputImageBytes, $maximumInputImagePixels, $maximumInputImageDimension, $acceptedInputMediaTypes, $maximumResponseBytes, $runtimeRevision, $artifactRevision,
                 $imageEditorDiffusionModel, $imageEditorTextEncoder, $imageEditorVae, $imageEditorGraphKind, $imageEditorSteps, $imageEditorCfg, $imageEditorSampler, $imageEditorScheduler, $imageEditorDenoise, $imageEditorAuraFlowShift, $imageEditorCfgNormStrength,
+                $imageEditorLoraName, $imageEditorLoraStrength,
                 $identityMechanism, $identityStrength, $identityAdapterRef, $identityClipVisionRef, $supportedIdentityStrategies,
                 $supportedVisualStrategies, $capabilityQualifications,
                 $structuredOutputMode, $maximumContextTokens, $maximumOutputTokens)
@@ -73,6 +75,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                 ImageEditorDenoise = $imageEditorDenoise,
                 ImageEditorAuraFlowShift = $imageEditorAuraFlowShift,
                 ImageEditorCfgNormStrength = $imageEditorCfgNormStrength,
+                ImageEditorLoraName = $imageEditorLoraName,
+                ImageEditorLoraStrength = $imageEditorLoraStrength,
                 IdentityMechanism = $identityMechanism,
                 IdentityStrength = $identityStrength,
                 IdentityAdapterRef = $identityAdapterRef,
@@ -120,6 +124,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.Parameters.AddWithValue("$imageEditorDenoise", (object?)model.ImageEditorDenoise ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorAuraFlowShift", (object?)model.ImageEditorAuraFlowShift ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorCfgNormStrength", (object?)model.ImageEditorCfgNormStrength ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorLoraName", (object?)model.ImageEditorLoraName ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorLoraStrength", (object?)model.ImageEditorLoraStrength ?? DBNull.Value);
         command.Parameters.AddWithValue("$identityMechanism", (object?)model.IdentityMechanism ?? DBNull.Value);
         command.Parameters.AddWithValue("$identityStrength", (object?)model.IdentityStrength ?? DBNull.Value);
         command.Parameters.AddWithValue("$identityAdapterRef", (object?)model.IdentityAdapterRef ?? DBNull.Value);
@@ -189,6 +195,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                      rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef, rm.SupportedIdentityStrategiesJson,
                      rm.SupportedVisualStrategiesJson, rm.CapabilityQualificationsJson,
                      rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens, rm.ImageEditorGraphKind,
+                     rm.ImageEditorLoraName, rm.ImageEditorLoraStrength,
                    p.Name AS ProviderName
             FROM RegisteredModels rm
             INNER JOIN Providers p ON rm.ProviderId = p.Id
@@ -246,7 +253,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
                rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef, rm.SupportedIdentityStrategiesJson,
                rm.SupportedVisualStrategiesJson, rm.CapabilityQualificationsJson,
-               rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens, rm.ImageEditorGraphKind
+               rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens, rm.ImageEditorGraphKind,
+               rm.ImageEditorLoraName, rm.ImageEditorLoraStrength
         FROM RegisteredModels rm
         """;
 
@@ -296,7 +304,9 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         StructuredOutputMode = (StructuredOutputMode)reader.GetInt32(41),
         MaximumContextTokens = reader.IsDBNull(42) ? null : reader.GetInt32(42),
         MaximumOutputTokens = reader.IsDBNull(43) ? null : reader.GetInt32(43),
-        ImageEditorGraphKind = reader.IsDBNull(44) ? null : reader.GetString(44)
+        ImageEditorGraphKind = reader.IsDBNull(44) ? null : reader.GetString(44),
+        ImageEditorLoraName = reader.IsDBNull(45) ? null : reader.GetString(45),
+        ImageEditorLoraStrength = reader.IsDBNull(46) ? null : reader.GetDouble(46)
     };
 
     private static void ValidateImagePromptMetadata(RegisteredModel model)

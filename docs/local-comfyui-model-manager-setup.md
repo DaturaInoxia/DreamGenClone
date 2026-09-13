@@ -19,11 +19,14 @@
 | Host | **WOOD-GAME-MAIN** (Windows 11, RTX 5080 16 GB, ComfyUI 0.34.0 at `D:\ComfyUI`) |
 | Service | `main.py --listen 0.0.0.0 --port 8188` |
 | Base URL (on the ComfyUI host itself) | `http://127.0.0.1:8188` |
-| Base URL (from other LAN hosts / the webapp box) | `http://192.168.0.16:8188` |
+| Base URL (from other LAN hosts) | `http://192.168.0.16:8188` |
+| **Current provider `BaseUrl` on this system** | **`https://comfy.kenacwood.net`** — a public HTTPS front for the same ComfyUI (verified 2026-09-13: `/system_stats` → HTTP 200, `comfyui_version 0.34.0`). Use this from any host; the LAN URL is the fallback. Note the scheme: `http://…:8188` through the domain does **not** work (only HTTPS/443 is served). |
 | Protocol in Model Manager | `ImageProtocol = ComfyUi` (`/prompt`), **not** `ComfyUiServerless`, **not** a pod |
-| Checkpoints served | `juggernautXL_ragnarok.safetensors`, `bigLust_v16.safetensors`, `ponyDiffusionV6XL_v6.safetensors`, `flux1-dev-fp8.safetensors` |
+| Generation checkpoints served | `juggernautXL_ragnarok.safetensors`, `bigLust_v16.safetensors`, `ponyDiffusionV6XL_v6.safetensors`, `ponyRealism_V23ULTRA.safetensors`, `flux1-dev-fp8.safetensors` |
+| Editor checkpoints served | `Qwen-Rapid-AIO-NSFW-v23.safetensors`, `qwenImageEditRemix_aioV20.safetensors` (both merged/AIO) |
+| Editor LoRA | `QwenEdit2511_AllIncludedGay_v2.safetensors` @ 0.8 |
 | Identity stack present | IP-Adapter PLUS FACE / PuLID / FaceID / DWPose (same as the serverless volume, minus Qwen-Edit AIO) |
-| Firewall | inbound TCP 8188 allowed on LAN; never expose unauthenticated ComfyUI publicly |
+| Network exposure | LAN inbound TCP 8188 **plus a public HTTPS front** (`comfy.kenacwood.net`). That front is currently **unauthenticated** — treat the host as internet-reachable and put an access-control policy on it (e.g. Cloudflare Access); do not add a second unauthenticated exposure. |
 
 ## What gets created
 
@@ -41,6 +44,37 @@ A single provider row (one ComfyUI endpoint hosts every checkpoint) named
 | `ponyDiffusionV6XL_v6.safetensors` | Pony V6 XL (Local ComfyUI) | Pony / PonyV6Tags | ✅ |
 | `ponyRealism_V23ULTRA.safetensors` | Pony Realism v2.3 ULTRA (Local ComfyUI) | Pony / PonyV6Tags | ✅ |
 | `flux1-dev-fp8.safetensors` | FLUX.1-dev fp8 (Local ComfyUI) | Flux / FluxNaturalLanguage | ✅ |
+
+### Editor models (Qwen Image Edit) — four rows under the same provider
+
+All four share `ModelKind = ImageEditor`, `ImageEditorGraphKind = MergedCheckpoint`,
+`euler_ancestral` / `beta`, 8 steps, CFG 1, denoise 1, AuraFlow shift 3.1, CFGNorm 1,
+text encoder `qwen_2.5_vl_7b_fp8_scaled.safetensors`, VAE `qwen_image_vae.safetensors`.
+
+| DisplayName | `ImageEditorDiffusionModel` | `ImageEditorLoraName` @ strength | ModelIdentifier |
+|---|---|---|---|
+| Qwen Image Edit Rapid-AIO NSFW v23 (Local ComfyUI) | `Qwen-Rapid-AIO-NSFW-v23.safetensors` | — | `qwen_image_edit_2511_fp8mixed.safetensors` |
+| Qwen Image Edit Rapid-AIO NSFW v23 + Gay/Trans LoRA (Local ComfyUI) | `Qwen-Rapid-AIO-NSFW-v23.safetensors` | `QwenEdit2511_AllIncludedGay_v2.safetensors` @ 0.8 | `qwen_edit_local_aio_v23_gaylora` |
+| Qwen Image Edit Remix AIO v2.0 (Local ComfyUI) | `qwenImageEditRemix_aioV20.safetensors` | — | `qwen_edit_local_remix_aio_v20` |
+| Qwen Image Edit Remix AIO v2.0 + Gay/Trans LoRA (Local ComfyUI) | `qwenImageEditRemix_aioV20.safetensors` | `QwenEdit2511_AllIncludedGay_v2.safetensors` @ 0.8 | `qwen_edit_local_remix_aio_v20_lora` |
+
+> **The base local editor row keeps the historical `ModelIdentifier`
+> `qwen_image_edit_2511_fp8mixed.safetensors`** even though its `ImageEditorDiffusionModel` was later
+> repointed to the merged `Qwen-Rapid-AIO-NSFW-v23.safetensors` — the identifier is a stable key, not a
+> description. Only the derived variants carry descriptive identifiers.
+
+> **The Remix AIO v2.0 row and its +LoRA variant were added 2026-09-12/13.** Both are the same
+> Civitai `Qwen Image Edit - Remix` AIO v2.0 merge (`qwenImageEditRemix_aioV20.safetensors`, Civitai
+> model `2338517`; verified drop-in for the `MergedCheckpoint` graph — baked CLIP+VAE, single
+> `CheckpointLoaderSimple`). Created through the idempotent clone path (see the apply sequence below),
+> so the row is a straight clone of the base editor row plus the checkpoint/LoRA overrides.
+
+> **These are single-image editors.** Both checkpoints are community *merged* ("AIO") Qwen-Image-Edit
+> variants — one input image, one instruction. Verified 2026-09-13: they **ignore a second reference
+> image** (`image2` wired into `TextEncodeQwenImageEditPlus` + `FluxKontextMultiReferenceLatentMethod`),
+> so multi-image / location-reference editing does **not** work on them — the node accepts the input and
+> the checkpoint drops it. Multi-image needs the official **`Qwen-Image-Edit-2511` Plus** model
+> (split UNET graph), not these merges.
 
 > **Pony Realism v2.3 ULTRA added 2026-09-08** (Civitai model `372465`, version `1920896`, file
 > `ponyRealism_V23ULTRA.safetensors`, ~6.6 GB). A **photorealistic Pony V6 XL** merge — keeps Pony's
@@ -91,6 +125,15 @@ A single provider row (one ComfyUI endpoint hosts every checkpoint) named
 > person/pose/background/identity held, and the garment *style* drifted (button-up → polo) — expected
 > at 8 steps / CFG 1. Output: `artifacts/tmp/proofs/qwen-edit-local/`.
 >
+> **Six-cell controlled re-run on the local AIO checkpoint (2026-09-11):**
+> `run-qwen-six-edit-proof-local-aio.ps1` replayed the six frozen edits from
+> `specs/image-generator-tests/qwen/manifest.json` with their original prompts/seeds.
+> **5/6 target edits present, 5/6 preservation-clean.** The failure is
+> `woman-left-facing-profile`: the woman rotates correctly but the **man also rotates into profile**,
+> whereas the committed stock-model output keeps him front-facing. Local timing: 25 s (first cell, incl.
+> model load) then ~20 s per cell, vs ~199 s per cell on the pod at 40 steps / CFG 4. Expect the trade
+> of a Lightning merge: much faster, less fine-detail fidelity and less surgical preservation.
+>
 > Host gotchas recorded in `helpers/local-comfyui-host/README.md`: PowerShell is **5.1** (no `?.`),
 > and `Start-Process`-detached transfers launched over SSH **survive the disconnect** and can silently
 > compete with later downloads.
@@ -132,18 +175,35 @@ per whatever you assign in Model Manager / Studio.
 **Prereq:** the target host's `dreamgenclone.dev.db` must exist (copy the snapshot if not:
 `copy DreamGenClone.Web\data\dreamgenclone.snapshot.db DreamGenClone.Web\data\dreamgenclone.dev.db`).
 
-Run from the repo root on that host, pointing at the ComfyUI host:
+Run from the repo root on that host, pointing at the ComfyUI host. **Run the whole sequence** — the
+provider command alone does not create the editor rows:
 
 ```powershell
-# On the ComfyUI host itself:
-dotnet run --project DreamGenClone.DbQuery -- local-comfyui-configure http://127.0.0.1:8188
+# 1. Provider + the generation (checkpoint) models.
+dotnet run --project DreamGenClone.DbQuery -- local-comfyui-configure https://comfy.kenacwood.net
 
-# From another LAN host (the webapp box reaching WOOD-GAME-MAIN):
-dotnet run --project DreamGenClone.DbQuery -- local-comfyui-configure http://192.168.0.16:8188
+# 2. Editor models: the base local editor row, then each variant (each clones the base row).
+dotnet run --project DreamGenClone.DbQuery -- qwen-edit-local-aio-configure
+dotnet run --project DreamGenClone.DbQuery -- qwen-edit-local-aio-lora-configure QwenEdit2511_AllIncludedGay_v2.safetensors 0.8
+dotnet run --project DreamGenClone.DbQuery -- qwen-edit-remix-aio-configure
+dotnet run --project DreamGenClone.DbQuery -- qwen-edit-remix-aio-lora-configure QwenEdit2511_AllIncludedGay_v2.safetensors 0.8
 ```
 
-The command is **idempotent** (upserts provider + model rows in one transaction). Re-running with a
-changed Base URL updates it in place. It is the supported path; do not hand-INSERT these rows.
+Substitute the URL your host can reach (`http://127.0.0.1:8188` on the ComfyUI host itself,
+`http://192.168.0.16:8188` on the LAN, `https://comfy.kenacwood.net` from anywhere).
+
+Every command is **idempotent** (upserts in one transaction) and matches on a stable key, so
+re-running with a different value updates in place instead of duplicating: the editor variants match
+on `ModelIdentifier`, so re-running `qwen-edit-remix-aio-lora-configure` reports
+`Updated editor variant model <id>`. These commands are the supported path — **do not hand-INSERT or
+hand-UPDATE these rows.**
+
+Two further commands help when syncing hosts:
+
+| Command | Use |
+|---|---|
+| `provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>` | Change **only** a provider's `BaseUrl` with a compare-and-swap guard (fails if someone else changed it first). This is the supported way to repoint a host at a new endpoint. |
+| `modelmanager-export [outFile]` / `modelmanager-import <jsonFile>` | Mirror the whole Model Manager config (Providers + RegisteredModels + FunctionModelDefaults). Default export path is the **git-tracked** `DreamGenClone.Web/data/model-manager.export.json`; API keys are never exported, so the target host re-enters them. Useful for cloning this system's full configuration to another host in one step. |
 
 ## Verify
 

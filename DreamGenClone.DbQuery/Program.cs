@@ -17,7 +17,7 @@ if (!File.Exists(databasePath))
     return 2;
 }
 
-var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "qwen-edit-local-aio-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "local-comfyui-configure" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
+var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "qwen-edit-local-aio-configure" or "qwen-edit-local-aio-lora-configure" or "qwen-edit-remix-aio-configure" or "qwen-edit-remix-aio-lora-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "local-comfyui-configure" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -67,6 +67,15 @@ try
         "biglust-image-configure" => await ConfigureBigLustImageAsync(connection),
         "qwen-edit-serverless-configure" => await ConfigureQwenEditServerlessAsync(connection),
         "qwen-edit-local-aio-configure" => await ConfigureQwenEditLocalAioAsync(connection),
+        "qwen-edit-local-aio-lora-configure" => await ConfigureQwenEditLocalAioLoraAsync(
+            connection,
+            RequireArgument(args, 1, "loraName"),
+            RequireArgument(args, 2, "loraStrength")),
+        "qwen-edit-remix-aio-configure" => await ConfigureQwenEditRemixAioAsync(connection),
+        "qwen-edit-remix-aio-lora-configure" => await ConfigureQwenEditRemixAioLoraAsync(
+            connection,
+            RequireArgument(args, 1, "loraName"),
+            RequireArgument(args, 2, "loraStrength")),
         "local-comfyui-configure" => await ConfigureLocalComfyUiAsync(
             connection,
             RequireArgument(args, 1, "baseUrl")),
@@ -1160,6 +1169,188 @@ static async Task<int> ConfigureQwenEditServerlessAsync(SqliteConnection connect
     return 0;
 }
 
+/// <summary>
+/// Registers the local Qwen editor variant that layers the Gay/Trans editor LoRA onto the v23 AIO
+/// checkpoint. Operator-accepted strengths: 0.8 (best) and 1.0. Rejected strengths are not defaulted.
+/// </summary>
+static Task<int> ConfigureQwenEditLocalAioLoraAsync(
+    SqliteConnection connection,
+    string loraName,
+    string loraStrengthArg)
+{
+    if (string.IsNullOrWhiteSpace(loraName))
+        throw new InvalidOperationException("An editor LoRA artifact name is required. No database changes were made.");
+
+    if (!double.TryParse(loraStrengthArg, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var loraStrength) || loraStrength <= 0)
+        throw new InvalidOperationException($"Editor LoRA strength '{loraStrengthArg}' must be an explicit positive number; no default is applied. No database changes were made.");
+
+    return CloneLocalEditorVariantAsync(
+        connection,
+        "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+        "qwen_edit_local_aio_v23_gaylora",
+        "Qwen Image Edit Rapid-AIO NSFW v23 + Gay/Trans LoRA (Local ComfyUI)",
+        loraName,
+        loraStrength);
+}
+
+/// <summary>
+/// Registers the Remix AIO v2.0 merged checkpoint as a separate local editor variant (no LoRA).
+/// Verified 2026-09-12 as a drop-in for the MergedCheckpoint graph (baked CLIP+VAE, single
+/// CheckpointLoaderSimple); anatomy SHAPE was correct though the LoRA variant was preferred overall.
+/// </summary>
+static Task<int> ConfigureQwenEditRemixAioAsync(SqliteConnection connection) =>
+    CloneLocalEditorVariantAsync(
+        connection,
+        "qwenImageEditRemix_aioV20.safetensors",
+        "qwen_edit_local_remix_aio_v20",
+        "Qwen Image Edit Remix AIO v2.0 (Local ComfyUI)",
+        null,
+        null);
+
+/// <summary>
+/// Registers the local Qwen editor variant that layers the Gay/Trans editor LoRA onto the REMIX AIO
+/// v2.0 merged checkpoint. Same clone path as the v23 LoRA variant; operator-accepted strength 0.8.
+/// </summary>
+static Task<int> ConfigureQwenEditRemixAioLoraAsync(
+    SqliteConnection connection,
+    string loraName,
+    string loraStrengthArg)
+{
+    if (string.IsNullOrWhiteSpace(loraName))
+        throw new InvalidOperationException("An editor LoRA artifact name is required. No database changes were made.");
+
+    if (!double.TryParse(loraStrengthArg, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var loraStrength) || loraStrength <= 0)
+        throw new InvalidOperationException($"Editor LoRA strength '{loraStrengthArg}' must be an explicit positive number; no default is applied. No database changes were made.");
+
+    return CloneLocalEditorVariantAsync(
+        connection,
+        "qwenImageEditRemix_aioV20.safetensors",
+        "qwen_edit_local_remix_aio_v20_lora",
+        "Qwen Image Edit Remix AIO v2.0 + Gay/Trans LoRA (Local ComfyUI)",
+        loraName,
+        loraStrength);
+}
+
+/// <summary>
+/// Creates (or refreshes) a local Qwen editor model VARIANT by CLONING the existing local editor row,
+/// so every unrelated column stays identical, and overriding only identity plus the checkpoint and the
+/// optional editor LoRA pair. Idempotent by ModelIdentifier: re-running updates that row in place rather
+/// than creating duplicates. The source row is never modified, no strength is defaulted, and a LoRA name
+/// without a strength (or a strength without a name) fails fast.
+/// </summary>
+static async Task<int> CloneLocalEditorVariantAsync(
+    SqliteConnection connection,
+    string checkpoint,
+    string newIdentifier,
+    string displayName,
+    string? loraName,
+    double? loraStrength)
+{
+    const string providerName = "Local ComfyUI (WOOD-GAME-MAIN 5080)";
+    // Matched on the EDITOR CHECKPOINT, not ModelIdentifier: the registered local editor row keeps the
+    // generic qwen_image_edit_2511_fp8mixed identifier and carries the AIO checkpoint name in
+    // ImageEditorDiffusionModel. The new row needs a distinct ModelIdentifier because the table is
+    // UNIQUE on (ProviderId, ModelIdentifier).
+    const string sourceDiffusionModel = "Qwen-Rapid-AIO-NSFW-v23.safetensors";
+
+    var hasLoraName = !string.IsNullOrWhiteSpace(loraName);
+    if (hasLoraName != (loraStrength is not null))
+        throw new InvalidOperationException("An editor LoRA requires BOTH a name and an explicit strength, or neither. No database changes were made.");
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    string sourceId;
+    string providerId;
+    await using (var selectSource = connection.CreateCommand())
+    {
+        selectSource.Transaction = transaction;
+        // The PLAIN row is the variant template, so require ImageEditorLoraName IS NULL: once a LoRA
+        // variant exists, two rows can carry the same checkpoint and the source pick would otherwise be
+        // whichever row the engine happened to return first.
+        selectSource.CommandText = "SELECT Id, ProviderId FROM RegisteredModels WHERE ImageEditorDiffusionModel = $diffusionModel AND ImageEditorLoraName IS NULL AND ProviderId = (SELECT Id FROM Providers WHERE Name = $provider);";
+        selectSource.Parameters.AddWithValue("$diffusionModel", sourceDiffusionModel);
+        selectSource.Parameters.AddWithValue("$provider", providerName);
+        await using var reader = await selectSource.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            throw new InvalidOperationException($"No local editor model using checkpoint '{sourceDiffusionModel}' was found for provider '{providerName}'. No database changes were made.");
+        sourceId = reader.GetString(0);
+        providerId = reader.GetString(1);
+    }
+
+    string? existingId = null;
+    await using (var selectExisting = connection.CreateCommand())
+    {
+        selectExisting.Transaction = transaction;
+        selectExisting.CommandText = "SELECT Id FROM RegisteredModels WHERE ModelIdentifier = $identifier AND ProviderId = $providerId;";
+        selectExisting.Parameters.AddWithValue("$identifier", newIdentifier);
+        selectExisting.Parameters.AddWithValue("$providerId", providerId);
+        existingId = await selectExisting.ExecuteScalarAsync() as string;
+    }
+
+    // Clone every column from the source row so future schema additions stay in sync automatically;
+    // only the identity and LoRA columns are substituted.
+    var columns = new List<string>();
+    await using (var pragma = connection.CreateCommand())
+    {
+        pragma.Transaction = transaction;
+        pragma.CommandText = "SELECT name FROM pragma_table_info('RegisteredModels');";
+        await using var reader = await pragma.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) columns.Add(reader.GetString(0));
+    }
+
+    var overrides = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["Id"] = "$newId",
+        ["ModelIdentifier"] = "$newIdentifier",
+        ["DisplayName"] = "$displayName",
+        ["IsEnabled"] = "1",
+        ["ImageEditorDiffusionModel"] = "$checkpoint",
+        ["ImageEditorLoraName"] = "$loraName",
+        ["ImageEditorLoraStrength"] = "$loraStrength"
+    };
+
+    var insertColumns = string.Join(", ", columns);
+    var selectExpressions = string.Join(", ", columns.Select(column => overrides.TryGetValue(column, out var parameter) ? parameter : column));
+
+    string outcome;
+    if (existingId is null)
+    {
+        var newId = Guid.NewGuid().ToString();
+        await using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = $"INSERT INTO RegisteredModels ({insertColumns}) SELECT {selectExpressions} FROM RegisteredModels WHERE Id = $sourceId;";
+        insert.Parameters.AddWithValue("$newId", newId);
+        insert.Parameters.AddWithValue("$newIdentifier", newIdentifier);
+        insert.Parameters.AddWithValue("$displayName", displayName);
+        insert.Parameters.AddWithValue("$checkpoint", checkpoint);
+        insert.Parameters.AddWithValue("$loraName", (object?)loraName ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$loraStrength", (object?)loraStrength ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$sourceId", sourceId);
+        if (await insert.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("Editor variant model insert failed; no database changes were made.");
+        outcome = $"Created editor variant model {newId} (cloned from {sourceId})";
+    }
+    else
+    {
+        await using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = "UPDATE RegisteredModels SET DisplayName = $displayName, IsEnabled = 1, ImageEditorDiffusionModel = $checkpoint, ImageEditorLoraName = $loraName, ImageEditorLoraStrength = $loraStrength WHERE Id = $existingId;";
+        update.Parameters.AddWithValue("$displayName", displayName);
+        update.Parameters.AddWithValue("$checkpoint", checkpoint);
+        update.Parameters.AddWithValue("$loraName", (object?)loraName ?? DBNull.Value);
+        update.Parameters.AddWithValue("$loraStrength", (object?)loraStrength ?? DBNull.Value);
+        update.Parameters.AddWithValue("$existingId", existingId);
+        if (await update.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("Editor variant model update failed; no database changes were made.");
+        outcome = $"Updated editor variant model {existingId}";
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine(
+        $"{outcome}: {displayName} | checkpoint={checkpoint} | LoRA={(hasLoraName ? $"{loraName} @ {loraStrength}" : "(none)")} | ModelIdentifier={newIdentifier}");
+    return 0;
+}
+
 static async Task<int> ConfigureQwenEditLocalAioAsync(SqliteConnection connection)
 {
     const string functionName = "RolePlaySceneImageEditor";
@@ -1953,5 +2144,5 @@ static string FindDatabasePath()
 static void PrintUsage()
 {
     Console.Error.WriteLine("Usage: dotnet run --project DreamGenClone.DbQuery -- <command> [args]");
-    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, qwen-edit-serverless-configure, qwen-edit-local-aio-configure, local-comfyui-configure <baseUrl>, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <weight> <bustSize> <buttSize>, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
+    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, qwen-edit-serverless-configure, qwen-edit-local-aio-configure, qwen-edit-local-aio-lora-configure <loraName> <strength>, qwen-edit-remix-aio-configure, qwen-edit-remix-aio-lora-configure <loraName> <strength>, local-comfyui-configure <baseUrl>, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <weight> <bustSize> <buttSize>, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
 }

@@ -18,6 +18,17 @@ param(
     [string]$ComfyUiUrl = 'http://192.168.0.16:8188',
     [string]$SourceImage = 'specs/image-generator-tests/qwen/images/base.png',
     [string]$Instruction = "Change only the man's shirt from blue to solid red.",
+    # Optional negative prompt. Empty by default, which reproduces the app graph exactly
+    # (ComfyUIImageEditingClient hardcodes an empty negative encode). Only meaningful when CFG > 1.
+    [string]$Negative = '',
+    # Optional LoRA applied to the merged checkpoint (wired between checkpoint and sampler).
+    # Empty by default, which reproduces the app graph exactly (it has no LoRA node).
+    [string]$LoraName = '',
+    [double]$LoraStrength = 0.9,
+    # Optional SECOND reference image (image2), e.g. a location reference. Mirrors the app's
+    # AddReferenceInputs/AddReferenceLoaders: a plain LoadImage node (20) + image2 wired into BOTH
+    # text encodes, consumed by FluxKontextMultiReferenceLatentMethod (index_timestep_zero).
+    [string]$AnchorImage = '',
     [string]$Checkpoint = 'Qwen-Rapid-AIO-NSFW-v23.safetensors',
     [int]$Steps = 8,
     [double]$Cfg = 1.0,
@@ -59,6 +70,26 @@ if (-not $promptId) {
     $uploaded = ($uploadResponse.Content.ReadAsStringAsync().Result | ConvertFrom-Json).name
     "uploaded: $uploaded"
 
+    # --- optional second reference image (location reference) --------------------------
+    $anchorUploaded = ''
+    if ($AnchorImage) {
+        if (-not (Test-Path $AnchorImage)) { throw "Anchor image '$AnchorImage' was not found." }
+        $anchorName = [System.IO.Path]::GetFileName($AnchorImage)
+        $anchorUploadName = "proof-anchor-" + $anchorName
+        $anchorBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $AnchorImage))
+        $anchorMultipart = New-Object System.Net.Http.MultipartFormDataContent
+        $anchorContent = New-Object System.Net.Http.ByteArrayContent (,$anchorBytes)
+        $anchorContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse('image/png')
+        $anchorMultipart.Add($anchorContent, 'image', $anchorUploadName)
+        $anchorMultipart.Add((New-Object System.Net.Http.StringContent 'true'), 'overwrite')
+        $anchorResponse = $client.PostAsync("$base/upload/image", $anchorMultipart).Result
+        if (-not $anchorResponse.IsSuccessStatusCode) {
+            throw "Anchor upload failed: $($anchorResponse.StatusCode) $($anchorResponse.Content.ReadAsStringAsync().Result)"
+        }
+        $anchorUploaded = ($anchorResponse.Content.ReadAsStringAsync().Result | ConvertFrom-Json).name
+        "anchor uploaded: $anchorUploaded"
+    }
+
 # --- the app's merged-checkpoint graph ---------------------------------------
 $workflow = [ordered]@{
     '1'  = @{ class_type = 'LoadImage';                              inputs = @{ image = $uploaded } }
@@ -69,7 +100,7 @@ $workflow = [ordered]@{
             } }
     '5'  = @{ class_type = 'ModelSamplingAuraFlow';                   inputs = @{ model = @('16', 0); shift = $AuraFlowShift } }
     '6'  = @{ class_type = 'TextEncodeQwenImageEditPlus';             inputs = @{ clip = @('16', 1); vae = @('16', 2); image1 = @('2', 0); prompt = $Instruction } }
-    '7'  = @{ class_type = 'TextEncodeQwenImageEditPlus';             inputs = @{ clip = @('16', 1); vae = @('16', 2); image1 = @('2', 0); prompt = '' } }
+    '7'  = @{ class_type = 'TextEncodeQwenImageEditPlus';             inputs = @{ clip = @('16', 1); vae = @('16', 2); image1 = @('2', 0); prompt = $Negative } }
     '8'  = @{ class_type = 'VAEEncode';                               inputs = @{ pixels = @('2', 0); vae = @('16', 2) } }
     '9'  = @{ class_type = 'SaveImage';                               inputs = @{ images = @('15', 0); filename_prefix = 'dreamgen_app/qwen-edit-local' } }
     '12' = @{ class_type = 'FluxKontextMultiReferenceLatentMethod';   inputs = @{ conditioning = @('6', 0); reference_latents_method = 'index_timestep_zero' } }
@@ -77,6 +108,24 @@ $workflow = [ordered]@{
     '14' = @{ class_type = 'CFGNorm';                                 inputs = @{ model = @('5', 0); strength = $CfgNormStrength } }
     '15' = @{ class_type = 'VAEDecode';                               inputs = @{ samples = @('3', 0); vae = @('16', 2) } }
     '16' = @{ class_type = 'CheckpointLoaderSimple';                  inputs = @{ ckpt_name = $Checkpoint } }
+}
+
+# Optional second reference (image2): node 20 LoadImage + image2 on both text encodes, matching the
+# app's AddReferenceInputs/AddReferenceLoaders wiring exactly.
+if ($anchorUploaded) {
+    $workflow['20'] = @{ class_type = 'LoadImage'; inputs = @{ image = $anchorUploaded } }
+    $workflow['6'].inputs.image2 = @('20', 0)
+    $workflow['7'].inputs.image2 = @('20', 0)
+}
+
+# Optional LoRA: insert LoraLoader between the checkpoint and everything downstream
+# (the sampler model branch AND the text-encode clip branch, which is why both are rewired).
+if ($LoraName) {
+    $workflow['17'] = @{ class_type = 'LoraLoader'; inputs = @{
+        model = @('16', 0); clip = @('16', 1); lora_name = $LoraName; strength_model = $LoraStrength; strength_clip = $LoraStrength } }
+    $workflow['5'].inputs.model = @('17', 0)
+    $workflow['6'].inputs.clip  = @('17', 1)
+    $workflow['7'].inputs.clip  = @('17', 1)
 }
 
 $payload = @{ prompt = $workflow; client_id = 'dreamgen-proof' } | ConvertTo-Json -Depth 20 -Compress
@@ -119,13 +168,19 @@ $query = "filename=$([uri]::EscapeDataString($image.filename))&subfolder=$([uri]
 $viewResponse = $client.GetAsync("$base/view?$query").Result
 $viewResponse.EnsureSuccessStatusCode() | Out-Null
 $outPath = Join-Path $OutDir ("local-aio-" + $image.filename)
-[System.IO.File]::WriteAllBytes((Join-Path (Get-Location) $outPath), $viewResponse.Content.ReadAsByteArrayAsync().Result)
+# $OutDir may already be ABSOLUTE (the chained harnesses pass an absolute staging directory). Join-Path
+# concatenates rather than resolving, so joining a rooted child produces an unopenable "D:\a\D:\b" path
+# and the .NET call below dies with "The given path's format is not supported." That is what silently
+# killed steps in earlier chained runs (empty _staging-stepN folders, no manifest). Resolve only when the
+# path is still relative.
+if (-not [System.IO.Path]::IsPathRooted($outPath)) { $outPath = Join-Path (Get-Location) $outPath }
+[System.IO.File]::WriteAllBytes($outPath, $viewResponse.Content.ReadAsByteArrayAsync().Result)
 
 # The full prompt, as required whenever a generation runs.
 '--- PROMPT SENT TO THE MODEL -------------------------------------------------'
 "instruction: $Instruction"
-"negative   : (empty)"
-"checkpoint : $Checkpoint"
+"negative   : $(if ([string]::IsNullOrWhiteSpace($Negative)) { '(empty)' } else { $Negative })"
+"checkpoint : $Checkpoint$(if ($LoraName) { "  + LoRA $LoraName @ $LoraStrength" } else { '' })"
 "sampler    : $Sampler / $Scheduler, $Steps steps, CFG $Cfg, denoise $Denoise, AuraFlow shift $AuraFlowShift, CFGNorm $CfgNormStrength, seed $Seed"
 "graph      : CheckpointLoaderSimple merged checkpoint (ImageEditorGraphKind.MergedCheckpoint)"
 '-----------------------------------------------------------------------------'

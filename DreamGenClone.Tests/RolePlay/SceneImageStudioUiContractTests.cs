@@ -18,9 +18,11 @@ public sealed class SceneImageStudioUiContractTests
     private static readonly string CompositionComposerSource = File.ReadAllText(Path.Combine(
         FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "CompositionComposer.razor"));
     private static readonly string SceneImageEditorSource = File.ReadAllText(Path.Combine(
-        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageEditor.razor"));
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Editing", "ImageEditWorkspace.razor"));
     private static readonly string SceneImageEditorStylesheet = File.ReadAllText(Path.Combine(
-        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageEditor.razor.css"));
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Editing", "ImageEditWorkspace.razor.css"));
+    private static readonly string SceneImageEditAdapterSource = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Application", "RolePlay", "Editing", "SceneImageEditWorkspaceService.cs"));
     private static readonly string SceneImageGallerySource = File.ReadAllText(Path.Combine(
         FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageGallery.razor"));
     private static readonly string SceneImageGalleryStylesheet = File.ReadAllText(Path.Combine(
@@ -226,17 +228,14 @@ public sealed class SceneImageStudioUiContractTests
     [Fact]
     public void SceneImageEditor_AutomaticallyAnalyzesSourceAndExposesNativeQwenReferences()
     {
-        Assert.Contains("await CompilationService.EnqueueDescriptionAsync(_editSession.Id);", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("await _service.ReanalyzeAsync(_session.Id);", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("_descriptionPending = true;", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("EditorReferenceStrategies = [\"TextOnly\", \"NativeMultiReference\"]", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("EditorModelId = _selectedEditorModelId!", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("ReferenceApplications = _referenceApplications", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("_sourceImage = routedImage;", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("SourceImageId = _sourceImage.Id", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("_lineageRootId = FindLineageRootId(images, _sourceImage)", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("_lineage = BuildLineage(images, _lineageRootId ?? _sourceImage.Id)", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("private static string FindLineageRootId", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("image.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(image.FileRelativePath)", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("EditorModelId = request.EditorModelId", SceneImageEditAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("ReferenceApplications = request.ReferenceApplications.ToList()", SceneImageEditAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("SourceImageId = subject.ImageId", SceneImageEditAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("while (!string.IsNullOrWhiteSpace(root.SourceImageId)", SceneImageEditAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("image.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(image.FileRelativePath)", SceneImageEditAdapterSource, StringComparison.Ordinal);
         Assert.Contains("class=\"scene-edit-lineage-thumb\"", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("Exact edit prompt", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("@image.PromptSnapshot", SceneImageEditorSource, StringComparison.Ordinal);
@@ -248,11 +247,13 @@ public sealed class SceneImageStudioUiContractTests
         Assert.DoesNotContain("Nav.NavigateTo($\"/roleplay/studio/{sessionId}/{interactionId}\"", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("_statusMessage = \"Image edit queued.\";", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("_statusMessage = \"Identity correction queued.\";", SceneImageEditorSource, StringComparison.Ordinal);
-        // Both run actions must keep the page polling so the result renders in the in-place lineage.
+        // Both run actions must keep the workspace polling so the result renders in the in-place lineage.
         Assert.Matches("_statusMessage = \"Image edit queued\\.\";\\s*EnsurePolling\\(\\);", SceneImageEditorSource);
         Assert.Matches("_statusMessage = \"Identity correction queued\\.\";\\s*EnsurePolling\\(\\);", SceneImageEditorSource);
-        Assert.Contains("private SceneImageRecord? ResolveResultImage(IReadOnlyList<SceneImageRecord> images)", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("_resultImage = ResolveResultImage(images);", SceneImageEditorSource, StringComparison.Ordinal);
+        // The tracked result stays visible while it progresses, and the session's newest image seeds the first render.
+        Assert.Contains("_result = await _service.ResolveResultAsync(Subject, _session.Id, _result?.ImageId);", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("if (!string.IsNullOrWhiteSpace(trackedResultId))", SceneImageEditAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("OrderByDescending(image => image.CreatedUtc)", SceneImageEditAdapterSource, StringComparison.Ordinal);
     }
 
     [Fact]

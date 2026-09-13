@@ -79,9 +79,9 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
             await using var command = connection.CreateCommand();
             command.CommandText = """
                 INSERT INTO CharacterImageIdentityPacks
-                    (Id, CharacterProfileId, Version, Status, DescriptorSnapshotJson, CanonicalFaceAssetId, SupersedesId, CreatedUtc, ApprovedUtc)
+                    (Id, CharacterProfileId, Version, Status, DescriptorSnapshotJson, CanonicalFaceAssetId, CanonicalFullBodyAssetId, PackScope, SupersedesId, CreatedUtc, ApprovedUtc)
                 VALUES
-                    ($id, $profileId, $version, $status, $descriptor, $canonicalFace, $supersedes, $createdUtc, $approvedUtc);
+                    ($id, $profileId, $version, $status, $descriptor, $canonicalFace, $canonicalFullBody, $packScope, $supersedes, $createdUtc, $approvedUtc);
                 """;
             AddPackParameters(command, pack);
             await command.ExecuteNonQueryAsync(cancellationToken);
@@ -96,11 +96,15 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
             UPDATE CharacterImageIdentityPacks
             SET DescriptorSnapshotJson = $descriptor,
                 CanonicalFaceAssetId = $canonicalFace,
+                CanonicalFullBodyAssetId = $canonicalFullBody,
+                PackScope = $packScope,
                 SupersedesId = $supersedes
             WHERE Id = $id;
             """;
         update.Parameters.AddWithValue("$descriptor", pack.DescriptorSnapshotJson);
         update.Parameters.AddWithValue("$canonicalFace", (object?)pack.CanonicalFaceAssetId ?? DBNull.Value);
+        update.Parameters.AddWithValue("$canonicalFullBody", (object?)pack.CanonicalFullBodyAssetId ?? DBNull.Value);
+        update.Parameters.AddWithValue("$packScope", pack.PackScope.ToString());
         update.Parameters.AddWithValue("$supersedes", (object?)pack.SupersedesId ?? DBNull.Value);
         update.Parameters.AddWithValue("$id", pack.Id.Trim());
         await update.ExecuteNonQueryAsync(cancellationToken);
@@ -138,6 +142,8 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         if (!canonicalFace.IsApproved)
             throw new InvalidOperationException("The canonical face asset must be approved before the pack can be approved.");
 
+        ValidateApprovalSet(assets, pack);
+
         var approvedUtc = DateTime.UtcNow;
         await using var update = connection.CreateCommand();
         update.Transaction = (SqliteTransaction)transaction;
@@ -158,6 +164,50 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         await transaction.CommitAsync(cancellationToken);
 
         return (await GetPackAsync(connection, packId.Trim(), cancellationToken))!;
+    }
+
+    private static void ValidateApprovalSet(
+        IReadOnlyList<SceneImageReferenceAsset> assets,
+        CharacterImageIdentityPack pack)
+    {
+        var faceAssets = assets.Where(a => a.AssetKind == SceneImageReferenceAssetKind.Face).ToList();
+        var missingFaces = Enum.GetValues<SceneImageReferenceFaceView>()
+            .Where(view => !faceAssets.Any(a => a.FaceView == view && a.IsApproved))
+            .Select(view => view.ToString())
+            .ToList();
+        if (missingFaces.Count > 0)
+            throw new InvalidOperationException(
+                $"A {pack.PackScope} identity pack requires an approved face reference for each canonical view. Missing: {string.Join(", ", missingFaces)}.");
+
+        if (pack.PackScope != CharacterImageIdentityPackScope.BodyComplete)
+            return;
+
+        var bodyAssets = assets.Where(a => a.AssetKind == SceneImageReferenceAssetKind.FullBody).ToList();
+        var missingBody = new List<string>();
+        foreach (var state in Enum.GetValues<SceneImageReferenceBodyState>())
+        {
+            foreach (var view in Enum.GetValues<SceneImageReferenceBodyView>())
+            {
+                if (!bodyAssets.Any(a => a.BodyState == state && a.BodyView == view && a.IsApproved))
+                    missingBody.Add($"{state} {view}");
+            }
+        }
+        if (missingBody.Count > 0)
+            throw new InvalidOperationException(
+                $"A BodyComplete identity pack requires an approved full-body reference for each canonical view in each state. Missing: {string.Join(", ", missingBody)}.");
+
+        if (string.IsNullOrWhiteSpace(pack.CanonicalFullBodyAssetId))
+            throw new InvalidOperationException("A BodyComplete identity pack requires a canonical full-body asset id (the approved unclothed Front body).");
+
+        var canonicalBody = assets.FirstOrDefault(a => a.Id == pack.CanonicalFullBodyAssetId.Trim());
+        if (canonicalBody is null)
+            throw new InvalidOperationException("The canonical full-body asset must belong to the pack being approved.");
+        if (canonicalBody.AssetKind != SceneImageReferenceAssetKind.FullBody
+            || canonicalBody.BodyState != SceneImageReferenceBodyState.Unclothed
+            || canonicalBody.BodyView != SceneImageReferenceBodyView.Front)
+            throw new InvalidOperationException("The canonical full-body asset must be the approved unclothed Front body reference.");
+        if (!canonicalBody.IsApproved)
+            throw new InvalidOperationException("The canonical full-body asset must be approved before the pack can be approved.");
     }
 
     public async Task<CharacterImageIdentityPack> SupersedeAsync(string packId, CancellationToken cancellationToken = default)
@@ -188,6 +238,8 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
             Version = nextVersion,
             Status = CharacterImageIdentityPackStatus.Draft,
             DescriptorSnapshotJson = pack.DescriptorSnapshotJson,
+            CanonicalFullBodyAssetId = pack.CanonicalFullBodyAssetId,
+            PackScope = pack.PackScope,
             SupersedesId = pack.Id,
             CreatedUtc = DateTime.UtcNow
         };
@@ -196,9 +248,9 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         insert.Transaction = (SqliteTransaction)transaction;
         insert.CommandText = """
             INSERT INTO CharacterImageIdentityPacks
-                (Id, CharacterProfileId, Version, Status, DescriptorSnapshotJson, CanonicalFaceAssetId, SupersedesId, CreatedUtc, ApprovedUtc)
+                (Id, CharacterProfileId, Version, Status, DescriptorSnapshotJson, CanonicalFaceAssetId, CanonicalFullBodyAssetId, PackScope, SupersedesId, CreatedUtc, ApprovedUtc)
             VALUES
-                ($id, $profileId, $version, $status, $descriptor, $canonicalFace, $supersedes, $createdUtc, $approvedUtc);
+                ($id, $profileId, $version, $status, $descriptor, $canonicalFace, $canonicalFullBody, $packScope, $supersedes, $createdUtc, $approvedUtc);
             """;
         AddPackParameters(insert, newPack);
         await insert.ExecuteNonQueryAsync(cancellationToken);
@@ -213,6 +265,9 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
                 IdentityPackId = newPack.Id,
                 AssetKind = asset.AssetKind,
                 FaceView = asset.FaceView,
+                BodyView = asset.BodyView,
+                BodyState = asset.BodyState,
+                ViewDescriptorJson = asset.ViewDescriptorJson,
                 QualityRating = asset.QualityRating,
                 FileRelativePath = asset.FileRelativePath,
                 MediaType = asset.MediaType,
@@ -292,9 +347,9 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         await using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO SceneImageReferenceAssets
-                (Id, IdentityPackId, AssetKind, FaceView, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, QualityRating, QualityNotes, CreatedUtc)
+                (Id, IdentityPackId, AssetKind, FaceView, BodyView, BodyState, ViewDescriptorJson, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, QualityRating, QualityNotes, CreatedUtc)
             VALUES
-                ($id, $packId, $kind, $faceView, $path, $mediaType, $width, $height, $byteLength, $sha256, $sourceLabel, $consent, $approved, $quality, $qualityNotes, $createdUtc);
+                ($id, $packId, $kind, $faceView, $bodyView, $bodyState, $viewDescriptor, $path, $mediaType, $width, $height, $byteLength, $sha256, $sourceLabel, $consent, $approved, $quality, $qualityNotes, $createdUtc);
             """;
         AddAssetParameters(command, asset);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -428,6 +483,8 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
                 Status TEXT NOT NULL,
                 DescriptorSnapshotJson TEXT NOT NULL DEFAULT '{}',
                 CanonicalFaceAssetId TEXT NULL,
+                CanonicalFullBodyAssetId TEXT NULL,
+                PackScope TEXT NOT NULL DEFAULT 'FaceOnly',
                 SupersedesId TEXT NULL,
                 CreatedUtc TEXT NOT NULL,
                 ApprovedUtc TEXT NULL,
@@ -441,6 +498,9 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
                 IdentityPackId TEXT NOT NULL,
                 AssetKind TEXT NOT NULL,
                 FaceView TEXT NULL,
+                BodyView TEXT NULL,
+                BodyState TEXT NULL,
+                ViewDescriptorJson TEXT NULL,
                 FileRelativePath TEXT NOT NULL,
                 MediaType TEXT NOT NULL,
                 Width INTEGER NULL,
@@ -488,6 +548,42 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
             alter.CommandText = "ALTER TABLE SceneImageReferenceAssets ADD COLUMN QualityNotes TEXT NOT NULL DEFAULT '';";
             await alter.ExecuteNonQueryAsync(cancellationToken);
         }
+
+        if (!assetColumns.Contains("BodyView"))
+        {
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE SceneImageReferenceAssets ADD COLUMN BodyView TEXT NULL;";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!assetColumns.Contains("BodyState"))
+        {
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE SceneImageReferenceAssets ADD COLUMN BodyState TEXT NULL;";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!assetColumns.Contains("ViewDescriptorJson"))
+        {
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE SceneImageReferenceAssets ADD COLUMN ViewDescriptorJson TEXT NULL;";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var packColumns = await QueryColumnsAsync(connection, "CharacterImageIdentityPacks", cancellationToken);
+        if (!packColumns.Contains("CanonicalFullBodyAssetId"))
+        {
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE CharacterImageIdentityPacks ADD COLUMN CanonicalFullBodyAssetId TEXT NULL;";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!packColumns.Contains("PackScope"))
+        {
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE CharacterImageIdentityPacks ADD COLUMN PackScope TEXT NOT NULL DEFAULT 'FaceOnly';";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private static async Task<HashSet<string>> QueryColumnsAsync(
@@ -505,12 +601,12 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
     }
 
     private const string PackSelect = """
-        SELECT Id, CharacterProfileId, Version, Status, DescriptorSnapshotJson, CanonicalFaceAssetId, SupersedesId, CreatedUtc, ApprovedUtc
+        SELECT Id, CharacterProfileId, Version, Status, DescriptorSnapshotJson, CanonicalFaceAssetId, CanonicalFullBodyAssetId, PackScope, SupersedesId, CreatedUtc, ApprovedUtc
         FROM CharacterImageIdentityPacks
         """;
 
     private const string AssetSelect = """
-        SELECT Id, IdentityPackId, AssetKind, FaceView, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, QualityRating, QualityNotes, CreatedUtc
+        SELECT Id, IdentityPackId, AssetKind, FaceView, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, QualityRating, QualityNotes, CreatedUtc, ViewDescriptorJson, BodyView, BodyState
         FROM SceneImageReferenceAssets
         """;
 
@@ -576,9 +672,9 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO SceneImageReferenceAssets
-                (Id, IdentityPackId, AssetKind, FaceView, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, QualityRating, QualityNotes, CreatedUtc)
+                (Id, IdentityPackId, AssetKind, FaceView, BodyView, BodyState, ViewDescriptorJson, FileRelativePath, MediaType, Width, Height, ByteLength, Sha256, SourceLabel, ConsentState, IsApproved, QualityRating, QualityNotes, CreatedUtc)
             VALUES
-                ($id, $packId, $kind, $faceView, $path, $mediaType, $width, $height, $byteLength, $sha256, $sourceLabel, $consent, $approved, $quality, $qualityNotes, $createdUtc);
+                ($id, $packId, $kind, $faceView, $bodyView, $bodyState, $viewDescriptor, $path, $mediaType, $width, $height, $byteLength, $sha256, $sourceLabel, $consent, $approved, $quality, $qualityNotes, $createdUtc);
             """;
         AddAssetParameters(command, asset);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -595,9 +691,11 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
             Status = ParseEnum<CharacterImageIdentityPackStatus>(reader.GetString(3), "identity pack", id),
             DescriptorSnapshotJson = reader.GetString(4),
             CanonicalFaceAssetId = reader.IsDBNull(5) ? null : reader.GetString(5),
-            SupersedesId = reader.IsDBNull(6) ? null : reader.GetString(6),
-            CreatedUtc = ParseUtc(reader.GetString(7), "identity pack", id),
-            ApprovedUtc = reader.IsDBNull(8) ? null : ParseUtc(reader.GetString(8), "identity pack", id)
+            CanonicalFullBodyAssetId = reader.IsDBNull(6) ? null : reader.GetString(6),
+            PackScope = ParseEnum<CharacterImageIdentityPackScope>(reader.GetString(7), "identity pack", id),
+            SupersedesId = reader.IsDBNull(8) ? null : reader.GetString(8),
+            CreatedUtc = ParseUtc(reader.GetString(9), "identity pack", id),
+            ApprovedUtc = reader.IsDBNull(10) ? null : ParseUtc(reader.GetString(10), "identity pack", id)
         };
     }
 
@@ -621,7 +719,10 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
             IsApproved = reader.GetInt32(12) != 0,
             QualityRating = ParseEnum<SceneImageReferenceQuality>(reader.GetString(13), "reference asset", id),
             QualityNotes = reader.GetString(14),
-            CreatedUtc = ParseUtc(reader.GetString(15), "reference asset", id)
+            CreatedUtc = ParseUtc(reader.GetString(15), "reference asset", id),
+            ViewDescriptorJson = reader.IsDBNull(16) ? null : reader.GetString(16),
+            BodyView = reader.IsDBNull(17) ? null : ParseEnum<SceneImageReferenceBodyView>(reader.GetString(17), "reference asset", id),
+            BodyState = reader.IsDBNull(18) ? null : ParseEnum<SceneImageReferenceBodyState>(reader.GetString(18), "reference asset", id)
         };
     }
 
@@ -633,6 +734,8 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         command.Parameters.AddWithValue("$status", pack.Status.ToString());
         command.Parameters.AddWithValue("$descriptor", pack.DescriptorSnapshotJson);
         command.Parameters.AddWithValue("$canonicalFace", (object?)pack.CanonicalFaceAssetId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$canonicalFullBody", (object?)pack.CanonicalFullBodyAssetId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$packScope", pack.PackScope.ToString());
         command.Parameters.AddWithValue("$supersedes", (object?)pack.SupersedesId ?? DBNull.Value);
         command.Parameters.AddWithValue("$createdUtc", pack.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$approvedUtc", pack.ApprovedUtc?.ToString("O") ?? (object)DBNull.Value);
@@ -655,6 +758,9 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         command.Parameters.AddWithValue("$approved", asset.IsApproved ? 1 : 0);
         command.Parameters.AddWithValue("$quality", asset.QualityRating.ToString());
         command.Parameters.AddWithValue("$qualityNotes", asset.QualityNotes);
+        command.Parameters.AddWithValue("$viewDescriptor", (object?)asset.ViewDescriptorJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$bodyView", (object?)asset.BodyView?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$bodyState", (object?)asset.BodyState?.ToString() ?? DBNull.Value);
         command.Parameters.AddWithValue("$createdUtc", asset.CreatedUtc.ToString("O"));
     }
 
@@ -663,6 +769,8 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         Require(pack.Id, "Identity pack id");
         Require(pack.CharacterProfileId, "Character profile id");
         if (pack.Version <= 0) throw new InvalidOperationException("Identity pack version must be positive.");
+        if (!Enum.IsDefined(pack.PackScope))
+            throw new InvalidOperationException($"Identity pack scope '{pack.PackScope}' is invalid; FaceOnly or BodyComplete is required.");
     }
 
     private static void ValidateAsset(SceneImageReferenceAsset asset)
@@ -677,6 +785,15 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         if (asset.AssetKind == SceneImageReferenceAssetKind.Face && asset.FaceView is null)
             throw new InvalidOperationException(
                 "A face reference asset requires an explicit face view (Front, ThreeQuarterLeft, ThreeQuarterRight, ProfileLeft, ProfileRight).");
+        if (asset.AssetKind == SceneImageReferenceAssetKind.FullBody && asset.BodyState is null)
+            throw new InvalidOperationException(
+                "A full-body reference asset requires an explicit body state (Clothed or Unclothed).");
+        if (asset.AssetKind != SceneImageReferenceAssetKind.Face && asset.FaceView is not null)
+            throw new InvalidOperationException("Only face reference assets carry a face view.");
+        if (asset.AssetKind != SceneImageReferenceAssetKind.FullBody && (asset.BodyView is not null || asset.BodyState is not null))
+            throw new InvalidOperationException("Only full-body reference assets carry a body view or body state.");
+        if (!string.IsNullOrWhiteSpace(asset.ViewDescriptorJson))
+            ReferenceViewDescriptor.FromJson(asset.ViewDescriptorJson);
         if (!Enum.IsDefined(asset.QualityRating))
             throw new InvalidOperationException("Reference asset quality rating must be a valid value.");
         if (asset.ConsentState == SceneImageReferenceConsentState.Unknown && asset.IsApproved)

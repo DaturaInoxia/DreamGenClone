@@ -534,7 +534,8 @@
             var file = args.File;
             await using var stream = file.OpenReadStream(20 * 1024 * 1024);
             var faceView = _uploadKind == SceneImageReferenceAssetKind.Face ? _uploadFaceView : null;
-            var asset = await IdentityService.UploadAssetAsync(_draft.Id, _uploadKind, file.Name, stream, faceView);
+            var bodyState = _uploadKind == SceneImageReferenceAssetKind.FullBody ? SceneImageReferenceBodyState.Clothed : (SceneImageReferenceBodyState?)null;
+            var asset = await IdentityService.UploadAssetAsync(_draft.Id, _uploadKind, file.Name, stream, faceView, bodyState: bodyState);
 
             if (_uploadConsent != SceneImageReferenceConsentState.Unknown && !string.IsNullOrWhiteSpace(_uploadSourceLabel))
             {

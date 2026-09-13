@@ -1,0 +1,248 @@
+﻿{
+    "runId":  "20260912-02-full",
+    "createdAt":  "2026-09-12T12:01:17.1956542-04:00",
+    "updatedAt":  "2026-09-12T12:01:17.1971568-04:00",
+    "sets":  [
+                 "closeup",
+                 "core",
+                 "mast",
+                 "phrasing",
+                 "rubretry"
+             ],
+    "seed":  6601,
+    "graph":  "MergedCheckpoint (app-faithful: 8 steps, CFG 1, euler_ancestral/beta, denoise 1, AuraFlow 3.1, CFGNorm 1)",
+    "gitCommit":  "db796f3",
+    "cellCount":  23,
+    "cells":  [
+                  {
+                      "set":  "core",
+                      "cell":  "male-far-soft",
+                      "base":  "base-male-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unzip his jeans and pull the front open so his soft flaccid penis is fully visible, correct male anatomy, natural integration with his body",
+                      "output":  "v23lora08-male-far-soft.png"
+                  },
+                  {
+                      "set":  "core",
+                      "cell":  "male-far-erect",
+                      "base":  "base-male-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unzip his jeans and pull the front open so his erect penis is fully visible, correct male anatomy, natural integration with his body",
+                      "output":  "v23lora08-male-far-erect.png"
+                  },
+                  {
+                      "set":  "core",
+                      "cell":  "male-close-soft",
+                      "base":  "base-male-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unzip his jeans and pull the front open so his soft flaccid penis is fully visible, correct male anatomy, natural integration with his body",
+                      "output":  "v23lora08-male-close-soft.png"
+                  },
+                  {
+                      "set":  "core",
+                      "cell":  "male-close-erect",
+                      "base":  "base-male-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unzip his jeans and pull the front open so his erect penis is fully visible, correct male anatomy, natural integration with his body",
+                      "output":  "v23lora08-male-close-erect.png"
+                  },
+                  {
+                      "set":  "core",
+                      "cell":  "female-far-unaroused",
+                      "base":  "base-female-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unbutton her jeans and pull the front open so her vulva is visible, relaxed and unaroused, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-far-unaroused.png"
+                  },
+                  {
+                      "set":  "core",
+                      "cell":  "female-far-aroused",
+                      "base":  "base-female-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unbutton her jeans and pull the front open so her aroused vulva is visible, swollen, wet and glistening, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-far-aroused.png"
+                  },
+                  {
+                      "set":  "core",
+                      "cell":  "female-close-unaroused",
+                      "base":  "base-female-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unbutton her jeans and pull the front open so her vulva is visible, relaxed and unaroused, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-close-unaroused.png"
+                  },
+                  {
+                      "set":  "core",
+                      "cell":  "female-close-aroused",
+                      "base":  "base-female-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unbutton her jeans and pull the front open so her aroused vulva is visible, swollen, wet and glistening, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-close-aroused.png"
+                  },
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-far-unaroused",
+                      "base":  "base-female-lying-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unbutton and pull open her jeans so her vulva is fully visible, relaxed and unaroused, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-lying-far-unaroused.png"
+                  },
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-far-aroused",
+                      "base":  "base-female-lying-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unbutton and pull open her jeans so her aroused vulva is visible, swollen, wet and glistening, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-lying-far-aroused.png"
+                  },
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-close-unaroused",
+                      "base":  "base-female-lying-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unbutton and pull open her jeans so her vulva is fully visible, relaxed and unaroused, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-lying-close-unaroused.png"
+                  },
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-close-aroused",
+                      "base":  "base-female-lying-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unbutton and pull open her jeans so her aroused vulva is visible, swollen, wet and glistening, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-lying-close-aroused.png"
+                  },
+                  {
+                      "set":  "closeup",
+                      "cell":  "female-close-spread-lips",
+                      "base":  "base-female-lying-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "her vulva is fully exposed with the outer lips and inner lips spread wide apart, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-close-spread-lips.png"
+                  },
+                  {
+                      "set":  "closeup",
+                      "cell":  "female-close-insert-finger",
+                      "base":  "base-female-lying-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "she inserts her middle finger into her vagina, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-close-insert-finger.png"
+                  },
+                  {
+                      "set":  "closeup",
+                      "cell":  "female-close-rub-clit",
+                      "base":  "base-female-lying-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "she rubs her clitoris with two fingertips, aroused and wet, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-close-rub-clit.png"
+                  },
+                  {
+                      "set":  "rubretry",
+                      "cell":  "female-close-rub-clit-v2",
+                      "base":  "base-female-lying-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "she rubs her clitoris with two fingertips, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-close-rub-clit-v2.png"
+                  },
+                  {
+                      "set":  "rubretry",
+                      "cell":  "female-close-rub-clit-v3",
+                      "base":  "base-female-lying-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "her hand rests between her legs with two fingers circling her clitoris, no other objects present, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-close-rub-clit-v3.png"
+                  },
+                  {
+                      "set":  "phrasing",
+                      "cell":  "v23-noLora-add",
+                      "base":  "base-male-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "",
+                      "loraStrength":  null,
+                      "instruction":  "add a male erect penis to the man standing using correct anatomy",
+                      "output":  "cfg-v23-noLora-add.png"
+                  },
+                  {
+                      "set":  "phrasing",
+                      "cell":  "v23-lora08-add",
+                      "base":  "base-male-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "add a male erect penis to the man standing using correct anatomy",
+                      "output":  "cfg-v23-lora08-add.png"
+                  },
+                  {
+                      "set":  "phrasing",
+                      "cell":  "v23-lora10-add",
+                      "base":  "base-male-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  1,
+                      "instruction":  "add a male erect penis to the man standing using correct anatomy",
+                      "output":  "cfg-v23-lora10-add.png"
+                  },
+                  {
+                      "set":  "phrasing",
+                      "cell":  "v23-lora08-clothing",
+                      "base":  "base-male-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "unzip his jeans and pull the front open so his erect penis is fully visible, correct male anatomy, natural integration with his body",
+                      "output":  "cfg-v23-lora08-clothing.png"
+                  },
+                  {
+                      "set":  "phrasing",
+                      "cell":  "remix-noLora-add",
+                      "base":  "base-male-far.png",
+                      "checkpoint":  "qwenImageEditRemix_aioV20.safetensors",
+                      "lora":  "",
+                      "loraStrength":  null,
+                      "instruction":  "add a male erect penis to the man standing using correct anatomy",
+                      "output":  "cfg-remix-noLora-add.png"
+                  },
+                  {
+                      "set":  "phrasing",
+                      "cell":  "remix-noLora-clothing",
+                      "base":  "base-male-far.png",
+                      "checkpoint":  "qwenImageEditRemix_aioV20.safetensors",
+                      "lora":  "",
+                      "loraStrength":  null,
+                      "instruction":  "unzip his jeans and pull the front open so his erect penis is fully visible, correct male anatomy, natural integration with his body",
+                      "output":  "cfg-remix-noLora-clothing.png"
+                  }
+              ]
+}

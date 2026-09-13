@@ -9,6 +9,7 @@ using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -24,8 +25,9 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
     private readonly IDurableBackgroundJobQueue _queue;
     private readonly ISceneBeatAnalyzerResolver _durableSettingsResolver;
     private readonly TimeProvider _timeProvider;
+    private readonly IMediaEditCompilationService _mediaEdits;
 
-    public SceneAssetImageEditCompilationService(ISceneAssetRepository assetRepository, ISceneAssetImageEditRepository editRepository, ISceneAssetStorageService storage, IMultimodalModelResolutionService modelResolver, ISceneImageEditPromptCompiler compiler, IDurableBackgroundJobQueue queue, ISceneBeatAnalyzerResolver durableSettingsResolver, TimeProvider timeProvider)
+    public SceneAssetImageEditCompilationService(ISceneAssetRepository assetRepository, ISceneAssetImageEditRepository editRepository, ISceneAssetStorageService storage, IMultimodalModelResolutionService modelResolver, ISceneImageEditPromptCompiler compiler, IDurableBackgroundJobQueue queue, ISceneBeatAnalyzerResolver durableSettingsResolver, TimeProvider timeProvider, IMediaEditCompilationService mediaEdits)
     {
         _assetRepository = assetRepository;
         _editRepository = editRepository;
@@ -35,6 +37,7 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
         _queue = queue;
         _durableSettingsResolver = durableSettingsResolver;
         _timeProvider = timeProvider;
+        _mediaEdits = mediaEdits;
     }
 
     public async Task<SceneAssetImageEditSession> CreateSessionAsync(CreateSceneAssetImageEditSessionRequest request, CancellationToken cancellationToken = default)
@@ -94,6 +97,111 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
         return revision;
     }
 
+    /// <summary>
+    /// Creates the derived image row for a crop and hands it to the shared operation pipeline. Nothing
+    /// here needs a compiler, an editor model or a prompt: the operation is deterministic, and its
+    /// provenance is the operation record itself.
+    /// </summary>
+    public async Task<SceneAssetImage> EnqueueCropAsync(
+        EnqueueSceneAssetImageCropRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.AssetId))
+            throw new InvalidOperationException("An asset image crop requires the asset it belongs to.");
+        if (request.Crop is null)
+            throw new InvalidOperationException("An asset image crop requires its crop parameters.");
+        request.Crop.Validate();
+
+        var source = await RequireSourceAsync(request.AssetId, request.SourceImageId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(source.Sha256))
+            throw new InvalidOperationException("The source asset image has no stored checksum.");
+
+        var provenance = JsonSerializer.Serialize(new
+        {
+            operation = MediaEditProvenance.CropValue,
+            mode = request.Crop.Mode.ToString(),
+            window = request.Crop.Rect is { } dragged
+                ? new { x = dragged.X, y = dragged.Y, width = dragged.Width, height = dragged.Height }
+                : null,
+            targetAspect = request.Crop.Settings.TargetAspect,
+            headroomPercent = request.Crop.Settings.HeadroomPercent,
+            horizontalOffsetPercent = request.Crop.Settings.HorizontalOffsetPercent,
+            measurement = request.Crop.Measurement,
+            sourceImageSha256 = source.Sha256
+        }, JsonOptions);
+
+        var image = new SceneAssetImage
+        {
+            AssetId = source.AssetId,
+            Kind = SceneAssetKind.Edited,
+            Status = SceneAssetStatus.Pending,
+            SourceImageId = source.Id,
+            SourceProvenanceJson = provenance,
+            // The result joins its source's candidate batch, so a deck of that batch shows edited images
+            // alongside the generated ones they came from (B-121 note 007).
+            CandidateBatchId = source.CandidateBatchId,
+            CandidateDecision = source.CandidateBatchId is null ? null : SceneAssetCandidateDecision.Undecided
+        };
+        await _assetRepository.UpsertImageAsync(image, cancellationToken);
+
+        var operationAttempts = (await _durableSettingsResolver.ResolveAsync(cancellationToken)).RetryDelaysSeconds.Count + 1;
+        await _mediaEdits.EnqueueOperationRunAsync(
+            new MediaEditOperationRunRequest(
+                MediaEditSubjectKind.AssetImage,
+                image.Id,
+                MediaEditOperation.ForCrop(request.Crop),
+                operationAttempts),
+            cancellationToken);
+        return image;
+    }
+
+    public async Task<SceneAssetImage> EnqueueEnhanceAsync(
+        EnqueueSceneAssetImageEnhanceRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.AssetId))
+            throw new InvalidOperationException("An asset image enhance requires the asset it belongs to.");
+        if (request.Enhance is null)
+            throw new InvalidOperationException("An asset image enhance requires its enhance parameters.");
+        request.Enhance.Validate();
+
+        var source = await RequireSourceAsync(request.AssetId, request.SourceImageId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(source.Sha256))
+            throw new InvalidOperationException("The source asset image has no stored checksum.");
+
+        var provenance = JsonSerializer.Serialize(new
+        {
+            operation = MediaEditProvenance.EnhanceValue,
+            upscalerModelName = request.Enhance.UpscalerModelName,
+            targetLongEdge = request.Enhance.TargetLongEdge,
+            sourceImageSha256 = source.Sha256
+        }, JsonOptions);
+
+        var image = new SceneAssetImage
+        {
+            AssetId = source.AssetId,
+            Kind = SceneAssetKind.Edited,
+            Status = SceneAssetStatus.Pending,
+            SourceImageId = source.Id,
+            SourceProvenanceJson = provenance,
+            // The result joins its source's candidate batch, so a deck of that batch shows edited images
+            // alongside the generated ones they came from (B-121 note 007).
+            CandidateBatchId = source.CandidateBatchId,
+            CandidateDecision = source.CandidateBatchId is null ? null : SceneAssetCandidateDecision.Undecided
+        };
+        await _assetRepository.UpsertImageAsync(image, cancellationToken);
+
+        var operationAttempts = (await _durableSettingsResolver.ResolveAsync(cancellationToken)).RetryDelaysSeconds.Count + 1;
+        await _mediaEdits.EnqueueOperationRunAsync(
+            new MediaEditOperationRunRequest(
+                MediaEditSubjectKind.AssetImage,
+                image.Id,
+                MediaEditOperation.ForEnhance(request.Enhance),
+                operationAttempts),
+            cancellationToken);
+        return image;
+    }
+
     public async Task<SceneAssetImage> EnqueueEditAsync(EnqueueSceneAssetImageEditRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.EditorModelId)) throw new InvalidOperationException("An exact asset image editor model is required.");
@@ -106,9 +214,13 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
         RequireUnchanged(input.Sha256, request.SourceImageSha256, "The selected source asset image checksum is stale.");
         var revision = await _editRepository.GetExecutableRevisionAsync(session.Id, request.CompilationAttemptId, request.PromptRevisionId, request.SourceImageSha256, request.PromptSha256, cancellationToken);
         var attempt = await _editRepository.GetAttemptAsync(request.CompilationAttemptId, cancellationToken) ?? throw new InvalidOperationException($"Asset compilation attempt '{request.CompilationAttemptId}' was not found.");
-        var provenance = JsonSerializer.Serialize(new { editSessionId = session.Id, compilationAttemptId = attempt.Id, attemptOrdinal = attempt.Ordinal, promptRevisionId = revision.Id, revisionOrdinal = revision.Ordinal, sourceImageSha256 = session.SourceImageSha256, promptSha256 = revision.PromptSha256, attempt.CompilerSchemaVersion, attempt.SystemPromptVersion, resolvedModelSnapshot = JsonSerializer.Deserialize<JsonElement>(attempt.ResolvedModelSnapshotJson) }, JsonOptions);
+        var provenance = JsonSerializer.Serialize(new { operation = MediaEditProvenance.EditValue, editSessionId = session.Id, compilationAttemptId = attempt.Id, attemptOrdinal = attempt.Ordinal, promptRevisionId = revision.Id, revisionOrdinal = revision.Ordinal, sourceImageSha256 = session.SourceImageSha256, promptSha256 = revision.PromptSha256, attempt.CompilerSchemaVersion, attempt.SystemPromptVersion, resolvedModelSnapshot = JsonSerializer.Deserialize<JsonElement>(attempt.ResolvedModelSnapshotJson) }, JsonOptions);
         var referenceApplicationsJson = SerializeReferenceApplications(request.ReferenceApplications);
         var candidateBatchId = string.IsNullOrWhiteSpace(request.CandidateBatchId) ? null : request.CandidateBatchId.Trim();
+        // An edit that does not name a batch belongs to the batch of the image it edited: the user's
+        // de-clothe / crop / enhance results are the same candidate's images, so one deck shows them all
+        // (B-121 note 007).
+        candidateBatchId ??= string.IsNullOrWhiteSpace(source.CandidateBatchId) ? null : source.CandidateBatchId.Trim();
         var image = new SceneAssetImage
         {
             AssetId = source.AssetId,
@@ -121,14 +233,18 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
             CandidateDecision = candidateBatchId is null ? null : SceneAssetCandidateDecision.Undecided
         };
         await _assetRepository.UpsertImageAsync(image, cancellationToken);
-        await EnqueueAsync(BackgroundJobTypes.SceneAssetImageEditing, DurableJobLane.ImageEdit, new SceneAssetImageEditingJobPayload
-        {
-            AssetId = source.AssetId,
-            ImageId = image.Id,
-            EditorModelId = request.EditorModelId.Trim(),
-            CandidateBatchId = image.CandidateBatchId,
-            ReferenceApplicationsJson = referenceApplicationsJson
-        }, image.Id, "Asset image edit", cancellationToken);
+
+        // The run goes through the shared editing pipeline (B-124 B124-012): one job type, one handler,
+        // one writer seam. This service now only owns creating the subject-specific image row.
+        var editAttempts = (await _durableSettingsResolver.ResolveAsync(cancellationToken)).RetryDelaysSeconds.Count + 1;
+        await _mediaEdits.EnqueueRunAsync(
+            new MediaEditRunRequest(
+                MediaEditSubjectKind.AssetImage,
+                image.Id,
+                request.EditorModelId.Trim(),
+                editAttempts,
+                referenceApplicationsJson),
+            cancellationToken);
         return image;
     }
 

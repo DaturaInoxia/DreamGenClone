@@ -27,4 +27,6 @@ public sealed record ResolvedImageEditorModel(
     double CfgNormStrength,
     ImageProtocol ImageProtocol = ImageProtocol.ComfyUi,
     string? RegisteredModelId = null,
-    ImageEditorGraphKind? GraphKind = null);
+    ImageEditorGraphKind? GraphKind = null,
+    string? LoraName = null,
+    double? LoraStrength = null);

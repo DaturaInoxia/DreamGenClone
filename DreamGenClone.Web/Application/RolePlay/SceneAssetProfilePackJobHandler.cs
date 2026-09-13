@@ -248,7 +248,7 @@ public sealed class SceneAssetProfilePackJobHandler : IBackgroundJobHandler, IDu
     {
         await using var stream = new MemoryStream(bytes);
         var identityAsset = await _identityService.UploadAssetAsync(
-            packId, SceneImageReferenceAssetKind.Face, fileName, stream, view, cancellationToken);
+            packId, SceneImageReferenceAssetKind.Face, fileName, stream, view, cancellationToken: cancellationToken);
 
         asset.IdentityPackId = packId;
         asset.Status = SceneAssetStatus.Complete;

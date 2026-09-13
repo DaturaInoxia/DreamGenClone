@@ -82,6 +82,7 @@ public sealed class CharacterImageIdentityRepositoryTests
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
+            await AddFaceSetAsync(repo, pack.Id);
             var face = FaceAsset(pack.Id, isApproved: true, consentState: SceneImageReferenceConsentState.Confirmed);
             var body = FullBodyAsset(pack.Id);
             body.ConsentState = SceneImageReferenceConsentState.Unknown;
@@ -188,6 +189,7 @@ public sealed class CharacterImageIdentityRepositoryTests
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
+            await AddFaceSetAsync(repo, pack.Id);
             var asset = FaceAsset(pack.Id, isApproved: true, consentState: SceneImageReferenceConsentState.Confirmed);
             asset.SourceLabel = string.Empty;
             await repo.AddAssetAsync(asset);
@@ -237,6 +239,7 @@ public sealed class CharacterImageIdentityRepositoryTests
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
+            await AddFaceSetAsync(repo, pack.Id);
             var face = FaceAsset(pack.Id, isApproved: true, consentState: SceneImageReferenceConsentState.Confirmed);
             await repo.AddAssetAsync(face);
 
@@ -276,6 +279,7 @@ public sealed class CharacterImageIdentityRepositoryTests
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
+            await AddFaceSetAsync(repo, pack.Id);
             var face = FaceAsset(pack.Id, isApproved: true, consentState: SceneImageReferenceConsentState.Confirmed);
             await repo.AddAssetAsync(face);
             await repo.ApproveAsync(pack.Id, "{\"hair\":\"dark\"}", face.Id);
@@ -291,10 +295,10 @@ public sealed class CharacterImageIdentityRepositoryTests
             Assert.Equal(CharacterImageIdentityPackStatus.Superseded, old!.Status);
 
             var copiedAssets = await repo.ListAssetsAsync(next.Id);
-            Assert.Single(copiedAssets);
-            Assert.Equal(face.Sha256, copiedAssets[0].Sha256);
-            Assert.Equal(face.FileRelativePath, copiedAssets[0].FileRelativePath);
-            Assert.NotEqual(face.Id, copiedAssets[0].Id);
+            Assert.Equal(6, copiedAssets.Count);
+            Assert.All(copiedAssets, a => Assert.Equal(FaceSha, a.Sha256));
+            Assert.Contains(copiedAssets, a => a.FileRelativePath == face.FileRelativePath);
+            Assert.DoesNotContain(copiedAssets, a => a.Id == face.Id);
         }
         finally
         {
@@ -314,16 +318,13 @@ public sealed class CharacterImageIdentityRepositoryTests
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
-            var face = FaceAsset(pack.Id, isApproved: true, consentState: SceneImageReferenceConsentState.Confirmed);
-            face.FaceView = SceneImageReferenceFaceView.ThreeQuarterRight;
-            face.QualityRating = SceneImageReferenceQuality.NotGood;
-            await repo.AddAssetAsync(face);
-            await repo.ApproveAsync(pack.Id, "{\"hair\":\"dark\"}", face.Id);
+            var faces = await AddFaceSetAsync(repo, pack.Id);
+            await repo.UpdateAssetQualityAsync(faces[2].Id, SceneImageReferenceQuality.NotGood, "3/4 right softened");
+            await repo.ApproveAsync(pack.Id, "{\"hair\":\"dark\"}", faces[0].Id);
 
             var next = await repo.SupersedeAsync(pack.Id);
 
-            var copied = Assert.Single(await repo.ListAssetsAsync(next.Id));
-            Assert.Equal(SceneImageReferenceFaceView.ThreeQuarterRight, copied.FaceView);
+            var copied = (await repo.ListAssetsAsync(next.Id)).Single(a => a.FaceView == SceneImageReferenceFaceView.ThreeQuarterRight);
             Assert.Equal(SceneImageReferenceQuality.NotGood, copied.QualityRating);
         }
         finally
@@ -344,6 +345,7 @@ public sealed class CharacterImageIdentityRepositoryTests
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
+            await AddFaceSetAsync(repo, pack.Id);
             var face = FaceAsset(pack.Id, isApproved: true, consentState: SceneImageReferenceConsentState.Confirmed);
             await repo.AddAssetAsync(face);
             await repo.ApproveAsync(pack.Id, "{\"hair\":\"dark\"}", face.Id);
@@ -393,6 +395,7 @@ public sealed class CharacterImageIdentityRepositoryTests
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
+            await AddFaceSetAsync(repo, approved.Id);
             var face = FaceAsset(approved.Id, isApproved: true, consentState: SceneImageReferenceConsentState.Confirmed);
             await repo.AddAssetAsync(face);
             await repo.ApproveAsync(approved.Id, "{\"hair\":\"dark\"}", face.Id);
@@ -458,6 +461,7 @@ public sealed class CharacterImageIdentityRepositoryTests
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
+            await AddFaceSetAsync(repo, pack.Id);
             var face = FaceAsset(pack.Id, isApproved: true, consentState: SceneImageReferenceConsentState.Confirmed);
             var body = FullBodyAsset(pack.Id);
             await repo.AddAssetAsync(face);
@@ -471,6 +475,20 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             Cleanup(dbPath);
         }
+    }
+
+    private static async Task<IReadOnlyList<SceneImageReferenceAsset>> AddFaceSetAsync(
+        CharacterImageIdentityRepository repo, string packId)
+    {
+        var faces = new List<SceneImageReferenceAsset>();
+        foreach (var view in Enum.GetValues<SceneImageReferenceFaceView>())
+        {
+            var face = FaceAsset(packId, isApproved: true, consentState: SceneImageReferenceConsentState.Confirmed);
+            face.FaceView = view;
+            await repo.AddAssetAsync(face);
+            faces.Add(face);
+        }
+        return faces;
     }
 
     private static SceneImageReferenceAsset FaceAsset(
@@ -496,6 +514,7 @@ public sealed class CharacterImageIdentityRepositoryTests
     {
         IdentityPackId = packId,
         AssetKind = SceneImageReferenceAssetKind.FullBody,
+        BodyState = SceneImageReferenceBodyState.Clothed,
         FileRelativePath = $"identity/char-1/{Guid.NewGuid():N}.png",
         MediaType = "image/png",
         Width = 1024,

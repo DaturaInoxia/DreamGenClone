@@ -21,26 +21,26 @@ before a task is checked. This package must never reference `CharacterLoraDatase
 
 ## 0. Verify before writing code (no code in this phase)
 
-- [ ] B121-000a Confirm whether the Asset-Manager migration of `ReferenceBootstrapPanel` is complete or
+- [x] B121-000a Confirm whether the Asset-Manager migration of `ReferenceBootstrapPanel` is complete or
   still pending — `specs/001-final-writing-instruction/debug/020-b111-reference-bootstrap-not-in-asset-manager.md`
   records it as *pending implementation*, but the panel is already mounted in `AssetStudio.razor`.
   Record which is true; it decides whether Phase H is a move or an extension.
   *Evidence:* the exact file/line that settles it.
-- [ ] B121-000b Trace and record the same-image edit enqueue path
+- [x] B121-000b Trace and record the same-image edit enqueue path
   (`SceneAssetImageEditCompilationService`, `SceneAssetImageEditJobPayloads`, the job type, lane and
   retry settings) so the new steps enqueue edits the same way.
   *Evidence:* file/line references and the job type constant.
-- [ ] B121-000c Record the current behaviour of `ICharacterImageIdentityService.CreateDraftPackAsync`
+- [x] B121-000c Record the current behaviour of `ICharacterImageIdentityService.CreateDraftPackAsync`
   when a draft pack already exists, and compare it with
   `SceneAssetProfilePackJobHandler.EnsureDraftPackAsync` (which prefers draft → supersedes approved →
   creates). Note which one the studio must use for promotion, and whether
   `ReferenceBootstrapService.PromoteAcceptedCharacterFaceAsync` (which calls `CreateDraftPackAsync`
   directly) diverges.
   *Evidence:* the two code paths quoted.
-- [ ] B121-000d Confirm the runtime Python interpreter available to the app and how it is configured
+- [x] B121-000d Confirm the runtime Python interpreter available to the app and how it is configured
   (repo venv) for invoking `tools/eye-validation/measure_iris.py`.
   *Evidence:* the resolved path and how it will be configured rather than hardcoded.
-- [ ] B121-000e Record the current state of `AssetStudioUiContractTests` (it asserts
+- [x] B121-000e Record the current state of `AssetStudioUiContractTests` (it asserts
   `EnqueueProfilePackAsync` is absent) so that Phase H does not trip it.
   *Evidence:* the assertion quoted.
 
@@ -48,26 +48,26 @@ before a task is checked. This package must never reference `CharacterLoraDatase
 
 ## A. Prompt templates and settings
 
-- [ ] B121-001 Add `ImageWorkflowPromptTemplate` (Key, Scope `Global`/`Character`,
+- [x] B121-001 Add `ImageWorkflowPromptTemplate` (Key, Scope `Global`/`Character`,
   `CharacterProfileId`, `WorkflowStep`, `Body`, `SeedBody`, `UpdatedUtc`). No prompt string is
   embedded in code (FR21-006/008). **Do not reuse the name `TemplateDefinition`** — it already exists
   for character seed templates.
   *File:* `DreamGenClone.Domain/RolePlay/` (new records file)
-- [ ] B121-002 Add `ReferenceWorkflowSettings` (global row + optional per-character override) with the
+- [x] B121-002 Add `ReferenceWorkflowSettings` (global row + optional per-character override) with the
   settings in `seed-prompts.md` §2, including `EyeToolPythonPath`. Store model **ids** only — no
   sampling parameters (FR21-009/011). Every required value resolves from persisted configuration;
   missing values fail fast by key and no machine path is inferred.
   *File:* same as B121-001
-- [ ] B121-003 Add the SQLite tables, additive schema and repository read/write mapping for B121-001/002.
+- [x] B121-003 Add the SQLite tables, additive schema and repository read/write mapping for B121-001/002.
   *File:* `DreamGenClone.Infrastructure/RolePlay/` (new repository)
-- [ ] B121-004 Add the idempotent seed migration inserting the template rows from
+- [x] B121-004 Add the idempotent seed migration inserting the template rows from
   `seed-prompts.md` §1, writing `SeedBody = Body`. Re-running must not duplicate rows and must not
   overwrite a user-edited `Body`.
   *File:* same as B121-003
-- [ ] B121-005 Add the resolver: character override → global → **fail fast naming the key**.
+- [x] B121-005 Add the resolver: character override → global → **fail fast naming the key**.
   No code-embedded default (FR21-007). Add `ResetToSeedAsync(key, scope)`.
   *File:* `DreamGenClone.Web/Application/RolePlay/` (new service)
-- [ ] B121-006 [P] Add tests: seed → resolve global; character override wins; character override does
+- [x] B121-006 [P] Add tests: seed → resolve global; character override wins; character override does
   not alter the global row; missing row fails fast with the key in the message; `Reset to seed`
   restores `SeedBody` byte-identically; re-running the seed does not overwrite an edited `Body`.
   *File:* `DreamGenClone.Tests/RolePlay/`
@@ -76,20 +76,20 @@ before a task is checked. This package must never reference `CharacterLoraDatase
 
 ## B. Build pipeline record
 
-- [ ] B121-007 Add `CharacterIdentityBuild` (character profile id, batch id, current step, status,
+- [x] B121-007 Add `CharacterIdentityBuild` (character profile id, batch id, current step, status,
   created/updated) and the per-step record (`Step`, `Status`, `InputArtifactId`, `OutputArtifactId`,
   `ResolvedPromptText`, `ResolvedModelId`, `FailureReason`, `MirrorDerived`, manual-override fields)
   per D8.
   *File:* `DreamGenClone.Domain/RolePlay/`
-- [ ] B121-008 Add persistence for B121-007.
+- [x] B121-008 Add persistence for B121-007.
   *File:* `DreamGenClone.Infrastructure/RolePlay/`
-- [ ] B121-009 Add the step state machine: fixed order Front → Validate → GarmentRemoval → Crop →
+- [x] B121-009 Add the step state machine: fixed order Front → Validate → GarmentRemoval → Crop →
   Enhance → Angles → Promote; explicit skip recording; resume from the first incomplete step; per-step
   re-run that supersedes only its own output (FR21-001/002/003).
   *File:* `DreamGenClone.Web/Application/RolePlay/` (build service)
-- [ ] B121-010 Fail fast when a step is requested out of order, when a required input artifact is
+- [x] B121-010 Fail fast when a step is requested out of order, when a required input artifact is
   missing, or when a required template key does not resolve.
-- [ ] B121-011 [P] Add tests: ordering enforced; resume after interruption does not repeat completed
+- [x] B121-011 [P] Add tests: ordering enforced; resume after interruption does not repeat completed
   steps; re-running a step leaves earlier artifacts untouched; skip is recorded and distinguishable
   from completion; out-of-order request fails fast.
   *File:* `DreamGenClone.Tests/RolePlay/`

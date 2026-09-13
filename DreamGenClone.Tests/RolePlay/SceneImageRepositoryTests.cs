@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
@@ -264,6 +265,122 @@ public sealed class SceneImageRepositoryTests
             Assert.NotNull(loaded);
             Assert.Equal(matching.Id, loaded!.Id);
             Assert.Equal("saved Dean prompt", loaded.OutputPrompt);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// A deterministic operation (crop, enhance) is queued Pending and is never claimed, so its row must
+    /// be completable from Pending. Debug record 053: the render-only transition left studio crops Pending
+    /// forever while the log reported success.
+    /// </summary>
+    [Fact]
+    public async Task TryCompleteOperationImage_CompletesAPendingRow()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "a cat in a hat",
+                Status = SceneImageStatus.Pending,
+                Operation = SceneImageOperation.Crop,
+                SourceImageId = "source-1",
+                SettingsJson = "{\"Style\":\"cartoon\"}"
+            };
+            await repo.InsertImageAsync(image);
+
+            image.Status = SceneImageStatus.Complete;
+            image.FileRelativePath = "s1/crop.png";
+            image.Sha256 = "ABC123";
+            image.ImageSize = "819x1024";
+            image.CompletedUtc = DateTime.UtcNow;
+            image.UpdatedUtc = DateTime.UtcNow;
+
+            Assert.True(await repo.TryCompleteOperationImageAsync(image));
+
+            var loaded = await repo.GetImageAsync(image.Id);
+            Assert.NotNull(loaded);
+            Assert.Equal(SceneImageStatus.Complete, loaded!.Status);
+            Assert.Equal("s1/crop.png", loaded.FileRelativePath);
+            Assert.Equal("ABC123", loaded.Sha256);
+            // The size of the file that now exists, not the source's size the row was queued with.
+            Assert.Equal("819x1024", loaded.ImageSize);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task TryCompleteOperationImage_DoesNotOverwriteATerminalRow()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "a cat in a hat",
+                Status = SceneImageStatus.Cancelled,
+                Operation = SceneImageOperation.Crop,
+                SourceImageId = "source-1",
+                SettingsJson = "{\"Style\":\"cartoon\"}"
+            };
+            await repo.InsertImageAsync(image);
+
+            image.Status = SceneImageStatus.Complete;
+            image.FileRelativePath = "s1/crop.png";
+            image.CompletedUtc = DateTime.UtcNow;
+            image.UpdatedUtc = DateTime.UtcNow;
+
+            Assert.False(await repo.TryCompleteOperationImageAsync(image));
+            Assert.Equal(SceneImageStatus.Cancelled, (await repo.GetImageAsync(image.Id))!.Status);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// The render/edit transition stays strict: a row nobody claimed must not be completed by a render,
+    /// so the operation path was given its own transition rather than widening this one.
+    /// </summary>
+    [Fact]
+    public async Task TryCompleteImage_StillRefusesAnUnclaimedPendingRow()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "a cat in a hat",
+                Status = SceneImageStatus.Pending,
+                SettingsJson = "{\"Style\":\"cartoon\"}"
+            };
+            await repo.InsertImageAsync(image);
+
+            image.Status = SceneImageStatus.Complete;
+            image.FileRelativePath = "s1/render.png";
+            image.ContentPolicy = ImageContentPolicy.Unknown;
+            image.CompletedUtc = DateTime.UtcNow;
+            image.UpdatedUtc = DateTime.UtcNow;
+
+            Assert.False(await repo.TryCompleteImageAsync(image));
+            Assert.Equal(SceneImageStatus.Pending, (await repo.GetImageAsync(image.Id))!.Status);
         }
         finally
         {

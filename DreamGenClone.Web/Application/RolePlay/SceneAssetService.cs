@@ -44,6 +44,7 @@ public sealed class SceneAssetService : ISceneAssetService
     public async Task<SceneAsset> CreateAssetAsync(
         string name,
         SceneAssetType type,
+        string? characterProfileId = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -55,6 +56,7 @@ public sealed class SceneAssetService : ISceneAssetService
         {
             Name = name.Trim(),
             Type = type,
+            CharacterProfileId = string.IsNullOrWhiteSpace(characterProfileId) ? null : characterProfileId.Trim(),
             IsContainerOnly = true,
             Kind = SceneAssetKind.Uploaded,
             Status = SceneAssetStatus.Pending
@@ -123,6 +125,32 @@ public sealed class SceneAssetService : ISceneAssetService
         CancellationToken cancellationToken = default)
         => _repository.SetImageCandidateDecisionAsync(imageId, decision, notes, cancellationToken);
 
+    public async Task SetImageValidationResultAsync(
+        string imageId,
+        string? validationResultJson,
+        CancellationToken cancellationToken = default)
+    {
+        var image = await _repository.GetImageAsync(imageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Asset image '{imageId}' was not found.");
+
+        image.ValidationResultJson = validationResultJson;
+        image.UpdatedUtc = DateTime.UtcNow;
+        await _repository.UpsertImageAsync(image, cancellationToken);
+    }
+
+    public async Task SetImagePipelineStepsAsync(
+        string imageId,
+        string? pipelineStepsJson,
+        CancellationToken cancellationToken = default)
+    {
+        var image = await _repository.GetImageAsync(imageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Asset image '{imageId}' was not found.");
+
+        image.PipelineStepsJson = pipelineStepsJson;
+        image.UpdatedUtc = DateTime.UtcNow;
+        await _repository.UpsertImageAsync(image, cancellationToken);
+    }
+
     public async Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default)
     {
         var image = await _repository.GetImageAsync(imageId, cancellationToken)
@@ -179,7 +207,8 @@ public sealed class SceneAssetService : ISceneAssetService
         string assetId,
         string fileName,
         Stream content,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? candidateBatchId = null)
     {
         var asset = await RequireAssetAsync(assetId, cancellationToken);
         if (string.IsNullOrWhiteSpace(fileName))
@@ -189,7 +218,9 @@ public sealed class SceneAssetService : ISceneAssetService
         {
             AssetId = asset.Id,
             Kind = SceneAssetKind.Uploaded,
-            Status = SceneAssetStatus.Pending
+            Status = SceneAssetStatus.Pending,
+            CandidateBatchId = string.IsNullOrWhiteSpace(candidateBatchId) ? null : candidateBatchId.Trim(),
+            CandidateDecision = string.IsNullOrWhiteSpace(candidateBatchId) ? null : SceneAssetCandidateDecision.Undecided
         };
         var extension = SafeImageExtension(fileName);
         var stored = await _storage.SaveAsync($"{image.Id}{extension}", content, cancellationToken);

@@ -63,6 +63,91 @@ window.rolePlayWorkspace = {
         return { top: r.top, left: r.left, bottom: r.bottom, right: r.right, width: r.width, height: r.height };
     },
 
+    // Crop box dragging. The script only reports the pointer (stage-normalized) and which corner handle
+    // was grabbed; the component decides the window, so the arithmetic stays in one testable place.
+    initCropDrag: function (stageSelector, dotNetRef) {
+        const stage = document.querySelector(stageSelector);
+        if (!stage) {
+            return;
+        }
+
+        // Idempotent: the component re-asserts this after renders, and an element that is already
+        // listening must not gain a second listener.
+        if (typeof stage.__cropDragDispose === 'function') {
+            return;
+        }
+
+        let active = false;
+        let grabbedHandle = '';
+
+        const report = function (phase, event) {
+            const rect = stage.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return;
+            }
+
+            const normalizedX = (event.clientX - rect.left) / rect.width;
+            const normalizedY = (event.clientY - rect.top) / rect.height;
+            dotNetRef.invokeMethodAsync('OnCropDragAsync', phase, grabbedHandle, normalizedX, normalizedY);
+        };
+
+        const onPointerMove = function (event) {
+            if (!active) return;
+            if (event.cancelable) event.preventDefault();
+            report('move', event);
+        };
+
+        const onPointerUp = function (event) {
+            if (!active) return;
+            report('end', event);
+            active = false;
+            grabbedHandle = '';
+            stage.classList.remove('is-crop-dragging');
+            document.removeEventListener('pointermove', onPointerMove);
+            document.removeEventListener('pointerup', onPointerUp);
+            document.removeEventListener('mousemove', onPointerMove);
+            document.removeEventListener('mouseup', onPointerUp);
+        };
+
+        const onDownEvent = function (event) {
+            if (active) return;
+            if (event.type === 'mousedown' && event.button !== 0) return;
+            if (event.type === 'pointerdown' && event.button !== 0) return;
+            // The handle is taken from the element the drag STARTED on: later move/up events target the
+            // document (or whatever is under the cursor), which would look like a body drag.
+            grabbedHandle = (event.target && event.target.dataset && event.target.dataset.cropHandle) || '';
+            active = true;
+            stage.classList.add('is-crop-dragging');
+            report('start', event);
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
+            document.addEventListener('mousemove', onPointerMove);
+            document.addEventListener('mouseup', onPointerUp);
+        };
+
+        // Pointer events are the primary path; mouse events cover clients that do not emit them for mouse
+        // input. Both are bound and guarded by `active`, so one drag never starts twice.
+        stage.addEventListener('pointerdown', onDownEvent);
+        stage.addEventListener('mousedown', onDownEvent);
+        stage.__cropDragDispose = function () {
+            stage.removeEventListener('pointerdown', onDownEvent);
+            stage.removeEventListener('mousedown', onDownEvent);
+            document.removeEventListener('pointermove', onPointerMove);
+            document.removeEventListener('pointerup', onPointerUp);
+            document.removeEventListener('mousemove', onPointerMove);
+            document.removeEventListener('mouseup', onPointerUp);
+            stage.classList.remove('is-crop-dragging');
+        };
+    },
+
+    disposeCropDrag: function (stageSelector) {
+        const stage = document.querySelector(stageSelector);
+        if (stage && typeof stage.__cropDragDispose === 'function') {
+            stage.__cropDragDispose();
+            stage.__cropDragDispose = null;
+        }
+    },
+
     initPanelResize: function (shellSelector, handleSelector, initialWidth, minWidth, maxWidth, dotNetRef) {
         const shell = document.querySelector(shellSelector);
         const handle = document.querySelector(handleSelector);

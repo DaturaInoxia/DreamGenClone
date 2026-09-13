@@ -2,8 +2,9 @@
 @rendermode InteractiveServer
 
 @using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Components.Editing
 @using DreamGenClone.Web.Application.RolePlay
-@using DreamGenClone.Components.Assets
+@using DreamGenClone.Web.Application.RolePlay.Editing
 
 @inject ISceneAssetService AssetService
 
@@ -23,38 +24,25 @@
     {
         <div class="alert alert-warning">Image not found.</div>
     }
-    else if (_image.Status != SceneAssetStatus.Complete)
-    {
-        <div class="alert alert-warning">This asset must finish processing before it can be edited.</div>
-    }
     else
     {
-        <div class="row g-3">
-            <div class="col-lg-6">
-                <div class="card"><div class="card-body p-2 text-center">
-                    <img src="/scene-images/@_image.FileRelativePath" class="img-fluid" alt="@_asset.Name" />
-                </div></div>
-            </div>
-            <div class="col-lg-6">
-                <div class="card">
-                    <div class="card-header"><strong>Create an Edited Version</strong></div>
-                    <div class="card-body">
-                        <ImageEditWorkbench Source="_image" />
-                    </div>
-                </div>
-            </div>
-        </div>
+        <ImageEditWorkspace Subject="_subject"
+                            ReviewDeckUrl="_reviewDeckUrl"
+                            EditImageUrlFactory="EditImageUrl" />
     }
 </div>
 
 @code {
     [Parameter]
     public string AssetId { get; set; } = string.Empty;
+
     [Parameter]
     public string ImageId { get; set; } = string.Empty;
 
     private SceneAsset? _asset;
     private SceneAssetImage? _image;
+    private ImageEditSubject _subject = null!;
+    private string? _reviewDeckUrl;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -64,6 +52,15 @@
         _image = string.IsNullOrWhiteSpace(ImageId)
             ? null
             : await AssetService.GetImageAsync(ImageId);
-        if (_image?.AssetId != AssetId) _image = null;
+        if (_image?.AssetId != AssetId)
+            _image = null;
+
+        _subject = ImageEditSubject.ForAssetImage(AssetId, ImageId);
+        _reviewDeckUrl = string.IsNullOrWhiteSpace(_image?.CandidateBatchId)
+            ? null
+            : $"/review-deck/asset/{_image.CandidateBatchId}";
     }
+
+    private string EditImageUrl(string imageId)
+        => $"/assets/{AssetId}/images/{imageId}/edit";
 }

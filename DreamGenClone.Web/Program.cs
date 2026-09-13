@@ -19,6 +19,7 @@ using DreamGenClone.Web.Application.Export;
 using DreamGenClone.Web.Application.Import;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 using DreamGenClone.Web.Application.RolePlay.Prompts;
 using DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
 using DreamGenClone.Web.Application.Scenarios;
@@ -401,7 +402,6 @@ builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetEditingJobHan
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetProfilePackJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetImageEditCompilationJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetImageEditDescriptionJobHandler>();
-builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetImageEditingJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler>(serviceProvider => serviceProvider.GetRequiredService<SceneImageRenderingJobHandler>());
 builder.Services.AddScoped<IDurableBackgroundJobHandler>(serviceProvider => serviceProvider.GetRequiredService<SceneImageEditingJobHandler>());
 builder.Services.AddScoped<TextAnalysisDurableJobExecutor>();
@@ -413,9 +413,28 @@ builder.Services.AddScoped<IIdentityControlledRequestCompiler, IdentityControlle
 builder.Services.AddScoped<ICharacterImageIdentityService, CharacterImageIdentityService>();
 builder.Services.AddSingleton<ISceneAssetRepository, SceneAssetRepository>();
 builder.Services.AddSingleton<ISceneAssetImageEditRepository, SceneAssetImageEditRepository>();
+builder.Services.AddSingleton<MediaEditRepository>();
+builder.Services.AddSingleton<IMediaEditRepository>(sp => sp.GetRequiredService<MediaEditRepository>());
 builder.Services.AddSingleton<IProducedImageRepository, ProducedImageRepository>();
 builder.Services.AddSingleton<IReferenceBootstrapRepository, ReferenceBootstrapRepository>();
+builder.Services.AddSingleton<IPosePresetRepository, PosePresetRepository>();
+builder.Services.AddSingleton<IImageWorkflowRepository, ImageWorkflowRepository>();
+builder.Services.AddSingleton<ICharacterIdentityBuildRepository, CharacterIdentityBuildRepository>();
 builder.Services.AddScoped<IReferenceBootstrapService, ReferenceBootstrapService>();
+builder.Services.AddScoped<IImageWorkflowTemplateService, ImageWorkflowTemplateService>();
+builder.Services.AddScoped<ICharacterIdentityBuildService, CharacterIdentityBuildService>();
+builder.Services.AddScoped<ICharacterIdentityFrontService, CharacterIdentityFrontService>();
+builder.Services.AddScoped<ICharacterIdentityValidationService, CharacterIdentityValidationService>();
+builder.Services.AddScoped<ICharacterIdentityGarmentService, CharacterIdentityGarmentService>();
+// The ONE owner of running the approved measurement tool (identity Validate + head-aware crop).
+builder.Services.AddScoped<ICharacterIdentityMeasurementService, CharacterIdentityMeasurementService>();
+builder.Services.AddScoped<IMediaEditHeadMeasurementService, MediaEditHeadMeasurementService>();
+builder.Services.AddScoped<SceneImageEditWorkspaceService>();
+builder.Services.AddScoped<IImageEditWorkspaceService>(sp => sp.GetRequiredService<SceneImageEditWorkspaceService>());
+builder.Services.AddScoped<IImageIdentityEditService>(sp => sp.GetRequiredService<SceneImageEditWorkspaceService>());
+builder.Services.AddScoped<IImageEditWorkspaceService, SceneAssetImageEditWorkspaceService>();
+builder.Services.AddScoped<ImageEditWorkspaceServiceResolver>();
+builder.Services.AddSingleton<ICharacterIdentityMeasurementRunner, ProcessCharacterIdentityMeasurementRunner>();
 builder.Services.AddHostedService<SceneAssetPendingJobRecovery>();
 builder.Services.AddHostedService<TextAnalysisDurableWorker>();
 builder.Services.AddSingleton<ICharacterAppearanceVersionRepository, CharacterAppearanceVersionRepository>();
@@ -441,11 +460,38 @@ builder.Services.AddScoped<IProductionWorkloadService, ProductionWorkloadService
 builder.Services.AddScoped<IProductionStudioService, ProductionStudioService>();
 builder.Services.AddSingleton<ISceneAssetStorageService, SceneAssetStorageService>();
 builder.Services.AddScoped<ISceneAssetService, SceneAssetService>();
+builder.Services.AddScoped<ISceneAssetTreeService, SceneAssetTreeService>();
 builder.Services.AddScoped<ICharacterAssetCatalogService, CharacterAssetCatalogService>();
 builder.Services.AddScoped<IReferenceImageQualityAnalyzer, ReferenceImageQualityAnalyzer>();
 builder.Services.AddScoped<ISceneImageService, SceneImageService>();
 builder.Services.AddScoped<ISceneImageEditCompilationService, SceneImageEditCompilationService>();
 builder.Services.AddScoped<ISceneAssetImageEditCompilationService, SceneAssetImageEditCompilationService>();
+// B-124 B124-012: the ONE edit pipeline. Subject-specific behaviour is only the source seam.
+builder.Services.AddSingleton<IMediaEditSubjectSource, SceneImageMediaEditSubjectSource>();
+builder.Services.AddSingleton<IMediaEditSubjectSource, SceneAssetMediaEditSubjectSource>();
+builder.Services.AddSingleton<MediaEditSubjectSourceResolver>();
+builder.Services.AddScoped<IMediaEditCompilationService, MediaEditCompilationService>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler, MediaEditCompilationJobHandler>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler, MediaEditDescriptionJobHandler>();
+// One reference-set builder for every edit surface (was duplicated in each editing handler).
+builder.Services.AddScoped<MediaEditReferenceResolver>();
+// The ONE image-editing job + the subject writer seam it runs through.
+builder.Services.AddScoped<IMediaEditSubjectWriter, SceneAssetMediaEditSubjectWriter>();
+builder.Services.AddScoped<IMediaEditSubjectWriter, SceneImageMediaEditSubjectWriter>();
+builder.Services.AddScoped<MediaEditSubjectWriterResolver>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler, MediaEditImageEditingJobHandler>();
+// B-121 crop step: the deterministic crop engine the editing job uses on its operation path. Stateless
+// (arithmetic + ImageSharp), and it never touches a model or the image client.
+builder.Services.AddSingleton<IImageCropEngine, ImageCropEngine>();
+// B-121 enhance step: the ComfyUI upscaler (the same four-node graph the identity test runner proved) and
+// the Lanczos scale-down that brings its output back to the configured long edge.
+builder.Services.AddSingleton<IImageUpscaleClient, ComfyUIImageUpscaleClient>();
+builder.Services.AddSingleton<IImageResizeEngine, ImageResizeEngine>();
+// Operations execute through their own executor, so the editing job stays operation-agnostic. They are
+// scoped because the enhance executor resolves the configured editor endpoint, which is scoped.
+builder.Services.AddScoped<IMediaEditOperationExecutor, CropOperationExecutor>();
+builder.Services.AddScoped<IMediaEditOperationExecutor, EnhanceOperationExecutor>();
+builder.Services.AddScoped<MediaEditOperationExecutorResolver>();
 builder.Services.AddSingleton<PonySceneImagePromptBuilder>();
 builder.Services.AddSingleton<IPonySceneImagePromptBuilder>(sp => sp.GetRequiredService<PonySceneImagePromptBuilder>());
 builder.Services.AddSingleton<ISceneImageLLMPromptBuilder>(sp => sp.GetRequiredService<PonySceneImagePromptBuilder>());
@@ -471,6 +517,16 @@ using (var scope = app.Services.CreateScope())
 {
     var sqlitePersistence = scope.ServiceProvider.GetRequiredService<ISqlitePersistence>();
     await sqlitePersistence.InitializeAsync();
+
+    // B-124 B124-012: the single media edit store. Creates it and runs the one-time backfill out
+    // of the two legacy edit stores so both edit surfaces share one schema and one code path.
+    var mediaEditReport = await scope.ServiceProvider.GetRequiredService<MediaEditRepository>().EnsureSchemaAsync();
+    if (mediaEditReport.Total > 0)
+    {
+        app.Logger.LogInformation(
+            "Media edit store migration copied {Sessions} sessions, {Attempts} attempts and {Revisions} prompt revisions out of the legacy scene/asset edit stores.",
+            mediaEditReport.Sessions, mediaEditReport.Attempts, mediaEditReport.Revisions);
+    }
 
     var themeCatalogService = scope.ServiceProvider.GetRequiredService<IThemeCatalogService>();
     await themeCatalogService.SeedDefaultsAsync();

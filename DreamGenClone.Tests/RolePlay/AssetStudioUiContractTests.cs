@@ -14,13 +14,16 @@ public sealed class AssetStudioUiContractTests
     private static readonly string ReviewSource = File.ReadAllText(Path.Combine(
         Root, "DreamGenClone.Web", "Components", "Pages", "AssetReview.razor"));
     private static readonly string EditComponentSource = File.ReadAllText(Path.Combine(
-        Root, "DreamGenClone.Web", "Components", "Assets", "ImageEditWorkbench.razor"));
+        Root, "DreamGenClone.Web", "Components", "Editing", "ImageEditWorkspace.razor"));
     private static readonly string PromptCreatorSource = File.ReadAllText(Path.Combine(
         Root, "DreamGenClone.Web", "Components", "Assets", "PromptAssetCreator.razor"));
     [Fact]
     public void Manager_ListsAssetsAndLinksDedicatedManagementWorkflows()
     {
-        Assert.Contains("Asset Library", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("Asset Manager", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("BuildTreeAsync", ManagerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("_filteredAssets", ManagerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("table-responsive", ManagerSource, StringComparison.Ordinal);
         Assert.Contains("@bind=\"_assetSearch\"", ManagerSource, StringComparison.Ordinal);
         Assert.Contains("@bind=\"_assetTypeFilter\"", ManagerSource, StringComparison.Ordinal);
         Assert.Contains("@bind=\"_assetApprovalFilter\"", ManagerSource, StringComparison.Ordinal);
@@ -31,8 +34,9 @@ public sealed class AssetStudioUiContractTests
         Assert.DoesNotContain("ApproveForProductionAsync", ManagerSource, StringComparison.Ordinal);
         Assert.DoesNotContain("InputFile", ManagerSource, StringComparison.Ordinal);
         Assert.Contains("href=\"/assets/create\"", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("href=\"/characters/identity\"", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("href=\"/asset-studio/lora-datasets/new\"", ManagerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("href=\"/characters/identity\"", ManagerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReferenceBootstrapPanel", ManagerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("AssetRunTray", ManagerSource, StringComparison.Ordinal);
         Assert.DoesNotContain("Character Versions", ManagerSource, StringComparison.Ordinal);
     }
 
@@ -40,13 +44,16 @@ public sealed class AssetStudioUiContractTests
     public void Operations_HaveDedicatedRoutesAndReusableComponents()
     {
         Assert.Contains("@page \"/assets/create\"", CreateSource, StringComparison.Ordinal);
-        Assert.Contains("CreateAssetAsync(_name, _type!.Value)", CreateSource, StringComparison.Ordinal);
+        Assert.Contains("CreateAssetAsync(", CreateSource, StringComparison.Ordinal);
+        Assert.Contains("_type!.Value", CreateSource, StringComparison.Ordinal);
         Assert.DoesNotContain("PromptAssetCreator", CreateSource, StringComparison.Ordinal);
         Assert.DoesNotContain("AssetUploadCreator", CreateSource, StringComparison.Ordinal);
         Assert.Contains("<PromptAssetCreator AssetId=\"@_asset.Id\"", DetailSource, StringComparison.Ordinal);
         Assert.Contains("<AssetUploadCreator AssetId=\"@_asset.Id\"", DetailSource, StringComparison.Ordinal);
         Assert.Contains("@page \"/assets/{AssetId}/images/{ImageId}/edit\"", EditSource, StringComparison.Ordinal);
-        Assert.Contains("<ImageEditWorkbench Source=\"_image\" />", EditSource, StringComparison.Ordinal);
+        Assert.Contains("<ImageEditWorkspace Subject=\"_subject\"", EditSource, StringComparison.Ordinal);
+        Assert.Contains("EditImageUrlFactory=\"EditImageUrl\"", EditSource, StringComparison.Ordinal);
+        Assert.Contains("<EditIterateWorkbench", EditComponentSource, StringComparison.Ordinal);
         Assert.Contains("@page \"/assets/{AssetId}/images/{ImageId}/review\"", ReviewSource, StringComparison.Ordinal);
         Assert.Contains("<ProductionApprovalForm Image=\"_image\" />", ReviewSource, StringComparison.Ordinal);
         Assert.Contains("/assets/@_asset.Id/images/@image.Id/edit", DetailSource, StringComparison.Ordinal);

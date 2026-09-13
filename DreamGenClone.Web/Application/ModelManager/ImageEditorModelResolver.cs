@@ -112,6 +112,24 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
             }
         }
 
+        // Editor LoRA is an explicitly configured pair, never defaulted. An absent name means "no LoRA"
+        // (a configured state, not a fallback). A configured name requires an explicit positive strength,
+        // and a strength without a name is a configuration conflict rather than something to ignore
+        // silently — the same contract CharacterLoraRepository applies to identity LoRA bindings.
+        var loraName = string.IsNullOrWhiteSpace(model.ImageEditorLoraName)
+            ? null
+            : model.ImageEditorLoraName.Trim();
+        if (loraName is null && model.ImageEditorLoraStrength is not null)
+        {
+            throw new ModelResolutionException(
+                $"Image editor model '{model.DisplayName}' has an editor LoRA strength configured without an editor LoRA name. Set 'Editor LoRA' in Model Manager (/model-manager), or clear the strength.");
+        }
+        if (loraName is not null && model.ImageEditorLoraStrength is not > 0)
+        {
+            throw new ModelResolutionException(
+                $"Image editor model '{model.DisplayName}' configures editor LoRA '{loraName}' without an explicit positive strength. Set 'Editor LoRA Strength' in Model Manager (/model-manager).");
+        }
+
         return new ResolvedImageEditorModel(
             ComfyUiUrl: provider.BaseUrl,
             ProviderTimeoutSeconds: provider.TimeoutSeconds,
@@ -131,7 +149,9 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
             CfgNormStrength: RequiredNonNegative(model.ImageEditorCfgNormStrength, "CFGNorm strength", model),
             ImageProtocol: provider.ImageProtocol,
             RegisteredModelId: model.Id,
-            GraphKind: graphKind);
+            GraphKind: graphKind,
+            LoraName: loraName,
+            LoraStrength: model.ImageEditorLoraStrength);
     }
 
     public async Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(

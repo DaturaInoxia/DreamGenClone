@@ -10,6 +10,9 @@ sequence.
 **Foundation:** `identity-and-reference-model.md` defines the reference model (view sets, body
 views, grouping) and the component stack; it controls where any plan touches the reference data
 model or the Asset Manager.
+**Studio navigation:** `studio-navigation-and-layout.md` defines the owner-index Asset Studio and the
+per-type studio routes (`/characters/{id}`, `/locations/{id}`); plans targeting a studio surface
+follow it, not the older `/asset-studio/identity/{buildId}` route.
 **Does not override:** B-111 (`consistent-visual-production`) for the general visual-production layer,
 or an individual item's internal requirements. Where this map and a local plan disagree **on ownership
 or sequencing**, this map controls until the local plan is reconciled.
@@ -60,7 +63,7 @@ That is the whole spine of the sequence below.
 ```mermaid
 flowchart TD
     subgraph FOUND["Foundation — model + shell, then references"]
-        F0["B-124 Reference model +<br/>grouped Asset Manager shell"]
+        F0["B-124 Reference model + grouped shell +<br/>shared create/edit primitive + pose"]
         A1["B-121 Identity Studio<br/>face pack: 7-step pipeline<br/>editable prompts · validation<br/>view-tagged promotion"]
         A2["B-122 Phase 0<br/>body-complete pack<br/>BodyCard + full-body clothed/unclothed"]
         F0 --> A1
@@ -118,7 +121,7 @@ Several concerns are claimed by more than one item. These are the resolutions.
 | **Derived-asset store + extraction jobs** | **B-120** | B-118 shares the pose store; B-119/B-116/B-117 consume | |
 | **LoRA dataset, coverage plan, captions, freeze, training hand-off** | **B-123** | — | |
 | **LoRA inference** (`LoraLoader` node, trigger-token injection, artifact selection) | **B-123** Phase 8 | — | Recorded because B-107 (the historical home) is **not registered in the backlog**; superseded-map shows B-107 absorbed into B-111 P3. Any remaining "B-107" reference must resolve to B-123 Phase 8. |
-| **Reference model + Asset Manager shell (grouping + surfacing)** | **B-124** | — | B-124 owns the reference data model (`ViewDescriptorJson`, canonical body) **and** the grouped shell. It is stage 1 — the foundation every other stage stores into and navigates through. See `identity-and-reference-model.md` §2/§4. |
+| **Reference model + Asset Manager shell + shared create/edit primitive + pose foundation** | **B-124** | — | B-124 owns the reference data model (`ViewDescriptorJson`, canonical body), the grouped shell, **and** the single image create/edit primitive + DW Pose/pose-library foundation that Asset Studio, Production Studio and the roleplay image editor all call (one edit path — a fix lands once). It is stage 1 — the foundation every other stage stores into, navigates through and edits through. B-117/B-118 consume this primitive rather than building a second path. See `identity-and-reference-model.md` §2/§4. |
 
 ### Ownership corrections applied to the local plans
 
@@ -204,7 +207,7 @@ stable schema, they never define it as a side effect.
 
 | # | Stage | Components the user gets | Blocks on |
 |---|---|---|---|
-| 1 | **B-124** | Reference model (view descriptors + canonical body) **and** the grouped Asset Manager shell | — |
+| 1 | **B-124** | Reference model + grouped Asset Manager shell + **shared image create/edit primitive + DW Pose / pose library** | — |
 | 2 | B-121 | Front source → Validate → De-clothe → Crop → Enhance → Angles → Promote | B-124 model |
 | 3 | B-122 Phase 0 | BodyCard editor + body ref tools + body validation | B-124 model, B-121 machinery |
 | 4 | B-118 | Pose Studio: search / extract / edit / **save new** + render-request contract | — |
@@ -257,7 +260,7 @@ start in parallel with B-124; B-117 (stage 5) starts once B-118 lands.
 | B-121 | `planned` | README, spec, plan, tasks, ui-contract, seed-prompts | **Plan only — handoff ready; no code** |
 | B-122 | `planned` | shared plan (Phase 0) + `b122-tasks.md` | Phase 0 hard-blocks B-123 |
 | B-123 | `planned` | shared plan (Phases 1–8) | Owns B-123 Phase 8 inference wiring |
-| B-124 | `planned` | plan | **Stage 1 — the foundation (reference model + Asset Manager shell)** |
+| B-124 | `planned` | plan | **Stage 1 — the foundation (reference model + Asset Manager shell + shared create/edit primitive + pose)** |
 | B-111 P2 | — | tasks | Already absorbed B-108; much of the reference-bootstrap machinery is **implemented** (see B-121 `plan.md` "Verified current state") |
 
 ---

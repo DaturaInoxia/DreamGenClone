@@ -15,6 +15,9 @@ public static class BackgroundJobTypes
     public const string SceneAssetImageEditPromptCompilation = "scene-asset-image-edit-prompt-compilation";
     public const string SceneAssetImageEditDescription = "scene-asset-image-edit-description";
     public const string SceneAssetImageEditing = "scene-asset-image-editing";
+    public const string MediaEditPromptCompilation = "media-edit-prompt-compilation";
+    public const string MediaEditDescription = "media-edit-description";
+    public const string MediaEditImageEditing = "media-edit-image-editing";
     public const string SceneAssetGeneration = "scene-asset-generation";
     public const string ProducedImageGeneration = "produced-image-generation";
     public const string SceneAssetEditing = "scene-asset-editing";

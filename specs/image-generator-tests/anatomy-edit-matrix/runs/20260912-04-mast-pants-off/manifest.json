@@ -1,0 +1,94 @@
+﻿{
+    "runId":  "20260912-04-mast-pants-off",
+    "createdAt":  "2026-09-12T14:17:20.5642785-04:00",
+    "updatedAt":  "2026-09-12T14:19:07.3439520-04:00",
+    "sets":  [
+                 "mast"
+             ],
+    "seed":  6601,
+    "graph":  "MergedCheckpoint (app-faithful: 8 steps, CFG 1, euler_ancestral/beta, denoise 1, AuraFlow 3.1, CFGNorm 1)",
+    "gitCommit":  "db796f3",
+    "cellCount":  8,
+    "cells":  [
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-far-unaroused",
+                      "base":  "base-female-lying-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "pull her jeans and underwear completely off so her bare vulva is fully visible, relaxed and unaroused, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-lying-far-unaroused.png"
+                  },
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-far-aroused",
+                      "base":  "base-female-lying-far.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "pull her jeans and underwear completely off so her bare aroused vulva is fully visible, swollen, wet and glistening, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-lying-far-aroused.png"
+                  },
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-close-unaroused",
+                      "base":  "base-female-lying-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "pull her jeans and underwear completely off so her bare vulva is fully visible, relaxed and unaroused, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-lying-close-unaroused.png"
+                  },
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-close-aroused",
+                      "base":  "base-female-lying-close.png",
+                      "checkpoint":  "Qwen-Rapid-AIO-NSFW-v23.safetensors",
+                      "lora":  "QwenEdit2511_AllIncludedGay_v2.safetensors",
+                      "loraStrength":  0.8,
+                      "instruction":  "pull her jeans and underwear completely off so her bare aroused vulva is fully visible, swollen, wet and glistening, correct female anatomy, natural integration with her body",
+                      "output":  "v23lora08-female-lying-close-aroused.png"
+                  },
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-far-unaroused",
+                      "base":  "base-female-lying-far.png",
+                      "checkpoint":  "qwenImageEditRemix_aioV20.safetensors",
+                      "lora":  "",
+                      "loraStrength":  null,
+                      "instruction":  "pull her jeans and underwear completely off so her bare vulva is fully visible, relaxed and unaroused, correct female anatomy, natural integration with her body",
+                      "output":  "remix-female-lying-far-unaroused.png"
+                  },
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-far-aroused",
+                      "base":  "base-female-lying-far.png",
+                      "checkpoint":  "qwenImageEditRemix_aioV20.safetensors",
+                      "lora":  "",
+                      "loraStrength":  null,
+                      "instruction":  "pull her jeans and underwear completely off so her bare aroused vulva is fully visible, swollen, wet and glistening, correct female anatomy, natural integration with her body",
+                      "output":  "remix-female-lying-far-aroused.png"
+                  },
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-close-unaroused",
+                      "base":  "base-female-lying-close.png",
+                      "checkpoint":  "qwenImageEditRemix_aioV20.safetensors",
+                      "lora":  "",
+                      "loraStrength":  null,
+                      "instruction":  "pull her jeans and underwear completely off so her bare vulva is fully visible, relaxed and unaroused, correct female anatomy, natural integration with her body",
+                      "output":  "remix-female-lying-close-unaroused.png"
+                  },
+                  {
+                      "set":  "mast",
+                      "cell":  "female-lying-close-aroused",
+                      "base":  "base-female-lying-close.png",
+                      "checkpoint":  "qwenImageEditRemix_aioV20.safetensors",
+                      "lora":  "",
+                      "loraStrength":  null,
+                      "instruction":  "pull her jeans and underwear completely off so her bare aroused vulva is fully visible, swollen, wet and glistening, correct female anatomy, natural integration with her body",
+                      "output":  "remix-female-lying-close-aroused.png"
+                  }
+              ]
+}

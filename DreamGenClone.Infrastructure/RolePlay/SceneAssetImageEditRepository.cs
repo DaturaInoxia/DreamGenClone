@@ -165,6 +165,9 @@ public sealed class SceneAssetImageEditRepository : ISceneAssetImageEditReposito
         foreignKeys.CommandText = "PRAGMA foreign_keys = ON;";
         await foreignKeys.ExecuteNonQueryAsync(cancellationToken);
         await EnsureSchemaAsync(connection, cancellationToken);
+        // Transitional (B-124 B124-012): keep the unified media edit store present, and run its
+        // one-time backfill out of this legacy store, while both stores are still in use.
+        await MediaEditSchema.EnsureAsync(connection, cancellationToken);
         return connection;
     }
 

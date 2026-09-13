@@ -1,5 +1,7 @@
 namespace DreamGenClone.Web.Application.RolePlay.Models;
 
+using DreamGenClone.Web.Application.RolePlay.Editing;
+
 public sealed class CreateSceneAssetImageEditSessionRequest
 {
     public string AssetId { get; set; } = string.Empty;
@@ -32,4 +34,26 @@ public sealed class EnqueueSceneAssetImageEditRequest
     public string EditorModelId { get; set; } = string.Empty;
     public string? CandidateBatchId { get; set; }
     public IReadOnlyList<ReferenceApplicationSelection>? ReferenceApplications { get; set; }
+}
+
+/// <summary>
+/// Queues a deterministic crop of an existing asset image. There is no editor model, no prompt and no
+/// compiler artifact: the crop is an operation, so the row it produces records operation provenance.
+/// </summary>
+public sealed class EnqueueSceneAssetImageCropRequest
+{
+    public string AssetId { get; set; } = string.Empty;
+    public string SourceImageId { get; set; } = string.Empty;
+    public MediaEditCropOperation? Crop { get; set; }
+}
+
+/// <summary>
+/// Queues an enhance of an existing asset image. The upscale model and target edge are resolved
+/// configuration carried on the run, so the produced row records exactly what was applied.
+/// </summary>
+public sealed class EnqueueSceneAssetImageEnhanceRequest
+{
+    public string AssetId { get; set; } = string.Empty;
+    public string SourceImageId { get; set; } = string.Empty;
+    public MediaEditEnhanceOperation? Enhance { get; set; }
 }

@@ -1,0 +1,1048 @@
+@page "/characters/{CharacterId}"
+@rendermode InteractiveServer
+
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Components.Assets
+@using DreamGenClone.Components.Editing
+@using DreamGenClone.Web.Application.RolePlay.Editing
+
+@inject IScenarioService ScenarioService
+@inject ICharacterImageIdentityService IdentityService
+@inject ICharacterIdentityBuildService BuildService
+@inject ISceneAssetService AssetService
+@inject ICharacterIdentityFrontService FrontService
+@inject ICharacterIdentityValidationService ValidationService
+@inject ICharacterIdentityGarmentService GarmentService
+@inject IModelResolutionService ModelResolutionService
+
+<PageTitle>Character Studio - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+            <h4 class="mb-0">@_characterName</h4>
+            <span class="small text-muted">Character Studio</span>
+        </div>
+        <a href="/asset-studio" class="btn btn-outline-secondary btn-sm">Back to Asset Manager</a>
+    </div>
+
+    @if (_scenarioName is not null)
+    {
+        <p class="text-muted small mb-3">@_scenarioName · @_packs.Count identity pack@(_packs.Count == 1 ? "" : "s")</p>
+    }
+
+    <ul class="nav nav-pills mb-3">
+        @foreach (var tab in _sections)
+        {
+            <li class="nav-item">
+                <button type="button" class="nav-link @(tab == _activeSection ? "active" : "")" @onclick="() => _activeSection = tab">@tab</button>
+            </li>
+        }
+    </ul>
+
+    @switch (_activeSection)
+    {
+        case "Faces":
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>Face build</strong>
+                    <span class="d-flex align-items-center gap-2">
+                        @if (_build is not null)
+                        {
+                            <a class="btn btn-sm btn-outline-info" href="/review-deck/asset/@CharacterIdentityFrontService.FrontBatchIdFor(_build.Id)" title="Every image this build created or edited"><i class="bi bi-images me-1"></i>Review deck</a>
+                            <a class="btn btn-sm btn-outline-primary" href="/review-compare/asset/@CharacterIdentityFrontService.FrontBatchIdFor(_build.Id)" title="Compare this build's images side by side"><i class="bi bi-layout-split me-1"></i>Compare</a>
+                        }
+                        <button type="button" class="btn btn-sm btn-primary" @onclick="StartBuildAsync" disabled="@_startingBuild">
+                            @(_build is null ? "Start build" : "Start over")
+                        </button>
+                    </span>
+                </div>
+                <div class="card-body">
+                    @if (!string.IsNullOrWhiteSpace(_facesError))
+                    {
+                        <div class="alert alert-danger py-2">@_facesError</div>
+                    }
+
+                    @if (!string.IsNullOrWhiteSpace(_frontMessage))
+                    {
+                        <div class="alert alert-secondary py-1 small mb-2">@_frontMessage</div>
+                    }
+
+                    @if (_build is null)
+                    {
+                        <div class="text-muted small">No face build yet. Start one to run the pipeline: Front → Validate → Garment removal → Crop → Enhance → Angles → Promote.</div>
+                    }
+                    else
+                    {
+                        <div class="small text-muted mb-2">Build @_build.Id.Substring(0, 8)… · @_build.Status</div>
+                        @* One line of pipeline state. The panels below hold the controls, so the step status is
+                           not repeated as a second list (B-121 note 007). *@
+                        <div class="d-flex flex-wrap align-items-center gap-1 mb-3">
+                            @foreach (var step in CharacterIdentityBuildSteps.Ordered)
+                            {
+                                var row = _buildStepRows.FirstOrDefault(r => r.Step == step);
+                                var status = row?.Status ?? CharacterIdentityBuildStepStatus.NotStarted;
+                                <span class="badge @StepBadge(status) @(step == _build.CurrentStep ? "border border-light" : "")" title="@step: @status">@StepLabel(step) · @status</span>
+                            }
+                        </div>
+                    }
+
+                    @if (_build is not null)
+                    {
+                        <div class="card mt-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none fw-semibold" @onclick="() => _panelAOpen = !_panelAOpen" aria-expanded="@_panelAOpen" aria-controls="panel-a-body">
+                                    <i class="bi @(_panelAOpen ? "bi-chevron-down" : "bi-chevron-right") me-1"></i>Panel A · 1 Front · 2 Validate
+                                </button>
+                                <span class="d-flex align-items-center gap-1">
+                                    <span class="small text-muted me-1">seed: identity.front.generate</span>
+                                    @if (_frontStepComplete)
+                                    {
+                                        <span class="badge text-bg-success">front selected</span>
+                                    }
+                                    <a class="btn btn-sm btn-outline-info" href="/review-deck/asset/@CharacterIdentityFrontService.FrontBatchIdFor(_build.Id)" title="Review this build's front attempts"><i class="bi bi-images me-1"></i>Review deck</a>
+                                    <a class="btn btn-sm btn-outline-primary" href="/review-compare/asset/@CharacterIdentityFrontService.FrontBatchIdFor(_build.Id)" title="Compare front attempts side by side"><i class="bi bi-layout-split me-1"></i>Compare</a>
+                                </span>
+                            </div>
+
+                            @if (_panelAOpen)
+                            {
+                                <div class="card-body" id="panel-a-body">
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label class="form-label small mb-0">Prompt (editable — saved for this character; each Generate creates a new attempt)</label>
+                                    <span class="d-flex align-items-center gap-1">
+                                        <span class="badge @(_frontPromptIsCharacterOverride ? "text-bg-info" : "text-bg-secondary")">
+                                            @(_frontPromptIsCharacterOverride ? "character prompt" : "default prompt")
+                                        </span>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ReloadDefaultFrontPromptAsync" disabled="@_frontBusy" title="Load this character's default prompt">Reload default</button>
+                                    </span>
+                                </div>
+                                <textarea class="form-control font-monospace small" rows="6" value="@_frontPrompt" @oninput="OnFrontPromptInput" @onchange="OnFrontPromptCommitted"></textarea>
+                            </div>
+
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-5">
+                                    <label class="form-label small mb-1">Model</label>
+                                    <select class="form-select form-select-sm" @bind="_frontModelId" @bind:after="PersistFrontModelAsync">
+                                        <option value="">Select model…</option>
+                                        @foreach (var m in _frontModels)
+                                        {
+                                            <option value="@m.ModelId">@m.DisplayName</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small mb-1">Size</label>
+                                    <input class="form-control form-control-sm" @bind="_frontImageSize" @bind:event="oninput" />
+                                </div>
+                                <div class="col-md-4 d-flex align-items-end gap-1">
+                                    <button type="button" class="btn btn-sm btn-primary" @onclick="GenerateFrontAsync" disabled="@_frontBusy">Generate</button>
+                                    <InputFile class="form-control form-control-sm" accept="image/png,image/jpeg,image/webp" OnChange="OnFrontUpload" />
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshFrontAttemptsAsync">Refresh</button>
+                                </div>
+                            </div>
+
+                            @if (!string.IsNullOrWhiteSpace(_frontMessage))
+                            {
+                                <div class="small text-muted mb-2">@_frontMessage</div>
+                            }
+
+                            @{ var promptImages = _frontAttempts.Where(a => a.Kind != SceneAssetKind.Edited).ToList(); }
+                            @if (promptImages.Count > 0)
+                            {
+                                <div class="d-flex flex-wrap gap-2">
+                                    @foreach (var attempt in promptImages)
+                                    {
+                                        <div class="border rounded p-1 text-center @(IsChosenFront(attempt) ? "border-success border-2" : "")" style="width:150px;">
+                                            <button type="button" class="btn w-100 p-0 border-0 bg-transparent" @onclick="() => OpenAttemptViewer(attempt)" title="View larger">
+                                                @if (attempt.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(attempt.FileRelativePath))
+                                                {
+                                                    <img src="/scene-images/@attempt.FileRelativePath" style="height:150px; width:100%; object-fit:contain;" alt="front attempt" />
+                                                }
+                                                else
+                                                {
+                                                    <div class="d-flex align-items-center justify-content-center text-muted small" style="height:150px;">@attempt.Status</div>
+                                                }
+                                            </button>
+                                            <div class="d-flex justify-content-between align-items-center small mt-1 px-1">
+                                                <span class="font-monospace text-truncate">@attempt.Id[..8]…</span>
+                                                <span class="badge @FrontDecisionBadge(attempt.CandidateDecision)">@(attempt.CandidateDecision?.ToString() ?? "—")</span>
+                                            </div>
+                                            @if (IsChosenFront(attempt))
+                                            {
+                                                <div class="small text-success fw-semibold">chosen · input to Panel B</div>
+                                            }
+                                            @{ var validation = ParseValidation(attempt.ValidationResultJson); }
+                                            @if (validation is not null)
+                                            {
+                                                <div class="small @ValidationTextClass(validation.Verdict)">
+                                                    @validation.Verdict@(validation.IrisDyPercent is { } irisDy ? $" · irisDy {irisDy:F2}%" : "")@(validation.BlockReason is null ? "" : $" · {validation.BlockReason}")
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="small text-muted">not validated</div>
+                                            }
+                                            <button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-1" @onclick="() => RevalidateAsync(attempt)" disabled="@(_validationBusy || attempt.Status != SceneAssetStatus.Complete)">@(validation is null ? "Run validation" : "Re-validate")</button>
+                                            <div class="d-flex flex-wrap gap-1 mt-1 justify-content-center">
+                                                <button type="button" class="btn btn-sm btn-outline-success py-0 px-1" title="Accept" @onclick="() => SetFrontDecisionAsync(attempt, SceneAssetCandidateDecision.Accepted)"><i class="bi bi-check2-circle"></i></button>
+                                                <button type="button" class="btn btn-sm btn-outline-info py-0 px-1" title="Shortlist" @onclick="() => SetFrontDecisionAsync(attempt, SceneAssetCandidateDecision.Shortlisted)"><i class="bi bi-star"></i></button>
+                                                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Reject" @onclick="() => SetFrontDecisionAsync(attempt, SceneAssetCandidateDecision.Rejected)"><i class="bi bi-x-circle"></i></button>
+                                            </div>
+                                            <button type="button" class="btn btn-sm @(IsChosenFront(attempt) ? "btn-success" : "btn-outline-success") w-100 mt-1" @onclick="() => SelectFrontAsync(attempt.Id)" disabled="@(attempt.Status != SceneAssetStatus.Complete)" title="Make this candidate the input to Panel B">@(IsChosenFront(attempt) ? "Chosen" : "Use this")</button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1" @onclick="() => DeleteImageAsync(attempt)" disabled="@_frontBusy" title="Delete this image"><i class="bi bi-trash me-1"></i>Delete</button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-muted small">No front attempts yet. Generate or upload one.</div>
+                            }                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (_build is not null && (int)_build.CurrentStep >= (int)CharacterIdentityBuildStep.GarmentRemoval)
+                    {
+                        <div class="card mt-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none fw-semibold" @onclick="() => _panelBOpen = !_panelBOpen" aria-expanded="@_panelBOpen" aria-controls="panel-b-body">
+                                    <i class="bi @(_panelBOpen ? "bi-chevron-down" : "bi-chevron-right") me-1"></i>Panel B · 3 De-clothe · 4 Crop · 5 Enhance
+                                </button>
+                                <span class="badge @StepBadge(_garmentStepStatus)">@_garmentStepStatus</span>
+                            </div>
+                            @if (_panelBOpen)
+                            {
+                                <div class="card-body" id="panel-b-body">
+
+                            @* The input is the candidate chosen in panel A. De-clothing, cropping and enhancing all
+                               produce new images, so several attempts may be made at each step; the edit form's
+                               lineage is the list of those attempts. *@
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                @if (!string.IsNullOrWhiteSpace(_selectedFrontPreviewUrl))
+                                {
+                                    <img src="@_selectedFrontPreviewUrl" class="border rounded" style="height:72px;width:72px;object-fit:cover;" alt="Input: the chosen candidate" />
+                                    <span class="small text-muted">Input: the candidate you chose in Panel A. Each edit adds an attempt to the list below — switch between them with the lineage.</span>
+                                }
+                                else
+                                {
+                                    <span class="small text-warning">Choose a candidate with "Use this" in Panel A first.</span>
+                                }
+                            </div>
+
+                            @if (!string.IsNullOrWhiteSpace(_garmentMessage))
+                            {
+                                <div class="alert alert-secondary py-1 small mb-2">@_garmentMessage</div>
+                            }
+
+                            @* The edited images are their own list: this is where the user picks the picture that
+                               becomes the canonical front the later steps work from (B-121 note 007). *@
+                            @if (_editedImages.Count > 0)
+                            {
+                                <div class="mb-3">
+                                    <div class="small fw-semibold mb-1">Edited images — pick the canonical front</div>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        @foreach (var edited in _editedImages)
+                                        {
+                                            <div class="border rounded p-1 text-center @(IsChosenFront(edited) ? "border-success border-2" : "")" style="width:150px;">
+                                                <button type="button" class="btn w-100 p-0 border-0 bg-transparent" @onclick="() => OpenAttemptViewer(edited)" title="View larger">
+                                                    @if (edited.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(edited.FileRelativePath))
+                                                    {
+                                                        <img src="/scene-images/@edited.FileRelativePath" style="height:150px; width:100%; object-fit:contain;" alt="edited image" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="d-flex align-items-center justify-content-center text-muted small" style="height:150px;">@edited.Status</div>
+                                                    }
+                                                </button>
+                                                <div class="d-flex justify-content-between align-items-center small mt-1 px-1">
+                                                    <span class="font-monospace text-truncate">@edited.Id[..8]…</span>
+                                                    <span class="badge @FrontDecisionBadge(edited.CandidateDecision)">@(edited.CandidateDecision?.ToString() ?? "—")</span>
+                                                </div>
+                                                @{ var editedValidation = ParseValidation(edited.ValidationResultJson); }
+                                                @if (editedValidation is not null)
+                                                {
+                                                    <div class="small @ValidationTextClass(editedValidation.Verdict)">@editedValidation.Verdict@(editedValidation.IrisDyPercent is { } editedIrisDy ? $" · irisDy {editedIrisDy:F2}%" : "")</div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="small text-muted">not validated</div>
+                                                }
+                                                @{ var editedPipeline = DescribePipeline(edited); }
+                                                @if (editedPipeline is not null)
+                                                {
+                                                    <div class="small text-muted" title="What this image went through, from its own record">@editedPipeline</div>
+                                                }
+                                                <button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-1" @onclick="() => RevalidateAsync(edited)" disabled="@(_validationBusy || edited.Status != SceneAssetStatus.Complete)">@(editedValidation is null ? "Run validation" : "Re-validate")</button>
+                                                <button type="button" class="btn btn-sm @(IsCanonicalFront(edited) ? "btn-success" : "btn-outline-success") w-100 mt-1" @onclick="() => ApproveCanonicalFrontAsync(edited)" disabled="@(_frontBusy || edited.Status != SceneAssetStatus.Complete)" title="Make this the canonical front for the next steps">@(IsCanonicalFront(edited) ? "Canonical front" : "Use this")</button>
+                                                <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1" @onclick="() => DeleteImageAsync(edited)" disabled="@(_frontBusy || IsCanonicalFront(edited))" title="@(IsCanonicalFront(edited) ? "The canonical front cannot be deleted" : "Delete this image")"><i class="bi bi-trash me-1"></i>Delete</button>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            @if (_garmentSource is not null)
+                            {
+                                <ImageEditWorkspace Subject="_garmentSubject!"
+                                                    ShowIdentity="false"
+                                                    SeedIntent="@_garmentIntent"
+                                                    DefaultEditorModelId="@_garmentEditorModelId"
+                                                    ReviewDeckUrl="@_garmentReviewDeckUrl"
+                                                    EditImageUrlFactory="@GarmentEditImageUrl"
+                                                    ResultChanged="@OnGarmentResultAsync" />
+                            }
+                            else
+                            {
+                                <div class="text-muted small">The front image for this step is unavailable.</div>
+                            }
+
+                            @* De-clothe, crop and enhance are recorded from the approved image's own lineage when
+                               it is approved above: the pipeline status line shows the result, so there is
+                               nothing to skip or complete here (B-121 notes 002/005). *@
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+            break;
+        case "Body":
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Body</h5>
+                    <p class="text-muted mb-0">BodyCard and full-body references (clothed + unclothed) — B-122 Phase 0, a new target kind of the same pipeline. Not yet implemented.</p>
+                </div>
+            </div>
+            break;
+        case "LoRA images":
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">LoRA images</h5>
+                    <p class="text-muted mb-0">LoRA dataset coverage cells, created one at a time with pose + identity — B-123 Phases 1–7. Not yet implemented.</p>
+                </div>
+            </div>
+            break;
+        case "LoRAs":
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">LoRAs</h5>
+                    <p class="text-muted mb-0">Trained artifacts per base model — B-123 Phase 8. Not yet implemented.</p>
+                    <a href="/asset-studio/lora-training-profiles" class="btn btn-sm btn-outline-primary">Training profiles</a>
+                </div>
+            </div>
+            break;
+        default:
+            <CharacterIdentity CharacterId="@CharacterId" PackId="@PackId" />
+            break;
+    }
+</div>
+
+@if (_viewerAttempt is not null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.85);">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Front attempt · <span class="font-monospace small">@_viewerAttempt.Id</span></h5>
+                    <button type="button" class="btn-close" @onclick="CloseAttemptViewer" title="Close"></button>
+                </div>
+                <div class="modal-body text-center">
+                    @if (_viewerAttempt.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(_viewerAttempt.FileRelativePath))
+                    {
+                        <img src="/scene-images/@_viewerAttempt.FileRelativePath" class="img-fluid" style="max-height:80vh;" alt="front attempt" />
+                    }
+                    else
+                    {
+                        <div class="text-muted py-5">@_viewerAttempt.Status</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    @if (!string.IsNullOrWhiteSpace(_viewerAttempt.FileRelativePath))
+                    {
+                        <a class="btn btn-outline-secondary btn-sm" href="/scene-images/@_viewerAttempt.FileRelativePath" target="_blank" title="Open full size"><i class="bi bi-arrows-fullscreen me-1"></i>Open full size</a>
+                    }
+                    <button type="button" class="btn btn-secondary" @onclick="CloseAttemptViewer">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] _sections = ["Faces", "Body", "LoRA images", "LoRAs", "Packs"];
+
+    /// <summary>Matches the options the validation service writes with, so camelCase keys read back.</summary>
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    /// <summary>Short rail labels, so the one-line status strip stays readable.</summary>
+    private static string StepLabel(CharacterIdentityBuildStep step) => step switch
+    {
+        CharacterIdentityBuildStep.GarmentRemoval => "De-clothe",
+        _ => step.ToString()
+    };
+
+    [Parameter] public string? CharacterId { get; set; }
+
+    [Parameter] public string? PackId { get; set; }
+
+    private string _activeSection = "Packs";
+    private string _characterName = "Character";
+    private string? _scenarioName;
+    private List<CharacterImageIdentityPack> _packs = [];
+    private CharacterIdentityBuild? _build;
+    private List<CharacterIdentityBuildStepRecord> _buildStepRows = [];
+    private string _frontPrompt = string.Empty;
+    private bool _frontPromptIsCharacterOverride;
+    private string? _frontModelId;
+    private string _frontImageSize = "1024x1024";
+    private List<SceneImageModelChoice> _frontModels = [];
+    private List<SceneAssetImage> _frontAttempts = [];
+
+    /// <summary>
+    /// The edited images of this build's front asset: the de-clothe / crop / enhance results. They are the
+    /// candidate pool for the canonical front, so they are listed separately from the generated ones.
+    /// </summary>
+    private List<SceneAssetImage> _editedImages = [];
+    private SceneAssetImage? _viewerAttempt;
+    private bool _frontBusy;
+    private string? _frontMessage;
+    private bool _validationBusy;
+    private bool _panelAOpen = true;
+    private bool _panelBOpen = true;
+    private SceneAssetImage? _garmentSource;
+    private ImageEditSubject? _garmentSubject;
+    private string? _garmentReviewDeckUrl;
+    private string _garmentIntent = string.Empty;
+    private string? _garmentEditorModelId;
+    private string? _garmentMessage;
+    private string? _characterGender;
+    private bool _startingBuild;
+    private string? _facesError;
+
+    private CharacterIdentityBuildStepStatus _garmentStepStatus
+        => _buildStepRows.FirstOrDefault(r => r.Step == CharacterIdentityBuildStep.GarmentRemoval)?.Status
+            ?? CharacterIdentityBuildStepStatus.NotStarted;
+
+    /// <summary>
+    /// The eye-gate result measured for one candidate, read from the image's own metadata. The verdict
+    /// belongs to the image, so every card can show its own outcome (B-121 note 001).
+    /// </summary>
+    private static SceneAssetImageValidation? ParseValidation(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<SceneAssetImageValidation>(json, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The front-pipeline steps that produced one image, read from that image's own metadata. The record is
+    /// written when the image is approved as the canonical front, so an attempt that has not been approved
+    /// yet shows nothing (B-121 note 002).
+    /// </summary>
+    private static SceneAssetImagePipeline? ParsePipeline(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<SceneAssetImagePipeline>(json, PipelineJsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// One compact line naming what the image went through: <c>de-clothe ✓ · crop — skipped</c>. This is the
+    /// image's own record, not a guess from the images around it.
+    /// </summary>
+    private static string? DescribePipeline(SceneAssetImage image)
+    {
+        var pipeline = ParsePipeline(image.PipelineStepsJson);
+        if (pipeline is null)
+        {
+            return null;
+        }
+
+        return string.Join(
+            " · ",
+            pipeline.Steps.Select(step =>
+                $"{PipelineStepLabel(step.Step)} {PipelineOutcomeMark(step.Outcome)}"));
+    }
+
+    private static string PipelineStepLabel(CharacterIdentityBuildStep step) => step switch
+    {
+        CharacterIdentityBuildStep.GarmentRemoval => "de-clothe",
+        CharacterIdentityBuildStep.Crop => "crop",
+        CharacterIdentityBuildStep.Enhance => "enhance",
+        _ => step.ToString()
+    };
+
+    private static string PipelineOutcomeMark(CharacterIdentityBuildStepStatus outcome)
+        => outcome == CharacterIdentityBuildStepStatus.Complete ? "✓" : "— skipped";
+
+    private string? _selectedFrontPreviewUrl
+    {
+        get
+        {
+            var frontArtifactId = _buildStepRows
+                .FirstOrDefault(r => r.Step == CharacterIdentityBuildStep.Front)?.OutputArtifactId;
+            var attempt = _frontAttempts.FirstOrDefault(a => string.Equals(a.Id, frontArtifactId, StringComparison.Ordinal));
+            return string.IsNullOrWhiteSpace(attempt?.FileRelativePath)
+                ? null
+                : $"/scene-images/{attempt.FileRelativePath}";
+        }
+    }
+
+    /// <summary>
+    /// The candidate the user chose with "Use this". It is the single input to panel B: the de-clothe,
+    /// crop and enhance work starts from this image, and so does everything after it.
+    /// </summary>
+    private string? _chosenFrontArtifactId
+        => _buildStepRows.FirstOrDefault(r => r.Step == CharacterIdentityBuildStep.Front)?.OutputArtifactId;
+
+    private bool IsChosenFront(SceneAssetImage attempt)
+        => !string.IsNullOrWhiteSpace(_chosenFrontArtifactId)
+            && string.Equals(_chosenFrontArtifactId, attempt.Id, StringComparison.Ordinal);
+
+    /// <summary>
+    /// True for the image approved in Panel B as the canonical front — the value the later steps work
+    /// from. It is stored on the build, not on a step, because the Front step is long complete by then.
+    /// </summary>
+    private bool IsCanonicalFront(SceneAssetImage image)
+        => _build?.CanonicalFrontAssetId is { Length: > 0 } canonical
+            && string.Equals(canonical, image.Id, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Approves an edited image as this build's canonical front. Nothing is re-completed and no step is
+    /// re-opened: the Front step keeps the generated candidate it recorded, and the canonical choice is
+    /// recorded beside it for the later steps to read.
+    /// </summary>
+    private async Task ApproveCanonicalFrontAsync(SceneAssetImage image)
+    {
+        if (_build is null)
+        {
+            return;
+        }
+
+        _frontBusy = true;
+        _frontMessage = null;
+        try
+        {
+            _build = await BuildService.SetCanonicalFrontAsync(_build.Id, image.Id);
+            _frontMessage = $"Canonical front approved: {image.Id[..8]}… — the next steps work from this image.";
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+        finally
+        {
+            _frontBusy = false;
+        }
+    }
+
+    private bool _frontStepComplete
+        => _buildStepRows.FirstOrDefault(r => r.Step == CharacterIdentityBuildStep.Front)?.Status == CharacterIdentityBuildStepStatus.Complete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var characterId = CharacterId;
+        if (string.IsNullOrWhiteSpace(characterId))
+        {
+            return;
+        }
+
+        foreach (var scenario in await ScenarioService.GetAllScenariosAsync())
+        {
+            var character = scenario.Characters.FirstOrDefault(c => string.Equals(c.Id, characterId, StringComparison.Ordinal));
+            if (character is not null)
+            {
+                _characterName = string.IsNullOrWhiteSpace(character.Name) ? "Character" : character.Name;
+                _characterGender = character.Gender;
+                _scenarioName = scenario.Name;
+                break;
+            }
+        }
+
+        if (_scenarioName is null)
+        {
+            var ownerAsset = await AssetService.GetAssetAsync(characterId);
+            if (ownerAsset is not null && ownerAsset.Type == SceneAssetType.Character)
+            {
+                _characterName = string.IsNullOrWhiteSpace(ownerAsset.Name) ? "Character" : ownerAsset.Name;
+            }
+        }
+
+        _packs = (await IdentityService.ListPacksAsync(characterId)).ToList();
+
+        var builds = await BuildService.ListBuildsAsync(characterId);
+        _build = builds.FirstOrDefault();
+        if (_build is not null)
+        {
+            _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+        }
+
+        try
+        {
+            _frontModels = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
+            var savedModel = await FrontService.ResolveFrontModelAsync(characterId);
+            _frontModelId = !string.IsNullOrWhiteSpace(savedModel) && _frontModels.Any(m => string.Equals(m.ModelId, savedModel, StringComparison.Ordinal))
+                ? savedModel
+                : _frontModels.Count > 0 ? _frontModels[0].ModelId : null;
+        }
+        catch (Exception ex)
+        {
+            _facesError = ex.Message;
+        }
+
+        try
+        {
+            _frontPrompt = await FrontService.ResolveFrontPromptAsync(characterId, _characterName, "");
+            _frontPromptIsCharacterOverride = await FrontService.HasFrontPromptOverrideAsync(characterId);
+        }
+        catch (Exception ex)
+        {
+            _facesError = ex.Message;
+        }
+
+        await RefreshFrontAttemptsAsync();
+        await RefreshGarmentAsync();
+    }
+    private static string StepBadge(CharacterIdentityBuildStepStatus status) => status switch
+    {
+        CharacterIdentityBuildStepStatus.Complete => "text-bg-success",
+        CharacterIdentityBuildStepStatus.Failed => "text-bg-danger",
+        CharacterIdentityBuildStepStatus.Skipped => "text-bg-warning",
+        CharacterIdentityBuildStepStatus.Running => "text-bg-info",
+        _ => "text-bg-secondary"
+    };
+
+    private async Task StartBuildAsync()
+    {
+        var characterId = CharacterId;
+        if (string.IsNullOrWhiteSpace(characterId))
+        {
+            return;
+        }
+
+        _startingBuild = true;
+        _facesError = null;
+        try
+        {
+            _build = await BuildService.CreateBuildAsync(characterId, null);
+            _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _facesError = ex.Message;
+        }
+        finally
+        {
+            _startingBuild = false;
+        }
+    }
+
+    private async Task RefreshFrontAttemptsAsync()
+    {
+        if (_build is null)
+        {
+            _frontAttempts = [];
+            return;
+        }
+
+        try
+        {
+            _frontAttempts = (await FrontService.ListFrontAttemptsAsync(_build.Id)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+    }
+
+    private async Task GenerateFrontAsync()
+    {
+        if (_build is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_frontPrompt) || string.IsNullOrWhiteSpace(_frontModelId))
+        {
+            _frontMessage = "A prompt and a model are required before generating.";
+            return;
+        }
+
+        _frontBusy = true;
+        _frontMessage = null;
+        try
+        {
+            var attempt = await FrontService.GenerateFrontAttemptAsync(
+                _build.Id, $"{_characterName} front", _frontPrompt, _frontModelId, _frontImageSize);
+            _frontMessage = $"Queued attempt {attempt.Id[..8]}… ({attempt.Status}) — refresh to check completion.";
+            await RefreshFrontAttemptsAsync();
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+        finally
+        {
+            _frontBusy = false;
+        }
+    }
+
+    private async Task OnFrontUpload(InputFileChangeEventArgs args)
+    {
+        if (_build is null)
+        {
+            return;
+        }
+
+        var file = args.File;
+        if (file is null)
+        {
+            return;
+        }
+
+        _frontBusy = true;
+        _frontMessage = null;
+        try
+        {
+            await using var stream = file.OpenReadStream(20 * 1024 * 1024);
+            var attempt = await FrontService.UploadFrontAttemptAsync(
+                _build.Id, $"{_characterName} front", file.Name, stream);
+            _frontMessage = $"Uploaded {file.Name}.";
+            await RefreshFrontAttemptsAsync();
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+        finally
+        {
+            _frontBusy = false;
+        }
+    }
+
+    private async Task SelectFrontAsync(string imageId)
+    {
+        if (_build is null)
+        {
+            return;
+        }
+
+        _frontBusy = true;
+        _frontMessage = null;
+        try
+        {
+            _build = await FrontService.SelectFrontAsync(_build.Id, imageId);
+            _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+            _frontMessage = $"Front selected — build advanced to {_build.CurrentStep}.";
+
+            // Validate is automatic once a front is chosen (note 001): the chosen image's own gate result
+            // decides whether the pipeline may move past it, so no separate "advance" control is needed.
+            var chosen = _frontAttempts.FirstOrDefault(a => string.Equals(a.Id, imageId, StringComparison.Ordinal));
+            var chosenValidation = ParseValidation(chosen?.ValidationResultJson);
+            if (chosenValidation?.Verdict == CharacterIdentityValidationVerdict.Pass)
+            {
+                await ValidationService.AdvanceAsync(_build.Id);
+                _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
+                _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+                _frontMessage = $"Front selected and past the eye gate — build advanced to {_build.CurrentStep}.";
+            }
+            else if (chosenValidation is not null)
+            {
+                _frontMessage += $" Validate is {chosenValidation.Verdict}: {chosenValidation.BlockReason}";
+            }
+
+            await RefreshFrontAttemptsAsync();
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+        finally
+        {
+            _frontBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Measures one candidate on demand and stores the result on that image. A failed gate rejects the
+    /// image, so a candidate that is out of contention says so on its own card.
+    /// </summary>
+    private async Task RevalidateAsync(SceneAssetImage attempt)
+    {
+        _validationBusy = true;
+        _frontMessage = null;
+        try
+        {
+            var result = await ValidationService.MeasureImageAsync(attempt.Id);
+            _frontMessage = result.Verdict == CharacterIdentityValidationVerdict.Pass
+                ? $"{attempt.Id[..8]}… passed the eye gate ({result.IrisDyPercent:F2}%)."
+                : $"{attempt.Id[..8]}… {result.Verdict}: {result.BlockReason}";
+            await RefreshFrontAttemptsAsync();
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+        finally
+        {
+            _validationBusy = false;
+        }
+    }
+
+    private static string ValidationTextClass(CharacterIdentityValidationVerdict verdict) => verdict switch
+    {
+        CharacterIdentityValidationVerdict.Pass => "text-success",
+        CharacterIdentityValidationVerdict.Fail => "text-danger",
+        CharacterIdentityValidationVerdict.NoFaceMesh => "text-warning",
+        _ => "text-muted"
+    };
+
+    private void OnFrontPromptInput(ChangeEventArgs e) => _frontPrompt = e.Value?.ToString() ?? string.Empty;
+
+    private async Task OnFrontPromptCommitted(ChangeEventArgs e)
+    {
+        _frontPrompt = e.Value?.ToString() ?? string.Empty;
+        await PersistFrontPromptAsync();
+    }
+
+    private async Task PersistFrontPromptAsync()
+    {
+        var characterId = CharacterId;
+        if (string.IsNullOrWhiteSpace(characterId) || string.IsNullOrWhiteSpace(_frontPrompt))
+        {
+            return;
+        }
+
+        try
+        {
+            await FrontService.SaveFrontPromptAsync(characterId, _frontPrompt);
+            _frontPromptIsCharacterOverride = true;
+            _frontMessage = "Prompt saved for this character.";
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+    }
+
+    private async Task PersistFrontModelAsync()
+    {
+        var characterId = CharacterId;
+        if (string.IsNullOrWhiteSpace(characterId) || string.IsNullOrWhiteSpace(_frontModelId))
+        {
+            return;
+        }
+
+        try
+        {
+            await FrontService.SaveFrontModelAsync(characterId, _frontModelId);
+            _frontMessage = "Front model saved for this character.";
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+    }
+
+    private async Task ReloadDefaultFrontPromptAsync()
+    {
+        var characterId = CharacterId;
+        if (string.IsNullOrWhiteSpace(characterId))
+        {
+            return;
+        }
+
+        _frontBusy = true;
+        _frontMessage = null;
+        try
+        {
+            _frontPrompt = await FrontService.ResetFrontPromptToDefaultAsync(characterId, _characterName, "");
+            _frontPromptIsCharacterOverride = false;
+            _frontMessage = "Prompt reloaded from the default.";
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+        finally
+        {
+            _frontBusy = false;
+        }
+    }
+
+    private static string FrontDecisionBadge(SceneAssetCandidateDecision? decision) => decision switch
+    {
+        SceneAssetCandidateDecision.Accepted => "text-bg-success",
+        SceneAssetCandidateDecision.Shortlisted => "text-bg-info",
+        SceneAssetCandidateDecision.Rejected or SceneAssetCandidateDecision.Revoked => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+
+    private async Task SetFrontDecisionAsync(SceneAssetImage attempt, SceneAssetCandidateDecision decision)
+    {
+        _frontBusy = true;
+        _frontMessage = null;
+        try
+        {
+            await AssetService.SetImageCandidateDecisionAsync(attempt.Id, decision, null);
+            _frontMessage = $"Set {attempt.Id[..8]}… to {decision}.";
+            await RefreshFrontAttemptsAsync();
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+        finally
+        {
+            _frontBusy = false;
+        }
+    }
+
+    private void OpenAttemptViewer(SceneAssetImage attempt) => _viewerAttempt = attempt;
+
+    private void CloseAttemptViewer() => _viewerAttempt = null;
+
+    private async Task RefreshBuildStepsAsync()
+    {
+        if (_build is null)
+        {
+            return;
+        }
+
+        _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+    }
+
+    private async Task RefreshGarmentAsync()
+    {
+        if (_build is null || (int)_build.CurrentStep < (int)CharacterIdentityBuildStep.GarmentRemoval)
+        {
+            _garmentSource = null;
+            _garmentSubject = null;
+            return;
+        }
+
+        try
+        {
+            _garmentSource = await GarmentService.ResolveGarmentSourceAsync(_build.Id);
+            _garmentSubject = ImageEditSubject.ForAssetImage(_garmentSource.AssetId, _garmentSource.Id);
+            _garmentReviewDeckUrl = string.IsNullOrWhiteSpace(_garmentSource.CandidateBatchId)
+                ? null
+                : $"/review-deck/asset/{_garmentSource.CandidateBatchId}";
+            _garmentIntent = await GarmentService.ResolveGarmentPromptAsync(
+                _build.CharacterProfileId, _characterName, _characterGender);
+            _garmentEditorModelId = await GarmentService.ResolveEditorModelIdAsync();
+            await RefreshEditedImagesAsync();
+        }
+        catch (Exception ex)
+        {
+            _garmentMessage = ex.Message;
+        }
+    }
+
+    /// <summary>Loads the edited images of the front asset, newest first.</summary>
+    private async Task RefreshEditedImagesAsync()
+    {
+        if (_garmentSource is null)
+        {
+            _editedImages = [];
+            return;
+        }
+
+        var images = await AssetService.ListImagesAsync(_garmentSource.AssetId);
+        _editedImages = images
+            .Where(image => image.Kind == SceneAssetKind.Edited)
+            .OrderByDescending(image => image.CreatedUtc)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Deletes one image. The canonical front is refused: the build's steps point at it, and removing it
+    /// would leave those steps naming a file that no longer exists.
+    /// </summary>
+    private async Task DeleteImageAsync(SceneAssetImage image)
+    {
+        if (IsCanonicalFront(image))
+        {
+            _frontMessage = "The canonical front cannot be deleted. Choose another image first.";
+            return;
+        }
+
+        _frontBusy = true;
+        _frontMessage = null;
+        try
+        {
+            await AssetService.DeleteImageAsync(image.Id);
+            _frontMessage = $"Deleted {image.Id[..8]}….";
+            await RefreshFrontAttemptsAsync();
+            await RefreshEditedImagesAsync();
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+        finally
+        {
+            _frontBusy = false;
+        }
+    }
+
+    private string GarmentEditImageUrl(string imageId)
+        => _garmentSource is null ? string.Empty : $"/assets/{_garmentSource.AssetId}/images/{imageId}/edit";
+
+    /// <summary>
+    /// The edit form produced an image. Nothing about the build's steps is written here: the de-clothe,
+    /// crop and enhance steps are recorded from the approved image's lineage when the user approves it in
+    /// Panel B. This only keeps Panel B's list current.
+    /// </summary>
+    private async Task OnGarmentResultAsync(ImageEditResultView result)
+    {
+        if (_build is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await RefreshEditedImagesAsync();
+            _garmentMessage = $"Added {result.ImageId[..8]}… to the edited images. Approve the one you want with \"Use this\".";
+        }
+        catch (Exception ex)
+        {
+            _garmentMessage = ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// JSON options for the per-image pipeline record, which writes its enums as names (the writer in
+    /// <c>CharacterIdentityBuildService</c> uses the same converter).
+    /// </summary>
+    private static readonly JsonSerializerOptions PipelineJsonOptions =
+        new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
+}

@@ -105,6 +105,8 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
         string fileName,
         Stream content,
         SceneImageReferenceFaceView? faceView = null,
+        SceneImageReferenceBodyView? bodyView = null,
+        SceneImageReferenceBodyState? bodyState = null,
         CancellationToken cancellationToken = default)
     {
         var pack = await _repository.GetPackAsync(packId, cancellationToken)
@@ -116,6 +118,10 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
                 "A face reference asset requires a face view (Front, ThreeQuarterLeft, ThreeQuarterRight, ProfileLeft, ProfileRight).");
         if (kind != SceneImageReferenceAssetKind.Face && faceView is not null)
             throw new InvalidOperationException("Only face reference assets carry a face view.");
+        if (kind == SceneImageReferenceAssetKind.FullBody && bodyState is null)
+            throw new InvalidOperationException("A full-body reference asset requires an explicit body state (Clothed or Unclothed).");
+        if (kind != SceneImageReferenceAssetKind.FullBody && (bodyView is not null || bodyState is not null))
+            throw new InvalidOperationException("Only full-body reference assets carry a body view or body state.");
 
         var assetId = Guid.NewGuid().ToString("N");
         var extension = Path.GetExtension(fileName);
@@ -134,6 +140,8 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
             IdentityPackId = packId,
             AssetKind = kind,
             FaceView = faceView,
+            BodyView = bodyView,
+            BodyState = bodyState,
             FileRelativePath = stored.RelativePath,
             MediaType = stored.MediaType,
             Width = stored.Width,

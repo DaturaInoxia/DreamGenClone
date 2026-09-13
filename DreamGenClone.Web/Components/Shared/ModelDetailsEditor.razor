@@ -167,7 +167,15 @@
                     <label class="form-label">CFGNorm Strength</label>
                     <input type="number" class="form-control" @bind="Model.ImageEditorCfgNormStrength" min="0" step="0.1" />
                 </div>
-                <div class="col-12"><div class="form-text">These values are used only when this model is assigned to RP Scene Image Editor. Missing values fail explicitly when an edit is requested.</div></div>
+                <div class="col-md-4">
+                    <label class="form-label">Editor LoRA</label>
+                    <input type="text" class="form-control" @bind="Model.ImageEditorLoraName" placeholder="QwenEdit2511_AllIncludedGay_v2.safetensors" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Editor LoRA Strength</label>
+                    <input type="number" class="form-control" @bind="Model.ImageEditorLoraStrength" min="0" step="0.05" />
+                </div>
+                <div class="col-12"><div class="form-text">These values are used only when this model is assigned to RP Scene Image Editor. Missing values fail explicitly when an edit is requested. Editor LoRA is optional: leave it blank for no LoRA, but a LoRA name requires an explicit positive strength.</div></div>
                 <div class="col-12"><hr class="my-1" /><strong>Character Identity Strategies</strong></div>
                 <div class="col-md-4">
                     <div class="form-check">

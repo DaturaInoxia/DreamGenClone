@@ -7,6 +7,7 @@
 @implements IAsyncDisposable
 
 @inject ISceneAssetService AssetService
+@inject ISceneAssetTreeService AssetTree
 @inject ILogger<AssetStudio> Logger
 
 <PageTitle>Asset Manager - DreamGenClone</PageTitle>
@@ -16,29 +17,19 @@
         <h4 class="mb-0">Asset Manager</h4>
         <div class="d-flex flex-wrap gap-2 justify-content-end">
             <a href="/assets/create" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Create Asset</a>
-            <a href="/characters/identity" class="btn btn-outline-primary btn-sm">Identity Packs</a>
-            <a href="/asset-studio/lora-datasets/new" class="btn btn-outline-primary btn-sm">New LoRA Dataset</a>
-            <a href="/asset-studio/lora-training-profiles" class="btn btn-outline-secondary btn-sm">LoRA Profiles</a>
-            <a href="/" class="btn btn-outline-secondary btn-sm">Back to Home</a>
         </div>
     </div>
-    <p class="text-muted small mb-3">Browse existing production assets, versions, provenance, and approval state.</p>
+    <p class="text-muted small mb-3">Characters, locations, and other asset owners — open one to work in its studio.</p>
 
     @if (!string.IsNullOrEmpty(_error))
     {
         <div class="alert alert-danger">@_error</div>
     }
 
-    <ReferenceBootstrapPanel />
-
-    <div class="mb-3">
-        <AssetRunTray />
-    </div>
-
     <div>
             <div class="card mb-3">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <strong>Asset Library (@_filteredAssets.Count / @_assets.Count)</strong>
+                    <strong>Asset Manager</strong>
                     @if (_hasInFlight)
                     {
                         <span class="text-muted small">updating…</span>
@@ -85,67 +76,58 @@
                     </div>
                 </div>
                 <div class="card-body p-0">
-                    @if (_filteredAssets.Count == 0)
+                    @if (_filteredTree.Count == 0)
                     {
                         <div class="p-3 text-muted">No assets match the current filters.</div>
                     }
                     else
                     {
-                        <div class="table-responsive">
-                            <table class="table table-sm align-middle mb-0">
-                                <thead>
-                                    <tr>
-                                        <th style="width:56px;"></th>
-                                        <th>Name</th>
-                                        <th>Kind</th>
-                                        <th>Status</th>
-                                        <th>Created</th>
-                                        <th class="text-end">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var asset in _filteredAssets)
+                        <div class="list-group list-group-flush">
+                            @foreach (var root in _filteredTree)
+                            {
+                                <div class="list-group-item">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        @if (root.Owner.Href is not null)
+                                        {
+                                            <a class="fw-semibold text-decoration-none" href="@root.Owner.Href">@root.Owner.OwnerName</a>
+                                        }
+                                        else
+                                        {
+                                            <span class="fw-semibold">@root.Owner.OwnerName</span>
+                                        }
+                                        <span class="text-muted small">@root.Owner.RootKind</span>
+                                    </div>
+                                    @foreach (var group in root.Groups)
                                     {
-                                        <tr class="@(_selectedAssetId == asset.Id ? "table-active" : "")">
-                                            <td>
-                                                @if (asset.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(asset.FileRelativePath))
+                                        <div class="ms-3 mt-2">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <span class="small fw-semibold">@group.Label</span>
+                                                @if (group.Badge is not null)
                                                 {
-                                                    <img src="/scene-images/@asset.FileRelativePath" style="width:48px;height:48px;object-fit:cover;border-radius:4px;" alt="@asset.Name" />
+                                                    <span class="badge text-bg-secondary">@group.Badge</span>
                                                 }
-                                            </td>
-                                            <td>
-                                                @asset.Name
-                                                @if (asset.FaceView is not null)
-                                                {
-                                                    <span class="text-muted small d-block">@asset.FaceView</span>
-                                                }
-                                            </td>
-                                            <td>@asset.Kind</td>
-                                            <td>
-                                                <span class="badge @StatusBadge(asset.Status)">@asset.Status</span>
-                                                @if (asset.ProductionApprovalStatus is not null)
-                                                {
-                                                    <span class="badge text-bg-info d-block mt-1">@asset.ProductionApprovalStatus</span>
-                                                }
-                                            </td>
-                                            <td class="text-nowrap">@asset.CreatedUtc.ToLocalTime().ToString("g")</td>
-                                            <td class="text-end text-nowrap">
-                                                <button class="btn btn-sm btn-outline-primary" type="button" title="Preview asset"
-                                                        aria-label="Preview @asset.Name" @onclick="() => SelectAsset(asset.Id)">
-                                                    <i class="bi bi-eye"></i>
-                                                </button>
-                                                @if (!string.IsNullOrWhiteSpace(asset.CandidateBatchId))
-                                                {
-                                                    <a class="btn btn-sm btn-outline-info" href="/review-deck/@asset.CandidateBatchId" title="Review this candidate batch">
-                                                        <i class="bi bi-collection-play"></i>
-                                                    </a>
-                                                }
-                                                <a class="btn btn-sm btn-outline-secondary" href="/asset-studio/@asset.Id">View</a>
-                                            </td>
-                                        </tr>
+                                                <span class="text-muted small">@ItemCount(group)</span>
+                                            </div>
+                                            @if (group.Children.Count > 0)
+                                            {
+                                                <div class="ms-3 mt-1">
+                                                    @foreach (var child in group.Children)
+                                                    {
+                                                        <div class="mt-1">
+                                                            <span class="small text-muted fst-italic">@child.Label</span>
+                                                            @ItemGrid(child.Items)
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                @ItemGrid(group.Items)
+                                            }
+                                        </div>
                                     }
-                                </tbody>
-                            </table>
+                                </div>
+                            }
                         </div>
                     }
                 </div>
@@ -205,6 +187,7 @@
 
     private readonly List<CharacterOption> _characterOptions = [];
     private List<SceneAsset> _assets = [];
+    private List<AssetTreeRoot> _tree = [];
     private string _assetSearch = string.Empty;
     private string _assetTypeFilter = string.Empty;
     private string _assetApprovalFilter = string.Empty;
@@ -219,20 +202,94 @@
 
     private SceneAsset? _selectedAsset => _assets.FirstOrDefault(asset => asset.Id == _selectedAssetId);
 
-    private List<SceneAsset> _filteredAssets => _assets.Where(asset =>
-        (string.IsNullOrWhiteSpace(_assetSearch)
-            || asset.Name.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase)
-            || asset.Id.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase)
-            || (asset.CharacterProfileId?.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase) ?? false)
-            || (asset.IdentityPackId?.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase) ?? false))
-        && (string.IsNullOrWhiteSpace(_assetTypeFilter)
-            || string.Equals(asset.Type?.ToString(), _assetTypeFilter, StringComparison.Ordinal))
-        && (string.IsNullOrWhiteSpace(_assetApprovalFilter)
-            || (_assetApprovalFilter == "Unreviewed" && asset.ProductionApprovalStatus is null)
-            || string.Equals(asset.ProductionApprovalStatus?.ToString(), _assetApprovalFilter, StringComparison.Ordinal))
-        && (string.IsNullOrWhiteSpace(_assetCharacterFilter)
-            || string.Equals(asset.CharacterProfileId, _assetCharacterFilter, StringComparison.Ordinal)))
-        .ToList();
+    private IReadOnlyList<AssetTreeRoot> _filteredTree => FilterTree(_tree);
+
+    private IReadOnlyList<AssetTreeRoot> FilterTree(IReadOnlyList<AssetTreeRoot> roots)
+    {
+        var result = new List<AssetTreeRoot>();
+        foreach (var root in roots)
+        {
+            if (!string.IsNullOrWhiteSpace(_assetCharacterFilter)
+                && (root.Owner.RootKind != "Character" || !string.Equals(root.Owner.OwnerId, _assetCharacterFilter, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            if (root.Groups.Count == 0)
+            {
+                // Studio entry — keep it unless the search text rules it out.
+                if (string.IsNullOrWhiteSpace(_assetSearch)
+                    || root.Owner.OwnerName.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(root);
+                }
+
+                continue;
+            }
+
+            var groups = new List<AssetTreeGroup>();
+            foreach (var group in root.Groups)
+            {
+                var children = group.Children
+                    .Select(child => child with { Items = child.Items.Where(item => ItemMatches(item, root.Owner)).ToList() })
+                    .Where(child => child.Items.Count > 0)
+                    .ToList();
+                var items = group.Items.Where(item => ItemMatches(item, root.Owner)).ToList();
+                if (children.Count == 0 && items.Count == 0)
+                {
+                    continue;
+                }
+
+                groups.Add(group with { Children = children, Items = items });
+            }
+
+            if (groups.Count > 0)
+            {
+                result.Add(root with { Groups = groups });
+            }
+        }
+
+        return result;
+    }
+
+    private bool ItemMatches(AssetTreeItem item, AssetTreeOwner owner)
+    {
+        if (!string.IsNullOrWhiteSpace(_assetSearch))
+        {
+            var hit = item.Name.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase)
+                || item.AssetId.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase)
+                || (item.CharacterProfileId?.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (item.IdentityPackId?.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase) ?? false)
+                || owner.OwnerName.Contains(_assetSearch, StringComparison.OrdinalIgnoreCase);
+            if (!hit)
+            {
+                return false;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(_assetTypeFilter)
+            && !string.Equals(item.KindFilter, _assetTypeFilter, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_assetApprovalFilter))
+        {
+            if (_assetApprovalFilter == "Unreviewed")
+            {
+                if (!string.Equals(item.ApprovalFilter, "Unreviewed", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+            else if (!string.Equals(item.ApprovalFilter, _assetApprovalFilter, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -249,9 +306,63 @@
     private async Task ReloadAssetsAsync()
     {
         _assets = (await AssetService.ListAssetsAsync()).ToList();
+        _tree = (await AssetTree.BuildTreeAsync()).ToList();
+
+        _characterOptions.Clear();
+        _characterOptions.AddRange(_tree
+            .Where(root => root.Owner.RootKind == "Character")
+            .Select(root => new CharacterOption(root.Owner.OwnerId, root.Owner.OwnerName)));
+
         _hasInFlight = _assets.Any(a => a.Status == SceneAssetStatus.Pending);
         StateHasChanged();
     }
+
+    private void SelectTreeItem(AssetTreeItem item)
+    {
+        if (item.SourceStore == "Library")
+        {
+            SelectAsset(item.AssetId);
+        }
+    }
+
+    private static int ItemCount(AssetTreeGroup group)
+        => group.Items.Count + group.Children.Sum(child => child.Items.Count);
+
+    private RenderFragment ItemGrid(IReadOnlyList<AssetTreeItem> items) => @<div class="d-flex flex-wrap gap-2 mt-1">
+        @foreach (var item in items)
+        {
+            <div class="card @(item.AssetId == _selectedAssetId ? "border-primary" : "")" style="width:168px;" role="button"
+                 @onclick="() => SelectTreeItem(item)">
+                @if (!string.IsNullOrWhiteSpace(item.FileRelativePath))
+                {
+                    <img src="/scene-images/@item.FileRelativePath" class="card-img-top" style="height:110px;object-fit:cover;" alt="@item.Name" />
+                }
+                <div class="card-body p-1 small">
+                    <div class="text-truncate" title="@item.Name">@item.Name</div>
+                    @if (item.ViewKey is not null)
+                    {
+                        <div class="text-muted text-truncate">@item.ViewKey</div>
+                    }
+                    @if (item.StatusLabel is not null)
+                    {
+                        <div class="text-muted small">@item.StatusLabel</div>
+                    }
+                    <div class="d-flex gap-1 mt-1">
+                        @if (item.Href is not null)
+                        {
+                            <a class="btn btn-sm btn-outline-secondary py-0" href="@item.Href" @onclick:stopPropagation="true">View</a>
+                        }
+                        @if (item.CandidateBatchId is not null)
+                        {
+                            <a class="btn btn-sm btn-outline-info py-0" href="/review-deck/@item.CandidateBatchId" title="Review this candidate batch" @onclick:stopPropagation="true">
+                                <i class="bi bi-collection-play"></i>
+                            </a>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>;
 
     private void EnsurePolling()
     {

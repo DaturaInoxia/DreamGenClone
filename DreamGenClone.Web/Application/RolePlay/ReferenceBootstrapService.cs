@@ -210,7 +210,7 @@ public sealed class ReferenceBootstrapService : IReferenceBootstrapService
             $"{candidate.Id}.png",
             source,
             SceneImageReferenceFaceView.Front,
-            cancellationToken);
+            cancellationToken: cancellationToken);
         await _identityService.SetAssetProvenanceAsync(
             promoted.Id,
             $"Reference bootstrap batch {batch.Id}. Frozen text block: {batch.FrozenTextBlock.Trim()}",
@@ -236,6 +236,7 @@ public sealed class ReferenceBootstrapService : IReferenceBootstrapService
             SceneImageReferenceAssetKind.FullBody,
             $"{candidate.Id}.png",
             source,
+            bodyState: SceneImageReferenceBodyState.Clothed,
             cancellationToken: cancellationToken);
         await _identityService.SetAssetProvenanceAsync(
             promoted.Id,

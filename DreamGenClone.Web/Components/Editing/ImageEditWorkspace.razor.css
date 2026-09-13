@@ -1,0 +1,369 @@
+.scene-edit-media-panel,
+.scene-edit-workbench,
+.scene-edit-summary,
+.scene-edit-results {
+    border: 1px solid #2b2b2b;
+    border-radius: 8px;
+    background: #161616;
+    color: #e6e6e6;
+    overflow: hidden;
+}
+
+.scene-edit-workbench,
+.scene-edit-summary,
+.scene-edit-results {
+    padding: 16px;
+}
+
+/* The face-reference picker floats a thumbnail menu out of the panel, so the workbench must not
+   clip its descendants. */
+.scene-edit-workbench {
+    overflow: visible;
+}
+
+.scene-face-picker-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    background: #1c1c1c;
+    color: #e6e6e6;
+    font-size: 0.875rem;
+    text-align: left;
+}
+
+.scene-face-picker-toggle:disabled {
+    opacity: 0.55;
+}
+
+.scene-face-picker-toggle-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scene-face-picker-thumb {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    object-fit: cover;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    background: #0c0c0c;
+}
+
+.scene-face-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1050;
+}
+
+.scene-face-picker-menu {
+    position: absolute;
+    z-index: 1051;
+    top: calc(100% + 4px);
+    right: 0;
+    left: 0;
+    max-height: 320px;
+    padding: 4px;
+    overflow-y: auto;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    background: #141414;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+}
+
+.scene-face-picker-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 10px;
+    padding: 6px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #e6e6e6;
+    text-align: left;
+}
+
+.scene-face-picker-item:hover,
+.scene-face-picker-item.is-selected {
+    background: #223a40;
+}
+
+.scene-face-picker-item-label {
+    display: grid;
+    min-width: 0;
+    gap: 1px;
+}
+
+.scene-face-picker-item-label span {
+    color: #9aa4aa;
+    font-size: 0.75rem;
+}
+
+.scene-edit-panel-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.scene-edit-panel-heading > div {
+    display: grid;
+    gap: 2px;
+}
+
+.scene-edit-kicker {
+    color: #91d6e4;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.scene-edit-media-panel .scene-edit-panel-heading {
+    padding: 14px 16px 0;
+}
+
+.scene-edit-image-stage {
+    display: grid;
+    min-height: 360px;
+    place-items: center;
+    background:
+        linear-gradient(45deg, #121212 25%, transparent 25%),
+        linear-gradient(-45deg, #121212 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #121212 75%),
+        linear-gradient(-45deg, transparent 75%, #121212 75%),
+        #1a1a1a;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+    background-size: 16px 16px;
+}
+
+.scene-edit-image {
+    display: block;
+    width: 100%;
+    max-height: 68vh;
+    object-fit: contain;
+}
+
+.scene-edit-progress,
+.scene-edit-clarification {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    border-left: 3px solid #4a8592;
+    background: #1b292c;
+}
+
+.scene-edit-clarification {
+    display: block;
+}
+
+.scene-edit-summary-group {
+    margin-top: 16px;
+}
+
+.scene-edit-summary-group > span,
+.scene-edit-compare-frame > span {
+    display: block;
+    margin-bottom: 6px;
+    color: #91d6e4;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.scene-edit-summary-group ul {
+    margin-bottom: 0;
+    padding-left: 20px;
+}
+
+.scene-edit-compare-frame {
+    height: 100%;
+    min-height: 320px;
+    padding: 10px;
+    border: 1px solid #303030;
+    background: #101010;
+}
+
+.scene-edit-compare-frame img {
+    display: block;
+    width: 100%;
+    height: min(52vh, 560px);
+    object-fit: contain;
+}
+
+.scene-edit-result-state {
+    display: flex;
+    min-height: 280px;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: #b8b8b8;
+}
+
+.scene-edit-lineage {
+    display: grid;
+    gap: 8px;
+}
+
+.scene-edit-lineage-item {
+    display: flex;
+    min-height: 42px;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid #303030;
+    background: #121212;
+}
+
+.scene-edit-lineage-item.is-current {
+    border-color: #4a8592;
+    box-shadow: inset 3px 0 0 #78bdca;
+}
+
+.scene-edit-lineage-thumb {
+    flex: 0 0 112px;
+    width: 112px;
+    height: 76px;
+    object-fit: cover;
+    border: 1px solid #303030;
+    border-radius: 4px;
+    background: #0c0c0c;
+}
+
+.scene-edit-lineage-thumb-state {
+    display: grid;
+    place-items: center;
+    color: #9aa4aa;
+    font-size: 0.75rem;
+    text-align: center;
+}
+
+.scene-edit-lineage-meta {
+    display: grid;
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 3px;
+}
+
+.scene-edit-lineage-prompt {
+    min-width: 0;
+    margin-top: 3px;
+    color: #d4d4d4;
+    font-size: 0.82rem;
+}
+
+.scene-edit-lineage-prompt summary {
+    color: #91d6e4;
+    cursor: pointer;
+}
+
+.scene-edit-lineage-prompt div {
+    max-height: 180px;
+    margin-top: 5px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.scene-crop-preview-stage {
+    position: relative;
+    display: block;
+    line-height: 0;
+    border: 1px solid #3a3f44;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #14161a;
+    cursor: grab;
+    touch-action: none;
+}
+
+.scene-crop-preview-stage.is-crop-dragging {
+    cursor: grabbing;
+}
+
+/* Block layout so the rendered box matches the image exactly: the percentage overlay below is only
+   correct when there is no letterboxing. */
+.scene-crop-preview-stage img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+/* Border-box, so the frame stays INSIDE the stage: a window that covers the whole image still draws a
+   visible frame instead of having its edges clipped away. */
+.scene-crop-preview-window {
+    position: absolute;
+    box-sizing: border-box;
+    border: 2px solid #91d6e4;
+    pointer-events: none;
+}
+
+/* The frame passes the pointer through so the image underneath can be dragged, but the handles are real
+   targets in their own right. */
+.scene-crop-preview-corner {
+    pointer-events: auto;
+    cursor: nwse-resize;
+}
+
+.scene-crop-preview-corner.is-tr,
+.scene-crop-preview-corner.is-bl {
+    cursor: nesw-resize;
+}
+
+/* Only dim what is being trimmed. A full-frame window removes nothing, so dimming it would be a lie. */
+.scene-crop-preview-window.is-dimmed {
+    box-shadow: 0 0 0 9999px rgba(10, 12, 15, 0.55);
+}
+
+.scene-crop-preview-window.is-full-frame {
+    border-style: dashed;
+}
+
+.scene-crop-preview-corner {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: #91d6e4;
+    border: 1px solid #14161a;
+    box-sizing: border-box;
+}
+
+/* Inside the frame, never straddling it: when the window is full-width or full-height its edges sit on
+   the stage edge, and an outside-anchored handle would be clipped away by the stage's overflow. */
+.scene-crop-preview-corner.is-tl { top: 0; left: 0; }
+.scene-crop-preview-corner.is-tr { top: 0; right: 0; }
+.scene-crop-preview-corner.is-bl { bottom: 0; left: 0; }
+.scene-crop-preview-corner.is-br { bottom: 0; right: 0; }
+
+@media (max-width: 767.98px) {
+    .scene-edit-image-stage {
+        min-height: 240px;
+    }
+
+    .scene-edit-lineage-item {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .scene-edit-lineage-thumb {
+        flex-basis: 88px;
+        width: 88px;
+        height: 60px;
+    }
+
+    .scene-edit-lineage-meta {
+        flex-basis: calc(100% - 98px);
+    }
+
+    .scene-edit-lineage-item .ms-auto {
+        width: 100%;
+        margin-left: 0 !important;
+    }
+}

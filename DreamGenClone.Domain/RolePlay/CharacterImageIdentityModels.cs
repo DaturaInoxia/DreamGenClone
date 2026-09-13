@@ -33,6 +33,32 @@ public enum SceneImageReferenceFaceView
     ProfileRight = 5
 }
 
+/// <summary>Canonical body-slot contract (bounded approval/compiler axis, mirror of the face slots).</summary>
+public enum SceneImageReferenceBodyView
+{
+    Front = 1,
+    ThreeQuarterLeft = 2,
+    ThreeQuarterRight = 3,
+    ProfileLeft = 4,
+    ProfileRight = 5
+}
+
+/// <summary>
+/// Asset-state contract for full-body references. Never inferred from prompts, filenames or pixels.
+/// </summary>
+public enum SceneImageReferenceBodyState
+{
+    Clothed = 1,
+    Unclothed = 2
+}
+
+/// <summary>Declared scope of an identity pack version; persisted, never inferred at read time.</summary>
+public enum CharacterImageIdentityPackScope
+{
+    FaceOnly = 1,
+    BodyComplete = 2
+}
+
 /// <summary>
 /// Non-blocking quality assessment for a reference asset, set by the curator. Informational only —
 /// it never gates approval or rendering, so a low-quality face can still be used while flagged.
@@ -143,6 +169,12 @@ public sealed class CharacterImageIdentityPack
     /// <summary>Required for approval: an approved <see cref="SceneImageReferenceAssetKind.Face"/> asset.</summary>
     public string? CanonicalFaceAssetId { get; set; }
 
+    /// <summary>Required for BodyComplete approval: the approved unclothed Front body asset.</summary>
+    public string? CanonicalFullBodyAssetId { get; set; }
+
+    /// <summary>Declared pack scope. New packs default to FaceOnly; supersede carries the parent scope.</summary>
+    public CharacterImageIdentityPackScope PackScope { get; set; } = CharacterImageIdentityPackScope.FaceOnly;
+
     /// <summary>Previous pack version this pack supersedes.</summary>
     public string? SupersedesId { get; set; }
 
@@ -168,6 +200,15 @@ public sealed class SceneImageReferenceAsset
     /// reference to the target head angle (multi-angle conditioning).
     /// </summary>
     public SceneImageReferenceFaceView? FaceView { get; set; }
+
+    /// <summary>Canonical body-slot contract; null for non-body assets and extended body views.</summary>
+    public SceneImageReferenceBodyView? BodyView { get; set; }
+
+    /// <summary>Required exactly for <see cref="SceneImageReferenceAssetKind.FullBody"/> assets.</summary>
+    public SceneImageReferenceBodyState? BodyState { get; set; }
+
+    /// <summary>Serialized <see cref="ReferenceViewDescriptor"/>; carries the fine-grained/extended view data.</summary>
+    public string? ViewDescriptorJson { get; set; }
 
     /// <summary>Non-blocking quality rating set by the curator (informational, never a gate).</summary>
     public SceneImageReferenceQuality QualityRating { get; set; } = SceneImageReferenceQuality.NotRated;

@@ -10,6 +10,18 @@ public interface ISceneAssetImageEditCompilationService
     Task EnqueueDescriptionAsync(string editSessionId, bool force = false, CancellationToken cancellationToken = default);
     Task<SceneAssetImageEditPromptRevision> AppendPromptRevisionAsync(AppendSceneAssetImageEditPromptRevisionRequest request, CancellationToken cancellationToken = default);
     Task<SceneAssetImage> EnqueueEditAsync(EnqueueSceneAssetImageEditRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queues a deterministic crop of an existing asset image into a new derived image. No editor model,
+    /// prompt or compilation revision is involved.
+    /// </summary>
+    Task<SceneAssetImage> EnqueueCropAsync(EnqueueSceneAssetImageCropRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queues an enhance (ComfyUI upscale + scale down) of an existing asset image into a new derived
+    /// image. The upscaler and target edge come from persisted configuration, carried on the run.
+    /// </summary>
+    Task<SceneAssetImage> EnqueueEnhanceAsync(EnqueueSceneAssetImageEnhanceRequest request, CancellationToken cancellationToken = default);
     Task<SceneAssetImageEditSession?> GetSessionAsync(string editSessionId, CancellationToken cancellationToken = default);
     Task<SceneAssetImageEditCompilationAttempt?> GetLatestAttemptAsync(string editSessionId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SceneAssetImageEditPromptRevision>> ListRevisionsAsync(string attemptId, CancellationToken cancellationToken = default);

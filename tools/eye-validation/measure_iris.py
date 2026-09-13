@@ -15,6 +15,10 @@ Reports, per image:
     of iris semantics, useful cross-check
   - dy in px and as % of interocular distance
   - interocular px (eye-corner centers)
+  - head extent, for framing crops: forehead-top (landmark 10) and chin (152), their
+    vertical distance as head_height_px, and the full face_box (min/max over all
+    landmarks). NOTE FaceMesh stops at the hairline, so landmark 10 is the highest
+    FACIAL point, not the crown of the head (hair above it is not measured).
 
 Draws markers at iris + eye-corner centers on an annotated copy saved to
 <repo>/artifacts/tmp/eye-output/<stem>_iris.png (GIT-IGNORED) so placement is
@@ -25,8 +29,12 @@ Requires the repo venv: d:/src/DreamGenClone/.venv (see requirements.txt).
 Run:
   d:/src/DreamGenClone/.venv/Scripts/python.exe tools/eye-validation/measure_iris.py <image...>
 
-Usage: python measure_iris.py <image...>
+Usage: python measure_iris.py <image...> [--json]
+
+  --json  print one JSON object per image instead of the fixed-width table
+          (used by DreamGenClone's Character Identity Validate step).
 """
+import json
 import os
 import sys
 import cv2
@@ -47,6 +55,9 @@ L_OUT, L_IN = 33, 133   # subject-left eye outer/inner corners
 R_OUT, R_IN = 362, 263  # subject-right eye outer/inner corners
 IRIS_L = [468, 469, 470, 471, 472]
 IRIS_R = [473, 474, 475, 476, 477]
+# head-extent landmarks (10 is the hairline, not the crown - see module docstring)
+FOREHEAD_TOP = 10
+CHIN = 152
 
 
 def mid(a, b):
@@ -73,6 +84,11 @@ def analyze(path):
     d_iris_y = ri[1] - li[1]
     d_eye_y = re[1] - le[1]
     interoc = re[0] - le[0]
+    # Head extent, for framing crops. 10 is the highest FACIAL point (hairline), not the crown.
+    forehead = pt(FOREHEAD_TOP)
+    chin = pt(CHIN)
+    xs = [lm[i].x * w for i in range(len(lm))]
+    ys = [lm[i].y * h for i in range(len(lm))]
     info = {
         "iris_L": (round(li[0]), round(li[1])),
         "iris_R": (round(ri[0]), round(ri[1])),
@@ -83,6 +99,11 @@ def analyze(path):
         "eye_dy_px": round(d_eye_y, 1),
         "eye_dy_pct": round(d_eye_y / interoc * 100.0, 2),
         "interoc": round(interoc, 1),
+        "forehead_top": (round(forehead[0]), round(forehead[1])),
+        "chin": (round(chin[0]), round(chin[1])),
+        "head_height_px": round(chin[1] - forehead[1], 1),
+        "face_box": (round(min(xs)), round(min(ys)),
+                     round(max(xs) - min(xs)), round(max(ys) - min(ys))),
     }
     # annotate
     for i in IRIS_L:
@@ -95,6 +116,11 @@ def analyze(path):
     cv2.circle(img, (int(ri[0]), int(ri[1])), 9, (0, 255, 0), 3)
     cv2.circle(img, (int(le[0]), int(le[1])), 9, (255, 0, 0), 3)
     cv2.circle(img, (int(re[0]), int(re[1])), 9, (255, 0, 0), 3)
+    # head extent, so the framing markers are visually verifiable at high zoom
+    cv2.circle(img, (int(forehead[0]), int(forehead[1])), 9, (0, 165, 255), 3)
+    cv2.circle(img, (int(chin[0]), int(chin[1])), 9, (0, 165, 255), 3)
+    cv2.line(img, (int(forehead[0]), int(forehead[1])), (int(chin[0]), int(chin[1])),
+             (0, 165, 255), 2)
     cv2.line(img, (0, int(le[1])), (w - 1, int(le[1])), (0, 0, 255), 3)
     cv2.line(img, (int(re[0]) - 20, int(re[1])), (int(re[0]) + 20, int(re[1])),
              (255, 0, 255), 3)
@@ -108,11 +134,30 @@ def analyze(path):
 
 
 def main():
-    print(f"{'image':10} {'irisL':>11} {'irisR':>11} {'irisDy%':>9} {'eyeL':>11} "
-          f"{'eyeR':>11} {'eyeDy%':>8} {'interoc':>8}")
-    for path in sys.argv[1:]:
+    args = sys.argv[1:]
+    as_json = "--json" in args
+    paths = [a for a in args if a != "--json"]
+    if not as_json:
+        print(f"{'image':10} {'irisL':>11} {'irisR':>11} {'irisDy%':>9} {'eyeL':>11} "
+              f"{'eyeR':>11} {'eyeDy%':>8} {'interoc':>8}")
+    for path in paths:
         stem = os.path.splitext(os.path.basename(path))[0]
         info, err = analyze(path)
+        if as_json:
+            print(json.dumps({
+                "image": path,
+                "stem": stem,
+                "error": err,
+                "iris_dy_pct": info["iris_dy_pct"] if info else None,
+                "eye_dy_pct": info["eye_dy_pct"] if info else None,
+                "interoc": info["interoc"] if info else None,
+                "forehead_top": info["forehead_top"] if info else None,
+                "chin": info["chin"] if info else None,
+                "head_height_px": info["head_height_px"] if info else None,
+                "face_box": info["face_box"] if info else None,
+                "annot": info.get("annot") if info else None,
+            }))
+            continue
         if err:
             print(f"{stem:10} {'-':>11} {'-':>11} {'-':>9} {'-':>11} {'-':>11} "
                   f"{'-':>8} {'-':>8}  {err}")

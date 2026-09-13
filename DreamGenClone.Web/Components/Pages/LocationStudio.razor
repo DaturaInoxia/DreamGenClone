@@ -1,0 +1,22 @@
+@page "/locations/{LocationId}"
+@rendermode InteractiveServer
+
+<PageTitle>Location Studio - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="card border-info mb-3">
+        <div class="card-body">
+            <h5 class="card-title mb-1">Location views</h5>
+            <p class="text-muted mb-0">
+                Views are user-defined data, not a fixed set — a Trailer has deck / side / front / bedroom,
+                a Beach has beachfront / water / umbrella. This section ships with the location data model; not yet implemented.
+            </p>
+        </div>
+    </div>
+
+    <AssetStudioView AssetId="@LocationId" />
+</div>
+
+@code {
+    [Parameter] public string? LocationId { get; set; }
+}

@@ -5,8 +5,9 @@
 **Related:** B-108 `ui-contract.md` (Bootstrap tab), B-111 `studio-reference-strategy-plan.md`
 ("/reference-bootstrap → Retire into Asset Manager").
 
-**Route:** `/asset-studio/identity/{buildId}` — a sub-route of Asset Manager, so the studio lives with
-the asset library (FR21-032) without cramming a seven-step pipeline into the existing panel.
+**Route:** the **Faces** section of the Character Studio at `/characters/{characterId}` — the step
+rail embeds there. See `specs/Planning/studio-navigation-and-layout.md` §3. The earlier
+`/asset-studio/identity/{buildId}` route is superseded by the studio.
 
 ## 0. Entry point
 

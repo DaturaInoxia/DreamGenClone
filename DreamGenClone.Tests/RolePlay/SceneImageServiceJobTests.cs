@@ -13,6 +13,7 @@ using DreamGenClone.Infrastructure.RolePlay;
 using DreamGenClone.Infrastructure.Persistence;
 using DreamGenClone.Infrastructure.Storage;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Application.Sessions;
@@ -52,6 +53,57 @@ public sealed class SceneImageServiceJobTests
         Assert.Contains("Keep that person's facial identity consistent with Picture 2 for the entire image; do not change anyone else.", instruction, StringComparison.Ordinal);
         Assert.Contains("Apply the face of the person shown in Picture 3 to the man at image right.", instruction, StringComparison.Ordinal);
         Assert.Contains("Keep the pose, bodies, position, clothing, lighting, and everything else in the image exactly unchanged except the selected faces.", instruction, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Records the shared edit run the scene service queues (B-124 B124-012). The scene path must reach
+    /// the ONE editing pipeline, so a call to any other member would be a real defect.
+    /// </summary>
+    private sealed class RecordingMediaEditCompilationService : IMediaEditCompilationService
+    {
+        public List<MediaEditRunRequest> Runs { get; } = [];
+
+        public List<MediaEditOperationRunRequest> OperationRuns { get; } = [];
+
+        public Task EnqueueRunAsync(MediaEditRunRequest request, CancellationToken cancellationToken = default)
+        {
+            Runs.Add(request);
+            return Task.CompletedTask;
+        }
+
+        public Task EnqueueOperationRunAsync(
+            MediaEditOperationRunRequest request, CancellationToken cancellationToken = default)
+        {
+            OperationRuns.Add(request);
+            return Task.CompletedTask;
+        }
+
+        public Task<MediaEditSession> CreateSessionAsync(
+            DreamGenClone.Web.Application.RolePlay.Models.CreateMediaEditSessionRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<MediaEditCompilationAttempt> EnqueueCompilationAsync(
+            DreamGenClone.Web.Application.RolePlay.Models.EnqueueMediaEditCompilationRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task EnqueueDescriptionAsync(string editSessionId, bool force = false, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<MediaEditPromptRevision> AppendPromptRevisionAsync(
+            DreamGenClone.Web.Application.RolePlay.Models.AppendMediaEditPromptRevisionRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<MediaEditSession?> GetSessionAsync(string editSessionId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<MediaEditCompilationAttempt?> GetLatestAttemptAsync(string editSessionId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<MediaEditPromptRevision>> ListRevisionsAsync(string attemptId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class CapturingBackgroundJobQueue : IBackgroundJobQueue, IDurableBackgroundJobQueue
@@ -189,7 +241,7 @@ public sealed class SceneImageServiceJobTests
     }
 
     private static (SceneImageService service, CapturingBackgroundJobQueue queue, SceneImageRepository repo, SceneImageStorageService storage, string dbPath, string root)
-        Build(RolePlaySession? session, string beatsJson = CurrentBeatsJson)
+        Build(RolePlaySession? session, string beatsJson = CurrentBeatsJson, RecordingMediaEditCompilationService? mediaEdits = null)
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"scene-image-svc-{Guid.NewGuid():N}.db");
         var root = Path.Combine(Path.GetTempPath(), $"scene-image-svc-files-{Guid.NewGuid():N}");
@@ -238,7 +290,8 @@ public sealed class SceneImageServiceJobTests
             NullLogger<SceneImageService>.Instance,
             imageEditorModelResolver: new TestImageEditorModelResolver(),
             imageEditorEndpointReadiness: new WarmImageEditorEndpointReadiness(),
-            durableJobQueue: queue);
+            durableJobQueue: queue,
+            mediaEdits: mediaEdits ?? new RecordingMediaEditCompilationService());
         return (service, queue, repo, storage, dbPath, root);
     }
 
@@ -790,10 +843,11 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
-    public async Task EnqueueEditAsync_CreatesPendingEditRecordAndEnqueuesDedicatedJob()
+    public async Task EnqueueEditAsync_CreatesPendingEditRecordAndQueuesTheSharedEditRun()
     {
         var session = MakeSession();
-        var (service, queue, repo, _, dbPath, root) = Build(session);
+        var mediaEdits = new RecordingMediaEditCompilationService();
+        var (service, queue, repo, _, dbPath, root) = Build(session, mediaEdits: mediaEdits);
         try
         {
             var prompt = CreatePromptRecord();
@@ -832,10 +886,16 @@ public sealed class SceneImageServiceJobTests
             Assert.Equal(revision.Id, record.EditPromptRevisionId);
             Assert.Equal(attempt.RawIntent, record.EditIntentSnapshot);
             Assert.Contains(attempt.CompilerSchemaVersion, record.EditCompilerProvenanceJson, StringComparison.Ordinal);
-            Assert.Single(queue.Enqueued);
-            Assert.Equal(BackgroundJobTypes.SceneImageEditing, queue.Enqueued[0].JobType);
-            Assert.Contains(record.Id, queue.Enqueued[0].DedupeKey, StringComparison.Ordinal);
-            Assert.Equal(DurableBackgroundJobStatus.Queued, Assert.Single(queue.DurableJobs).Status);
+
+            // The run goes through the ONE shared editing pipeline: a scene-specific edit job is never
+            // produced, and the chosen editor model is carried on the run rather than resolved later.
+            Assert.Empty(queue.Enqueued);
+            var run = Assert.Single(mediaEdits.Runs);
+            Assert.Equal(MediaEditSubjectKind.SceneImage, run.SubjectKind);
+            Assert.Equal(record.Id, run.ImageId);
+            Assert.Equal(EditorModelId, run.EditorModelId);
+            Assert.Equal("s1", run.ScopeId);
+            Assert.Equal(1, run.MaxAttempts);
         }
         finally
         {

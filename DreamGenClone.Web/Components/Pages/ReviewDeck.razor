@@ -9,6 +9,7 @@
 @inject ISceneImageProductionService ProductionService
 @inject ISceneImageService ImageService
 @inject ISceneAssetService AssetService
+@inject ICharacterIdentityBuildService BuildService
 @inject IJSRuntime JS
 
 <PageTitle>Review Deck - DreamGenClone</PageTitle>
@@ -19,27 +20,9 @@
         <div class="d-flex align-items-center gap-2">
             @if (Current is not null)
             {
-                <a class="btn btn-outline-secondary btn-sm" href="@BackUrl" title="Back to production POV form">
-                    <i class="bi bi-arrow-left me-1"></i>Production POV
+                <a class="btn btn-outline-secondary btn-sm" href="@BackUrl" title="@BackLabel">
+                    <i class="bi bi-arrow-left me-1"></i>@BackLabel
                 </a>
-                @if (CanEditCurrent)
-                {
-                    <a class="btn btn-outline-primary btn-sm" href="@EditUrl" title="Edit this image">
-                        <i class="bi bi-pencil-square me-1"></i>Edit
-                    </a>
-                }
-                @if (_deleteConfirmId == Current.Id)
-                {
-                    <span class="small text-danger">Delete this image?</span>
-                    <button class="btn btn-danger btn-sm" type="button" @onclick="() => DeleteItemAsync(Current.Id)" disabled="@_busy">Delete permanently</button>
-                    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="CancelDelete" disabled="@_busy">Cancel</button>
-                }
-                else
-                {
-                    <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => BeginDelete(Current.Id)" disabled="@_busy" title="Permanently delete this image">
-                        <i class="bi bi-trash me-1"></i>Delete permanently
-                    </button>
-                }
             }
         </div>
         @if (_items.Count > 0)
@@ -59,61 +42,16 @@
     }
     else if (Current is not null)
     {
-        <div class="row g-2 mb-3">
-            @foreach (var item in _items)
-            {
-                <div class="col-6 col-md-4 col-xl-3">
-                    <div class="border rounded p-2 h-100 @(item.Id == Current.Id ? "border-primary border-3" : "border-secondary")">
-                        <button class="btn w-100 p-0 text-start" type="button" @onclick="() => SelectCandidateAsync(item.Id)">
-                            <div class="ratio ratio-1x1 bg-dark">
-                                @if (!string.IsNullOrWhiteSpace(item.StoragePath))
-                                {
-                                    <img src="/scene-images/@item.StoragePath" class="w-100 h-100" style="object-fit:contain;" alt="Candidate @item.Id" />
-                                }
-                                else
-                                {
-                                    <span class="d-flex align-items-center justify-content-center text-light small">Pending</span>
-                                }
-                            </div>
-                            <span class="d-flex justify-content-between gap-1 p-2 small">
-                                <span class="text-truncate font-monospace">@item.Id</span>
-                                <span class="badge @GetStatusBadgeClass(item.Status)">@item.Status</span>
-                            </span>
-                        </button>
-                        <div class="d-flex gap-1 mt-1">
-                            @if (CanEdit(item))
-                            {
-                                <a class="btn btn-outline-primary btn-sm flex-fill" href="@GetEditUrl(item)" title="Edit this image">
-                                    <i class="bi bi-pencil-square"></i><span class="visually-hidden">Edit</span>
-                                </a>
-                            }
-                            @if (_deleteConfirmId == item.Id)
-                            {
-                                <button class="btn btn-danger btn-sm flex-fill" type="button" @onclick="() => DeleteItemAsync(item.Id)" disabled="@_busy">Delete</button>
-                                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="CancelDelete" disabled="@_busy">Cancel</button>
-                            }
-                            else
-                            {
-                                <button class="btn btn-outline-danger btn-sm flex-fill" type="button" @onclick="() => BeginDelete(item.Id)" disabled="@_busy" title="Permanently delete this image">
-                                    <i class="bi bi-trash"></i><span class="visually-hidden">Delete</span>
-                                </button>
-                            }
-                        </div>
-                    </div>
-                </div>
-            }
-        </div>
         <div class="d-flex flex-wrap gap-2 mb-3">
             <button class="btn btn-outline-secondary" type="button" @onclick="PreviousAsync" disabled="@(_busy || _index == 0)">Previous</button>
             <button class="btn btn-outline-secondary" type="button" @onclick="NextAsync" disabled="@(_busy || _index == _items.Count - 1)">Next</button>
-            <button class="btn btn-outline-primary" type="button" @onclick="ToggleCompare" disabled="@(_busy || _items.Count < 2)">Compare</button>
-            @if (CanEditCurrent)
+            @if (_items.Count >= 2)
             {
-                <a class="btn btn-outline-primary" href="@EditUrl"><i class="bi bi-pencil-square me-1"></i>Edit selected</a>
+                <a class="btn btn-outline-primary" href="@CompareUrl" role="button">Compare</a>
             }
-            @if (Current is not null && _deleteConfirmId != Current.Id)
+            else
             {
-                <button class="btn btn-outline-danger" type="button" @onclick="() => BeginDelete(Current.Id)" disabled="@_busy"><i class="bi bi-trash me-1"></i>Delete selected</button>
+                <button class="btn btn-outline-primary" type="button" disabled>Compare</button>
             }
             @if (IsStudioRoute)
             {
@@ -152,37 +90,12 @@
                 <div class="d-flex align-items-center gap-2 mb-2">
                     <span class="badge @GetStatusBadgeClass(Current.Status)">@Current.Status</span>
                     <span class="small font-monospace text-break">@Current.Id</span>
+                    <button class="btn btn-sm btn-outline-secondary ms-auto" type="button" @onclick="OpenViewer" title="View larger"><i class="bi bi-arrows-fullscreen me-1"></i>View larger</button>
                 </div>
 
-                @if (_compare && _items.Count > 1)
-                {
-                    <div class="mb-3">
-                        <label class="form-label" for="compare-image">Compare with</label>
-                        <select id="compare-image" class="form-select form-select-sm" @bind="_compareIndex">
-                            @for (var imageIndex = 0; imageIndex < _items.Count; imageIndex++)
-                            {
-                                if (imageIndex != _index)
-                                {
-                                    <option value="@imageIndex">@(imageIndex + 1) - @ShortId(_items[imageIndex].Id)</option>
-                                }
-                            }
-                        </select>
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <div class="small text-muted mb-1">Current</div>
-                            @RenderImage(Current)
-                        </div>
-                        <div class="col-md-6">
-                            <div class="small text-muted mb-1">Comparison</div>
-                            @RenderImage(_items[_compareIndex])
-                        </div>
-                    </div>
-                }
-                else
-                {
+                <button class="btn w-100 p-0 border-0 bg-transparent" type="button" @onclick="OpenViewer" title="View larger">
                     @RenderImage(Current)
-                }
+                </button>
 
                 <div class="mt-4">
                     <LineageTree ParentImageId="@Current.ParentImageId"
@@ -262,8 +175,115 @@
                 }
             </div>
         </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-2 mt-4">
+            <h5 class="mb-0">Images</h5>
+            <span class="text-muted small">@_items.Count</span>
+        </div>
+        <div class="row g-2">
+            @foreach (var item in _items)
+            {
+                <div class="col-6 col-md-4 col-xl-3">
+                    <div class="border rounded p-2 h-100 @(item.Id == Current.Id ? "border-primary border-3" : "border-secondary")">
+                        <button class="btn w-100 p-0 text-start" type="button" @onclick="() => SelectCandidateAsync(item.Id)">
+                            <div class="ratio ratio-1x1 bg-dark">
+                                @if (!string.IsNullOrWhiteSpace(item.StoragePath))
+                                {
+                                    <img src="/scene-images/@item.StoragePath" class="w-100 h-100" style="object-fit:contain;" alt="Candidate @item.Id" />
+                                }
+                                else
+                                {
+                                    <span class="d-flex align-items-center justify-content-center text-light small">Pending</span>
+                                }
+                            </div>
+                            <span class="d-flex justify-content-between gap-1 p-2 small">
+                                <span class="text-truncate font-monospace">@item.Id</span>
+                                <span class="badge @GetStatusBadgeClass(item.Status)">@item.Status</span>
+                            </span>
+                        </button>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            @if (IsStudioRoute)
+                            {
+                                @if (item.Disposition == SceneImageAttemptDisposition.Active)
+                                {
+                                    <button class="btn btn-sm btn-outline-warning py-0 px-1" title="Shortlist" disabled="@_busy" @onclick="() => SetItemStudioDispositionAsync(item.Id, SceneImageAttemptDisposition.Shortlisted)"><i class="bi bi-star"></i></button>
+                                }
+                                else if (item.Disposition == SceneImageAttemptDisposition.Shortlisted)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Return to Active" disabled="@_busy" @onclick="() => SetItemStudioDispositionAsync(item.Id, SceneImageAttemptDisposition.Active)"><i class="bi bi-star-fill"></i></button>
+                                }
+                                @if (item.Disposition is SceneImageAttemptDisposition.Active or SceneImageAttemptDisposition.Shortlisted)
+                                {
+                                    <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Reject" disabled="@_busy" @onclick="() => SetItemStudioDispositionAsync(item.Id, SceneImageAttemptDisposition.Rejected)"><i class="bi bi-x-circle"></i></button>
+                                }
+                                @if (item.ExecutionStatus == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(item.Sha256))
+                                {
+                                    <button class="btn btn-sm btn-outline-success py-0 px-1" title="Approve" disabled="@_busy" @onclick="() => ApproveItemAsync(item.Id)"><i class="bi bi-check2-circle"></i></button>
+                                }
+                            }
+                            else if (IsAssetRoute)
+                            {
+                                <button class="btn btn-sm btn-outline-success py-0 px-1" title="Accept" disabled="@_busy" @onclick="() => SetItemAssetDecisionAsync(item.Id, SceneAssetCandidateDecision.Accepted)"><i class="bi bi-check2-circle"></i></button>
+                                <button class="btn btn-sm btn-outline-info py-0 px-1" title="Shortlist" disabled="@_busy" @onclick="() => SetItemAssetDecisionAsync(item.Id, SceneAssetCandidateDecision.Shortlisted)"><i class="bi bi-star"></i></button>
+                                <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Reject" disabled="@_busy" @onclick="() => SetItemAssetDecisionAsync(item.Id, SceneAssetCandidateDecision.Rejected)"><i class="bi bi-x-circle"></i></button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-success py-0 px-1" title="Accept" disabled="@_busy" @onclick="() => SetItemStatusAsync(item.Id, ProducedImageStatus.Accepted)"><i class="bi bi-check2-circle"></i></button>
+                                <button class="btn btn-sm btn-outline-info py-0 px-1" title="Shortlist" disabled="@_busy" @onclick="() => SetItemStatusAsync(item.Id, ProducedImageStatus.Shortlisted)"><i class="bi bi-star"></i></button>
+                                <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Reject" disabled="@_busy" @onclick="() => SetItemStatusAsync(item.Id, ProducedImageStatus.Rejected)"><i class="bi bi-x-circle"></i></button>
+                            }
+                            @if (CanEdit(item))
+                            {
+                                <a class="btn btn-sm btn-outline-primary py-0 px-1" href="@GetEditUrl(item)" title="Edit this image"><i class="bi bi-pencil-square"></i></a>
+                            }
+                            @if (_deleteConfirmId == item.Id)
+                            {
+                                <button class="btn btn-danger btn-sm py-0 px-1" type="button" @onclick="() => DeleteItemAsync(item.Id)" disabled="@_busy">Delete</button>
+                                <button class="btn btn-outline-secondary btn-sm py-0 px-1" type="button" @onclick="CancelDelete" disabled="@_busy">Cancel</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-danger py-0 px-1" type="button" @onclick="() => BeginDelete(item.Id)" disabled="@_busy" title="Permanently delete this image"><i class="bi bi-trash"></i></button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
     }
 </div>
+
+@if (_viewerOpen && Current is not null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.85);">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@Current.Status · <span class="font-monospace small">@Current.Id</span></h5>
+                    <button type="button" class="btn-close" @onclick="CloseViewer" title="Close"></button>
+                </div>
+                <div class="modal-body text-center">
+                    @if (!string.IsNullOrWhiteSpace(Current.StoragePath))
+                    {
+                        <img src="/scene-images/@Current.StoragePath" class="img-fluid" style="max-height:80vh;" alt="Review image @Current.Id" />
+                    }
+                    else
+                    {
+                        <div class="text-muted py-5">Image pending</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    @if (!string.IsNullOrWhiteSpace(Current.StoragePath))
+                    {
+                        <a class="btn btn-outline-secondary btn-sm" href="/scene-images/@Current.StoragePath" target="_blank" title="Open full size"><i class="bi bi-arrows-fullscreen me-1"></i>Open full size</a>
+                    }
+                    <button type="button" class="btn btn-secondary" @onclick="CloseViewer">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     [Parameter] public string BatchId { get; set; } = string.Empty;
@@ -273,9 +293,9 @@
     private int _index;
     private string? _error;
     private bool _busy;
-    private bool _compare;
-    private int _compareIndex;
+    private bool _viewerOpen;
     private string? _deleteConfirmId;
+    private string? _frontBackUrl;
     private List<ReviewDeckItem> _lineageChildren = [];
 
     private bool IsStudioRoute => string.Equals(RouteKind, "studio", StringComparison.OrdinalIgnoreCase);
@@ -286,13 +306,22 @@
         && (!IsAssetRoute || !string.IsNullOrWhiteSpace(Current.AssetId))
         && (!IsStudioRoute || (!string.IsNullOrWhiteSpace(Current.SessionId) && !string.IsNullOrWhiteSpace(Current.InteractionId)));
 
-    private string BackUrl => IsStudioRoute && Current is not null
-        ? string.IsNullOrWhiteSpace(Current.ProductionGroupId)
-            ? $"/roleplay/studio/{Current.SessionId}/{Current.InteractionId}"
-            : $"/roleplay/studio/{Current.SessionId}/{Current.InteractionId}/production/{Current.ProductionGroupId}"
-        : IsAssetRoute && Current is not null
-            ? $"/asset-studio/{Current.AssetId}"
-            : "/roleplay";
+    private string BackUrl => _frontBackUrl
+        ?? (IsStudioRoute && Current is not null
+            ? string.IsNullOrWhiteSpace(Current.ProductionGroupId)
+                ? $"/roleplay/studio/{Current.SessionId}/{Current.InteractionId}"
+                : $"/roleplay/studio/{Current.SessionId}/{Current.InteractionId}/production/{Current.ProductionGroupId}"
+            : IsAssetRoute && Current is not null
+                ? $"/asset-studio/{Current.AssetId}"
+                : "/roleplay");
+
+    private string BackLabel => _frontBackUrl is not null
+        ? "Back to character"
+        : IsStudioRoute ? "Production POV" : IsAssetRoute ? "Back to asset" : "Back";
+
+    private string CompareUrl => IsStudioRoute || IsAssetRoute
+        ? $"/review-compare/{RouteKind}/{BatchId}?index={_index}"
+        : $"/review-compare/{BatchId}?index={_index}";
 
     private string EditUrl => IsAssetRoute
         ? $"/assets/{Current!.AssetId}/images/{Current.Id}/edit"
@@ -325,6 +354,7 @@
                 : (await ProducedImages.ListByBatchAsync(BatchId)).Select(MapLegacyItem).ToList();
             _index = Math.Clamp(_index, 0, Math.Max(0, _items.Count - 1));
             await LoadCurrentAsync();
+            await ResolveFrontBackUrlAsync();
         }
         catch (Exception exception)
         {
@@ -366,12 +396,6 @@
         await LoadCurrentAsync();
     }
 
-    private void ToggleCompare()
-    {
-        _compare = !_compare;
-        EnsureCompareIndex();
-    }
-
     private async Task SetStatusAsync(ProducedImageStatus status)
     {
         if (Current is null)
@@ -402,6 +426,23 @@
         }
     }
 
+    private async Task ResolveFrontBackUrlAsync()
+    {
+        _frontBackUrl = null;
+        if (!IsAssetRoute
+            || !BatchId.StartsWith(CharacterIdentityFrontService.FrontBatchPrefix, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var buildId = BatchId[CharacterIdentityFrontService.FrontBatchPrefix.Length..];
+        var build = await BuildService.GetBuildAsync(buildId);
+        if (build is not null && !string.IsNullOrWhiteSpace(build.CharacterProfileId))
+        {
+            _frontBackUrl = $"/characters/{Uri.EscapeDataString(build.CharacterProfileId)}";
+        }
+    }
+
     private async Task LoadCurrentAsync()
     {
         try
@@ -413,28 +454,11 @@
                     : IsAssetRoute
                         ? _items.Where(item => string.Equals(item.ParentImageId, Current.Id, StringComparison.Ordinal)).ToList()
                     : (await ProducedImages.ListByParentAsync(Current.Id)).Select(MapLegacyItem).ToList();
-            EnsureCompareIndex();
         }
         catch (Exception exception)
         {
             _error = exception.Message;
         }
-    }
-
-    private void EnsureCompareIndex()
-    {
-        if (_items.Count < 2)
-        {
-            _compareIndex = 0;
-            return;
-        }
-
-        if (_compareIndex == _index)
-        {
-            _compareIndex = _index == 0 ? 1 : 0;
-        }
-
-        _compareIndex = Math.Clamp(_compareIndex, 0, _items.Count - 1);
     }
 
     private async Task SetStudioDispositionAsync(SceneImageAttemptDisposition nextDisposition)
@@ -515,6 +539,116 @@
         }
     }
 
+    private async Task SetItemStudioDispositionAsync(string imageId, SceneImageAttemptDisposition nextDisposition)
+    {
+        var item = _items.FirstOrDefault(i => string.Equals(i.Id, imageId, StringComparison.Ordinal));
+        if (item?.Disposition is not { } currentDisposition)
+        {
+            return;
+        }
+
+        if (nextDisposition == SceneImageAttemptDisposition.Rejected
+            && !await JS.InvokeAsync<bool>("confirm", "Reject this image?"))
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await ProductionService.SetDispositionAsync(imageId, BatchId, currentDisposition, nextDisposition);
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SetItemAssetDecisionAsync(string imageId, SceneAssetCandidateDecision decision)
+    {
+        if (decision is SceneAssetCandidateDecision.Rejected or SceneAssetCandidateDecision.Revoked
+            && !await JS.InvokeAsync<bool>("confirm", $"Set this asset image to {decision}?"))
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await AssetService.SetImageCandidateDecisionAsync(imageId, decision, null);
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SetItemStatusAsync(string imageId, ProducedImageStatus status)
+    {
+        if (status is ProducedImageStatus.Rejected or ProducedImageStatus.Revoked
+            && !await JS.InvokeAsync<bool>("confirm", $"Set this image to {status}?"))
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await ReferenceBootstrapService.SetCandidateDecisionAsync(imageId, status, null);
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ApproveItemAsync(string imageId)
+    {
+        var item = _items.First(i => string.Equals(i.Id, imageId, StringComparison.Ordinal));
+        if (string.IsNullOrWhiteSpace(item.Sha256))
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await ProductionService.ApproveAsync(BatchId, imageId, item.Sha256, "Review Deck", null);
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void OpenViewer() => _viewerOpen = true;
+
+    private void CloseViewer() => _viewerOpen = false;
+
     private void BeginDelete(string imageId)
     {
         _deleteConfirmId = imageId;
@@ -585,104 +719,11 @@
     private async Task<List<ReviewDeckItem>> LoadAssetItemsAsync()
         => (await AssetService.ListImagesByCandidateBatchAsync(BatchId)).Select(MapAssetItem).ToList();
 
-    private static ReviewDeckItem MapLegacyItem(ProducedImage image) => new(
-        image.Id,
-        image.StoragePath,
-        image.SessionId,
-        image.InteractionId,
-        null,
-        null,
-        image.ParentImageId,
-        image.Kind.ToString(),
-        image.Status.ToString(),
-        null,
-        null,
-        image.PromptCompiled ?? image.PromptEdited,
-        image.NegativePrompt,
-        image.ModelId,
-        null,
-        image.CreatedUtc,
-        null,
-        null,
-        image.ReferenceKind,
-        image.VisionSource,
-        image.VisionText,
-        image.PromptCompiled,
-        image.PromptEdited,
-        image.Seed,
-        image.EndpointId,
-        image.IdentityStrategy,
-        image.RefusalMode,
-        image.AppliedReferencesJson,
-        image.CostJson,
-        image.ScoreJson,
-        image.CandidateNotes);
+    private static ReviewDeckItem MapLegacyItem(ProducedImage image) => ReviewDeckMapper.MapLegacy(image);
 
-    private static ReviewDeckItem MapStudioItem(SceneImageRecord image, bool isApproved) => new(
-        image.Id,
-        image.FileRelativePath,
-        image.SessionId,
-        image.InteractionId,
-        null,
-        image.ProductionGroupId,
-        image.SourceImageId ?? image.RegenerateOfId,
-        image.Operation.ToString(),
-        isApproved ? "Approved" : image.Disposition?.ToString() ?? "Undecided",
-        image.ProductionStage,
-        image.Status,
-        image.PromptSnapshot,
-        image.NegativePromptSnapshot,
-        image.ModelIdentifier,
-        image.Sha256,
-        image.CreatedUtc.ToString("O"),
-        image.ErrorMessage,
-        image.Disposition,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null);
+    private static ReviewDeckItem MapStudioItem(SceneImageRecord image, bool isApproved) => ReviewDeckMapper.MapStudio(image, isApproved);
 
-    private static ReviewDeckItem MapAssetItem(SceneAssetImage image) => new(
-        image.Id,
-        image.FileRelativePath,
-        null,
-        null,
-        image.AssetId,
-        null,
-        image.SourceImageId,
-        image.Kind.ToString(),
-        image.CandidateDecision?.ToString() ?? "Undecided",
-        null,
-        null,
-        image.Prompt,
-        null,
-        image.ModelSnapshotJson,
-        image.Sha256,
-        image.CreatedUtc.ToString("O"),
-        image.ErrorMessage,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        image.CandidateNotes);
+    private static ReviewDeckItem MapAssetItem(SceneAssetImage image) => ReviewDeckMapper.MapAsset(image);
 
     private static string Display(object? value) => value?.ToString() ?? "—";
 
@@ -716,37 +757,4 @@
             builder.CloseElement();
         }
     };
-
-    private sealed record ReviewDeckItem(
-        string Id,
-        string? StoragePath,
-        string? SessionId,
-        string? InteractionId,
-        string? AssetId,
-        string? ProductionGroupId,
-        string? ParentImageId,
-        string Kind,
-        string Status,
-        SceneImageProductionStage? Stage,
-        SceneImageStatus? ExecutionStatus,
-        string? Prompt,
-        string? NegativePrompt,
-        string? Model,
-        string? Sha256,
-        string CreatedUtc,
-        string? Details,
-        SceneImageAttemptDisposition? Disposition,
-        ProducedImageReferenceKind? ReferenceKind,
-        ProducedImageVisionSource? VisionSource,
-        string? VisionText,
-        string? PromptCompiled,
-        string? PromptEdited,
-        long? Seed,
-        string? EndpointId,
-        string? IdentityStrategy,
-        SceneImageRefusalMode? RefusalMode,
-        string? AppliedReferencesJson,
-        string? CostJson,
-        string? ScoreJson,
-        string? CandidateNotes);
 }

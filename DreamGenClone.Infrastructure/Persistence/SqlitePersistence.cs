@@ -777,6 +777,8 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ImageEditorDenoise REAL NULL,
                 ImageEditorAuraFlowShift REAL NULL,
                 ImageEditorCfgNormStrength REAL NULL,
+                ImageEditorLoraName TEXT NULL,
+                ImageEditorLoraStrength REAL NULL,
                 IdentityMechanism TEXT NULL,
                 IdentityStrength REAL NULL,
                 IdentityAdapterRef TEXT NULL,
@@ -1473,7 +1475,9 @@ public sealed class SqlitePersistence : ISqlitePersistence
             ("ImageEditorScheduler", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorScheduler TEXT NULL"),
             ("ImageEditorDenoise", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorDenoise REAL NULL"),
             ("ImageEditorAuraFlowShift", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorAuraFlowShift REAL NULL"),
-            ("ImageEditorCfgNormStrength", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorCfgNormStrength REAL NULL")
+            ("ImageEditorCfgNormStrength", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorCfgNormStrength REAL NULL"),
+            ("ImageEditorLoraName", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorLoraName TEXT NULL"),
+            ("ImageEditorLoraStrength", "ALTER TABLE RegisteredModels ADD COLUMN ImageEditorLoraStrength REAL NULL")
         };
         foreach (var (column, ddl) in registeredModelEditorColumns)
         {

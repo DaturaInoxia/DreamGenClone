@@ -12,6 +12,7 @@ public interface ISceneAssetService
     Task<SceneAsset> CreateAssetAsync(
         string name,
         SceneAssetType type,
+        string? characterProfileId = null,
         CancellationToken cancellationToken = default);
 
     Task<SceneAssetImage> AddGeneratedImageAsync(
@@ -27,7 +28,8 @@ public interface ISceneAssetService
         string assetId,
         string fileName,
         Stream content,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? candidateBatchId = null);
 
     Task<SceneAssetImage> EnqueueImageEditAsync(
         string assetId,
@@ -51,6 +53,24 @@ public interface ISceneAssetService
         string imageId,
         SceneAssetCandidateDecision decision,
         string? notes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Store an image's eye-gate result on that image (B-121 note 001). The verdict describes the image,
+    /// so it is written beside the image's own metadata rather than on the build that produced it.
+    /// </summary>
+    Task SetImageValidationResultAsync(
+        string imageId,
+        string? validationResultJson,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Store the front-pipeline steps that produced an image (B-121 note 002). Like the validation result,
+    /// this describes the image itself, so it is written beside the image rather than on the build.
+    /// </summary>
+    Task SetImagePipelineStepsAsync(
+        string imageId,
+        string? pipelineStepsJson,
         CancellationToken cancellationToken = default);
 
     Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default);

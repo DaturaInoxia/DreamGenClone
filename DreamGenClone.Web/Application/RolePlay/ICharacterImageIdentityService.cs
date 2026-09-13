@@ -37,6 +37,8 @@ public interface ICharacterImageIdentityService
         string fileName,
         Stream content,
         SceneImageReferenceFaceView? faceView = null,
+        SceneImageReferenceBodyView? bodyView = null,
+        SceneImageReferenceBodyState? bodyState = null,
         CancellationToken cancellationToken = default);
 
     Task SetAssetProvenanceAsync(

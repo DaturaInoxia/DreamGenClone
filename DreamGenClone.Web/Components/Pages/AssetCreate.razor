@@ -5,6 +5,7 @@
 @using DreamGenClone.Web.Application.RolePlay
 
 @inject ISceneAssetService AssetService
+@inject IScenarioService ScenarioService
 @inject NavigationManager Navigation
 
 <PageTitle>Asset Creator - DreamGenClone</PageTitle>
@@ -21,7 +22,7 @@
             <div class="card">
                 <div class="card-body">
                     <label class="form-label" for="asset-name">Name</label>
-                    <input id="asset-name" class="form-control" @bind="_name" />
+                    <input id="asset-name" class="form-control" @bind="_name" @bind:event="oninput" />
                     <label class="form-label mt-3" for="asset-type">Type</label>
                     <select id="asset-type" class="form-select" @bind="_type">
                         <option value="">Select a type</option>
@@ -30,6 +31,18 @@
                             <option value="@type">@type</option>
                         }
                     </select>
+                    @if (_type == SceneAssetType.Character)
+                    {
+                        <label class="form-label mt-3" for="scenario-character">Scenario character</label>
+                        <select id="scenario-character" class="form-select" @bind="_scenarioCharacterId">
+                            <option value="">Standalone (new character)</option>
+                            @foreach (var option in _characterOptions)
+                            {
+                                <option value="@option.Id">@option.Label</option>
+                            }
+                        </select>
+                        <div class="form-text">Link this character to an existing scenario character, or leave standalone.</div>
+                    }
                     @if (!string.IsNullOrWhiteSpace(_error))
                     {
                         <div class="alert alert-danger mt-3 mb-0">@_error</div>
@@ -37,6 +50,10 @@
                     <button class="btn btn-primary mt-3" type="button" disabled="@(!CanCreate || _busy)" @onclick="CreateAsync">
                         <i class="bi bi-plus-lg me-1"></i> Create Asset
                     </button>
+                    @if (!CanCreate && !_busy)
+                    {
+                        <div class="form-text mt-2">Enter a name and choose a type to create the group.</div>
+                    }
                 </div>
             </div>
         </div>
@@ -44,12 +61,24 @@
 </div>
 
 @code {
+    private sealed record CharacterOption(string Id, string Label);
+
     private string _name = string.Empty;
     private SceneAssetType? _type;
+    private string? _scenarioCharacterId;
+    private List<CharacterOption> _characterOptions = [];
     private bool _busy;
     private string? _error;
 
     private bool CanCreate => !string.IsNullOrWhiteSpace(_name) && _type is not null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var scenarios = await ScenarioService.GetAllScenariosAsync();
+        _characterOptions = scenarios
+            .SelectMany(s => s.Characters.Select(c => new CharacterOption(c.Id, $"{s.Name} — {c.Name ?? "Unnamed"}")))
+            .ToList();
+    }
 
     private async Task CreateAsync()
     {
@@ -57,8 +86,18 @@
         _error = null;
         try
         {
-            var asset = await AssetService.CreateAssetAsync(_name, _type!.Value);
-            Navigation.NavigateTo($"/asset-studio/{asset.Id}");
+            var asset = await AssetService.CreateAssetAsync(
+                _name, _type!.Value,
+                string.IsNullOrWhiteSpace(_scenarioCharacterId) ? null : _scenarioCharacterId);
+            var target = asset.Type switch
+            {
+                SceneAssetType.Character when !string.IsNullOrWhiteSpace(asset.CharacterProfileId)
+                    => $"/characters/{asset.CharacterProfileId}",
+                SceneAssetType.Character => $"/characters/{asset.Id}",
+                SceneAssetType.Location => $"/locations/{asset.Id}",
+                _ => $"/asset-studio/{asset.Id}"
+            };
+            Navigation.NavigateTo(target);
         }
         catch (Exception ex)
         {

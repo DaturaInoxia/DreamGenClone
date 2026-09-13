@@ -1,0 +1,308 @@
+@page "/review-compare/{BatchId}"
+@page "/review-compare/{RouteKind}/{BatchId}"
+@rendermode InteractiveServer
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using Microsoft.AspNetCore.Components.Rendering
+@inject IProducedImageRepository ProducedImages
+@inject IReferenceBootstrapService ReferenceBootstrapService
+@inject ISceneImageProductionService ProductionService
+@inject ISceneAssetService AssetService
+@inject IJSRuntime JS
+
+<PageTitle>Compare - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">Compare</h4>
+        <div class="d-flex align-items-center gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="@BackUrl"><i class="bi bi-arrow-left me-1"></i>Review Deck</a>
+            <span class="text-muted">@_items.Count image@(_items.Count == 1 ? string.Empty : "s")</span>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+
+    @if (_items.Count == 0)
+    {
+        <p class="text-muted">No images are available to compare.</p>
+    }
+    else
+    {
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header d-flex gap-2 align-items-center">
+                        <label class="form-label small mb-0" for="compare-a">A</label>
+                        <select id="compare-a" class="form-select form-select-sm" @bind="_indexA">
+                            @for (var i = 0; i < _items.Count; i++)
+                            {
+                                <option value="@i">@(i + 1) - @ShortId(_items[i].Id) (@_items[i].Status)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="card-body p-2 text-center">
+                        @RenderLarge(_items[_indexA])
+                    </div>
+                    <div class="card-footer d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="PreviousAsync" disabled="@(_busy || _indexA == 0)">Previous</button>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="NextAsync" disabled="@(_busy || _indexA == _items.Count - 1)">Next</button>
+                        @RenderDecisionButtons(_items[_indexA])
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header d-flex gap-2 align-items-center">
+                        <label class="form-label small mb-0" for="compare-b">B</label>
+                        <select id="compare-b" class="form-select form-select-sm" @bind="_indexB">
+                            @for (var i = 0; i < _items.Count; i++)
+                            {
+                                <option value="@i">@(i + 1) - @ShortId(_items[i].Id) (@_items[i].Status)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="card-body p-2 text-center">
+                        @RenderLarge(_items[_indexB])
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string BatchId { get; set; } = string.Empty;
+    [Parameter] public string? RouteKind { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "index")]
+    public int? Index { get; set; }
+
+    private List<ReviewDeckItem> _items = [];
+    private int _indexA;
+    private int _indexB = 1;
+    private string? _error;
+    private bool _busy;
+
+    private bool IsStudioRoute => string.Equals(RouteKind, "studio", StringComparison.OrdinalIgnoreCase);
+    private bool IsAssetRoute => string.Equals(RouteKind, "asset", StringComparison.OrdinalIgnoreCase);
+
+    private string BackUrl => IsStudioRoute || IsAssetRoute
+        ? $"/review-deck/{RouteKind}/{BatchId}?index={_indexA}"
+        : $"/review-deck/{BatchId}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _error = null;
+            if (RouteKind is not null && !IsStudioRoute && !IsAssetRoute)
+            {
+                throw new InvalidOperationException($"Unsupported compare route kind '{RouteKind}'.");
+            }
+
+            _items = IsStudioRoute
+                ? await LoadStudioItemsAsync()
+                : IsAssetRoute
+                    ? await LoadAssetItemsAsync()
+                : (await ProducedImages.ListByBatchAsync(BatchId)).Select(ReviewDeckMapper.MapLegacy).ToList();
+
+            _indexA = Math.Clamp(Index ?? 0, 0, Math.Max(0, _items.Count - 1));
+            _indexB = Math.Clamp(_indexA == 0 ? 1 : 0, 0, Math.Max(0, _items.Count - 1));
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private void PreviousAsync()
+    {
+        if (_indexA == 0) return;
+        _indexA--;
+    }
+
+    private void NextAsync()
+    {
+        if (_indexA >= _items.Count - 1) return;
+        _indexA++;
+    }
+
+    private async Task<List<ReviewDeckItem>> LoadStudioItemsAsync()
+    {
+        var attempts = await ProductionService.ListAttemptsAsync(BatchId);
+        var decisions = await ProductionService.ListApprovalDecisionsAsync(BatchId);
+        var approvedImageIds = decisions
+            .Where(decision => decision.Decision == ApprovedSceneFrameDecisionState.Approved)
+            .Select(decision => decision.SceneImageId)
+            .ToHashSet(StringComparer.Ordinal);
+        return attempts.Select(attempt => ReviewDeckMapper.MapStudio(attempt, approvedImageIds.Contains(attempt.Id))).ToList();
+    }
+
+    private async Task<List<ReviewDeckItem>> LoadAssetItemsAsync()
+        => (await AssetService.ListImagesByCandidateBatchAsync(BatchId)).Select(ReviewDeckMapper.MapAsset).ToList();
+
+    private RenderFragment RenderDecisionButtons(ReviewDeckItem item) => builder =>
+    {
+        if (IsStudioRoute)
+        {
+            if (item.Disposition == SceneImageAttemptDisposition.Active)
+            {
+                builder.OpenElement(0, "button");
+                builder.AddAttribute(1, "class", "btn btn-info btn-sm");
+                builder.AddAttribute(2, "type", "button");
+                builder.AddAttribute(3, "disabled", _busy);
+                builder.AddAttribute(4, "onclick", EventCallback.Factory.Create(this, () => SetStudioAsync(item, SceneImageAttemptDisposition.Shortlisted)));
+                builder.AddContent(5, "Shortlist");
+                builder.CloseElement();
+            }
+            else if (item.Disposition == SceneImageAttemptDisposition.Shortlisted)
+            {
+                builder.OpenElement(0, "button");
+                builder.AddAttribute(1, "class", "btn btn-outline-secondary btn-sm");
+                builder.AddAttribute(2, "type", "button");
+                builder.AddAttribute(3, "disabled", _busy);
+                builder.AddAttribute(4, "onclick", EventCallback.Factory.Create(this, () => SetStudioAsync(item, SceneImageAttemptDisposition.Active)));
+                builder.AddContent(5, "Return to Active");
+                builder.CloseElement();
+            }
+
+            if (item.Disposition is SceneImageAttemptDisposition.Active or SceneImageAttemptDisposition.Shortlisted)
+            {
+                builder.OpenElement(6, "button");
+                builder.AddAttribute(7, "class", "btn btn-danger btn-sm");
+                builder.AddAttribute(8, "type", "button");
+                builder.AddAttribute(9, "disabled", _busy);
+                builder.AddAttribute(10, "onclick", EventCallback.Factory.Create(this, () => SetStudioAsync(item, SceneImageAttemptDisposition.Rejected)));
+                builder.AddContent(11, "Reject");
+                builder.CloseElement();
+            }
+
+            builder.OpenElement(12, "button");
+            builder.AddAttribute(13, "class", "btn btn-success btn-sm");
+            builder.AddAttribute(14, "type", "button");
+            builder.AddAttribute(15, "disabled", _busy || item.ExecutionStatus != SceneImageStatus.Complete || string.IsNullOrWhiteSpace(item.Sha256));
+            builder.AddAttribute(16, "onclick", EventCallback.Factory.Create(this, () => ApproveStudioAsync(item)));
+            builder.AddContent(17, "Approve");
+            builder.CloseElement();
+        }
+        else if (IsAssetRoute)
+        {
+            AddDecision(builder, 20, "Accept", "btn btn-success btn-sm", () => SetAssetDecisionAsync(item, SceneAssetCandidateDecision.Accepted));
+            AddDecision(builder, 21, "Shortlist", "btn btn-info btn-sm", () => SetAssetDecisionAsync(item, SceneAssetCandidateDecision.Shortlisted));
+            AddDecision(builder, 22, "Reject", "btn btn-danger btn-sm", () => SetAssetDecisionAsync(item, SceneAssetCandidateDecision.Rejected));
+        }
+        else
+        {
+            AddDecision(builder, 30, "Accept", "btn btn-success btn-sm", () => SetStatusAsync(item, ProducedImageStatus.Accepted));
+            AddDecision(builder, 31, "Shortlist", "btn btn-info btn-sm", () => SetStatusAsync(item, ProducedImageStatus.Shortlisted));
+            AddDecision(builder, 32, "Reject", "btn btn-danger btn-sm", () => SetStatusAsync(item, ProducedImageStatus.Rejected));
+        }
+    };
+
+    private void AddDecision(RenderTreeBuilder builder, int sequence, string label, string css, Func<Task> action)
+    {
+        builder.OpenElement(sequence, "button");
+        builder.AddAttribute(sequence + 1, "class", css);
+        builder.AddAttribute(sequence + 2, "type", "button");
+        builder.AddAttribute(sequence + 3, "disabled", _busy);
+        builder.AddAttribute(sequence + 4, "onclick", EventCallback.Factory.Create(this, action));
+        builder.AddContent(sequence + 5, label);
+        builder.CloseElement();
+    }
+
+    private RenderFragment RenderLarge(ReviewDeckItem item) => builder =>
+    {
+        if (!string.IsNullOrWhiteSpace(item.StoragePath))
+        {
+            builder.OpenElement(0, "img");
+            builder.AddAttribute(1, "src", $"/scene-images/{item.StoragePath}");
+            builder.AddAttribute(2, "class", "img-fluid w-100");
+            builder.AddAttribute(3, "style", "max-height:75vh;object-fit:contain;");
+            builder.AddAttribute(4, "alt", $"Compare image {item.Id}");
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "d-flex align-items-center justify-content-center text-muted");
+            builder.AddAttribute(2, "style", "height:70vh;");
+            builder.AddContent(3, "Image pending");
+            builder.CloseElement();
+        }
+    };
+
+    private async Task SetStudioAsync(ReviewDeckItem item, SceneImageAttemptDisposition nextDisposition)
+    {
+        if (item.Disposition is not { } current) return;
+        if (nextDisposition == SceneImageAttemptDisposition.Rejected
+            && !await JS.InvokeAsync<bool>("confirm", "Reject this image?")) return;
+        _busy = true; _error = null;
+        try
+        {
+            await ProductionService.SetDispositionAsync(item.Id, BatchId, current, nextDisposition);
+            await ReloadAsync();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ApproveStudioAsync(ReviewDeckItem item)
+    {
+        if (string.IsNullOrWhiteSpace(item.Sha256)) return;
+        _busy = true; _error = null;
+        try
+        {
+            await ProductionService.ApproveAsync(BatchId, item.Id, item.Sha256, "Compare Deck", null);
+            await ReloadAsync();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task SetAssetDecisionAsync(ReviewDeckItem item, SceneAssetCandidateDecision decision)
+    {
+        if (decision is SceneAssetCandidateDecision.Rejected or SceneAssetCandidateDecision.Revoked
+            && !await JS.InvokeAsync<bool>("confirm", $"Set this asset image to {decision}?")) return;
+        _busy = true; _error = null;
+        try
+        {
+            await AssetService.SetImageCandidateDecisionAsync(item.Id, decision, null);
+            await ReloadAsync();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task SetStatusAsync(ReviewDeckItem item, ProducedImageStatus status)
+    {
+        if (status is ProducedImageStatus.Rejected or ProducedImageStatus.Revoked
+            && !await JS.InvokeAsync<bool>("confirm", $"Set this image to {status}?")) return;
+        _busy = true; _error = null;
+        try
+        {
+            await ReferenceBootstrapService.SetCandidateDecisionAsync(item.Id, status, null);
+            await ReloadAsync();
+        }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _items = IsStudioRoute
+            ? await LoadStudioItemsAsync()
+            : IsAssetRoute
+                ? await LoadAssetItemsAsync()
+            : (await ProducedImages.ListByBatchAsync(BatchId)).Select(ReviewDeckMapper.MapLegacy).ToList();
+        _indexA = Math.Clamp(_indexA, 0, Math.Max(0, _items.Count - 1));
+        _indexB = Math.Clamp(_indexB, 0, Math.Max(0, _items.Count - 1));
+    }
+
+    private static string ShortId(string id) => id.Length <= 12 ? id : id[..12];
+}

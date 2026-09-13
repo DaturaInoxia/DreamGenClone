@@ -28,7 +28,19 @@ public enum SceneImageOperation
     Generate = 0,
 
     /// <summary>Source-image edit performed by the configured image editor.</summary>
-    Edit = 1
+    Edit = 1,
+
+    /// <summary>
+    /// Deterministic operation on a source image (crop). No image model was involved, so the record
+    /// carries no model identity and no compiler provenance.
+    /// </summary>
+    Crop = 2,
+
+    /// <summary>
+    /// Enhances a source image through the configured upscaler. Like a crop this involves no editor model
+    /// and no prompt, so the record carries the upscaler and target edge instead of a model identity.
+    /// </summary>
+    Enhance = 3
 }
 
 public enum SceneImageFinishChangeClass

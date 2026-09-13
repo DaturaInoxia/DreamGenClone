@@ -51,6 +51,17 @@ public interface ISceneImageRepository
         DateTime cancelledUtc,
         CancellationToken cancellationToken = default);
     Task<bool> TryCompleteImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Completes a row produced by a deterministic operation (crop, enhance).
+    ///
+    /// <see cref="TryCompleteImageAsync"/> only completes a row a worker has claimed (Status
+    /// 'Generating'), because a render or an edit is claimed before it runs. An operation has no claim
+    /// step — its row is queued 'Pending' and is finished by the same job that picked it up — so it
+    /// completes from either state, exactly as <see cref="TryFailImageAsync"/> already accepts both.
+    /// A row that has already reached a terminal status is never overwritten.
+    /// </summary>
+    Task<bool> TryCompleteOperationImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default);
     Task<bool> TryFailImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SceneImageRecord>> ListImagesByInteractionAsync(
         string sessionId, string interactionId, CancellationToken cancellationToken = default);

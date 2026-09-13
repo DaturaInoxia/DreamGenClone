@@ -46,6 +46,15 @@ public sealed class RegisteredModel
     public double? ImageEditorAuraFlowShift { get; set; }
     public double? ImageEditorCfgNormStrength { get; set; }
 
+    /// <summary>ComfyUI LoRA applied to the editor checkpoint (e.g.
+    /// "QwenEdit2511_AllIncludedGay_v2.safetensors"). Null/empty = no LoRA, which is a configured
+    /// state rather than a fallback; <see cref="ImageEditorLoraStrength"/> must then be null too.</summary>
+    public string? ImageEditorLoraName { get; set; }
+
+    /// <summary>Weight for <see cref="ImageEditorLoraName"/>, applied to both model and clip.
+    /// Required and positive whenever a LoRA name is set. Never defaulted.</summary>
+    public double? ImageEditorLoraStrength { get; set; }
+
     /// <summary>Identity conditioning mechanism for the controlled render path ("IpAdapter" or "PuLid").
     /// Empty = identity rendering not configured (fails fast when requested).</summary>
     public string? IdentityMechanism { get; set; }

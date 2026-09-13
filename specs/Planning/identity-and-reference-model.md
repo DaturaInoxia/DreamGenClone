@@ -131,10 +131,18 @@ produce an editable prompt, the faceid/path is chosen per render.
 
 ## 4. Asset Manager refactor (grouping, not hundreds of rows)
 
+> **SUPERSEDED 2026-09-11 by `studio-navigation-and-layout.md`.** The list is now an **owner index** —
+> one entry per character/location linking to that owner's studio, plus a Cleanup bucket for
+> unassigned assets. Pack versions, view sets and per-image rows render **inside the owner's studio**,
+> not in the list. The §4.1 tree below is the studio-internal hierarchy.
+
 The list page becomes **grouped only** — the flat table is removed, because at the eventual image
 count a flat list is unusable.
 
-### 4.1 Group hierarchy (the tree)
+### 4.1 Group hierarchy (now studio-internal, not the list)
+
+The tree below is the hierarchy **inside a studio** (e.g. Character Studio → pack → view set). The
+Asset Manager list itself shows only the owner — see `studio-navigation-and-layout.md` §2.
 
 ```
 Character (Dean)

@@ -11,6 +11,9 @@ namespace DreamGenClone.Infrastructure.Models;
 /// <summary>ComfyUI client for the persisted Qwen source-image editing workflow.</summary>
 public sealed class ComfyUIImageEditingClient : IImageEditingClient
 {
+    /// <summary>Failure-code prefix for this client; the shared transport composes its codes from it.</summary>
+    private const string EditReasonPrefix = "comfyui_edit";
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IApiKeyEncryptionService _encryptionService;
     private readonly ILogger<ComfyUIImageEditingClient> _logger;
@@ -47,6 +50,13 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
             ["prompt"] = string.Empty
         };
         AddReferenceInputs(positiveInputs, negativeInputs, references);
+
+        // Hoisted so the optional editor LoRA below can re-point the sampler branch at the LoraLoader.
+        var auraFlowInputs = new JsonObject
+        {
+            ["model"] = new JsonArray("4", 0),
+            ["shift"] = model.AuraFlowShift
+        };
 
         var workflow = new JsonObject
         {
@@ -85,7 +95,7 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
             ["5"] = new JsonObject
             {
                 ["class_type"] = "ModelSamplingAuraFlow",
-                ["inputs"] = new JsonObject { ["model"] = new JsonArray("4", 0), ["shift"] = model.AuraFlowShift }
+                ["inputs"] = auraFlowInputs
             },
             ["6"] = new JsonObject
             {
@@ -138,6 +148,36 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                 ["inputs"] = new JsonObject { ["samples"] = new JsonArray("3", 0), ["vae"] = new JsonArray("11", 0) }
             }
         };
+
+        // Optional editor LoRA. A LoRA alters BOTH the diffusion model and the CLIP, so all three
+        // consumers are re-wired to the LoraLoader: the sampler's model branch (through CFGNorm) and the
+        // positive AND negative text encodes. Leaving the clip inputs on node 10 would apply the LoRA to
+        // the image path only. No configured name emits no node at all (a configured state, not a
+        // fallback); a name without a strength fails fast here instead of inventing a weight.
+        if (!string.IsNullOrWhiteSpace(model.LoraName))
+        {
+            var loraStrength = model.LoraStrength
+                ?? throw new InvalidOperationException(
+                    $"Image editor model '{model.ModelIdentifier}' configures editor LoRA '{model.LoraName}' without a strength. Set 'Editor LoRA Strength' in Model Manager (/model-manager).");
+
+            workflow["17"] = new JsonObject
+            {
+                ["class_type"] = "LoraLoader",
+                ["inputs"] = new JsonObject
+                {
+                    ["model"] = new JsonArray("4", 0),
+                    ["clip"] = new JsonArray("10", 0),
+                    ["lora_name"] = model.LoraName,
+                    ["strength_model"] = loraStrength,
+                    ["strength_clip"] = loraStrength
+                }
+            };
+
+            positiveInputs["clip"] = new JsonArray("17", 1);
+            negativeInputs["clip"] = new JsonArray("17", 1);
+            auraFlowInputs["model"] = new JsonArray("17", 0);
+        }
+
         AddReferenceLoaders(workflow, references);
         return workflow;
     }
@@ -195,6 +235,13 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
         };
         AddReferenceInputs(positiveInputs, negativeInputs, references);
 
+        // Hoisted so the optional editor LoRA below can re-point the sampler branch at the LoraLoader.
+        var auraFlowInputs = new JsonObject
+        {
+            ["model"] = new JsonArray("16", 0),
+            ["shift"] = model.AuraFlowShift
+        };
+
         var workflow = new JsonObject
         {
             ["1"] = new JsonObject
@@ -227,7 +274,7 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
             ["5"] = new JsonObject
             {
                 ["class_type"] = "ModelSamplingAuraFlow",
-                ["inputs"] = new JsonObject { ["model"] = new JsonArray("16", 0), ["shift"] = model.AuraFlowShift }
+                ["inputs"] = auraFlowInputs
             },
             ["6"] = new JsonObject
             {
@@ -275,6 +322,36 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                 ["inputs"] = new JsonObject { ["ckpt_name"] = model.DiffusionModel }
             }
         };
+
+        // Optional editor LoRA. A LoRA alters BOTH the diffusion model and the CLIP, so all three
+        // consumers are re-wired to the LoraLoader: the sampler's model branch (through CFGNorm) and the
+        // positive AND negative text encodes. Leaving the clip inputs on node 16 would apply the LoRA to
+        // the image path only. No configured name emits no node at all (a configured state, not a
+        // fallback); a name without a strength fails fast here instead of inventing a weight.
+        if (!string.IsNullOrWhiteSpace(model.LoraName))
+        {
+            var loraStrength = model.LoraStrength
+                ?? throw new InvalidOperationException(
+                    $"Image editor model '{model.ModelIdentifier}' configures editor LoRA '{model.LoraName}' without a strength. Set 'Editor LoRA Strength' in Model Manager (/model-manager).");
+
+            workflow["17"] = new JsonObject
+            {
+                ["class_type"] = "LoraLoader",
+                ["inputs"] = new JsonObject
+                {
+                    ["model"] = new JsonArray("16", 0),
+                    ["clip"] = new JsonArray("16", 1),
+                    ["lora_name"] = model.LoraName,
+                    ["strength_model"] = loraStrength,
+                    ["strength_clip"] = loraStrength
+                }
+            };
+
+            positiveInputs["clip"] = new JsonArray("17", 1);
+            negativeInputs["clip"] = new JsonArray("17", 1);
+            auraFlowInputs["model"] = new JsonArray("17", 0);
+        }
+
         AddReferenceLoaders(workflow, references);
         return workflow;
     }
@@ -328,22 +405,18 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
 
         try
         {
-            var uploadedName = await UploadAsync(client, baseUrl, sourceImage, sourceFileName, model.ProviderName, cancellationToken);
+            var uploadedName = await ComfyUiWorkflowTransport.UploadImageAsync(
+                client, baseUrl, sourceImage, sourceFileName, model.ProviderName, EditReasonPrefix, cancellationToken);
             var workflow = BuildResolvedWorkflow(model, uploadedName, instruction.Trim());
-            var payload = new JsonObject { ["prompt"] = workflow, ["client_id"] = "dreamgen-app" };
 
             _logger.LogInformation("ComfyUI source-image edit start: Provider={ProviderName}, DiffusionModel={DiffusionModel}, InstructionChars={InstructionChars}", model.ProviderName, model.DiffusionModel, instruction.Length);
-            using var submitResponse = await client.PostAsJsonAsync($"{baseUrl}/prompt", payload, cancellationToken);
-            if (!submitResponse.IsSuccessStatusCode)
-                throw await CreateHttpExceptionAsync(submitResponse, model.ProviderName, "comfyui_edit_submit_failed", cancellationToken);
+            var promptId = await ComfyUiWorkflowTransport.SubmitPromptAsync(
+                client, baseUrl, workflow, "dreamgen-app", model.ProviderName, EditReasonPrefix, cancellationToken);
 
-            var submitBody = await submitResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken);
-            var promptId = submitBody?["prompt_id"]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(promptId))
-                throw new ImageGenerationException("ComfyUI returned no prompt_id for the image edit.", model.ProviderName, reasonCode: "comfyui_edit_no_prompt_id");
-
-            var history = await WaitForHistoryAsync(client, baseUrl, promptId, model, cancellationToken);
-            return await DownloadOutputAsync(client, baseUrl, history, promptId, model.ProviderName, cancellationToken);
+            var history = await ComfyUiWorkflowTransport.WaitForHistoryAsync(
+                client, baseUrl, promptId, model.ProviderTimeoutSeconds, model.ProviderName, EditReasonPrefix, cancellationToken);
+            return await ComfyUiWorkflowTransport.DownloadOutputAsync(
+                client, baseUrl, history, promptId, model.ProviderName, EditReasonPrefix, cancellationToken);
         }
         catch (ImageGenerationException)
         {
@@ -377,26 +450,23 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
 
         try
         {
-            var uploadedSourceName = await UploadAsync(client, baseUrl, sourceImage, sourceFileName, model.ProviderName, cancellationToken);
+            var uploadedSourceName = await ComfyUiWorkflowTransport.UploadImageAsync(
+                client, baseUrl, sourceImage, sourceFileName, model.ProviderName, EditReasonPrefix, cancellationToken);
             var uploadedReferenceNames = new List<string>(references.Count);
             foreach (var reference in references.OrderBy(reference => reference.Ordinal))
             {
-                uploadedReferenceNames.Add(await UploadAsync(client, baseUrl, reference.Image, reference.FileName, model.ProviderName, cancellationToken));
+                uploadedReferenceNames.Add(await ComfyUiWorkflowTransport.UploadImageAsync(
+                    client, baseUrl, reference.Image, reference.FileName, model.ProviderName, EditReasonPrefix, cancellationToken));
             }
 
             var workflow = BuildResolvedWorkflow(model, uploadedSourceName, instruction.Trim(), uploadedReferenceNames);
-            var payload = new JsonObject { ["prompt"] = workflow, ["client_id"] = "dreamgen-app" };
-            using var submitResponse = await client.PostAsJsonAsync($"{baseUrl}/prompt", payload, cancellationToken);
-            if (!submitResponse.IsSuccessStatusCode)
-                throw await CreateHttpExceptionAsync(submitResponse, model.ProviderName, "comfyui_edit_submit_failed", cancellationToken);
+            var promptId = await ComfyUiWorkflowTransport.SubmitPromptAsync(
+                client, baseUrl, workflow, "dreamgen-app", model.ProviderName, EditReasonPrefix, cancellationToken);
 
-            var submitBody = await submitResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken);
-            var promptId = submitBody?["prompt_id"]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(promptId))
-                throw new ImageGenerationException("ComfyUI returned no prompt_id for the reference image edit.", model.ProviderName, reasonCode: "comfyui_edit_no_prompt_id");
-
-            var history = await WaitForHistoryAsync(client, baseUrl, promptId, model, cancellationToken);
-            return await DownloadOutputAsync(client, baseUrl, history, promptId, model.ProviderName, cancellationToken);
+            var history = await ComfyUiWorkflowTransport.WaitForHistoryAsync(
+                client, baseUrl, promptId, model.ProviderTimeoutSeconds, model.ProviderName, EditReasonPrefix, cancellationToken);
+            return await ComfyUiWorkflowTransport.DownloadOutputAsync(
+                client, baseUrl, history, promptId, model.ProviderName, EditReasonPrefix, cancellationToken);
         }
         catch (ImageGenerationException)
         {
@@ -429,69 +499,5 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
             throw new InvalidOperationException("Every image editing reference requires an ordinal, semantic role, readable image, file name, and checksum.");
         if (references.Select(reference => reference.Ordinal).Distinct().Count() != references.Count)
             throw new InvalidOperationException("Image editing reference ordinals must be unique.");
-    }
-
-    private static async Task<string> UploadAsync(HttpClient client, string baseUrl, Stream sourceImage, string sourceFileName, string providerName, CancellationToken cancellationToken)
-    {
-        using var form = new MultipartFormDataContent();
-        using var imageContent = new StreamContent(sourceImage);
-        imageContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
-        form.Add(imageContent, "image", sourceFileName);
-        using var response = await client.PostAsync($"{baseUrl}/upload/image", form, cancellationToken);
-        if (!response.IsSuccessStatusCode)
-            throw await CreateHttpExceptionAsync(response, providerName, "comfyui_edit_upload_failed", cancellationToken);
-        var upload = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken);
-        var name = upload?["name"]?.GetValue<string>();
-        if (string.IsNullOrWhiteSpace(name))
-            throw new ImageGenerationException("ComfyUI returned no uploaded source image name.", providerName, reasonCode: "comfyui_edit_upload_no_name");
-        var subfolder = upload?["subfolder"]?.GetValue<string>();
-        return string.IsNullOrWhiteSpace(subfolder) ? name : $"{subfolder}/{name}";
-    }
-
-    private static async Task<JsonObject> WaitForHistoryAsync(HttpClient client, string baseUrl, string promptId, ResolvedImageEditorModel model, CancellationToken cancellationToken)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(model.ProviderTimeoutSeconds);
-        while (DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
-            using var response = await client.GetAsync($"{baseUrl}/history/{promptId}", cancellationToken);
-            if (!response.IsSuccessStatusCode)
-                continue;
-            var history = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken);
-            if (history?[promptId] is not JsonObject entry)
-                continue;
-            var status = entry["status"]?["status_str"]?.GetValue<string>();
-            if (status == "success")
-                return entry;
-            if (status == "error")
-                throw new ImageGenerationException($"ComfyUI workflow error for edit prompt {promptId}.", model.ProviderName, reasonCode: "comfyui_edit_error");
-        }
-        throw new ImageGenerationException($"ComfyUI timed out waiting for edit prompt {promptId}.", model.ProviderName, reasonCode: "comfyui_edit_timeout");
-    }
-
-    private static async Task<byte[]> DownloadOutputAsync(HttpClient client, string baseUrl, JsonObject history, string promptId, string providerName, CancellationToken cancellationToken)
-    {
-        var image = history["outputs"]?.AsObject().FirstOrDefault(x => x.Value?["images"] is JsonArray).Value?["images"]?.AsArray().FirstOrDefault()?.AsObject();
-        var filename = image?["filename"]?.GetValue<string>();
-        if (string.IsNullOrWhiteSpace(filename))
-            throw new ImageGenerationException($"ComfyUI produced no output image for edit prompt {promptId}.", providerName, reasonCode: "comfyui_edit_no_output");
-        var query = $"filename={Uri.EscapeDataString(filename)}";
-        var subfolder = image?["subfolder"]?.GetValue<string>();
-        var type = image?["type"]?.GetValue<string>();
-        if (!string.IsNullOrWhiteSpace(subfolder)) query += $"&subfolder={Uri.EscapeDataString(subfolder)}";
-        if (!string.IsNullOrWhiteSpace(type)) query += $"&type={Uri.EscapeDataString(type)}";
-        using var response = await client.GetAsync($"{baseUrl}/view?{query}", cancellationToken);
-        if (!response.IsSuccessStatusCode)
-            throw await CreateHttpExceptionAsync(response, providerName, "comfyui_edit_view_failed", cancellationToken);
-        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-        if (bytes.Length == 0)
-            throw new ImageGenerationException("ComfyUI returned an empty edited image.", providerName, reasonCode: "comfyui_edit_empty_output");
-        return bytes;
-    }
-
-    private static async Task<ImageGenerationException> CreateHttpExceptionAsync(HttpResponseMessage response, string providerName, string reasonCode, CancellationToken cancellationToken)
-    {
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        return new ImageGenerationException($"ComfyUI image edit request failed: {(int)response.StatusCode} {body}", providerName, (int)response.StatusCode, reasonCode);
     }
 }

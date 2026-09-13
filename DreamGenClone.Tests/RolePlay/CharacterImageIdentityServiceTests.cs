@@ -73,12 +73,26 @@ public sealed class CharacterImageIdentityServiceTests
             await using var input = new MemoryStream(MinimalPng(64, 64));
             var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input, SceneImageReferenceFaceView.Front);
 
+            foreach (var view in new[]
+            {
+                SceneImageReferenceFaceView.ThreeQuarterLeft,
+                SceneImageReferenceFaceView.ThreeQuarterRight,
+                SceneImageReferenceFaceView.ProfileLeft,
+                SceneImageReferenceFaceView.ProfileRight
+            })
+            {
+                await using var extra = new MemoryStream(MinimalPng(64, 64));
+                var other = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, $"{view}.png", extra, view);
+                await service.SetAssetProvenanceAsync(other.Id, "curated reference", SceneImageReferenceConsentState.Confirmed);
+                await service.SetAssetApprovalAsync(other.Id, true);
+            }
+
             await service.SetAssetProvenanceAsync(asset.Id, "curated reference", SceneImageReferenceConsentState.Confirmed);
             await service.SetAssetApprovalAsync(asset.Id, true);
             await service.ApprovePackAsync(pack.Id, "{\"descriptor\":\"dark hair\"}", asset.Id);
 
             var next = await service.SupersedePackAsync(pack.Id);
-            var copied = (await service.ListAssetsAsync(next.Id)).Single();
+            var copied = (await service.ListAssetsAsync(next.Id)).Single(a => a.FaceView == SceneImageReferenceFaceView.Front);
             Assert.Equal(asset.FileRelativePath, copied.FileRelativePath);
 
             var fullPath = Path.Combine(root, asset.FileRelativePath);

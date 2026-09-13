@@ -7,6 +7,7 @@ using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.Processing;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Application.Sessions;
 using DreamGenClone.Web.Domain.RolePlay;
@@ -40,6 +41,7 @@ public sealed class SceneImageService : ISceneImageService
     private readonly IImageEditorModelResolver? _imageEditorModelResolver;
     private readonly IImageEditorEndpointReadiness? _imageEditorEndpointReadiness;
     private readonly IDurableBackgroundJobQueue? _durableJobQueue;
+    private readonly IMediaEditCompilationService? _mediaEdits;
 
     public SceneImageService(
         ISessionService sessionService,
@@ -97,7 +99,8 @@ public sealed class SceneImageService : ISceneImageService
         SceneImageEditingJobHandler? editingJobHandler = null,
         IImageEditorModelResolver? imageEditorModelResolver = null,
         IImageEditorEndpointReadiness? imageEditorEndpointReadiness = null,
-        IDurableBackgroundJobQueue? durableJobQueue = null)
+        IDurableBackgroundJobQueue? durableJobQueue = null,
+        IMediaEditCompilationService? mediaEdits = null)
     {
         _sessionService = sessionService;
         _repository = repository;
@@ -116,6 +119,7 @@ public sealed class SceneImageService : ISceneImageService
         _imageEditorModelResolver = imageEditorModelResolver;
         _imageEditorEndpointReadiness = imageEditorEndpointReadiness;
         _durableJobQueue = durableJobQueue;
+        _mediaEdits = mediaEdits;
     }
 
     public Task<SceneImageBeatAnalysisRecord?> GetBeatAnalysisByTurnAsync(
@@ -926,9 +930,194 @@ public sealed class SceneImageService : ISceneImageService
             cancellationToken);
     }
 
+    /// <summary>
+    /// Resolves the completed source image an operation derives from and proves it belongs to the selected
+    /// session and interaction. Every scene-image operation must satisfy exactly these conditions, so they
+    /// are checked here once and only the operation's own name varies in the diagnostics.
+    /// </summary>
+    private async Task<(SceneImageRecord Source, string SessionId, string InteractionId)> RequireCompletedSourceAsync(
+        string sessionId,
+        string interactionId,
+        string sourceImageId,
+        string verb,
+        string verbPast,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(sourceImageId))
+        {
+            throw new InvalidOperationException($"A source image id is required to {verb} a scene image.");
+        }
+
+        var session = await LoadSessionAsync(sessionId, cancellationToken);
+        var interaction = FindInteraction(session, interactionId);
+        var source = await _repository.GetImageAsync(sourceImageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene image '{sourceImageId}' was not found.");
+        if (source.Status != SceneImageStatus.Complete)
+        {
+            throw new InvalidOperationException($"Only completed scene images can be {verbPast}.");
+        }
+
+        if (source.BytesPurgedUtc is not null)
+        {
+            throw new InvalidOperationException($"A purged scene image cannot be {verbPast}.");
+        }
+
+        if (!string.Equals(source.SessionId, session.Id, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(source.InteractionId, interaction.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The source scene image must belong to the selected session and interaction.");
+        }
+
+        if (string.IsNullOrWhiteSpace(source.FileRelativePath))
+        {
+            throw new InvalidOperationException("The completed source scene image has no stored image path.");
+        }
+
+        if (string.IsNullOrWhiteSpace(source.Sha256))
+        {
+            throw new InvalidOperationException("The source scene image has no stored checksum.");
+        }
+
+        return (source, session.Id, interaction.Id);
+    }
+
+    public async Task<SceneImageRecord> EnqueueCropAsync(
+        SceneImageCropRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Crop is null)
+            throw new InvalidOperationException("A scene image crop requires its crop parameters.");
+        request.Crop.Validate();
+
+        var (source, sessionId, interactionId) = await RequireCompletedSourceAsync(
+            request.SessionId, request.InteractionId, request.SourceImageId,
+            verb: "crop", verbPast: "cropped", cancellationToken);
+
+        // The crop inherits everything descriptive about where its source came from, so it stays in the
+        // same lineage, stage and production group. It does NOT inherit reference bindings: the crop
+        // applied no references, and claiming otherwise would be untrue.
+        var record = new SceneImageRecord
+        {
+            SessionId = sessionId,
+            InteractionId = interactionId,
+            PromptRecordId = source.PromptRecordId,
+            PromptSnapshot = source.PromptSnapshot,
+            Status = SceneImageStatus.Pending,
+            Operation = SceneImageOperation.Crop,
+            ProductionStage = source.ProductionStage,
+            SourceImageId = source.Id,
+            EditIntentSnapshot = JsonSerializer.Serialize(new
+            {
+                operation = "crop",
+                mode = request.Crop.Mode.ToString(),
+                window = request.Crop.Rect is { } dragged
+                    ? new { x = dragged.X, y = dragged.Y, width = dragged.Width, height = dragged.Height }
+                    : null,
+                targetAspect = request.Crop.Settings.TargetAspect,
+                headroomPercent = request.Crop.Settings.HeadroomPercent,
+                horizontalOffsetPercent = request.Crop.Settings.HorizontalOffsetPercent,
+                measurement = request.Crop.Measurement,
+                sourceImageSha256 = source.Sha256
+            }, JsonOptions),
+            ImageSize = source.ImageSize,
+            Style = source.Style,
+            SettingsJson = source.SettingsJson,
+            BeatId = source.BeatId,
+            Pov = source.Pov,
+            ProductionGroupId = source.ProductionGroupId,
+            CompiledMediaBriefId = source.CompiledMediaBriefId,
+            CatalogueId = source.CatalogueId,
+            BeatProductionPlanId = source.BeatProductionPlanId,
+            BeatProductionPlanVersion = source.BeatProductionPlanVersion,
+            MomentSetId = source.MomentSetId,
+            MomentSetVersion = source.MomentSetVersion,
+            MomentId = source.MomentId,
+            MomentEnrichmentId = source.MomentEnrichmentId,
+            MomentEnrichmentRevision = source.MomentEnrichmentRevision,
+            TypedReferenceSnapshotJson = source.TypedReferenceSnapshotJson
+        };
+        await _repository.InsertImageAsync(record, cancellationToken);
+
+        var mediaEdits = _mediaEdits
+            ?? throw new InvalidOperationException("Scene image crop dispatch requires the shared image editing pipeline.");
+        await mediaEdits.EnqueueOperationRunAsync(
+            new MediaEditOperationRunRequest(
+                MediaEditSubjectKind.SceneImage,
+                record.Id,
+                MediaEditOperation.ForCrop(request.Crop),
+                MaxAttempts: 1,
+                ScopeId: sessionId),
+            cancellationToken);
+        return record;
+    }
+
+    /// <summary>
+    /// Queues an enhance of a completed scene image. Like a crop it is an operation, so it inherits its
+    /// source's lineage and stage while recording the upscaler and target edge it was actually run with.
+    /// </summary>
+    public async Task<SceneImageRecord> EnqueueEnhanceAsync(
+        SceneImageEnhanceRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Enhance is null)
+            throw new InvalidOperationException("A scene image enhance requires its enhance parameters.");
+        request.Enhance.Validate();
+
+        var (source, sessionId, interactionId) = await RequireCompletedSourceAsync(
+            request.SessionId, request.InteractionId, request.SourceImageId,
+            verb: "enhance", verbPast: "enhanced", cancellationToken);
+
+        var record = new SceneImageRecord
+        {
+            SessionId = sessionId,
+            InteractionId = interactionId,
+            PromptRecordId = source.PromptRecordId,
+            PromptSnapshot = source.PromptSnapshot,
+            Status = SceneImageStatus.Pending,
+            Operation = SceneImageOperation.Enhance,
+            ProductionStage = source.ProductionStage,
+            SourceImageId = source.Id,
+            EditIntentSnapshot = JsonSerializer.Serialize(new
+            {
+                operation = "enhance",
+                upscalerModelName = request.Enhance.UpscalerModelName,
+                targetLongEdge = request.Enhance.TargetLongEdge,
+                sourceImageSha256 = source.Sha256
+            }, JsonOptions),
+            ImageSize = source.ImageSize,
+            Style = source.Style,
+            SettingsJson = source.SettingsJson,
+            BeatId = source.BeatId,
+            Pov = source.Pov,
+            ProductionGroupId = source.ProductionGroupId,
+            CompiledMediaBriefId = source.CompiledMediaBriefId,
+            CatalogueId = source.CatalogueId,
+            BeatProductionPlanId = source.BeatProductionPlanId,
+            BeatProductionPlanVersion = source.BeatProductionPlanVersion,
+            MomentSetId = source.MomentSetId,
+            MomentSetVersion = source.MomentSetVersion,
+            MomentId = source.MomentId,
+            MomentEnrichmentId = source.MomentEnrichmentId,
+            MomentEnrichmentRevision = source.MomentEnrichmentRevision,
+            TypedReferenceSnapshotJson = source.TypedReferenceSnapshotJson
+        };
+        await _repository.InsertImageAsync(record, cancellationToken);
+
+        var mediaEdits = _mediaEdits
+            ?? throw new InvalidOperationException("Scene image enhance dispatch requires the shared image editing pipeline.");
+        await mediaEdits.EnqueueOperationRunAsync(
+            new MediaEditOperationRunRequest(
+                MediaEditSubjectKind.SceneImage,
+                record.Id,
+                MediaEditOperation.ForEnhance(request.Enhance),
+                MaxAttempts: 1,
+                ScopeId: sessionId),
+            cancellationToken);
+        return record;
+    }
+
     public Task<SceneImagePromptRecord?> GetPromptAsync(string sessionId, string promptId, CancellationToken cancellationToken = default)
         => _repository.GetPromptAsync(promptId, cancellationToken);
-
     public Task<SceneImagePromptRecord?> GetLatestPromptAsync(string sessionId, string interactionId, CancellationToken cancellationToken = default)
         => _repository.GetLatestPromptAsync(sessionId, interactionId, cancellationToken);
 
@@ -1058,30 +1247,24 @@ public sealed class SceneImageService : ISceneImageService
         ResolvedImageEditorModel? editorModel,
         CancellationToken cancellationToken)
     {
-        var queueStatus = await ResolveEditQueueStatusAsync(protocol, editorModel, cancellationToken);
-        await EnqueueDurableAsync(
-            BackgroundJobTypes.SceneImageEditing,
-            DurableJobLane.ImageEdit,
-            payload,
-            record.Id,
-            protocol,
-            queueStatus,
+        var mediaEdits = _mediaEdits
+            ?? throw new InvalidOperationException("Scene image edit dispatch requires the shared image editing pipeline.");
+        var editorModelId = editorModel?.RegisteredModelId;
+        if (string.IsNullOrWhiteSpace(editorModelId))
+            throw new InvalidOperationException("Scene image edit dispatch requires an explicitly chosen image editor model.");
+
+        // Whether this runs now or waits for a user start is decided by the shared pipeline, from the
+        // chosen model: a local endpoint is always running, a serverless one stages until it is warm.
+        // Both studios queue through this one call, so neither can drift from the other.
+        await mediaEdits.EnqueueRunAsync(
+            new MediaEditRunRequest(
+                MediaEditSubjectKind.SceneImage,
+                record.Id,
+                editorModelId,
+                MaxAttempts: 1,
+                ScopeId: payload.SessionId),
             cancellationToken);
         return record;
-    }
-
-    private async Task<DurableBackgroundJobStatus> ResolveEditQueueStatusAsync(
-        ImageProtocol protocol,
-        ResolvedImageEditorModel? editorModel,
-        CancellationToken cancellationToken)
-    {
-        if (protocol != ImageProtocol.ComfyUiServerless)
-            return DurableBackgroundJobStatus.Queued;
-        if (editorModel is null || _imageEditorEndpointReadiness is null)
-            return DurableBackgroundJobStatus.Staged;
-        return await _imageEditorEndpointReadiness.IsWarmAsync(editorModel, cancellationToken)
-            ? DurableBackgroundJobStatus.Queued
-            : DurableBackgroundJobStatus.Staged;
     }
 
     private async Task EnqueueDurableAsync<TPayload>(

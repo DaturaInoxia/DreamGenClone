@@ -527,6 +527,40 @@ public sealed class SceneImageRepository : ISceneImageRepository
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
+    public async Task<bool> TryCompleteOperationImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default)
+    {
+        ValidateImage(image);
+        if (image.Status != SceneImageStatus.Complete || image.CompletedUtc is null)
+            throw new InvalidOperationException("A completed scene image requires Complete status and a completion timestamp.");
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        // An operation row is queued 'Pending' and is never claimed, so Pending is a legal starting point
+        // for it; 'Generating' is accepted too because a row may have been shown as in-progress. A
+        // cancelled or already-completed row matches nothing and is left alone.
+        command.CommandText = """
+            UPDATE SceneImages
+            SET Status = 'Complete', FileRelativePath = $fileRelativePath,
+                ModelIdentifier = $modelIdentifier, ProviderName = $providerName,
+                ContentPolicy = $contentPolicy, Sha256 = $sha256, ImageSize = $imageSize,
+                ErrorMessage = NULL, CompletedUtc = $completedUtc, UpdatedUtc = $updatedUtc
+            WHERE Id = $id AND Status IN ('Pending', 'Generating');
+            """;
+        command.Parameters.AddWithValue("$id", image.Id);
+        command.Parameters.AddWithValue("$fileRelativePath", (object?)image.FileRelativePath ?? DBNull.Value);
+        command.Parameters.AddWithValue("$modelIdentifier", (object?)image.ModelIdentifier ?? DBNull.Value);
+        command.Parameters.AddWithValue("$providerName", (object?)image.ProviderName ?? DBNull.Value);
+        command.Parameters.AddWithValue("$contentPolicy", image.ContentPolicy.ToString());
+        command.Parameters.AddWithValue("$sha256", (object?)image.Sha256 ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageSize", (object?)image.ImageSize ?? DBNull.Value);
+        command.Parameters.AddWithValue("$completedUtc", image.CompletedUtc.Value.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", image.UpdatedUtc.ToString("O"));
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
     public async Task<bool> TryCompleteImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default)
     {
         ValidateImage(image);
@@ -542,7 +576,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
             UPDATE SceneImages
             SET Status = 'Complete', FileRelativePath = $fileRelativePath,
                 ModelIdentifier = $modelIdentifier, ProviderName = $providerName,
-                ContentPolicy = $contentPolicy, Sha256 = $sha256,
+                ContentPolicy = $contentPolicy, Sha256 = $sha256, ImageSize = $imageSize,
                 ErrorMessage = NULL, CompletedUtc = $completedUtc, UpdatedUtc = $updatedUtc
             WHERE Id = $id AND Status = 'Generating';
             """;
@@ -552,6 +586,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$providerName", (object?)image.ProviderName ?? DBNull.Value);
         command.Parameters.AddWithValue("$contentPolicy", image.ContentPolicy.ToString());
         command.Parameters.AddWithValue("$sha256", (object?)image.Sha256 ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageSize", (object?)image.ImageSize ?? DBNull.Value);
         command.Parameters.AddWithValue("$completedUtc", image.CompletedUtc.Value.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", image.UpdatedUtc.ToString("O"));
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
@@ -1374,7 +1409,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
             throw new InvalidOperationException("Scene image requires PromptRecordId.");
         if (string.IsNullOrWhiteSpace(image.PromptSnapshot))
             throw new InvalidOperationException("Scene image requires a non-empty PromptSnapshot.");
-        if (image.Operation == SceneImageOperation.Edit && string.IsNullOrWhiteSpace(image.SourceImageId))
+        if (image.Operation is SceneImageOperation.Edit or SceneImageOperation.Crop or SceneImageOperation.Enhance
+            && string.IsNullOrWhiteSpace(image.SourceImageId))
             throw new InvalidOperationException("An edited scene image requires a SourceImageId.");
     }
 

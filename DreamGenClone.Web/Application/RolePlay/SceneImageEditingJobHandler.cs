@@ -9,6 +9,7 @@ using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -319,50 +320,35 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler, IDurabl
             image.AppliedReferenceBindingsJson,
             new JsonSerializerOptions(JsonSerializerDefaults.Web))
             ?? throw new InvalidOperationException("Scene image edit reference applications are invalid.");
+
+        var references = await BuildReferenceResolver().ResolveAsync(
+            resolved.RegisteredModelId,
+            applications,
+            qualifiedStrategy: "NativeMultiReference",
+            cancellationToken);
+        if (references.Count == 0)
+            return await _imageEditingClient.EditAsync(resolved, sourceStream, $"{sourceImageId}.png", image.PromptSnapshot, cancellationToken);
+
         var referenceApplications = applications
             .Where(application => application.UsesReference
                 && !string.Equals(application.Strategy, "TextOnly", StringComparison.OrdinalIgnoreCase))
             .ToList();
-        if (referenceApplications.Count == 0)
-            return await _imageEditingClient.EditAsync(resolved, sourceStream, $"{sourceImageId}.png", image.PromptSnapshot, cancellationToken);
-        if (string.IsNullOrWhiteSpace(resolved.RegisteredModelId))
-            throw new InvalidOperationException("Scene image edit reference application requires the exact registered editor model id.");
-        var resolver = _referenceStrategyResolver
-            ?? throw new InvalidOperationException("Scene image edit reference application requires the strategy resolver.");
-        var assets = _assetRepository
-            ?? throw new InvalidOperationException("Scene image edit reference application requires the scene asset repository.");
-        var storage = _assetStorage
-            ?? throw new InvalidOperationException("Scene image edit reference application requires scene asset storage.");
+        var instruction = MediaEditReferenceResolver.BuildReferenceAwareInstruction(image.PromptSnapshot, referenceApplications);
 
-        var streams = new List<Stream>(referenceApplications.Count);
+        var streams = new List<Stream>(references.Count);
         try
         {
-            var references = new List<ImageEditingReference>(referenceApplications.Count);
-            for (var index = 0; index < referenceApplications.Count; index++)
+            var editingReferences = new List<ImageEditingReference>(references.Count);
+            foreach (var reference in references)
             {
-                var application = referenceApplications[index];
-                var resolution = await resolver.ResolveAsync(resolved.RegisteredModelId, application.Strategy, cancellationToken);
-                if (!resolution.IsAvailable)
-                    throw new InvalidOperationException($"Scene image edit reference strategy '{application.Strategy}' for '{application.ElementKey}' is unavailable: {resolution.Reason}");
-                if (!string.Equals(resolution.Strategy, "NativeMultiReference", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException($"Scene image edit reference strategy '{resolution.Strategy}' for '{application.ElementKey}' is qualified but has no implemented graph in the Qwen native multi-reference editor.");
-                var assetImage = await assets.GetImageAsync(application.SceneAssetImageId!, cancellationToken)
-                    ?? throw new InvalidOperationException($"Scene image edit reference image '{application.SceneAssetImageId}' was not found.");
-                if (!string.Equals(assetImage.AssetId, application.SceneAssetId, StringComparison.Ordinal)
-                    || assetImage.ProductionApprovalStatus != SceneAssetProductionApprovalStatus.Approved
-                    || assetImage.ProductionVersion != application.SceneAssetVersion
-                    || !string.Equals(assetImage.Sha256, application.SceneAssetSha256, StringComparison.Ordinal)
-                    || assetImage.Status != SceneAssetStatus.Complete
-                    || string.IsNullOrWhiteSpace(assetImage.FileRelativePath))
-                {
-                    throw new InvalidOperationException($"Scene image edit reference image '{application.SceneAssetImageId}' no longer matches its approved immutable selection.");
-                }
-                var stream = await storage.OpenReadAsync(assetImage.FileRelativePath, cancellationToken);
+                var stream = await reference.OpenAsync(cancellationToken);
                 streams.Add(stream);
-                references.Add(new ImageEditingReference(index + 1, application.SemanticRole, stream, $"{assetImage.Id}.png", assetImage.Sha256));
+                editingReferences.Add(new ImageEditingReference(
+                    reference.Ordinal, reference.Description, stream, reference.FileName, reference.Sha256));
             }
-            var referenceInstruction = BuildReferenceAwareInstruction(image.PromptSnapshot, referenceApplications);
-            return await _imageEditingClient.EditWithReferencesAsync(resolved, sourceStream, $"{sourceImageId}.png", referenceInstruction, references, cancellationToken);
+
+            return await _imageEditingClient.EditWithReferencesAsync(
+                resolved, sourceStream, $"{sourceImageId}.png", instruction, editingReferences, cancellationToken);
         }
         finally
         {
@@ -371,19 +357,17 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler, IDurabl
         }
     }
 
-    private static string BuildReferenceAwareInstruction(
-        string instruction,
-        IReadOnlyList<ReferenceApplicationSelection> applications)
+    /// <summary>The optional dependencies are required only when a run actually carries references.</summary>
+    private MediaEditReferenceResolver BuildReferenceResolver()
     {
-        var identityApplications = applications
-            .Where(application => application.AssetType == SceneAssetType.CharacterFace
-                || string.Equals(application.ElementKey, "Identity", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        var identityConstraint = identityApplications.Count == 0
-            ? string.Empty
-            : " Identity references are face-local guidance only: change only the selected character face identity in the existing scene. Treat the existing scene's visible neck and body skin tone as authoritative and harmonize the corrected face's skin tone, undertone, exposure, and shading with that body under the scene lighting; do not import a mismatched complexion from the reference, and do not copy the reference image's body, pose, clothing, framing, background, lighting, or composition.";
+        if (_referenceStrategyResolver is null)
+            throw new InvalidOperationException("Scene image edit reference application requires the strategy resolver.");
+        if (_assetRepository is null)
+            throw new InvalidOperationException("Scene image edit reference application requires the scene asset repository.");
+        if (_assetStorage is null)
+            throw new InvalidOperationException("Scene image edit reference application requires scene asset storage.");
 
-        return $"The first input image is the existing scene and is the base image. Additional reference images are guidance only, never replacement images. {instruction.Trim()}{identityConstraint} Preserve all unrelated people, objects, scene geometry, framing, crop, lighting, colors, and composition exactly unless the instruction explicitly requests that specific change.";
+        return new MediaEditReferenceResolver(_assetRepository, _assetStorage, _referenceStrategyResolver);
     }
 
     private Task _loggerIdentityDispatchAsync(

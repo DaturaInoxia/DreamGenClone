@@ -120,8 +120,8 @@ scripts and no direct DB writes.
   quality rating is below the configured bar, naming the offending view.
 - **FR21-029:** Promotion reuses the existing identity-pack mechanics (`CreateDraftPackAsync`,
   `UploadAssetAsync`, `SetProvenanceAsync`) and leaves the candidate rows untouched.
-- **FR21-030:** After promotion the pack is visible at `/characters/identity` for approval, and the
-  build records which pack it produced.
+- **FR21-030:** After promotion the pack is visible in the **Packs** section of the Character Studio
+  (`/characters/{characterId}`) for approval, and the build records which pack it produced.
 
 ### I. Integration constraints
 
@@ -129,10 +129,10 @@ scripts and no direct DB writes.
   (`ReferenceBootstrapService` + Review Deck + `CandidateGrid`). It **must not** introduce a third
   candidate mechanism, and must not extend the parallel `SceneAsset.Candidate*` fields for this
   workflow.
-- **FR21-032:** The studio surface lives in Asset Manager, per B-111
-  (`studio-reference-strategy-plan.md`: "/reference-bootstrap | **Retire** → into Asset Manager").
-  The existing `ReferenceBootstrapPanel` becomes the studio's entry point rather than gaining a
-  sibling.
+- **FR21-032:** The studio surface is the **Character Studio** (`/characters/{characterId}`), reached
+  from the Asset Manager owner index (see `studio-navigation-and-layout.md`). The existing
+  `ReferenceBootstrapPanel` (Build Reference card) becomes the entry point that creates an owner and
+  opens its studio rather than gaining a sibling.
 - **FR21-033:** Every dispatch uses configured models. Missing or unqualified configuration fails
   fast naming the missing item. No fallback branch, no guessed value.
 - **FR21-034:** Existing behaviour of `ReferenceBootstrapPanel` (describe → generate → curate →

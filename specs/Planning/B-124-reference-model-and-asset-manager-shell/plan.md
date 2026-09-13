@@ -19,7 +19,7 @@ building the face studio, and B-122 added the body descriptor while building bod
 drift and the Asset Manager would group the wrong shape twice. B-124 lands the schema and the shell
 once, and B-121/B-122/B-123 consume them.
 
-## Scope — two halves, both built here
+## Scope — three parts, all built here before any feature item
 
 ### A. Reference data model (additive)
 
@@ -47,6 +47,10 @@ once, and B-121/B-122/B-123 consume them.
 
 ### B. Asset Manager shell (grouped UI)
 
+> **Superseded 2026-09-11 by `studio-navigation-and-layout.md` §2–§4.** The shell is now an **owner
+> index** (one entry per owner linking to `/characters/{id}` / `/locations/{id}`) plus a Cleanup
+> bucket; the pack/view-set hierarchy lives **inside** the owner's studio, not in the list.
+
 - **Grouped tree, root-agnostic** — every root kind follows the same pattern
   `Root → version/profile → view set / assets`:
   - `Character → Identity pack → view set (Face / Full-body / Wardrobe)`
@@ -65,6 +69,27 @@ once, and B-121/B-122/B-123 consume them.
   slot or normalized descriptor key; body keys include `BodyState`. It is null for non-viewable kinds.
 - **Fixed hierarchy per root kind** — no flat mode, no group-by selector.
 
+### C. Shared image create/edit primitive + pose foundation
+
+The Asset Manager is not just a viewer — it is the single place image **creation** and **editing**
+are defined, so Asset Studio, Production Studio and the roleplay image editor stop maintaining
+parallel pipelines. A fix or new feature lands once and applies everywhere.
+
+- **One create/generate primitive** — a single request shape (prompt, model, size, pose, region,
+  references) and one enqueue path, replacing the duplicated asset-studio edit path
+  (`SceneAssetImageEditCompilationService` + `SceneAssetImageEditJobPayloads`) and the production
+  edit path (`SceneImageEditingJobHandler` + scene-image edit compiler) with one shared service.
+- **One edit primitive** — the same request shape with a source image; prompt compilation, model
+  resolution, pose/region application and durable job enqueue happen exactly once.
+- **Pose as a first-class parameter** — the primitive accepts a pose (from the library or a fresh
+  DW Pose extraction), so "apply pose X with model Y" is one shared action across every surface.
+- **DW Pose extract client + `PosePreset` library store** — the pose foundation lives here:
+  extract-from-image via the local DWPreprocessor, and a seeded, searchable pose library.
+- **B-117/B-118 are re-scoped to consume this primitive** — the pose studio UI and the ControlNet
+  render route build on the shared path rather than adding a second pose/edit path.
+- **Delete the duplicate paths** — migrate `ImageEditWorkbench`/`PromptAssetCreator` (asset studio)
+  and `SceneImageEditor`/`CompositionComposer` (production) onto the one primitive.
+
 ## Files
 
 - Domain: `DreamGenClone.Domain/RolePlay/CharacterImageIdentityModels.cs`, `SceneAssetModels.cs`,
@@ -75,30 +100,45 @@ once, and B-121/B-122/B-123 consume them.
 
 ## Tasks (ordered)
 
-- [ ] B124-001 Add `SceneImageReferenceBodyView`, `SceneImageReferenceBodyState` and
+- [x] B124-001 Add `SceneImageReferenceBodyView`, `SceneImageReferenceBodyState` and
   `ReferenceViewDescriptor` (Axis, YawDeg, PitchDeg, BodyRotationDeg, BodyPositionKey, Label,
   FaceCanonicalSlot, BodyCanonicalSlot), including axis/slot/state validation and JSON round-trip.
-- [ ] B124-002 Add additive SQLite columns: `ViewDescriptorJson` + `BodyView` + `BodyState` on both
+- [x] B124-002 Add additive SQLite columns: `ViewDescriptorJson` + `BodyView` + `BodyState` on both
   asset tables, `CanonicalFullBodyAssetId` + required `PackScope` on the pack. The migration
   explicitly writes all existing packs as `FaceOnly`; no read-time fallback/default is permitted.
-- [ ] B124-003 Add repository read/write mapping for the new columns.
-- [ ] B124-004 Add the scope-specific required-set rules and explicit diagnostics naming every
+- [x] B124-003 Add repository read/write mapping for the new columns.
+- [x] B124-004 Add the scope-specific required-set rules and explicit diagnostics naming every
   missing canonical slot or invalid canonical pointer.
-- [ ] B124-005 Build the grouped-tree component (group key, collapse, version/status badges, per-view
+- [x] B124-005 Build the grouped-tree component (group key, collapse, version/status badges, per-view
   thumbnails, empty-state "add …" hints).
-- [ ] B124-006 Build the cross-store tree projection and surface identity, library and
+- [x] B124-006 Build the cross-store tree projection and surface identity, library and
   location-profile references under the owning root without id collisions or version collapse.
-- [ ] B124-007 Apply search and the existing filters (type / approval / character) within the tree; no flat mode.
-- [ ] B124-008 [P] Tests: SQLite round-trip of the descriptor; required-set rejection; grouping of a
+- [x] B124-007 Apply search and the existing filters (type / approval / character) within the tree; no flat mode.
+- [x] B124-008 [P] Tests: SQLite round-trip of the descriptor; required-set rejection; grouping of a
   pack with extended face views (pitch), canonical/extended body views (rotation/position), two pack
   versions under one character, and colliding ids from different stores; assert no flat-mode route,
   selector, or fallback exists.
-- [ ] B124-009 [P] Razor diagnostics + a source-contract test for the grouped view.
+- [x] B124-009 [P] Razor diagnostics + a source-contract test for the grouped view.
+- [x] B124-010 Design the unified create/edit request contract (`MediaEditRequest`: prompt, model,
+  source image + sha, pose, region, references, candidate batch, correlation id) as one DTO shared by
+  both surfaces.
+- [ ] B124-011 Add the DW Pose extract client + `PosePreset` library store (seed + search), as the
+  pose foundation of the shared primitive. **Store done** (`PosePreset` model + `PosePresetRepository`
+  + tests); seed importer + DW Pose extract client still pending.
+- [ ] B124-012 Implement the single create/edit primitive + durable job (replacing the two parallel
+  compilation paths) and route both surfaces through it.
+- [ ] B124-013 Re-scope B-117/B-118 to consume the shared primitive (pose render route + pose studio
+  UI build on it; no second edit path).
+- [ ] B124-014 [P] Tests: one primitive serves asset-studio and production requests; a pose is
+  applied through the same path in both; the old duplicate compilers are removed; no regression in
+  either surface's contract tests.
 
 ## Non-goals
 
-No studio steps (B-121), no body refs (B-122), no pose/structure tools (B-117…B-120), no LoRA
-(B-123). This item only lands the model and the shell; feature code must not leak into it.
+No studio steps (B-121), no body refs (B-122), no LoRA (B-123). B-117/B-118 remain separate items
+for the pose *studio UI* and the ControlNet *render route* — this item lands only the shared
+create/edit primitive and the DW Pose + pose-library foundation they build on. Feature code (studio
+wizards, body refs, LoRA cells) must not leak into it.
 
 ## Acceptance (the wireframe test)
 
@@ -113,3 +153,6 @@ No studio steps (B-121), no body refs (B-122), no pose/structure tools (B-117…
   just library assets — and a location profile with its derived control assets groups under its own
   root with no shell changes. Multiple versions remain distinct, and equal source ids from different
   stores remain distinct rows.
+5. Asset Studio, Production Studio and the roleplay image editor all produce edits through the one
+   shared primitive; a pose is applied through the same path in each; the duplicated compilers are
+   gone.

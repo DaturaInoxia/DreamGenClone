@@ -29,6 +29,22 @@ public interface ISceneImageService
     Task<SceneImageRecord> EnqueueEditAsync(
         SceneImageEditRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Enqueue a deterministic crop of a completed scene image into a new derived image. No editor model,
+    /// prompt revision or compiler artifact is involved — the crop is an operation, so the row it creates
+    /// records the operation and inherits its source's lineage.
+    /// </summary>
+    Task<SceneImageRecord> EnqueueCropAsync(
+        SceneImageCropRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Enqueue an enhance (ComfyUI upscale + scale down) of a completed scene image into a new derived
+    /// image. Like a crop it is an operation — no editor model, prompt revision or compiler artifact — so
+    /// the row it creates records the operation and inherits its source's lineage.
+    /// </summary>
+    Task<SceneImageRecord> EnqueueEnhanceAsync(
+        SceneImageEnhanceRequest request, CancellationToken cancellationToken = default);
+
     Task<SceneImageRecord> EnqueueIdentityAsync(
         SceneImageIdentityRequest request, CancellationToken cancellationToken = default);
 

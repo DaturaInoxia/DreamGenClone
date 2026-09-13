@@ -86,6 +86,30 @@ Infra:
 - `qwen-edit-serverless-configure` — untouched. (It still guards on the legacy `127.0.0.1:3002`/serverless
   base URL and would refuse on the current local-provider base URL; separate pre-existing issue.)
 
+## Six-cell controlled proof re-run on the local AIO checkpoint (2026-09-11)
+
+Runner: `helpers/local-comfyui-host/run-qwen-six-edit-proof-local-aio.ps1` — the six frozen non-explicit
+edits from `specs/image-generator-tests/qwen/manifest.json`, replayed through the app's merged-checkpoint
+graph with their original prompts and seeds (73191–73196), sourced from the frozen `base.png`. Outputs
+(git-ignored): `artifacts/tmp/images/qwen-six-edit-local-aio/` + `run-manifest.json`.
+
+Timing (local 5080, AIO 8 steps / CFG 1): first cell 25.19 s including model load, then 20.1–20.4 s per
+cell — against ~198.6–199.5 s per cell recorded on the pod with the stock 2511 at 40 steps / CFG 4.
+
+| Cell | Verdict | Notes |
+|---|---|---|
+| `man-shirt-blue-to-red` | PASS (with drift) | Shirt red; garment type drifted (light-blue button-up + chest pocket → plain red tee) |
+| `woman-add-black-glasses` | PASS | Black-framed eyeglasses on the woman; man, pose, background held |
+| `man-raise-right-arm-wave` | PASS | Arm raised, open palm to camera, other arm at side; woman unchanged |
+| `woman-pregnant-body-shape` | PASS | Rounded belly under the stretched white tee; man/pose/legs held |
+| `woman-left-facing-profile` | **FAIL (preservation)** | Woman rotated correctly, but the **man also rotated into profile** — the prompt requires him unchanged and front-facing, which the committed stock-model output honours |
+| `swap-people-positions` | PASS | Woman moved viewer-left, man viewer-right; identities and clothing assignments intact |
+
+**5/6 target edits present; 5/6 preservation-clean.** The single failure is a preservation violation
+(requested change leaked onto the unchanged person), not a missing edit. This is the expected trade from
+a Lightning-style 8-step merge: faster and uncensored, with less fine-detail and less surgical
+preservation than the stock 40-step model.
+
 ## Validated
 
 - [x] Build green: tests project `0 Error(s)`, DbQuery project `0 Error(s)`, web project `0 Error(s)`.
