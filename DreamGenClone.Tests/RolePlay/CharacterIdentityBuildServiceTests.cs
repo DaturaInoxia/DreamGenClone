@@ -342,7 +342,17 @@ public sealed class CharacterIdentityBuildServiceTests
         try
         {
             var build = await StartBuildWithFrontAsync(service, assets);
-            AddImage(assets, "orphan", null, MediaEditOperationKind.Crop);
+
+            // A crop of some other candidate: its chain roots somewhere other than the Front step's output.
+            assets.Images.Add(new SceneAssetImage
+            {
+                Id = "other-candidate",
+                AssetId = "front-container",
+                Kind = SceneAssetKind.PromptGenerated,
+                Status = SceneAssetStatus.Complete,
+                Sha256 = ShaOf("other-candidate")
+            });
+            AddImage(assets, "orphan", "other-candidate", MediaEditOperationKind.Crop);
 
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(
                 () => service.SetCanonicalFrontAsync(build.Id, "orphan"));
@@ -362,12 +372,40 @@ public sealed class CharacterIdentityBuildServiceTests
         try
         {
             var build = await StartBuildWithFrontAsync(service, assets);
-            AddImage(assets, "unknown-origin", "front-candidate", provenance: null);
+            assets.Images.Add(new SceneAssetImage
+            {
+                Id = "unknown-origin",
+                AssetId = "front-container",
+                Kind = SceneAssetKind.Edited,
+                Status = SceneAssetStatus.Complete,
+                SourceImageId = "front-candidate",
+                Sha256 = "sha-unknown-origin"
+            });
 
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(
                 () => service.SetCanonicalFrontAsync(build.Id, "unknown-origin"));
 
             Assert.Contains("no recorded provenance", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task SetCanonicalFront_RefusesAnImageWhoseRecordedSourceIsNotInTheFrontContainer()
+    {
+        var (service, _, assets, dbPath) = CreateServiceWithAssets();
+        try
+        {
+            var build = await StartBuildWithFrontAsync(service, assets);
+            AddImage(assets, "from-nowhere", null, MediaEditOperationKind.Crop, sourceSha256: "sha-of-a-file-nobody-has");
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.SetCanonicalFrontAsync(build.Id, "from-nowhere"));
+
+            Assert.Contains("not an image of front asset", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -404,12 +442,21 @@ public sealed class CharacterIdentityBuildServiceTests
 
     /// <summary>
     /// A build whose Front step is complete and whose front container is set — the state the user is in
-    /// when they approve a canonical front in Panel B. The Front step's output is the candidate the
-    /// lineage has to reach.
+    /// when they approve a canonical front in Panel B. The container holds the candidate the Front step
+    /// chose, which is where the derived chain has to end.
     /// </summary>
     private static async Task<CharacterIdentityBuild> StartBuildWithFrontAsync(
         CharacterIdentityBuildService service, StubSceneAssetService assets)
     {
+        assets.Images.Add(new SceneAssetImage
+        {
+            Id = "front-candidate",
+            AssetId = "front-container",
+            Kind = SceneAssetKind.PromptGenerated,
+            Status = SceneAssetStatus.Complete,
+            Sha256 = ShaOf("front-candidate")
+        });
+
         var build = await service.CreateBuildAsync("char-1", null);
         build = await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Front, null, "front-candidate");
         build = await service.CompleteStepAsync(
@@ -419,22 +466,36 @@ public sealed class CharacterIdentityBuildServiceTests
 
     private static SceneAssetImage AddImage(
         StubSceneAssetService assets, string id, string? sourceImageId, MediaEditOperationKind kind)
-        => AddImage(assets, id, sourceImageId, MediaEditProvenance.OperationValue(kind));
+        => AddImage(assets, id, sourceImageId, kind, sourceSha256: ShaOf(sourceImageId));
 
     private static SceneAssetImage AddImage(
-        StubSceneAssetService assets, string id, string? sourceImageId, string? provenance)
+        StubSceneAssetService assets, string id, string? sourceImageId, MediaEditOperationKind kind, string? sourceSha256)
+        => AddImage(assets, id, sourceImageId, MediaEditProvenance.OperationValue(kind), sourceSha256);
+
+    /// <summary>
+    /// Adds an image the way the pipeline creates one: it carries its own checksum, and its provenance
+    /// records the operation and the checksum of the file it was produced from.
+    /// </summary>
+    private static SceneAssetImage AddImage(
+        StubSceneAssetService assets, string id, string? sourceImageId, string? operationValue, string? sourceSha256)
     {
         var image = new SceneAssetImage
         {
             Id = id,
             AssetId = "front-container",
+            Kind = SceneAssetKind.Edited,
             Status = SceneAssetStatus.Complete,
             SourceImageId = sourceImageId,
-            SourceProvenanceJson = provenance is null ? null : $"{{\"operation\":\"{provenance}\"}}"
+            Sha256 = ShaOf(id),
+            SourceProvenanceJson = operationValue is null || sourceSha256 is null
+                ? null
+                : $"{{\"operation\":\"{operationValue}\",\"{MediaEditProvenance.SourceShaKey}\":\"{sourceSha256}\"}}"
         };
         assets.Images.Add(image);
         return image;
     }
+
+    private static string ShaOf(string? imageId) => $"sha-{imageId}";
 
     private static SceneAssetImagePipeline ParsePipeline(string? json)
     {
@@ -477,12 +538,15 @@ public sealed class CharacterIdentityBuildServiceTests
         public Task<SceneAssetImage?> GetImageAsync(string imageId, CancellationToken cancellationToken = default)
             => Task.FromResult(Images.FirstOrDefault(i => i.Id == imageId));
 
+        public Task<IReadOnlyList<SceneAssetImage>> ListImagesAsync(string assetId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<SceneAssetImage>>(
+                Images.Where(i => string.Equals(i.AssetId, assetId, StringComparison.Ordinal)).ToList());
+
         public Task SetImagePipelineStepsAsync(string imageId, string? pipelineStepsJson, CancellationToken cancellationToken = default)
         {
             PipelineSteps[imageId] = pipelineStepsJson;
             return Task.CompletedTask;
         }
-
         public Task<SceneAsset> CreateAssetAsync(string name, SceneAssetType type, string? characterProfileId = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
@@ -493,9 +557,6 @@ public sealed class CharacterIdentityBuildServiceTests
             => throw new NotSupportedException();
 
         public Task<SceneAssetImage> EnqueueImageEditAsync(string assetId, string sourceImageId, string editPrompt, string modelId, CancellationToken cancellationToken = default, string? candidateBatchId = null, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null)
-            => throw new NotSupportedException();
-
-        public Task<IReadOnlyList<SceneAssetImage>> ListImagesAsync(string assetId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<IReadOnlyList<SceneAssetImage>> ListImagesByCandidateBatchAsync(string candidateBatchId, CancellationToken cancellationToken = default)

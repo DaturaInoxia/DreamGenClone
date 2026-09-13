@@ -239,7 +239,7 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
         if (image.Status != SceneAssetStatus.Complete)
             throw new InvalidOperationException("The approved image is not complete yet.");
 
-        var chain = await ResolveLineageAsync(image, frontArtifactId, cancellationToken);
+        var chain = await ResolveLineageAsync(image, frontArtifactId, build.FrontContainerAssetId, cancellationToken);
         var pipeline = DeriveFrontPipeline(frontArtifactId, chain);
 
         var now = DateTime.UtcNow;
@@ -280,38 +280,46 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
     }
 
     /// <summary>
-    /// Walks an image's lineage back to the Front step's output, following the <c>SourceImageId</c> each
-    /// derived image recorded. The result is oldest-first and excludes the Front artifact itself, so every
-    /// member is an image an operation produced. A missing source, a cycle, or a lineage that never reaches
-    /// the Front artifact is refused: the pipeline steps cannot be derived from it.
+    /// Walks an image's lineage back to the Front step's output. Each derived image records, in its own
+    /// provenance, the checksum of the exact file it was produced from; that checksum is resolved against the
+    /// front container's images, so the chain survives a lost <c>SourceImageId</c> link. Where several images
+    /// share that checksum (the same bytes can be produced twice), the image's own recorded
+    /// <c>SourceImageId</c> picks between them, and an unresolvable step is refused rather than guessed.
+    ///
+    /// The result is oldest-first and excludes the Front artifact itself, so every member is an image an
+    /// operation produced.
     /// </summary>
     private async Task<List<SceneAssetImage>> ResolveLineageAsync(
-        SceneAssetImage image, string frontArtifactId, CancellationToken cancellationToken)
+        SceneAssetImage image,
+        string frontArtifactId,
+        string frontContainerAssetId,
+        CancellationToken cancellationToken)
     {
+        var container = await _assets.ListImagesAsync(frontContainerAssetId, cancellationToken);
+        var byId = container.ToDictionary(candidate => candidate.Id, StringComparer.Ordinal);
+        var bySha = container
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Sha256))
+            .GroupBy(candidate => candidate.Sha256, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
         var chain = new List<SceneAssetImage>();
         var visited = new HashSet<string>(StringComparer.Ordinal) { image.Id };
         var current = image;
         while (!string.Equals(current.Id, frontArtifactId, StringComparison.Ordinal))
         {
             chain.Add(current);
-            var sourceImageId = current.SourceImageId;
-            if (string.IsNullOrWhiteSpace(sourceImageId))
+
+            // A row that is not an operation result cannot be mid-chain: the chain starts at the Front
+            // step's output, which is a generated or uploaded candidate.
+            if (current.Kind != SceneAssetKind.Edited)
             {
                 throw new InvalidOperationException(
                     $"Image '{image.Id}' does not derive from the Front step's output '{frontArtifactId}', "
                     + "so the pipeline steps it went through cannot be derived.");
             }
 
-            // The Front artifact itself is the terminus: it is the candidate the chain started from, so
-            // there is nothing further to resolve.
-            if (string.Equals(sourceImageId, frontArtifactId, StringComparison.Ordinal))
-            {
-                break;
-            }
-
-            var source = await _assets.GetImageAsync(sourceImageId, cancellationToken)
-                ?? throw new InvalidOperationException(
-                    $"The source image '{sourceImageId}' of image '{current.Id}' was not found in the asset library.");
+            var operation = MediaEditProvenance.RequireOperation(current.SourceProvenanceJson, current.Id);
+            var source = ResolveSourceImage(bySha, current, operation.SourceImageSha256, frontContainerAssetId);
             if (!visited.Add(source.Id))
             {
                 throw new InvalidOperationException(
@@ -322,7 +330,43 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
         }
 
         chain.Reverse();
-        return chain;
+        return chain;    }
+
+    /// <summary>
+    /// Resolves the image an operation consumed from its recorded checksum. Ambiguity is resolved by the
+    /// image's own <c>SourceImageId</c> when exactly one candidate carries it; anything else is refused,
+    /// because picking one of several identical files would invent a lineage.
+    /// </summary>
+    private static SceneAssetImage ResolveSourceImage(
+        IReadOnlyDictionary<string, List<SceneAssetImage>> bySha,
+        SceneAssetImage image,
+        string sourceImageSha256,
+        string frontContainerAssetId)
+    {
+        if (!bySha.TryGetValue(sourceImageSha256, out var candidates) || candidates.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"The image '{image.Id}' was produced from a file with checksum '{sourceImageSha256}', which is "
+                + $"not an image of front asset '{frontContainerAssetId}'.");
+        }
+
+        if (candidates.Count == 1)
+        {
+            return candidates[0];
+        }
+
+        var named = string.IsNullOrWhiteSpace(image.SourceImageId)
+            ? []
+            : candidates.Where(candidate => string.Equals(candidate.Id, image.SourceImageId, StringComparison.Ordinal)).ToList();
+        if (named.Count == 1)
+        {
+            return named[0];
+        }
+
+        throw new InvalidOperationException(
+            $"Image '{image.Id}' was produced from a file that {candidates.Count} images of front asset "
+            + $"'{frontContainerAssetId}' share ('{sourceImageSha256}'), and none of them is the source it "
+            + "records, so its lineage cannot be determined.");
     }
 
     /// <summary>
@@ -363,7 +407,7 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
     {
         for (var index = chain.Count - 1; index >= 0; index--)
         {
-            if (MediaEditProvenance.RequireOperationKind(chain[index].SourceProvenanceJson, chain[index].Id) == kind)
+            if (MediaEditProvenance.RequireOperation(chain[index].SourceProvenanceJson, chain[index].Id).Kind == kind)
             {
                 return index;
             }

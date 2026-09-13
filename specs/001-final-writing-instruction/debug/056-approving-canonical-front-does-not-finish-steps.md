@@ -95,8 +95,74 @@ behaviour changes.
 
 ## Resolution
 
-_Not started — awaiting confirmation._
+Approved 2026-09-13. The approval is now the one place that finishes steps 3/4/5, from the approved image's
+own evidence.
+
+- `Domain/RolePlay/SceneAssetModels.cs` — `SceneAssetImage.PipelineStepsJson` plus the
+  `SceneAssetImagePipeline` / `SceneAssetImagePipelineStep` records (step, outcome, input artifact, artifact).
+- `Infrastructure/RolePlay/SceneAssetRepository.cs` — the new column in INSERT / ON CONFLICT / SELECT /
+  reader / parameters / CREATE TABLE, and an `ALTER TABLE` migration guard.
+- `ISceneAssetService` / `SceneAssetService` — `SetImagePipelineStepsAsync` (same shape as the
+  validation-result setter). Five test stubs updated.
+- `Editing/MediaEditProvenance.cs` (new) — the single reader for operation provenance: the operation kind
+  **and** the source checksum (`sourceImageSha256`). The three writers now take their `operation` values from
+  this class, and the plain-edit writer emits `operation = "edit"` (it used to omit the key, which is why
+  the reader needed a rule before).
+- `CharacterIdentityBuildService.SetCanonicalFrontAsync` — walks the approved image's lineage to the Front
+  step's output, derives De-clothe / Crop / Enhance as **Complete** (naming the artifact that operation
+  contributed to this chain) or **Skipped** (the operation is absent from it), writes the three step rows and
+  the per-image record, sets `CanonicalFrontAssetId`, and moves `CurrentStep` to `Angles`. Nothing is
+  inferred: unreadable provenance, an unresolvable source, a circular chain, or a chain that does not start
+  at the Front artifact are all refused by name.
+- `CharacterIdentityGarmentService` (+ interface) — `RecordResultAsync`, `AdvanceAsync`, `SkipAsync` and
+  `GetRecordedResultAsync` removed along with the build-service dependency; the step outcome now has exactly
+  one writer. Panel B's "Skip this step" / "Recorded result" controls and the dead `AdvanceGarmentAsync`
+  went with them, and each Panel B card shows its own `de-clothe ✓ · crop ✓ · enhance ✓` line.
+- Tests: `CharacterIdentityBuildServiceTests` covers all-three-done (with the Front step left untouched),
+  crop-only (the other two recorded as Skipped), the operation nearest the approved image when an operation
+  ran twice, an unknown origin, a source outside the front container, and a chain that roots elsewhere. The
+  five garment tests for the removed methods were deleted with the methods.
+
+### Why the walk uses the recorded checksum, not `SourceImageId`
+
+The approved image's `SourceImageId` chain could not be used: in this DB several asset crop/enhance rows have
+`SourceImageId = NULL` while their sources still exist, which contradicts the only code that can clear it
+(`SceneAssetRepository.DeleteImageAsync` detaches children of the row it deletes) — see the finding below.
+Every operation row does record the checksum of the exact file it consumed, and that checksum resolves to
+exactly one image of the container for every row checked, so the walk uses it. Where the same bytes exist
+twice, the row's own `SourceImageId` picks between them; if it cannot, the approval fails rather than guessing.
+
+## Verification
+
+```
+Steps  Front=Complete(27ca8569) Validate=Complete  De-clothe=Complete(27ca8569→72d5d4af)
+       Crop=Complete(72d5d4af→babaa71c)  Enhance=Complete(babaa71c→ad01d7e8)  Angles NotStarted
+Build  c6dd9a6c  CurrentStep=Angles(6)  CanonicalFrontAssetId=ad01d7e8
+Image  ad01d7e8  PipelineStepsJson = {frontArtifactId 27ca8569, GarmentRemoval Complete 72d5d4af,
+                                     Crop Complete babaa71c, Enhance Complete ad01d7e8}
+UI     Front ✓ Validate ✓ De-clothe ✓ Crop ✓ Enhance ✓ · Angles · Promote
+       Panel B card ad01d7e8: "Canonical front", "de-clothe ✓ · crop ✓ · enhance ✓"
+```
+
+Tests: 135 passed / 0 failed (`CharacterIdentity|SceneAsset|MediaEdit`); solution builds with 0 errors.
+The approval is idempotent, which is how the user's existing build was brought up to date.
+
+## Follow-up finding — asset operation rows lose their `SourceImageId`
+
+Open, not fixed, needs its own diagnosis:
+
+- Five `Edited` rows of front container `4ff9a68c` (`f808a5ad`, `a0673511`, `ecfd13a2`, `babaa71c`,
+  `ad01d7e8`) have `SourceImageId = NULL` although the images they were produced from still exist.
+- Their provenance's `sourceImageSha256` resolves to exactly the right source row in every case, and
+  `SceneAssetMediaEditSubjectWriter.PrepareOperationAsync` *requires* `image.SourceImageId` before an
+  operation runs — so the link existed when the operation ran and was cleared afterwards.
+- The only writer that clears the column is `SceneAssetRepository.DeleteImageAsync`'s
+  `UPDATE SceneAssetImages SET SourceImageId = NULL WHERE SourceImageId = $id`. There are no triggers on the
+  table, no other `UPDATE`/`INSERT` touches the column, and the sources were not deleted. The mechanism is
+  therefore unexplained.
+- Consequence beyond this feature: the editor's lineage view, the "other attempts of this source" list and
+  `ResolveResultAsync` all read `SourceImageId`, so they show the wrong chain for these images.
 
 ## Validated
 
-- [ ] pending
+- [ ] pending — awaiting user confirmation

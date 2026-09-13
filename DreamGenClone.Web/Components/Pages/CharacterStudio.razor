@@ -535,9 +535,9 @@
             && string.Equals(canonical, image.Id, StringComparison.Ordinal);
 
     /// <summary>
-    /// Approves an edited image as this build's canonical front. Nothing is re-completed and no step is
-    /// re-opened: the Front step keeps the generated candidate it recorded, and the canonical choice is
-    /// recorded beside it for the later steps to read.
+    /// Approves an edited image as this build's canonical front, which also finishes the de-clothe / crop /
+    /// enhance part of the pipeline: the service derives those three steps from the approved image's own
+    /// lineage. The Front step keeps the generated candidate it recorded — nothing is re-opened.
     /// </summary>
     private async Task ApproveCanonicalFrontAsync(SceneAssetImage image)
     {
@@ -551,7 +551,11 @@
         try
         {
             _build = await BuildService.SetCanonicalFrontAsync(_build.Id, image.Id);
-            _frontMessage = $"Canonical front approved: {image.Id[..8]}… — the next steps work from this image.";
+            await RefreshBuildStepsAsync();
+            // The image now carries its own pipeline record, so the list has to be re-read to show it.
+            await RefreshEditedImagesAsync();
+            _frontMessage = $"Canonical front approved: {image.Id[..8]}… — the de-clothe, crop and enhance "
+                + "this image went through are recorded on it, and the pipeline is at Angles.";
         }
         catch (Exception ex)
         {
