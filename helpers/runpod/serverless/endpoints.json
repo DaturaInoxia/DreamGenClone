@@ -123,7 +123,8 @@
       "timeoutMs": 900000,
       "flashboot": "OFF",
       "gpuPool": "AMPERE_16 (RTX 4000 Ada) / AMPERE_24 (A5000) - pool resolved at create from gpuTypeId",
-      "gpuTypeId": "RTX 4000 Ada",
+      "gpuTypeId": "RTX A5000",
+      "candidateGpuTypeIds": ["NVIDIA RTX A5000", "NVIDIA GeForce RTX 4090", "NVIDIA RTX 4000 Ada"],
       "candidateGpuTypeIds": [
         "NVIDIA RTX 4000 Ada",
         "NVIDIA RTX A5000",
@@ -166,7 +167,7 @@
       "function": "FLUX.1-dev structural Canny/Depth proof",
       "capability": "StructuralConditioning",
       "status": "pending-worker-build",
-      "endpointId": "",
+      "endpointId": "r0q7joyemx4p8z",
       "deployment": "RunPod GitHub Integration from the current working branch `development`, Dockerfile helpers/runpod/serverless/flux-structural-worker/Dockerfile. Uses the official worker-comfyui base and the existing xkslgh6xo0 network volume. Models and exact XLabs ControlNet artifacts must be uploaded to the volume before the first proof.",
       "workerImage": "",
       "workerDir": "helpers/runpod/serverless/flux-structural-worker",
@@ -183,7 +184,7 @@
       "env": {},
       "modelManager": { "registered": false, "providerName": "Proof-only; do not register until local portability passes" },
       "proof": {
-        "status": "blocked-pending-assets",
+        "status": "ready-to-smoke",
         "type": "flux-structural",
         "workflowJson": "specs/image-generator-tests/dual-base-location/proofs/flux-structural-canny.workflow.json",
         "imagesJson": "specs/image-generator-tests/dual-base-location/proofs/flux-structural-canny.images.json",
