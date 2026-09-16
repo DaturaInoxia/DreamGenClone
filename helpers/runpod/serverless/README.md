@@ -46,7 +46,10 @@ All the *code* (Dockerfiles, handlers, endpoint tooling, app-side client) needs 
 ## Endpoint registry
 
 `endpoints.json` is the source of truth for Serverless endpoints (mirrors `pod-registry.json`).
-Worker images are pushed to `ghcr.io/daturoinoxia/dreamgenclone`. Per the RunPod-changes rule,
+Worker images are built from the explicitly configured GitHub branch for each endpoint. For the
+current proof work, that branch is `development`, not `master`. Never infer the branch from an old
+endpoint record; verify the endpoint's GitHub Integration configuration before deployment.
+Per the RunPod-changes rule,
 every image/endpoint change must be recorded there and be reproducible from the Dockerfile +
 endpoint config.
 

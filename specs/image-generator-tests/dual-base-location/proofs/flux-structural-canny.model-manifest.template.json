@@ -1,0 +1,16 @@
+{
+  "status": "pending-upload",
+  "source": "XLabs-AI/x-flux and Black Forest Labs FLUX.1-dev",
+  "files": [
+    { "relativePath": "models/unet/flux1-dev-fp8.safetensors", "sha256": "", "bytes": null },
+    { "relativePath": "models/vae/ae.safetensors", "sha256": "", "bytes": null },
+    { "relativePath": "models/clip/t5xxl_fp8_e4m3fn.safetensors", "sha256": "", "bytes": null },
+    { "relativePath": "models/clip/clip_l.safetensors", "sha256": "", "bytes": null },
+    { "relativePath": "models/controlnet/flux-canny-controlnet-v3.safetensors", "sha256": "", "bytes": null }
+  ],
+  "endpointKey": "img-flux-structural-serverless",
+  "localPortability": {
+    "targetGpu": "RTX 5080 16GB",
+    "status": "pending"
+  }
+}

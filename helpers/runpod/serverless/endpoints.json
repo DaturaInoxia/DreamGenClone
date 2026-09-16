@@ -4,7 +4,7 @@
   "purpose": "Registry for RunPod Serverless endpoints (B-101 migration). One entry per endpoint = one worker image + one endpoint config + one Model Manager provider mapping. Mirrors helpers/runpod/pod-registry.json for the old pods. Every image/endpoint change MUST be recorded here and reproducible from the Dockerfile + config.",
   "containerRegistry": "ghcr.io/daturoinoxia/dreamgenclone",
   "notes": [
-    "Docker is NOT installed on the dev host. DEPLOYMENT = RunPod GitHub Integration (Serverless -> + New Endpoint -> \"Start from GitHub Repo\"; docs/deployment.md Method 2): RunPod clones DaturaInoxia/DreamGenClone, builds the worker Dockerfile, auto-updates the endpoint on every push. NO GHCR / NO GitHub Actions (the old GHCR + build-serverless-worker.yml pipeline is SUPERSEDED 2026-08-28; containerRegistry field kept for reference only).",
+    "Docker is NOT installed on the dev host. DEPLOYMENT = RunPod GitHub Integration (Serverless -> + New Endpoint -> \"Start from GitHub Repo\"; docs/deployment.md Method 2): RunPod clones DaturaInoxia/DreamGenClone at the endpoint's explicitly configured working branch, builds the worker Dockerfile, and auto-updates that endpoint on pushes to that branch. New work must use the current working branch; do not assume master. NO GHCR / NO GitHub Actions (the old GHCR + build-serverless-worker.yml pipeline is SUPERSEDED 2026-08-28; containerRegistry field kept for reference only).",
     "Endpoint API field names (minWorkers/maxWorkers/idleTimeout/gpuIds) verified at P0 against the live RunPod serverless API/console before the first create.",
     "Serverless workers have no SSH. Debugging = build -> deploy -> send job -> read job logs -> iterate.",
     "Migration order: DWPose (infra proof, no app changes) -> Juggernaut (first app-integrated) -> identity -> Qwen VL -> Qwen Edit.",
@@ -159,6 +159,41 @@
         "imagesJson": "helpers/runpod/serverless/proofs/identity-2char-c1.images.json",
         "outDir": "artifacts/tmp/proofs/identity-2char",
         "reason": "PASSED 2026-08-29 (job 4ea3b133, worker e8fni90jl6w7rs, output identity-2char-v5/img-juggernaut-serverless_0.png, visually verified). App-side identity render confirmed working by user."
+      }
+    },
+    {
+      "endpointKey": "img-flux-structural-serverless",
+      "function": "FLUX.1-dev structural Canny/Depth proof",
+      "capability": "StructuralConditioning",
+      "status": "pending-worker-build",
+      "endpointId": "",
+      "deployment": "RunPod GitHub Integration from the current working branch `development`, Dockerfile helpers/runpod/serverless/flux-structural-worker/Dockerfile. Uses the official worker-comfyui base and the existing xkslgh6xo0 network volume. Models and exact XLabs ControlNet artifacts must be uploaded to the volume before the first proof.",
+      "workerImage": "",
+      "workerDir": "helpers/runpod/serverless/flux-structural-worker",
+      "baseImage": "runpod/worker-comfyui:5.8.4-base",
+      "apiContract": "OFFICIAL worker-comfyui: input.workflow + input.images -> output.images",
+      "minWorkers": 0,
+      "maxWorkers": 1,
+      "idleTimeoutSec": 900,
+      "timeoutMs": 900000,
+      "flashboot": "OFF",
+      "gpuTypeId": "RTX 4000 Ada",
+      "networkVolumes": ["xkslgh6xo0"],
+      "dataCenterIds": ["EU-RO-1"],
+      "env": {},
+      "modelManager": { "registered": false, "providerName": "Proof-only; do not register until local portability passes" },
+      "proof": {
+        "status": "blocked-pending-assets",
+        "type": "flux-structural",
+        "workflowJson": "specs/image-generator-tests/dual-base-location/proofs/flux-structural-canny.workflow.json",
+        "imagesJson": "specs/image-generator-tests/dual-base-location/proofs/flux-structural-canny.images.json",
+        "outDir": "artifacts/tmp/proofs/flux-structural",
+        "modelFiles": ["flux1-dev-fp8.safetensors", "ae.safetensors", "t5xxl_fp8_e4m3fn.safetensors", "clip_l.safetensors", "flux-canny-controlnet-v3.safetensors"],
+        "reason": "Worker image and model-volume assets must be provisioned and hash-recorded before endpoint creation."
+      },
+      "persistence": {
+        "standard": "Worker image immutable; model and proof assets must remain on network volume xkslgh6xo0.",
+        "restartProof": false
       }
     },
     {
