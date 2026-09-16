@@ -252,12 +252,10 @@ public sealed class CharacterIdentityValidationService : ICharacterIdentityValid
         var verdict = Classify(measurement, thresholdPercent);
         var overrideApplied = validate?.ManualOverrideApplied == true;
 
-        var canAdvance = verdict switch
-        {
-            CharacterIdentityValidationVerdict.Pass => true,
-            CharacterIdentityValidationVerdict.Fail or CharacterIdentityValidationVerdict.NoFaceMesh => overrideApplied,
-            _ => false
-        };
+        // A manual override is an explicit user decision and is sufficient to advance even when the
+        // build-level measurement was not persisted (the selected image may already have its own failed
+        // image-level measurement). The override remains attributed and auditable below.
+        var canAdvance = overrideApplied || verdict == CharacterIdentityValidationVerdict.Pass;
 
         var blockReason = canAdvance ? null : DescribeBlock(verdict, measurement, thresholdPercent);
 

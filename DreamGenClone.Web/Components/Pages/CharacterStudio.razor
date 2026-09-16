@@ -3,6 +3,8 @@
 
 @using System.Text.Json
 @using System.Text.Json.Serialization
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Components.Forms
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Application.ModelManager
 @using DreamGenClone.Domain.ModelManager
@@ -17,6 +19,8 @@
 @inject ICharacterIdentityFrontService FrontService
 @inject ICharacterIdentityValidationService ValidationService
 @inject ICharacterIdentityGarmentService GarmentService
+@inject ICharacterIdentityAnglesService AnglesService
+@inject ICharacterIdentityPromotionService PromotionService
 @inject IModelResolutionService ModelResolutionService
 
 <PageTitle>Character Studio - DreamGenClone</PageTitle>
@@ -189,12 +193,21 @@
                                                 <div class="small text-muted">not validated</div>
                                             }
                                             <button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-1" @onclick="() => RevalidateAsync(attempt)" disabled="@(_validationBusy || attempt.Status != SceneAssetStatus.Complete)">@(validation is null ? "Run validation" : "Re-validate")</button>
+                                            @if (IsChosenFront(attempt) && validation?.Verdict == CharacterIdentityValidationVerdict.Fail)
+                                            {
+                                                <div class="border border-warning rounded p-2 mt-2" @onclick:stopPropagation="true">
+                                                    <div class="small text-warning">Validation failed. Record a manual visual override to continue.</div>
+                                                    <input class="form-control form-control-sm mt-1" placeholder="Override reason" @bind="_frontOverrideReason" />
+                                                    <input class="form-control form-control-sm mt-1" placeholder="Author" @bind="_frontOverrideAuthor" />
+                                                    <button type="button" class="btn btn-sm btn-warning mt-1" @onclick="RecordFrontOverrideAsync">Record front override</button>
+                                                </div>
+                                            }
                                             <div class="d-flex flex-wrap gap-1 mt-1 justify-content-center">
                                                 <button type="button" class="btn btn-sm btn-outline-success py-0 px-1" title="Accept" @onclick="() => SetFrontDecisionAsync(attempt, SceneAssetCandidateDecision.Accepted)"><i class="bi bi-check2-circle"></i></button>
                                                 <button type="button" class="btn btn-sm btn-outline-info py-0 px-1" title="Shortlist" @onclick="() => SetFrontDecisionAsync(attempt, SceneAssetCandidateDecision.Shortlisted)"><i class="bi bi-star"></i></button>
                                                 <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Reject" @onclick="() => SetFrontDecisionAsync(attempt, SceneAssetCandidateDecision.Rejected)"><i class="bi bi-x-circle"></i></button>
                                             </div>
-                                            <button type="button" class="btn btn-sm @(IsChosenFront(attempt) ? "btn-success" : "btn-outline-success") w-100 mt-1" @onclick="() => SelectFrontAsync(attempt.Id)" disabled="@(attempt.Status != SceneAssetStatus.Complete)" title="Make this candidate the input to Panel B">@(IsChosenFront(attempt) ? "Chosen" : "Use this")</button>
+                                            <button type="button" class="btn btn-sm @(IsChosenFront(attempt) ? "btn-success" : "btn-outline-success") w-100 mt-1" @onclick="() => SelectFrontAsync(attempt.Id)" disabled="@(attempt.Status != SceneAssetStatus.Complete)" title="@(IsChosenFront(attempt) && _build?.CurrentStep == CharacterIdentityBuildStep.Validate ? "Continue past validation with this front" : "Make this candidate the input to Panel B")">@(IsChosenFront(attempt) && _build?.CurrentStep == CharacterIdentityBuildStep.Validate ? "Continue" : IsChosenFront(attempt) ? "Chosen" : "Use this")</button>
                                             <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1" @onclick="() => DeleteImageAsync(attempt)" disabled="@_frontBusy" title="Delete this image"><i class="bi bi-trash me-1"></i>Delete</button>
                                         </div>
                                     }
@@ -308,6 +321,157 @@
                                nothing to skip or complete here (B-121 notes 002/005). *@
                                 </div>
                             }
+                        </div>
+                    }
+
+                    @if (_build is not null && (int)_build.CurrentStep >= (int)CharacterIdentityBuildStep.Angles)
+                    {
+                        <div class="card mt-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <strong>Panel C · Face angles</strong>
+                                <span class="small text-muted">Build the four required identity views</span>
+                            </div>
+                            <div class="card-body">
+                                <p class="small text-muted">Each view is a separate edit of the approved canonical front or the previously accepted view on that side. Edit the prebuilt prompt before running if needed.</p>
+                                @if (!string.IsNullOrWhiteSpace(_anglesMessage))
+                                {
+                                    <div class="alert alert-secondary py-1 small">@_anglesMessage</div>
+                                }
+                                @if (_selectedAngleView is null)
+                                {
+                                    <div class="alert alert-info py-2 small">Select an angle card below to open its dedicated Edit Image workspace.</div>
+                                }
+                                <div class="row g-3">
+                                    @foreach (var view in AngleViews)
+                                    {
+                                        var angle = _angles.FirstOrDefault(item => item.View == view);
+                                        var source = angle?.InputArtifactId;
+                                        <div class="col-md-6">
+                                            <div class="border rounded p-2 h-100 @(view == _selectedAngleView ? "border-primary border-2" : "")" role="button" tabindex="0" @onclick="() => SelectAngleAsync(view)" @onkeydown="eventArgs => OnAngleCardKeyDown(eventArgs, view)">
+                                                <h6>@AngleLabel(view)</h6>
+                                                <div class="small text-muted mb-2">Source: @(source is null ? "waiting for previous view" : source[..Math.Min(8, source.Length)] + "…")</div>
+                                                <a class="small" href="@AngleReviewDeckUrl(view)" target="_blank" @onclick:stopPropagation="true">Review @AngleLabel(view) attempts</a>
+                                                @if (angle?.OutputArtifactId is { Length: > 0 } output)
+                                                {
+                                                    var outputImage = _angleImages.FirstOrDefault(image => image.Id == output);
+                                                    if (outputImage?.FileRelativePath is { Length: > 0 } path)
+                                                    {
+                                                        <img src="/scene-images/@path" class="img-fluid rounded mb-2" style="max-height:260px;object-fit:contain;" alt="@AngleLabel(view) angle" />
+                                                    }
+                                                }
+                                                <div class="small mb-2">Status: @(angle?.Status.ToString() ?? "NotStarted")</div>
+                                                @if (view == _selectedAngleView && _angleAttempts.Count > 0)
+                                                {
+                                                    <div class="mt-2 border-top pt-2">
+                                                        <div class="small fw-semibold">Attempts (@_angleAttempts.Count)</div>
+                                                        @foreach (var attempt in _angleAttempts)
+                                                        {
+                                                            var attemptImage = _angleAttemptImages.FirstOrDefault(image => image.Id == attempt.OutputArtifactId);
+                                                            <div class="border rounded p-1 mt-2">
+                                                                @if (attemptImage?.FileRelativePath is { Length: > 0 } attemptPath)
+                                                                {
+                                                                    <button type="button" class="btn p-0 border-0 bg-transparent w-100" @onclick:stopPropagation="true" @onclick="() => OpenAttemptViewer(attemptImage)" title="View attempt @attempt.AttemptNumber">
+                                                                        <img src="/scene-images/@attemptPath" class="img-fluid rounded" style="max-height:220px;object-fit:contain;" alt="@AngleLabel(view) attempt @attempt.AttemptNumber" />
+                                                                    </button>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <div class="small text-muted text-center py-3">No completed image yet</div>
+                                                                }
+                                                                <div class="d-flex justify-content-between align-items-center small mt-1">
+                                                                    <span>Attempt @attempt.AttemptNumber · @attempt.Status</span>
+                                                                @if (attempt.Status != CharacterIdentityAngleStatus.Accepted)
+                                                                {
+                                                                    <button type="button" class="btn btn-sm btn-outline-success py-0" @onclick:stopPropagation="true" @onclick="() => AcceptAngleAttemptAsync(view, attempt.Id)" disabled="@(attemptImage?.Status != SceneAssetStatus.Complete)">Use this</button>
+                                                                    <button type="button" class="btn btn-sm btn-outline-danger py-0 ms-1" @onclick:stopPropagation="true" @onclick="() => DeleteAngleAttemptAsync(view, attempt.Id)">Delete</button>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="text-success">Selected</span>
+                                                                }
+                                                                </div>
+                                                                @if (attempt.Status == CharacterIdentityAngleStatus.Failed)
+                                                                {
+                                                                    <div class="mt-2">
+                                                                        <input class="form-control form-control-sm" placeholder="Override reason" @bind="_overrideReasons[attempt.Id]" @onclick:stopPropagation="true" />
+                                                                        <input class="form-control form-control-sm mt-1" placeholder="Author" @bind="_overrideAuthors[attempt.Id]" @onclick:stopPropagation="true" />
+                                                                        <button type="button" class="btn btn-sm btn-warning mt-1" @onclick:stopPropagation="true" @onclick="() => RecordAngleOverrideAsync(view, attempt.Id)">Record visual override</button>
+                                                                    </div>
+                                                                }
+                                                                @if (attempt.ManualOverrideApplied)
+                                                                {
+                                                                    <div class="small text-warning mt-1">Override recorded by @attempt.ManualOverrideAuthor</div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                                <div class="small text-muted mt-2">Select this card to edit this angle with the prepared prompt.</div>
+                                                <InputFile class="form-control form-control-sm mt-2" accept="image/png,image/jpeg,image/webp" OnChange="@(args => UploadAngleAsync(view, args))" @onclick:stopPropagation="true" />
+                                                <div class="d-flex gap-2 mt-2">
+                                                    @if (angle?.Status == CharacterIdentityAngleStatus.Pending)
+                                                    {
+                                                        <button type="button" class="btn btn-sm btn-success" @onclick:stopPropagation="true" @onclick="() => AcceptAngleAsync(view)">Use this angle</button>
+                                                    }
+                                                </div>
+                                                @if (view is CharacterIdentityAngleView.ProfileLeft or CharacterIdentityAngleView.ProfileRight && angle?.Status == CharacterIdentityAngleStatus.Pending)
+                                                {
+                                                    <div class="form-check mt-2">
+                                                        <input class="form-check-input" type="checkbox" @bind="_profileConfirmations[view]" id="confirm-@view" />
+                                                        <label class="form-check-label small" for="confirm-@view">I confirm this profile faces the expected image direction.</label>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                                @if (_selectedAngleView is { } selectedView && _angleSubject is not null)
+                                {
+                                    <div class="mt-4 border-top pt-3">
+                                        <h5>@AngleLabel(selectedView) · Edit image</h5>
+                                        <p class="small text-muted">Prepare the prebuilt angle prompt, edit it if needed, then run the image edit. This workspace is independent from Panel B.</p>
+                                        <ImageEditWorkspace @key="@(selectedView + ":" + _angleSubject.ImageId)"
+                                                             Subject="_angleSubject"
+                                                             ShowIdentity="false"
+                                                             SeedIntent="@AnglePrompt(selectedView)"
+                                                             DefaultEditorModelId="@_angleEditorModelId"
+                                                             ReviewDeckUrl="@_angleReviewDeckUrl"
+                                                             EditImageUrlFactory="@AngleEditImageUrl"
+                                                             ResultChanged="@(result => OnAngleResultAsync(selectedView, result))" />
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (_build is not null && (int)_build.CurrentStep >= (int)CharacterIdentityBuildStep.Promote)
+                    {
+                        <div class="card mt-3">
+                            <div class="card-header"><strong>Panel D · Promote identity pack</strong></div>
+                            <div class="card-body">
+                                @if (_promotion is not null)
+                                {
+                                    <div class="row g-2 mb-3">
+                                        @foreach (var view in _promotion.Views)
+                                        {
+                                            <div class="col-md-2"><div class="border rounded p-2 small"><strong>@view.Label</strong><br /><span class="@(view.Ready ? "text-success" : "text-danger")">@(view.Ready ? "Ready" : "Blocked")</span></div></div>
+                                        }
+                                    </div>
+                                    @if (_promotion.BlockingReasons.Count > 0)
+                                    {
+                                        <div class="alert alert-warning small">@string.Join(" ", _promotion.BlockingReasons)</div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(_promotionMessage))
+                                    {
+                                        <div class="alert alert-info small">@_promotionMessage</div>
+                                    }
+                                    <button type="button" class="btn btn-primary" @onclick="PromoteIdentityAsync" disabled="@(!_promotion.Ready || _promotionBusy)">Promote view set to identity pack</button>
+                                    @if (!string.IsNullOrWhiteSpace(_promotion.PackId))
+                                    {
+                                        <a class="btn btn-outline-success ms-2" href="/characters/@CharacterId#packs">Open identity packs</a>
+                                    }
+                                }
+                            </div>
                         </div>
                     }
                 </div>
@@ -425,6 +589,33 @@
     private string? _characterGender;
     private bool _startingBuild;
     private string? _facesError;
+    private CharacterIdentityPackPromotionResult? _promotion;
+    private string? _promotionMessage;
+    private bool _promotionBusy;
+    private bool _anglesBusy;
+    private string? _anglesMessage;
+    private List<CharacterIdentityAngleRecord> _angles = [];
+    private List<SceneAssetImage> _angleImages = [];
+    private List<CharacterIdentityAngleAttempt> _angleAttempts = [];
+    private readonly Dictionary<string, string> _overrideReasons = [];
+    private readonly Dictionary<string, string> _overrideAuthors = [];
+    private string _frontOverrideReason = string.Empty;
+    private string _frontOverrideAuthor = string.Empty;
+    private List<SceneAssetImage> _angleAttemptImages = [];
+    private CharacterIdentityAngleView? _selectedAngleView;
+    private SceneAssetImage? _angleSource;
+    private ImageEditSubject? _angleSubject;
+    private string? _angleEditorModelId;
+    private string? _angleReviewDeckUrl;
+    private readonly Dictionary<CharacterIdentityAngleView, string> _anglePrompts = [];
+    private readonly Dictionary<CharacterIdentityAngleView, bool> _profileConfirmations = [];
+    private static readonly CharacterIdentityAngleView[] AngleViews =
+    [
+        CharacterIdentityAngleView.ThreeQuarterLeft,
+        CharacterIdentityAngleView.ThreeQuarterRight,
+        CharacterIdentityAngleView.ProfileLeft,
+        CharacterIdentityAngleView.ProfileRight
+    ];
 
     private CharacterIdentityBuildStepStatus _garmentStepStatus
         => _buildStepRows.FirstOrDefault(r => r.Step == CharacterIdentityBuildStep.GarmentRemoval)?.Status
@@ -633,6 +824,8 @@
 
         await RefreshFrontAttemptsAsync();
         await RefreshGarmentAsync();
+        await RefreshAnglesAsync();
+        await RefreshPromotionAsync();
     }
     private static string StepBadge(CharacterIdentityBuildStepStatus status) => status switch
     {
@@ -762,6 +955,62 @@
         _frontMessage = null;
         try
         {
+            var selected = _frontAttempts.FirstOrDefault(a => string.Equals(a.Id, imageId, StringComparison.Ordinal));
+            var selectedAlready = selected is not null && IsChosenFront(selected);
+            if (selectedAlready && _build.CurrentStep == CharacterIdentityBuildStep.Validate)
+            {
+                var validation = ParseValidation(selected.ValidationResultJson);
+                var gate = await ValidationService.GetGateAsync(_build.Id);
+                if (!gate.CanAdvance)
+                {
+                    _frontMessage = gate.BlockReason is not null
+                        ? $"Validate is blocked: {gate.BlockReason}"
+                        : validation is null
+                            ? "Validate this front first before continuing."
+                            : $"Validate is {validation.Verdict}: {validation.BlockReason}";
+                    return;
+                }
+
+                // A recorded build-level manual override is an explicit alternative to the image-level
+                // eye verdict. Do not re-measure and replace the user's override when Continue is clicked.
+                if (!gate.ManualOverrideApplied)
+                {
+                    await ValidationService.MeasureAsync(_build.Id);
+                }
+                await ValidationService.AdvanceAsync(_build.Id);
+                _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
+                _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+                await RefreshGarmentAsync();
+                _frontMessage = $"Front continued past validation — build advanced to {_build.CurrentStep}.";
+                return;
+            }
+
+            // A different candidate can be chosen after Front has already been completed. Re-open only
+            // the Front step, record the new candidate, and then continue through its existing validation
+            // result. This keeps the visible "Use this" action as the single continuation path.
+            if (_build.CurrentStep == CharacterIdentityBuildStep.Validate)
+            {
+                var validation = ParseValidation(selected?.ValidationResultJson);
+                if (validation?.Verdict != CharacterIdentityValidationVerdict.Pass)
+                {
+                    _frontMessage = validation is null
+                        ? "Validate this front first before continuing."
+                        : $"Validate is {validation.Verdict}: {validation.BlockReason}";
+                    return;
+                }
+
+                _build = await BuildService.ReRunStepAsync(_build.Id, CharacterIdentityBuildStep.Front);
+                _build = await FrontService.SelectFrontAsync(_build.Id, imageId);
+                _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+                await ValidationService.MeasureAsync(_build.Id);
+                await ValidationService.AdvanceAsync(_build.Id);
+                _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
+                _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+                await RefreshGarmentAsync();
+                _frontMessage = $"Front selected and validated — build advanced to {_build.CurrentStep}.";
+                return;
+            }
+
             _build = await FrontService.SelectFrontAsync(_build.Id, imageId);
             _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
             _frontMessage = $"Front selected — build advanced to {_build.CurrentStep}.";
@@ -772,6 +1021,7 @@
             var chosenValidation = ParseValidation(chosen?.ValidationResultJson);
             if (chosenValidation?.Verdict == CharacterIdentityValidationVerdict.Pass)
             {
+                await ValidationService.MeasureAsync(_build.Id);
                 await ValidationService.AdvanceAsync(_build.Id);
                 _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
                 _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
@@ -809,6 +1059,21 @@
                 ? $"{attempt.Id[..8]}… passed the eye gate ({result.IrisDyPercent:F2}%)."
                 : $"{attempt.Id[..8]}… {result.Verdict}: {result.BlockReason}";
             await RefreshFrontAttemptsAsync();
+
+            // Front may already be complete when validation is run separately from front selection.
+            // In that state, a passing result for the selected front is the explicit signal to advance
+            // Validate; do not ask the user to click Use this again, which would be out of order.
+            if (result.Verdict == CharacterIdentityValidationVerdict.Pass
+                && _build is not null
+                && _build.CurrentStep == CharacterIdentityBuildStep.Validate
+                && IsChosenFront(attempt))
+            {
+                await ValidationService.AdvanceAsync(_build.Id);
+                _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
+                _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+                await RefreshGarmentAsync();
+                _frontMessage = $"{attempt.Id[..8]}… passed the eye gate and the build advanced to {_build.CurrentStep}.";
+            }
         }
         catch (Exception ex)
         {
@@ -817,6 +1082,25 @@
         finally
         {
             _validationBusy = false;
+        }
+    }
+
+    private async Task RecordFrontOverrideAsync()
+    {
+        if (_build is null)
+            return;
+        try
+        {
+            await ValidationService.RecordOverrideAsync(
+                _build.Id,
+                _frontOverrideReason,
+                _frontOverrideAuthor);
+            _frontMessage = "Front visual override recorded. Click Continue to proceed.";
+            await RefreshBuildStepsAsync();
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
         }
     }
 
@@ -970,6 +1254,281 @@
         }
     }
 
+    private async Task RefreshAnglesAsync()
+    {
+        if (_build is null)
+            return;
+
+        try
+        {
+            _angles = (await AnglesService.ListAsync(_build.Id)).ToList();
+            if (_build.CanonicalFrontAssetId is { Length: > 0 } canonicalId)
+            {
+                var canonical = await AssetService.GetImageAsync(canonicalId);
+                if (canonical is not null)
+                    _angleImages = (await AssetService.ListImagesAsync(canonical.AssetId)).ToList();
+            }
+            foreach (var view in AngleViews)
+            {
+                if (!_anglePrompts.ContainsKey(view))
+                    _anglePrompts[view] = view is CharacterIdentityAngleView.ThreeQuarterLeft or CharacterIdentityAngleView.ThreeQuarterRight
+                        ? "Turn the person's head and upper body to a three-quarter view so the nose points toward the LEFT side of the image and more of the left side of the face is visible. Keep the exact same face, hair, facial features, identity, bare neck and bare shoulders, and lighting unchanged. Do not add any clothing. Keep the identical crop, framing, zoom and head size."
+                        : "Turn the person's head to a full profile so the nose points toward the LEFT side of the image and the left side of the face is shown in full profile. Keep the exact same face, hair, facial features, identity, bare neck and bare shoulders, and lighting unchanged. Do not add any clothing. Keep the identical crop, framing, zoom and head size.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _anglesMessage = ex.Message;
+        }
+    }
+
+    private async Task RefreshPromotionAsync()
+    {
+        if (_build is null || (int)_build.CurrentStep < (int)CharacterIdentityBuildStep.Promote)
+            return;
+        try
+        {
+            _promotion = await PromotionService.GetReadinessAsync(_build.Id);
+        }
+        catch (Exception ex)
+        {
+            _promotionMessage = ex.Message;
+        }
+    }
+
+    private async Task PromoteIdentityAsync()
+    {
+        if (_build is null)
+            return;
+        _promotionBusy = true;
+        try
+        {
+            _promotion = await PromotionService.PromoteAsync(_build.Id);
+            _packs = (await IdentityService.ListPacksAsync(_build.CharacterProfileId)).ToList();
+            _promotionMessage = $"Promoted the five accepted views to draft identity pack {_promotion.PackId}.";
+            _activeSection = "Packs";
+        }
+        catch (Exception ex)
+        {
+            _promotionMessage = ex.Message;
+        }
+        finally
+        {
+            _promotionBusy = false;
+        }
+    }
+
+    private string AnglePrompt(CharacterIdentityAngleView view)
+        => _anglePrompts.TryGetValue(view, out var prompt) ? prompt : string.Empty;
+
+    private void SetAnglePrompt(CharacterIdentityAngleView view, string? prompt)
+        => _anglePrompts[view] = prompt ?? string.Empty;
+
+    private async Task SelectAngleAsync(CharacterIdentityAngleView view)
+    {
+        if (_build is null)
+            return;
+
+        // Change the visible selection before any asynchronous preparation. This prevents the previous
+        // angle's workspace from remaining on screen when the newly selected angle is still loading or
+        // has a preparation error.
+        _selectedAngleView = view;
+        _angleSource = null;
+        _angleSubject = null;
+        _angleReviewDeckUrl = null;
+        _anglesMessage = $"Loading {AngleLabel(view)} edit workspace…";
+        _anglesBusy = true;
+        try
+        {
+            _angleEditorModelId = await GarmentService.ResolveEditorModelIdAsync();
+            // Resolve the selected view's persisted template in the service. Do not pass the previous
+            // card's in-memory prompt as an override: left and right have distinct template keys.
+            var prepared = await AnglesService.PrepareAsync(_build.Id, view, _angleEditorModelId);
+            _anglePrompts[view] = prepared.ResolvedPromptText
+                ?? throw new InvalidOperationException($"The resolved prompt for {AngleLabel(view)} was empty.");
+            _angleSource = await AssetService.GetImageAsync(prepared.InputArtifactId!)
+                ?? throw new InvalidOperationException($"Angle source image '{prepared.InputArtifactId}' was not found.");
+            _angleSubject = new ImageEditSubject(
+                ImageEditSubjectKind.AssetImage,
+                _angleSource.Id,
+                _angleSource.AssetId,
+                CandidateBatchId: CharacterIdentityAnglesService.CandidateBatchIdFor(_build.Id, view));
+            _angleReviewDeckUrl = string.IsNullOrWhiteSpace(_angleSource.CandidateBatchId)
+                ? null
+                : $"/review-deck/asset/{_angleSource.CandidateBatchId}";
+            _angles = (await AnglesService.ListAsync(_build.Id)).ToList();
+            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, view)).ToList();
+            _angleAttemptImages = await LoadAngleAttemptImagesAsync(_angleAttempts);
+            _anglesMessage = $"{AngleLabel(view)} selected. Prepare the prompt, then run the edit.";
+        }
+        catch (Exception ex)
+        {
+            _anglesMessage = ex.Message;
+        }
+        finally
+        {
+            _anglesBusy = false;
+        }
+    }
+
+    private async Task UploadAngleAsync(CharacterIdentityAngleView view, InputFileChangeEventArgs args)
+    {
+        if (_build is null || args.File is null)
+            return;
+        try
+        {
+            await using var stream = args.File.OpenReadStream(20 * 1024 * 1024);
+            await AnglesService.UploadAsync(_build.Id, view, args.File.Name, stream);
+            _selectedAngleView = view;
+            await SelectAngleAsync(view);
+            _anglesMessage = $"Uploaded {args.File.Name} as a {AngleLabel(view)} attempt. Review it, edit it if needed, then use this angle.";
+        }
+        catch (Exception ex)
+        {
+            _anglesMessage = ex.Message;
+        }
+    }
+
+    private async Task OnAngleCardKeyDown(KeyboardEventArgs args, CharacterIdentityAngleView view)
+    {
+        if (args.Key is "Enter" or " ")
+            await SelectAngleAsync(view);
+    }
+
+    private string AngleEditImageUrl(string imageId)
+        => _angleSource is null ? string.Empty : $"/assets/{_angleSource.AssetId}/images/{imageId}/edit";
+
+    private string AngleReviewDeckUrl(CharacterIdentityAngleView view)
+        => $"/review-deck/asset/{CharacterIdentityAnglesService.CandidateBatchIdFor(_build!.Id, view)}";
+
+    private async Task OnAngleResultAsync(CharacterIdentityAngleView resultView, ImageEditResultView result)
+    {
+        if (_build is null)
+            return;
+
+        try
+        {
+            await AnglesService.RecordResultAsync(_build.Id, resultView, result.ImageId, AnglePrompt(resultView));
+            _angles = (await AnglesService.ListAsync(_build.Id)).ToList();
+            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, resultView)).ToList();
+            _angleAttemptImages = await LoadAngleAttemptImagesAsync(_angleAttempts);
+            _anglesMessage = $"{AngleLabel(resultView)} produced a result. Review it, then use this angle.";
+        }
+        catch (Exception ex)
+        {
+            _anglesMessage = ex.Message;
+        }
+    }
+
+    private async Task AcceptAngleAsync(CharacterIdentityAngleView view)
+    {
+        if (_build is null)
+            return;
+        try
+        {
+            await AnglesService.AcceptAsync(_build.Id, view, _profileConfirmations.GetValueOrDefault(view));
+            _anglesMessage = $"{AngleLabel(view)} accepted.";
+            _angles = (await AnglesService.ListAsync(_build.Id)).ToList();
+            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, view)).ToList();
+            _angleAttemptImages = await LoadAngleAttemptImagesAsync(_angleAttempts);
+            _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
+            _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _anglesMessage = ex.Message;
+        }
+    }
+
+    private async Task AcceptAngleAttemptAsync(CharacterIdentityAngleView view, string attemptId)
+    {
+        if (_build is null)
+            return;
+        try
+        {
+            await AnglesService.AcceptAttemptAsync(_build.Id, view, attemptId, _profileConfirmations.GetValueOrDefault(view));
+            _angles = (await AnglesService.ListAsync(_build.Id)).ToList();
+            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, view)).ToList();
+            _angleAttemptImages = await LoadAngleAttemptImagesAsync(_angleAttempts);
+            _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
+            _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+            _anglesMessage = $"{AngleLabel(view)} attempt selected.";
+        }
+        catch (Exception ex)
+        {
+            _anglesMessage = ex.Message;
+        }
+    }
+
+    private async Task DeleteAngleAttemptAsync(CharacterIdentityAngleView view, string attemptId)
+    {
+        if (_build is null)
+            return;
+        try
+        {
+            await AnglesService.DeleteAttemptAsync(_build.Id, view, attemptId);
+            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, view)).ToList();
+            _angleAttemptImages = await LoadAngleAttemptImagesAsync(_angleAttempts);
+            _anglesMessage = $"Deleted the selected {AngleLabel(view)} attempt output.";
+        }
+        catch (Exception ex)
+        {
+            _anglesMessage = ex.Message;
+        }
+    }
+
+    private async Task RecordAngleOverrideAsync(CharacterIdentityAngleView view, string attemptId)
+    {
+        if (_build is null)
+            return;
+        try
+        {
+            await AnglesService.RecordOverrideAsync(
+                _build.Id,
+                view,
+                attemptId,
+                _overrideReasons.GetValueOrDefault(attemptId) ?? string.Empty,
+                _overrideAuthors.GetValueOrDefault(attemptId) ?? string.Empty);
+            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, view)).ToList();
+            _anglesMessage = $"Recorded visual override for {AngleLabel(view)} attempt.";
+        }
+        catch (Exception ex)
+        {
+            _anglesMessage = ex.Message;
+        }
+    }
+
+    private async Task<List<SceneAssetImage>> LoadAngleAttemptImagesAsync(
+        IEnumerable<CharacterIdentityAngleAttempt> attempts)
+    {
+        var images = new List<SceneAssetImage>();
+        foreach (var attempt in attempts)
+        {
+            var imageId = attempt.OutputArtifactId;
+            if (string.IsNullOrWhiteSpace(imageId))
+            {
+                continue;
+            }
+
+            var image = await AssetService.GetImageAsync(imageId);
+            if (image is not null)
+            {
+                images.Add(image);
+            }
+        }
+
+        return images;
+    }
+
+    private static string AngleLabel(CharacterIdentityAngleView view) => view switch
+    {
+        CharacterIdentityAngleView.ThreeQuarterLeft => "Three-quarter left",
+        CharacterIdentityAngleView.ThreeQuarterRight => "Three-quarter right",
+        CharacterIdentityAngleView.ProfileLeft => "Profile left",
+        CharacterIdentityAngleView.ProfileRight => "Profile right",
+        _ => view.ToString()
+    };
+
     /// <summary>Loads the edited images of the front asset, newest first.</summary>
     private async Task RefreshEditedImagesAsync()
     {
@@ -1035,6 +1594,19 @@
         try
         {
             await RefreshEditedImagesAsync();
+            var produced = _editedImages.FirstOrDefault(image =>
+                string.Equals(image.Id, result.ImageId, StringComparison.Ordinal));
+            if (produced is not null)
+            {
+                // Keep the shared editor chained to the newest artifact. Crop and Enhance must operate
+                // on the completed output of the preceding operation, not silently return to the original
+                // Front image when the workspace tab changes.
+                _garmentSource = produced;
+                _garmentSubject = ImageEditSubject.ForAssetImage(produced.AssetId, produced.Id);
+                _garmentReviewDeckUrl = string.IsNullOrWhiteSpace(produced.CandidateBatchId)
+                    ? null
+                    : $"/review-deck/asset/{produced.CandidateBatchId}";
+            }
             _garmentMessage = $"Added {result.ImageId[..8]}… to the edited images. Approve the one you want with \"Use this\".";
         }
         catch (Exception ex)

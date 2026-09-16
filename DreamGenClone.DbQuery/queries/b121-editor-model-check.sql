@@ -1,0 +1,1 @@
+SELECT s.Id AS SettingsId, s.EditorModelId, rm.Id AS ModelId, rm.DisplayName, rm.ModelIdentifier, rm.ProviderId FROM ReferenceWorkflowSettings s LEFT JOIN RegisteredModels rm ON rm.Id = s.EditorModelId WHERE s.Id = 'global';

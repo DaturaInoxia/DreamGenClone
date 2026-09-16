@@ -1,0 +1,5 @@
+BEGIN TRANSACTION;
+DELETE FROM CharacterIdentityAngleAttempts WHERE AngleId IN (SELECT Id FROM CharacterIdentityAngles WHERE BuildId = '49c3175356874e908b181cad815f7141');
+DELETE FROM CharacterIdentityAngles WHERE BuildId = '49c3175356874e908b181cad815f7141';
+DELETE FROM SceneAssetImages WHERE CandidateBatchId LIKE 'angles-49c3175356874e908b181cad815f7141-%';
+COMMIT;

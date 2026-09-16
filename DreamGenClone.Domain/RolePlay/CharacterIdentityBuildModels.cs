@@ -28,6 +28,68 @@ public enum CharacterIdentityBuildStepStatus
     Skipped = 5
 }
 
+public enum CharacterIdentityAngleView
+{
+    ThreeQuarterLeft = 1,
+    ThreeQuarterRight = 2,
+    ProfileLeft = 3,
+    ProfileRight = 4
+}
+
+public enum CharacterIdentityAngleStatus
+{
+    NotStarted = 1,
+    Pending = 2,
+    Complete = 3,
+    Accepted = 4,
+    Failed = 5,
+    Blocked = 6
+}
+
+public sealed class CharacterIdentityAngleRecord
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string BuildId { get; set; } = string.Empty;
+    public CharacterIdentityAngleView View { get; set; }
+    public CharacterIdentityAngleStatus Status { get; set; } = CharacterIdentityAngleStatus.NotStarted;
+    public string? InputArtifactId { get; set; }
+    public string? OutputArtifactId { get; set; }
+    public string? AcceptedAttemptId { get; set; }
+    public string? ResolvedPromptText { get; set; }
+    public string? ResolvedModelId { get; set; }
+    public string? FailureReason { get; set; }
+    public bool MirrorDerived { get; set; }
+    public bool ManualOverrideApplied { get; set; }
+    public string? ManualOverrideReason { get; set; }
+    public string? ManualOverrideAuthor { get; set; }
+    public DateTime? ManualOverrideUtc { get; set; }
+    public bool ManualConfirmationRequired { get; set; }
+    public bool ManualConfirmed { get; set; }
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>One immutable render attempt for an angle. The view record points at the accepted attempt.</summary>
+public sealed class CharacterIdentityAngleAttempt
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string AngleId { get; set; } = string.Empty;
+    public int AttemptNumber { get; set; }
+    public string InputArtifactId { get; set; } = string.Empty;
+    public string OutputArtifactId { get; set; } = string.Empty;
+    public string? PromptText { get; set; }
+    public string? ResolvedModelId { get; set; }
+    public CharacterIdentityAngleStatus Status { get; set; } = CharacterIdentityAngleStatus.Pending;
+    public bool MirrorDerived { get; set; }
+    public bool ManualOverrideApplied { get; set; }
+    public string? ManualOverrideReason { get; set; }
+    public string? ManualOverrideAuthor { get; set; }
+    public DateTime? ManualOverrideUtc { get; set; }
+    public string? FailureReason { get; set; }
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
 /// <summary>The outcome of the Validate step's eye-level gate.</summary>
 public enum CharacterIdentityValidationVerdict
 {
@@ -81,6 +143,8 @@ public sealed class CharacterIdentityBuild
     /// exists, and the later steps work from this image.
     /// </summary>
     public string? CanonicalFrontAssetId { get; set; }
+
+    public string? ProducedIdentityPackId { get; set; }
 
     public CharacterIdentityBuildStep CurrentStep { get; set; } = CharacterIdentityBuildStep.Front;
 

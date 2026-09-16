@@ -1,0 +1,1 @@
+SELECT Id, AssetId, Status, Kind, SourceImageId, CreatedUtc, UpdatedUtc, StartedUtc, CompletedUtc, ErrorMessage, Prompt, FileRelativePath FROM SceneAssetImages WHERE Id = 'd2406ede583c48a1a416f3d92da13c6d';

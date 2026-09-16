@@ -1,0 +1,1 @@
+SELECT Id, Status, Kind, SourceImageId, CandidateBatchId, FileRelativePath, CreatedUtc FROM SceneAssetImages WHERE CandidateBatchId LIKE 'angles-49c3175356874e908b181cad815f7141-%' OR Id IN ('30753136591c4ca283cd163fcd00a39d','974e87e405c14760b29745d0d43799c0','05dd4f57c0ab4845ba5bb0d5b183536a','a770cf2d23e54ed9bab1990e57a949d3') ORDER BY CreatedUtc;

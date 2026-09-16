@@ -272,9 +272,21 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
             },
             new ImageWorkflowPromptTemplate
             {
+                Key = "identity.angle.three-quarter.right",
+                WorkflowStep = "Angles",
+                Body = "Turn the person's head and upper body to a three-quarter view so the nose points toward the RIGHT side of the image and more of the right side of the face is visible. Keep the exact same face, hair, facial features, identity, bare neck and bare shoulders, and lighting unchanged. Do not add any clothing. Keep the identical crop, framing, zoom and head size."
+            },
+            new ImageWorkflowPromptTemplate
+            {
                 Key = "identity.angle.profile",
                 WorkflowStep = "Angles",
                 Body = "Turn the person's head to a full profile so the nose points toward the LEFT side of the image and the left side of the face is shown in full profile. Keep the exact same face, hair, facial features, identity, bare neck and bare shoulders, and lighting unchanged. Do not add any clothing. Keep the identical crop, framing, zoom and head size."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = "identity.angle.profile.right",
+                WorkflowStep = "Angles",
+                Body = "Turn the person's head to a full profile so the nose points toward the RIGHT side of the image and the right side of the face is shown in full profile. Keep the exact same face, hair, facial features, identity, bare neck and bare shoulders, and lighting unchanged. Do not add any clothing. Keep the identical crop, framing, zoom and head size."
             }
         };
 

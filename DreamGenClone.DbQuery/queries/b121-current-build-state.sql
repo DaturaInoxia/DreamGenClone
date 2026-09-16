@@ -1,0 +1,1 @@
+SELECT Id, CurrentStep, Status, CanonicalFrontAssetId, UpdatedUtc FROM CharacterIdentityBuilds WHERE Id = '49c3175356874e908b181cad815f7141';

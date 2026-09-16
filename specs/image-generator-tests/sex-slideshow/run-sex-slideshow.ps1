@@ -30,7 +30,7 @@ param(
     [int]$Width = 1216,
     [int]$Height = 832,
     [string]$BaseCheckpoint = 'bigLust_v16.safetensors',
-    [string]$ComfyUiUrl = 'http://192.168.0.16:8188',
+    [string]$ComfyUiUrl = 'https://comfy.kenacwood.net',
     [string]$EditRunner = 'helpers/local-comfyui-host/run-local-aio-edit-proof.ps1',
     [string]$BaseRunner = 'specs/image-generator-tests/anatomy-edit-matrix/make-base-image.ps1',
     [string]$SheetBuilder = 'specs/image-generator-tests/anatomy-edit-matrix/make-contact-sheet.py',
@@ -51,12 +51,24 @@ param(
     [string]$Stabilizer = 'specs/image-generator-tests/sex-slideshow/stabilize-color.py',
     # ANCHORING. Both forms feed an extra reference (image2) on every link, alongside the previous frame
     # (image1). -AnchorFrame passes the WHOLE step-1 frame; measured WORSE than baseline for drift because
-    # it contradicts the current pose instruction (it still shows the step-1 pose). -AnchorBackground
-    # passes only the subject-free studio backdrop, built once from step 1 -- the environment is what
+    # it still shows the step-1 pose). -AnchorBackground passes only the subject-free studio backdrop, built once from step 1 -- the environment is what
     # drifts, so anchoring it need not carry any pose information.
     [switch]$AnchorFrame,
     [switch]$AnchorBackground,
     [string]$BackgroundRefTool = 'specs/image-generator-tests/sex-slideshow/make-background-reference.py',
+    # IDENTITY CONDITIONING. -Identity enables regional IP-Adapter on the base render (step 1). When
+    # used without -DeanRef/-BeckyRef, refs are auto-resolved from specs/image-generator-tests/refs/versions.json
+    # (dean v8 → profr, becky v5 → profl — matching the side-profile "facing each other" base pose).
+    [switch]$Identity,
+    [string]$DeanRef,
+    [string]$BeckyRef,
+    [string]$DeanMask = 'specs/image-generator-tests/identity-two-character/masks/c6_left.png',
+    [string]$BeckyMask = 'specs/image-generator-tests/identity-two-character/masks/c6_right.png',
+    [string]$IdentityBaseRunner = 'specs/image-generator-tests/sex-slideshow/make-identity-base.ps1',
+    # FROM-BASE mode: every edit uses the step-1 base image as its source instead of the previous
+    # step's output. Each prompt must fully describe the target state (they do). This removes the
+    # chained-edit feedback loop entirely: no frame is ever derived from another edited frame.
+    [switch]$FromBase,
     [switch]$SkipSheet
 )
 
@@ -76,62 +88,65 @@ $both = 'correct male and female anatomy, natural integration with both bodies'
 # NOTE: named stepList, NOT $steps — PowerShell variable names are case-INSENSITIVE, so a variable called
 # $steps would collide with the [int]$Steps sampling parameter above and blow up on the array assignment.
 $stepList = @(
-    @{ N = 1;  Slug = 'man-woman-standing'; Kind = 'base'
-       Prompt = 'photorealistic studio photograph of a man and a woman standing side by side facing the camera, both fully clothed in fitted dark gray short-sleeved t-shirts and blue jeans, barefoot, full body, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
+    # Base is deliberately the side-profile "facing each other" pose so the multiangle identity pack
+    # can directly condition on the curated profile refs (dean_profl/profr, becky_profl/profr) instead
+    # of forcing the model to synthesize profile faces from a front-facing base.
+    @{ N = 1;  Slug = 'man-woman-facing-each-other'; Kind = 'base'
+       Prompt = 'photorealistic studio photograph of a man and a woman standing side by side facing each other, both fully clothed in fitted dark gray short-sleeved t-shirts and blue jeans, barefoot, full body, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
-    @{ N = 2;  Slug = 'facing-each-other'; Kind = 'edit'
-       Prompt = 'the man and the woman turn to face each other, they stay fully clothed' },
-
-    @{ N = 3;  Slug = 'woman-hands-and-knees'; Kind = 'edit'
-       Prompt = 'the woman is down on her hands and knees on the floor facing the man, she stays fully clothed, natural integration with her body' },
+    @{ N = 3;  Slug = 'woman-on-knees'; Kind = 'edit'
+       Prompt = 'the man stands beside the woman who is on her knees on the floor facing him, she stays fully clothed in fitted dark gray short-sleeved t-shirt and blue jeans, he stays fully clothed in fitted dark gray short-sleeved t-shirt and blue jeans, barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
     @{ N = 4;  Slug = 'man-soft-penis'; Kind = 'edit'
-       Prompt = 'the man unzips his jeans and pulls the front down, his soft flaccid penis is fully visible, correct male anatomy, natural integration with his body' },
+       Prompt = 'the man stands beside the woman who is on her knees facing him, the man unzips his jeans and pulls the front down revealing his soft flaccid penis, correct male anatomy, natural integration with his body, the woman stays fully clothed in fitted dark gray short-sleeved t-shirt and blue jeans, barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
     @{ N = 5;  Slug = 'woman-hand-erect'; Kind = 'edit'
-       Prompt = 'the woman reaches out and holds the man''s penis in her hand, his penis is now erect, correct male anatomy, natural integration with his body' },
+       Prompt = 'the man stands beside the woman who is on her knees facing him, the woman reaches out and holds the man''s erect penis in her hand, his penis is now erect, correct male anatomy, natural integration with his body, the woman stays fully clothed in fitted dark gray short-sleeved t-shirt and blue jeans, barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
     @{ N = 6;  Slug = 'woman-positions-mouth'; Kind = 'edit'
-       Prompt = 'the woman kneels in front of the man and brings her face to his erect penis to take it into her mouth, ' + $both },
+       Prompt = 'the woman kneels in front of the man bringing her face to his erect penis to take it into her mouth, correct male and female anatomy, natural integration with both bodies, the man stays clothed in fitted dark gray short-sleeved t-shirt and blue jeans, barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
     @{ N = 7;  Slug = 'tip-in-mouth'; Kind = 'edit'
-       Prompt = 'the woman takes the tip of the man''s erect penis into her mouth, ' + $both },
+       Prompt = 'the woman kneels in front of the man taking the tip of his erect penis into her mouth, correct male and female anatomy, natural integration with both bodies, the man stays clothed in fitted dark gray short-sleeved t-shirt and blue jeans, barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
     @{ N = 8;  Slug = 'half-in-mouth'; Kind = 'edit'
-       Prompt = 'the woman takes half of the man''s erect penis into her mouth, ' + $both },
+       Prompt = 'the woman kneels in front of the man taking half of his erect penis into her mouth, correct male and female anatomy, natural integration with both bodies, the man stays clothed in fitted dark gray short-sleeved t-shirt and blue jeans, barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
     @{ N = 9;  Slug = 'all-in-mouth'; Kind = 'edit'
-       Prompt = 'the woman takes the man''s entire erect penis into her mouth, ' + $both },
+       Prompt = 'the woman kneels in front of the man taking his entire erect penis into her mouth, correct male and female anatomy, natural integration with both bodies, the man stays clothed in fitted dark gray short-sleeved t-shirt and blue jeans, barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
-    @{ N = 10; Slug = 'woman-stands-facing'; Kind = 'edit'
-       Prompt = 'the woman stands up and faces the man, they stay clothed as they are' },
+    @{ N = 10; Slug = 'man-ejaculates-face'; Kind = 'edit'
+       Prompt = 'the woman kneels in front of the man and he ejaculates onto her face, semen visible on her skin, correct male and female anatomy, natural integration with both bodies, the man stays clothed in fitted dark gray short-sleeved t-shirt and blue jeans, barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
-    @{ N = 11; Slug = 'woman-turns-away'; Kind = 'edit'
-       Prompt = 'the woman turns around so she faces the same direction as the man, her back toward him' },
+    @{ N = 11; Slug = 'woman-stands-facing'; Kind = 'edit'
+       Prompt = 'the woman stands up facing the man, semen visible on the woman''s face, the man''s jeans are pulled down with his erect penis fully visible, the woman wears her fitted dark gray short-sleeved t-shirt and blue jeans, the man wears his fitted dark gray short-sleeved t-shirt, both barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
-    @{ N = 12; Slug = 'woman-lowers-jeans'; Kind = 'edit'
-       Prompt = 'the woman unbuttons her jeans and pulls them down, her bare buttocks and vulva are exposed, correct female anatomy, natural integration with her body' },
+    @{ N = 12; Slug = 'woman-turns-away'; Kind = 'edit'
+       Prompt = 'the woman stands on the right side of the frame with her back toward the man who stands on the left side, the woman faces away from the camera, semen visible on the woman''s face, the man''s jeans are pulled down with his erect penis visible, the woman wears her fitted dark gray short-sleeved t-shirt and blue jeans, the man wears his fitted dark gray short-sleeved t-shirt, both barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
-    @{ N = 13; Slug = 'woman-bends-over'; Kind = 'edit'
-       Prompt = 'the woman bends forward at the waist in front of the man, presenting her buttocks to him, correct female anatomy, natural integration with her body' },
+    @{ N = 13; Slug = 'woman-lowers-jeans'; Kind = 'edit'
+       Prompt = 'the woman stands facing away from the camera on the right side of the frame, her jeans pulled down to her thighs exposing her bare buttocks, her back and buttocks visible to the camera, semen visible on the side of her face seen in profile, the man stands behind her to the left with his jeans pulled down and erect penis visible, the woman wears her fitted dark gray short-sleeved t-shirt, the man wears his fitted dark gray short-sleeved t-shirt, both barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
-    @{ N = 14; Slug = 'man-positions-entry'; Kind = 'edit'
-       Prompt = 'the man steps up behind the woman and positions his erect penis at the entrance to her vagina, ' + $both },
+    @{ N = 14; Slug = 'woman-bends-over'; Kind = 'edit'
+       Prompt = 'the woman bends forward at the waist on the right side of the frame facing away from the camera, her bare buttocks presented toward the man, her jeans pulled down to her thighs, her t-shirt still on, semen visible on the side of her face in profile, the man stands directly behind her with his jeans pulled down and his erect penis visible, both wearing their fitted dark gray short-sleeved t-shirts, both barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
-    @{ N = 15; Slug = 'tip-penetrates'; Kind = 'edit'
-       Prompt = 'the tip of the man''s erect penis is inside the woman''s vagina, ' + $both },
+    @{ N = 15; Slug = 'man-positions-entry'; Kind = 'edit'
+       Prompt = 'the woman bends forward at the waist facing away from the camera, the man stands directly behind her with his erect penis positioned at the entrance to her vagina from behind, her jeans pulled down to her thighs, his jeans pulled down, semen visible on the side of her face in profile, both wearing their fitted dark gray short-sleeved t-shirts, both barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
-    @{ N = 16; Slug = 'half-penetrates'; Kind = 'edit'
-       Prompt = 'half of the man''s erect penis is inside the woman''s vagina, ' + $both },
+    @{ N = 16; Slug = 'tip-penetrates'; Kind = 'edit'
+       Prompt = 'the woman bends forward at the waist facing away from the camera, the man behind her, the tip of his erect penis penetrating her vagina from behind, her jeans pulled down to her thighs, his jeans pulled down, semen visible on the side of her face in profile, both wearing their fitted dark gray short-sleeved t-shirts, both barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
-    @{ N = 17; Slug = 'fully-penetrates'; Kind = 'edit'
-       Prompt = 'the man''s entire erect penis is fully inside the woman''s vagina, ' + $both },
+    @{ N = 17; Slug = 'half-penetrates'; Kind = 'edit'
+       Prompt = 'the woman bends forward at the waist facing away from the camera, the man behind her, half of his erect penis inside her vagina penetrating from behind, her jeans pulled down to her thighs, his jeans pulled down, semen visible on the side of her face in profile, both wearing their fitted dark gray short-sleeved t-shirts, both barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
-    @{ N = 18; Slug = 'man-withdraws'; Kind = 'edit'
-       Prompt = 'the man pulls his erect penis out of the woman''s vagina, ' + $both },
+    @{ N = 18; Slug = 'fully-penetrates'; Kind = 'edit'
+       Prompt = 'the woman bends forward at the waist facing away from the camera, the man behind her, his entire erect penis fully inside her vagina penetrating from behind, her jeans pulled down to her thighs, his jeans pulled down, semen visible on the side of her face in profile, both wearing their fitted dark gray short-sleeved t-shirts, both barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
 
-    @{ N = 19; Slug = 'man-ejaculates'; Kind = 'edit'
-       Prompt = 'the man ejaculates onto the woman''s buttocks and lower back, semen visible on her skin, ' + $both }
+    @{ N = 19; Slug = 'man-withdraws'; Kind = 'edit'
+       Prompt = 'the woman bends forward at the waist facing away from the camera, the man behind her has withdrawn, his erect penis pulled out of her vagina and visible between them, her jeans pulled down to her thighs, his jeans pulled down, semen visible on the side of her face in profile, both wearing their fitted dark gray short-sleeved t-shirts, both barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' },
+
+    @{ N = 20; Slug = 'man-ejaculates'; Kind = 'edit'
+       Prompt = 'the woman bends forward at the waist facing away from the camera, the man behind her ejaculates onto her bare buttocks and lower back, semen visible on her buttocks and on the side of her face in profile, her jeans pulled down to her thighs, her t-shirt still on, his jeans pulled down, both wearing their fitted dark gray short-sleeved t-shirts, both barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail' }
 )
 
 if ($MaxStep -gt 0) { $stepList = @($stepList | Where-Object { $_.N -le $MaxStep }) }
@@ -148,6 +163,7 @@ if ($MaxStep -gt 0) { $stepList = @($stepList | Where-Object { $_.N -le $MaxStep
 
 $manifest = @()
 $previous = $null
+$baseImage = $null
 $referenceFrame = $null
 $failedAt = $null
 
@@ -157,7 +173,7 @@ foreach ($step in $stepList) {
 
     ''
     '------------------------------------------------------------------------------'
-    "STEP $($step.N)/$($steps.Count)  $($step.Slug)  [$($step.Kind)]"
+    "STEP $($step.N)/$($stepList.Count)  $($step.Slug)  [$($step.Kind)]"
     "instruction: $($step.Prompt)"
     '------------------------------------------------------------------------------'
 
@@ -167,13 +183,30 @@ foreach ($step in $stepList) {
 
     try {
         if ($step.Kind -eq 'base') {
-            & $BaseRunner -ComfyUiUrl $ComfyUiUrl -Checkpoint $BaseCheckpoint -Positive $step.Prompt `
-                -Negative '' -Seed $Seed -Width $Width -Height $Height -OutDir $staging -Prefix "slide$Prefix"
+            if ($Identity) {
+                # Identity-conditioned base: use the regional IP-Adapter runner (Dean left, Becky right)
+                & $IdentityBaseRunner `
+                    -ComfyUiUrl $ComfyUiUrl `
+                    -DeanRef $DeanRef `
+                    -BeckyRef $BeckyRef `
+                    -DeanMask $DeanMask `
+                    -BeckyMask $BeckyMask `
+                    -Prompt $step.Prompt `
+                    -Seed $Seed `
+                    -Width $Width `
+                    -Height $Height `
+                    -Checkpoint $BaseCheckpoint `
+                    -OutDir $staging `
+                    -Prefix "slide$Prefix"
+            } else {
+                & $BaseRunner -ComfyUiUrl $ComfyUiUrl -Checkpoint $BaseCheckpoint -Positive $step.Prompt `
+                    -Negative '' -Seed $Seed -Width $Width -Height $Height -OutDir $staging -Prefix "slide$Prefix"
+            }
         } else {
             if (-not $previous) { throw "Step $($step.N) needs a previous step but none succeeded." }
             $editArgs = @{
                 ComfyUiUrl  = $ComfyUiUrl
-                SourceImage = $previous
+                SourceImage = if ($FromBase) { $baseImage } else { $previous }
                 Instruction = $step.Prompt
                 Seed        = $Seed
                 Checkpoint  = $Checkpoint
@@ -194,6 +227,8 @@ foreach ($step in $stepList) {
         Copy-Item $produced.FullName $target -Force
         Remove-Item $staging -Recurse -Force
 
+        if ($step.Kind -eq 'base') { $baseImage = $target }
+
         $manifest += [ordered]@{
             step        = $step.N
             slug        = $step.Slug
@@ -202,7 +237,7 @@ foreach ($step in $stepList) {
             checkpoint  = $(if ($step.Kind -eq 'base') { $BaseCheckpoint } else { $Checkpoint })
             lora        = $(if ($step.Kind -eq 'base') { $null } else { $LoraName })
             loraStrength = $(if ($step.Kind -eq 'base' -or -not $LoraName) { $null } else { $LoraStrength })
-            source      = $(if ($step.Kind -eq 'base') { '(text-to-image)' } else { Split-Path $previous -Leaf })
+            source      = $(if ($step.Kind -eq 'base') { '(text-to-image)' } elseif ($FromBase) { 'step01 (from-base)' } else { Split-Path $previous -Leaf })
             anchor      = $(if ($AnchorFrame -and $step.Kind -ne 'base') { 'step01' } else { $null })
             output      = (Split-Path $target -Leaf)
         }

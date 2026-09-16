@@ -1,16 +1,32 @@
 # Sex Slideshow (local ComfyUI — Qwen source-image editor)
 
-A **19-step chained edit sequence**: one scene progressed from clothed standing to a completed act, one
-edit per step. Runnable against any editor configuration so two checkpoints/LoRAs can be compared
-step-for-step.
+A **20-step multi-reference edit sequence**: one clean base scene is rendered once, then every target
+state is edited independently from that same base image. Runnable against any editor configuration so
+two checkpoints/LoRAs can be compared step-for-step.
 
-## Why it is chained (and why that matters)
+## Why the base starts in the side-profile "facing each other" pose
 
-Step 1 is a text-to-image render (the editor is an *editor* — it needs a starting image). **Every later
-step edits the previous step's output.** That is the whole point: unlike the anatomy matrix, which edits a
-fixed base, this harness tests whether an editor can hold two subjects, their wardrobe and their spatial
-relationship across **18 successive** edits. Drift, silent re-dressing and identity loss only show up in a
-chain.
+The identity pack contains **five curated angle-specific references** (front, 3/4L, 3/4R, profileL, profileR).
+When the base render uses regional IP-Adapter + per-angle masks, the model can only condition on the
+reference whose angle matches the requested pose. Starting the base facing the camera would force the
+model to synthesize profile faces from the front ref on step 2; starting the base already facing each
+other lets the curated profile refs (`*_profl`, `*_profr`) be used directly on the T2I base. Every
+subsequent `-FromBase` edit inherits that stronger identity signal.
+
+## Why it uses the base image for every edit
+
+Step 1 is a text-to-image render (the editor is an *editor* — it needs a starting image). In the
+recommended `-FromBase` mode, **every later step edits the step-1 output**, not the previous edit's
+output. Each prompt therefore describes the complete target state, including pose, spatial arrangement,
+clothing, and any accumulated state such as visible facial residue.
+
+This is intentional. Earlier chained runs proved that feeding an edited frame into the next edit creates
+a chromatic feedback loop: the flat studio background develops a starfield-like pattern even when the
+subjects remain usable. FromBase removes that recursive image degradation; state continuity is expressed
+by the full-state prompt instead.
+
+The legacy chained behavior remains available when `-FromBase` is omitted, but it is diagnostic only and
+should not be used to evaluate the maximum number of independent scene states.
 
 ## Why it lives here
 
@@ -36,7 +52,7 @@ committed cannot be reviewed or diffed against a later run. Use `-OutDir`-style 
 
 | File | Purpose |
 |---|---|
-| `run-sex-slideshow.ps1` | The 19-step chained runner (prompts are defined here) |
+| `run-sex-slideshow.ps1` | The 20-step runner; use `-FromBase` for independent edits from step 1 |
 | `runs/<RunId>/` | `stepNN-<slug>.png`, `manifest.json`, `slideshow.png` — **tracked** output |
 
 It reuses, rather than duplicates: `anatomy-edit-matrix/make-base-image.ps1` (step 1 T2I) and the
@@ -56,34 +72,35 @@ app-faithful edit runner `helpers/local-comfyui-host/run-local-aio-edit-proof.ps
     -Prefix v23lora08 `
     -Checkpoint 'Qwen-Rapid-AIO-NSFW-v23.safetensors' `
     -LoraName 'QwenEdit2511_AllIncludedGay_v2.safetensors' -LoraStrength 0.8 `
-    -RunId 20260912-07-slideshow-v23lora08
+  -RunId 20260912-07-slideshow-v23lora08 -FromBase
 ```
 
 **Give each configuration its OWN `-RunId`.** Step files are named `stepNN-<slug>.png`, so two
 configurations sharing a run folder would overwrite each other's steps and manifest.
 
-## The 19 steps
+## The 20 target states
 
 | # | Step | # | Step |
 |---|---|---|---|
-| 1 | man + woman standing (T2I base) | 11 | woman turns away from camera |
-| 2 | face each other | 12 | woman lowers her jeans |
-| 3 | woman on hands and knees | 13 | woman bends over |
-| 4 | man lowers pants, soft penis | 14 | man positions at entry |
-| 5 | woman's hand, penis erect | 15 | tip penetrates |
-| 6 | woman positions to take it in mouth | 16 | half penetrates |
-| 7 | tip in mouth | 17 | fully penetrates |
-| 8 | half in mouth | 18 | man withdraws |
-| 9 | all in mouth | 19 | man ejaculates onto her |
-| 10 | woman stands facing him | | |
+| 1 | man + woman standing (T2I base) | 11 | woman stands; man's jeans remain down; residue remains on her face |
+| 2 | face each other | 12 | woman on right, man on left, woman facing away |
+| 3 | woman on knees | 13 | woman faces away; jeans pulled to thighs; shirt remains on |
+| 4 | man lowers jeans, soft penis | 14 | woman bends over; man behind; both jeans down; shirts remain on |
+| 5 | woman's hand, penis erect | 15 | man positions at entry from behind |
+| 6 | woman positions to take it in mouth | 16 | tip penetrates from behind |
+| 7 | tip in mouth | 17 | half penetrates from behind |
+| 8 | half in mouth | 18 | fully penetrates from behind |
+| 9 | all in mouth | 19 | man withdraws from behind |
+| 10 | man ejaculates onto woman's face | 20 | man ejaculates onto buttocks/lower back; shirt remains on |
 
 The full instruction text for every step is recorded in each run's `manifest.json`, so a run is
 self-describing even if the prompts here change later.
 
 ## Failure behaviour
 
-The chain stops at the first failed step and the manifest records `completed=false` and `failedAtStep`.
-Deliberate: later frames would otherwise descend from the wrong source image while looking plausible.
+The run stops at the first failed step and the manifest records `completed=false` and `failedAtStep`.
+In `-FromBase` mode, a later frame never descends from an earlier edited frame; it always uses the
+recorded step-1 base source.
 
 ## Verified (2026-09-12, Remix + LoRA @0.8)
 
@@ -91,7 +108,7 @@ Steps 1–3 inspected: step 1 matched the prompt exactly; **steps 2 and 3 preser
 and barefoot state while executing the pose changes**, i.e. the chain does not silently re-dress. Steps 4+
 are explicit and the image-review tool refuses them, so those frames require human review.
 
-## Measured: the backdrop drift is a CFG-1 feedback loop (2026-09-12)
+## Measured: chained mode has a CFG-1 feedback loop (2026-09-12)
 
 `measure-chain-degradation.py` on the committed runs. The four corner boxes are flat studio backdrop in
 every frame, so their RGB directly probes the reported "the background starts to go different colours,
@@ -116,7 +133,7 @@ and it gets worse with each edit".
 so each frame's small colour cast becomes the next link's conditioning and is amplified; 8 steps also
 leaves each link too little room to re-converge.
 
-**Suggested fix (computed, not yet validated end-to-end).** Use the validated Qwen-Image-Edit-2511 recipe
+**Superseded recommendation.** The earlier suggested fix was to use the validated Qwen-Image-Edit-2511 recipe
 — **40 steps, CFG 4, euler/simple, denoise 1** (see
 `.github/instructions/qwen-image-edit-2511.instructions.md`) — and add `-StabilizeColors`, which
 mean-matches the frame fed forward back to step 1 and zeroes the residual walk independently of sampling.
@@ -124,13 +141,17 @@ mean-matches the frame fed forward back to step 1 and zeroes the residual walk i
 `-Scheduler` and `-Denoise`, so **no runner code change is required** for this configuration. Note that
 raising sampling alone is not sufficient: run `08` (20 steps / CFG 3.5) only halved the drift.
 
-**Not yet validated.** Runs `09`, `10`, `12` (hi-sampling, stabilized, background-anchor) stopped at steps
+**Historical note.** Runs `09`, `10`, `12` (hi-sampling, stabilized, background-anchor) stopped at steps
 5-8 with a leftover `_staging-stepN/` and **no `manifest.json`**, i.e. they were interrupted rather than
 hitting the runner's fail-and-record path. The mitigations have therefore never been measured end-to-end.
 
-## Anti-drift toolchain
+## Anti-drift toolchain (legacy chained mode)
 
 Three deterministic, model-free tools address the backdrop walk. They are complementary, not alternatives:
+
+For normal scene generation, prefer `-FromBase`; it prevents the feedback loop instead of repairing each
+edited frame after the fact. The tools below remain useful for analyzing or salvaging legacy chained runs,
+and `pin-background.py` is only appropriate when the source really has a flat, border-connected backdrop.
 
 | Tool | What it does | Role |
 |---|---|---|

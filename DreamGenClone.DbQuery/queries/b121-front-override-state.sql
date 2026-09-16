@@ -1,0 +1,1 @@
+SELECT b.Id, b.CurrentStep, b.Status, s.Step, s.Status AS StepStatus, s.ManualOverrideApplied, s.ManualOverrideReason, s.ManualOverrideAuthor, s.FailureReason FROM CharacterIdentityBuilds b LEFT JOIN CharacterIdentityBuildSteps s ON s.BuildId=b.Id WHERE b.Id='49c3175356874e908b181cad815f7141' ORDER BY s.Step;

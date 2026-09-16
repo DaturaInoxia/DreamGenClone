@@ -426,6 +426,8 @@ builder.Services.AddScoped<ICharacterIdentityBuildService, CharacterIdentityBuil
 builder.Services.AddScoped<ICharacterIdentityFrontService, CharacterIdentityFrontService>();
 builder.Services.AddScoped<ICharacterIdentityValidationService, CharacterIdentityValidationService>();
 builder.Services.AddScoped<ICharacterIdentityGarmentService, CharacterIdentityGarmentService>();
+builder.Services.AddScoped<ICharacterIdentityAnglesService, CharacterIdentityAnglesService>();
+builder.Services.AddScoped<ICharacterIdentityPromotionService, CharacterIdentityPromotionService>();
 // The ONE owner of running the approved measurement tool (identity Validate + head-aware crop).
 builder.Services.AddScoped<ICharacterIdentityMeasurementService, CharacterIdentityMeasurementService>();
 builder.Services.AddScoped<IMediaEditHeadMeasurementService, MediaEditHeadMeasurementService>();

@@ -68,11 +68,11 @@ public sealed class CharacterIdentityGarmentService : ICharacterIdentityGarmentS
     public async Task<SceneAssetImage> ResolveGarmentSourceAsync(
         string buildId, CancellationToken cancellationToken = default)
     {
-        var steps = await LoadStepsAsync(buildId, cancellationToken);
-        var frontArtifactId = RequireFrontArtifactId(steps);
-        return await _assets.GetImageAsync(frontArtifactId, cancellationToken)
+        var (build, steps) = await LoadAsync(buildId, cancellationToken);
+        var inputArtifactId = ResolveCurrentInputArtifactId(build, steps);
+        return await _assets.GetImageAsync(inputArtifactId, cancellationToken)
             ?? throw new InvalidOperationException(
-                $"The front image '{frontArtifactId}' was not found in the asset library.");
+                $"The current pipeline input image '{inputArtifactId}' was not found in the asset library.");
     }
 
     private async Task<(CharacterIdentityBuild Build, IReadOnlyList<CharacterIdentityBuildStepRecord> Steps)> LoadAsync(
@@ -92,6 +92,42 @@ public sealed class CharacterIdentityGarmentService : ICharacterIdentityGarmentS
     private async Task<IReadOnlyList<CharacterIdentityBuildStepRecord>> LoadStepsAsync(
         string buildId, CancellationToken cancellationToken)
         => (await LoadAsync(buildId, cancellationToken)).Steps;
+
+    private static string ResolveCurrentInputArtifactId(
+        CharacterIdentityBuild build,
+        IReadOnlyList<CharacterIdentityBuildStepRecord> steps)
+    {
+        var frontArtifactId = RequireFrontArtifactId(steps);
+        var currentStep = build.CurrentStep;
+        if (currentStep == CharacterIdentityBuildStep.Angles)
+        {
+            return build.CanonicalFrontAssetId
+                ?? throw new InvalidOperationException("Approve a canonical front before creating face angles.");
+        }
+
+        if (currentStep == CharacterIdentityBuildStep.GarmentRemoval)
+        {
+            return frontArtifactId;
+        }
+
+        var previousStep = currentStep switch
+        {
+            CharacterIdentityBuildStep.Crop => CharacterIdentityBuildStep.GarmentRemoval,
+            CharacterIdentityBuildStep.Enhance => CharacterIdentityBuildStep.Crop,
+            _ => throw new InvalidOperationException(
+                $"The image-edit workspace is only available for the De-clothe, Crop, and Enhance steps; current step is {currentStep}.")
+        };
+
+        var previous = RequireRow(steps, previousStep);
+        if (previous.Status != CharacterIdentityBuildStepStatus.Complete
+            || string.IsNullOrWhiteSpace(previous.OutputArtifactId))
+        {
+            throw new InvalidOperationException(
+                $"The {previousStep} step must be complete before the {currentStep} step can run.");
+        }
+
+        return previous.OutputArtifactId.Trim();
+    }
 
     private static string RequireFrontArtifactId(IReadOnlyList<CharacterIdentityBuildStepRecord> steps)
     {

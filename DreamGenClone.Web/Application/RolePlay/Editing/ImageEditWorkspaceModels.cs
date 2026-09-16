@@ -20,7 +20,8 @@ public sealed record ImageEditSubject(
     string ImageId,
     string? AssetId = null,
     string? SessionId = null,
-    string? InteractionId = null)
+    string? InteractionId = null,
+    string? CandidateBatchId = null)
 {
     public static ImageEditSubject ForSceneImage(string sessionId, string interactionId, string imageId)
         => new(ImageEditSubjectKind.SceneImage, imageId, SessionId: sessionId, InteractionId: interactionId);

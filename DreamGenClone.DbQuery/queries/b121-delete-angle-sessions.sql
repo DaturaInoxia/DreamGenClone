@@ -1,0 +1,2 @@
+DELETE FROM SceneAssetImageEditCompilationAttempts WHERE EditSessionId IN (SELECT Id FROM SceneAssetImageEditSessions WHERE SourceImageId IN ('30753136591c4ca283cd163fcd00a39d','974e87e405c14760b29745d0d43799c0','05dd4f57c0ab4845ba5bb0d5b183536a','a770cf2d23e54ed9bab1990e57a949d3'));
+DELETE FROM SceneAssetImageEditSessions WHERE SourceImageId IN ('30753136591c4ca283cd163fcd00a39d','974e87e405c14760b29745d0d43799c0','05dd4f57c0ab4845ba5bb0d5b183536a','a770cf2d23e54ed9bab1990e57a949d3');
