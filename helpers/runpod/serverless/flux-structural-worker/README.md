@@ -20,4 +20,8 @@ Place the exact, hash-recorded files under the ComfyUI model folders on network 
 
 The Canny artifact is the XLabs-AI `flux-controlnet-canny-v3` artifact. Do not substitute an SDXL ControlNet.
 
-The endpoint must not be created until the files exist and a manifest records their exact SHA-256 values.
+The worker's idempotent startup provisioner downloads missing public files directly from Hugging
+Face into the persistent volume, so the local Windows host does not need to download multi-gigabyte
+files. Existing files are reused. After every startup it writes
+`/runpod-volume/models/flux-structural-proof-manifest.json` with byte sizes and SHA-256 values.
+The endpoint must not be treated as qualified until the manifest and proof render are captured.
