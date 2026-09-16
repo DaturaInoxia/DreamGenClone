@@ -3,6 +3,11 @@
 # The volume must contain the FLUX base, VAE, text encoders, and XLabs ControlNet.
 FROM runpod/worker-comfyui:5.8.4-base
 
+# RunPod GitHub Integration validates queue workers for a handler.py containing
+# runpod.serverless.start(). The official worker-comfyui base remains the actual
+# ComfyUI workflow runtime; this file is only the repository validation contract.
+COPY handler.py /opt/dreamgen/handler.py
+
 # Standard ComfyUI nodes are sufficient for the first graph. The exact XLabs
 # ControlNet format is validated by the ComfyUI loader at proof time.
 COPY provision-assets.py /opt/dreamgen/provision-assets.py

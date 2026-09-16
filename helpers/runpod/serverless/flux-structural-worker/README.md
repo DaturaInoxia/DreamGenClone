@@ -2,6 +2,10 @@
 
 Proof-only Serverless worker for the dual-base location experiment.
 
+`handler.py` is included because RunPod's GitHub integration requires a queue-worker
+handler contract during repository validation. The official `worker-comfyui` base image
+still owns the actual ComfyUI workflow handler and startup runtime.
+
 ## Deployment branch
 
 This worker must be built from the current working branch `development`. Do not configure the
