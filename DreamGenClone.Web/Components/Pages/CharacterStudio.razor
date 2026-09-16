@@ -1096,7 +1096,9 @@
                 _frontOverrideReason,
                 _frontOverrideAuthor);
             _frontMessage = "Front visual override recorded. Click Continue to proceed.";
-            await RefreshBuildStepsAsync();
+            _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
+            _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+            await RefreshFrontAttemptsAsync();
         }
         catch (Exception ex)
         {
