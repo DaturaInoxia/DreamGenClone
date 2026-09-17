@@ -1,0 +1,6 @@
+[
+  {"name":"dean.png","path":"specs/image-generator-tests/refs/dean/v8/profr.png"},
+  {"name":"becky.png","path":"specs/image-generator-tests/refs/becky/v5/profl.png"},
+  {"name":"dean-mask.png","path":"specs/image-generator-tests/identity-two-character/masks/c6_left.png"},
+  {"name":"becky-mask.png","path":"specs/image-generator-tests/identity-two-character/masks/c6_right.png"}
+]

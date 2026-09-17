@@ -1,0 +1,20 @@
+{
+  "4":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"juggernautXL_ragnarok.safetensors"}},
+  "5":{"class_type":"LoadImage","inputs":{"image":"location.png"}},
+  "6":{"class_type":"VAEEncode","inputs":{"pixels":["5",0],"vae":["4",2]}},
+  "7":{"class_type":"CLIPTextEncode","inputs":{"clip":["4",1],"text":"photorealistic bedroom photograph of exactly two fully clothed adults, a man on the left and a woman on the right, standing beside the bed facing one another in side profile, wearing a fitted dark gray short-sleeve shirt and dark jeans, and a fitted dark gray short-sleeve shirt and blue jeans, full bodies visible, warm natural lighting, 35mm photography"}},
+  "8":{"class_type":"CLIPTextEncode","inputs":{"clip":["4",1],"text":"deformed, bad anatomy, extra limbs, text, watermark, empty room, fewer than two people"}},
+  "9":{"class_type":"LoadImage","inputs":{"image":"pose.png"}},
+  "10":{"class_type":"ControlNetLoader","inputs":{"control_net_name":"xinsir-controlnet-openpose-sdxl-1.0.safetensors"}},
+  "11":{"class_type":"ControlNetApplyAdvanced","inputs":{"positive":["7",0],"negative":["8",0],"control_net":["10",0],"image":["9",0],"strength":0.55,"start_percent":0.0,"end_percent":0.75}},
+  "12":{"class_type":"IPAdapterUnifiedLoader","inputs":{"model":["4",0],"preset":"PLUS FACE (portraits)"}},
+  "13":{"class_type":"LoadImage","inputs":{"image":"dean.png"}},
+  "14":{"class_type":"LoadImage","inputs":{"image":"becky.png"}},
+  "15":{"class_type":"LoadImageMask","inputs":{"image":"dean-mask.png","channel":"red"}},
+  "16":{"class_type":"LoadImageMask","inputs":{"image":"becky-mask.png","channel":"red"}},
+  "17":{"class_type":"IPAdapter","inputs":{"model":["12",0],"ipadapter":["12",1],"image":["13",0],"weight":0.7,"weight_type":"standard","start_at":0.0,"end_at":1.0,"attn_mask":["15",0]}},
+  "18":{"class_type":"IPAdapter","inputs":{"model":["17",0],"ipadapter":["12",1],"image":["14",0],"weight":0.6,"weight_type":"standard","start_at":0.0,"end_at":1.0,"attn_mask":["16",0]}},
+  "3":{"class_type":"KSampler","inputs":{"seed":6601,"steps":30,"cfg":5.0,"sampler_name":"dpmpp_2m_sde","scheduler":"karras","denoise":0.45,"model":["18",0],"positive":["11",0],"negative":["11",1],"latent_image":["6",0]}},
+  "19":{"class_type":"VAEDecode","inputs":{"samples":["3",0],"vae":["4",2]}},
+  "20":{"class_type":"SaveImage","inputs":{"images":["19",0],"filename_prefix":"openpose-identity-A"}}
+}

@@ -24,7 +24,8 @@ param(
     [string]$ImagePath,
     [string]$WorkflowJsonPath,
     [string]$ImagesJsonPath,
-    [string]$OutDir
+    [string]$OutDir,
+    [int]$SubmitTimeoutSec = 600
 )
 
 $ErrorActionPreference = "Stop"
@@ -96,7 +97,7 @@ $body = @{ input = $jobInput } | ConvertTo-Json -Depth 10
 # app will need for long jobs).
 $base = "https://api.runpod.ai/v2/$endpointId"
 Write-Host "Submitting job to $EndpointKey ($endpointId) ... (cold start may take several minutes)"
-$submit = Invoke-RestMethod -Uri "$base/run" -Method POST -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec 60
+$submit = Invoke-RestMethod -Uri "$base/run" -Method POST -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec $SubmitTimeoutSec
 $jobId = $submit.id
 Write-Host "submitted job: $jobId (status $($submit.status))"
 

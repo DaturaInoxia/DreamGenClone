@@ -1,0 +1,16 @@
+{
+  "4": {"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"juggernautXL_ragnarok.safetensors"}},
+  "5": {"class_type":"EmptyLatentImage","inputs":{"width":1216,"height":832,"batch_size":1}},
+  "6": {"class_type":"CLIPTextEncode","inputs":{"clip":["4",1],"text":"empty bedroom interior, no people, no persons, no characters, no bodies, no faces, preserve the exact bedroom layout, bed, window, curtains, walls, nightstands, furniture placement and warm natural lighting from the reference photograph, photorealistic 35mm interior photography, slightly wider framing toward the window"}},
+  "7": {"class_type":"CLIPTextEncode","inputs":{"clip":["4",1],"text":"people, person, man, woman, human, character, body, face, crowd, different room, changed furniture, changed lighting, text, watermark"}},
+  "10":{"class_type":"LoadImage","inputs":{"image":"location.png"}},
+  "11":{"class_type":"CannyEdgePreprocessor","inputs":{"image":["10",0],"low_threshold":0.4,"high_threshold":0.8,"resolution":832}},
+  "12":{"class_type":"ControlNetLoader","inputs":{"control_net_name":"controlnet-canny-sdxl-1.0.safetensors"}},
+  "13":{"class_type":"ControlNetApplyAdvanced","inputs":{"positive":["6",0],"negative":["7",0],"control_net":["12",0],"image":["11",0],"strength":0.9,"start_percent":0.0,"end_percent":1.0}},
+  "14":{"class_type":"DepthAnythingV2Preprocessor","inputs":{"image":["10",0],"resolution":832}},
+  "15":{"class_type":"ControlNetLoader","inputs":{"control_net_name":"controlnet-depth-sdxl-1.0.safetensors"}},
+  "16":{"class_type":"ControlNetApplyAdvanced","inputs":{"positive":["13",0],"negative":["13",1],"control_net":["15",0],"image":["14",0],"strength":0.9,"start_percent":0.0,"end_percent":1.0}},
+  "3":{"class_type":"KSampler","inputs":{"seed":6601,"steps":30,"cfg":5.0,"sampler_name":"dpmpp_2m_sde","scheduler":"karras","denoise":1.0,"model":["4",0],"positive":["16",0],"negative":["16",1],"latent_image":["5",0]}},
+  "8":{"class_type":"VAEDecode","inputs":{"samples":["3",0],"vae":["4",2]}},
+  "9":{"class_type":"SaveImage","inputs":{"images":["8",0],"filename_prefix":"location-only-B"}}
+}

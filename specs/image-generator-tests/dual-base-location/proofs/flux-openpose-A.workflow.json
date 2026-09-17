@@ -1,0 +1,100 @@
+{
+  "2": {
+    "class_type": "DualCLIPLoader",
+    "inputs": {
+      "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
+      "clip_name2": "clip_l.safetensors",
+      "type": "flux"
+    }
+  },
+  "4": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux1-dev-fp8.safetensors",
+      "weight_dtype": "fp8_e4m3fn"
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1216,
+      "height": 832,
+      "batch_size": 1
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncodeFlux",
+    "inputs": {
+      "clip": ["2", 0],
+      "clip_l": "photorealistic cinematic bedroom photograph, exactly two fully clothed anonymous adults standing beside the bed, a man on the left and a woman on the right, facing one another in clear side profile, full bodies visible, natural proportions, no touching, preserve the bedroom furniture, camera perspective, and warm afternoon lighting",
+      "t5xxl": "photorealistic cinematic bedroom photograph, exactly two fully clothed anonymous adults standing beside the bed, a man on the left and a woman on the right, facing one another in clear side profile, full bodies visible, natural proportions, no touching, preserve the bedroom furniture, camera perspective, and warm afternoon lighting",
+      "guidance": 4.0
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncodeFlux",
+    "inputs": {
+      "clip": ["2", 0],
+      "clip_l": "cropped bodies, missing limbs, extra people, touching, merged bodies, back-to-camera, extreme close-up, distorted anatomy, dark exposure",
+      "t5xxl": "cropped bodies, missing limbs, extra people, touching, merged bodies, back-to-camera, extreme close-up, distorted anatomy, dark exposure",
+      "guidance": 4.0
+    }
+  },
+  "8": {
+    "class_type": "LoadFluxControlNet",
+    "inputs": {
+      "model_name": "flux-dev-fp8",
+      "controlnet_path": "flux-openpose-controlnet-raulc0399.safetensors"
+    }
+  },
+  "9": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "pose_reference.png"
+    }
+  },
+  "10": {
+    "class_type": "ApplyFluxControlNet",
+    "inputs": {
+      "controlnet": ["8", 0],
+      "image": ["9", 0],
+      "strength": 0.85
+    }
+  },
+  "3": {
+    "class_type": "XlabsSampler",
+    "inputs": {
+      "model": ["4", 0],
+      "conditioning": ["6", 0],
+      "neg_conditioning": ["7", 0],
+      "noise_seed": 20260918,
+      "steps": 28,
+      "timestep_to_start_cfg": 1,
+      "true_gs": 3.5,
+      "image_to_image_strength": 1.0,
+      "denoise_strength": 1.0,
+      "latent_image": ["5", 0],
+      "controlnet_condition": ["10", 0]
+    }
+  },
+  "11": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    }
+  },
+  "12": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["11", 0]
+    }
+  },
+  "13": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "flux-openpose-A",
+      "images": ["12", 0]
+    }
+  }
+}

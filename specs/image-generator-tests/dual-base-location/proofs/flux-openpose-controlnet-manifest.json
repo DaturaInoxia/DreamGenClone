@@ -1,0 +1,13 @@
+{
+  "status": "staged-not-yet-proven",
+  "modelRepository": "raulc0399/flux_dev_openpose_controlnet",
+  "modelFile": "model.safetensors",
+  "stagedPath": "/workspace/models/controlnet/flux-openpose-controlnet-raulc0399.safetensors",
+  "xlabsPath": "/workspace/models/xlabs/controlnets/flux-openpose-controlnet-raulc0399.safetensors",
+  "xlabsPathMode": "symlink-to-stagedPath",
+  "sha256": "0401e9fd6a9ae719d5bcaf6825e2fb6a354f84af9341eb7326c11b6027a7a828",
+  "license": "FLUX.1-dev non-commercial license",
+  "runtime": "XLabs-AI/x-flux pipeline",
+  "controlType": "openpose",
+  "note": "Not compatible with the stock generic ComfyUI ControlNet graph until an XLabs FLUX runtime/custom-node worker is deployed."
+}

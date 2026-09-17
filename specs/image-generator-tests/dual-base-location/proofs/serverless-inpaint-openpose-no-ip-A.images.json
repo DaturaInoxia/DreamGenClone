@@ -1,0 +1,5 @@
+[
+{"name":"location.png","path":"specs/image-generator-tests/dual-base-location/refs/locref-bedroom-locref-bedroom_00001_.png"},
+{"name":"mask.png","path":"specs/image-generator-tests/dual-base-location/refs/bedroom-characters-inpaint-mask-pose-derived.png"},
+{"name":"pose.png","path":"specs/image-generator-tests/dual-base-location/refs/pose-step02-normalized-1216x832.png"}
+]
