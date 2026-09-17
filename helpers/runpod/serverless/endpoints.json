@@ -112,10 +112,10 @@
         "runSync": "https://api.runpod.ai/v2/l2k5hyrxlhrbi0/runsync",
         "health": "https://api.runpod.ai/v2/l2k5hyrxlhrbi0/health"
       },
-      "deployment": "RunPod GitHub Integration ('Start from GitHub Repo', repo DaturaInoxia/DreamGenClone, branch master) - builds helpers/runpod/serverless/juggernaut-identity-worker/Dockerfile: stock runpod/worker-comfyui:5.8.4-base + comfy-node-install ComfyUI_IPAdapter_plus. This is the JUGGERNAUT worker that ALSO does identity - serves BOTH plain SDXL T2I and identity-conditioned (IP-Adapter regional) renders from ONE endpoint. Needs a GitHub RELEASE to rebuild. Models on Network Volume xkslgh6xo0 (checkpoint, ipadapter/, clip_vision/).",
+      "deployment": "RunPod GitHub Integration ('Start from GitHub Repo', repo DaturaInoxia/DreamGenClone, branch development) - builds helpers/runpod/serverless/juggernaut-identity-worker/Dockerfile: stock runpod/worker-comfyui:5.8.4-base + comfy-node-install ComfyUI_IPAdapter_plus + comfyui_controlnet_aux. This JUGGERNAUT worker serves plain SDXL T2I, regional IP-Adapter identity, and SDXL Canny/Depth location conditioning from ONE endpoint. Needs a GitHub RELEASE to rebuild. Models on Network Volume xkslgh6xo0 (checkpoint, ipadapter/, clip_vision/, controlnet/).",
       "workerImage": "registry.runpod.net/daturainoxia-dreamgenclone-master-helpers-runpod-serverless-juggernaut-identity-worker-dockerfile:<sha> (RunPod-built, ephemeral; rebuilt on push)",
       "workerDir": "helpers/runpod/serverless/juggernaut-identity-worker",
-      "baseImage": "runpod/worker-comfyui:5.8.4-base (official) + ComfyUI_IPAdapter_plus",
+      "baseImage": "runpod/worker-comfyui:5.8.4-base (official worker-comfyui base) + ComfyUI_IPAdapter_plus + comfyui_controlnet_aux",
       "apiContract": "OFFICIAL worker-comfyui: input.workflow + input.images -> output.images (identity refs+masks travel inline as base64; RunPodServerlessIdentityClient)",
       "minWorkers": 0,
       "maxWorkers": 1,
@@ -139,6 +139,15 @@
         "result": "PASSED 2026-08-28 job 8ef8465a-ca59-43eb-9efd-6219e57efc21-u2: COMPLETED, exec 71084ms, worker 13zdho63aiq0g2. output.images[0] = juggernaut_t2i_00001_.png (base64) - rendered via helpers/runpod/workflows/juggernaut-t2i.json, checkpoint loaded from /runpod-volume/models/checkpoints/juggernautXL_ragnarok.safetensors. Render verified via view_image (clean SDXL portrait).",
         "jobInput": "official contract: {\"input\":{\"workflow\":<helpers/runpod/workflows/juggernaut-t2i.json>}} (pure T2I, no input images)",
         "expectedOutput": "rendered PNG at output.images[0].data (base64)"
+      },
+      "locationConditioning": {
+        "status": "pending-worker-rebuild-and-asset-proof",
+        "endpointId": "l2k5hyrxlhrbi0",
+        "preprocessors": ["CannyEdgePreprocessor", "DepthAnythingV2Preprocessor"],
+        "controlNetDirectory": "/runpod-volume/models/controlnet",
+        "requiredAssets": ["controlnet-canny-sdxl-1.0.safetensors", "controlnet-depth-sdxl-1.0.safetensors"],
+        "proofWorkflow": "specs/image-generator-tests/dual-base-location/proofs/serverless-sdxl-location-controlnet.workflow.json",
+        "note": "The existing endpoint failed the first probe because DepthAnythingV2Preprocessor was absent. Rebuild the GitHub-Integration worker before submitting the location proof."
       },
       "persistence": {
         "standard": "Model on Network Volume xkslgh6xo0 (persistent, survives cold start); worker image immutable stock base. FlashBoot lever for faster cold pull (currently OFF).",
@@ -166,16 +175,16 @@
       "endpointKey": "img-flux-structural-serverless",
       "function": "FLUX.1-dev structural Canny/Depth proof",
       "capability": "StructuralConditioning",
-      "status": "pending-worker-build",
-      "endpointId": "r0q7joyemx4p8z",
-      "deployment": "RunPod GitHub Integration from the current working branch `development`, Dockerfile helpers/runpod/serverless/flux-structural-worker/Dockerfile. Uses the official worker-comfyui base and the existing xkslgh6xo0 network volume. Models and exact XLabs ControlNet artifacts must be uploaded to the volume before the first proof.",
+      "status": "ready-to-smoke",
+      "endpointId": "94obyxje4z8vpd",
+      "deployment": "Official stock runpod/worker-comfyui:5.8.4-base endpoint using the existing xkslgh6xo0 network volume. No GitHub build is required for this proof endpoint; models are pre-staged on the volume.",
       "workerImage": "",
       "workerDir": "helpers/runpod/serverless/flux-structural-worker",
       "baseImage": "runpod/worker-comfyui:5.8.4-base",
       "apiContract": "OFFICIAL worker-comfyui: input.workflow + input.images -> output.images",
       "minWorkers": 0,
       "maxWorkers": 1,
-      "idleTimeoutSec": 900,
+      "idleTimeoutSec": 3600,
       "timeoutMs": 900000,
       "flashboot": "OFF",
       "gpuTypeId": "RTX 4000 Ada",
@@ -184,13 +193,13 @@
       "env": {},
       "modelManager": { "registered": false, "providerName": "Proof-only; do not register until local portability passes" },
       "proof": {
-        "status": "ready-to-smoke",
+        "status": "blocked-pending-assets",
         "type": "flux-structural",
         "workflowJson": "specs/image-generator-tests/dual-base-location/proofs/flux-structural-canny.workflow.json",
         "imagesJson": "specs/image-generator-tests/dual-base-location/proofs/flux-structural-canny.images.json",
         "outDir": "artifacts/tmp/proofs/flux-structural",
         "modelFiles": ["flux1-dev-fp8.safetensors", "ae.safetensors", "t5xxl_fp8_e4m3fn.safetensors", "clip_l.safetensors", "flux-canny-controlnet-v3.safetensors"],
-        "reason": "Worker image and model-volume assets must be provisioned and hash-recorded before endpoint creation."
+        "reason": "Pre-stage and hash model-volume assets before deploying the official worker image."
       },
       "persistence": {
         "standard": "Worker image immutable; model and proof assets must remain on network volume xkslgh6xo0.",

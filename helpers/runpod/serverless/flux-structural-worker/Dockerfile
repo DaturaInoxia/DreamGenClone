@@ -3,25 +3,7 @@
 # The volume must contain the FLUX base, VAE, text encoders, and XLabs ControlNet.
 FROM runpod/worker-comfyui:5.8.4-base
 
-# RunPod GitHub Integration validates queue workers for a handler.py containing
-# runpod.serverless.start(). The official worker-comfyui base remains the actual
-# ComfyUI workflow runtime; this file is only the repository validation contract.
-COPY handler.py /opt/dreamgen/handler.py
-
-# Standard ComfyUI nodes are sufficient for the first graph. The exact XLabs
-# ControlNet format is validated by the ComfyUI loader at proof time.
-COPY provision-assets.py /opt/dreamgen/provision-assets.py
-
-# Download only at image build/startup into the persistent volume; never commit
-# credentials or model bytes. The endpoint must be rebuilt from this file.
-RUN python -m pip install --no-cache-dir huggingface_hub
-
-RUN cat > /start-dreamgen-flux.sh <<'EOF'
-#!/bin/bash
-set -e
-python /opt/dreamgen/provision-assets.py
-exec /start.sh
-EOF
-RUN chmod +x /start-dreamgen-flux.sh
-
-CMD ["/start-dreamgen-flux.sh"]
+# Match the established ComfyUI Serverless workers exactly: the official base
+# supplies the handler and ComfyUI runtime. Models are pre-staged on the attached
+# persistent network volume; no runtime downloads, custom handler, or alternate
+# entrypoint are used here.

@@ -1,8 +1,9 @@
-# Juggernaut worker (also identity-capable): stock runpod/worker-comfyui base + ComfyUI_IPAdapter_plus.
+# Juggernaut worker (also identity/location-capable): stock runpod/worker-comfyui base +
+# ComfyUI_IPAdapter_plus + ControlNet auxiliary preprocessors.
 #
 # This is the worker for the img-juggernaut-serverless endpoint. It serves BOTH plain
 # SDXL/Juggernaut T2I AND identity-conditioned renders (IP-Adapter regional, single- or
-# multi-character) from ONE endpoint. No models are baked here — the checkpoint
+# multi-character) and SDXL Canny/Depth location conditioning from ONE endpoint. No models are baked here — the checkpoint
 # (juggernautXL_ragnarok.safetensors), IP-Adapter (models/ipadapter/) and CLIP-vision
 # (models/clip_vision/) files all live on the Network Volume xkslgh6xo0 at /runpod-volume/models/*,
 # which the official worker-comfyui base auto-detects.
@@ -12,7 +13,7 @@
 #   - /runpod-volume/models/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors
 #
 # DEPLOYMENT: RunPod GitHub Integration ("Start from GitHub Repo", repo DaturaInoxia/DreamGenClone,
-# branch master) — RunPod clones this repo, builds this Dockerfile, and updates the endpoint on
+# branch development) — RunPod clones this repo, builds this Dockerfile, and updates the endpoint on
 # every push (a GitHub RELEASE is required for the rebuild to apply). See docs/deployment.md Method 2.
 #
 # Proof of this image: helpers/runpod/serverless/run-all-proofs.ps1 (identity-2char proof = the
@@ -24,6 +25,10 @@ FROM runpod/worker-comfyui:5.8.4-base
 # (comfyui_ipadapter_plus), NOT the GitHub repo name (ComfyUI_IPAdapter_plus) - using the repo name
 # installs nothing (verified: node 'IPAdapterUnifiedLoader' not found, 500 on /prompt, 2026-08-28).
 RUN comfy-node-install comfyui_ipadapter_plus
+
+# Location-reference conditioning requires the reproducible Canny/Depth
+# preprocessors. ControlNet weights remain on the attached network volume.
+RUN comfy-node-install comfyui_controlnet_aux
 
 # worker-comfyui maps /runpod-volume/models/* into ComfyUI with a FIXED folder list (checkpoints,
 # clip, clip_vision, configs, controlnet, embeddings, loras, upscale_models, vae, unet) - it does

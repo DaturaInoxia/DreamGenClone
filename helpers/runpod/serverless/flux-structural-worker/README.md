@@ -2,10 +2,6 @@
 
 Proof-only Serverless worker for the dual-base location experiment.
 
-`handler.py` is included because RunPod's GitHub integration requires a queue-worker
-handler contract during repository validation. The official `worker-comfyui` base image
-still owns the actual ComfyUI workflow handler and startup runtime.
-
 ## Deployment branch
 
 This worker must be built from the current working branch `development`. Do not configure the
@@ -24,8 +20,7 @@ Place the exact, hash-recorded files under the ComfyUI model folders on network 
 
 The Canny artifact is the XLabs-AI `flux-controlnet-canny-v3` artifact. Do not substitute an SDXL ControlNet.
 
-The worker's idempotent startup provisioner downloads missing public files directly from Hugging
-Face into the persistent volume, so the local Windows host does not need to download multi-gigabyte
-files. Existing files are reused. After every startup it writes
-`/runpod-volume/models/flux-structural-proof-manifest.json` with byte sizes and SHA-256 values.
-The endpoint must not be treated as qualified until the manifest and proof render are captured.
+Models must be pre-staged on the persistent volume before deployment, matching the established
+Juggernaut/DWPose worker pattern. This worker deliberately performs no runtime model downloads.
+The endpoint must not be treated as qualified until the staged model manifest and proof render are
+captured.
