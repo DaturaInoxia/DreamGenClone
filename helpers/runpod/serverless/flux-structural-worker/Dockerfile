@@ -13,7 +13,22 @@ RUN git clone https://github.com/XLabs-AI/x-flux-comfyui.git /comfyui/custom_nod
 	&& python3 -m pip install --no-cache-dir -r /comfyui/custom_nodes/x-flux-comfyui/requirements.txt \
 	&& python3 /comfyui/custom_nodes/x-flux-comfyui/setup.py
 
+# The official worker maps the standard model folders from the network volume,
+# but XLabs uses the additional models/xlabs folder. Link that persistent folder
+# before ComfyUI starts so LoadFluxControlNet can discover the staged checkpoint.
+RUN cat > /start-dreamgen-flux.sh <<'EOF'
+#!/bin/bash
+set -e
+mkdir -p /comfyui/models
+if [ ! -e /comfyui/models/xlabs ] && [ -d /runpod-volume/models/xlabs ]; then
+	ln -s /runpod-volume/models/xlabs /comfyui/models/xlabs
+	echo "Linked /comfyui/models/xlabs -> /runpod-volume/models/xlabs"
+fi
+exec /start.sh
+EOF
+RUN chmod +x /start-dreamgen-flux.sh
+
 # Match the established ComfyUI Serverless workers exactly: the official base
 # supplies the handler and ComfyUI runtime. Models are pre-staged on the attached
-# persistent network volume; no runtime downloads, custom handler, or alternate
-# entrypoint are used here.
+# persistent network volume; no runtime model downloads or custom handler are used.
+CMD ["/start-dreamgen-flux.sh"]
