@@ -21,9 +21,15 @@ RUN cat > /start-dreamgen-flux.sh <<'EOF'
 #!/bin/bash
 set -e
 mkdir -p /comfyui/models
-if [ ! -e /comfyui/models/xlabs ] && [ -d /runpod-volume/models/xlabs ]; then
-	ln -s /runpod-volume/models/xlabs /comfyui/models/xlabs
-	echo "Linked /comfyui/models/xlabs -> /runpod-volume/models/xlabs"
+if [ ! -e /comfyui/models/xlabs ]; then
+	mkdir -p /comfyui/models/xlabs
+fi
+if [ ! -e /comfyui/models/xlabs/controlnets ] && [ -d /runpod-volume/models/xlabs/controlnets ]; then
+	ln -s /runpod-volume/models/xlabs/controlnets /comfyui/models/xlabs/controlnets
+	echo "Linked /comfyui/models/xlabs/controlnets -> /runpod-volume/models/xlabs/controlnets"
+elif [ ! -e /comfyui/models/xlabs/controlnets ] && [ -d /runpod-volume/models/controlnet ]; then
+	ln -s /runpod-volume/models/controlnet /comfyui/models/xlabs/controlnets
+	echo "Linked /comfyui/models/xlabs/controlnets -> /runpod-volume/models/controlnet"
 fi
 exec /start.sh
 EOF
