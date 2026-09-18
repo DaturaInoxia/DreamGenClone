@@ -7,11 +7,12 @@ FROM runpod/worker-comfyui:5.8.4-base
 # generic ControlNetLoader is not the XLabs FLUX runtime. x-flux-comfyui is
 # installed from the pinned source revision because it is not treated as a
 # Comfy Registry package by this worker.
+ARG XLABS_FLUX_REPOSITORY=https://github.com/XLabs-AI/x-flux-comfyui.git
 ARG XLABS_FLUX_REV=00328556efc9472410d903639dc9e68a8471f7ac
-RUN git clone https://github.com/XLabs-AI/x-flux-comfyui.git /comfyui/custom_nodes/x-flux-comfyui \
+RUN git clone --depth 1 "$XLABS_FLUX_REPOSITORY" /comfyui/custom_nodes/x-flux-comfyui \
 	&& git -C /comfyui/custom_nodes/x-flux-comfyui checkout "$XLABS_FLUX_REV" \
 	&& python3 -m pip install --no-cache-dir -r /comfyui/custom_nodes/x-flux-comfyui/requirements.txt \
-	&& python3 /comfyui/custom_nodes/x-flux-comfyui/setup.py
+	&& test -f /comfyui/custom_nodes/x-flux-comfyui/nodes.py
 
 # The official worker maps the standard model folders from the network volume,
 # but XLabs uses the additional models/xlabs folder. Link that persistent folder
