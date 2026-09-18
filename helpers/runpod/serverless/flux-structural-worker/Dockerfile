@@ -21,15 +21,17 @@ RUN cat > /start-dreamgen-flux.sh <<'EOF'
 #!/bin/bash
 set -e
 mkdir -p /comfyui/models
-if [ ! -e /comfyui/models/xlabs ]; then
-	mkdir -p /comfyui/models/xlabs
-fi
-if [ ! -e /comfyui/models/xlabs/controlnets ] && [ -d /runpod-volume/models/xlabs/controlnets ]; then
+rm -rf /comfyui/models/xlabs
+mkdir -p /comfyui/models/xlabs
+if [ -d /runpod-volume/models/xlabs/controlnets ]; then
 	ln -s /runpod-volume/models/xlabs/controlnets /comfyui/models/xlabs/controlnets
 	echo "Linked /comfyui/models/xlabs/controlnets -> /runpod-volume/models/xlabs/controlnets"
-elif [ ! -e /comfyui/models/xlabs/controlnets ] && [ -d /runpod-volume/models/controlnet ]; then
+elif [ -d /runpod-volume/models/controlnet ]; then
 	ln -s /runpod-volume/models/controlnet /comfyui/models/xlabs/controlnets
 	echo "Linked /comfyui/models/xlabs/controlnets -> /runpod-volume/models/controlnet"
+else
+	echo "ERROR: no controlnet directory found on the attached network volume" >&2
+	exit 1
 fi
 exec /start.sh
 EOF
