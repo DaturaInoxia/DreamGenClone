@@ -1,0 +1,15 @@
+{
+  "2": {"class_type": "DualCLIPLoader", "inputs": {"clip_name1": "t5xxl_fp8_e4m3fn.safetensors", "clip_name2": "clip_l.safetensors", "type": "flux"}},
+  "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "flux1-dev-fp8.safetensors"}},
+  "9": {"class_type": "LoadImage", "inputs": {"image": "composite_image.png"}},
+  "10": {"class_type": "LoadImageMask", "inputs": {"image": "blob_mask.png", "channel": "red"}},
+  "11": {"class_type": "VAELoader", "inputs": {"vae_name": "ae.safetensors"}},
+  "16": {"class_type": "VAEEncode", "inputs": {"pixels": ["9", 0], "vae": ["11", 0]}},
+  "18": {"class_type": "SetLatentNoiseMask", "inputs": {"samples": ["16", 0], "mask": ["10", 0]}},
+  "6": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["4", 1], "text": "empty beige carpeted bedroom floor, plain carpet with soft warm lighting and a gentle shadow from the standing man, nothing on the floor, photorealistic continuation of the bedroom"}},
+  "7": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["4", 1], "text": "gray wall, gray backdrop, person, people, furniture, object, shadow blob, dark patch"}},
+  "8": {"class_type": "FluxGuidance", "inputs": {"conditioning": ["6", 0], "guidance": 3.5}},
+  "3": {"class_type": "KSampler", "inputs": {"model": ["4", 0], "positive": ["8", 0], "negative": ["7", 0], "latent_image": ["18", 0], "seed": 778899, "steps": 24, "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "denoise": 0.8}},
+  "12": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["11", 0]}},
+  "13": {"class_type": "SaveImage", "inputs": {"filename_prefix": "base-b-repaint", "images": ["12", 0]}}
+}

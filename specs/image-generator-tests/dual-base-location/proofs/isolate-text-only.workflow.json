@@ -1,0 +1,13 @@
+{
+  "2": {"class_type":"DualCLIPLoader","inputs":{"clip_name1":"t5xxl_fp8_e4m3fn.safetensors","clip_name2":"clip_l.safetensors","type":"flux"}},
+  "4": {"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"flux1-dev-fp8.safetensors"}},
+  "5": {"class_type":"EmptyLatentImage","inputs":{"width":1216,"height":832,"batch_size":1}},
+  "6": {"class_type":"CLIPTextEncode","inputs":{"clip":["4",1],"text":"full body wide shot, camera pulled far back, both people appear small in frame with large empty space above their heads and the wooden floor visible beneath their bare feet, entire figures visible head to toe, nothing cropped, wide angle lens, photorealistic cinematic photograph of exactly two fully clothed adults standing on a bedroom floor beside a bed. Dean is on the left with short brown hair, light stubble, blue eyes, broad shoulders, a fitted solid blue short-sleeve T-shirt and dark straight-leg jeans. Becky is on the right with brown hair in a bun, blue eyes, fair skin, a curvy figure, tattoos on her arms and legs, a fitted solid light short-sleeve T-shirt and blue jeans. They stand upright with natural proportioned necks and shoulders, facing one another in clear side profile, space between their bodies, warm afternoon lighting"}},
+  "7": {"class_type":"CLIPTextEncode","inputs":{"clip":["4",1],"text":"waist-up framing, close-up, cropped at knees, cropped bodies, elongated necks, long neck, disconnected neck and shoulders, malformed anatomy, extra people, merged bodies, touching, distorted limbs, dark exposure"}},
+  "8": {"class_type":"FluxGuidance","inputs":{"conditioning":["6",0],"guidance":3.5}},
+  "3": {"class_type":"KSampler","inputs":{"model":["4",0],"positive":["8",0],"negative":["7",0],"latent_image":["10",0],"seed":20260921,"steps":28,"cfg":1.0,"sampler_name":"euler","scheduler":"simple","denoise":1.0}},
+  "10": {"class_type":"EmptyLatentImage","inputs":{"width":1216,"height":832,"batch_size":1}},
+  "11": {"class_type":"VAELoader","inputs":{"vae_name":"ae.safetensors"}},
+  "12": {"class_type":"VAEDecode","inputs":{"samples":["3",0],"vae":["11",0]}},
+  "13": {"class_type":"SaveImage","inputs":{"filename_prefix":"isolate-text-only","images":["12",0]}}
+}

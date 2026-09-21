@@ -1,0 +1,12 @@
+{
+  "2": {"class_type": "DualCLIPLoader", "inputs": {"clip_name1": "t5xxl_fp8_e4m3fn.safetensors", "clip_name2": "clip_l.safetensors", "type": "flux"}},
+  "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "flux1-dev-fp8.safetensors"}},
+  "5": {"class_type": "EmptyLatentImage", "inputs": {"width": 1216, "height": 832, "batch_size": 1}},
+  "6": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["4", 1], "text": "photorealistic cinematic photograph of a warm tidy bedroom, wide shot, NO people, empty room. A double bed with white duvet and a brown throw blanket against the LEFT wall, wooden nightstand with a lit lamp beside it, large window with sheer curtains on the back wall letting in warm afternoon light, an upholstered armchair in the far right corner, warm beige walls, large open carpeted floor area in the center and foreground of the room completely clear of furniture, 35mm interior photography, cozy and intimate atmosphere"}},
+  "7": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["4", 1], "text": "people, person, furniture in the center of the room, cluttered floor, cropped, distorted, dark exposure, extra rooms, doorways"}},
+  "8": {"class_type": "FluxGuidance", "inputs": {"conditioning": ["6", 0], "guidance": 3.5}},
+  "3": {"class_type": "KSampler", "inputs": {"model": ["4", 0], "positive": ["8", 0], "negative": ["7", 0], "latent_image": ["5", 0], "seed": 20260923, "steps": 28, "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0}},
+  "11": {"class_type": "VAELoader", "inputs": {"vae_name": "ae.safetensors"}},
+  "12": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["11", 0]}},
+  "13": {"class_type": "SaveImage", "inputs": {"filename_prefix": "locref-bedroom-open-floor", "images": ["12", 0]}}
+}

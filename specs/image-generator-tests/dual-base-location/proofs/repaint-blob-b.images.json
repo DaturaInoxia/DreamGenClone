@@ -1,0 +1,10 @@
+[
+  {
+    "name": "composite_image.png",
+    "path": "specs/image-generator-tests/dual-base-location/refs/composite-base-b-v2.png"
+  },
+  {
+    "name": "blob_mask.png",
+    "path": "specs/image-generator-tests/dual-base-location/refs/blob-mask-base-b.png"
+  }
+]

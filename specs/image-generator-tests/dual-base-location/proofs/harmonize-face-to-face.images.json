@@ -1,0 +1,10 @@
+[
+  {
+    "name": "composite_image.png",
+    "path": "specs/image-generator-tests/dual-base-location/refs/composite-face-to-face.png"
+  },
+  {
+    "name": "harmonize_mask.png",
+    "path": "specs/image-generator-tests/dual-base-location/refs/harmonize-mask-face-to-face.png"
+  }
+]

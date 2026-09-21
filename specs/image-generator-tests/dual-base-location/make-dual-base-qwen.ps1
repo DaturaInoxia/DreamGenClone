@@ -85,10 +85,12 @@ function Build-QwenRefWorkflow($locImg, $deanImg, $beckyImg, $prompt) {
     return @{
         '1'  = @{ class_type = 'LoadImage'; inputs = @{ image = $locImg } }
         '2'  = @{ class_type = 'FluxKontextImageScale'; inputs = @{ image = @('1', 0) } }
+        '14' = @{ class_type = 'LoadImage'; inputs = @{ image = $deanImg } }
+        '15' = @{ class_type = 'LoadImage'; inputs = @{ image = $beckyImg } }
         '4'  = @{ class_type = 'CheckpointLoaderSimple'; inputs = @{ ckpt_name = $Checkpoint } }
         '5'  = @{ class_type = 'ModelSamplingAuraFlow'; inputs = @{ model = @('4', 0); shift = $AuraFlowShift } }
         '6'  = @{ class_type = 'TextEncodeQwenImageEditPlus'; inputs = @{
-            clip = @('4', 1); vae = @('4', 2); image1 = @('2', 0); prompt = $prompt; image2 = $deanImg; image3 = $beckyImg
+            clip = @('4', 1); vae = @('4', 2); image1 = @('2', 0); prompt = $prompt; image2 = @('14', 0); image3 = @('15', 0)
         }}
         '7'  = @{ class_type = 'TextEncodeQwenImageEditPlus'; inputs = @{
             clip = @('4', 1); vae = @('4', 2); image1 = @('2', 0); prompt = $Negative
