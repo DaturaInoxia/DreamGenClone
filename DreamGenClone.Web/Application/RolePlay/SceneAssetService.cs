@@ -5,6 +5,7 @@ using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -73,7 +74,8 @@ public sealed class SceneAssetService : ISceneAssetService
         string imageSize,
         CancellationToken cancellationToken = default,
         IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null,
-        string? candidateBatchId = null)
+        string? candidateBatchId = null,
+        SceneAssetImageGenerationOptions? options = null)
     {
         var asset = await RequireAssetAsync(assetId, cancellationToken);
         if (string.IsNullOrWhiteSpace(prompt))
@@ -90,6 +92,10 @@ public sealed class SceneAssetService : ISceneAssetService
             Kind = SceneAssetKind.PromptGenerated,
             Status = SceneAssetStatus.Pending,
             Prompt = prompt.Trim(),
+            NegativePrompt = options?.NegativePrompt,
+            PromptCompilerId = string.IsNullOrWhiteSpace(options?.PromptCompilerId)
+                ? null
+                : options!.PromptCompilerId!.Trim(),
             CandidateBatchId = string.IsNullOrWhiteSpace(candidateBatchId) ? null : candidateBatchId.Trim(),
             CandidateDecision = string.IsNullOrWhiteSpace(candidateBatchId) ? null : SceneAssetCandidateDecision.Undecided
         };
@@ -100,7 +106,17 @@ public sealed class SceneAssetService : ISceneAssetService
             ModelId = modelId.Trim(),
             ImageSize = imageSize.Trim(),
             CandidateBatchId = image.CandidateBatchId,
-            ReferenceApplicationsJson = referenceApplicationsJson
+            ReferenceApplicationsJson = referenceApplicationsJson,
+            // Both are stated together or not at all: the stance names the skeleton, the strength says how hard to
+            // push it, and a stance with no strength is not a usable request.
+            PoseStance = options?.Pose?.Stance.ToString(),
+            PoseStrength = options?.Pose?.Strength,
+            IdentityPackId = options?.Identity?.PackId,
+            IdentityFaceAssetId = options?.Identity?.FaceAssetId,
+            // An angle render states BOTH: which angle and which accepted body it is that body turned. One without
+            // the other is not a request the render path can honour, so it fails there rather than being guessed at.
+            BodyAngleView = options?.BodyAngle?.View.ToString(),
+            BodyAngleSourceImageId = options?.BodyAngle?.SourceImageId
         };
         image.AssociationMetadataJson = JsonSerializer.Serialize(payload, JsonOptions);
         await _repository.UpsertImageAsync(image, cancellationToken);
@@ -235,6 +251,67 @@ public sealed class SceneAssetService : ISceneAssetService
         image.UpdatedUtc = image.CompletedUtc.Value;
         await _repository.UpsertImageAsync(image, cancellationToken);
         _logger.LogInformation("Uploaded scene asset image: AssetId={AssetId}, ImageId={ImageId}", asset.Id, image.Id);
+        return image;
+    }
+
+    public async Task<SceneAssetImage> AddDerivedImageAsync(
+        string assetId,
+        string sourceImageId,
+        MediaEditOperationKind operation,
+        string fileName,
+        Stream content,
+        CancellationToken cancellationToken = default,
+        string? candidateBatchId = null)
+    {
+        var asset = await RequireAssetAsync(assetId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(fileName))
+            throw new InvalidOperationException("A file name is required.");
+        if (operation is MediaEditOperationKind.Unknown or MediaEditOperationKind.Edit)
+        {
+            throw new InvalidOperationException(
+                $"Operation '{operation}' is not a deterministic in-process derivation, so its output cannot be "
+                + "stored here: the editor-model operation belongs on the queue.");
+        }
+
+        var source = await _repository.GetImageAsync(sourceImageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene asset image '{sourceImageId}' was not found.");
+        if (!string.Equals(source.AssetId, asset.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException("The source image does not belong to this asset.");
+        if (string.IsNullOrWhiteSpace(source.Sha256))
+        {
+            throw new InvalidOperationException(
+                "The source image has no stored checksum, so the derivation cannot be recorded.");
+        }
+
+        var image = new SceneAssetImage
+        {
+            AssetId = asset.Id,
+            Kind = SceneAssetKind.Edited,
+            Status = SceneAssetStatus.Pending,
+            SourceImageId = source.Id,
+            SourceProvenanceJson = JsonSerializer.Serialize(new
+            {
+                operation = MediaEditProvenance.OperationValue(operation),
+                sourceImageSha256 = source.Sha256
+            }, JsonOptions),
+            CandidateBatchId = string.IsNullOrWhiteSpace(candidateBatchId) ? source.CandidateBatchId : candidateBatchId.Trim(),
+            CandidateDecision = SceneAssetCandidateDecision.Undecided
+        };
+        var extension = SafeImageExtension(fileName);
+        var stored = await _storage.SaveAsync($"{image.Id}{extension}", content, cancellationToken);
+        image.Status = SceneAssetStatus.Complete;
+        image.FileRelativePath = stored.RelativePath;
+        image.MediaType = stored.MediaType;
+        image.Width = stored.Width;
+        image.Height = stored.Height;
+        image.ByteLength = stored.ByteLength;
+        image.Sha256 = stored.Sha256;
+        image.CompletedUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        image.UpdatedUtc = image.CompletedUtc.Value;
+        await _repository.UpsertImageAsync(image, cancellationToken);
+        _logger.LogInformation(
+            "Stored derived scene asset image: AssetId={AssetId}, ImageId={ImageId}, SourceImageId={SourceImageId}, Operation={Operation}",
+            asset.Id, image.Id, source.Id, operation);
         return image;
     }
 

@@ -1,29 +1,41 @@
+using DreamGenClone.Application.Templates;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.Templates;
 using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Web.Application.RolePlay.Editing;
 
 /// <summary>
 /// Adapter over the Asset Manager edit stack (<see cref="ISceneAssetService"/> +
-/// <see cref="ISceneAssetImageEditCompilationService"/>). Same workspace contract as the studio path,
-/// minus identity packs, which only exist for scenario characters.
+/// <see cref="ISceneAssetImageEditCompilationService"/>). Same workspace contract as the studio path, and
+/// the same identity capability; what differs is only the roster SOURCE, because an asset image belongs to
+/// no role-play session: its characters come from the library rather than from one scenario.
 /// </summary>
-public sealed class SceneAssetImageEditWorkspaceService : IImageEditWorkspaceService
+public sealed class SceneAssetImageEditWorkspaceService : IImageEditWorkspaceService, IImageIdentityEditService
 {
     private readonly ISceneAssetService _assets;
     private readonly ISceneAssetImageEditCompilationService _compilations;
+    private readonly ITemplateService _templates;
+    private readonly ICharacterImageIdentityService _identity;
+    private readonly ICharacterIdentityOwnerResolver _owners;
 
     public SceneAssetImageEditWorkspaceService(
         ISceneAssetService assets,
-        ISceneAssetImageEditCompilationService compilations)
+        ISceneAssetImageEditCompilationService compilations,
+        ITemplateService templates,
+        ICharacterImageIdentityService identity,
+        ICharacterIdentityOwnerResolver owners)
     {
         _assets = assets;
         _compilations = compilations;
+        _templates = templates;
+        _identity = identity;
+        _owners = owners;
     }
 
     public ImageEditSubjectKind Kind => ImageEditSubjectKind.AssetImage;
 
-    public bool SupportsIdentity => false;
+    public bool SupportsIdentity => true;
 
     public async Task<ImageEditSource?> GetSourceAsync(
         ImageEditSubject subject, CancellationToken cancellationToken = default)
@@ -145,6 +157,72 @@ public sealed class SceneAssetImageEditWorkspaceService : IImageEditWorkspaceSer
         return ToResult(image);
     }
 
+    /// <summary>
+    /// The library-wide roster: every character template that can be bound. An asset image belongs to no
+    /// role-play session, so there is no scenario to read characters from — the owner namespace is the whole
+    /// library. Each owner is still held to the one rule that makes it bindable (exactly one approved pack,
+    /// carrying approved face references), so an asset roster and a scene roster can never disagree about
+    /// eligibility; only about which owners they enumerate.
+    /// </summary>
+    public async Task<ImageIdentityRosterResult> LoadRosterAsync(
+        ImageEditSubject subject, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        var templates = await _templates.GetAllAsync(TemplateType.Character, cancellationToken);
+
+        var choices = new List<ImageIdentityCharacterChoice>();
+        var reasons = new List<string>();
+        foreach (var template in templates)
+        {
+            var (choice, reason) = await ImageIdentityRosterBuilder.TryBuildChoiceAsync(
+                _identity, _owners, template.Id.ToString(), template.Name, cancellationToken);
+            if (choice is not null)
+                choices.Add(choice);
+            else if (!string.IsNullOrWhiteSpace(reason))
+                reasons.Add(reason);
+        }
+
+        var ordered = choices.OrderBy(choice => choice.CharacterName, StringComparer.OrdinalIgnoreCase).ToList();
+        if (ordered.Count > 0)
+        {
+            return new ImageIdentityRosterResult(ordered, null);
+        }
+
+        return new ImageIdentityRosterResult(
+            ordered,
+            reasons.Count > 0
+                ? string.Join(" ", reasons.Distinct(StringComparer.Ordinal))
+                : "No character currently has a single approved identity pack with approved face references.");
+    }
+
+    /// <summary>
+    /// Runs the face-only identity correction on this asset image. The result is an edited child of the
+    /// subject image in the same draft group, so it shows up in the attempts grid and the review deck exactly
+    /// like any other edit of that asset.
+    /// </summary>
+    public async Task<ImageEditResultView> RunIdentityEditAsync(
+        ImageEditSubject subject,
+        IReadOnlyList<ImageIdentitySelection> selections,
+        string editorModelId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(selections);
+        if (selections.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "Select a character and an approved face for at least one detected person before running an identity edit.");
+        }
+
+        var image = await _compilations.EnqueueIdentityEditAsync(new EnqueueSceneAssetImageIdentityEditRequest
+        {
+            AssetId = Require(subject.AssetId, "AssetId"),
+            SourceImageId = subject.ImageId,
+            EditorModelId = editorModelId,
+            Selections = selections
+        }, cancellationToken);
+        return ToResult(image);
+    }
+
     public async Task<ImageEditResultView?> ResolveResultAsync(
         ImageEditSubject subject, string? sessionId, string? trackedResultId, CancellationToken cancellationToken = default)
     {
@@ -155,11 +233,20 @@ public sealed class SceneAssetImageEditWorkspaceService : IImageEditWorkspaceSer
                 return ToResult(tracked);
         }
 
-        // Asset images are not stamped with the edit session, so the newest derived image of the
-        // source is the session's result.
+        // First resolution, with nothing tracked yet. The subject's candidate batch is the ownership stamp every
+        // image this workspace creates carries (RunAsync passes Subject.CandidateBatchId; a crop inherits its
+        // source's), so when the subject names one the result MUST come from it.
+        //
+        // Without that guard this fell back to "the newest image derived from the subject image", and because
+        // several surfaces share one asset container, a freshly opened surface adopted whatever the container
+        // produced last: the four face-angle cards recorded each other's images as their own attempts (left
+        // showing right's renders, right showing left's), and re-selecting a card created another bogus attempt
+        // (B-121 note 010). A subject with no batch — Panel B's step workspace — keeps the newest-derived rule.
         var images = await ListAssetImagesAsync(subject, cancellationToken);
         var latest = images
             .Where(image => string.Equals(image.SourceImageId, subject.ImageId, StringComparison.Ordinal))
+            .Where(image => string.IsNullOrWhiteSpace(subject.CandidateBatchId)
+                || string.Equals(image.CandidateBatchId, subject.CandidateBatchId, StringComparison.Ordinal))
             .OrderByDescending(image => image.CreatedUtc)
             .FirstOrDefault();
         return latest is null ? null : ToResult(latest);

@@ -45,12 +45,17 @@ public sealed class SdxlSceneImagePromptCompiler : ISceneImagePromptCompiler
 /// TogetherAI GPT-Image-2 / Seedream / Imagen). These are natural-language image generators with no
 /// checkpoint-prompt dialect, so the compiler uses the LLM natural-language prompt builder and no
 /// deterministic negative prompt.
+///
+/// The builder is the NATURAL-LANGUAGE one by concrete type, NOT <c>ISceneImageLLMPromptBuilder</c>:
+/// that interface is implemented by both builders, so DI can only bind it to one of them (it is bound to the
+/// Pony tag builder), and injecting it here silently compiled API models with Pony's tag system prompt. See
+/// the same note on <see cref="QwenImage21SceneImagePromptCompiler"/>.
 /// </summary>
 public sealed class ApiSceneImagePromptCompiler : ISceneImagePromptCompiler
 {
-    private readonly ISceneImageLLMPromptBuilder _builder;
+    private readonly SdxlSceneImagePromptBuilder _builder;
 
-    public ApiSceneImagePromptCompiler(ISceneImageLLMPromptBuilder builder)
+    public ApiSceneImagePromptCompiler(SdxlSceneImagePromptBuilder builder)
     {
         _builder = builder;
     }
@@ -84,6 +89,40 @@ public sealed class FluxSceneImagePromptCompiler : ISceneImagePromptCompiler
 
     public SceneImageModelFamily Family => SceneImageModelFamily.Flux;
     public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.FluxNaturalLanguage;
+    public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
+    public string CanonicalNegativePrompt => string.Empty;
+
+    public string BuildNegativePrompt(SceneImageBeat beat, string pov) => string.Empty;
+}
+
+/// <summary>
+/// Natural-language compiler for local Qwen-Image-2.1 scene images (ComfyUI unified
+/// text-to-image + reference-conditioned generation). 2.1 is a single 7B DiT behind one
+/// <c>TextEncodeQwenImage21</c> node that returns positive, negative AND the latent, and that takes
+/// up to sixteen reference images through its <c>images</c> autogrow input. The official path runs
+/// cfg 1 with euler/simple, where the negative prompt is inert, so this compiler carries NO
+/// canonical negative - the same posture as API and FLUX models.
+///
+/// The positive prompt is a natural-language photography brief, which is why the builder is the
+/// NATURAL-LANGUAGE builder by concrete type and not <c>ISceneImageLLMPromptBuilder</c>. Two builders
+/// implement that interface (Pony tags and natural language), so DI can bind it to only one of them, and it is
+/// bound to the Pony tag builder - injecting the interface here silently compiled 2.1 prompts with the Pony tag
+/// system prompt. Reported 2026-09-24: with 2.1 selected the Studio's "Generate Prompt" returned
+/// <c>score_9, score_8_up, ... rating_explicit, 1girl, ...</c> into the natural-language ("SDXL") draft, because
+/// the record's style came from the requested style while the text came from the Pony builder. The render
+/// workflow is unaffected either way; only the dialect of the drafted text was wrong.
+/// </summary>
+public sealed class QwenImage21SceneImagePromptCompiler : ISceneImagePromptCompiler
+{
+    private readonly SdxlSceneImagePromptBuilder _builder;
+
+    public QwenImage21SceneImagePromptCompiler(SdxlSceneImagePromptBuilder builder)
+    {
+        _builder = builder;
+    }
+
+    public SceneImageModelFamily Family => SceneImageModelFamily.QwenImage21;
+    public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.NaturalLanguage;
     public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
     public string CanonicalNegativePrompt => string.Empty;
 
@@ -150,6 +189,10 @@ public static class SceneAssetPromptCompiler
                 semanticDescription),
             (SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage) => new(
                 "scene-asset-flux-natural-language",
+                "1",
+                semanticDescription),
+            (SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage) => new(
+                "scene-asset-qwen-image-21-natural-language",
                 "1",
                 semanticDescription),
             _ => throw new InvalidOperationException(

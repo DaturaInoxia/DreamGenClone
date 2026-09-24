@@ -1,0 +1,26 @@
+[
+  {
+    "ordinal": 1,
+    "characterId": "f58f959a-8050-4388-a219-99d2df3446a1",
+    "characterName": "Becky",
+    "targetKey": "woman",
+    "visibleLocator": "image right facing left",
+    "identityPackId": "1CF3843593C54EA9F1271EBFC0374281",
+    "identityPackVersion": 5,
+    "faceView": "ProfileLeft",
+    "fileRelativePath": "identity/f58f959a-8050-4388-a219-99d2df3446a1/D9ED3C9881A8DBDC5A6962071DEFDF98.png",
+    "sha256": "5E4F3477BF8A73C6B698373A3F0F138E7865900A2D55F74794D2B470E8E9D343"
+  },
+  {
+    "ordinal": 2,
+    "characterId": "faee1ec0-1cf3-459e-97d2-ad59717c41ba",
+    "characterName": "Dean",
+    "targetKey": "man",
+    "visibleLocator": "image left facing right",
+    "identityPackId": "1157b60f-6bef-4267-9874-96367262edef",
+    "identityPackVersion": 8,
+    "faceView": "ProfileRight",
+    "fileRelativePath": "identity/faee1ec0-1cf3-459e-97d2-ad59717c41ba/d5dfe951cc314de9be3be39af39e0781.png",
+    "sha256": "A81D91B54537F30E0BE8E618628D4E2671924B4D8CA0C30C0EA180BDFDEEB466"
+  }
+]

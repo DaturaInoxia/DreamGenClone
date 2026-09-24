@@ -387,7 +387,7 @@ public sealed class ComfyUIIdentityConditionedClient : IIdentityConditionedImage
         var referenceName = await UploadReferenceImageAsync(
             client, baseUrl, referenceBytes, $"identity-ref-{request.CorrelationId}", cancellationToken);
 
-        return model.Mechanism switch
+        var workflow = model.Mechanism switch
         {
             SceneImageIdentityMechanism.IpAdapter => BuildIpAdapterWorkflow(
                 model.ModelIdentifier, model.AdapterRef, referenceName, request, model.IdentityStrength),
@@ -396,6 +396,101 @@ public sealed class ComfyUIIdentityConditionedClient : IIdentityConditionedImage
             _ => throw new ImageGenerationException(
                 $"Unsupported identity mechanism '{model.Mechanism}'.", model.ProviderName, reasonCode: "unsupported_identity_mechanism")
         };
+
+        // Pose conditioning is applied ON TOP of whichever identity graph was built, rather than by growing the
+        // graph builders with a second axis of variation.
+        if (request.PoseImageBytes is { Length: > 0 })
+        {
+            if (string.IsNullOrWhiteSpace(request.ControlNetAdapterRef))
+            {
+                throw new ImageGenerationException(
+                    "A pose-conditioned identity render needs the model's ControlNet adapter reference, but none was "
+                    + "supplied. Resolve the pose-capable model and pass its adapter through.",
+                    model.ProviderName, reasonCode: "missing_controlnet_adapter");
+            }
+
+            var poseName = await UploadReferenceImageAsync(
+                client, baseUrl, request.PoseImageBytes, $"pose-{request.CorrelationId}", cancellationToken);
+
+            ApplyOpenPoseControlNet(
+                workflow, poseName, request.ControlNetAdapterRef, request.PoseStrength ?? DefaultPoseStrength);
+        }
+
+        return workflow;
+    }
+
+    /// <summary>ControlNet conditioning strength used when the request does not state one (the qualified default).</summary>
+    internal const double DefaultPoseStrength = 0.8;
+
+    /// <summary>
+    /// Adds OpenPose ControlNet conditioning to an ALREADY-BUILT identity graph.
+    ///
+    /// The two conditionings touch different edges: the identity chain rewires the sampler's <c>model</c> input
+    /// (IP-Adapter / PuLID output), while the ControlNet rewires its <c>positive</c>/<c>negative</c> conditioning. They
+    /// therefore compose rather than compete, which is why this rewires in place instead of rebuilding — the identity
+    /// half stays byte-for-byte the graph that was proven for its mechanism.
+    ///
+    /// The sampler's current conditioning sources are captured BEFORE being redirected: those are the CLIP encodings
+    /// the ControlNet conditions, and resolving them first is what keeps this a rewiring rather than a guess.
+    /// </summary>
+    internal static void ApplyOpenPoseControlNet(
+        JsonObject workflow,
+        string poseImageName,
+        string controlNetRef,
+        double strength)
+    {
+        if (workflow["4"] is not JsonObject checkpoint
+            || checkpoint["class_type"]?.GetValue<string>() != "CheckpointLoaderSimple")
+        {
+            throw new InvalidOperationException(
+                "The identity workflow has no node '4' CheckpointLoaderSimple, so the ControlNet has no VAE to use.");
+        }
+
+        if (workflow["3"] is not JsonObject sampler || sampler["inputs"] is not JsonObject samplerInputs)
+        {
+            throw new InvalidOperationException("The identity workflow has no node '3' sampler to condition.");
+        }
+
+        if (samplerInputs["positive"] is not JsonArray positive || positive.Count != 2 || positive[0] is null
+            || samplerInputs["negative"] is not JsonArray negative || negative.Count != 2 || negative[0] is null)
+        {
+            throw new InvalidOperationException(
+                "The identity workflow's sampler does not read a positive/negative pair, so pose conditioning cannot be "
+                + "inserted into it.");
+        }
+
+        var positiveSource = new JsonArray(positive[0]!.GetValue<string>(), positive[1]!.GetValue<int>());
+        var negativeSource = new JsonArray(negative[0]!.GetValue<string>(), negative[1]!.GetValue<int>());
+
+        // Ids from 20 up, so they can never collide with the identity builder's own node numbers.
+        workflow["20"] = new JsonObject
+        {
+            ["class_type"] = "LoadImage",
+            ["inputs"] = new JsonObject { ["image"] = poseImageName }
+        };
+        workflow["21"] = new JsonObject
+        {
+            ["class_type"] = "ControlNetLoader",
+            ["inputs"] = new JsonObject { ["control_net_name"] = controlNetRef }
+        };
+        workflow["22"] = new JsonObject
+        {
+            ["class_type"] = "ControlNetApplyAdvanced",
+            ["inputs"] = new JsonObject
+            {
+                ["positive"] = positiveSource,
+                ["negative"] = negativeSource,
+                ["control_net"] = new JsonArray("21", 0),
+                ["image"] = new JsonArray("20", 0),
+                ["strength"] = strength,
+                ["start_percent"] = 0.0,
+                ["end_percent"] = 1.0,
+                ["vae"] = new JsonArray("4", 2)
+            }
+        };
+
+        samplerInputs["positive"] = new JsonArray("22", 0);
+        samplerInputs["negative"] = new JsonArray("22", 1);
     }
 
     /// <summary>

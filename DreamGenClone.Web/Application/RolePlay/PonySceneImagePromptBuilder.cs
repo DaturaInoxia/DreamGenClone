@@ -39,7 +39,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
 
     /// <summary>
     /// Canonical composition-path variant that also receives the scenario characters so each
-    /// depicted character's fixed physical appearance (age, weight, body type, iris colour, figure)
+    /// depicted character's fixed physical appearance (age, height, body type, iris colour, figure)
     /// reaches the Pony pre-processor as a labelled per-character block. Without this the compiled
     /// brief carries no physical attributes and the Pony prompt would lose per-character likeness.
     /// Mirrors the SDXL canonical overload (see <see cref="CanonicalCharacterAppearance"/>).
@@ -585,7 +585,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         sb.AppendLine("- ALWAYS start the prompt with the full quality tag string: score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up");
         sb.AppendLine("- Immediately after the quality tags, choose the Pony rating tag from what the scene depicts: rating_explicit for explicit sexual acts or visible genitals, rating_questionable for suggestive content or partial nudity, and rating_safe for non-sexual content. Base it on the depicted content, not on narrative phase.");
         sb.AppendLine("- Add a danbooru-style count tag (1boy, 1girl, 2people, 1girl and 1boy) matching the number of people in frame. This prevents the model merging people into one figure.");
-        sb.AppendLine("- Describe each character with 3-6 SHORT visual tags (hair, eyes, body type, age, key clothing) — never a metadata block, never 'Age: 51; Height: 5'8\"; Weight: 150 lbs', never 'Appearance — ...'. Use concrete single tokens (e.g. chubby, not 'full figure').");
+        sb.AppendLine("- Describe each character with 3-6 SHORT visual tags (hair, eyes, body type, age, key clothing) — never a metadata block, never 'Age: 51; Height: 5'8\"; Body type: curvy', never 'Appearance — ...'. Use concrete single tokens (e.g. chubby, not 'full figure').");
         sb.AppendLine("- Fold the scene into a few short tags: location, time of day, lighting, mood. Do not repeat the same fact twice.");
         sb.AppendLine("- Add one explicit camera/view tag (e.g. front view, eye level, from side).");
         sb.AppendLine("- Honor beat-stated clothing exactly; only use nudity when the beat explicitly implies it.");

@@ -149,6 +149,7 @@ public sealed class CharacterIdentityFrontService : ICharacterIdentityFrontServi
             UpscalerModelName = resolved.UpscalerModelName,
             EnhanceTargetLongEdge = resolved.EnhanceTargetLongEdge,
             EyeGateMaxAbsIrisDyPercent = resolved.EyeGateMaxAbsIrisDyPercent,
+            AngleYawMinAbsPercent = resolved.AngleYawMinAbsPercent,
             QualityGateMinSharpness = resolved.QualityGateMinSharpness,
             CropHeadroomPercent = resolved.CropHeadroomPercent,
             CropTargetAspect = resolved.CropTargetAspect,

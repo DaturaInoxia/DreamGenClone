@@ -17,9 +17,27 @@ public interface ICharacterImageIdentityService
     Task<IReadOnlyList<SceneImageReferenceAsset>> ListAssetsAsync(
         string packId, CancellationToken cancellationToken = default);
 
-    /// <summary>Return the existing draft, create v1 when no packs exist, or throw if the character has only frozen versions.</summary>
+    /// <summary>
+    /// Return the existing draft, create v1 with this scope when no packs exist, or throw if the character has
+    /// only frozen versions. The scope is required persisted data (never a code default): a draft is neither
+    /// narrowed nor raised by creating it again, and raising a <c>FaceOnly</c> draft to <c>BodyComplete</c> is the
+    /// explicit <see cref="SetDraftPackScopeAsync"/> call.
+    /// </summary>
     Task<CharacterImageIdentityPack> CreateDraftPackAsync(
-        string characterProfileId, CancellationToken cancellationToken = default);
+        string characterProfileId,
+        CharacterImageIdentityPackScope scope,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Raises a DRAFT pack's scope (<c>FaceOnly</c> to <c>BodyComplete</c>) and records the canonical full-body
+    /// asset id — the unclothed <c>Front</c> full-body reference belonging to that same pack. An approved pack is
+    /// refused rather than mutated: supersede it first, which is what keeps an approved pack immutable.
+    /// </summary>
+    Task<CharacterImageIdentityPack> SetDraftPackScopeAsync(
+        string packId,
+        CharacterImageIdentityPackScope scope,
+        string? canonicalFullBodyAssetId,
+        CancellationToken cancellationToken = default);
 
     Task<CharacterImageIdentityPack> ApprovePackAsync(
         string packId,

@@ -22,7 +22,15 @@ public enum MediaEditOperationKind
     /// ComfyUI upscale with a configured upscale model, then a Lanczos scale down to the target edge. This
     /// one DOES reach a model (the local ComfyUI endpoint), unlike crop.
     /// </summary>
-    Enhance = 3
+    Enhance = 3,
+
+    /// <summary>
+    /// Deterministic horizontal mirror of the source image. No model, no parameters: the identity angle
+    /// remedy (a render whose head points the wrong way) is exactly this operation. It runs through
+    /// <c>IImageMirrorEngine</c> so the pixel work has ONE implementation, and it is recorded with mirror
+    /// provenance like every other operation.
+    /// </summary>
+    Mirror = 4
 }
 
 /// <summary>
@@ -165,6 +173,9 @@ public sealed record MediaEditOperation(
     /// <summary>The upscale-enhance operation.</summary>
     public static MediaEditOperation ForEnhance(MediaEditEnhanceOperation enhance)
         => new(MediaEditOperationKind.Enhance, null, enhance ?? throw new ArgumentNullException(nameof(enhance)));
+
+    /// <summary>The deterministic horizontal-mirror operation (no parameters).</summary>
+    public static MediaEditOperation ForMirror { get; } = new(MediaEditOperationKind.Mirror, null);
 
     /// <summary>Fails fast when the operation is unnamed or when its parameters do not match its kind.</summary>
     public void Validate()

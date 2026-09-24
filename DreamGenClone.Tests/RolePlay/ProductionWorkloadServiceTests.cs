@@ -469,7 +469,7 @@ public sealed class ProductionWorkloadServiceTests
             await IdentityRepository.UpsertDraftAsync(new CharacterImageIdentityPack
             {
                 Id = packId,
-                CharacterProfileId = characterProfileId,
+                CharacterTemplateId = characterProfileId,
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft,
                 DescriptorSnapshotJson = "{\"description\":\"test identity\"}",

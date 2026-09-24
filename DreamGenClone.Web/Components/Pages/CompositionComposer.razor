@@ -23,7 +23,8 @@
 @inject ISessionService SessionService
 @inject IScenarioService ScenarioService
 @inject ICharacterImageIdentityService IdentityService
-@inject IReferenceStrategyResolver ReferenceStrategyResolver
+@inject ICharacterIdentityOwnerResolver OwnerResolver
+@inject IReferenceStrategyResolver ReferenceStrategies
 @inject ISceneMomentEnrichmentPipelineService MomentEnrichmentService
 
 <PageTitle>Composition Composer - DreamGenClone</PageTitle>
@@ -184,7 +185,7 @@
                                 <ReferenceApplyPanel ModelId="@_selectedModelId"
                                                      Selections="@_referenceApplications"
                                                      SelectionsChanged="OnReferenceApplicationsChanged"
-                                                     ExecutableStrategies="TextOnlyReferenceStrategy" />
+                                                     ExecutableStrategies="SelectedModelStrategies" />
                                 <div class="mt-2">
                                     <ResolvedRenderBadge ModelLabel="@SelectedModelLabel()" Selections="@_referenceApplications" />
                                 </div>
@@ -241,7 +242,7 @@
                             <div class="d-flex justify-content-between align-items-start gap-2">
                                 <div>
                                     <strong>Pose reference</strong>
-                                    <span class="d-block small text-muted">Bind the blocking/pose with an OpenPose ControlNet (OpenPoseXL2) on the local ComfyUI. Upload an OpenPose skeleton PNG (from the pose library or a DWPose extract of a reference photo). Qualified today on SDXL-family local ComfyUI models (BigLust / Juggernaut); others fail fast rather than rendering without the pose.</span>
+                                    <span class="d-block small text-muted">Bind the blocking/pose with an OpenPose skeleton PNG (from the pose library or a DWPose extract of a reference photo). The selected model's family decides how the skeleton travels: a model that qualifies an OpenPose ControlNet (SDXL/FLUX on the local ComfyUI) conditions the sampler with it, while a model that carries references natively (Qwen-Image-2.1) takes the skeleton as one more reference image in the same call — which is also what lets a pose combine with identity on create. A model that supports neither fails fast rather than rendering without the pose.</span>
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(_poseStoragePath))
                                 {
@@ -273,6 +274,7 @@
                                                 <input type="range" class="form-range" min="0.1" max="1" step="0.05" style="width: 180px;" @bind="_poseStrength" />
                                                 <span class="small text-muted">@_poseStrength.ToString("0.00")</span>
                                             </div>
+                                            <span class="d-block small text-muted">Used when the model conditions the pose with a ControlNet; a reference-image pose carries no strength.</span>
                                         </div>
                                     </div>
                                 }
@@ -439,8 +441,6 @@
 </div>
 
 @code {
-    private static readonly IReadOnlyList<string> TextOnlyReferenceStrategy = ["TextOnly"];
-
     [Parameter] public string sessionId { get; set; } = string.Empty;
     [Parameter] public string interactionId { get; set; } = string.Empty;
     [Parameter] public string productionGroupId { get; set; } = string.Empty;
@@ -469,6 +469,28 @@
             _selectedModelBacking = value;
             // Auto-switch the prompt tab to the family of the newly selected model.
             _activeStyle = RenderStyle;
+        }
+    }
+
+    /// <summary>
+    /// The reference strategies the SELECTED model can actually execute, read from the model choice that came out of
+    /// the same capability decision the render uses. A hardcoded text-only list here hid every reference strategy
+    /// even for a model that carries identity as its own reference images (reported 2026-09-24).
+    /// </summary>
+    private IReadOnlyList<string> SelectedModelStrategies
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_selectedModelId))
+            {
+                return ["TextOnly"];
+            }
+
+            var choice = _modelChoices.FirstOrDefault(model => model.ModelId == _selectedModelId)
+                ?? throw new InvalidOperationException(
+                    "The selected Composition image model is not in the enabled image-model list. Reload the page and "
+                    + "pick an enabled model in Model Manager.");
+            return choice.QualifiedStrategies;
         }
     }
     private CancellationTokenSource? _pollingCts;
@@ -585,12 +607,10 @@
             .Take(100)
             .ToList();
         _modelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
-        if (string.IsNullOrWhiteSpace(_selectedModelId))
-            _selectedModelId = _modelChoices.FirstOrDefault()?.ModelId;
+        _selectedModelId = KeepSelection(_modelChoices, _selectedModelId);
 
         _identityModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: true)).ToList();
-        if (string.IsNullOrWhiteSpace(_selectedIdentityModelId))
-            _selectedIdentityModelId = _identityModelChoices.FirstOrDefault()?.ModelId;
+        _selectedIdentityModelId = KeepSelection(_identityModelChoices, _selectedIdentityModelId);
         if (_identityPackOptions.Count == 0)
             await LoadIdentityPackOptionsAsync();
         if (_identityResolution is null)
@@ -686,9 +706,26 @@
                     })
                     .ToList()
                 : null;
+            // Pose and one-pass identity may only be combined when BOTH travel as references on the SAME model.
+            // Identity through a configured IP-Adapter/PuLID graph and a pose through a ControlNet are different
+            // graphs, so the skeleton would be silently dropped — refuse that, and only that. The render path
+            // re-validates the same question authoritatively; this is the enqueue-time courtesy check.
             if (_applyIdentityOnCreate && !string.IsNullOrWhiteSpace(_poseStoragePath))
             {
-                throw new InvalidOperationException("Pose conditioning and 'Identity on create' cannot be combined. Clear one before generating a Composition.");
+                var poseStrategy = await ReferenceStrategies.ResolvePoseAsync(_selectedIdentityModelId);
+                var poseTravelsAsReference = poseStrategy.IsAvailable
+                    && string.Equals(poseStrategy.Strategy, ReferenceStrategyResolver.IdentityNativeMultiReference, StringComparison.OrdinalIgnoreCase);
+                var identityTravelsAsReference = string.Equals(
+                    _identityResolution?.Strategy,
+                    ReferenceStrategyResolver.IdentityNativeMultiReference,
+                    StringComparison.OrdinalIgnoreCase);
+                if (!poseTravelsAsReference || !identityTravelsAsReference)
+                {
+                    throw new InvalidOperationException(
+                        "Pose conditioning and 'Identity on create' cannot be combined on this model: it applies identity through a "
+                        + "configured mechanism while the pose needs a separate ControlNet graph. Select a model that carries both as "
+                        + "references (Qwen-Image-2.1), or clear one of them.");
+                }
             }
             var firstPackId = identityPacks?.FirstOrDefault()?.PackId;
             var renderSettings = new SceneImageStudioSettings();
@@ -727,9 +764,27 @@
     private Task SelectPromptStyleAsync(SceneImagePromptStyle style)
     {
         _activeStyle = style;
+
+        // Generating on a tab other than the family of the selected model is allowed (each style keeps its own
+        // draft), but it must not look like the draft this Composition will use: a Composition always renders the
+        // style the SELECTED model's family implies, so say which one that is.
+        _statusMessage = style == RenderStyle
+            ? string.Empty
+            : $"Editing the {SceneImagePromptStyleResolver.DisplayLabel(style)} draft. This Composition renders the "
+                + $"{SceneImagePromptStyleResolver.DisplayLabel(RenderStyle)} draft, because that is the dialect the selected model reads.";
+
         StateHasChanged();
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Keeps a picker's current selection while the model is still enabled, otherwise falls back to the first enabled
+    /// choice. A stale id would reach the capability lookups as a model the operator can no longer see.
+    /// </summary>
+    private static string? KeepSelection(IReadOnlyList<SceneImageModelChoice> choices, string? current)
+        => !string.IsNullOrWhiteSpace(current) && choices.Any(choice => choice.ModelId == current)
+            ? current
+            : choices.FirstOrDefault()?.ModelId;
 
     /// <summary>The prompt style that matches the currently selected image model's family.</summary>
     private SceneImagePromptStyle RenderStyle
@@ -796,11 +851,17 @@
         }
         try
         {
-            _identityResolution = await ReferenceStrategyResolver.ResolveAsync(_selectedIdentityModelId, "ReferenceConditioning");
+            // The SHARED identity decision, not a hardcoded mechanism: a model that carries identity as its own
+            // reference images (Qwen-Image-2.1) is available here too, and the badge explains which mechanism
+            // the render will use.
+            _identityResolution = await ReferenceStrategies.ResolveIdentityAsync(_selectedIdentityModelId);
         }
         catch (Exception ex)
         {
-            _identityResolution = new ReferenceStrategyResolution(ReferenceStrategyResolutionStatus.Unqualified, "ReferenceConditioning", ex.Message);
+            _identityResolution = new ReferenceStrategyResolution(
+                ReferenceStrategyResolutionStatus.Unqualified,
+                ReferenceStrategyResolver.IdentityReferenceConditioning,
+                ex.Message);
         }
         await InvokeAsync(StateHasChanged);
     }
@@ -826,7 +887,10 @@
                 IReadOnlyList<CharacterImageIdentityPack> packs;
                 try
                 {
-                    packs = await IdentityService.ListPacksAsync(character.Id);
+                    // B-127: packs belong to the character TEMPLATE. Reading them with the scenario character id
+                    // returned nothing, so approved packs existed and never appeared in this list.
+                    var owner = await OwnerResolver.ResolveAsync(character.Id);
+                    packs = await IdentityService.ListPacksAsync(owner.TemplateId);
                 }
                 catch
                 {
@@ -1105,6 +1169,30 @@
             _selectedIdentityModelId = _identityModelChoices.FirstOrDefault()?.ModelId;
         _applyIdentityOnCreate = false;
         await RefreshIdentityResolutionAsync();
+
+        // A strategy chosen for the PREVIOUS model is not necessarily executable on this one. Keeping it would send a
+        // request whose conditioning is silently dropped, so it is reset to TextOnly with the reason stated — the
+        // same rule the render follows: never quietly ignore what the operator asked for.
+        var available = SelectedModelStrategies;
+        var reset = new List<string>();
+        foreach (var selection in _referenceApplications)
+        {
+            if (available.Contains(selection.Strategy, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            reset.Add($"{selection.ElementKey} ({selection.Strategy} -> TextOnly)");
+            selection.Strategy = "TextOnly";
+        }
+
+        if (reset.Count > 0)
+        {
+            _statusMessage = $"The selected model cannot execute: {string.Join(", ", reset)}. "
+                + "Those references now render as text only; pick a model that declares the strategy to condition on them.";
+        }
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task SetCompositionDispositionAsync(SceneImageRecord attempt, SceneImageAttemptDisposition next)

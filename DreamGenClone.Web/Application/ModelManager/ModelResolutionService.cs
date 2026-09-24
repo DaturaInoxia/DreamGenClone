@@ -1,8 +1,10 @@
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace DreamGenClone.Web.Application.ModelManager;
 
@@ -285,7 +287,11 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             SceneImageModelFamily: model.SceneImageModelFamily,
             PromptDialect: model.PromptDialect,
             ImageProtocol: provider.ImageProtocol,
-            ComfyUiUrl: provider.ImageProtocol is ImageProtocol.ComfyUi or ImageProtocol.ComfyUiServerless ? provider.BaseUrl : null);
+            ComfyUiUrl: provider.ImageProtocol is ImageProtocol.ComfyUi or ImageProtocol.ComfyUiServerless ? provider.BaseUrl : null,
+            QwenImage21: model.SceneImageModelFamily == SceneImageModelFamily.QwenImage21
+                ? QwenImage21ModelSettings.Resolve(model)
+                : null,
+            RegisteredModelId: model.Id);
     }
 
     public async Task<ResolvedIdentityImageModel> ResolveIdentityImageModelAsync(
@@ -382,22 +388,67 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
         foreach (var model in models
             .Where(item => item.ModelKind == ModelKind.Image)
             .Where(item => string.IsNullOrWhiteSpace(item.ImageEditorDiffusionModel))
-            .Where(item => !identityCapableOnly || !string.IsNullOrWhiteSpace(item.IdentityMechanism))
             .OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase))
         {
             var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
+
+            // Identity capability is the SAME decision the render makes (a configured IP-Adapter/PuLID mechanism
+            // first, then the model's own reference slots), asked through the one resolver that owns it. A model
+            // is offered here only if it can actually carry identity, so "offered" can never exceed "executable".
+            var identityCapability = ResolveIdentityCapability(model, provider);
+            if (identityCapableOnly && !identityCapability.IsAvailable)
+                continue;
+
             result.Add(new SceneImageModelChoice(
                 model.Id,
                 model.DisplayName,
                 model.ModelIdentifier,
                 provider?.Name ?? "Unknown",
-                HasIdentity: !string.IsNullOrWhiteSpace(model.IdentityMechanism))
+                HasIdentity: identityCapability.IsAvailable)
             {
                 Family = model.SceneImageModelFamily,
-                Dialect = model.PromptDialect
+                Dialect = model.PromptDialect,
+                // The strategies this model can actually execute, from the SAME decision the render makes, so a
+                // reference panel built from this choice can never offer what the render would refuse.
+                QualifiedStrategies = provider is null
+                    ? ["TextOnly"]
+                    : ReferenceStrategyResolver.ListAvailableStrategies(model, provider)
             });
         }
         return result;
+    }
+
+    /// <summary>
+    /// Identity capability for a listed model. Listing must not throw — one malformed row would otherwise take
+    /// out every picker on the page — so an unexplainable row is reported as not identity-capable and logged;
+    /// the render path remains the authority that fails fast with the exact reason.
+    /// </summary>
+    private ReferenceStrategyResolution ResolveIdentityCapability(RegisteredModel model, Provider? provider)
+    {
+        if (provider is null)
+        {
+            return new(
+                ReferenceStrategyResolutionStatus.Unqualified,
+                ReferenceStrategyResolver.IdentityNativeMultiReference,
+                $"Model '{model.DisplayName}' has no registered provider, so its identity capability cannot be resolved.");
+        }
+
+        try
+        {
+            return ReferenceStrategyResolver.ResolveIdentity(model, provider);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or JsonException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Identity capability could not be resolved while listing scene image models: ModelId={ModelId}, Model={DisplayName}",
+                model.Id,
+                model.DisplayName);
+            return new(
+                ReferenceStrategyResolutionStatus.Unqualified,
+                ReferenceStrategyResolver.IdentityNativeMultiReference,
+                $"Model '{model.DisplayName}' identity capability could not be resolved: {exception.Message}");
+        }
     }
 
     /// <inheritdoc />
@@ -555,6 +606,7 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             (SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage) => true,
             (SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage) => true,
             (SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage) => true,
+            (SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage) => true,
             _ => false
         };
 

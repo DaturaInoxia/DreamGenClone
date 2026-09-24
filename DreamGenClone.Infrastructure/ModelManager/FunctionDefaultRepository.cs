@@ -20,9 +20,10 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
 
     public async Task<FunctionModelDefault> SaveAsync(FunctionModelDefault functionDefault, CancellationToken cancellationToken = default)
     {
-        var validationError = functionDefault.ValidateSceneBeatAnalyzerConfiguration();
+        var validationError = functionDefault.ValidateSceneBeatAnalyzerConfiguration()
+            ?? functionDefault.ValidateCharacterBodyCardDraftConfiguration();
         if (validationError is not null)
-            throw new InvalidOperationException($"RP Scene Beat Analyzer configuration is invalid: {validationError}");
+            throw new InvalidOperationException($"Function '{functionDefault.FunctionName}' configuration is invalid: {validationError}");
 
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);

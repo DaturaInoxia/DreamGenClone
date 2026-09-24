@@ -17,7 +17,11 @@ if (!File.Exists(databasePath))
     return 2;
 }
 
-var connectionMode = commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "qwen-edit-local-aio-configure" or "qwen-edit-local-aio-lora-configure" or "qwen-edit-remix-aio-configure" or "qwen-edit-remix-aio-lora-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "local-comfyui-configure" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
+// The identity re-key opens READ-WRITE only for its apply mode: 'preview' is guaranteed read-only at the
+// connection level, not merely by convention.
+var rekeyApplies = string.Equals(commandName, "b127-identity-rekey", StringComparison.Ordinal)
+    && args.Skip(1).Any(argument => string.Equals(argument, "apply", StringComparison.OrdinalIgnoreCase));
+var connectionMode = rekeyApplies || commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "qwen-edit-local-aio-configure" or "qwen-edit-local-aio-lora-configure" or "qwen-edit-remix-aio-configure" or "qwen-edit-remix-aio-lora-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "body-axes-migrate" or "local-comfyui-configure" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -96,15 +100,22 @@ try
             connection,
             RequireArgument(args, 1, "scenarioId"),
             RequireArgument(args, 2, "characterName"),
-            RequireArgument(args, 3, "weight"),
-            RequireArgument(args, 4, "bustSize"),
-            RequireArgument(args, 5, "buttSize")),
+            RequireArgument(args, 3, "bustSize"),
+            RequireArgument(args, 4, "buttSize")),
+        // One-time: maps the retired BodyType onto the body axes that replaced it. Idempotent.
+        "body-axes-migrate" => await MigrateBodyAxesAsync(connection),
         "modelmanager-export" => await ModelManagerTransfer.ExportAsync(
             connection,
             args.ElementAtOrDefault(1) ?? ModelManagerTransfer.DefaultExportPath),
         "modelmanager-import" => await ModelManagerTransfer.ImportAsync(
             connection,
             RequireArgument(args, 1, "jsonFile")),
+        // B-127: identity ownership. 'preview' is read-only (the dispatcher opens the connection Mode=ReadOnly);
+        // 'apply' renames the identity key columns and re-keys the rows in one transaction.
+        "b127-identity-rekey" => await B127IdentityRekey.RunAsync(
+            connection,
+            RequireArgument(args, 1, "mode (preview|apply)"),
+            args.Skip(2).ToList()),
         "sql" => await PrintSqlFileAsync(connection, RequireArgument(args, 1, "sqlFile"), args.ElementAtOrDefault(2)),
         _ => throw new ArgumentException($"Unknown command '{args[0]}'.")
     };
@@ -455,11 +466,17 @@ static async Task<int> UpdateProviderApiKeyAsync(
     return 0;
 }
 
+// Converges the DeepSeek flash row onto the identifier the provider actually reports back.
+// DeepSeek accepts `deepseek-v4-flash` as a REQUEST alias, but always reports the canonical
+// `deepseek-flash` in the response `model` field. The structured-text client requires an exact match,
+// so a row left on the alias fails every beat-pipeline call. Sanitized snapshots still carry the alias,
+// so it is accepted as input here and rewritten to the canonical value (idempotent: a re-run is a no-op).
 static async Task<int> ConfigureB100AnalyzerAsync(SqliteConnection connection)
 {
     const string functionName = "RolePlaySceneBeatAnalyzer";
     const string providerName = "DeepSeek";
-    const string modelIdentifier = "deepseek-v4-flash";
+    const string modelIdentifier = "deepseek-flash";
+    const string legacyModelIdentifier = "deepseek-v4-flash";
 
     await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
     await using var columnCheck = connection.CreateCommand();
@@ -485,12 +502,13 @@ static async Task<int> ConfigureB100AnalyzerAsync(SqliteConnection connection)
         FROM RegisteredModels rm
         INNER JOIN Providers p ON p.Id = rm.ProviderId
         WHERE p.Name = $providerName
-          AND rm.ModelIdentifier = $modelIdentifier
+          AND rm.ModelIdentifier IN ($modelIdentifier, $legacyModelIdentifier)
           AND p.IsEnabled = 1
           AND rm.IsEnabled = 1;
         """;
     select.Parameters.AddWithValue("$providerName", providerName);
     select.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
+    select.Parameters.AddWithValue("$legacyModelIdentifier", legacyModelIdentifier);
 
     var modelIds = new List<string>();
     await using (var reader = await select.ExecuteReaderAsync())
@@ -502,12 +520,13 @@ static async Task<int> ConfigureB100AnalyzerAsync(SqliteConnection connection)
     if (modelIds.Count != 1)
     {
         throw new InvalidOperationException(
-            $"Expected exactly one enabled '{providerName}' model '{modelIdentifier}', found {modelIds.Count}; no database changes were made.");
+            $"Expected exactly one enabled '{providerName}' model '{modelIdentifier}' (or legacy '{legacyModelIdentifier}'), found {modelIds.Count}; no database changes were made.");
     }
 
     await using var configureModel = connection.CreateCommand();
     configureModel.Transaction = transaction;
-    configureModel.CommandText = "UPDATE RegisteredModels SET StructuredOutputMode = 2 WHERE Id = $modelId;";
+    configureModel.CommandText = "UPDATE RegisteredModels SET ModelIdentifier = $modelIdentifier, StructuredOutputMode = 2 WHERE Id = $modelId;";
+    configureModel.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
     configureModel.Parameters.AddWithValue("$modelId", modelIds[0]);
     if (await configureModel.ExecuteNonQueryAsync() != 1)
         throw new InvalidOperationException("Scene-beat analyzer model capability update failed; no database changes were made.");
@@ -1555,7 +1574,7 @@ static async Task<int> SetIdentityStrengthAsync(
 }
 
 /// <summary>
-/// Updates a scenario character's body-figure fields (Weight, BustSize, ButtSize) inside the
+/// Updates a scenario character's body-figure fields (BustSize, ButtSize) inside the
 /// scenario's nested PayloadJson. Targeted, validated, transactional — fails with no changes if the
 /// scenario or character is missing. Keeps the legacy BustMeasurement alias in sync so it cannot
 /// clobber the canonical value on the next deserialization.
@@ -1564,7 +1583,6 @@ static async Task<int> UpdateCharacterFigureAsync(
     SqliteConnection connection,
     string scenarioId,
     string characterName,
-    string weight,
     string bustSize,
     string buttSize)
 {
@@ -1606,7 +1624,6 @@ static async Task<int> UpdateCharacterFigureAsync(
         character["PhysicalAttributes"] = physical;
     }
 
-    physical["Weight"] = weight;
     physical["BustSize"] = bustSize;
     physical["ButtSize"] = buttSize;
     physical["BustMeasurement"] = bustSize;
@@ -1625,8 +1642,153 @@ static async Task<int> UpdateCharacterFigureAsync(
     }
 
     await transaction.CommitAsync();
-    Console.WriteLine($"Character figure updated: {characterName} in {scenarioId} -> weight={weight}, bust={bustSize}, butt={buttSize}");
+    Console.WriteLine($"Character figure updated: {characterName} in {scenarioId} -> bust={bustSize}, butt={buttSize}");
     return 0;
+}
+
+/// <summary>
+/// One-time migration: maps the retired scenario-character <c>BodyType</c> value onto the body axes that replaced
+/// it. <c>BodyType</c> conflated frame, fat and muscle into one list, so each legacy value is mapped to the axis it
+/// actually described. Idempotent — a character that no longer carries <c>BodyType</c> is left alone. An
+/// unrecognised value aborts the whole run with no changes: never a guessed default (repo no-fallback rule).
+/// </summary>
+static async Task<int> MigrateBodyAxesAsync(SqliteConnection connection)
+{
+    // "Curvy" is the operator's own definition (2026-09-22): normal weight with a fuller rear and a little belly,
+    // NOT voluptuous. See memory/repo/body-vocabulary-curvy-meaning.md.
+    var mapping = new Dictionary<string, (string? Adiposity, string? FatDistribution, string? MuscleMass, string? MuscleDefinition)>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Toned"] = ("lean, slim", null, null, "defined, visible abs"),
+        ["Curvy"] = ("average weight", "fuller rear with a soft belly", null, null),
+        ["Average"] = ("average weight", null, null, null)
+    };
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    var migratedCharacters = 0;
+    var migratedTemplates = 0;
+    var updatedScenarios = 0;
+    var skipped = 0;
+
+    var (scenarios, skippedScenarios) = await ReadJsonPayloadsAsync(connection, transaction, "Scenarios");
+    var (templates, skippedTemplates) = await ReadJsonPayloadsAsync(connection, transaction, "Templates");
+    skipped = skippedScenarios + skippedTemplates;
+
+    foreach (var (scenarioId, payload) in scenarios)
+    {
+        if (JsonNode.Parse(payload) is not JsonObject root || root["Characters"] is not JsonArray characters)
+            continue;
+
+        var changedInScenario = 0;
+        foreach (var node in characters)
+        {
+            if (node is not JsonObject character
+                || character["PhysicalAttributes"] is not JsonObject physical)
+                continue;
+
+            var name = character["Name"]?.GetValue<string>() ?? "<unnamed>";
+            changedInScenario += ApplyBodyAxes(physical, mapping, $"character '{name}' in scenario '{scenarioId}'");
+        }
+
+        if (changedInScenario == 0)
+            continue;
+
+        migratedCharacters += changedInScenario;
+
+        await using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = "UPDATE Scenarios SET PayloadJson = $payload, UpdatedUtc = $now WHERE Id = $id;";
+        update.Parameters.AddWithValue("$payload", root.ToJsonString());
+        update.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("o"));
+        update.Parameters.AddWithValue("$id", scenarioId);
+        await update.ExecuteNonQueryAsync();
+        updatedScenarios++;
+    }
+
+    foreach (var (templateId, payload) in templates)
+    {
+        if (JsonNode.Parse(payload) is not JsonObject root
+            || root["PhysicalAttributes"] is not JsonObject physical)
+            continue;
+
+        if (ApplyBodyAxes(physical, mapping, $"template '{templateId}'") == 0)
+            continue;
+
+        await using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = "UPDATE Templates SET PayloadJson = $payload, UpdatedUtc = $now WHERE Id = $id;";
+        update.Parameters.AddWithValue("$payload", root.ToJsonString());
+        update.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("o"));
+        update.Parameters.AddWithValue("$id", templateId);
+        await update.ExecuteNonQueryAsync();
+        migratedTemplates++;
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine(
+        $"Body-axes migration complete: {migratedCharacters} character(s) in {updatedScenarios} scenario(s) and "
+        + $"{migratedTemplates} template(s) updated.");
+    if (skipped > 0)
+    {
+        // Location templates store their payload as raw location prose rather than JSON, so they have no
+        // PhysicalAttributes to migrate. Reported rather than silently ignored.
+        Console.WriteLine($"Skipped {skipped} row(s) whose PayloadJson is not JSON (nothing to migrate in them).");
+    }
+
+    return 0;
+}
+
+/// <summary>
+/// Reads every (Id, PayloadJson) pair from a payload-bearing table inside the caller's transaction, skipping rows
+/// whose payload is not JSON, and reports how many were skipped so the omission is never silent.
+/// </summary>
+static async Task<(List<(string Id, string Payload)> Rows, int Skipped)> ReadJsonPayloadsAsync(
+    SqliteConnection connection, SqliteTransaction transaction, string table)
+{
+    await using (var countNotJson = connection.CreateCommand())
+    {
+        countNotJson.Transaction = transaction;
+        countNotJson.CommandText = $"SELECT COUNT(*) FROM {table} WHERE json_valid(PayloadJson) = 0;";
+        var skipped = Convert.ToInt32(await countNotJson.ExecuteScalarAsync());
+
+        var rows = new List<(string Id, string Payload)>();
+        await using var select = connection.CreateCommand();
+        select.Transaction = transaction;
+        select.CommandText = $"SELECT Id, PayloadJson FROM {table} WHERE json_valid(PayloadJson) = 1;";
+        await using var reader = await select.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            rows.Add((reader.GetString(0), reader.GetString(1)));
+
+        return (rows, skipped);
+    }
+}
+
+/// <summary>
+/// Replaces a legacy <c>BodyType</c> with its axis values in place. Returns 1 when it migrated, 0 when there was
+/// nothing to do, and throws (aborting the transaction with no changes) on a value that has no mapping.
+/// </summary>
+static int ApplyBodyAxes(
+    JsonObject physical,
+    Dictionary<string, (string? Adiposity, string? FatDistribution, string? MuscleMass, string? MuscleDefinition)> mapping,
+    string where)
+{
+    if (physical["BodyType"] is not JsonValue legacyValue)
+        return 0;
+
+    var legacy = legacyValue.GetValue<string>();
+    if (!mapping.TryGetValue(legacy, out var axes))
+    {
+        throw new InvalidOperationException(
+            $"The {where} has BodyType '{legacy}', which has no body-axis mapping; no changes were made. Add the "
+            + "mapping explicitly rather than guessing.");
+    }
+
+    physical.Remove("BodyType");
+    if (axes.Adiposity is not null) physical["Adiposity"] = axes.Adiposity;
+    if (axes.FatDistribution is not null) physical["FatDistribution"] = axes.FatDistribution;
+    if (axes.MuscleMass is not null) physical["MuscleMass"] = axes.MuscleMass;
+    if (axes.MuscleDefinition is not null) physical["MuscleDefinition"] = axes.MuscleDefinition;
+    return 1;
 }
 
 /// <summary>
@@ -2144,5 +2306,5 @@ static string FindDatabasePath()
 static void PrintUsage()
 {
     Console.Error.WriteLine("Usage: dotnet run --project DreamGenClone.DbQuery -- <command> [args]");
-    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, qwen-edit-serverless-configure, qwen-edit-local-aio-configure, qwen-edit-local-aio-lora-configure <loraName> <strength>, qwen-edit-remix-aio-configure, qwen-edit-remix-aio-lora-configure <loraName> <strength>, local-comfyui-configure <baseUrl>, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <weight> <bustSize> <buttSize>, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
+    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, qwen-edit-serverless-configure, qwen-edit-local-aio-configure, qwen-edit-local-aio-lora-configure <loraName> <strength>, qwen-edit-remix-aio-configure, qwen-edit-remix-aio-lora-configure <loraName> <strength>, local-comfyui-configure <baseUrl>, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <bustSize> <buttSize>, body-axes-migrate, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
 }

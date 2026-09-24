@@ -422,41 +422,7 @@
         _editModel.Role = CharacterRoleCatalog.Normalize(profile.TargetRole);
     }
 
-    private static DreamGenClone.Domain.Templates.PhysicalAttributes ClonePhysicalAttributes(DreamGenClone.Domain.Templates.PhysicalAttributes src) => new()
-    {
-        Age = src.Age,
-        Height = src.Height,
-        Weight = src.Weight,
-        Ethnicity = src.Ethnicity,
-        HairColour = src.HairColour,
-        HairStyle = src.HairStyle,
-        EyeColour = src.EyeColour,
-        SkinTone = src.SkinTone,
-        SkinTexture = src.SkinTexture,
-        BodyType = src.BodyType,
-        BustSize = src.BustSize,
-        WaistSize = src.WaistSize,
-        HipSize = src.HipSize,
-        ClothingStyle = src.ClothingStyle,
-        DistinguishingMarks = src.DistinguishingMarks,
-        Piercings = src.Piercings,
-        Tattoos = src.Tattoos,
-        AttractivenessRating = src.AttractivenessRating,
-        Scent = src.Scent,
-        SexualSkill = src.SexualSkill,
-        SexualDrive = src.SexualDrive,
-        SexualConfidence = src.SexualConfidence,
-        OralSkill = src.OralSkill,
-        EndowmentLength = src.EndowmentLength,
-        EndowmentGirth = src.EndowmentGirth,
-        Stamina = src.Stamina,
-        Recovery = src.Recovery,
-        EjaculationIntensity = src.EjaculationIntensity,
-        VaginalTightness = src.VaginalTightness,
-        Sensitivity = src.Sensitivity,
-        Lubrication = src.Lubrication,
-        OrgasmicCapacity = src.OrgasmicCapacity,
-    };
+    private static DreamGenClone.Domain.Templates.PhysicalAttributes ClonePhysicalAttributes(DreamGenClone.Domain.Templates.PhysicalAttributes src) => src.Clone();
 }
 
 <style>

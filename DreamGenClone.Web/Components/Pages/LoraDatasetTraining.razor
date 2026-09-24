@@ -258,7 +258,7 @@
         _attempts = _job is null ? [] : (await LoraRepository.ListTrainingAttemptsAsync(_job.Id)).ToList();
         _artifacts = _dataset is null
             ? []
-            : (await LoraRepository.ListArtifactsAsync(_dataset.CharacterProfileId))
+            : (await LoraRepository.ListArtifactsAsync(_dataset.CharacterTemplateId))
                 .Where(artifact => string.Equals(artifact.DatasetId, DatasetId, StringComparison.Ordinal))
                 .ToList();
     }

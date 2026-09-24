@@ -49,14 +49,22 @@ public enum SceneImageFinishChangeClass
     Geometry = 2
 }
 
-/// <summary>Render mode for a scene image: prompt-only or identity-controlled.</summary>
+/// <summary>Render mode for a scene image: prompt-only, identity-controlled, or native-reference.</summary>
 public enum SceneImageRenderMode
 {
     /// <summary>Existing Phase 1 path; no continuity guarantee.</summary>
     PromptOnly = 0,
 
     /// <summary>Identity-conditioned render using an approved identity pack. No prompt-only fallback.</summary>
-    IdentityControlled = 1
+    IdentityControlled = 1,
+
+    /// <summary>
+    /// Native multi-reference render: the references themselves (character faces AND/OR approved scene
+    /// assets such as a location) condition the generation in ONE call, with no identity mechanism and
+    /// no editing pass. Only a family that implements reference-conditioned generation can serve it
+    /// (Qwen-Image-2.1); anything else fails fast rather than dropping the references.
+    /// </summary>
+    NativeReference = 2
 }
 
 /// <summary>

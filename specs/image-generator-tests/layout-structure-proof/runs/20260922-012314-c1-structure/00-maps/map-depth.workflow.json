@@ -1,0 +1,42 @@
+﻿{
+    "1":  {
+              "inputs":  {
+                             "image":  "c1ref.png"
+                         },
+              "class_type":  "LoadImage"
+          },
+    "2":  {
+              "inputs":  {
+                             "crop":  "disabled",
+                             "upscale_method":  "bilinear",
+                             "width":  1216,
+                             "height":  832,
+                             "image":  [
+                                           "1",
+                                           0
+                                       ]
+                         },
+              "class_type":  "ImageScale"
+          },
+    "10":  {
+               "inputs":  {
+                              "ckpt_name":  "depth_anything_v2_vitl.pth",
+                              "resolution":  1216,
+                              "image":  [
+                                            "2",
+                                            0
+                                        ]
+                          },
+               "class_type":  "DepthAnythingV2Preprocessor"
+           },
+    "9":  {
+              "inputs":  {
+                             "images":  [
+                                            "10",
+                                            0
+                                        ],
+                             "filename_prefix":  "c1-map-depth"
+                         },
+              "class_type":  "SaveImage"
+          }
+}

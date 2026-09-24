@@ -15,4 +15,13 @@ public sealed record SceneImageModelChoice(
     public SceneImageModelFamily Family { get; init; } = SceneImageModelFamily.Unknown;
 
     public SceneImagePromptDialect Dialect { get; init; } = SceneImagePromptDialect.Unknown;
+
+    /// <summary>
+    /// The visual strategies this model can actually execute (<c>TextOnly</c> plus each declared and qualified
+    /// graph strategy), so a reference panel offers the selected model's real capabilities instead of a list frozen
+    /// per page. A model whose identity travels as its own reference images therefore offers
+    /// <c>NativeMultiReference</c>, which a hardcoded text-only list had hidden (reported 2026-09-24: "the identity
+    /// is not available to allow but it should be" with Qwen-Image-2.1 selected).
+    /// </summary>
+    public IReadOnlyList<string> QualifiedStrategies { get; init; } = [];
 }

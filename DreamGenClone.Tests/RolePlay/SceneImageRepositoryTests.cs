@@ -388,6 +388,80 @@ public sealed class SceneImageRepositoryTests
         }
     }
 
+    /// <summary>
+    /// The claim is a transition of its own, not a side effect of completion: a queued row is claimed
+    /// exactly once, and the claim is what makes its completion legal for a render or an edit.
+    /// </summary>
+    [Fact]
+    public async Task TryClaimImage_ClaimsAQueuedRowOnce_AndUnlocksItsCompletion()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "claim me",
+                Status = SceneImageStatus.Pending,
+                Operation = SceneImageOperation.Edit,
+                SourceImageId = "source-1",
+                SettingsJson = "{\"Style\":\"cartoon\"}"
+            };
+            await repo.InsertImageAsync(image);
+
+            Assert.True(await repo.TryClaimImageAsync(image.Id, DateTime.UtcNow));
+
+            var claimed = await repo.GetImageAsync(image.Id);
+            Assert.Equal(SceneImageStatus.Generating, claimed!.Status);
+            Assert.NotNull(claimed.StartedUtc);
+
+            // Claimed once: the same row cannot be claimed a second time.
+            Assert.False(await repo.TryClaimImageAsync(image.Id, DateTime.UtcNow));
+            Assert.Equal(SceneImageStatus.Generating, (await repo.GetImageAsync(image.Id))!.Status);
+
+            claimed.Status = SceneImageStatus.Complete;
+            claimed.FileRelativePath = "s1/edit.png";
+            claimed.CompletedUtc = DateTime.UtcNow;
+            claimed.UpdatedUtc = DateTime.UtcNow;
+            Assert.True(await repo.TryCompleteImageAsync(claimed));
+            Assert.Equal(SceneImageStatus.Complete, (await repo.GetImageAsync(image.Id))!.Status);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task TryClaimImage_RefusesATerminalRow()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "already gone",
+                Status = SceneImageStatus.Cancelled,
+                SettingsJson = "{\"Style\":\"cartoon\"}"
+            };
+            await repo.InsertImageAsync(image);
+
+            Assert.False(await repo.TryClaimImageAsync(image.Id, DateTime.UtcNow));
+            var unchanged = await repo.GetImageAsync(image.Id);
+            Assert.Equal(SceneImageStatus.Cancelled, unchanged!.Status);
+            Assert.Null(unchanged.StartedUtc);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
     [Fact]
     public async Task InsertImage_StatusTransitions_Count_List_Delete()
     {

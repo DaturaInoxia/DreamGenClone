@@ -15,9 +15,10 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$ComfyUiUrl = 'http://192.168.0.16:8188',
+    [string]$ComfyUiUrl = 'https://comfy.kenacwood.net',
     [string]$SourceImage = 'specs/image-generator-tests/qwen/images/base.png',
-    [string]$Instruction = "Change only the man's shirt from blue to solid red.",
+    # Raw edit instruction. Required unless -IdentityCharacters builds one (see below).
+    [string]$Instruction = '',
     # Optional negative prompt. Empty by default, which reproduces the app graph exactly
     # (ComfyUIImageEditingClient hardcodes an empty negative encode). Only meaningful when CFG > 1.
     [string]$Negative = '',
@@ -25,9 +26,16 @@ param(
     # Empty by default, which reproduces the app graph exactly (it has no LoRA node).
     [string]$LoraName = '',
     [double]$LoraStrength = 0.9,
-    # Optional SECOND reference image (image2), e.g. a location reference. Mirrors the app's
-    # AddReferenceInputs/AddReferenceLoaders: a plain LoadImage node (20) + image2 wired into BOTH
-    # text encodes, consumed by FluxKontextMultiReferenceLatentMethod (index_timestep_zero).
+    # UI-aligned identity pass. Path to a JSON array of bindings in the SAME shape the app persists
+    # on SceneImageRecord.IdentityReferenceBindingsJson and the handler reads back:
+    #   [{ "ordinal": 1, "characterName": "Becky", "fileRelativePath": "identity/<profile>/<asset>.png", "sha256": "..." }]
+    # Ordinals must be 1..N contiguous (the handler rejects unordered bindings). fileRelativePath is
+    # resolved under -IdentityStorageRoot, exactly as the app's identity storage does. When supplied,
+    # the app's identity instruction (SceneImageService.BuildFaceOnlyIdentityInstruction) is built and
+    # used, so the proof sends what the Studio's "apply identity" action sends.
+    [string]$IdentityBindingsPath = '',
+    [string]$IdentityStorageRoot = 'DreamGenClone.Web/data/scene-images',
+    # Single-reference convenience form, equivalent to one binding. Used by the older chained harnesses.
     [string]$AnchorImage = '',
     [string]$Checkpoint = 'Qwen-Rapid-AIO-NSFW-v23.safetensors',
     [int]$Steps = 8,
@@ -51,6 +59,101 @@ Add-Type -AssemblyName System.Net.Http
 $client = New-Object System.Net.Http.HttpClient
 $client.Timeout = [TimeSpan]::FromSeconds(300)
 
+# --- resolve the reference list and the instruction (one source, no ambiguity) ---------
+$referenceFiles = @()
+$identityCharacters = @()
+$identityLocators = @()
+$identitySubjects = @()
+
+if ($IdentityBindingsPath -and $AnchorImage) {
+    throw "Pass either -IdentityBindingsPath or -AnchorImage, not both."
+}
+
+if ($IdentityBindingsPath) {
+    if (-not (Test-Path $IdentityBindingsPath)) { throw "Identity bindings file '$IdentityBindingsPath' was not found." }
+    # Note: do NOT wrap ConvertFrom-Json in @() on PowerShell 5.1 - it nests the array as a single
+    # element (same trap as the image manifests). foreach enumerates the returned array correctly.
+    $parsedBindings = Get-Content -Raw $IdentityBindingsPath | ConvertFrom-Json
+    $bindings = @()
+    foreach ($parsedBinding in $parsedBindings) { $bindings += $parsedBinding }
+    if ($bindings.Count -eq 0) { throw "Identity bindings file '$IdentityBindingsPath' contains no bindings." }
+    $ordered = @($bindings | Sort-Object { [int]$_.ordinal })
+    for ($i = 0; $i -lt $ordered.Count; $i++) {
+        if ([int]$ordered[$i].ordinal -ne ($i + 1)) {
+            throw "Identity bindings must be ordinally ordered 1..N with no gaps (got $($ordered[$i].ordinal) at position $($i + 1))."
+        }
+        if ([string]::IsNullOrWhiteSpace($ordered[$i].characterName)) { throw "Binding $($ordered[$i].ordinal) is missing characterName." }
+        if ([string]::IsNullOrWhiteSpace($ordered[$i].fileRelativePath)) { throw "Binding $($ordered[$i].ordinal) is missing fileRelativePath." }
+        $fullPath = Join-Path $IdentityStorageRoot $ordered[$i].fileRelativePath
+        if (-not (Test-Path $fullPath)) { throw "Binding $($ordered[$i].ordinal) asset not found: $fullPath" }
+        if ($ordered[$i].sha256) {
+            $actual = (Get-FileHash -Algorithm SHA256 -Path $fullPath).Hash
+            if ($actual -ne ([string]$ordered[$i].sha256).ToUpperInvariant()) {
+                throw "Binding $($ordered[$i].ordinal) sha256 mismatch for $fullPath`n  expected $($ordered[$i].sha256)`n  actual   $actual"
+            }
+        }
+        $referenceFiles += $fullPath
+        $identityCharacters += ([string]$ordered[$i].characterName).Trim()
+        # visibleLocator is the app's per-face AREA ("man on the left facing right"). Its presence
+        # selects the editor identity instruction below, exactly as EnqueueEditorIdentityAsync does.
+        if ([string]::IsNullOrWhiteSpace($ordered[$i].visibleLocator)) { $identityLocators += '' }
+        else { $identityLocators += ([string]$ordered[$i].visibleLocator).Trim() }
+        # SubjectLabel is the target key when the compiler supplied one, else the character name.
+        if ([string]::IsNullOrWhiteSpace($ordered[$i].targetKey)) { $identitySubjects += ([string]$ordered[$i].characterName).Trim() }
+        else { $identitySubjects += ([string]$ordered[$i].targetKey).Trim() }
+        $referenceView = if ($ordered[$i].faceView) { " ($($ordered[$i].faceView))" } else { '' }
+        Write-Host ("  binding $($i + 1): $($identityCharacters[$i])$referenceView -> $($ordered[$i].fileRelativePath)")
+    }
+
+    if ($Instruction) { throw "Pass either -Instruction or -IdentityBindingsPath, not both." }
+
+    $withLocator = @($identityLocators | Where-Object { $_ }).Count
+    if ($withLocator -ne 0 -and $withLocator -ne $identityLocators.Count) {
+        throw "Bindings must either ALL carry visibleLocator (editor identity path) or NONE (face-only path); got $withLocator of $($identityLocators.Count)."
+    }
+
+    if ($withLocator -gt 0) {
+        # Mirrors SceneImageService.BuildEditorIdentityInstruction - the app's EDITOR identity path
+        # (EnqueueEditorIdentityAsync), which is the one that carries a per-face area. It is the
+        # proven short, face-primary "Picture N" recipe; the reference image is the caller's chosen
+        # approved asset (so an angle-matched view can be supplied) rather than the pack canonical.
+        $mappingParts = @()
+        for ($i = 0; $i -lt $identitySubjects.Count; $i++) {
+            $mappingParts += "Apply the face of the person shown in Picture $($i + 2) to the $($identitySubjects[$i]) at $($identityLocators[$i]). Keep that person's facial identity consistent with Picture $($i + 2) for the entire image; do not change anyone else."
+        }
+        $facesWord = if ($identitySubjects.Count -gt 1) { 'faces' } else { 'face' }
+        $Instruction = ($mappingParts -join ' ') + " Keep the pose, bodies, position, clothing, lighting, and everything else in the image exactly unchanged except the selected $facesWord."
+    }
+    else {
+        # Mirrors SceneImageService.BuildFaceOnlyIdentityInstruction - the long, feature-explicit
+        # form persisted by EnqueueIdentityAsync (no per-face area; canonical pack asset).
+        # Ordinal is 1-based and the template prints ordinal+1 because image 1 is the scene source.
+        $identityNames = ((@($identityCharacters) | Where-Object { $_ } | Select-Object -Unique) -join ', ')
+        $mappingParts = @()
+        for ($i = 0; $i -lt $identityCharacters.Count; $i++) {
+            $mappingParts += "Reference image $($i + 2) is the approved face identity reference for $($identityCharacters[$i]) and applies only to that character's face in image 1."
+        }
+        $Instruction = "Identity correction only for the selected character faces: $identityNames. " +
+            "Image 1 is the existing scene and must remain the base image. " +
+            (($mappingParts -join ' ') + ' ') +
+            "The additional approved face images are identity references only, not replacement images or composition sources. " +
+            "Transfer the approved reference identity into the matching face region: preserve and reproduce the reference's distinguishing facial geometry, eye color and shape, eyebrows, nose, lips, freckles, complexion markers, and hairline-adjacent facial details, adapted to the existing face's scale, angle, expression, and lighting. " +
+            "Use the reference only to correct face-local identity details for those selected characters. " +
+            "Treat the existing scene's visible neck and body skin tone as authoritative: harmonize the corrected face skin tone, undertone, exposure, and shading with that body under the existing scene lighting, without importing a mismatched complexion from the reference. " +
+            "Preserve everything outside those selected face regions exactly: every person and unselected face, bodies, poses, hands, clothing, accessories, expression, action, scene geometry, framing, camera, crop, background, objects, lighting, color, and composition. " +
+            "Do not copy the reference image framing, background, body, pose, clothing, or lighting. " +
+            "Do not add, remove, move, restyle, or otherwise alter anything outside the selected character face regions."
+    }
+}
+elseif ($AnchorImage) {
+    if (-not (Test-Path $AnchorImage)) { throw "Anchor image '$AnchorImage' was not found." }
+    $referenceFiles = @($AnchorImage)
+}
+
+if ([string]::IsNullOrWhiteSpace($Instruction)) {
+    throw "An instruction is required: pass -Instruction, or -IdentityBindingsPath."
+}
+
 $promptId = $ExistingPromptId
 if (-not $promptId) {
     # --- upload the source image -------------------------------------------------
@@ -70,24 +173,25 @@ if (-not $promptId) {
     $uploaded = ($uploadResponse.Content.ReadAsStringAsync().Result | ConvertFrom-Json).name
     "uploaded: $uploaded"
 
-    # --- optional second reference image (location reference) --------------------------
-    $anchorUploaded = ''
-    if ($AnchorImage) {
-        if (-not (Test-Path $AnchorImage)) { throw "Anchor image '$AnchorImage' was not found." }
-        $anchorName = [System.IO.Path]::GetFileName($AnchorImage)
-        $anchorUploadName = "proof-anchor-" + $anchorName
-        $anchorBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $AnchorImage))
-        $anchorMultipart = New-Object System.Net.Http.MultipartFormDataContent
-        $anchorContent = New-Object System.Net.Http.ByteArrayContent (,$anchorBytes)
-        $anchorContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse('image/png')
-        $anchorMultipart.Add($anchorContent, 'image', $anchorUploadName)
-        $anchorMultipart.Add((New-Object System.Net.Http.StringContent 'true'), 'overwrite')
-        $anchorResponse = $client.PostAsync("$base/upload/image", $anchorMultipart).Result
-        if (-not $anchorResponse.IsSuccessStatusCode) {
-            throw "Anchor upload failed: $($anchorResponse.StatusCode) $($anchorResponse.Content.ReadAsStringAsync().Result)"
+    # --- ordered reference images (image2, image3, ... exactly as the app wires them) ---
+    $referenceUploaded = @()
+    for ($index = 0; $index -lt $referenceFiles.Count; $index++) {
+        $referencePath = $referenceFiles[$index]
+        if (-not (Test-Path $referencePath)) { throw "Reference image '$referencePath' was not found." }
+        $referenceName = [System.IO.Path]::GetFileName($referencePath)
+        $referenceUploadName = "proof-ref$($index + 1)-" + $referenceName
+        $referenceBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $referencePath))
+        $referenceMultipart = New-Object System.Net.Http.MultipartFormDataContent
+        $referenceContent = New-Object System.Net.Http.ByteArrayContent (,$referenceBytes)
+        $referenceContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse('image/png')
+        $referenceMultipart.Add($referenceContent, 'image', $referenceUploadName)
+        $referenceMultipart.Add((New-Object System.Net.Http.StringContent 'true'), 'overwrite')
+        $referenceResponse = $client.PostAsync("$base/upload/image", $referenceMultipart).Result
+        if (-not $referenceResponse.IsSuccessStatusCode) {
+            throw "Reference $($index + 1) upload failed: $($referenceResponse.StatusCode) $($referenceResponse.Content.ReadAsStringAsync().Result)"
         }
-        $anchorUploaded = ($anchorResponse.Content.ReadAsStringAsync().Result | ConvertFrom-Json).name
-        "anchor uploaded: $anchorUploaded"
+        $referenceUploaded += ($referenceResponse.Content.ReadAsStringAsync().Result | ConvertFrom-Json).name
+        "reference $($index + 1) uploaded: $($referenceUploaded[$index])"
     }
 
 # --- the app's merged-checkpoint graph ---------------------------------------
@@ -110,12 +214,14 @@ $workflow = [ordered]@{
     '16' = @{ class_type = 'CheckpointLoaderSimple';                  inputs = @{ ckpt_name = $Checkpoint } }
 }
 
-# Optional second reference (image2): node 20 LoadImage + image2 on both text encodes, matching the
-# app's AddReferenceInputs/AddReferenceLoaders wiring exactly.
-if ($anchorUploaded) {
-    $workflow['20'] = @{ class_type = 'LoadImage'; inputs = @{ image = $anchorUploaded } }
-    $workflow['6'].inputs.image2 = @('20', 0)
-    $workflow['7'].inputs.image2 = @('20', 0)
+# Ordered references: reference i becomes image(i+2) on both text encodes via LoadImage node
+# (20+i), matching ComfyUIImageEditingClient.AddReferenceInputs/AddReferenceLoaders.
+for ($index = 0; $index -lt $referenceUploaded.Count; $index++) {
+    $referenceNodeId = (20 + $index).ToString()
+    $referenceSlot = "image$($index + 2)"
+    $workflow[$referenceNodeId] = @{ class_type = 'LoadImage'; inputs = @{ image = $referenceUploaded[$index] } }
+    $workflow['6'].inputs[$referenceSlot] = @($referenceNodeId, 0)
+    $workflow['7'].inputs[$referenceSlot] = @($referenceNodeId, 0)
 }
 
 # Optional LoRA: insert LoraLoader between the checkpoint and everything downstream

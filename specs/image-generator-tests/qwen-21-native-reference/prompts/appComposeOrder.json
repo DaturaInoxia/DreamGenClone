@@ -1,0 +1,130 @@
+﻿{
+    "1":  {
+              "inputs":  {
+                             "weight_dtype":  "default",
+                             "unet_name":  "qwen_image_2.1_int8_convrot.safetensors"
+                         },
+              "class_type":  "UNETLoader"
+          },
+    "2":  {
+              "inputs":  {
+                             "device":  "default",
+                             "clip_name":  "qwen3vl_8b_int8_convrot.safetensors",
+                             "type":  "qwen_image"
+                         },
+              "class_type":  "CLIPLoader"
+          },
+    "3":  {
+              "inputs":  {
+                             "vae_name":  "qwen_image_2.1_vae_bf16.safetensors"
+                         },
+              "class_type":  "VAELoader"
+          },
+    "4":  {
+              "inputs":  {
+                             "vae":  [
+                                         "3",
+                                         0
+                                     ],
+                             "images.image_2":  [
+                                                    "21",
+                                                    0
+                                                ],
+                             "resolution":  1024,
+                             "negative_prompt":  "",
+                             "clip":  [
+                                          "2",
+                                          0
+                                      ],
+                             "images.image_1":  [
+                                                    "20",
+                                                    0
+                                                ],
+                             "prompt":  "Photorealistic photograph of a woman standing in the bedroom shown in \u003cimage3\u003e, in the exact pose shown in \u003cimage2\u003e - the same stance, the same limb positions and the same body angles. Her face, hair, hair colour and skin tone are exactly those of the woman in \u003cimage1\u003e. Reproduce the room faithfully: the wooden bed with the grey textured throw, the bedside lamps lit with warm light, the tall windows with cream curtains, the pale carpet and wall colour, and the same camera angle and framing. She wears a plain light-grey t-shirt and dark jeans. Keep her build and scale natural for the room. Sharp focus, natural skin texture, shot on 50mm.",
+                             "images.image_3":  [
+                                                    "22",
+                                                    0
+                                                ]
+                         },
+              "class_type":  "TextEncodeQwenImage21"
+          },
+    "20":  {
+               "inputs":  {
+                              "image":  "qwen21-beckyFront.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "21":  {
+               "inputs":  {
+                              "image":  "qwen21-skeletonStanding.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "22":  {
+               "inputs":  {
+                              "image":  "qwen21-bedroom.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "5":  {
+              "inputs":  {
+                             "batch_size":  1,
+                             "width":  1216,
+                             "height":  832
+                         },
+              "class_type":  "EmptyLatentImage"
+          },
+    "6":  {
+              "inputs":  {
+                             "denoise":  1,
+                             "seed":  20260922,
+                             "negative":  [
+                                              "4",
+                                              1
+                                          ],
+                             "cfg":  1,
+                             "sampler_name":  "euler",
+                             "latent_image":  [
+                                                  "5",
+                                                  0
+                                              ],
+                             "scheduler":  "simple",
+                             "model":  [
+                                           "1",
+                                           0
+                                       ],
+                             "steps":  25,
+                             "positive":  [
+                                              "4",
+                                              0
+                                          ]
+                         },
+              "class_type":  "KSampler"
+          },
+    "7":  {
+              "inputs":  {
+                             "samples":  [
+                                             "6",
+                                             0
+                                         ],
+                             "vae":  [
+                                         "3",
+                                         0
+                                     ]
+                         },
+              "class_type":  "VAEDecode"
+          },
+    "8":  {
+              "inputs":  {
+                             "images":  [
+                                            "7",
+                                            0
+                                        ],
+                             "filename_prefix":  "qwen21"
+                         },
+              "class_type":  "SaveImage"
+          }
+}

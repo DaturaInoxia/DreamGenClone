@@ -72,18 +72,31 @@ public interface IImageEditWorkspaceService
 }
 
 /// <summary>
-/// The optional identity capability (scene images only). Kept separate from the edit contract so
-/// stores without identity packs — asset images, character reference images — simply do not
-/// implement it and the workspace hides the capability.
+/// The optional identity capability. Kept separate from the edit contract so a store without identity
+/// packs simply does not implement it and the workspace hides the capability.
+///
+/// It takes the whole <see cref="ImageEditSubject"/> rather than only the field one store happens to
+/// need, because the roster SOURCE is store-specific: a scene image reads the characters of its session's
+/// scenario, while an asset image has no session and reads the characters of the library. Only the adapter
+/// knows which of its subject's fields name that source.
 /// </summary>
 public interface IImageIdentityEditService
 {
     ImageEditSubjectKind Kind { get; }
 
-    Task<ImageIdentityRosterResult> LoadRosterAsync(string sessionId, CancellationToken cancellationToken = default);
+    Task<ImageIdentityRosterResult> LoadRosterAsync(
+        ImageEditSubject subject, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Runs the face-only identity correction. <paramref name="editorModelId"/> is the model the editor
+    /// form selected — the same decision every other run of that form carries — so the identity run can
+    /// never resolve an editor model the user did not choose.
+    /// </summary>
     Task<ImageEditResultView> RunIdentityEditAsync(
-        ImageEditSubject subject, IReadOnlyList<ImageIdentitySelection> selections, CancellationToken cancellationToken = default);
+        ImageEditSubject subject,
+        IReadOnlyList<ImageIdentitySelection> selections,
+        string editorModelId,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Selects the adapter for a subject kind. Missing adapters fail fast — never a default.</summary>

@@ -198,6 +198,51 @@ public sealed class SceneImageStudioUiContractTests
         Assert.DoesNotContain("_productionIdentityPacks.Where(option => option.Selected)", method, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The reference panels must offer the SELECTED model's real capabilities, and a model change must be answered.
+    /// A list frozen per page hid every strategy it did not name - reported 2026-09-24: with Qwen-Image-2.1 selected
+    /// "the identity is not available to allow but it should be", because the composer passed a text-only list and
+    /// the studio's Finish stage a two-strategy list. Both surfaces now read the model choice's qualified set, which
+    /// comes from the same capability decision the render makes, and both re-check what the operator had chosen.
+    /// </summary>
+    [Fact]
+    public void ReferencePanels_FollowTheSelectedModelsCapabilities()
+    {
+        Assert.Contains("ExecutableStrategies=\"SelectedModelStrategies\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ExecutableStrategies=\"TextOnlyReferenceStrategy\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("return choice.QualifiedStrategies;", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("The selected Composition image model is not in the enabled image-model list.", CompositionComposerSource, StringComparison.Ordinal);
+        // A strategy the newly selected model cannot execute is reset with the reason stated, never left in place.
+        Assert.Contains("The selected model cannot execute: {string.Join(\", \", reset)}.", CompositionComposerSource, StringComparison.Ordinal);
+
+        Assert.Contains("ExecutableStrategies=\"ProductionModelStrategies\"", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("FinishReferenceStrategies = [\"TextOnly\", \"ReferenceConditioning\"]", Source, StringComparison.Ordinal);
+        Assert.Contains("return choice.QualifiedStrategies;", Source, StringComparison.Ordinal);
+        Assert.Contains("private IReadOnlyList<string> ProductionModelStrategies", Source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The identity card must say WHICH mechanism the selected model will use, re-check it whenever the picker
+    /// changes, and refuse to submit an identity render a model cannot carry - a text-only render looks exactly like
+    /// a successful identity render (reported 2026-09-24: "cant validate the changes made").
+    /// </summary>
+    [Fact]
+    public void IdentityCard_ResolvesTheMechanismAndRefusesAnUncarryableRender()
+    {
+        Assert.Contains("@inject IReferenceStrategyResolver ReferenceStrategies", Source, StringComparison.Ordinal);
+        Assert.Contains("@bind=\"_selectedIdentityModelId\" @bind:after=\"RefreshIdentityResolutionAsync\"", Source, StringComparison.Ordinal);
+        Assert.Contains("_identityResolution = await ReferenceStrategies.ResolveIdentityAsync(_selectedIdentityModelId);", Source, StringComparison.Ordinal);
+        Assert.Contains("@identityResolution.Strategy", Source, StringComparison.Ordinal);
+        Assert.Contains("IdentityMechanismExplanation(identityResolution)", Source, StringComparison.Ordinal);
+        Assert.Contains("_identityResolution?.IsAvailable != true", Source, StringComparison.Ordinal);
+        Assert.Contains("The selected identity model cannot carry identity:", Source, StringComparison.Ordinal);
+        // The stale "configure IP-Adapter/PuLid" guidance must name the native-reference route too.
+        Assert.Contains("through its own reference images (Qwen-Image-2.1)", Source, StringComparison.Ordinal);
+        // And a model change must refresh the derived capabilities, not only the picker's own value.
+        Assert.Contains("@bind=\"_selectedGenericModelId\" @bind:after=\"OnGenericModelChangedAsync\"", Source, StringComparison.Ordinal);
+        Assert.Contains("await RefreshIdentityResolutionAsync();\r\n        await RevalidateProductionReferenceStrategiesAsync();", Source, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void AttemptExecutionDispositionAndApproval_AreRenderedSeparately()
     {

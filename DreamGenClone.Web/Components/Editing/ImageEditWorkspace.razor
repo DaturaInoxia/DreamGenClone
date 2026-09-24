@@ -355,7 +355,7 @@ else
                         </div>
                     </div>
                     <div class="mb-3">
-                        <p class="small text-muted">Bind each detected person to a scenario character's approved identity pack, then run a separate face-only identity correction. No typed prompt is required — identity compiles from the source image and runs independently of the Edit tab.</p>
+                        <p class="small text-muted">Bind each detected person to a character's approved identity pack, then run a separate face-only identity correction. No typed prompt is required — identity compiles from the source image and runs independently of the Edit tab.</p>
                         @if (_compilationResult?.Status != SceneImageEditCompilationResultStatus.Ready)
                         {
                             <div class="alert alert-info py-2 small mb-2">Identity needs a vision analysis of this image to detect the people to correct.</div>
@@ -375,7 +375,7 @@ else
                             }
                             else if (_identityCharacters.Count == 0)
                             {
-                                <div class="alert alert-warning py-2 small">No scenario characters with an approved identity pack are available for this session. Create and approve identity packs in <a href="/characters/identity">Character Identity</a>.</div>
+                                <div class="alert alert-warning py-2 small">No characters with an approved identity pack are available here. Create and approve identity packs in <a href="/characters/identity">Character Identity</a>.</div>
                             }
                             <section class="border rounded p-3 mt-3" aria-label="Identity-pack character targets">
                                 <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
@@ -399,7 +399,7 @@ else
                                         }
                                         <div class="row g-2">
                                             <div class="col-md-6">
-                                                <label class="form-label small mb-1">Scenario character</label>
+                                                <label class="form-label small mb-1">Character</label>
                                                 <select class="form-select form-select-sm" value="@target.CharacterId" disabled="@_busy" @onchange="args => SetIdentityTargetCharacterAsync(target, args)">
                                                     <option value="">Select character…</option>
                                                     @foreach (var choice in _identityCharacters)
@@ -457,7 +457,7 @@ else
                                     </div>
                                 }
                                 <div class="d-flex align-items-center gap-2 mt-3">
-                                    <button type="button" class="btn btn-sm btn-outline-success" disabled="@(_busy || !_identityTargetSelections.Any(target => target.IsBound) || _result?.IsInFlight == true)" @onclick="RunIdentityEditAsync">
+                                    <button type="button" class="btn btn-sm btn-outline-success" disabled="@(_busy || !_identityTargetSelections.Any(target => target.IsBound) || _result?.IsInFlight == true || string.IsNullOrWhiteSpace(_selectedEditorModelId))" @onclick="RunIdentityEditAsync">
                                         <i class="bi bi-person-badge me-1"></i> Run identity edit
                                     </button>
                                     <span class="small text-muted">Runs a separate face-only identity correction that becomes its own image; content edits on the Edit tab are independent.</span>
@@ -1523,7 +1523,8 @@ else
                     target.ReferenceAssetId))
                 .ToList();
 
-            _result = await _identityService.RunIdentityEditAsync(Subject, selections);
+            // The model chosen in this form, passed through unchanged — the identity run never resolves one.
+            _result = await _identityService.RunIdentityEditAsync(Subject, selections, _selectedEditorModelId!);
             _statusMessage = "Identity correction queued.";
             EnsurePolling();
         });
@@ -1538,7 +1539,7 @@ else
 
         try
         {
-            var roster = await _identityService.LoadRosterAsync(Subject.SessionId ?? string.Empty);
+            var roster = await _identityService.LoadRosterAsync(Subject);
             _identityCharacters = roster.Characters;
             _identityRosterStatus = roster.UnavailableReason ?? string.Empty;
         }

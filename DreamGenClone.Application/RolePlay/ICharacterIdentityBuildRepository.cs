@@ -18,6 +18,10 @@ public interface ICharacterIdentityBuildRepository
 
     Task<IReadOnlyList<CharacterIdentityBuildStepRecord>> ListStepsAsync(string buildId, CancellationToken cancellationToken = default);
 
+    /// <summary>The persisted step plan of one target kind, in pipeline order (seeded at schema ensure).</summary>
+    Task<IReadOnlyList<CharacterIdentityStepDefinition>> ListStepPlanAsync(
+        CharacterIdentityTargetKind kind, CancellationToken cancellationToken = default);
+
     Task UpsertAngleAsync(CharacterIdentityAngleRecord angle, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<CharacterIdentityAngleRecord>> ListAnglesAsync(string buildId, CancellationToken cancellationToken = default);
@@ -29,4 +33,10 @@ public interface ICharacterIdentityBuildRepository
     Task DeleteAngleAttemptAsync(string attemptId, CancellationToken cancellationToken = default);
 
     Task RecordAngleAttemptOverrideAsync(string attemptId, string reason, string author, CancellationToken cancellationToken = default);
+
+    /// <summary>Persists one body view's state (B-122 Phase 0). Keyed by the view's own id.</summary>
+    Task UpsertBodyViewAsync(CharacterIdentityBodyView view, CancellationToken cancellationToken = default);
+
+    /// <summary>Every body view of a build, in a stable order (state, then canonical views before extended ones).</summary>
+    Task<IReadOnlyList<CharacterIdentityBodyView>> ListBodyViewsAsync(string buildId, CancellationToken cancellationToken = default);
 }

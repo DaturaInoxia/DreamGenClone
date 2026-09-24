@@ -32,12 +32,15 @@ public static class MediaEditProvenance
 
     public const string EnhanceValue = "enhance";
 
+    public const string MirrorValue = "mirror";
+
     /// <summary>The provenance value for an operation kind — what the writers record.</summary>
     public static string OperationValue(MediaEditOperationKind kind) => kind switch
     {
         MediaEditOperationKind.Edit => EditValue,
         MediaEditOperationKind.Crop => CropValue,
         MediaEditOperationKind.Enhance => EnhanceValue,
+        MediaEditOperationKind.Mirror => MirrorValue,
         _ => throw new InvalidOperationException(
             $"There is no provenance value for operation kind '{kind}'.")
     };

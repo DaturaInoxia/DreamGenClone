@@ -1,0 +1,133 @@
+﻿{
+    "harness":  "run-c1-structure-proof.ps1",
+    "startedAt":  "2026-09-22T01:25:54.2545289-04:00",
+    "comfyUiUrl":  "http://192.168.0.11:8188",
+    "reference":  "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\sex-slideshow\\runs\\20260914-02-slideshow-hq\\step14-woman-bends-over.png",
+    "canvas":  "1216 x 832",
+    "seed":  20260922,
+    "steps":  30,
+    "cfg":  5,
+    "sampler":  "dpmpp_2m_sde",
+    "scheduler":  "karras",
+    "negative":  "",
+    "prompt":  "photorealistic photograph of a man and a woman in a sunlit modern living room, the man standing upright wearing a plain dark grey t-shirt and blue jeans, the woman bent forward at the waist wearing a light grey t-shirt and blue jeans, wooden floor, large window with warm afternoon light, light grey wall, full body head to toe, both fully clothed, natural skin texture, 35mm, sharp focus",
+    "strengths":  {
+                      "openpose":  0.8,
+                      "depth":  0.75,
+                      "canny":  0.6
+                  },
+    "checkpoints":  [
+                        "bigLust_v16.safetensors",
+                        "juggernautXL_ragnarok.safetensors"
+                    ],
+    "maps":  [
+
+             ],
+    "renders":  [
+                    {
+                        "variant":  "bigLustv16-text",
+                        "checkpoint":  "bigLust_v16.safetensors",
+                        "control":  "text",
+                        "strength":  null,
+                        "workflow":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-text\\workflow.json",
+                        "images":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-text\\images.json",
+                        "outDir":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-text",
+                        "status":  "ok",
+                        "outputs":  [
+                                        "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-text\\bigLustv16-text_0.png"
+                                    ]
+                    },
+                    {
+                        "variant":  "bigLustv16-openpose",
+                        "checkpoint":  "bigLust_v16.safetensors",
+                        "control":  "openpose",
+                        "strength":  0.8,
+                        "workflow":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-openpose\\workflow.json",
+                        "images":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-openpose\\images.json",
+                        "outDir":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-openpose",
+                        "status":  "ok",
+                        "outputs":  [
+                                        "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-openpose\\bigLustv16-openpose_0.png"
+                                    ]
+                    },
+                    {
+                        "variant":  "bigLustv16-depth",
+                        "checkpoint":  "bigLust_v16.safetensors",
+                        "control":  "depth",
+                        "strength":  0.75,
+                        "workflow":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-depth\\workflow.json",
+                        "images":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-depth\\images.json",
+                        "outDir":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-depth",
+                        "status":  "ok",
+                        "outputs":  [
+                                        "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-depth\\bigLustv16-depth_0.png"
+                                    ]
+                    },
+                    {
+                        "variant":  "bigLustv16-canny",
+                        "checkpoint":  "bigLust_v16.safetensors",
+                        "control":  "canny",
+                        "strength":  0.6,
+                        "workflow":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-canny\\workflow.json",
+                        "images":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-canny\\images.json",
+                        "outDir":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-canny",
+                        "status":  "ok",
+                        "outputs":  [
+                                        "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-canny\\bigLustv16-canny_0.png"
+                                    ]
+                    },
+                    {
+                        "variant":  "juggernaut-text",
+                        "checkpoint":  "juggernautXL_ragnarok.safetensors",
+                        "control":  "text",
+                        "strength":  null,
+                        "workflow":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-text\\workflow.json",
+                        "images":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-text\\images.json",
+                        "outDir":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-text",
+                        "status":  "ok",
+                        "outputs":  [
+                                        "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-text\\juggernaut-text_0.png"
+                                    ]
+                    },
+                    {
+                        "variant":  "juggernaut-openpose",
+                        "checkpoint":  "juggernautXL_ragnarok.safetensors",
+                        "control":  "openpose",
+                        "strength":  0.8,
+                        "workflow":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-openpose\\workflow.json",
+                        "images":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-openpose\\images.json",
+                        "outDir":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-openpose",
+                        "status":  "ok",
+                        "outputs":  [
+                                        "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-openpose\\juggernaut-openpose_0.png"
+                                    ]
+                    },
+                    {
+                        "variant":  "juggernaut-depth",
+                        "checkpoint":  "juggernautXL_ragnarok.safetensors",
+                        "control":  "depth",
+                        "strength":  0.75,
+                        "workflow":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-depth\\workflow.json",
+                        "images":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-depth\\images.json",
+                        "outDir":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-depth",
+                        "status":  "ok",
+                        "outputs":  [
+                                        "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-depth\\juggernaut-depth_0.png"
+                                    ]
+                    },
+                    {
+                        "variant":  "juggernaut-canny",
+                        "checkpoint":  "juggernautXL_ragnarok.safetensors",
+                        "control":  "canny",
+                        "strength":  0.6,
+                        "workflow":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-canny\\workflow.json",
+                        "images":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-canny\\images.json",
+                        "outDir":  "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-canny",
+                        "status":  "ok",
+                        "outputs":  [
+                                        "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-canny\\juggernaut-canny_0.png"
+                                    ]
+                    }
+                ],
+    "finishedAt":  "2026-09-22T01:28:55.7869592-04:00"
+}

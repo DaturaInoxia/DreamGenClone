@@ -9,6 +9,7 @@
 
 @inject IScenarioService ScenarioService
 @inject ICharacterImageIdentityService IdentityService
+@inject ICharacterIdentityOwnerResolver OwnerResolver
 @inject ILogger<CharacterIdentity> Logger
 
 <PageTitle>Character Identity - DreamGenClone</PageTitle>
@@ -35,7 +36,7 @@
                     <option value="@option.Id" selected="@(option.Id == _selectedCharacterId)">@option.Label</option>
                 }
             </select>
-            <div class="form-text">Identity packs are scoped to a scenario character and hold its face, full-body, and wardrobe reference images.</div>
+            <div class="form-text">Identity packs belong to the character TEMPLATE, so every scenario instance of a character shares the same packs (B-127).</div>
         </div>
     </div>
 
@@ -379,6 +380,14 @@
     private List<Scenario> _scenarios = [];
     private List<CharacterOption> _characterOptions = [];
     private string? _selectedCharacterId;
+
+    /// <summary>
+    /// The identity owner of the selected character (B-127). Packs belong to the character TEMPLATE, so this page
+    /// resolves whatever id the dropdown holds before it reads or writes a pack.
+    /// </summary>
+    private CharacterIdentityOwner? _owner;
+
+    private string IdentityKey => _owner?.TemplateId ?? string.Empty;
     private List<CharacterImageIdentityPack> _packs = [];
     private List<SceneImageReferenceAsset> _assets = [];
     private CharacterImageIdentityPack? _draft;
@@ -420,7 +429,7 @@
     }
 
     private string LoraDatasetUrl(CharacterImageIdentityPack pack)
-        => $"/asset-studio/lora-datasets/new?characterId={Uri.EscapeDataString(pack.CharacterProfileId)}&packId={Uri.EscapeDataString(pack.Id)}";
+        => $"/asset-studio/lora-datasets/new?characterId={Uri.EscapeDataString(pack.CharacterTemplateId)}&packId={Uri.EscapeDataString(pack.Id)}";
 
     private async Task OnCharacterChanged(ChangeEventArgs e)
     {
@@ -438,11 +447,25 @@
 
         if (string.IsNullOrEmpty(_selectedCharacterId))
         {
+            _owner = null;
             _packs = [];
             return;
         }
 
-        _packs = (await IdentityService.ListPacksAsync(_selectedCharacterId)).ToList();
+        try
+        {
+            _owner = await OwnerResolver.ResolveAsync(_selectedCharacterId);
+        }
+        catch (Exception ex)
+        {
+            // Identity is never guessed: show the resolver's remedy instead of an empty pack list.
+            _owner = null;
+            _packs = [];
+            _error = ex.Message;
+            return;
+        }
+
+        _packs = (await IdentityService.ListPacksAsync(IdentityKey)).ToList();
         _draft = _packs.FirstOrDefault(p => p.Status == CharacterImageIdentityPackStatus.Draft);
         if (_draft is not null)
         {
@@ -467,7 +490,8 @@
     {
         await RunAsync(async () =>
         {
-            var draft = await IdentityService.CreateDraftPackAsync(_selectedCharacterId!);
+            var draft = await IdentityService.CreateDraftPackAsync(
+                IdentityKey, CharacterImageIdentityPackScope.FaceOnly);
             _status = $"Draft v{draft.Version} ready.";
             await ReloadPacksAsync();
         });

@@ -31,9 +31,9 @@ public sealed class CharacterAssetGenerationService : ICharacterAssetGenerationS
         Validate(batch);
         var identityPack = await _identityRepository.GetPackAsync(batch.IdentityPackId, cancellationToken)
             ?? throw new InvalidOperationException($"Identity pack '{batch.IdentityPackId}' was not found.");
-        if (!string.Equals(identityPack.CharacterProfileId, batch.CharacterProfileId, StringComparison.Ordinal))
+        if (!string.Equals(identityPack.CharacterTemplateId, batch.CharacterProfileId, StringComparison.Ordinal))
             throw new InvalidOperationException(
-                $"Identity pack '{identityPack.Id}' belongs to character '{identityPack.CharacterProfileId}', not '{batch.CharacterProfileId}'.");
+                $"Identity pack '{identityPack.Id}' belongs to character '{identityPack.CharacterTemplateId}', not '{batch.CharacterProfileId}'.");
         if (identityPack.Status != CharacterImageIdentityPackStatus.Approved)
             throw new InvalidOperationException(
                 $"Identity pack '{identityPack.Id}' is {identityPack.Status}; character asset generation requires an approved pack.");

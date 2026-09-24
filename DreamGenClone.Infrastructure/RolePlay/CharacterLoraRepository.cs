@@ -117,7 +117,7 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
                     NULL, $supersedes, $payload, $created, NULL);
             """;
         command.Parameters.AddWithValue("$id", dataset.Id.Trim());
-        command.Parameters.AddWithValue("$character", dataset.CharacterProfileId.Trim());
+        command.Parameters.AddWithValue("$character", dataset.CharacterTemplateId.Trim());
         command.Parameters.AddWithValue("$pack", dataset.IdentityPackId.Trim());
         command.Parameters.AddWithValue("$version", dataset.Version);
         command.Parameters.AddWithValue("$status", dataset.Status.ToString());
@@ -545,7 +545,7 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         if (!string.Equals(lineage.OutputSha256, artifact.Sha256, StringComparison.Ordinal)
             || !string.Equals(lineage.OutputFileRelativePath, artifact.FileRelativePath, StringComparison.Ordinal)
             || !string.Equals(lineage.DatasetId, artifact.DatasetId, StringComparison.Ordinal)
-            || !string.Equals(lineage.CharacterProfileId, artifact.CharacterProfileId, StringComparison.Ordinal)
+            || !string.Equals(lineage.CharacterProfileId, artifact.CharacterTemplateId, StringComparison.Ordinal)
             || !string.Equals(lineage.TriggerToken, artifact.TriggerToken, StringComparison.Ordinal)
             || !string.Equals(lineage.BaseModelId, artifact.BaseModelId, StringComparison.Ordinal)
             || !string.Equals(lineage.BaseModelVersion, artifact.BaseModelVersion, StringComparison.Ordinal)
@@ -564,7 +564,7 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
                     $model, $modelVersion, $modelSha, $status, $sha, $payload, $created);
             """;
         command.Parameters.AddWithValue("$id", artifact.Id.Trim());
-        command.Parameters.AddWithValue("$character", artifact.CharacterProfileId.Trim());
+        command.Parameters.AddWithValue("$character", artifact.CharacterTemplateId.Trim());
         command.Parameters.AddWithValue("$dataset", artifact.DatasetId.Trim());
         command.Parameters.AddWithValue("$attempt", artifact.TrainingAttemptId.Trim());
         command.Parameters.AddWithValue("$version", artifact.Version);
@@ -879,7 +879,7 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
     {
         ArgumentNullException.ThrowIfNull(dataset);
         Require(dataset.Id, "LoRA dataset id");
-        Require(dataset.CharacterProfileId, "Character profile id");
+        Require(dataset.CharacterTemplateId, "Character profile id");
         Require(dataset.IdentityPackId, "Identity pack id");
         if (dataset.Version <= 0) throw new InvalidOperationException("LoRA dataset version must be positive.");
         if (dataset.Status != CharacterLoraDatasetStatus.Draft || dataset.ManifestSha256 is not null
@@ -1016,7 +1016,7 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
     {
         ArgumentNullException.ThrowIfNull(artifact);
         Require(artifact.Id, "LoRA artifact id");
-        Require(artifact.CharacterProfileId, "LoRA artifact character profile id");
+        Require(artifact.CharacterTemplateId, "LoRA artifact character profile id");
         Require(artifact.DatasetId, "LoRA artifact dataset id");
         Require(artifact.TrainingAttemptId, "LoRA artifact training attempt id");
         if (artifact.Version <= 0) throw new InvalidOperationException("LoRA artifact version must be positive.");

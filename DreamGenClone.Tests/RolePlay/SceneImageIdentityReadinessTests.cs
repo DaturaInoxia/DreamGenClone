@@ -144,6 +144,40 @@ public sealed class SceneImageIdentityReadinessTests
         Assert.Contains("has no approved owned face asset", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ResolveIdentityReadiness_ResolvesAScenarioCharacterToTheTemplateThatOwnsItsPack()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        // Production shape: the pack belongs to the character TEMPLATE, while a Moment's frozen cast carries the
+        // scenario INSTANCE id. Reading packs with the instance id found nothing and the studio reported "no approved
+        // identity pack" for a character that has one (reported 2026-09-24).
+        fixture.Identity.Add("becky-template", "Becky", "pack-b", 8, "face-b", "refs/b.png", "SHA-B");
+        fixture.Owners.Map("becky-instance", "becky-template");
+        fixture.Enrichment.Value.FrozenStateContractJson = JsonSerializer.Serialize(new SceneMomentFrozenStateContract(
+            "visual",
+            [Character("becky-instance", "Becky", [])],
+            "room", "night", "lamps", "quiet", "tense", [], "stable"));
+
+        var readiness = await fixture.Service.ResolveIdentityReadinessAsync("group-1");
+
+        var result = Assert.Single(readiness);
+        // The OWNER id comes back, so a caller can hand it straight back as a selection and find the same pack.
+        Assert.Equal("becky-template", result.CharacterId);
+        Assert.Equal("Becky", result.CharacterName);
+        Assert.Equal("pack-b", result.IdentityPackId);
+        Assert.Equal("SHA-B", result.Sha256);
+
+        // And the round trip works with the id the stage was given.
+        var selections = await fixture.Service.ResolveCharacterIdentitySelectionsAsync(
+        [
+            new SceneImageIdentityReferenceSelection("becky-instance", string.Empty)
+        ]);
+
+        var selected = Assert.Single(selections);
+        Assert.Equal("becky-template", selected.CharacterId);
+        Assert.Equal("pack-b", selected.IdentityPackId);
+    }
+
     private static SceneMomentFrozenCharacter Character(string id, string name, IReadOnlyList<string> visible)
         => new(id, id, name, "active", "room", "center", "standing", "direct", visible, "plain");
 
@@ -153,6 +187,7 @@ public sealed class SceneImageIdentityReadinessTests
         public SceneImageProductionService Service { get; }
         public StubIdentityRepository Identity { get; } = new();
         public StubEnrichmentRepository Enrichment { get; } = new();
+        public StubOwnerResolver Owners { get; } = new();
 
         private Fixture(string dbPath, StubGroupRepository groups)
         {
@@ -165,7 +200,7 @@ public sealed class SceneImageIdentityReadinessTests
                 new NullSceneImageStorage(),
                 new AcceptingGuard(),
                 TimeProvider.System,
-                null!, null!, Enrichment, null!, null!, Identity,
+                null!, null!, Enrichment, null!, null!, Identity, Owners,
                 NullLogger<SceneImageProductionService>.Instance);
         }
 
@@ -202,6 +237,37 @@ public sealed class SceneImageIdentityReadinessTests
     private sealed class AcceptingGuard : ISceneImageProductionSessionGuard
     {
         public Task RequireCurrentAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Resolves a character id to its identity owner (B-127). An unmapped id resolves to itself, which is the
+    /// template case; a test that needs the scenario-instance shape registers a mapping with <see cref="Map"/>.
+    /// </summary>
+    private sealed class StubOwnerResolver : ICharacterIdentityOwnerResolver
+    {
+        private readonly Dictionary<string, string> _templates = new(StringComparer.Ordinal);
+
+        public void Map(string instanceId, string templateId) => _templates[instanceId] = templateId;
+
+        public Task<CharacterIdentityOwner> ResolveAsync(string ownerId, CancellationToken cancellationToken = default)
+        {
+            var mapped = _templates.TryGetValue(ownerId, out var template);
+            return Task.FromResult(new CharacterIdentityOwner(
+                mapped ? CharacterIdentityOwnerKind.ScenarioCharacter : CharacterIdentityOwnerKind.CharacterTemplate,
+                mapped ? template : ownerId,
+                ownerId,
+                ownerId,
+                ownerId));
+        }
+
+        public Task<CharacterIdentityOwnerKind?> IdentifyAsync(string ownerId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<CharacterIdentityOwner>> ListInstancesAsync(string characterTemplateId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<CharacterIdentityCandidate>> ListUnlinkedAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class StubGroupRepository : ISceneImageProductionGroupRepository
@@ -249,7 +315,7 @@ public sealed class SceneImageIdentityReadinessTests
         private readonly Dictionary<string, (CharacterImageIdentityPack Pack, SceneImageReferenceAsset Asset)> _items = [];
         public void Add(string characterId, string name, string packId, int version, string faceId, string path, string sha)
         {
-            _items[characterId] = (new CharacterImageIdentityPack { Id = packId, CharacterProfileId = characterId, Version = version, Status = CharacterImageIdentityPackStatus.Approved, CanonicalFaceAssetId = faceId }, new SceneImageReferenceAsset { Id = faceId, IdentityPackId = packId, AssetKind = SceneImageReferenceAssetKind.Face, IsApproved = true, FileRelativePath = path, Sha256 = sha });
+            _items[characterId] = (new CharacterImageIdentityPack { Id = packId, CharacterTemplateId = characterId, Version = version, Status = CharacterImageIdentityPackStatus.Approved, CanonicalFaceAssetId = faceId }, new SceneImageReferenceAsset { Id = faceId, IdentityPackId = packId, AssetKind = SceneImageReferenceAssetKind.Face, IsApproved = true, FileRelativePath = path, Sha256 = sha });
         }
         public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(string characterProfileId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<CharacterImageIdentityPack>>(_items.TryGetValue(characterProfileId, out var value) ? [value.Pack] : []);
         public Task<SceneImageReferenceAsset?> GetAssetAsync(string assetId, CancellationToken cancellationToken = default) => Task.FromResult(_items.Values.Select(value => value.Asset).FirstOrDefault(asset => asset.Id == assetId));

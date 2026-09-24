@@ -130,6 +130,18 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
                 $"Image editor model '{model.DisplayName}' configures editor LoRA '{loraName}' without an explicit positive strength. Set 'Editor LoRA Strength' in Model Manager (/model-manager).");
         }
 
+        // 2.1 native editing carries its reference pixel budget with the capability it was qualified
+        // for, so it is required exactly for that graph kind. Never inferred, never defaulted.
+        // Note: the configured 'AuraFlow shift' and 'CFGNorm strength' are validated and persisted for
+        // every editor row, but the QwenImage21Native graph emits neither ModelSamplingAuraFlow nor
+        // CFGNorm, so both values are inert for this kind (as they are for the other kinds that do not
+        // emit those nodes). They are still resolved from configuration above — not defaulted.
+        int? resolutionBudget = null;
+        if (graphKind == ImageEditorGraphKind.QwenImage21Native)
+        {
+            resolutionBudget = QwenImage21ModelSettings.ResolveReferenceResolutionBudget(model);
+        }
+
         return new ResolvedImageEditorModel(
             ComfyUiUrl: provider.BaseUrl,
             ProviderTimeoutSeconds: provider.TimeoutSeconds,
@@ -151,7 +163,8 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
             RegisteredModelId: model.Id,
             GraphKind: graphKind,
             LoraName: loraName,
-            LoraStrength: model.ImageEditorLoraStrength);
+            LoraStrength: model.ImageEditorLoraStrength,
+            ResolutionBudget: resolutionBudget);
     }
 
     public async Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(

@@ -15,6 +15,13 @@ public interface IReferenceImageQualityAnalyzer
 {
     (SceneImageReferenceQuality Rating, string Notes) Analyze(
         Stream? imageStream, int width, int height, long byteLength);
+
+    /// <summary>
+    /// Variance of the Laplacian (higher = sharper), or null when the image cannot be decoded. Exposed so a
+    /// configured sharpness gate (e.g. <c>QualityGateMinSharpness</c>) compares against the SAME metric the
+    /// rating uses instead of re-deriving one.
+    /// </summary>
+    double? ComputeSharpness(Stream? imageStream);
 }
 
 /// <summary>
@@ -105,7 +112,7 @@ public sealed class ReferenceImageQualityAnalyzer : IReferenceImageQualityAnalyz
     }
 
     /// <summary>Variance of the Laplacian over a 256px-wide grayscale image. Higher = sharper.</summary>
-    private static double? ComputeSharpness(Stream? stream)
+    public double? ComputeSharpness(Stream? stream)
     {
         if (stream is null)
         {

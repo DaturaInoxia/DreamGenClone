@@ -145,7 +145,7 @@ internal static class ModelManagerTransfer
         ["ImageContentPolicy"] = new[] { "Unknown", "SfwFiltered", "AdultAllowed", "AdultAllowedConfigurable" },
         ["ImageProtocol"] = new[] { "OpenAiImages", "ComfyUi", "ComfyUiServerless" },
         ["ModelKind"] = new[] { "Text", "Image" },
-        ["SceneImageModelFamily"] = new[] { "Unknown", "Pony", "Sdxl", "Api", "Flux" },
+        ["SceneImageModelFamily"] = new[] { "Unknown", "Pony", "Sdxl", "Api", "Flux", "QwenImage21" },
         ["SceneImagePromptDialect"] = new[] { "Unknown", "PonyV6Tags", "SdxlNaturalLanguage", "NaturalLanguage", "FluxNaturalLanguage" },
         ["StructuredOutputMode"] = new[] { "None", "StrictJsonSchema", "JsonObject" },
         ["ThinkingMode"] = new[] { "Default", "Enabled", "Disabled" },

@@ -65,7 +65,7 @@ copy DreamGenClone.Web\data\dreamgenclone.snapshot.db DreamGenClone.Web\data\dre
 powershell -ExecutionPolicy Bypass -File .\helpers\dbq.ps1 b100-analyzer-configure
 ```
 
-This command is idempotent. It assigns the enabled direct `DeepSeek / deepseek-v4-flash` model to `RolePlaySceneBeatAnalyzer` and writes the complete required analyzer configuration. It fails without changing the database if the provider/model pair is missing or ambiguous.
+This command is idempotent. It assigns the enabled direct `DeepSeek / deepseek-flash` model to `RolePlaySceneBeatAnalyzer`, writes the complete required analyzer configuration, and converges the model row onto `deepseek-flash` if a snapshot still carries the legacy `deepseek-v4-flash` alias (DeepSeek accepts the alias as a request but always reports the canonical name, and the beat pipeline requires an exact match). It fails without changing the database if the provider/model pair is missing or ambiguous.
 
 ---
 
@@ -114,7 +114,7 @@ The snapshot blanks `ApiKeyEncrypted`, so keys are **not** in the repo — you m
 - [ ] **Scene Image Studio** route renders: `/roleplay/studio/<sessionId>/<interactionId>`
 - [ ] **Gallery** route renders: `/roleplay/gallery/<sessionId>`
 - [ ] Run a quick Test Connection on a provider to confirm keys work
-- [ ] Verify `RolePlaySceneBeatAnalyzer` shows `DeepSeek / deepseek-v4-flash` in Model Manager
+- [ ] Verify `RolePlaySceneBeatAnalyzer` is assigned to the DeepSeek flash model with `ModelIdentifier = deepseek-flash` in Model Manager
 
 ---
 

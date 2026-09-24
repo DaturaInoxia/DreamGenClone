@@ -66,11 +66,17 @@ public sealed class ComfyUIPoseConditionedImageClient : IPoseConditionedImageCli
             client.Timeout = TimeSpan.FromSeconds(model.ProviderTimeoutSeconds);
 
             var referenceName = await UploadPoseImageAsync(client, baseUrl, request.PoseImageBytes, request.CorrelationId, cancellationToken);
-            var workflow = BuildOpenPoseSdxlWorkflow(
-                model.ModelIdentifier,
-                model.ControlNetAdapterRef,
-                referenceName,
-                request);
+
+            // SDXL and FLUX are different GRAPHS, so the family decides the builder. The resolver has already refused any
+            // family that has no graph, so this switch needs no fallback branch: SDXL is the only other family that can
+            // reach here.
+            var workflow = model.Family == SceneImageModelFamily.Flux
+                ? BuildOpenPoseFluxWorkflow(model, referenceName, request)
+                : BuildOpenPoseSdxlWorkflow(
+                    model.ModelIdentifier,
+                    model.ControlNetAdapterRef,
+                    referenceName,
+                    request);
 
             var payload = new JsonObject
             {
@@ -79,8 +85,8 @@ public sealed class ComfyUIPoseConditionedImageClient : IPoseConditionedImageCli
             };
 
             _logger.LogInformation(
-                "ComfyUI pose generation start: Provider={ProviderName}, Checkpoint={Checkpoint}, ControlNet={Adapter}, Strength={Strength}",
-                model.ProviderName, model.ModelIdentifier, model.ControlNetAdapterRef, request.Strength);
+                "ComfyUI pose generation start: Provider={ProviderName}, Family={Family}, Checkpoint={Checkpoint}, ControlNet={Adapter}, Strength={Strength}",
+                model.ProviderName, model.Family, model.ModelIdentifier, model.ControlNetAdapterRef, request.Strength);
 
             using var submitResponse = await client.PostAsJsonAsync($"{baseUrl}/prompt", payload, cancellationToken);
             if (!submitResponse.IsSuccessStatusCode)
@@ -313,6 +319,141 @@ public sealed class ComfyUIPoseConditionedImageClient : IPoseConditionedImageCli
             {
                 ["class_type"] = "SaveImage",
                 ["inputs"] = new JsonObject { ["filename_prefix"] = "dreamgen_app_pose", ["images"] = new JsonArray("8", 0) }
+            }
+        };
+    }
+
+    /// <summary>
+    /// FLUX (XLabs) OpenPose ControlNet workflow. Mirrors the proven local graph
+    /// (<c>specs/image-generator-tests/dual-base-location/proofs-local/flux-figures-A.workflow.json</c>), NOT the
+    /// serverless one: the local host serves <c>flux1-dev-fp8</c> as a UNET under <c>models/diffusion_models</c>, so it
+    /// is loaded with <c>UNETLoader</c> + <c>DualCLIPLoader</c> + <c>VAELoader</c> and conditioned with a plain
+    /// <c>CLIPTextEncode</c> + <c>FluxGuidance</c>. The pod's variant used <c>CheckpointLoaderSimple</c> and
+    /// <c>CLIPTextEncodeFlux</c> and is not interchangeable with this one.
+    ///
+    /// The OpenPose conditioning is the XLabs pair: <c>LoadFluxControlNet</c> loads the OpenPose ControlNet and
+    /// <c>ApplyFluxControlNet</c> turns it plus the skeleton into the <c>controlnet_condition</c> that
+    /// <c>XlabsSampler</c> consumes — this sampler does not take a positive/negative pair the way KSampler does.
+    ///
+    /// Two inputs are structural rather than tunable, because this builder only ever generates from nothing:
+    /// <c>image_to_image_strength = 0</c> (there is no source latent to blend into) and <c>denoise_strength = 1</c>
+    /// (the empty latent is fully replaced). Everything that changes the picture — guidance, steps,
+    /// timestep_to_start_cfg, the encoders, the VAE and the ControlNet — is configured per model.
+    /// </summary>
+    internal static JsonObject BuildOpenPoseFluxWorkflow(
+        ResolvedPoseImageModel model,
+        string poseImageName,
+        PoseConditionedImageRequest request)
+    {
+        var flux = model.Flux
+            ?? throw new ImageGenerationException(
+                "The FLUX OpenPose graph needs its configured references (UNET, two text encoders, VAE and the "
+                + "ControlNet model name), but none were resolved for this model.",
+                model.ProviderName,
+                reasonCode: "pose_flux_refs_missing");
+
+        var (width, height) = ParseSize(request.Size);
+        return new JsonObject
+        {
+            ["2"] = new JsonObject
+            {
+                ["class_type"] = "DualCLIPLoader",
+                ["inputs"] = new JsonObject
+                {
+                    ["clip_name1"] = flux.ClipName1,
+                    ["clip_name2"] = flux.ClipName2,
+                    ["type"] = "flux"
+                }
+            },
+            ["4"] = new JsonObject
+            {
+                ["class_type"] = "UNETLoader",
+                ["inputs"] = new JsonObject { ["unet_name"] = flux.UnetName, ["weight_dtype"] = "default" }
+            },
+            ["6"] = new JsonObject
+            {
+                ["class_type"] = "CLIPTextEncode",
+                ["inputs"] = new JsonObject { ["text"] = request.PositivePrompt, ["clip"] = new JsonArray("2", 0) }
+            },
+            ["7"] = new JsonObject
+            {
+                ["class_type"] = "CLIPTextEncode",
+                ["inputs"] = new JsonObject { ["text"] = request.NegativePrompt, ["clip"] = new JsonArray("2", 0) }
+            },
+            ["8"] = new JsonObject
+            {
+                ["class_type"] = "FluxGuidance",
+                ["inputs"] = new JsonObject
+                {
+                    ["conditioning"] = new JsonArray("6", 0),
+                    ["guidance"] = flux.Guidance
+                }
+            },
+            ["9"] = new JsonObject
+            {
+                ["class_type"] = "LoadImage",
+                ["inputs"] = new JsonObject { ["image"] = poseImageName }
+            },
+            ["14"] = new JsonObject
+            {
+                ["class_type"] = "LoadFluxControlNet",
+                ["inputs"] = new JsonObject
+                {
+                    ["model_name"] = flux.ControlNetModelName,
+                    ["controlnet_path"] = model.ControlNetAdapterRef
+                }
+            },
+            ["15"] = new JsonObject
+            {
+                ["class_type"] = "ApplyFluxControlNet",
+                ["inputs"] = new JsonObject
+                {
+                    ["controlnet"] = new JsonArray("14", 0),
+                    ["image"] = new JsonArray("9", 0),
+                    ["strength"] = request.Strength
+                }
+            },
+            ["5"] = new JsonObject
+            {
+                ["class_type"] = "EmptyLatentImage",
+                ["inputs"] = new JsonObject { ["width"] = width, ["height"] = height, ["batch_size"] = 1 }
+            },
+            ["11"] = new JsonObject
+            {
+                ["class_type"] = "VAELoader",
+                ["inputs"] = new JsonObject { ["vae_name"] = flux.VaeName }
+            },
+            ["3"] = new JsonObject
+            {
+                ["class_type"] = "XlabsSampler",
+                ["inputs"] = new JsonObject
+                {
+                    ["model"] = new JsonArray("4", 0),
+                    ["conditioning"] = new JsonArray("8", 0),
+                    ["neg_conditioning"] = new JsonArray("7", 0),
+                    ["noise_seed"] = request.Seed ?? Random.Shared.Next(0, int.MaxValue),
+                    ["steps"] = flux.Steps,
+                    ["timestep_to_start_cfg"] = flux.TimestepToStartCfg,
+                    ["true_gs"] = flux.Guidance,
+                    ["image_to_image_strength"] = 0.0,
+                    ["denoise_strength"] = 1.0,
+                    ["latent_image"] = new JsonArray("5", 0),
+                    ["controlnet_condition"] = new JsonArray("15", 0)
+                }
+            },
+            ["12"] = new JsonObject
+            {
+                ["class_type"] = "VAEDecode",
+                ["inputs"] = new JsonObject { ["samples"] = new JsonArray("3", 0), ["vae"] = new JsonArray("11", 0) }
+            },
+            ["13"] = new JsonObject
+            {
+                ["class_type"] = "SaveImage",
+                ["inputs"] = new JsonObject
+                {
+                    ["filename_prefix"] = "dreamgen_app_pose_flux",
+                    ["images"] = new JsonArray("12", 0)
+                }
             }
         };
     }

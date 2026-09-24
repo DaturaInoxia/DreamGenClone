@@ -1,11 +1,15 @@
 @using DreamGenClone.Application.Templates
 @using DreamGenClone.Application.StoryAnalysis
 @using DreamGenClone.Web.Application.StoryAnalysis
+@using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Domain.Templates
 @using DreamGenClone.Domain.StoryAnalysis
+@using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Components.Templates
 @inject ITemplateService TemplateService
 @inject StoryAnalysisFacade StoryAnalysisFacade
+@inject ICharacterIdentityOwnerResolver OwnerResolver
+@inject ICharacterIdentityOwnerLinkService IdentityLinks
 
 <div class="templates-page">
 <h2 class="mb-3">Template Library</h2>
@@ -118,6 +122,81 @@
 
             <TemplateImageEditor TemplateId="@_editModel.Id" OnImageStored="OnImageStoredAsync" />
 
+            @if (!string.IsNullOrWhiteSpace(_identityTemplateId))
+            {
+                <div class="mb-3 border rounded p-3 templates-identity-panel">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong>Character identity</strong>
+                        <span class="text-muted small">owned by this template</span>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_identityMessage))
+                    {
+                        <div class="alert @(_identityMessageIsError ? "alert-danger" : "alert-success") py-2 px-2 mb-2">@_identityMessage</div>
+                    }
+
+                    <div class="mb-3">
+                        <span class="fw-semibold">Characters using this template (@_identityInstances.Count)</span>
+                        @if (_identityInstances.Count == 0)
+                        {
+                            <p class="text-muted small mb-0">No character resolves to this template yet.</p>
+                        }
+                        else
+                        {
+                            <ul class="list-group list-group-flush">
+                                @foreach (var instance in _identityInstances)
+                                {
+                                    <li class="list-group-item d-flex justify-content-between align-items-center gap-2 px-0 py-1">
+                                        <span>
+                                            @instance.InstanceName
+                                            <span class="badge bg-secondary">@instance.DescribeKind()</span>
+                                            <code class="small text-muted">@instance.InstanceId</code>
+                                        </span>
+                                        @if (IsLinkedByAnIdentityLink(instance.InstanceId))
+                                        {
+                                            <button class="btn btn-sm btn-outline-danger"
+                                                    type="button"
+                                                    disabled="@_identityBusy"
+                                                    @onclick="() => UnlinkIdentityAsync(instance)">Remove link</button>
+                                        }
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </div>
+
+                    <div>
+                        <span class="fw-semibold">Characters with no template (@_identityCandidates.Count)</span>
+                        @if (_identityCandidates.Count == 0)
+                        {
+                            <p class="text-muted small mb-0">Every scenario character and character asset resolves to a character template.</p>
+                        }
+                        else
+                        {
+                            <ul class="list-group list-group-flush">
+                                @foreach (var candidate in _identityCandidates)
+                                {
+                                    <li class="list-group-item px-0 py-1">
+                                        <div class="d-flex justify-content-between align-items-center gap-2">
+                                            <span>
+                                                @candidate.InstanceName
+                                                <span class="badge bg-secondary">@candidate.DescribeKind()</span>
+                                                <code class="small text-muted">@candidate.InstanceId</code>
+                                            </span>
+                                            <button class="btn btn-sm btn-outline-primary"
+                                                    type="button"
+                                                    disabled="@(!candidate.CanLink || _identityBusy)"
+                                                    @onclick="() => LinkIdentityAsync(candidate)">Link character identity</button>
+                                        </div>
+                                        <div class="text-muted small">@candidate.Reason</div>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </div>
+                </div>
+            }
+
             <div class="mt-3 d-flex gap-2 flex-wrap">
                 <button class="btn btn-primary" type="submit">Save</button>
                 <button class="btn btn-secondary" type="button" @onclick="NewTemplate">New</button>
@@ -169,11 +248,23 @@
     private string? _templateCharacterSelectedProfileId;
     private static readonly string[] BaseStatNames = AdaptiveStatCatalog.CanonicalStatNames.ToArray();
 
+    // B-127: identity is owned by the character TEMPLATE, so the template editor is where a character gets linked to
+    // one. Nothing here decides ownership: the resolver lists instances and the unlinked candidates, and the link
+    // service validates both sides before a row is written.
+    private string _identityTemplateId = string.Empty;
+    private List<CharacterIdentityOwner> _identityInstances = [];
+    private List<CharacterIdentityCandidate> _identityCandidates = [];
+    private List<CharacterIdentityLink> _identityLinks = [];
+    private string _identityMessage = string.Empty;
+    private bool _identityMessageIsError;
+    private bool _identityBusy;
+
     protected override async Task OnInitializedAsync()
     {
         _baseStatProfiles = await StoryAnalysisFacade.ListBaseStatProfilesAsync();
         _roleDefinitions = await StoryAnalysisFacade.ListRoleDefinitionsAsync();
         await LoadTemplatesAsync();
+        await RefreshIdentityAsync();
     }
 
     private IReadOnlyList<string> GetCharacterRoleOptions(string? selectedRole = null)
@@ -229,6 +320,7 @@
         await SaveTemplateWithReciprocalRelationAsync(previousTemplate);
         await LoadTemplatesAsync();
         _selectedTemplate = await TemplateService.GetByIdAsync(_editModel.Id);
+        await RefreshIdentityAsync();
     }
 
     private async Task SaveTemplateWithReciprocalRelationAsync(TemplateDefinition? previousTemplate)
@@ -318,6 +410,106 @@
         _editModel.PhysicalAttributes = template.PhysicalAttributes is not null ? ClonePhysicalAttributes(template.PhysicalAttributes) : null;
         _selectedTemplate = template;
         _templateCharacterSelectedProfileId = null;
+        await RefreshIdentityAsync();
+    }
+
+    /// <summary>
+    /// Loads the ownership view for the SAVED template being edited: who already resolves to it, and who resolves to
+    /// nothing and could be linked to it. A template that is not saved yet (or is not a character) has no identity.
+    /// </summary>
+    private async Task RefreshIdentityAsync(bool clearMessage = true)
+    {
+        if (clearMessage)
+        {
+            _identityMessage = string.Empty;
+            _identityMessageIsError = false;
+        }
+
+        var saved = _editModel.Id == Guid.Empty ? null : await TemplateService.GetByIdAsync(_editModel.Id);
+        if (saved is null || saved.TemplateType != TemplateType.Character)
+        {
+            ClearIdentityView();
+            return;
+        }
+
+        _identityTemplateId = saved.Id.ToString();
+        try
+        {
+            _identityInstances = (await OwnerResolver.ListInstancesAsync(_identityTemplateId)).ToList();
+            _identityCandidates = (await OwnerResolver.ListUnlinkedAsync()).ToList();
+            _identityLinks = (await IdentityLinks.ListAsync()).ToList();
+        }
+        catch (InvalidOperationException error)
+        {
+            ClearIdentityView();
+            _identityMessage = error.Message;
+            _identityMessageIsError = true;
+        }
+    }
+
+    private void ClearIdentityView()
+    {
+        _identityTemplateId = string.Empty;
+        _identityInstances = [];
+        _identityCandidates = [];
+        _identityLinks = [];
+    }
+
+    private bool IsLinkedByAnIdentityLink(string instanceId)
+        => _identityLinks.Any(link => string.Equals(link.OwnerInstanceId, instanceId, StringComparison.Ordinal));
+
+    private async Task LinkIdentityAsync(CharacterIdentityCandidate candidate)
+    {
+        if (_identityBusy)
+        {
+            return;
+        }
+
+        _identityBusy = true;
+        try
+        {
+            var link = await IdentityLinks.LinkAsync(
+                candidate.InstanceId, _identityTemplateId, linkedBy: "Templates panel", replaceExisting: false);
+            _identityMessage = $"Linked {candidate.InstanceName} ({candidate.DescribeKind()}) to this template "
+                + $"({link.CharacterTemplateId}).";
+            _identityMessageIsError = false;
+        }
+        catch (InvalidOperationException error)
+        {
+            _identityMessage = error.Message;
+            _identityMessageIsError = true;
+        }
+        finally
+        {
+            _identityBusy = false;
+            await RefreshIdentityAsync(clearMessage: false);
+        }
+    }
+
+    private async Task UnlinkIdentityAsync(CharacterIdentityOwner instance)
+    {
+        if (_identityBusy)
+        {
+            return;
+        }
+
+        _identityBusy = true;
+        try
+        {
+            await IdentityLinks.UnlinkAsync(instance.InstanceId);
+            _identityMessage = $"Removed the identity link for {instance.InstanceName} ({instance.InstanceId}).";
+            _identityMessageIsError = false;
+        }
+        catch (InvalidOperationException error)
+        {
+            _identityMessage = error.Message;
+            _identityMessageIsError = true;
+        }
+        finally
+        {
+            _identityBusy = false;
+            await RefreshIdentityAsync(clearMessage: false);
+        }
     }
 
     private async Task DeleteAsync(Guid id)
@@ -342,6 +534,7 @@
         }
 
         await LoadTemplatesAsync();
+        await RefreshIdentityAsync();
     }
 
     private async Task OnImageStoredAsync(string imagePath)
@@ -367,6 +560,9 @@
         _editModel.BaseStats = AdaptiveStatCatalog.CreateDefaultStatMap();
         _editModel.ImagePath = null;
         _templateCharacterSelectedProfileId = null;
+        ClearIdentityView();
+        _identityMessage = string.Empty;
+        _identityMessageIsError = false;
     }
 
     private IEnumerable<BaseStatProfile> GetApplicableBaseStatProfiles()
@@ -418,41 +614,7 @@
         _editModel.Role = CharacterRoleCatalog.Normalize(profile.TargetRole);
     }
 
-    private static DreamGenClone.Domain.Templates.PhysicalAttributes ClonePhysicalAttributes(DreamGenClone.Domain.Templates.PhysicalAttributes src) => new()
-    {
-        Age = src.Age,
-        Height = src.Height,
-        Weight = src.Weight,
-        Ethnicity = src.Ethnicity,
-        HairColour = src.HairColour,
-        HairStyle = src.HairStyle,
-        EyeColour = src.EyeColour,
-        SkinTone = src.SkinTone,
-        SkinTexture = src.SkinTexture,
-        BodyType = src.BodyType,
-        BustSize = src.BustSize,
-        WaistSize = src.WaistSize,
-        HipSize = src.HipSize,
-        ClothingStyle = src.ClothingStyle,
-        DistinguishingMarks = src.DistinguishingMarks,
-        Piercings = src.Piercings,
-        Tattoos = src.Tattoos,
-        AttractivenessRating = src.AttractivenessRating,
-        Scent = src.Scent,
-        SexualSkill = src.SexualSkill,
-        SexualDrive = src.SexualDrive,
-        SexualConfidence = src.SexualConfidence,
-        OralSkill = src.OralSkill,
-        EndowmentLength = src.EndowmentLength,
-        EndowmentGirth = src.EndowmentGirth,
-        Stamina = src.Stamina,
-        Recovery = src.Recovery,
-        EjaculationIntensity = src.EjaculationIntensity,
-        VaginalTightness = src.VaginalTightness,
-        Sensitivity = src.Sensitivity,
-        Lubrication = src.Lubrication,
-        OrgasmicCapacity = src.OrgasmicCapacity,
-    };
+    private static DreamGenClone.Domain.Templates.PhysicalAttributes ClonePhysicalAttributes(DreamGenClone.Domain.Templates.PhysicalAttributes src) => src.Clone();
 }
 
 <style>

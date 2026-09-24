@@ -78,8 +78,8 @@ This makes the training set identity-consistent even though the raw T2I identity
 One LoRA per character captures the WHOLE person, not just the face. The rule that keeps it
 consistent:
 
-- **Invariant features** — face, body shape/proportions, skin tone, tattoos, body hair, scars,
-  grooming — must be identical in every training image and left **uncaptioned** (they bind to
+- **Invariant features** — face, body shape/proportions, skin tone, tattoos, body hair, pubic
+  hair, scars — must be identical in every training image and left **uncaptioned** (they bind to
   the trigger token).
 - **Variable features** — clothed vs nude, pose, lighting, background, expression — are
   **captioned** and controlled by the prompt at generation time.
@@ -93,7 +93,8 @@ clothed -> nudity gets weak).
 
 1. **Canonical body card per character** (single source of truth) — write it once and paste it
    verbatim into every training-generation prompt:
-   `{body shape}, {skin}, {body hair}, {tattoo: design + exact placement}, {scars/marks}, {grooming}`.
+   `{body shape}, {skin}, {body hair (body-wide)}, {tattoo: design + exact placement},
+   {scars/marks}, {pubic hair}`.
 2. **Condition on a full-body reference** during generation (IP-Adapter full-body or the
    identity pack's full-body asset) so shape is conditioned, not left to text.
 3. **Normalize the body after generation**, not just the face: run the Qwen edit with a
@@ -103,7 +104,7 @@ clothed -> nudity gets weak).
 
 ### Why this matters for tattoos/body hair specifically
 
-Text-to-image cannot reliably render a *specific* tattoo or grooming from a prompt, but a LoRA
+Text-to-image cannot reliably render a *specific* tattoo, body-hair pattern or pubic-hair style from a prompt, but a LoRA
 CAN learn a distinctive tattoo/body-hair pattern **if it appears consistently in the training
 data**. That's circular — you need images with the tattoo to train the model to render it — so
 bootstrap: stamp the tattoo/marks into each training image in the normalize step first, then the
@@ -121,8 +122,8 @@ before capture starts — vague "a few tattoos" will not train consistently.
 - `BodyCard`: `45-year-old man, 6'1", toned muscular build, light olive skin slightly rough,
   short brown hair, green eyes, rugged casual style.`
 - Tattoo: one on the upper thigh — **[DECIDE]** design + exact leg/position.
-- Body hair: **[DECIDE]** (e.g. moderate chest hair, trimmed).
-- Grooming: **[DECIDE]**.
+- Body hair: **[DECIDE]** — body-wide pattern (e.g. full chest hair, treasure trail only, very little).
+- Pubic hair: **[DECIDE]** (e.g. neatly trimmed, or none).
 
 ### Becky
 
@@ -130,7 +131,8 @@ before capture starts — vague "a few tattoos" will not train consistently.
   skin, brown hair in a bun, blue eyes, tongue ring and nose ring, casual style.`
 - Tattoos: a few on arms and legs — **[DECIDE]** exact designs + placements (e.g. small flower
   on left forearm, butterfly on right ankle).
-- Body hair: **[DECIDE]** (e.g. trimmed dark pubic hair).
+- Body hair: **[DECIDE]** — body-wide pattern (e.g. very little body hair).
+- Pubic hair: **[DECIDE]** (e.g. neatly trimmed, thin landing strip, or none).
 - Piercings: tongue ring + nose ring (fixed — from canonical data).
 
 ## Location consistency (sets / backgrounds)

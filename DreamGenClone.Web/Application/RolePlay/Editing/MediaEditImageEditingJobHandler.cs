@@ -77,6 +77,17 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
                 return;
             }
 
+            // The row is claimed here, before any work is paid for, because the completion of a claimed
+            // subject only matches a row this run owns. A subject whose store has no claim transition
+            // reports success, and a deterministic operation is deliberately never claimed.
+            if (!await writer.ClaimAsync(context, cancellationToken))
+            {
+                _logger.LogInformation(
+                    "Media edit image skipped: the queued image could not be claimed and is already terminal. Subject={SubjectKind}, ImageId={ImageId}, Scope={Scope}",
+                    payload.SubjectKind, payload.ImageId, payload.ScopeId);
+                return;
+            }
+
             // ---- Operations (crop, enhance) share this job, lane, retry budget and failure marking. Each is
             // executed by its own executor, so the job never learns what an operation does and an operation
             // never relearns how to be queued, retried, timed or failed.

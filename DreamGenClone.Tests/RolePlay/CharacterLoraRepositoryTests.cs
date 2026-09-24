@@ -224,7 +224,7 @@ public sealed class CharacterLoraRepositoryTests
         Assert.Contains("lora-eval-1", qualified.DecisionEvidenceJson, StringComparison.Ordinal);
         Assert.Equal(OutputSha256, (await fixture.Repository.GetArtifactAsync(artifact.Id))!.Sha256);
         Assert.Equal(artifact.Id, Assert.Single(
-            await fixture.Repository.ListArtifactsAsync(dataset.CharacterProfileId)).Id);
+            await fixture.Repository.ListArtifactsAsync(dataset.CharacterTemplateId)).Id);
         Assert.Empty(await fixture.Repository.ListArtifactsAsync("other-character"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Repository.SetArtifactStatusAsync(
             artifact.Id, CharacterLoraArtifactStatus.Rejected, "{\"passed\":false}", DateTime.UtcNow));
@@ -387,7 +387,7 @@ public sealed class CharacterLoraRepositoryTests
         public CharacterLoraDataset Dataset() => new()
         {
             Id = "dataset-1",
-            CharacterProfileId = "character-1",
+            CharacterTemplateId = "character-1",
             IdentityPackId = "identity-pack-1",
             Version = 1,
             Status = CharacterLoraDatasetStatus.Draft,
@@ -533,7 +533,7 @@ public sealed class CharacterLoraRepositoryTests
             CharacterLoraDataset dataset, CharacterLoraTrainingAttempt attempt) => new()
         {
             Id = "artifact-1",
-            CharacterProfileId = dataset.CharacterProfileId,
+            CharacterTemplateId = dataset.CharacterTemplateId,
             DatasetId = dataset.Id,
             TrainingAttemptId = attempt.Id,
             Version = 1,

@@ -437,9 +437,9 @@
 
         var buildId = BatchId[CharacterIdentityFrontService.FrontBatchPrefix.Length..];
         var build = await BuildService.GetBuildAsync(buildId);
-        if (build is not null && !string.IsNullOrWhiteSpace(build.CharacterProfileId))
+        if (build is not null && !string.IsNullOrWhiteSpace(build.CharacterTemplateId))
         {
-            _frontBackUrl = $"/characters/{Uri.EscapeDataString(build.CharacterProfileId)}";
+            _frontBackUrl = $"/characters/{Uri.EscapeDataString(build.CharacterTemplateId)}";
         }
     }
 

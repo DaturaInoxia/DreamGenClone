@@ -320,6 +320,11 @@ and dead. No enum value is added without qualification and exposure in this same
    attempt.
 9. **Multi-turn scoring** wired into the edit loop (FR-C6-05), so chain degradation is visible.
 10. **Retire the legacy one-off generation path** after a reference/call-site audit.
+11. **Multi-subject composition is delivered by B-126** — `specs/Planning/B-126-multi-character-scene-composition/plan.md`.
+    P4 owns the Composition *stage*; B-126 owns the multi-subject *contract* (N subjects × {character,
+    pose source, position/blocking, identity view} + one location) and the capability-gated **route
+    resolver** over the structural block. This phase does not close while a multi-subject frame is
+    unrepresentable, unless the deferral is recorded with the risk named (G3).
 
 ### Exit gate — *the outcome gate for the program's first-phase targets*
 
@@ -337,6 +342,8 @@ and dead. No enum value is added without qualification and exposure in this same
       a shared component (grep proof, U2); large data (lineage, payloads, galleries) is virtualized/
       on-demand; every generate/edit exposes its submitted inputs; `tools/e2e/` covers the staged
       flow; your usability verdict recorded
+- [ ] **Multi-subject gate (B-126):** a 2+ subject frame is expressible as data and renders with each
+      subject holding its own pose and identity — or the deferral is recorded with the risk named (G3)
 - [ ] Full build + suite green
 
 ---

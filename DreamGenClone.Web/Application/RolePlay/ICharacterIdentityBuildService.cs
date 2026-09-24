@@ -3,14 +3,21 @@ using DreamGenClone.Domain.RolePlay;
 namespace DreamGenClone.Web.Application.RolePlay;
 
 /// <summary>
-/// Drives the character identity build state machine (B-121): fixed step order, explicit skip,
+/// Drives the character identity build state machine (B-121): the target kind's step order, explicit skip,
 /// resume from the first incomplete step, per-step re-run, and fail-fast on out-of-order requests,
 /// missing input artifacts and missing output artifacts.
 /// </summary>
 public interface ICharacterIdentityBuildService
 {
+    /// <summary>
+    /// Starts a build for one target kind. The kind selects the step plan, so this is the only thing a new
+    /// pipeline shape changes: the machinery below walks whatever steps the plan names.
+    /// </summary>
     Task<CharacterIdentityBuild> CreateBuildAsync(
-        string characterProfileId, string? batchId, CancellationToken cancellationToken = default);
+        string characterProfileId,
+        string? batchId,
+        CharacterIdentityTargetKind targetKind,
+        CancellationToken cancellationToken = default);
 
     Task<CharacterIdentityBuild?> GetBuildAsync(string buildId, CancellationToken cancellationToken = default);
 

@@ -29,6 +29,7 @@
 @inject ISceneMomentEnrichmentPipelineService MomentEnrichmentService
 @inject IRolePlayStateRepository StateRepository
 @inject ICharacterImageIdentityService IdentityService
+@inject IReferenceStrategyResolver ReferenceStrategies
 @inject IModelResolutionService ModelResolutionService
 @inject StoryAnalysisFacade StoryAnalysis
 @inject IScenarioService ScenarioService
@@ -1202,7 +1203,7 @@
                                                     <ReferenceApplyPanel ModelId="@_selectedProductionModelId"
                                                                          Selections="@_productionReferenceApplications"
                                                                          SelectionsChanged="OnProductionReferenceApplicationsChanged"
-                                                                         ExecutableStrategies="FinishReferenceStrategies" />
+                                                                         ExecutableStrategies="ProductionModelStrategies" />
                                                     <div class="mt-2">
                                                         <ResolvedRenderBadge ModelLabel="@SelectedProductionModelLabel()"
                                                                              Selections="@_productionReferenceApplications" />
@@ -1622,42 +1623,60 @@
                             </div>
                         </div>
                         <div class="row g-2 mt-2">
-                            <div class="col-6 col-md-3">
-                                <label class="form-label">CFG</label>
-                                <input type="number" step="0.5" class="form-control form-control-sm" @bind="_settings.Cfg" />
-                            </div>
-                            <div class="col-6 col-md-3">
-                                <label class="form-label">Steps</label>
-                                <input type="number" class="form-control form-control-sm" @bind="_settings.Steps" />
-                            </div>
-                            <div class="col-6 col-md-2">
-                                <label class="form-label">Sampler</label>
-                                <select class="form-select form-select-sm" @bind="_settings.SamplerName">
-                                    <option value="dpmpp_2m">dpmpp_2m</option>
-                                    <option value="dpmpp_2m_sde">dpmpp_2m_sde</option>
-                                    <option value="euler">euler</option>
-                                    <option value="euler_ancestral">euler_ancestral</option>
-                                </select>
-                            </div>
-                            <div class="col-6 col-md-2">
-                                <label class="form-label">Scheduler</label>
-                                <select class="form-select form-select-sm" @bind="_settings.Scheduler">
-                                    <option value="karras">karras</option>
-                                    <option value="normal">normal</option>
-                                    <option value="simple">simple</option>
-                                </select>
-                            </div>
-                            <div class="col-6 col-md-2">
-                                <label class="form-label">Clip Skip</label>
-                                <select class="form-select form-select-sm" @bind="_settings.ClipSkip">
-                                    <option value="">None</option>
-                                    <option value="-1">1</option>
-                                    <option value="-2">2</option>
-                                </select>
-                            </div>
-                            <div class="col-12">
-                                <div class="form-text">Sampler/CLIP options default to the suggested Juggernaut values and apply to the ComfyUI (SDXL/Juggernaut) workflow only.</div>
-                            </div>
+                            @if (SelectedGenericModelFamily == SceneImageModelFamily.QwenImage21)
+                            {
+                                @* These controls are SDXL-family values and are NOT applied to Qwen-Image-2.1, whose
+                                   sampler envelope (cfg 1, euler/simple, 25-50 steps) is qualified per model in Model
+                                   Manager. Showing them as if they applied produced a cfg-5/dpmpp_2m_sde/karras render on
+                                   a cfg-1-distilled model and a blown-out image (2026-09-24). *@
+                                <div class="col-12">
+                                    <div class="form-text">
+                                        This model runs its own qualified sampler envelope (cfg, steps, sampler and
+                                        scheduler are recorded on the model's Qwen-Image-2.1 capability in Model Manager),
+                                        so the CFG / steps / sampler / scheduler / clip-skip controls below apply to
+                                        SDXL-family and FLUX models only and are hidden here.
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="col-6 col-md-3">
+                                    <label class="form-label">CFG</label>
+                                    <input type="number" step="0.5" class="form-control form-control-sm" @bind="_settings.Cfg" />
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <label class="form-label">Steps</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="_settings.Steps" />
+                                </div>
+                                <div class="col-6 col-md-2">
+                                    <label class="form-label">Sampler</label>
+                                    <select class="form-select form-select-sm" @bind="_settings.SamplerName">
+                                        <option value="dpmpp_2m">dpmpp_2m</option>
+                                        <option value="dpmpp_2m_sde">dpmpp_2m_sde</option>
+                                        <option value="euler">euler</option>
+                                        <option value="euler_ancestral">euler_ancestral</option>
+                                    </select>
+                                </div>
+                                <div class="col-6 col-md-2">
+                                    <label class="form-label">Scheduler</label>
+                                    <select class="form-select form-select-sm" @bind="_settings.Scheduler">
+                                        <option value="karras">karras</option>
+                                        <option value="normal">normal</option>
+                                        <option value="simple">simple</option>
+                                    </select>
+                                </div>
+                                <div class="col-6 col-md-2">
+                                    <label class="form-label">Clip Skip</label>
+                                    <select class="form-select form-select-sm" @bind="_settings.ClipSkip">
+                                        <option value="">None</option>
+                                        <option value="-1">1</option>
+                                        <option value="-2">2</option>
+                                    </select>
+                                </div>
+                                <div class="col-12">
+                                    <div class="form-text">Sampler/CLIP options default to the suggested Juggernaut values and apply to the ComfyUI SDXL/Juggernaut and FLUX workflows only.</div>
+                                </div>
+                            }
                         </div>
                     </div>
                 </div>
@@ -1829,7 +1848,7 @@
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <strong>Identity-Conditioned Render</strong>
                         <button class="btn btn-sm btn-success" @onclick="RenderIdentityImageAsync"
-                            disabled="@(_busy || !IsSelectedMomentEnriched || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null || !_identityPackOptions.Any(o => o.Selected))">
+                            disabled="@(_busy || !IsSelectedMomentEnriched || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null || _identityResolution?.IsAvailable != true || !_identityPackOptions.Any(o => o.Selected))">
                             <i class="bi bi-person-badge me-1"></i> Render with Identity
                         </button>
                     </div>
@@ -1837,16 +1856,26 @@
                         <label class="form-label mb-1">Image Model (identity-capable)</label>
                         @if (_identityModelChoices.Count == 0)
                         {
-                            <span class="text-muted d-block mb-2">No identity-capable image models enabled. Configure an identity mechanism (IP-Adapter/PuLid) on an image model in Model Manager.</span>
+                            <span class="text-muted d-block mb-2">No identity-capable image models enabled. An image model carries identity either through a configured mechanism (IP-Adapter/PuLID) or through its own reference images (Qwen-Image-2.1); qualify one in Model Manager.</span>
                         }
                         else
                         {
-                            <select class="form-select form-select-sm mb-2" @bind="_selectedIdentityModelId">
+                            <select class="form-select form-select-sm mb-2" @bind="_selectedIdentityModelId" @bind:after="RefreshIdentityResolutionAsync">
                                 @foreach (var choice in _identityModelChoices)
                                 {
                                     <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName</option>
                                 }
                             </select>
+                        }
+                        @* The mechanism the render will use, asked of the SAME capability decision the render asks, so the
+                           card states which mechanism is in play instead of leaving the operator to guess (and so a model
+                           that cannot carry identity cannot submit an identity render at all). *@
+                        @if (_identityResolution is { } identityResolution)
+                        {
+                            <div class="mb-2">
+                                <span class="badge @(identityResolution.IsAvailable ? "text-bg-success" : "text-bg-warning")">@identityResolution.Strategy</span>
+                                <span class="text-muted">@IdentityMechanismExplanation(identityResolution)</span>
+                            </div>
                         }
                         @if (_identityPackOptions.Count == 0)
                         {
@@ -1889,7 +1918,7 @@
                         }
                         else
                         {
-                            <select class="form-select form-select-sm mb-2" @bind="_selectedGenericModelId">
+                            <select class="form-select form-select-sm mb-2" @bind="_selectedGenericModelId" @bind:after="OnGenericModelChangedAsync">
                                 @foreach (var choice in _genericModelChoices)
                                 {
                                     <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName</option>
@@ -2179,11 +2208,37 @@
     private string? _selectedGenericModelId;
     private string? _resolvedDefaultImageModelId;
 
+    // How the selected identity-capable model carries identity, resolved through the SAME decision the render asks,
+    // so the card can state the mechanism (and a model that cannot carry identity cannot submit an identity render).
+    private ReferenceStrategyResolution? _identityResolution;
+
     // Production Studio composition controls: model + identity selection independent of the additional cards.
     private string? _selectedProductionModelId;
-    private string? _selectedProductionIdentityModelId;
-    private static readonly IReadOnlyList<string> TextOnlyReferenceStrategy = ["TextOnly"];
-    private static readonly IReadOnlyList<string> FinishReferenceStrategies = ["TextOnly", "ReferenceConditioning"];
+
+    /// <summary>
+    /// The reference strategies the SELECTED production model can actually execute, from the model choice that came
+    /// out of the same capability decision the render uses. This was a hardcoded
+    /// <c>["TextOnly", "ReferenceConditioning"]</c> list, which hid every other strategy even when the selected
+    /// model qualified it — a model that carries identity as its own reference images offered no identity strategy at
+    /// all (reported 2026-09-24: "the identity is not available to allow but it should be").
+    /// </summary>
+    private IReadOnlyList<string> ProductionModelStrategies
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_selectedProductionModelId))
+            {
+                return ["TextOnly"];
+            }
+
+            var choice = _genericModelChoices.FirstOrDefault(model => model.ModelId == _selectedProductionModelId)
+                ?? throw new InvalidOperationException(
+                    "The selected production image model is not in the enabled image-model list. Reload the Studio and "
+                    + "pick an enabled model in Model Manager.");
+            return choice.QualifiedStrategies;
+        }
+    }
+
     private readonly List<ReferenceApplicationSelection> _productionReferenceApplications =
     [
         new() { ElementKey = "Identity", SemanticRole = "character identity", AssetType = SceneAssetType.CharacterFace },
@@ -4305,32 +4360,126 @@
             _identityModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: true)).ToList();
             _genericModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
 
-            if (string.IsNullOrWhiteSpace(_selectedIdentityModelId))
-            {
-                _selectedIdentityModelId = _identityModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelIdentifier, _resolvedDefaultImageModelId, StringComparison.Ordinal))?.ModelId
-                    ?? _identityModelChoices.FirstOrDefault()?.ModelId;
-            }
-            if (string.IsNullOrWhiteSpace(_selectedGenericModelId))
-            {
-                _selectedGenericModelId = _genericModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelIdentifier, _resolvedDefaultImageModelId, StringComparison.Ordinal))?.ModelId
-                    ?? _genericModelChoices.FirstOrDefault()?.ModelId;
-            }
-            if (string.IsNullOrWhiteSpace(_selectedProductionModelId))
-            {
-                _selectedProductionModelId = _genericModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelIdentifier, _resolvedDefaultImageModelId, StringComparison.Ordinal))?.ModelId
-                    ?? _genericModelChoices.FirstOrDefault()?.ModelId;
-            }
-            if (string.IsNullOrWhiteSpace(_selectedProductionIdentityModelId))
-            {
-                _selectedProductionIdentityModelId = _identityModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelIdentifier, _resolvedDefaultImageModelId, StringComparison.Ordinal))?.ModelId
-                    ?? _identityModelChoices.FirstOrDefault()?.ModelId;
-            }
+            _selectedIdentityModelId = KeepSelection(_identityModelChoices, _selectedIdentityModelId);
+            _selectedGenericModelId = KeepSelection(_genericModelChoices, _selectedGenericModelId);
+            _selectedProductionModelId = KeepSelection(_genericModelChoices, _selectedProductionModelId);
+
+            // Everything the page says about the selected models is re-derived here, so a Model Manager change (a new
+            // qualification, a disabled row) is reflected on the next load instead of being frozen at page open.
+            await RefreshIdentityResolutionAsync();
+            await RevalidateProductionReferenceStrategiesAsync();
         }
         catch (Exception ex)
         {
             _statusMessage = $"Failed to load image model choices: {ex.Message}";
             Logger.LogWarning(ex, "Failed to load scene image model choices: SessionId={SessionId}", sessionId);
         }
+    }
+
+    /// <summary>
+    /// Keeps a picker's current selection when the model is still enabled, otherwise falls back to the configured
+    /// default image model and then to the first enabled choice. A stale id would otherwise reach every capability
+    /// lookup, and the page would have to explain a model the operator can no longer see.
+    /// </summary>
+    /// <summary>
+    /// The family of the model the Additional Images render will use, so the settings card can state which
+    /// controls that model actually reads (the sampler block is SDXL/FLUX-only).
+    /// </summary>
+    private SceneImageModelFamily SelectedGenericModelFamily
+        => _genericModelChoices.FirstOrDefault(choice => choice.ModelId == _selectedGenericModelId)?.Family
+            ?? SceneImageModelFamily.Unknown;
+
+    private string? KeepSelection(IReadOnlyList<SceneImageModelChoice> choices, string? current)
+    {
+        if (!string.IsNullOrWhiteSpace(current) && choices.Any(choice => choice.ModelId == current))
+        {
+            return current;
+        }
+
+        return choices.FirstOrDefault(choice => string.Equals(choice.ModelIdentifier, _resolvedDefaultImageModelId, StringComparison.Ordinal))?.ModelId
+            ?? choices.FirstOrDefault()?.ModelId;
+    }
+
+    /// <summary>
+    /// Re-derives everything that depends on the SELECTED model whenever the Additional Images model changes: the
+    /// identity-capable choices, the identity decision for the identity card, and each production reference row's
+    /// strategy. Nothing here is skipped silently - a strategy the new model cannot execute is reset to TextOnly and
+    /// named in the status line, because sending it would drop the conditioning without telling anyone.
+    /// </summary>
+    private async Task OnGenericModelChangedAsync()
+    {
+        _identityModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: true)).ToList();
+        if (!_identityModelChoices.Any(choice => choice.ModelId == _selectedIdentityModelId))
+        {
+            _selectedIdentityModelId = _identityModelChoices.FirstOrDefault()?.ModelId;
+        }
+
+        await RefreshIdentityResolutionAsync();
+        await RevalidateProductionReferenceStrategiesAsync();
+    }
+
+    /// <summary>
+    /// How the selected identity model carries identity, asked of the one capability decision. Called on load and on
+    /// every identity-model change, so the card's badge cannot describe a model the operator no longer has selected.
+    /// </summary>
+    private async Task RefreshIdentityResolutionAsync()
+    {
+        _identityResolution = null;
+        if (string.IsNullOrWhiteSpace(_selectedIdentityModelId))
+        {
+            return;
+        }
+
+        try
+        {
+            _identityResolution = await ReferenceStrategies.ResolveIdentityAsync(_selectedIdentityModelId);
+        }
+        catch (Exception ex)
+        {
+            _identityResolution = new ReferenceStrategyResolution(
+                ReferenceStrategyResolutionStatus.Unqualified,
+                ReferenceStrategyResolver.IdentityReferenceConditioning,
+                ex.Message);
+        }
+    }
+
+    private static string IdentityMechanismExplanation(ReferenceStrategyResolution resolution)
+        => resolution.IsAvailable
+            ? resolution.Strategy switch
+            {
+                ReferenceStrategyResolver.IdentityNativeMultiReference
+                    => " - the approved face is sent as a reference image in the same call as the prompt.",
+                ReferenceStrategyResolver.IdentityReferenceConditioning
+                    => " - a configured IP-Adapter/PuLID graph applies the approved face.",
+                _ => " - identity is applied by this model's configured mechanism."
+            }
+            : $" - unavailable: {resolution.Reason} Pick another model or qualify this one in Model Manager.";
+
+    /// <summary>
+    /// Brings every production reference row back in line with the selected production model's real capabilities.
+    /// </summary>
+    private Task RevalidateProductionReferenceStrategiesAsync()
+    {
+        var available = ProductionModelStrategies;
+        var reset = new List<string>();
+        foreach (var selection in _productionReferenceApplications)
+        {
+            if (available.Contains(selection.Strategy, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            reset.Add($"{selection.ElementKey} ({selection.Strategy} -> TextOnly)");
+            selection.Strategy = "TextOnly";
+        }
+
+        if (reset.Count > 0)
+        {
+            _statusMessage = $"The selected model cannot execute: {string.Join(", ", reset)}. "
+                + "Those references now render as text only; pick a model that declares the strategy to condition on them.";
+        }
+
+        return Task.CompletedTask;
     }
 
     private async Task LoadIdentityPackOptionsAsync()
@@ -4551,6 +4700,16 @@
         if (!IsSelectedMomentEnriched)
             throw new InvalidOperationException("A current completed Moment enrichment is required before identity rendering.");
         if (_activePrompt is null || string.IsNullOrWhiteSpace(_editablePrompt)) return;
+
+        // The identity render is refused, not silently degraded to text-only, when the selected model cannot carry
+        // identity: a text-only image looks exactly like a successful identity render.
+        if (_identityResolution?.IsAvailable != true)
+        {
+            throw new InvalidOperationException(
+                $"The selected identity model cannot carry identity: {_identityResolution?.Reason ?? "no identity capability has been resolved yet."} "
+                + "Pick an identity-capable model in the Identity-Conditioned Render card, or qualify one in Model Manager.");
+        }
+
         var selected = _identityPackOptions.Where(o => o.Selected).ToList();
         if (selected.Count == 0) return;
 

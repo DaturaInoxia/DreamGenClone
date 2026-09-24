@@ -27,6 +27,24 @@ public sealed class FunctionModelDefault
     public int? MaximumCatalogueEntries { get; set; }
     public string UpdatedUtc { get; set; } = DateTime.UtcNow.ToString("o");
 
+    /// <summary>
+    /// The body-card draft function (B-122) is synchronous, so it needs model assignment, sampling and an explicit
+    /// thinking mode — and none of the queue settings the scene-beat analyzer requires.
+    /// </summary>
+    public string? ValidateCharacterBodyCardDraftConfiguration()
+    {
+        if (!string.Equals(FunctionName, AppFunction.RolePlayCharacterBodyCardDraft.ToString(), StringComparison.Ordinal))
+            return null;
+        if (string.IsNullOrWhiteSpace(ModelId))
+            return "A model assignment is required.";
+        if (Temperature is < 0 or > 2 || TopP is < 0 or > 1 || MaxTokens < 1)
+            return "Temperature, Top P, and Max Tokens must be within their allowed ranges.";
+        if (!Enum.IsDefined(ThinkingMode))
+            return "Thinking mode is invalid.";
+
+        return null;
+    }
+
     public string? ValidateSceneBeatAnalyzerConfiguration()
     {
         if (!string.Equals(FunctionName, AppFunction.RolePlaySceneBeatAnalyzer.ToString(), StringComparison.Ordinal))

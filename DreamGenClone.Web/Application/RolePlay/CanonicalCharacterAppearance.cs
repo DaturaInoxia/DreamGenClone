@@ -13,7 +13,7 @@ namespace DreamGenClone.Web.Application.RolePlay;
 ///
 /// Both the SDXL (<see cref="SdxlSceneImagePromptBuilder"/>) and Pony
 /// (<see cref="PonySceneImagePromptBuilder"/>) canonical prompt paths use this so that each
-/// depicted character's fixed visual identity (age, weight, body type, iris colour, figure,
+/// depicted character's fixed visual identity (age, height, body type, iris colour, figure,
 /// hair/skin/marks) actually reaches the LLM pre-processor. The compiled brief itself only carries
 /// names/poses/clothing — without this injection the pre-processor is told to "describe by
 /// appearance" but has no appearance data to use, and per-character likeness is lost.

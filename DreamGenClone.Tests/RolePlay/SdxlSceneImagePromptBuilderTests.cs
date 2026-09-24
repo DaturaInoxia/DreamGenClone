@@ -309,7 +309,7 @@ public sealed class SdxlSceneImagePromptBuilderTests
             HairColour = "auburn",
             EyeColour = "green",
             SkinTone = "fair",
-            BodyType = "slender"
+            Adiposity = "lean, slim"
         }
     };
 
@@ -322,7 +322,7 @@ public sealed class SdxlSceneImagePromptBuilderTests
             Id = "char-dean",
             Name = "Dean",
             Gender = "Male",
-            PhysicalAttributes = new PhysicalAttributes { HairColour = "jet black", BodyType = "broad" }
+            PhysicalAttributes = new PhysicalAttributes { HairColour = "jet black", BodyBuild = "broad-framed" }
         };
 
         var (_, user) = _preprocessor.BuildMessages(
@@ -346,7 +346,7 @@ public sealed class SdxlSceneImagePromptBuilderTests
             Id = "char-dean",
             Name = "Dean",
             Gender = "Male",
-            PhysicalAttributes = new PhysicalAttributes { HairColour = "jet black", BodyType = "broad" }
+            PhysicalAttributes = new PhysicalAttributes { HairColour = "jet black", BodyBuild = "broad-framed" }
         };
 
         var (_, user) = _preprocessor.BuildMessages(

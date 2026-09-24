@@ -1,0 +1,86 @@
+﻿{
+    "4":  {
+              "inputs":  {
+                             "ckpt_name":  "bigLust_v16.safetensors"
+                         },
+              "class_type":  "CheckpointLoaderSimple"
+          },
+    "6":  {
+              "inputs":  {
+                             "text":  "photorealistic photograph of a man and a woman in a sunlit modern living room, the man standing upright wearing a plain dark grey t-shirt and blue jeans, the woman bent forward at the waist wearing a light grey t-shirt and blue jeans, wooden floor, large window with warm afternoon light, light grey wall, full body head to toe, both fully clothed, natural skin texture, 35mm, sharp focus",
+                             "clip":  [
+                                          "4",
+                                          1
+                                      ]
+                         },
+              "class_type":  "CLIPTextEncode"
+          },
+    "7":  {
+              "inputs":  {
+                             "text":  "",
+                             "clip":  [
+                                          "4",
+                                          1
+                                      ]
+                         },
+              "class_type":  "CLIPTextEncode"
+          },
+    "5":  {
+              "inputs":  {
+                             "batch_size":  1,
+                             "width":  1216,
+                             "height":  832
+                         },
+              "class_type":  "EmptyLatentImage"
+          },
+    "9":  {
+              "inputs":  {
+                             "images":  [
+                                            "8",
+                                            0
+                                        ],
+                             "filename_prefix":  "c1-text"
+                         },
+              "class_type":  "SaveImage"
+          },
+    "3":  {
+              "inputs":  {
+                             "denoise":  1,
+                             "seed":  20260922,
+                             "negative":  [
+                                              "7",
+                                              0
+                                          ],
+                             "sampler_name":  "dpmpp_2m_sde",
+                             "latent_image":  [
+                                                  "5",
+                                                  0
+                                              ],
+                             "positive":  [
+                                              "6",
+                                              0
+                                          ],
+                             "cfg":  5,
+                             "model":  [
+                                           "4",
+                                           0
+                                       ],
+                             "steps":  30,
+                             "scheduler":  "karras"
+                         },
+              "class_type":  "KSampler"
+          },
+    "8":  {
+              "inputs":  {
+                             "samples":  [
+                                             "3",
+                                             0
+                                         ],
+                             "vae":  [
+                                         "4",
+                                         2
+                                     ]
+                         },
+              "class_type":  "VAEDecode"
+          }
+}

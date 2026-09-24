@@ -18,7 +18,7 @@ public sealed class CharacterImageIdentityServiceTests
         var (service, repo, root, dbPath) = CreateFixture();
         try
         {
-            var pack = await service.CreateDraftPackAsync("char-1");
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
             var png = MinimalPng(320, 240);
             await using var input = new MemoryStream(png);
 
@@ -47,7 +47,7 @@ public sealed class CharacterImageIdentityServiceTests
         var (service, _, root, dbPath) = CreateFixture();
         try
         {
-            var pack = await service.CreateDraftPackAsync("char-1");
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
             await using var input = new MemoryStream(MinimalPng(64, 64));
             var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input, SceneImageReferenceFaceView.Front);
             var fullPath = Path.Combine(root, asset.FileRelativePath);
@@ -69,7 +69,7 @@ public sealed class CharacterImageIdentityServiceTests
         var (service, repo, root, dbPath) = CreateFixture();
         try
         {
-            var pack = await service.CreateDraftPackAsync("char-1");
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
             await using var input = new MemoryStream(MinimalPng(64, 64));
             var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input, SceneImageReferenceFaceView.Front);
 
@@ -114,7 +114,7 @@ public sealed class CharacterImageIdentityServiceTests
         var (service, _, root, dbPath) = CreateFixture();
         try
         {
-            var pack = await service.CreateDraftPackAsync("char-1");
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
             await using var input = new MemoryStream(MinimalPng(64, 64));
 
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -132,7 +132,7 @@ public sealed class CharacterImageIdentityServiceTests
         var (service, _, root, dbPath) = CreateFixture();
         try
         {
-            var pack = await service.CreateDraftPackAsync("char-1");
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
             await using var input = new MemoryStream(MinimalPng(64, 64));
 
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -152,7 +152,7 @@ public sealed class CharacterImageIdentityServiceTests
         var (service, repo, root, dbPath) = CreateFixture();
         try
         {
-            var pack = await service.CreateDraftPackAsync("char-1");
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
             await using var input = new MemoryStream(MinimalPng(64, 64));
 
             var asset = await service.UploadAssetAsync(
@@ -175,7 +175,7 @@ public sealed class CharacterImageIdentityServiceTests
         var (service, repo, root, dbPath) = CreateFixture();
         try
         {
-            var pack = await service.CreateDraftPackAsync("char-1");
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
             await using var input = new MemoryStream(MinimalPng(64, 64));
             var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "face.png", input, SceneImageReferenceFaceView.Front);
 
@@ -197,7 +197,7 @@ public sealed class CharacterImageIdentityServiceTests
         var (service, _, root, dbPath) = CreateFixture();
         try
         {
-            var pack = await service.CreateDraftPackAsync("char-1");
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
             await using var input = new MemoryStream(MinimalPng(64, 64));
 
             var asset = await service.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "tiny.png", input, SceneImageReferenceFaceView.Front);
@@ -209,6 +209,171 @@ public sealed class CharacterImageIdentityServiceTests
         {
             Cleanup(dbPath, root);
         }
+    }
+
+    [Fact]
+    public async Task CreateDraft_CarriesTheExplicitScope_AndPersistsIt()
+    {
+        var (service, repo, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
+
+            Assert.Equal(CharacterImageIdentityPackScope.FaceOnly, pack.PackScope);
+            Assert.Equal(
+                CharacterImageIdentityPackScope.FaceOnly,
+                (await repo.GetPackAsync(pack.Id))!.PackScope);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task CreateDraft_RefusesToRaiseAnExistingDraft_AndNamesTheWideningCall()
+    {
+        var (service, _, root, dbPath) = CreateFixture();
+        try
+        {
+            var draft = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.BodyComplete));
+
+            Assert.Contains(draft.Id, error.Message, StringComparison.Ordinal);
+            Assert.Contains("FaceOnly", error.Message, StringComparison.Ordinal);
+            Assert.Contains("SetDraftPackScopeAsync", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task SetDraftPackScope_RaisesADraft_AndRecordsTheCanonicalUnclothedFront()
+    {
+        var (service, repo, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
+            var body = await UploadBodyAsync(service, pack.Id, "unclothed-front.png",
+                SceneImageReferenceBodyState.Unclothed, SceneImageReferenceBodyView.Front);
+
+            var raised = await service.SetDraftPackScopeAsync(
+                pack.Id, CharacterImageIdentityPackScope.BodyComplete, body.Id);
+
+            Assert.Equal(CharacterImageIdentityPackScope.BodyComplete, raised.PackScope);
+            Assert.Equal(body.Id, raised.CanonicalFullBodyAssetId);
+            var stored = await repo.GetPackAsync(pack.Id);
+            Assert.Equal(CharacterImageIdentityPackScope.BodyComplete, stored!.PackScope);
+            Assert.Equal(body.Id, stored.CanonicalFullBodyAssetId);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task SetDraftPackScope_RefusesAnApprovedPack_AndNamesSupersede()
+    {
+        var (service, _, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
+            var front = await service.UploadAssetAsync(
+                pack.Id, SceneImageReferenceAssetKind.Face, "front.png",
+                new MemoryStream(MinimalPng(64, 64)), SceneImageReferenceFaceView.Front);
+            foreach (var view in new[]
+                     {
+                         SceneImageReferenceFaceView.ThreeQuarterLeft,
+                         SceneImageReferenceFaceView.ThreeQuarterRight,
+                         SceneImageReferenceFaceView.ProfileLeft,
+                         SceneImageReferenceFaceView.ProfileRight
+                     })
+            {
+                await using var extra = new MemoryStream(MinimalPng(64, 64));
+                var other = await service.UploadAssetAsync(
+                    pack.Id, SceneImageReferenceAssetKind.Face, $"{view}.png", extra, view);
+                await service.SetAssetApprovalAsync(other.Id, true);
+            }
+
+            await service.SetAssetApprovalAsync(front.Id, true);
+            await service.ApprovePackAsync(pack.Id, "{\"descriptor\":\"dark hair\"}", front.Id);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.SetDraftPackScopeAsync(pack.Id, CharacterImageIdentityPackScope.BodyComplete, "anything"));
+
+            Assert.Contains("Approved", error.Message, StringComparison.Ordinal);
+            Assert.Contains("Supersede", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task SetDraftPackScope_RefusesACanonicalAssetThatIsNotTheUnclothedFront()
+    {
+        var (service, _, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
+            var clothed = await UploadBodyAsync(service, pack.Id, "clothed-front.png",
+                SceneImageReferenceBodyState.Clothed, SceneImageReferenceBodyView.Front);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.SetDraftPackScopeAsync(pack.Id, CharacterImageIdentityPackScope.BodyComplete, clothed.Id));
+
+            Assert.Contains("unclothed Front", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task SetDraftPackScope_RefusesToNarrowABodyCompletePack()
+    {
+        var (service, _, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
+            var body = await UploadBodyAsync(service, pack.Id, "unclothed-front.png",
+                SceneImageReferenceBodyState.Unclothed, SceneImageReferenceBodyView.Front);
+            await service.SetDraftPackScopeAsync(pack.Id, CharacterImageIdentityPackScope.BodyComplete, body.Id);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.SetDraftPackScopeAsync(pack.Id, CharacterImageIdentityPackScope.FaceOnly, null));
+
+            Assert.Contains("cannot be narrowed", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    private static async Task<SceneImageReferenceAsset> UploadBodyAsync(
+        CharacterImageIdentityService service,
+        string packId,
+        string fileName,
+        SceneImageReferenceBodyState state,
+        SceneImageReferenceBodyView view)
+    {
+        await using var input = new MemoryStream(MinimalPng(64, 64));
+        return await service.UploadAssetAsync(
+            packId,
+            SceneImageReferenceAssetKind.FullBody,
+            fileName,
+            input,
+            faceView: null,
+            bodyView: view,
+            bodyState: state);
     }
 
     private static (CharacterImageIdentityService Service, CharacterImageIdentityRepository Repo, string Root, string DbPath) CreateFixture()

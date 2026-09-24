@@ -1,5 +1,10 @@
 # Move the Qwen VL compiler to local LM Studio (jer host)
 
+> **⚠️ SUPERSEDED 2026-09-21 — the compiler now runs on the APP host (WOODGame, RTX 4060 Ti 8 GB),
+> not on the ComfyUI host.** See the section "2026-09-21 — moved to LM Studio on the APP host" at the
+> bottom. The parts of this document below that describe the ComfyUI-host (WOOD-GAME-MAIN) LM Studio
+> remain accurate as the *previous* arrangement and as the rollback target.
+
 > **Goal:** stop paying ~$15/day for the RunPod `compiler-qwen-vl-serverless` endpoint by serving the
 > same model locally on the **jer** machine (RTX 5080 16 GB) via **LM Studio**, and re-pointing the
 > app at it over the LAN.
@@ -326,3 +331,97 @@ the UPDATE.
    > If the live DB's provider row has a different `ChatCompletionsPath` than `/v1/chat/completions`,
    > keep it unchanged — the BaseUrl above is the bare host specifically so the `/v1` path suffix is
    > NOT doubled by the client.
+
+---
+
+## 2026-09-21 — moved to LM Studio on the APP host (WOODGame, RTX 4060 Ti 8 GB)
+
+**Why:** the compiler shared the RTX 5080 with ComfyUI. LM Studio holding ~6 GB there forced ComfyUI to
+re-stage the UNet/T5 every step (documented 117 s/it trap). Moving the compiler to the app host frees
+that VRAM, and also takes the public `qwen.kenacwood.net` front (flagged as unauthenticated exposure)
+out of the compile path — compiles now stay on loopback.
+
+### Environment gotchas discovered (do not re-derive)
+
+1. **The app host's LM Studio is LM-Linked to WOOD-GAME-MAIN** (`lms link status`; device id
+   `37636cc68b9c0b8069ac22296b0ba593`). Its library listing is the *merged* view, and every pre-existing
+   `qwen2.5-vl*` entry was the **remote** copy — remote paths are prefixed `<deviceId>:` and carry a
+   non-null `deviceIdentifier` in `lms ls --json`.
+2. **Model files must live in `D:\LMStudio\Models` (the configured models folder) and be registered.
+   Two verified failure modes:**
+   - Files dropped into `C:\Users\kenac\.lmstudio\models\<user>\<repo>\` are visible to the running
+     app (file watcher, `vision: true`) but **vanish from the index after the next LM Studio restart**;
+     `lms load <key>` then fails with `Model not found`.
+   - `lms import` **moves** the file into `D:\LMStudio\Models\<user>\<repo>\`. It **cannot cross
+     volumes** (a C: source dies with `EXDEV: cross-device link not permitted`) and it **always prompts**
+     `Do you wish to continue? (Y/n)` even with `-y` — never pipe its output, or it hangs silently with
+     0 bytes of I/O. Stage the file on D: first:
+     `lms import 'D:\LMStudio\staging\<weights>.gguf' --user-repo mradermacher/Qwen2.5-VL-7B-Instruct-abliterated-local-GGUF -y`
+     then answer `Y`. Put the `mmproj` in the same target folder so it pairs as the projector.
+   `lms ls --json` must report `deviceIdentifier: null` + `vision: true` for the local entry, and the
+   entry must survive a restart (verified 2026-09-21 — it does).
+3. **LM Studio does not de-duplicate a same-key local + remote model** (e.g. `text-embedding-nomic-`
+   `embed-text-v1.5` is listed twice). A local copy sharing the remote's model key is therefore
+   ambiguous for both `lms load` and serve routing — the app would silently be served the *remote*
+   model through a loopback URL. The local artifact is given a **`-local` suffix** so it cannot collide.
+4. **`--parallel 1` is required.** LM Studio defaults to 4 parallel slots and splits the context
+   across them (one request then gets ~1/4 of 8192). Also, loading a second instance of the same key
+   yields an identifier suffix (`...-local:2`), which would break the app's response-`model` echo check.
+
+### Installed arrangement
+
+| Item | Value |
+|---|---|
+| Served model id | `qwen2.5-vl-7b-instruct-abliterated-local` |
+| Files | `D:\LMStudio\Models\mradermacher\Qwen2.5-VL-7B-Instruct-abliterated-local-GGUF\` → `Qwen2.5-VL-7B-Instruct-abliterated-local.Q4_K_M.gguf` (4,466 MB) + `Qwen2.5-VL-7B-Instruct-abliterated-local.mmproj-f16.gguf` (1,291 MB), registered with `lms import` |
+| Source | `https://huggingface.co/mradermacher/Qwen2.5-VL-7B-Instruct-abliterated-GGUF/resolve/main/<file>` (identical artifacts to the 5080 host, renamed) |
+| Load | `lms load qwen2.5-vl-7b-instruct-abliterated-local --gpu max -c 8192 --parallel 1 -y` |
+| Serve | `lms server start --port 1234 --bind 0.0.0.0` (reachable on the LAN IP) |
+| Measured | 5.62 GiB weights; `lms ps` 6.04 GB; whole GPU 7.7 GB of 8.2 GB used (≈220–280 MiB free) |
+| Compile latency | HTTP 200 in **8.8 s** local vs ~3.5 s on the 5080 (expected ~3× on memory bandwidth) |
+
+> `vision: true` in `lms ls --json` confirms LM Studio paired the `mmproj` projector — verify it after
+> any file rename, or image input silently stops working.
+
+### Model Manager rows (dev DB)
+
+| Row | Id | Key fields |
+|---|---|---|
+| Provider `Local LM Studio (WOODGame 4060 Ti)` | `59301908-6aa9-4942-be46-481a40bad079` | BaseUrl `http://192.168.0.192:1234` (WOODGame LAN IP), `AlwaysOnSeparateProvider`, readiness `/v1/models`, contract id `…-local`, `lmstudio-local`, ContentPolicy `AdultAllowed`, 300 s |
+| Model `Qwen2.5-VL 7B abliterated image compiler (local LM Studio)` | `9f2c7a41-3b6d-4e08-95c1-a7d4e609b812` | ModelIdentifier `qwen2.5-vl-7b-instruct-abliterated-local`, ctx 8192, Q4_K_M, image input 1/10 MiB/16 MP/4096 px |
+| Function defaults | — | `RolePlaySceneImageEditPromptCompiler` (0.2/0.8/512) and `RolePlaySceneImageValidator` (0.1/0.7/512) both → the row above |
+
+The **API key is a dummy** (`lmstudio-local`) DPAPI-encrypted as the `kenac` user; the same ciphertext
+as the previous row works on this host (verified decryptable). No app code change and no webapp restart
+(providers resolve per request).
+
+### Operational requirements
+
+- LM Studio must be **running** with its server started. `~/.lmstudio/.internal/http-server-config.json`
+  is set to `"autoStartOnLaunch": true` + `"networkInterface": "0.0.0.0"` so the server comes back with
+  the app and stays reachable on the LAN IP; the CLI equivalent is `lms server start --bind 0.0.0.0`.
+- **Security:** binding `0.0.0.0` exposes this LM Studio instance (and every model it serves, incl. the
+  NSFW ones) unauthenticated to the whole LAN. Keep the dev box on a trusted network and do NOT port-
+  forward it. If only this host needs it, bind `127.0.0.1` and use the loopback BaseUrl instead.
+- **The LAN IP is DHCP** (`192.168.0.192`). If the lease changes, the provider BaseUrl breaks — set a
+  DHCP reservation / static lease for WOODGame, or re-point the BaseUrl.
+- The model itself JIT-loads on first request (~11–21 s) and unloads after 1 h idle, so it does not
+  need to be pre-loaded.
+- After a reboot run `helpers/lmstudio-local/start-local-compiler.ps1` (idempotent: starts the server,
+  loads the model with the right flags, verifies the served id and reports VRAM).
+- 8 GB is **tight** (≈250 MiB spare). Heavy desktop GPU use on the app host can evict/spill the model;
+  if that becomes a problem, reload with `-c 4096` and set the model row's `ContextWindowSize` to 4096.
+
+### Rollback (back to the ComfyUI host)
+
+Point both function defaults back at `db602892-d604-40b1-8f7d-7d6073f7fe1d` (provider `Local`,
+`https://qwen.kenacwood.net/`, still enabled and untouched). Nothing else changed:
+
+```sql
+UPDATE FunctionModelDefaults
+SET ModelId = 'db602892-d604-40b1-8f7d-7d6073f7fe1d', UpdatedUtc = '<utc now ISO8601>'
+WHERE FunctionName IN ('RolePlaySceneImageEditPromptCompiler', 'RolePlaySceneImageValidator');
+```
+
+Full pre-change dev DB backup taken at
+`artifacts/tmp/dbquery/backups/dreamgenclone.dev.pre-lmstudio-local-move.db`.

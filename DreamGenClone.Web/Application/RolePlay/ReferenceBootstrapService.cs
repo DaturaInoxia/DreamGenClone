@@ -202,7 +202,8 @@ public sealed class ReferenceBootstrapService : IReferenceBootstrapService
             throw new InvalidOperationException(
                 $"Produced image '{candidate.Id}' does not have stored image bytes.");
 
-        var draftPack = await _identityService.CreateDraftPackAsync(batch.CharacterProfileId, cancellationToken);
+        var draftPack = await _identityService.CreateDraftPackAsync(
+            batch.CharacterProfileId, CharacterImageIdentityPackScope.FaceOnly, cancellationToken);
         await using var source = await _sceneAssetStorage.OpenReadAsync(candidate.StoragePath, cancellationToken);
         var promoted = await _identityService.UploadAssetAsync(
             draftPack.Id,
@@ -229,7 +230,8 @@ public sealed class ReferenceBootstrapService : IReferenceBootstrapService
             throw new InvalidOperationException(
                 $"Reference bootstrap batch '{batch.Id}' has no character profile target.");
 
-        var draftPack = await _identityService.CreateDraftPackAsync(batch.CharacterProfileId, cancellationToken);
+        var draftPack = await _identityService.CreateDraftPackAsync(
+            batch.CharacterProfileId, CharacterImageIdentityPackScope.FaceOnly, cancellationToken);
         await using var source = await _sceneAssetStorage.OpenReadAsync(candidate.StoragePath!, cancellationToken);
         var promoted = await _identityService.UploadAssetAsync(
             draftPack.Id,

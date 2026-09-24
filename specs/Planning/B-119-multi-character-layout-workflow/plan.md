@@ -33,13 +33,20 @@ Text cannot place multiple people in specified positions on any model — priors
 5. **Deterministic staging** (3D/rig → depth/seg pass → ControlNet) — exact independent per-character positions; most labor.
 6. **2.5D compositing** (render/cut/place/harmonize) — most labor, weakest fusion realism.
 
-## 3. Local host feasibility (verified by /object_info probe 2026-09-09)
+## 3. Local host feasibility (verified by /object_info probe 2026-09-09, re-verified 2026-09-22 at `192.168.0.11`)
+
+> **Update 2026-09-22 (B-119 T01/T02):** the depth and canny weights are now **installed and proof-verified**
+> on the host (`helpers/local-comfyui-host/install-sdxl-controlnets.ps1`, hash-pinned; documented in
+> `docs/local-comfyui-model-manager-setup.md`). The C1 mechanism is measured: depth/canny inherit a
+> two-body arrangement at IoU **0.946–0.966** while the prompt changes the location and clothing,
+> versus **0.131–0.259** for text-only. See `specs/image-generator-tests/layout-structure-proof/FINDINGS.md`.
+> The reclining discriminator (C1 vs C2) is **not yet proven**.
 
 | Tool | Nodes on host | Weights on host | Runs locally today? |
 |---|---|---|---|
 | Multi-person **OpenPose** ControlNet (SDXL) | ✓ (`OpenposePreprocessor`, `DWPreprocessor`, `ControlNetApplyAdvanced`) | ✓ **`thibaud-openpose-xl2/OpenPoseXL2.safetensors`** (installed) | **YES** — impl tracked in canonical B-117 (BigLust/Juggernaut/Pony Realism) |
-| **Depth** ControlNet (SDXL) | ✓ (DepthAnything v1/v2, MiDaS, Zoe, LeReS, Metric3D) | ✗ no depth controlnet weight | Install weight to run (B-119) |
-| **Canny** ControlNet (SDXL) | ✓ (built-in `Canny` + `PyraCannyPreprocessor`) | ✗ | Install weight to run (B-119) |
+| **Depth** ControlNet (SDXL) | ✓ (DepthAnything v1/v2, MiDaS, Zoe, LeReS, Metric3D) | ✓ **`controlnet-depth-sdxl-1.0.safetensors`** (installed 2026-09-22, sha256 `66a6813e…` — byte-identical to the RunPod worker manifest) | **YES** — proof: `specs/image-generator-tests/layout-structure-proof/FINDINGS.md` |
+| **Canny** ControlNet (SDXL) | ✓ (built-in `Canny` + `PyraCannyPreprocessor`) | ✓ **`controlnet-canny-sdxl-1.0.safetensors`** (installed 2026-09-22, sha256 `b2e7d392…`) | **YES** — proof: same run |
 | Segmentation / Lineart / Scribble / HED / Normal preprocessors | ✓ (OneFormer, UniFormer, Lineart, HED, PiDi, BAE/DSINE) | ✗ (need matching controlnet weights) | Install weight to run |
 | **Regional prompting** (Impact Pack) | ✓ full pack (`RegionalPrompt`, `RegionalSampler`, `CombineRegionalPrompts`, SEGS/Detailer) | n/a | **YES** |
 | **Regional IP-Adapter** per-character identity | ✓ (`IPAdapterRegionalConditioning`, `IPAdapter`, masks) + adapter files (PLUS FACE, generic `ip-adapter_sdxl_vit-h`, CLIP-ViT-H) | ✓ | **YES** (SDXL-family) |
@@ -52,7 +59,7 @@ Text cannot place multiple people in specified positions on any model — priors
 ## 4. Decisions (open — confirm before implementation)
 - **D1 — FLUX.2 = cloud-only** for this user. Do not plan local FLUX.2; use the TogetherAI `FLUX.2-pro` row for multi-subject reference experiments.
 - **D2 — structural v1 = SDXL OpenPose (canonical B-117) + depth/canny ControlNet (B-119)** on BigLust/Juggernaut/Pony Realism, combined with regional IP-Adapter for per-character identity. FLUX stays the non-structural geometry/instruction follower.
-- **D3 — weight installs are host changes** (documented + reproducible): depth + canny weights to the local ComfyUI, recorded in `docs/local-comfyui-model-manager-setup.md` + an idempotent helper (`helpers/flux-local-host/install-sdxl-controlnets.ps1`); each smoke-rendered.
+- **D3 — weight installs are host changes** (documented + reproducible): depth + canny weights to the local ComfyUI, recorded in `docs/local-comfyui-model-manager-setup.md` + an idempotent helper (`helpers/local-comfyui-host/install-sdxl-controlnets.ps1` — path corrected from `helpers/flux-local-host/` 2026-09-22); each smoke-rendered. **DONE 2026-09-22:** both installed, hash-verified, idempotency proven, and rendered through the C1 harness on both checkpoints.
 - **D4 — incorporate as workflow, not a strict pipeline** (see `workflow.md`).
 
 ## 5. Application incorporation map (workflow route → app capability)

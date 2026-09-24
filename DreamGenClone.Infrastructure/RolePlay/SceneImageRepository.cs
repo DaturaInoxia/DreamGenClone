@@ -527,6 +527,33 @@ public sealed class SceneImageRepository : ISceneImageRepository
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
+    public async Task<bool> TryClaimImageAsync(
+        string imageId,
+        DateTime startedUtc,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(imageId))
+            throw new InvalidOperationException("An image id is required to claim a scene image.");
+        if (startedUtc.Kind != DateTimeKind.Utc)
+            throw new InvalidOperationException("Started UTC must use DateTimeKind.Utc.");
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        // Only a queued row is claimed. A row that is already 'Generating' belongs to an earlier delivery
+        // of the same job, and a terminal row (Complete/Cancelled/Failed) is never resurrected.
+        command.CommandText = """
+            UPDATE SceneImages
+            SET Status = 'Generating', StartedUtc = $startedUtc, UpdatedUtc = $startedUtc
+            WHERE Id = $id AND Status = 'Pending';
+            """;
+        command.Parameters.AddWithValue("$id", imageId.Trim());
+        command.Parameters.AddWithValue("$startedUtc", startedUtc.ToString("O"));
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
     public async Task<bool> TryCompleteOperationImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default)
     {
         ValidateImage(image);

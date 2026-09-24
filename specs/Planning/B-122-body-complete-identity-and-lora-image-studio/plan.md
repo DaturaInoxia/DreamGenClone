@@ -1,6 +1,7 @@
 # B-122 / B-123 — Body-Complete Identity + Character LoRA Image Studio (NSFW-inclusive)
 
-Status: **planned** (design artifact — no code written under this item)
+Status: **planned** (design artifact — no code written under this item). Upstream **B-121 is built** — see
+*Kickoff status* below for what is consumable now and what still has to land first.
 Prerequisite to production LoRA training for the RP scene-image pipeline.
 
 > ### Program context — read `specs/Planning/identity-lora-program-map.md` first
@@ -25,10 +26,59 @@ Prerequisite to production LoRA training for the RP scene-image pipeline.
 >
 > **Hard precondition:** no training cell may generate before the BodyCard `[DECIDE]` items are fixed.
 
+### Kickoff status — 2026-09-21 (upstream B-121 is built)
+
+**Consumable now, unchanged** (verified by reading the code and by building the *Becky* pack end-to-end
+in the app; per-phase evidence in `specs/Planning/B-121-character-identity-studio/plan.md` →
+*Implementation status*):
+
+| B-121 artifact Phase 0 needs | Where it lives today |
+|---|---|
+| Resumable step pipeline (build + per-step rows, skip recorded, per-step re-run, resume) | `CharacterIdentityBuildService` / `CharacterIdentityBuildRepository` |
+| Seeded, editable, scoped prompt-template store (+ Reset-to-default, fail-fast by key) | `ImageWorkflowPromptTemplate` / `ImageWorkflowTemplateService` — body prompts become **additional seeded rows keyed by target kind**, not a second store |
+| Eye/face-landmark subprocess capability + manual override | `CharacterIdentityMeasurementService` / `CharacterIdentityValidationService` — Phase 0.4 extends the *discipline* to body invariants |
+| Same-image edit primitive + editor-model resolution | `ImageEditWorkspace` + `MediaEditOperations` + `ImageWorkflowRepository` (EditorModelId) |
+| View-tagged promotion into an identity pack | `SetCanonicalFrontAssetId` + `CharacterIdentityPromotionService` (per-view `SceneImageReferenceFaceView`); the `BodyView`/`BodyState` slot is what Phase 0 adds |
+| Reference quality gate | `QualityGateMinSharpness` drives promotion readiness through the one `ReferenceImageQualityAnalyzer` metric (`ComputeSharpness`) as of 2026-09-21 (`debug/049`); Phase 0.4 extends that pattern to body invariants |
+
+**Must land in B-121 before Phase 0 starts (in this order):**
+
+1. ~~**B121-011a — the target kind selects the step set and the template-key namespace.**~~ **DELIVERED
+   2026-09-21.** A build's pipeline is a persisted, seeded step plan selected by the build's target kind
+   (`CharacterIdentityStepPlans` / `ICharacterIdentityStepPlanService`), and the build machinery is
+   kind-agnostic. Phase 0 starts by seeding its own plan rows and writing its handlers — the step set is no
+   longer a blocker. What is *not* yet parameterised: the face step handlers' template keys and the front
+   container's `SceneAssetType.CharacterFace`; expect to pass a kind (and an asset type) into the shared
+   create/upload path when Phase 0 wires its body front.
+2. ~~**The Phase F/G gates** — yaw measurement + convention + configured mirror remedy, and the
+   validate/yaw/quality promotion gates.~~ **DELIVERED 2026-09-21** (`debug/049`). Phase 0.4 extends this
+   machinery to body invariants.
+3. **Phase I close-out** — retire the superseded `AngleEdits` constants, execute B-121's eleven acceptance
+   scenarios, record the grep proofs.
+
+The UI already reserves this phase's slot: the Character Studio's *Body* section states it is "B-122
+Phase 0, a new target kind of the same pipeline. Not yet implemented."
+
 **NSFW / nude cells are in scope.** The training set must cover the body in both clothed and
 unclothed states so the LoRA learns the *person* (body shape, skin, body hair, marks), not a
 wardrobe. This mirrors the capture list's ~50/50 rule: too much nude makes the model strip
 clothes at inference; too much clothed makes nudity weak.
+
+### Phase 0 implementation status — 2026-09-22
+
+| Section | State | Evidence |
+|---|---|---|
+| **A. BodyCard** (B122-001…005) | **delivered** | `CharacterBodyCard` + `CharacterBodyCardRepository`, 8 seeded `identity.body.*` templates, `BodyModelId`; `debug/050` |
+| **B. Body target kind** (B122-006…010) | **delivered** | `CharacterIdentityTargetKind.Body` plan (5 rows) + body handler keys + `CharacterIdentityBodyViews` + `CharacterIdentityBodyService` (one view per request, derivation from the accepted source); `debug/053`; **B122-010 is PARTIAL** (a re-run test asserting the one-row-per-request replace-the-artifact shape is still owed) |
+| **C. Body validation** (B122-011…014) | **delivered** | four manual checks per view with `NotReviewed`/`Pass`/`Fail`, attributed findings on the view row (per view *and* per state), acceptance refuses naming every unreviewed/failed check, explicit attributed override, quality reuses B-121's one analyzer; `debug/054` |
+| **D. Promotion** (B122-015…018) | **delivered** | explicit `PackScope` at draft creation + `SetDraftPackScopeAsync` (drafts only, raise-only), the promotion dispatches by target kind: ten tagged body slots + the pack's face half + the canonical unclothed-`Front` pointer, then the pack's own `ValidateApprovalSet` decides; `debug/055` |
+| **E. User-facing tool** (B122-019…022) | **in progress** | **E-1 delivered** (`debug/056`): the Body tab has the seven-field BodyCard editor (labels/`[DECIDE]` from the domain, save through the service under the loaded version) and the body-build entry action, and the studio selects the face and body builds **by kind**. **E-2** (view grids) and **E-3** (promotion panel + the missing settings surface) are next; B122-022 is partial |
+| **F. Validation + handoff** (B122-023…025) | **not started** | live build on Becky + grep proofs |
+
+Two defects were fixed on the way through Section D (both in `debug/055`): the body plan's single `Front` step
+was re-completed by the *second* base (blocking every full 10-slot run), and `SupersedeAsync` carried the
+canonical full-body pointer to an asset in the pack being superseded (making the superseding draft
+un-approvable).
 
 ## Workflow orientation — interactive tools, not batch automation
 

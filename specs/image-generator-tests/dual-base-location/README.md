@@ -1,6 +1,10 @@
 # Dual-Base + Location Reference Workflow
 
 > **Read [`FINDINGS.md`](FINDINGS.md) first.** It records verified limitations, failed approaches, the Qwen AIO versus split-model distinction, and the next focused proof. Do not run a full slideshow until location and identity both pass a focused base-image proof.
+>
+> **Running this locally?** See [`LOCAL-RUN.md`](LOCAL-RUN.md) — the same graphs on the local ComfyUI host,
+> the one-command orchestrator, the identity face pass, and the measured performance trap that made the
+> first local attempt look 100x slower than it is.
 
 This harness produces the core primitive the app needs for scene image generation with arbitrary locations:
 

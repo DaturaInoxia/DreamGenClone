@@ -11,6 +11,39 @@ public sealed class SceneAssetGenerationJobPayload
     public string ImageSize { get; set; } = string.Empty;
     public string? CandidateBatchId { get; set; }
     public string? ReferenceApplicationsJson { get; set; }
+
+    /// <summary>
+    /// The verified stance whose OpenPose skeleton conditions this render, or null for a plain text-to-image call.
+    /// Null means "no pose was asked for" — never "use a default pose".
+    /// </summary>
+    public string? PoseStance { get; set; }
+
+    /// <summary>ControlNet conditioning strength for <see cref="PoseStance"/>, required exactly when it is set.</summary>
+    public double? PoseStrength { get; set; }
+
+    /// <summary>
+    /// The approved identity pack this render is conditioned on, or null for an unconditioned render. The HANDLER
+    /// re-reads the pack and its face asset, so an unconditional fallback is impossible: a pack that is no longer
+    /// approved fails the render rather than quietly producing a different person.
+    /// </summary>
+    public string? IdentityPackId { get; set; }
+
+    /// <summary>The approved face asset within <see cref="IdentityPackId"/> to condition on.</summary>
+    public string? IdentityFaceAssetId { get; set; }
+
+    /// <summary>
+    /// The canonical angle this render is asked for, or null when the render is not an angle render. The handler
+    /// resolves the skeleton from the committed angle library by this value, so an angle whose skeleton does not
+    /// exist fails the render rather than turning the body by inference.
+    /// </summary>
+    public string? BodyAngleView { get; set; }
+
+    /// <summary>
+    /// The ACCEPTED body image this angle render is based on, required exactly when <see cref="BodyAngleView"/> is
+    /// set. The handler re-reads the image row and its bytes, so a source that was deleted or replaced between the
+    /// queue and the render fails the render instead of producing a different body.
+    /// </summary>
+    public string? BodyAngleSourceImageId { get; set; }
 }
 
 /// <summary>Payload for a typed-vision reference candidate generation job.</summary>

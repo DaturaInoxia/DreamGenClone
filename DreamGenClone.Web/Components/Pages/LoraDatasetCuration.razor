@@ -41,11 +41,11 @@
             </div>
             <div class="card-body small">
                 <div class="row g-2">
-                    <div class="col-md-3"><strong>Character</strong><div class="font-monospace text-break">@_dataset.CharacterProfileId</div></div>
+                    <div class="col-md-3"><strong>Character</strong><div class="font-monospace text-break">@_dataset.CharacterTemplateId</div></div>
                     <div class="col-md-3">
                         <strong>Identity pack</strong>
                         <div class="font-monospace text-break">@_dataset.IdentityPackId</div>
-                        <a href="/characters/identity?characterId=@Uri.EscapeDataString(_dataset.CharacterProfileId)&amp;packId=@Uri.EscapeDataString(_dataset.IdentityPackId)">View source pack</a>
+                        <a href="/characters/identity?characterId=@Uri.EscapeDataString(_dataset.CharacterTemplateId)&amp;packId=@Uri.EscapeDataString(_dataset.IdentityPackId)">View source pack</a>
                     </div>
                     <div class="col-md-3"><strong>Trigger token</strong><div class="font-monospace text-break">@_dataset.TriggerToken</div></div>
                     <div class="col-md-3"><strong>Target family</strong><div class="font-monospace text-break">@_dataset.TargetModelFamily</div></div>

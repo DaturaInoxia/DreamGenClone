@@ -21,6 +21,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
     private readonly ICharacterImageIdentityRepository? _identityRepository;
     private readonly ICompiledMediaBriefRepository? _briefs;
     private readonly IMultimodalMediaCompilationService? _compilationService;
+    private readonly ICharacterIdentityOwnerResolver? _owners;
     private readonly ILogger<SceneImageProductionService> _logger;
 
     public SceneImageProductionService(
@@ -32,7 +33,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         TimeProvider timeProvider,
         ILogger<SceneImageProductionService> logger)
         : this(productionRepository, imageRepository, assetRepository, storage, sessionGuard, timeProvider,
-            null, null, null, null, null, null, logger)
+            null, null, null, null, null, null, null, logger)
     {
     }
 
@@ -49,6 +50,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         ICompiledMediaBriefRepository briefs,
         IMultimodalMediaCompilationService compilationService,
         ICharacterImageIdentityRepository identityRepository,
+        ICharacterIdentityOwnerResolver owners,
         ILogger<SceneImageProductionService> logger)
     {
         _productionRepository = productionRepository;
@@ -63,7 +65,22 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         _identityRepository = identityRepository;
         _briefs = briefs;
         _compilationService = compilationService;
+        _owners = owners;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// The identity owner (character template) behind a character id from a Moment's frozen state or a caller's
+    /// selection. Identity reads must go through this (B-127): packs belong to the template, so reading them with a
+    /// scenario character id returns nothing and the stage reported "no approved identity pack" for characters that
+    /// have one (reported 2026-09-24: Becky's approved pack lives under her template while the frozen Moment carried
+    /// her scenario instance id).
+    /// </summary>
+    private async Task<CharacterIdentityOwner> ResolveOwnerAsync(string characterId, CancellationToken cancellationToken)
+    {
+        var owners = _owners
+            ?? throw new InvalidOperationException("Identity resolution requires the character identity owner resolver.");
+        return await owners.ResolveAsync(characterId.Trim(), cancellationToken);
     }
 
     public async Task<IReadOnlyList<SceneImageIdentityReadiness>> ResolveIdentityReadinessAsync(
@@ -100,17 +117,37 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
             .GroupBy(character => character.CharacterId, StringComparer.Ordinal)
             .Select(grouping => grouping.Single())
             .ToArray();
-        var selectionsByCharacter = selections?
-            .GroupBy(selection => selection.CharacterId, StringComparer.Ordinal)
-            .ToDictionary(grouping => grouping.Key, grouping => grouping.Single(), StringComparer.Ordinal);
-        if (selectionsByCharacter is not null && selectionsByCharacter.Count != selections!.Count)
-            throw new InvalidOperationException("Identity references must select at most one face asset per character.");
+        // Every frozen character id is resolved to its identity owner ONCE, so the pack reads, the selection join and
+        // the reported ids all use the template key the packs actually belong to.
+        var ownerByFrozenId = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var character in visibleCharacters)
+        {
+            ownerByFrozenId[character.CharacterId] = (await ResolveOwnerAsync(character.CharacterId, cancellationToken)).TemplateId;
+        }
+
+        var selectionsByCharacter = new Dictionary<string, SceneImageIdentityReferenceSelection>(StringComparer.Ordinal);
+        if (selections is not null)
+        {
+            foreach (var selection in selections)
+            {
+                var ownerId = (await ResolveOwnerAsync(selection.CharacterId, cancellationToken)).TemplateId;
+                if (!selectionsByCharacter.TryAdd(ownerId, selection))
+                {
+                    throw new InvalidOperationException("Identity references must select at most one face asset per character.");
+                }
+            }
+
+            if (selectionsByCharacter.Count != selections.Count)
+                throw new InvalidOperationException("Identity references must select at most one face asset per character.");
+        }
+
         var results = new List<SceneImageIdentityReadiness>(visibleCharacters.Length);
         foreach (var character in visibleCharacters)
         {
-            if (selectionsByCharacter is not null && !selectionsByCharacter.ContainsKey(character.CharacterId))
+            var ownerId = ownerByFrozenId[character.CharacterId];
+            if (selections is not null && !selectionsByCharacter.ContainsKey(ownerId))
                 continue;
-            var packs = await identity.ListPacksAsync(character.CharacterId, cancellationToken);
+            var packs = await identity.ListPacksAsync(ownerId, cancellationToken);
             var approvedPacks = packs
                 .Where(pack => pack.Status == CharacterImageIdentityPackStatus.Approved)
                 .OrderByDescending(pack => pack.Version)
@@ -124,9 +161,9 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
             }
 
             var pack = approvedPacks[0];
-            var selectedAssetId = selectionsByCharacter is not null
-                && !string.IsNullOrWhiteSpace(selectionsByCharacter[character.CharacterId].ReferenceAssetId)
-                    ? selectionsByCharacter[character.CharacterId].ReferenceAssetId
+            var selectedAssetId = selectionsByCharacter.TryGetValue(ownerId, out var selection)
+                && !string.IsNullOrWhiteSpace(selection.ReferenceAssetId)
+                    ? selection.ReferenceAssetId
                     : pack.CanonicalFaceAssetId;
             if (string.IsNullOrWhiteSpace(selectedAssetId))
                 throw new InvalidOperationException($"Character '{character.Name}' approved identity pack v{pack.Version} has no canonical face.");
@@ -142,8 +179,10 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
                     $"Character '{character.Name}' approved identity pack v{pack.Version} has no approved owned canonical face asset.");
             }
 
+            // The reported id is the OWNER (template) id, so the caller can hand it straight back in a selection
+            // and the same pack is found again instead of a second, instance-keyed lookup returning nothing.
             results.Add(new SceneImageIdentityReadiness(
-                character.CharacterId,
+                ownerId,
                 character.Name,
                 pack.Id,
                 pack.Version,
@@ -153,7 +192,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
                 asset.FaceView));
         }
 
-        if (selectionsByCharacter is not null && results.Count != selectionsByCharacter.Count)
+        if (selections is not null && results.Count != selectionsByCharacter.Count)
             throw new InvalidOperationException("Every selected identity reference must belong to a visible character in this Moment.");
 
         return results;
@@ -179,7 +218,9 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         var results = new List<SceneImageIdentityReadiness>(groups.Count);
         foreach (var group in groups)
         {
-            var characterId = group.Key;
+            // B-127: the selection names a character (often a scenario instance); the pack belongs to its TEMPLATE.
+            var owner = await ResolveOwnerAsync(group.Key, cancellationToken);
+            var characterId = owner.TemplateId;
             var packs = await identity.ListPacksAsync(characterId, cancellationToken);
             var approvedPacks = packs
                 .Where(pack => pack.Status == CharacterImageIdentityPackStatus.Approved)
@@ -214,7 +255,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
 
             results.Add(new SceneImageIdentityReadiness(
                 characterId,
-                string.Empty,
+                owner.TemplateName,
                 pack.Id,
                 pack.Version,
                 asset.Id,

@@ -202,7 +202,11 @@ public sealed class SceneAsset
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 }
 
-/// <summary>An immutable generated, uploaded, or edited image owned by a reusable scene asset.</summary>
+/// <summary>
+/// An immutable generated, uploaded, or edited image owned by a reusable scene asset. It records the prompt that
+/// produced it, the compiler that authored that prompt (<see cref="PromptCompilerId"/>) and the negative it was
+/// rendered with, so a candidate can always be explained after the fact.
+/// </summary>
 public sealed class SceneAssetImage
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -246,6 +250,23 @@ public sealed class SceneAssetImage
     /// attempts, and only the approved one's chain says what was actually done to it (B-121 note 002).
     /// </summary>
     public string? PipelineStepsJson { get; set; }
+
+    /// <summary>
+    /// The negative prompt this image was rendered with, or null when its prompt was never compiled by a prompt
+    /// compiler. Null is the honest value for a legacy or uploaded image: it records that no negative was authored,
+    /// which is a different fact from "the author decided the negative should be empty" (the empty string).
+    /// </summary>
+    public string? NegativePrompt { get; set; }
+
+    /// <summary>
+    /// The prompt compiler that authored <see cref="Prompt"/>, or null when the stored text is still a semantic
+    /// description awaiting compilation at render time.
+    ///
+    /// This is the discriminator the render path reads. It exists so that "compile this description for the model"
+    /// and "this text IS the model-ready prompt" are two STATED cases rather than a guess about the text's shape —
+    /// and so a compiled prompt is never compiled twice.
+    /// </summary>
+    public string? PromptCompilerId { get; set; }
 
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? StartedUtc { get; set; }

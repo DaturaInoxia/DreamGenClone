@@ -9,7 +9,13 @@ public enum CharacterIdentityBuildStep
     Crop = 4,
     Enhance = 5,
     Angles = 6,
-    Promote = 7
+    Promote = 7,
+
+    /// <summary>
+    /// B-122 Phase 0: the body plan validates the acquired base AND the views produced from it, so it needs a
+    /// second validation step. The face plan does not use this step (its views are gated inside the Angles step).
+    /// </summary>
+    ValidateView = 8
 }
 
 public enum CharacterIdentityBuildStatus
@@ -86,6 +92,13 @@ public sealed class CharacterIdentityAngleAttempt
     public string? ManualOverrideAuthor { get; set; }
     public DateTime? ManualOverrideUtc { get; set; }
     public string? FailureReason { get; set; }
+
+    /// <summary>
+    /// The measurement the direction gate read for this attempt's image, serialized. Kept as evidence: the
+    /// gate's decision (and its block reason) must be re-checkable without measuring the image again.
+    /// </summary>
+    public string? MeasurementJson { get; set; }
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 }
@@ -106,7 +119,12 @@ public enum CharacterIdentityValidationVerdict
     NoFaceMesh = 3
 }
 
-/// <summary>The fixed pipeline order.</summary>
+/// <summary>
+/// The face pipeline's step order. This is the <b>seed data</b> for the <see cref="CharacterIdentityTargetKind.Face"/>
+/// step plan (written idempotently into <c>CharacterIdentityStepPlans</c>, exactly as the prompt templates are
+/// seeded): the order the machinery walks always comes from the persisted plan for the build's target kind, so a
+/// second kind is new rows rather than an edit here.
+/// </summary>
 public static class CharacterIdentityBuildSteps
 {
     public static readonly CharacterIdentityBuildStep[] Ordered =
@@ -129,7 +147,7 @@ public sealed class CharacterIdentityBuild
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
-    public string CharacterProfileId { get; set; } = string.Empty;
+    public string CharacterTemplateId { get; set; } = string.Empty;
 
     public string? BatchId { get; set; }
 
@@ -145,6 +163,13 @@ public sealed class CharacterIdentityBuild
     public string? CanonicalFrontAssetId { get; set; }
 
     public string? ProducedIdentityPackId { get; set; }
+
+    /// <summary>
+    /// What this build produces; it selects the build's step plan. Callers starting a build pass it explicitly
+    /// (<see cref="CharacterIdentityBuildService.CreateBuildAsync"/>); the initializer exists so a record read back
+    /// or built in a test is the face pipeline, the target this machinery was built for.
+    /// </summary>
+    public CharacterIdentityTargetKind TargetKind { get; set; } = CharacterIdentityTargetKind.Face;
 
     public CharacterIdentityBuildStep CurrentStep { get; set; } = CharacterIdentityBuildStep.Front;
 
@@ -212,6 +237,13 @@ public sealed class CharacterIdentityEyeMeasurement
     public double? EyeDyPercent { get; set; }
 
     public double? InterocularPixels { get; set; }
+
+    /// <summary>
+    /// Signed nose-tip offset from the face-box centre as a percentage of face-box width: negative means the
+    /// nose points toward the left of the image, positive toward the right. This is the angle gate's ONLY
+    /// evidence — iris and interocular values are invalid under yaw and must never be used for it.
+    /// </summary>
+    public double? NoseOffsetPercent { get; set; }
 
     /// <summary>
     /// The head extent the same tool run reported. Used by the head-aware crop, which needs a measured

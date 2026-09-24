@@ -132,8 +132,13 @@ public sealed class IdentityControlledRequestCompiler : IIdentityControlledReque
         return new CompiledIdentityRequest(request, audits);
     }
 
-    private static List<IdentityPackSelection> DeserializePackSelections(SceneImageRecord image)
+    /// <summary>
+    /// The identity packs this render selected, from the persisted multi-pack list or the legacy single pack id.
+    /// Shared with the native-reference identity path so both mechanisms read the same selection.
+    /// </summary>
+    public static List<IdentityPackSelection> DeserializePackSelections(SceneImageRecord image)
     {
+        ArgumentNullException.ThrowIfNull(image);
         if (!string.IsNullOrWhiteSpace(image.IdentityPacksJson))
         {
             try

@@ -389,7 +389,7 @@
             if (inputs.Count == 0) throw new InvalidOperationException("Candidate plan must contain at least one candidate.");
             var identityPack = await IdentityService.GetPackAsync(_identityPackId)
                 ?? throw new InvalidOperationException($"Identity pack '{_identityPackId}' was not found.");
-            if (!string.Equals(identityPack.CharacterProfileId, _characterProfileId, StringComparison.Ordinal))
+            if (!string.Equals(identityPack.CharacterTemplateId, _characterProfileId, StringComparison.Ordinal))
                 throw new InvalidOperationException("The selected identity pack does not belong to the selected character.");
             if (identityPack.Status != CharacterImageIdentityPackStatus.Approved)
                 throw new InvalidOperationException("The selected identity pack is no longer approved.");
@@ -428,7 +428,7 @@
             }
             var dataset = await LoraRepository.CreateDatasetAsync(new CharacterLoraDataset
             {
-                CharacterProfileId = _characterProfileId,
+                CharacterTemplateId = _characterProfileId,
                 IdentityPackId = _identityPackId,
                 Version = _datasetVersion,
                 Status = CharacterLoraDatasetStatus.Draft,

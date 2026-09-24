@@ -58,10 +58,35 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
 
         return image.ProductionStage switch
         {
-            SceneImageProductionStage.Identity => await PrepareIdentityAsync(image, cancellationToken),
+            SceneImageProductionStage.Identity => await PrepareIdentityAsync(image, context, cancellationToken),
             SceneImageProductionStage.Finish => await PrepareFinishAsync(image, cancellationToken),
             _ => await PrepareCompiledEditAsync(image, context, cancellationToken)
         };
+    }
+
+    /// <summary>
+    /// Claims the row an edit run is about to execute. The completion transition
+    /// (<see cref="ISceneImageRepository.TryCompleteImageAsync"/>) only matches 'Generating', so an
+    /// unclaimed edit silently loses its result — which is exactly what the studio showed as an edit
+    /// stuck pending forever.
+    /// </summary>
+    public async Task<bool> ClaimAsync(
+        MediaEditRunContext context, CancellationToken cancellationToken = default)
+    {
+        // An operation is never claimed: it is finished by the same job that picked it up and its
+        // completion accepts a row that is still 'Pending' (TryCompleteOperationImageAsync).
+        if (context.Operation.Kind != MediaEditOperationKind.Edit)
+            return true;
+
+        if (await _images.TryClaimImageAsync(context.ImageId, DateTime.UtcNow, cancellationToken))
+            return true;
+
+        // The claim matched nothing: either the row is terminal (nothing left to run) or an earlier
+        // delivery of this job claimed it and died before completing, in which case this delivery must
+        // finish the work rather than abandon the row in 'Generating'.
+        var image = await _images.GetImageAsync(context.ImageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Scene image edit record '{context.ImageId}' was not found.");
+        return image.Status == SceneImageStatus.Generating;
     }
 
     private async Task<MediaEditRunPlan> PrepareCompiledEditAsync(
@@ -129,12 +154,14 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
     }
 
     private async Task<MediaEditRunPlan> PrepareIdentityAsync(
-        SceneImageRecord image, CancellationToken cancellationToken)
+        SceneImageRecord image, MediaEditRunContext context, CancellationToken cancellationToken)
     {
         var identityStorage = _identityStorage
             ?? throw new InvalidOperationException("Identity image editing requires identity asset storage.");
         if (string.IsNullOrWhiteSpace(image.SourceImageId) || string.IsNullOrWhiteSpace(image.IdentityReferenceBindingsJson))
             throw new InvalidOperationException("Identity image editing requires a source image and persisted reference bindings.");
+        if (string.IsNullOrWhiteSpace(context.ExplicitEditorModelId))
+            throw new InvalidOperationException("Identity image editing requires the editor model chosen in the editor form.");
 
         var source = await RequireSourceAsync(image, cancellationToken);
         var bindings = JsonSerializer.Deserialize<IReadOnlyList<IdentityBinding>>(
@@ -169,7 +196,7 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
             MediaEditOperation.ForEdit,
             Prompt: image.PromptSnapshot,
             References: references,
-            Editor: new MediaEditEditorResolution(ExplicitModelId: null, RequiresAdultContentPolicy: false),
+            Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),
             LogScope: $"SessionId={image.SessionId}, InteractionId={image.InteractionId}, Stage=Identity");
     }
 

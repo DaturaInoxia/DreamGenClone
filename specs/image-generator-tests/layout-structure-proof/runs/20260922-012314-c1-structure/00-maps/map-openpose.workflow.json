@@ -1,0 +1,46 @@
+﻿{
+    "1":  {
+              "inputs":  {
+                             "image":  "c1ref.png"
+                         },
+              "class_type":  "LoadImage"
+          },
+    "2":  {
+              "inputs":  {
+                             "crop":  "disabled",
+                             "upscale_method":  "bilinear",
+                             "width":  1216,
+                             "height":  832,
+                             "image":  [
+                                           "1",
+                                           0
+                                       ]
+                         },
+              "class_type":  "ImageScale"
+          },
+    "10":  {
+               "inputs":  {
+                              "detect_body":  "enable",
+                              "pose_estimator":  "dw-ll_ucoco_384_bs5.torchscript.pt",
+                              "resolution":  1216,
+                              "bbox_detector":  "yolox_l.torchscript.pt",
+                              "image":  [
+                                            "2",
+                                            0
+                                        ],
+                              "detect_hand":  "disable",
+                              "detect_face":  "enable"
+                          },
+               "class_type":  "DWPreprocessor"
+           },
+    "9":  {
+              "inputs":  {
+                             "images":  [
+                                            "10",
+                                            0
+                                        ],
+                             "filename_prefix":  "c1-map-openpose"
+                         },
+              "class_type":  "SaveImage"
+          }
+}

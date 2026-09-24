@@ -102,6 +102,18 @@ outcome. The structural block (B-118 → B-117 → B-120 → B-119) is **not** o
 face/body identity pack — it becomes load-bearing only for *pose-controlled* and *forced-layout*
 training cells, which are a quality improvement to the training set, not a prerequisite for it.
 
+> **Amendment 2026-09-22 — the structural block also has a product consumer.**
+> **B-126** (`specs/Planning/B-126-multi-character-scene-composition/plan.md`, §1b) makes
+> *multi-character, per-subject-posed composition in one location* a first-class scene-image feature,
+> and consumes B-118 / B-117 / B-120 / B-119 as its render routes (C2/A = OpenPose, C1 = depth/canny,
+> B = re-skin, C3 = composite, D = cloud multi-ref).
+>
+> The paragraph above stays true **for the identity-pack path** — the spine's sequencing does not
+> change and B-126 needs nothing from B-122/B-123. What changes is the *justification* for the
+> block's priority: it is no longer established by B-123's training cells alone. B-117, B-118, B-119
+> and B-120 were raised to `high` on 2026-09-22. The visual layer itself remains owned by B-111
+> (B-126 is the multi-subject completion of B-111 P4's Composition stage).
+
 ---
 
 ## 3. One concern, one owner  ← the core of this consolidation
@@ -118,6 +130,7 @@ Several concerns are claimed by more than one item. These are the resolutions.
 | **Pose store + DWPose extract** | **B-118** | B-120 stores derived skeletons; B-123 consumes | B-118 owns authoring/extraction/library. B-120 owns the *derived-asset* record that holds a produced control image. B-123 owns only the *picker UI* that reads the library. Three different things. |
 | **OpenPose ControlNet render** | **B-117** | B-119, B-123 consume | B-119 explicitly does not duplicate it. B-123 does not build it either. |
 | **depth/canny ControlNet render + layout decision workflow** | **B-119** | — | |
+| **Multi-subject composition contract** (N subjects × pose source / position / identity view + one location) **and the route resolver** over the structural block | **B-126** | B-117, B-119, B-116, B-120 supply routes; B-111 P4 hosts the stage; B-111 P3 supplies view selection (FR-C3-05) and composition-derived spatial routing (FR-C3-06) | B-126 does not re-implement any render path, and B-111/B-117/B-119 do not define a second composition contract |
 | **Derived-asset store + extraction jobs** | **B-120** | B-118 shares the pose store; B-119/B-116/B-117 consume | |
 | **LoRA dataset, coverage plan, captions, freeze, training hand-off** | **B-123** | — | |
 | **LoRA inference** (`LoraLoader` node, trigger-token injection, artifact selection) | **B-123** Phase 8 | — | Recorded because B-107 (the historical home) is **not registered in the backlog**; superseded-map shows B-107 absorbed into B-111 P3. Any remaining "B-107" reference must resolve to B-123 Phase 8. |
@@ -257,11 +270,45 @@ start in parallel with B-124; B-117 (stage 5) starts once B-118 lands.
 | B-118 | `planned` | plan + tasks | Stage 4; delivers pose store/extract/editor + Apply contract |
 | B-119 | `designed` | plan + workflow + tasks | Structurally independent of the identity spine |
 | B-120 | `designed` | plan + tasks | Consumed by B-117/B-119/B-116 |
-| B-121 | `planned` | README, spec, plan, tasks, ui-contract, seed-prompts | **Plan only — handoff ready; no code** |
+| B-121 | `implemented` | README, spec, plan, tasks, ui-contract, seed-prompts | **Phases A–H complete, I open** — built and proven in the app; see B-121 `plan.md` → *Implementation status (2026-09-21)* |
 | B-122 | `planned` | shared plan (Phase 0) + `b122-tasks.md` | Phase 0 hard-blocks B-123 |
 | B-123 | `planned` | shared plan (Phases 1–8) | Owns B-123 Phase 8 inference wiring |
 | B-124 | `planned` | plan | **Stage 1 — the foundation (reference model + Asset Manager shell + shared create/edit primitive + pose)** |
 | B-111 P2 | — | tasks | Already absorbed B-108; much of the reference-bootstrap machinery is **implemented** (see B-121 `plan.md` "Verified current state") |
+
+### Status update — 2026-09-21
+
+**Stage 2 (B-121) is delivered.** A character can be taken from a front image (generated or uploaded)
+through validate (measured eye gate + manual override), de-clothe / crop / enhance (or explicitly
+skipped), four face angles (rendered or uploaded) and into a view-tagged draft pack, entirely in the app
+with no scripts and no direct DB writes. Proven end-to-end on *Becky* (`f58f959a…`, build
+`b8adc0e742e645f7a4a7100ff4796a94`) up to a Promote panel reporting all five views Ready. Stage 1's shell
+is the surface it runs in (owner-index Asset Studio → `/characters/{CharacterId}`).
+
+**What stage 3 (B-122 Phase 0) consumes unchanged from stage 2** — all present: the resumable step
+pipeline; the seeded/editable/scoped template store; the eye/face-landmark subprocess capability with
+manual override; the reference quality gate (configured); view-tagged promotion; the same-image edit
+primitive + editor-model resolution.
+
+**What stage 3 still needs from stage 2, in order:**
+
+1. ~~**B121-011a — the target kind must select the step set and the template-key namespace.**~~
+   **DELIVERED 2026-09-21.** A build's pipeline is now a persisted, seeded step plan
+   (`CharacterIdentityStepPlans` + `ICharacterIdentityStepPlanService`) selected by the build's target
+   kind, and the machinery is kind-agnostic (a row per planned step, first-incomplete resume, the plan's
+   last step as terminal). B-122 Phase 0 can now be a new target kind: seeded plan rows + its own handlers.
+   What remains on the handler side is parameterising the *face* step handlers (their template keys and the
+   front container's `SceneAssetType.CharacterFace`) — that lands with the first non-face handler, which is
+   B-122's.
+2. ~~**B-121 Phase F/G gates** — yaw measurement + convention assertion + the configured mirror remedy, and
+   the validate/yaw/quality promotion gates.~~ **DELIVERED 2026-09-21.** The direction gate measures the
+   signed nose offset (never iris/interocular), asserts the per-view convention, applies the configured
+   mirror remedy as a new `MirrorDerived` attempt, and blocks with the measured reason otherwise; promotion
+   re-checks the validate gate, the recorded direction and `QualityGateMinSharpness`, naming the view.
+   B-122 Phase 0.4 extends this discipline to body invariants. See `debug/049`.
+3. **B-121 Phase I close-out** — retire the superseded `AngleEdits` constants, execute the eleven
+   acceptance scenarios, record the grep proofs.
+
 
 ---
 

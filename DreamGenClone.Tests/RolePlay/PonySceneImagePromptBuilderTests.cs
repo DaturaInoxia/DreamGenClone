@@ -10,7 +10,7 @@ namespace DreamGenClone.Tests.RolePlay;
 
 /// <summary>
 /// Pony canonical (CompiledMediaBrief) prompt tests. The key regression guard: the canonical Pony
-/// path MUST inject each depicted character's fixed physical appearance (age, weight, body type,
+/// path MUST inject each depicted character's fixed physical appearance (age, height, body type,
 /// iris colour, figure) so the Composition Composer Pony prompt carries per-character likeness.
 /// This mirrors the SDXL canonical appearance tests and shares CanonicalCharacterAppearance.
 /// </summary>
@@ -68,12 +68,13 @@ public sealed class PonySceneImagePromptBuilderTests
         PhysicalAttributes = new PhysicalAttributes
         {
             Age = "50",
-            Weight = "150 lbs",
             HairStyle = "bun",
             HairColour = "brown",
             EyeColour = "blue",
             SkinTone = "fair",
-            BodyType = "curvy",
+            BodyBuild = "average frame",
+            Adiposity = "average weight",
+            FatDistribution = "fuller rear with a soft belly",
             BustSize = "full",
             HipSize = "wide",
             ButtSize = "plump"
@@ -90,7 +91,7 @@ public sealed class PonySceneImagePromptBuilderTests
             Age = "45",
             HairStyle = "short",
             HairColour = "brown",
-            BodyType = "rugged"
+            MuscleMass = "muscular"
         }
     };
 
@@ -122,9 +123,8 @@ public sealed class PonySceneImagePromptBuilderTests
         Assert.Contains("DEPICTED CHARACTER APPEARANCE", user, StringComparison.Ordinal);
         Assert.Contains("- Becky: Appearance —", user, StringComparison.Ordinal);
         Assert.Contains("Age: 50", user, StringComparison.Ordinal);
-        Assert.Contains("Weight: 150 lbs", user, StringComparison.Ordinal);
         Assert.Contains("Iris color: blue", user, StringComparison.Ordinal);
-        Assert.Contains("Body type: curvy", user, StringComparison.Ordinal);
+        Assert.Contains("Physique: average frame, average weight, fuller rear with a soft belly", user, StringComparison.Ordinal);
         Assert.Contains("hips wide", user, StringComparison.Ordinal);
         Assert.Contains("rear plump", user, StringComparison.Ordinal);
 
@@ -144,7 +144,7 @@ public sealed class PonySceneImagePromptBuilderTests
         Assert.Contains("DEPICTED CHARACTER APPEARANCE", user, StringComparison.Ordinal);
         Assert.Contains("- Becky: Appearance —", user, StringComparison.Ordinal);
         Assert.Contains("- Dean: Appearance —", user, StringComparison.Ordinal);
-        Assert.Contains("Body type: rugged", user, StringComparison.Ordinal);
+        Assert.Contains("Physique: muscular", user, StringComparison.Ordinal);
     }
 
     [Fact]

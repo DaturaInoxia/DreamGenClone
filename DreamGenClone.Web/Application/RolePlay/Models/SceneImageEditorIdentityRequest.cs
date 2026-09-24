@@ -43,5 +43,11 @@ public sealed class SceneImageEditorIdentityRequest
     /// <summary>The completed source image whose faces are corrected (any eligible image in the interaction).</summary>
     public string SourceImageId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The editor model the editor form selected. It is resolved once, at dispatch, from this exact id:
+    /// the identity run uses the same chosen model as every other run of the same form.
+    /// </summary>
+    public string EditorModelId { get; set; } = string.Empty;
+
     public IReadOnlyList<SceneImageEditorIdentitySelection>? Selections { get; set; }
 }

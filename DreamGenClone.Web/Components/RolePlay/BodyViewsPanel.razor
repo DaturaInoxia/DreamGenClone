@@ -1,0 +1,1760 @@
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.Scenarios
+@using System.Text.Json
+@inject ICharacterIdentityBodyService BodyService
+@inject ISceneAssetService AssetService
+@implements IDisposable
+
+@* B-122 E-2: the clothed and unclothed view grids. One row per canonical slot, one request per row, and no batch
+   action anywhere in this panel — the same one-view-at-a-time contract the face pipeline uses. Extended views get
+   their own row because a pack slot cannot name a rotation. *@
+
+@if (string.IsNullOrWhiteSpace(BuildId))
+{
+    <p class="text-muted small mb-0">The body build is not available yet, so there are no views to acquire.</p>
+}
+else
+{
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshViewsAsync" disabled="@_refreshing">Refresh views</button>
+        @if (CanGenerate)
+        {
+            <span class="small text-muted">
+                Model <strong>@ModelName</strong> · size <code>@ImageSize</code> — both come from
+                <strong>Body view settings</strong> above, so every view of this body is rendered at the same quality
+                setting. Every action below applies to the one view it is on; there is no batch and no "generate all".
+            </span>
+        }
+        else
+        {
+            <span class="small text-warning">
+                Set the body view model and image size in <strong>Body view settings</strong> above —
+                <strong>Generate</strong>, <strong>Re-run</strong> and <strong>Edit from accepted source</strong> stay
+                disabled until both are set. Neither is assumed.
+            </span>
+        }
+        @if (_submitting.Count > 0 || _views.Any(view => view.Status == CharacterIdentityAngleStatus.Pending))
+        {
+            <span class="small text-muted"><i class="bi bi-hourglass-split me-1"></i>Rendering — this panel refreshes itself.</span>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_panelMessage))
+    {
+        <div class="alert @(_panelMessageIsError ? "alert-danger" : "alert-secondary") py-1 small mb-2">@_panelMessage</div>
+    }
+
+    @foreach (var state in BodyStates)
+    {
+        var slots = CharacterIdentityBodySlots.For(state);
+        var accepted = slots.Count(slot => ViewFor(slot)?.Status == CharacterIdentityAngleStatus.Accepted);
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>@state views</strong>
+                <span class="badge @(accepted == slots.Count ? "text-bg-success" : "text-bg-secondary")">@accepted / @slots.Count accepted</span>
+            </div>
+            <div class="card-body">
+                @foreach (var slot in slots)
+                {
+                    var key = CharacterIdentityBodyViewKey.Canonical(slot.State, slot.View);
+                    var keyText = key.Describe();
+                    var view = ViewFor(slot);
+                    var open = string.Equals(_openKey, keyText, StringComparison.Ordinal);
+                    <div class="border rounded p-2 mb-2">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <span class="fw-semibold small">@slot.Label</span>
+                            @if (slot.IsBase)
+                            {
+                                <span class="badge text-bg-info">base</span>
+                            }
+                            <span class="badge @StatusBadge(view)">@(view?.Status.ToString() ?? "NotStarted")</span>
+                            @if (IsSubmitting(keyText))
+                            {
+                                @* The request is in flight RIGHT NOW. Without this the operator sees every button on the
+                                   panel go dead with nothing to say why, and concludes the click did nothing. *@
+                                <span class="badge text-bg-info">
+                                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Submitting…
+                                </span>
+                            }
+                            @if (view is not null && view.QualityRating != SceneImageReferenceQuality.NotRated)
+                            {
+                                <span class="badge text-bg-light" title="@view.QualityNotes">quality: @view.QualityRating</span>
+                            }
+                            @if (view?.ManualOverrideApplied == true)
+                            {
+                                <span class="badge text-bg-warning" title="@view.ManualOverrideReason">override by @view.ManualOverrideAuthor</span>
+                            }
+                            @if (PreviewFor(view) is { } preview)
+                            {
+                                <button type="button" class="btn p-0 border-0 bg-transparent"
+                                        title="Open this image full size"
+                                        @onclick="() => OpenViewer(slot.Label, view)">
+                                    <img src="@preview" class="border rounded" style="height:64px;width:64px;object-fit:cover;cursor:zoom-in;" alt="@slot.Label" />
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => OpenViewer(slot.Label, view)">
+                                    View image
+                                </button>
+                            }
+                            <button type="button" class="btn btn-sm btn-outline-primary ms-auto" @onclick="() => ToggleAsync(key)">
+                                @(open ? "Close" : "Open")
+                            </button>
+                        </div>
+
+                        @if (view?.Status == CharacterIdentityAngleStatus.Blocked && !string.IsNullOrWhiteSpace(view.FailureReason))
+                        {
+                            <div class="small text-danger mt-1">@view.FailureReason</div>
+                        }
+
+                        @* The prerequisite, stated BEFORE the button is pressed: an angle render is the accepted base body
+                           turned, so with no accepted base it can only refuse. Naming it here is what makes the next step
+                           obvious instead of leaving "Render angle" looking inert. *@
+                        @if (!slot.IsBase && AcceptedBasePreview(key) is null)
+                        {
+                            <div class="small text-warning mt-1">
+                                The @slot.State front is not accepted yet, so <strong>@GenerateLabelFor(slot)</strong> would
+                                refuse: an angle is that same body, turned. Accept the front first (record its findings, or use
+                                "All four pass · record &amp; accept" on that row).
+                            </div>
+                        }
+
+                        @* A Pending row whose image was deleted can never complete: the poll watches for the artifact that
+                           is gone. Said plainly rather than left as a row that renders forever. *@
+                        @if (view?.Status == CharacterIdentityAngleStatus.Pending && MissingArtifact(view))
+                        {
+                            <div class="small text-warning mt-1">
+                                This view is marked Pending, but its queued image no longer exists — it was deleted after
+                                being queued, so nothing will arrive. Render it again.
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(MessageFor(keyText)))
+                        {
+                            <div class="small text-muted mt-1">@MessageFor(keyText)</div>
+                        }
+
+                        @if (open)
+                        {
+                            <div class="mt-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <label class="form-label small mb-1">
+                                        @(slot.IsBase
+                                            ? "Prompt compiled for the selected model (used by Generate). 'Edit from accepted source' uses the stored rotation instruction instead."
+                                            : "Render prompt compiled for the selected model: the body prompt plus this angle's camera clause. 'Render angle' sends it with the accepted body and the committed angle skeleton; 'Rotation edit' uses the stored rotation instruction instead.")
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => ReloadPromptAsync(key)" disabled="@IsReloading(keyText)">@(IsReloading(keyText) ? "Reloading…" : "Reload prompt")</button>
+                                </div>
+                                <textarea @key="@(keyText + "|" + PromptRevisionFor(keyText))" class="form-control font-monospace small" rows="4"
+                                          value="@PromptFor(keyText)"
+                                          @oninput="e => SetPrompt(keyText, e.Value?.ToString())"></textarea>
+
+                                <div class="d-flex flex-wrap gap-1 mt-2">
+                                    <button type="button" class="btn btn-sm btn-primary" @onclick="() => GenerateAsync(key)" disabled="@(IsSubmitting(keyText) || !CanGenerate)">@(IsSubmitting(keyText) ? "Rendering…" : GenerateLabelFor(slot))</button>
+                                    @if (slot.IsBase)
+                                    {
+                                        @* A base has no source to derive from, so "edit from accepted source" cannot apply to it:
+                                           it used to refuse with "is generated or uploaded, not derived from another view". Its
+                                           image is edited in the SHARED editor instead — the same screen every other body image
+                                           and every review-deck image opens, and the result lands in this view's candidates. *@
+                                        @if (EditImageUrlFor(view) is { } rowEditUrl)
+                                        {
+                                            <a class="btn btn-sm btn-outline-primary" href="@rowEditUrl"
+                                               title="Edit this image in the shared editor; the result joins this view's candidates">Edit image</a>
+                                        }
+                                        else
+                                        {
+                                            <span class="small text-muted align-self-center">Nothing to edit yet — generate an image first.</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => EditFromSourceAsync(key)" disabled="@(IsSubmitting(keyText) || !CanGenerate)">@EditLabelFor(slot)</button>
+                                    }
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => RecordSourceAsResultAsync(key)" disabled="@IsSubmitting(keyText)">Record source as result</button>
+                                    <button type="button" class="btn btn-sm btn-outline-success" @onclick="() => AcceptAsync(key)" disabled="@IsSubmitting(keyText)">Accept</button>
+                                    <button type="button" class="btn btn-sm btn-outline-info" @onclick="() => AnalyzeQualityAsync(key)" disabled="@IsSubmitting(keyText)">Analyze quality</button>
+                                    @* Every image this view produced or edited reaches one screen: the row's own candidate
+                                       batch IS what the deck lists. *@
+                                    <a class="btn btn-sm btn-outline-info" href="@ReviewDeckUrlFor(key)"
+                                       title="Every image this view created or edited">Review deck</a>
+                                </div>
+
+                                @* WHAT this render sends, shown before it is sent: an angle render is the accepted body turned
+                                   by the committed angle skeleton, so both are named here with their thumbnails — and the
+                                   identity face joins them when the switch below is on. Nothing about the request is
+                                   implicit. *@
+                                @if (!slot.IsBase && AngleSkeletonFor(slot) is { } angleSkeleton)
+                                {
+                                    <div class="border rounded p-2 mt-2">
+                                        <div class="small fw-semibold mb-1">What <strong>Render angle</strong> sends</div>
+                                        <div class="d-flex flex-wrap gap-2 align-items-start">
+                                            <div class="text-center" style="width:96px;">
+                                                @if (AcceptedBasePreview(key) is { } baseUrl)
+                                                {
+                                                    <img src="@baseUrl" class="border rounded"
+                                                         style="height:80px;width:80px;object-fit:cover;" alt="accepted body reference" />
+                                                }
+                                                else
+                                                {
+                                                    <div class="border rounded bg-light d-flex align-items-center justify-content-center text-muted small"
+                                                         style="height:80px;width:80px;">none</div>
+                                                }
+                                                <div class="small text-muted">accepted base body</div>
+                                            </div>
+                                            <div class="text-center" style="width:96px;">
+                                                <img src="@($"/pose-library/{angleSkeleton.FileName}")" class="border rounded"
+                                                     style="height:80px;width:80px;object-fit:contain;background:#f8f9fa;" alt="angle skeleton" />
+                                                <div class="small text-muted">@slot.View pose</div>
+                                            </div>
+                                            @if (_useIdentity && _identityAvailability is { } identityFaceSet)
+                                            {
+                                                <div class="text-center" style="width:96px;">
+                                                    <div class="border rounded bg-light d-flex align-items-center justify-content-center text-muted small"
+                                                         style="height:80px;width:80px;">face</div>
+                                                    <div class="small text-muted">@identityFaceSet.Faces.FirstOrDefault(face => face.AssetId == IdentityFaceAssetId)?.Label</div>
+                                                </div>
+                                            }
+                                            <div class="small text-muted" style="max-width:26rem;">
+                                                The committed <code>@angleSkeleton.FileName</code> is annotated from a figure in
+                                                this view (<span title="@angleSkeleton.VerifiedOn">provenance</span>) — it supplies the
+                                                turn, the accepted base supplies the build, the prompt supplies the rest.
+                                                @if (!string.IsNullOrWhiteSpace(angleSkeleton.KnownLimitation))
+                                                {
+                                                    <div>Angle skeleton note: @angleSkeleton.KnownLimitation</div>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+
+                                @* Pose and identity are offered on EVERY row now. On a base, the pose is the operator's choice of
+                                   stance skeleton and the identity switch sends the approved face. On a canonical angle, the pose
+                                   IS the committed angle skeleton for that view (shown above, not selectable) and the identity
+                                   switch adds the approved face alongside it — measured 2026-09-23 as redundant but passing, so
+                                   it is offered rather than refused. *@
+                                <div class="border rounded p-2 mt-2">
+                                        @* Identity is offered only when an approved reference EXISTS. Showing a switch that
+                                           cannot be honoured would make the operator discover the problem in a failed render. *@
+                                        @* The BACK view shows no face by design, so it offers no identity face reference — and says
+                                           why, rather than showing a switch the render refuses. *@
+                                        @if (slot.View == SceneImageReferenceBodyView.Back)
+                                        {
+                                            <div class="small text-muted">
+                                                No identity face reference on the back view: it shows no face by design, and the
+                                                identity travels in the accepted body reference. A face reference here would ask
+                                                the model to show the face this view exists to hide.
+                                            </div>
+                                        }
+                                        else if (_identityAvailability?.IsAvailable == true)
+                                        {
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" id="@($"identity-{keyText}")"
+                                                       checked="@_useIdentity"
+                                                       @onchange="e => _useIdentity = e.Value is bool on && on" />
+                                                <label class="form-check-label small" for="@($"identity-{keyText}")">
+                                                    Condition this render on the character's approved identity face
+                                                    (<strong>pack v@(_identityAvailability.PackVersion)</strong>) — @IdentityMechanismExplanation
+                                                </label>
+                                            </div>
+                                            @if (_useIdentity && _identityAvailability.Faces.Count > 1)
+                                            {
+                                                @* Which ANGLE conditions the render. The same rule the scene editor follows: pick the
+                                                   reference that matches the view being generated instead of always using the canonical
+                                                   face. Canonical is listed first and is the default. *@
+                                                <div class="row g-2 align-items-end mt-1 ms-1">
+                                                    <div class="col-md-5">
+                                                        <label class="form-label small mb-1" for="@($"identity-face-{keyText}")">Reference face angle</label>
+                                                        <select class="form-select form-select-sm" id="@($"identity-face-{keyText}")"
+                                                                value="@IdentityFaceAssetId"
+                                                                @onchange="e => _identityFaceAssetId = e.Value?.ToString() ?? string.Empty">
+                                                            @foreach (var face in _identityAvailability.Faces)
+                                                            {
+                                                                <option value="@face.AssetId">@face.Label</option>
+                                                            }
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-7">
+                                                        <span class="small text-muted">
+                                                            The approved faces in this pack. Conditioning on the angle the view
+                                                            actually shows is what keeps the reference from fighting the pose.
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            }
+                                        }
+                                        else if (_identityAvailability is { } unavailable)
+                                        {
+                                            <div class="small text-muted">
+                                                Identity conditioning is unavailable: @unavailable.Reason
+                                            </div>
+                                        }
+                                        @* Pose is offered when the model can carry one by EITHER route — a declared and
+                                           qualified OpenPose ControlNet, or its own reference slots (the skeleton then
+                                           travels as an image in the same call). It is the same answer the render path
+                                           gets from the same resolver, so an offered switch is never one the render refuses. *@
+                                        @* Pose is offered when the model can carry one by EITHER route — a declared and
+                                           qualified OpenPose ControlNet, or its own reference slots (the skeleton then
+                                           travels as an image in the same call). It is the same answer the render path
+                                           gets from the same resolver, so an offered switch is never one the render refuses. *@
+                                        @if (slot.IsBase && _poseAvailability?.IsAvailable == true && !PoseBlockedByIdentityMechanism)
+                                        {
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" id="@($"pose-{keyText}")"
+                                                       checked="@_poseConditioning"
+                                                       @onchange="e => _poseConditioning = e.Value is bool on && on" />
+                                                <label class="form-check-label small" for="@($"pose-{keyText}")">
+                                                    Condition this render on the verified OpenPose stance skeleton
+                                                    @if (_useIdentity)
+                                                    {
+                                                        <span class="d-block text-muted">
+                                                            Combines with identity: the skeleton drives the pose and the face
+                                                            reference drives the face, as two independent conditionings on one render.
+                                                        </span>
+                                                    }
+                                                </label>
+                                            </div>
+                                        }
+                                        else if (_poseAvailability?.IsAvailable == true && slot.IsBase)
+                                        {
+                                            @* The remaining impossible mix: identity travels as a reference IMAGE while the
+                                               pose needs a separate ControlNet graph, so the skeleton would be dropped. A
+                                               model that carries BOTH as references is offered the switch instead (above).
+                                               Saying so here keeps the operator from meeting that refusal in a failed
+                                               render. *@
+                                            <div class="small text-muted">
+                                                Pose conditioning cannot be combined with identity on this model: it carries the
+                                                face as a reference image while the pose needs a separate ControlNet graph, so the
+                                                pose would be dropped. Turn identity off to use a pose, or select a model that
+                                                carries both as references.
+                                            </div>
+                                        }
+                                        else if (_poseAvailability is { } poseUnavailable && slot.IsBase)
+                                        {
+                                            <div class="small text-muted">
+                                                Pose conditioning is unavailable: @poseUnavailable.Reason
+                                            </div>
+                                        }
+                                        @if (!slot.IsBase)
+                                        {
+                                            <div class="small text-muted">
+                                                <strong>Pose:</strong> the committed @slot.View angle skeleton shown above —
+                                                this view's pose is fixed by the view itself, so there is no stance to pick.
+                                                Render the base with a stance if a different pose is wanted there.
+                                            </div>
+                                        }
+                                        @if (slot.IsBase && _poseConditioning && !PoseBlockedByIdentityMechanism)
+                                        {
+                                            <div class="row g-2 align-items-end mt-1">
+                                                <div class="col-md-4">
+                                                    <label class="form-label small mb-1">Stance skeleton</label>
+                                                    <select class="form-select form-select-sm" value="@_poseStance"
+                                                            @onchange="e => _poseStance = ParseStance(e.Value?.ToString())">
+                                                        @foreach (var stance in BodyStanceSkeletons.Available)
+                                                        {
+                                                            <option value="@stance">@stance</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    @if (_poseAvailability?.DefaultStrength is not null)
+                                                    {
+                                                        <label class="form-label small mb-1">ControlNet strength</label>
+                                                        @* Keyed by the model's configured strength so a resolved default actually replaces the
+                                                           box: it is an uncontrolled input, and the configured value differs per model (on the
+                                                           FLUX path the strength decides whether the control strokes imprint on the render). *@
+                                                        <input @key="@($"strength-{_poseStrength}")" type="number" min="0.05" max="1" step="0.05"
+                                                               class="form-control form-control-sm"
+                                                               value="@_poseStrength"
+                                                               @oninput="e => _poseStrength = ParseStrength(e.Value?.ToString())" />
+                                                    }
+                                                    else
+                                                    {
+                                                        @* No ControlNet on this route, so there is no strength to configure. Said
+                                                           plainly rather than shown as a box that would do nothing. *@
+                                                        <span class="small text-muted d-block">
+                                                            No strength to set: this model carries the skeleton as a reference image,
+                                                            so there is no ControlNet to weight.
+                                                        </span>
+                                                    }
+                                                </div>
+                                                <div class="col-md-5">
+                                                    <span class="small text-muted">
+                                                        Source: <code>@BodyStanceSkeletons.Require(_poseStance).VerifiedOn</code>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            @if (BodyStanceSkeletons.Require(_poseStance).KnownLimitation is { } limitation)
+                                            {
+                                                <div class="small text-warning mt-1">Known limitation: @limitation</div>
+                                            }
+                                        }
+                                </div>
+
+                                @* Every attempt this view has ever produced, NEWEST first. A re-run never erases the
+                                   previous result — the view row only ever pointed at the newest image — so this is
+                                   the compare deck: each candidate shows the image, the prompt that made it and the
+                                   model that ran it, side by side. *@
+                                @{
+                                    var candidates = CandidatesFor(key);
+                                }
+                                <div class="border rounded p-2 mt-2">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="small fw-semibold">
+                                            Candidates (@candidates.Count)
+                                            @if (candidates.Count > 1)
+                                            {
+                                                <span class="text-muted fw-normal">— compare the prompt and model on each</span>
+                                            }
+                                        </span>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshAsync" disabled="@_refreshing">Refresh</button>
+                                    </div>
+                                    @if (candidates.Count == 0)
+                                    {
+                                        <p class="small text-muted mb-0">
+                                            Nothing has been generated for this view yet. Every image this view produces
+                                            stays listed here, including ones a later re-run replaced.
+                                        </p>
+                                    }
+                                    else
+                                    {
+                                        <div class="d-flex flex-wrap gap-2 mt-2">
+                                            @foreach (var candidate in candidates)
+                                            {
+                                                <div class="border rounded p-2" style="width:320px;">
+                                                    <div class="d-flex align-items-center gap-1 mb-1">
+                                                        <span class="badge @CandidateBadge(candidate)">@(candidate.CandidateDecision?.ToString() ?? "Undecided")</span>
+                                                        @if (candidate.Status != SceneAssetStatus.Complete)
+                                                        {
+                                                            <span class="badge text-bg-light">@candidate.Status</span>
+                                                        }
+                                                        <span class="small text-muted ms-auto">@candidate.CreatedUtc.ToLocalTime().ToString("g")</span>
+                                                    </div>
+                                                    @if (CandidatePreview(candidate) is { } candidateUrl)
+                                                    {
+                                                        <a href="@candidateUrl" target="_blank" rel="noopener" title="Open this image full size">
+                                                            <img src="@candidateUrl" class="border rounded w-100 mb-1"
+                                                                 style="height:200px;object-fit:contain;cursor:zoom-in;" alt="candidate" />
+                                                        </a>
+                                                    }
+                                                    <div class="small"><span class="text-muted">Model:</span> @CandidateModel(candidate)</div>
+                                                    <div class="small text-muted">Prompt:</div>
+                                                    <div class="font-monospace small border rounded p-1" style="max-height:5rem;overflow:auto;">@candidate.Prompt</div>
+                                                    @if (!string.IsNullOrWhiteSpace(candidate.CandidateNotes))
+                                                    {
+                                                        <div class="small text-muted">Note: @candidate.CandidateNotes</div>
+                                                    }
+                                                    <div class="d-flex flex-wrap gap-1 mt-1">
+                                                        <button type="button" class="btn btn-sm btn-outline-success"
+                                                                @onclick="() => AcceptCandidateAsync(key, candidate.Id)"
+                                                                disabled="@IsSubmitting(keyText)"
+                                                                title="Make this image this view's result and accept the view (the recorded findings gate still applies)">Accept this image</button>
+                                                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                                                @onclick="() => DecideCandidateAsync(key, candidate.Id, SceneAssetCandidateDecision.Rejected)"
+                                                                disabled="@IsSubmitting(keyText)">Reject</button>
+                                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                                @onclick="() => DecideCandidateAsync(key, candidate.Id, SceneAssetCandidateDecision.Undecided)"
+                                                                disabled="@IsSubmitting(keyText)">Undecide</button>
+                                                        @* ANY image can be edited, accepted or not: the edit is a new request about
+                                                           this picture, and the shared editor puts its result back into this view's
+                                                           candidate batch, so it appears here like every other attempt. *@
+                                                        @if (EditUrlFor(candidate) is { } editUrl)
+                                                        {
+                                                            <a class="btn btn-sm btn-outline-primary" href="@editUrl"
+                                                               title="Edit this image in the shared editor; the result joins this view's candidates">Edit</a>
+                                                        }
+                                                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                                                @onclick="() => DeleteCandidateAsync(key, candidate)"
+                                                                disabled="@IsSubmitting(keyText)"
+                                                                title="Delete this image from the asset library">Delete</button>
+                                                    </div>
+                                                    @if (candidate.CandidateDecision == SceneAssetCandidateDecision.Accepted
+                                                        && view?.Status != CharacterIdentityAngleStatus.Accepted)
+                                                    {
+                                                        <div class="small text-warning mt-1">
+                                                            This image is decided Accepted, but the VIEW is not accepted yet
+                                                            (@(view?.Status.ToString() ?? "NotStarted")). Record this view's findings (or an
+                                                            attributed override) and then accept it.
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="mt-2">
+                                    <label class="form-label small mb-1">Upload this view</label>
+                                    <InputFile class="form-control form-control-sm" accept="image/png,image/jpeg,image/webp"
+                                               OnChange="args => UploadAsync(key, args)" />
+                                </div>
+
+                                <div class="border-top mt-2 pt-2">
+                                    <div class="small fw-semibold mb-1">Findings — a judgement about this image, recorded with who made it</div>
+                                    <div class="row g-2">
+                                        @foreach (var check in CharacterIdentityBodyChecks.All)
+                                        {
+                                            <div class="col-md-6">
+                                                <label class="form-label small mb-1">@CharacterIdentityBodyChecks.Label(check)</label>
+                                                <select class="form-select form-select-sm"
+                                                        value="@VerdictFor(keyText, check)"
+                                                        @onchange="e => SetVerdict(keyText, check, e.Value?.ToString())">
+                                                    @foreach (var verdict in Enum.GetValues<CharacterIdentityBodyCheckVerdict>())
+                                                    {
+                                                        <option value="@verdict">@verdict</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        }
+                                        <div class="col-md-6">
+                                            <label class="form-label small mb-1">Reviewer</label>
+                                            <input class="form-control form-control-sm" value="@ReviewerFor(keyText)"
+                                                   @oninput="e => _reviewers[keyText] = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label small mb-1">Note</label>
+                                            <input class="form-control form-control-sm" value="@NoteFor(keyText)"
+                                                   @oninput="e => _notes[keyText] = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-success mt-2"
+                                            @onclick="() => RecordFindingsAsync(key)" disabled="@IsSubmitting(keyText)">
+                                        Record findings
+                                    </button>
+                                    @* One action for the common judgement. The gate read as "the workflow is stuck": an image was
+                                       approved and nothing said that acceptance ALSO needs the four checks recorded. The record is
+                                       identical either way — an attributed verdict per check, against the named reviewer. *@
+                                    <button type="button" class="btn btn-sm btn-success mt-2 ms-1"
+                                            @onclick="() => RecordChecksPassedAndAcceptAsync(key)" disabled="@IsSubmitting(keyText)"
+                                            title="Record the named reviewer's judgement that all four checks pass, then accept the view">
+                                        All four pass · record &amp; accept
+                                    </button>
+                                    @if (view is not null && view.Findings.NotPassed.Count > 0)
+                                    {
+                                        <div class="small text-muted mt-1">
+                                            Not a recorded pass: @string.Join(", ", view.Findings.NotPassed.Select(item => $"{CharacterIdentityBodyChecks.Label(item.Check)} = {item.Verdict}"))
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="border-top mt-2 pt-2">
+                                    <div class="small fw-semibold mb-1">Attributed override — only for a view the checks refuse</div>
+                                    <div class="row g-2">
+                                        <div class="col-md-6">
+                                            <input class="form-control form-control-sm" placeholder="Reason"
+                                                   value="@OverrideReasonFor(keyText)"
+                                                   @oninput="e => _overrideReasons[keyText] = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                        <div class="col-md-6">
+                                            <input class="form-control form-control-sm" placeholder="Author"
+                                                   value="@OverrideAuthorFor(keyText)"
+                                                   @oninput="e => _overrideAuthors[keyText] = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-warning mt-2"
+                                            @onclick="() => RecordOverrideAsync(key)" disabled="@IsSubmitting(keyText)">
+                                        Record override
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-header"><strong>Extended view</strong></div>
+        <div class="card-body">
+            <p class="small text-muted">
+                A rotation plus a position key, for a view no canonical slot names. It is a request of its own — it is
+                never promoted into a pack slot.
+            </p>
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">State</label>
+                    <select class="form-select form-select-sm" value="@_extendedState" @onchange="e => _extendedState = ParseState(e.Value?.ToString())">
+                        @foreach (var state in BodyStates)
+                        {
+                            <option value="@state">@state</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">Rotation (deg)</label>
+                    <input type="number" min="-180" max="180" class="form-control form-control-sm"
+                           value="@_extendedRotation" @oninput="e => _extendedRotation = ParseRotation(e.Value?.ToString())" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">Position key</label>
+                    <input class="form-control form-control-sm" placeholder="e.g. standing"
+                           value="@_extendedPosition" @oninput="e => _extendedPosition = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div class="col-md-3 d-flex gap-1">
+                    <button type="button" class="btn btn-sm btn-primary" @onclick="GenerateExtendedAsync" disabled="@(_extendedBusy || !CanGenerate)">Generate</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleExtendedAsync" disabled="@_extendedBusy">Open actions</button>
+                </div>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_extendedMessage))
+            {
+                <div class="small text-muted mt-2">@_extendedMessage</div>
+            }
+        </div>
+    </div>
+}
+
+@if (_viewer is not null)
+{
+    @* The grid is a workspace, not a thumbnail sheet: every view can be opened at full size, with its source beside
+       it when it was produced as an edit of an accepted view. *@
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.88);">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        @_viewer.Label
+                        <span class="badge @StatusBadge(_viewer.View) ms-2">@(_viewer.View?.Status.ToString() ?? "NotStarted")</span>
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseViewer" title="Close"></button>
+                </div>
+                <div class="modal-body text-center" style="overflow:auto;">
+                    <img src="@_viewer.Url"
+                         class="@(_viewerZoomed ? string.Empty : "img-fluid")"
+                         style="@(_viewerZoomed ? "max-width:none;" : "max-height:78vh;cursor:zoom-in;")"
+                         title="@(_viewerZoomed ? "Click to fit the window" : "Click to zoom to 100%")"
+                         @onclick="() => _viewerZoomed = !_viewerZoomed"
+                         alt="@_viewer.Label" />
+                    @if (!string.IsNullOrWhiteSpace(_viewer.SourceUrl))
+                    {
+                        <div class="mt-3">
+                            <div class="small text-muted mb-1">Source image — this view was produced as an edit of it</div>
+                            <img src="@_viewer.SourceUrl" class="border rounded" style="height:140px;" alt="source image" />
+                        </div>
+                    }
+                    @if (_viewer.View is { } shown && !string.IsNullOrWhiteSpace(shown.ResolvedPromptText))
+                    {
+                        <details class="mt-3 text-start">
+                            <summary class="small">The prompt this image was rendered from</summary>
+                            <pre class="small mb-0" style="white-space:pre-wrap;">@shown.ResolvedPromptText</pre>
+                        </details>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <a class="btn btn-outline-secondary btn-sm" href="@_viewer.Url" target="_blank" title="Open the raw file">
+                        <i class="bi bi-arrows-fullscreen me-1"></i>Open the raw file
+                    </a>
+                    <button type="button" class="btn btn-secondary" @onclick="CloseViewer">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly SceneImageReferenceBodyState[] BodyStates =
+        [SceneImageReferenceBodyState.Clothed, SceneImageReferenceBodyState.Unclothed];
+
+    /// <summary>The body build whose views this panel acquires.</summary>
+    [Parameter, EditorRequired]
+    public string BuildId { get; set; } = string.Empty;
+
+    /// <summary>The character's display name, which the resolved prompts address.</summary>
+    [Parameter]
+    public string CharacterName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The body view model and image size, both resolved from the character's persisted workflow settings. The panel
+    /// renders at ONE quality setting for every view of this body, and it assumes neither value: unset means the
+    /// generate/edit actions stay disabled and the operator is told where the setting lives.
+    /// </summary>
+    [Parameter]
+    public string ModelId { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ModelName { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ImageSize { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Incremented by the studio on every successful save of the body view settings. The capability questions below
+    /// (can this model carry identity? can it carry a pose?) are answered from the SAVED settings, so a save is what
+    /// invalidates the cached answer. The model id alone is not enough: it is bound two-way to the dropdown, so it
+    /// changes before the save persists.
+    /// </summary>
+    [Parameter]
+    public int SettingsRevision { get; set; }
+
+    private List<CharacterIdentityBodyView> _views = [];
+    private Dictionary<string, string> _previews = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Every image produced for each candidate batch, NEWEST first, keyed by batch id. Built from the container's
+    /// image list that the panel already reads — one query, no extra round trip — so a view's whole generation
+    /// history is reachable instead of only the newest attempt.
+    /// </summary>
+    private Dictionary<string, IReadOnlyList<SceneAssetImage>> _candidatesByBatch = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SceneAssetStatus> _imageStatuses = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _prompts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _messages = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _reviewers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _notes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CharacterIdentityBodyCheckVerdict> _draftVerdicts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _overrideReasons = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _overrideAuthors = new(StringComparer.Ordinal);
+
+    private string? _openKey;
+    private string _panelMessage = string.Empty;
+    private bool _panelMessageIsError;
+    private string _extendedMessage = string.Empty;
+
+    /// <summary>
+    /// Guards the BACKGROUND refresh and its five-second poll ONLY.
+    ///
+    /// It must never gate an operator action. It used to: every row button was disabled by that same lock, and
+    /// <c>RunAsync</c> refused outright when it was set, so while the poll was refreshing, clicks landed on a
+    /// disabled button or were discarded server-side with no message — "the generate button does not do anything".
+    /// A refresh is the panel's own housekeeping; it must not make the operator's controls dead.    /// </summary>
+    private bool _refreshing;
+
+    /// <summary>Guards the extended-view controls, whose key is not a slot and so has its own row state.</summary>
+    private bool _extendedBusy;
+
+    /// <summary>
+    /// Views whose request is in flight RIGHT NOW, keyed as the panel keys everything else. The per-row in-flight
+    /// only deadens the buttons: it says nothing about which row is working or whether the click registered, which is
+    /// exactly what "nothing happened after I pressed Generate" looked like.
+    /// </summary>
+    private readonly HashSet<string> _submitting = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether this request asks for pose conditioning, and with what. The stance and strength are VISIBLE controls
+    /// with the qualified values shown, not hidden defaults: 0.8 is the strength the OpenPoseXL2 stance scorecard was
+    /// verified at, and the operator can change it before generating.
+    /// </summary>
+    private bool _poseConditioning;
+    private BodyReferenceStance _poseStance = BodyReferenceStance.Standing;
+    private double _poseStrength;
+
+    /// <summary>
+    /// Whether this character can be identity-conditioned, read from the approved pack. Null until the first load, so
+    /// the switch is not offered on a guess.
+    /// </summary>
+    private BodyIdentityAvailability? _identityAvailability;
+    private BodyPoseAvailability? _poseAvailability;
+
+    /// <summary>
+    /// The model (and settings revision) the cached capability answer was computed for. A different model invalidates
+    /// it — and so does a SAVE of the settings, because the model id alone changes too early: the dropdown is two-way
+    /// bound, so it changes before the save persists, and the answer would be re-asked against the old settings.
+    /// </summary>
+    private string _availabilityModelKey = string.Empty;
+
+    /// <summary>Whether this request asks for identity conditioning. Composes with pose.</summary>
+    private bool _useIdentity;
+
+    /// <summary>
+    /// Which approved face of the pack conditions the render; empty means the pack's canonical face. Held as one value
+    /// for the whole panel: an angle is a property of the character's pack, not of a single view.
+    /// </summary>
+    private string _identityFaceAssetId = string.Empty;
+    private ViewerState? _viewer;
+    private bool _viewerZoomed;
+    private Timer? _poll;
+    private bool _disposed;
+    private SceneImageReferenceBodyState _extendedState = SceneImageReferenceBodyState.Clothed;
+    private int _extendedRotation;
+    private string _extendedPosition = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(BuildId))
+        {
+            return;
+        }
+
+        // A body render takes tens of seconds and finishes on the container's image, not on this component, so the
+        // panel polls while anything is rendering — otherwise the operator watches a Pending badge and concludes the
+        // button did nothing.
+        _poll ??= new Timer(_ => _ = InvokeAsync(PollAsync), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        await RefreshAsync();
+        await RefreshConditioningAvailabilityAsync();
+    }
+
+    /// <summary>
+    /// Asks the resolvers whether the configured model can carry each conditioning, and whether this character has an
+    /// approved identity reference to condition on.
+    ///
+    /// Capability is a property of the MODEL, so this is the same question the render asks, asked before queueing one.
+    ///
+    /// The answer is CACHED in fields, and a field does not notice a setting that was saved beside it: changing the
+    /// body view model used to leave the previous model's answer in place, so a model that declares identity still
+    /// showed "identity is unavailable" until the whole page was reloaded. The cache is therefore keyed to the model
+    /// it was computed for, and a different model re-asks. <paramref name="force"/> is the operator's own control
+    /// (Refresh views), for the case where the setting changed without this component's parameter changing with it.
+    /// </summary>
+    private async Task RefreshConditioningAvailabilityAsync(bool force = false)
+    {
+        if (string.IsNullOrWhiteSpace(BuildId))
+        {
+            return;
+        }
+
+        var modelId = ModelId ?? string.Empty;
+        var key = $"{modelId}|{SettingsRevision}";
+        if (!force && string.Equals(_availabilityModelKey, key, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _availabilityModelKey = key;
+
+        try
+        {
+            _identityAvailability = await BodyService.ResolveIdentityAvailabilityAsync(BuildId);
+        }
+        catch (InvalidOperationException error)
+        {
+            _identityAvailability = BodyIdentityAvailability.Unavailable(error.Message);
+        }
+
+        try
+        {
+            _poseAvailability = await BodyService.ResolvePoseAvailabilityAsync(BuildId);
+        }
+        catch (InvalidOperationException error)
+        {
+            _poseAvailability = BodyPoseAvailability.Unavailable(error.Message);
+        }
+
+        // The strength OPENS on the model's configured value, which is the value proven for that model — never on a
+        // panel-local number. A model change or a settings save is exactly when that value changes, so this is the one
+        // place it is set; an operator's own edit afterwards is theirs to keep.
+        if (_poseAvailability is { IsAvailable: true, DefaultStrength: { } configured })
+        {
+            _poseStrength = configured;
+        }
+    }
+
+    /// <summary>
+    /// Refresh views re-reads the views AND re-asks the capability questions, so it is the one control that brings the
+    /// whole panel and its conditioning options back in line with the saved settings.
+    /// </summary>
+    private async Task RefreshViewsAsync()
+    {
+        await RefreshAsync();
+        await RefreshConditioningAvailabilityAsync(force: true);
+    }
+
+    /// <summary>
+    /// Pose and identity COMPOSE (operator decision, 2026-09-22): the skeleton drives the pose by conditioning the
+    /// sampler's prompt inputs, and the face reference drives the identity by conditioning its model input. They are
+    /// independent conditionings on one render, so neither switch turns the other off.
+    /// </summary>
+    private async Task PollAsync()
+    {
+        if (_disposed || _refreshing || string.IsNullOrWhiteSpace(BuildId))
+        {
+            return;
+        }
+
+        if (_views.Any(view => view.Status == CharacterIdentityAngleStatus.Pending))
+        {
+            await RefreshAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _poll?.Dispose();
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (string.IsNullOrWhiteSpace(BuildId) || _refreshing)
+        {
+            return;
+        }
+
+        _refreshing = true;
+        try
+        {
+            _views = (await BodyService.ListViewsAsync(BuildId)).ToList();
+
+            // The views' images live on the build's container asset; the map is rebuilt rather than cached so a
+            // deleted artifact cannot leave a stale preview behind.
+            var container = await BodyService.EnsureContainerAsync(BuildId);
+            var images = await AssetService.ListImagesAsync(container.Id);
+            _previews = images
+                .Where(image => !string.IsNullOrWhiteSpace(image.FileRelativePath))
+                .GroupBy(image => image.Id, StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => $"/scene-images/{group.First().FileRelativePath}",
+                    StringComparer.Ordinal);
+            _imageStatuses.Clear();
+            foreach (var group in images.GroupBy(image => image.Id, StringComparer.Ordinal))
+            {
+                _imageStatuses[group.Key] = group.First().Status;
+            }
+
+            // The same list already holds every candidate this view ever produced, because each generation joins the
+            // view's batch. Grouping by batch is what makes the history reachable: the view row only pointed at the
+            // newest image, so without this a re-run looked like the previous result had been thrown away.
+            //
+            // NEWEST FIRST (operator decision, 2026-09-22): the deck opens on the attempt just made, which is the one
+            // being judged, instead of burying it below every earlier attempt.
+            _candidatesByBatch = images
+                .Where(image => !string.IsNullOrWhiteSpace(image.CandidateBatchId))
+                .GroupBy(image => image.CandidateBatchId!, StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlyList<SceneAssetImage>)group
+                        .OrderByDescending(image => image.CreatedUtc)
+                        .ToList(),
+                    StringComparer.Ordinal);
+
+            // A queued render completes the CONTAINER's image row; nothing else advances the view from Pending, so
+            // the panel records the finished image through the service's completion path and re-reads the views.
+            var finished = _views
+                .Where(view => view.Status == CharacterIdentityAngleStatus.Pending
+                    && !string.IsNullOrWhiteSpace(view.OutputArtifactId))
+                .Where(view => _imageStatuses.TryGetValue(view.OutputArtifactId!, out var status)
+                    && status == SceneAssetStatus.Complete)
+                .ToList();
+            foreach (var view in finished)
+            {
+                await BodyService.RecordResultAsync(BuildId, view.Key(), view.OutputArtifactId!);
+            }
+
+            if (finished.Count > 0)
+            {
+                _views = (await BodyService.ListViewsAsync(BuildId)).ToList();
+            }
+        }
+        catch (InvalidOperationException error)
+        {
+            _panelMessage = error.Message;
+            _panelMessageIsError = true;
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    private async Task ToggleAsync(CharacterIdentityBodyViewKey key)
+    {
+        var keyText = key.Describe();
+        if (string.Equals(_openKey, keyText, StringComparison.Ordinal))
+        {
+            _openKey = null;
+            return;
+        }
+
+        _openKey = keyText;
+        if (!_prompts.ContainsKey(keyText))
+        {
+            // Opening reads the prompt without announcing it: the row is about to show it anyway, and a message on
+            // every open would be noise.
+            await ResolvePromptAsync(key, announce: false);
+        }
+    }
+
+    private Task ReloadPromptAsync(CharacterIdentityBodyViewKey key)
+        => ResolvePromptAsync(key, announce: true);
+
+    /// <summary>
+    /// Resolves this row's prompt again and says what happened.
+    ///
+    /// This deliberately does NOT share the panel's refresh gate. Reloading a prompt only READS — it
+    /// cannot conflict with a render — and that gate is set by the five-second poll while anything is Pending, so a
+    /// click landing in that window was discarded with no feedback at all. "I clicked Reload and nothing happened"
+    /// was exactly that: a swallowed click, indistinguishable from a broken button.
+    /// </summary>
+    private async Task ResolvePromptAsync(CharacterIdentityBodyViewKey key, bool announce)
+    {
+        var keyText = key.Describe();
+        if (!_reloading.Add(keyText))
+        {
+            return;
+        }
+
+        StateHasChanged();
+        try
+        {
+            var previous = PromptFor(keyText);
+            // A canonical angle has a REAL generation prompt now — the compiled body prompt plus its camera clause —
+            // so it reloads like the base does. Only an extended view has nothing to compile: its prompt is the stored
+            // rotation instruction, because a rotation is a request about an image that already exists.
+            var prompt = key.IsCanonical
+                ? await BodyService.ResolvePromptAsync(BuildId, key, ModelId, CharacterName)
+                : await BodyService.ResolveEditInstructionAsync(BuildId, key, CharacterName);
+
+            _prompts[keyText] = prompt;
+
+            // The box is an uncontrolled input: Blazor only updates its DOM value when the RENDERED value changes, so
+            // re-resolving the same text would leave any edit sitting in the box and look like nothing happened.
+            // Bumping the revision remounts it through the @key below, so a reload really does replace what is on
+            // screen.
+            BumpPromptRevision(keyText);
+
+            if (announce)
+            {
+                SetMessage(keyText, DescribeResolution(previous, prompt, key));
+            }
+        }
+        catch (Exception error)
+        {
+            SetMessage(keyText, error.Message);
+        }
+        finally
+        {
+            _reloading.Remove(keyText);
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// What the reload actually did. An UNCHANGED result is reported too: the panel cannot tell an operator that a
+    /// silent no-op worked, and "nothing visibly happened" is the whole reason this read as broken.
+    /// </summary>
+    private string DescribeResolution(string previous, string resolved, CharacterIdentityBodyViewKey key)
+    {
+        var what = IsBaseKey(key)
+            ? $"the prompt compiled for {(string.IsNullOrWhiteSpace(ModelName) ? ModelId : ModelName)}"
+            : key.IsCanonical
+                ? $"the render prompt compiled for {(string.IsNullOrWhiteSpace(ModelName) ? ModelId : ModelName)} (body prompt plus this angle's camera clause)"
+                : "the stored rotation instruction";
+
+        if (string.Equals(previous, resolved, StringComparison.Ordinal))
+        {
+            // Say WHERE it comes from. "Unchanged" on its own reads as a failure, and the usual real cause is an edit
+            // that was never saved — the resolver reads the SAVED body card and the character template, not the form.
+            return $"Reloaded {what} — unchanged ({resolved.Length} characters). It is resolved from the SAVED body "
+                + "card and the character template, so an edit that has not been saved yet is not part of it.";
+        }
+
+        return $"Reloaded {what} ({resolved.Length} characters). The box now holds the freshly resolved text, so an "
+            + "edit you had made there is no longer applied.";
+    }
+
+    /// <summary>The front in either state: the only views that are generated from nothing.</summary>
+    private static bool IsBaseKey(CharacterIdentityBodyViewKey key)
+        => key.IsCanonical && key.View == SceneImageReferenceBodyView.Front;
+
+    /// <summary>
+    /// The committed angle skeleton this slot renders with, or null for a slot that has none (the base, which is
+    /// generated from the body card alone). Resolved from the ONE angle library, so the panel and the render cannot
+    /// disagree about which skeleton a view uses — or about whether it has one at all.
+    /// </summary>
+    private static BodyAngleSkeleton? AngleSkeletonFor(CharacterIdentityBodySlot slot)
+        => BodyAngleSkeletons.Has(slot.View) ? BodyAngleSkeletons.Require(slot.View) : null;
+
+    /// <summary>
+    /// What the primary button does for this slot. A base is GENERATED from the body card; a canonical angle is
+    /// RENDERED from the accepted body, which is a different request, so it is named as one instead of reusing
+    /// "Generate" for both.
+    /// </summary>
+    private static string GenerateLabelFor(CharacterIdentityBodySlot slot)
+        => slot.IsBase ? "Generate" : "Render angle";
+
+    /// <summary>
+    /// The alternative route: an edit of the accepted source. Called a rotation edit where an angle render exists,
+    /// because for those views it is the other way to obtain the same view.
+    /// </summary>
+    private static string EditLabelFor(CharacterIdentityBodySlot slot)
+        => slot.IsBase ? "Edit from accepted source" : "Rotation edit";
+
+    private Task GenerateAsync(CharacterIdentityBodyViewKey key)
+    {
+        if (!CanGenerate)
+        {
+            SetMessage(key.Describe(), "Set the body view model and image size in Body view settings above — neither is assumed.");
+            return Task.CompletedTask;
+        }
+
+        // The switch above already says this, but a stale switch survives a model change: turning on a pose and THEN
+        // selecting a model that carries identity as a reference image would otherwise send a combination the render
+        // is known to refuse, and the operator would read that as "generate did nothing".
+        if (PoseBlockedByIdentityMechanism && _poseConditioning)
+        {
+            SetMessage(
+                key.Describe(),
+                "Pose conditioning cannot be combined with identity on this model: it carries the face as a reference "
+                + "image while the pose needs a separate ControlNet graph, so the pose would be silently dropped. Turn "
+                + "one of them off, or select a model that carries both as references.");
+            return Task.CompletedTask;
+        }
+
+        // A pose that this model cannot carry must never be quietly omitted: the request would render and the operator
+        // would read "submitted" while the skeleton never reached the model. Refuse, and say what the model needs.
+        if (PoseRequestedButNotCarried(key))
+        {
+            SetMessage(
+                key.Describe(),
+                $"Pose conditioning was requested, but this model cannot carry it: {_poseAvailability?.Reason ?? "no pose capability is configured for it."} "
+                + "The pose was NOT applied, so nothing was submitted.");
+            return Task.CompletedTask;
+        }
+
+        return RunAsync(key, async () =>
+        {
+            await BodyService.GenerateAsync(
+                BuildId, key, ModelId, ImageSize, CharacterName, PromptOrNull(key), PoseFor(key),
+                IdentityRequested(key), IdentityFaceAssetIdRequested(key));
+            return $"Render submitted for {key.Describe()} at {ImageSize}. It appears here when it finishes.";
+        });
+    }
+
+    /// <summary>
+    /// The face asset the identity switcher should show: the operator's pick when they have made one, otherwise the
+    /// pack's canonical face — so the control opens on what will actually be used.
+    /// </summary>
+    private string IdentityFaceAssetId
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(_identityFaceAssetId))
+            {
+                return _identityFaceAssetId;
+            }
+
+            var canonical = _identityAvailability?.Faces.FirstOrDefault(face => face.IsCanonical);
+            return canonical?.AssetId ?? _identityAvailability?.FaceAssetId ?? string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Identity conditioning is offered wherever it can be honoured: on the base AND on a canonical angle — except the
+    /// BACK view, which shows no face, so a face reference there would fight the view (the service refuses it too).
+    /// </summary>
+    private bool IdentityRequested(CharacterIdentityBodyViewKey key)
+        => _useIdentity
+            && key.View != SceneImageReferenceBodyView.Back
+            && _identityAvailability?.IsAvailable == true;
+
+    /// <summary>
+    /// True when the selected model carries identity as a reference IMAGE rather than through an applied mechanism.
+    /// The strategy comes from the SAME resolver the render path asks, so the panel and the render cannot disagree
+    /// about how the face reaches the model.
+    /// </summary>
+    private bool NativeReferenceIdentity
+        => string.Equals(
+            _identityAvailability?.Strategy,
+            ReferenceStrategyResolver.IdentityNativeMultiReference,
+            StringComparison.Ordinal);
+
+    /// <summary>
+    /// True when the selected model carries a pose as a reference IMAGE rather than through a ControlNet graph. Asked
+    /// of the same decision the render path asks, so the panel cannot offer a pose route the render would refuse.
+    /// </summary>
+    private bool NativeReferencePose
+        => string.Equals(
+            _poseAvailability?.Strategy,
+            ReferenceStrategyResolver.IdentityNativeMultiReference,
+            StringComparison.Ordinal);
+
+    /// <summary>
+    /// The two conditionings compose when they travel the SAME way: a model that takes both the face and the skeleton
+    /// as reference images renders them in one call (measured 2026-09-23). They cannot compose when the identity is a
+    /// reference image and the pose needs a separate ControlNet graph — that path has no ControlNet input, so the
+    /// skeleton would be silently dropped. Decided in ONE place so the switch and the submit guard cannot disagree.
+    /// </summary>
+    private bool PoseBlockedByIdentityMechanism => NativeReferenceIdentity && !NativeReferencePose && _useIdentity;
+
+    /// <summary>
+    /// HOW this model will carry the identity, in the operator's words, from the strategy the render will use. The two
+    /// mechanisms are not interchangeable, so the switch says which one is in play instead of describing only one.
+    /// </summary>
+    private string IdentityMechanismExplanation
+        => NativeReferenceIdentity
+            ? "this model carries it by taking that face as a reference image in the same render"
+            : "needs a model that declares an identity mechanism, otherwise the render fails rather than quietly rendering an unconditioned body";
+
+    /// <summary>The chosen face asset, or null to let the resolver take the pack's canonical face.</summary>
+    private string? IdentityFaceAssetIdRequested(CharacterIdentityBodyViewKey key)
+        => IdentityRequested(key) ? IdentityFaceAssetId : null;
+
+    /// <summary>
+    /// The pose conditioning this request asks for, or null. Null means "no pose was asked for" — the panel never
+    /// picks a stance on the operator's behalf, and a stance is only offered on a base (the only generatable view).
+    ///
+    /// The capability is re-checked here, not just where the switch is drawn: turning the switch on and THEN changing
+    /// the body view model to one that cannot pose leaves a stale <c>true</c> behind, and that combination must not be
+    /// sent to a render that is known to refuse it.
+    /// </summary>
+    private SceneAssetPoseConditioning? PoseFor(CharacterIdentityBodyViewKey key)
+        => _poseConditioning && IsBaseKey(key) && _poseAvailability?.IsAvailable == true
+            ? new SceneAssetPoseConditioning(_poseStance, _poseStrength)
+            : null;
+
+    /// <summary>
+    /// True when a pose was asked for on a base view but the model cannot carry one — the case where
+    /// <see cref="PoseFor"/> would return null and the pose would vanish without a word.
+    /// </summary>
+    private bool PoseRequestedButNotCarried(CharacterIdentityBodyViewKey key)
+        => _poseConditioning && IsBaseKey(key) && _poseAvailability?.IsAvailable != true;
+
+    private Task EditFromSourceAsync(CharacterIdentityBodyViewKey key)    {
+        if (!CanGenerate)
+        {
+            SetMessage(key.Describe(), "Set the body view model in Body view settings above — no model is assumed.");
+            return Task.CompletedTask;
+        }
+
+        return RunAsync(key, async () =>
+        {
+            await BodyService.EditFromAcceptedSourceAsync(
+                BuildId, key, ModelId, CharacterName, PromptOrNull(key));
+            return $"Edit from the accepted source submitted for {key.Describe()}.";
+        });
+    }
+
+    private Task RecordSourceAsResultAsync(CharacterIdentityBodyViewKey key)
+        => RunAsync(key, async () =>
+        {
+            await BodyService.RecordSourceAsResultAsync(BuildId, key);
+            return "Recorded the accepted source as this view's result.";
+        });
+
+    private Task AcceptAsync(CharacterIdentityBodyViewKey key)
+        => RunAsync(key, async () =>
+        {
+            var view = await BodyService.AcceptAsync(BuildId, key);
+            return $"Accepted {key.Describe()}.";
+        });
+
+    /// <summary>
+    /// Accepts one image from the deck as this view's result, then accepts the view itself. Both halves are one
+    /// operator decision, so they travel together — and when the view's own acceptance is refused (the recorded
+    /// findings are not a full pass), the refusal is reported against THIS row rather than swallowed.
+    /// </summary>
+    private Task AcceptCandidateAsync(CharacterIdentityBodyViewKey key, string imageId)
+        => RunAsync(key, async () =>
+        {
+            var view = await BodyService.AcceptCandidateAsync(BuildId, key, imageId);
+            await RefreshAsync();
+            return $"Accepted that image as the {key.Describe()} (view status: {view.Status}).";
+        });
+
+    /// <summary>
+    /// Deletes one image from the asset library. The row is not touched beyond a refresh: removing an attempt is not a
+    /// decision about the view, and a deleted accepted image leaves the view's status exactly as it was — loudly, so
+    /// the operator can see the view now points at nothing rather than silently losing the fact.
+    /// </summary>
+    private Task DeleteCandidateAsync(CharacterIdentityBodyViewKey key, SceneAssetImage candidate)
+        => RunAsync(key, async () =>
+        {
+            await AssetService.DeleteImageAsync(candidate.Id);
+            await RefreshAsync();
+            return $"Deleted image {candidate.Id} from the asset library.";
+        });
+
+    /// <summary>
+    /// The operator's judgement in ONE action: all four body checks reviewed and passing, recorded against the named
+    /// reviewer, and the view then accepted — which is what the next step waits on.
+    ///
+    /// The per-check dropdowns remain for a review that finds a problem, and the record is identical either way: an
+    /// attributed verdict per check. This exists because the gate was being read as "the workflow is stuck" — an image
+    /// had been approved in the deck, and nothing said acceptance ALSO needs the four checks recorded.
+    /// </summary>
+    private Task RecordChecksPassedAndAcceptAsync(CharacterIdentityBodyViewKey key)
+    {
+        var keyText = key.Describe();
+        if (string.IsNullOrWhiteSpace(ReviewerFor(keyText)))
+        {
+            SetMessage(
+                keyText,
+                "Recording a review needs the reviewer's name — an unattributed judgement is not a record.");
+            return Task.CompletedTask;
+        }
+
+        foreach (var check in CharacterIdentityBodyChecks.All)
+        {
+            _draftVerdicts[$"{keyText}|{check}"] = CharacterIdentityBodyCheckVerdict.Pass;
+        }
+
+        var reviewer = ReviewerFor(keyText);
+        return RunAsync(key, async () =>
+        {
+            await BodyService.RecordFindingsAsync(
+                BuildId,
+                key,
+                CharacterIdentityBodyChecks.All.ToDictionary(check => check, _ => CharacterIdentityBodyCheckVerdict.Pass),
+                reviewer,
+                NoteFor(keyText));
+            var view = await BodyService.AcceptAsync(BuildId, key);
+            await RefreshAsync();
+            return $"Recorded all four checks as reviewed and passing for {reviewer}, and accepted {keyText} "
+                + $"(status {view.Status}).";
+        });
+    }
+
+    private Task AnalyzeQualityAsync(CharacterIdentityBodyViewKey key)
+        => RunAsync(key, async () =>
+        {
+            var view = await BodyService.AnalyzeQualityAsync(BuildId, key);
+            return $"Quality {view.QualityRating}{(string.IsNullOrWhiteSpace(view.QualityNotes) ? string.Empty : $": {view.QualityNotes}")}";
+        });
+
+    private Task UploadAsync(CharacterIdentityBodyViewKey key, InputFileChangeEventArgs args)
+        => RunAsync(key, async () =>
+        {
+            var file = args.File;
+            await using var stream = file.OpenReadStream(maxAllowedSize: 64 * 1024 * 1024);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            buffer.Position = 0;
+            await BodyService.UploadAsync(BuildId, key, file.Name, buffer);
+            return $"Uploaded {file.Name} as {key.Describe()}.";
+        });
+
+    private Task RecordFindingsAsync(CharacterIdentityBodyViewKey key)
+    {
+        var keyText = key.Describe();
+        if (string.IsNullOrWhiteSpace(ReviewerFor(keyText)))
+        {
+            SetMessage(keyText, "A findings record needs the reviewer's name — an unattributed judgement is not a record.");
+            return Task.CompletedTask;
+        }
+        var verdicts = new Dictionary<CharacterIdentityBodyCheck, CharacterIdentityBodyCheckVerdict>();
+        foreach (var check in CharacterIdentityBodyChecks.All)
+        {
+            verdicts[check] = Enum.Parse<CharacterIdentityBodyCheckVerdict>(VerdictFor(keyText, check));
+        }
+
+        return RunAsync(key, async () =>
+        {
+            await BodyService.RecordFindingsAsync(
+                BuildId, key, verdicts, ReviewerFor(keyText), NoteFor(keyText));
+            return "Findings recorded for this view.";
+        });
+    }
+
+    private Task RecordOverrideAsync(CharacterIdentityBodyViewKey key)    {
+        var keyText = key.Describe();
+        if (string.IsNullOrWhiteSpace(OverrideReasonFor(keyText)) || string.IsNullOrWhiteSpace(OverrideAuthorFor(keyText)))
+        {
+            SetMessage(keyText, "An override needs both a reason and an author — it is a human decision on the record.");
+            return Task.CompletedTask;
+        }
+
+        return RunAsync(key, async () =>
+        {
+            await BodyService.RecordOverrideAsync(
+                BuildId, key, OverrideReasonFor(keyText), OverrideAuthorFor(keyText));
+            return "Override recorded.";
+        });
+    }
+
+    /// <summary>
+    /// One view, one service call: the message is written to that view's row, never to the panel, so a refusal can
+    /// never be mistaken for another view's outcome.
+    /// </summary>
+    private async Task RunAsync(CharacterIdentityBodyViewKey key, Func<Task<string?>> action)
+    {
+        var keyText = key.Describe();
+
+        // Guarded per ROW, not per panel: two different views can be operated at once, and a background refresh must
+        // never block either. A second click on the SAME row is what this refuses (the button is disabled too).
+        if (!_submitting.Add(keyText))
+        {
+            return;
+        }
+
+        // Paint the in-flight state BEFORE awaiting: a render takes tens of seconds, and a spinner that only appears
+        // after the work is done is not an indicator at all.
+        StateHasChanged();
+        try
+        {
+            var message = await action();
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                SetMessage(keyText, message);
+            }
+
+            _views = (await BodyService.ListViewsAsync(BuildId)).ToList();
+            _panelMessage = string.Empty;
+            _panelMessageIsError = false;
+        }
+        catch (Exception error)
+        {
+            SetMessage(keyText, error.Message);
+        }
+        finally
+        {
+            _submitting.Remove(keyText);
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>True while this view's request is on the wire.</summary>
+    private bool IsSubmitting(string keyText) => _submitting.Contains(keyText);
+
+    /// <summary>A stance the skeleton library actually has; an unparseable value cannot become a pose.</summary>
+    private static BodyReferenceStance ParseStance(string? value)
+        => Enum.TryParse<BodyReferenceStance>(value, out var stance) && BodyStanceSkeletons.Has(stance)
+            ? stance
+            : throw new InvalidOperationException(
+                $"'{value}' is not a stance with a verified pose skeleton.");
+
+    /// <summary>A ControlNet strength inside (0, 1]. Anything else is refused rather than clamped.</summary>
+    private static double ParseStrength(string? value)
+        => double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var strength)
+            && strength is > 0 and <= 1
+                ? strength
+                : throw new InvalidOperationException(
+                    $"Pose ControlNet strength must be in (0, 1], but was '{value}'.");
+
+    private void SetMessage(string keyText, string message)
+    {
+        _messages[keyText] = message;
+        // With no row open, the message is shown next to the extended-view controls so a refusal is never invisible.
+        if (_openKey is null)
+        {
+            _extendedMessage = message;
+        }
+    }
+
+    private CharacterIdentityBodyView? ViewFor(CharacterIdentityBodySlot slot)
+        => ViewFor(CharacterIdentityBodyViewKey.Canonical(slot.State, slot.View));
+
+    private CharacterIdentityBodyView? ViewFor(CharacterIdentityBodyViewKey key)
+        => _views.FirstOrDefault(view => view.Key() == key);
+
+    /// <summary>
+    /// The image the row SHOWS: the accepted candidate when this view has one, otherwise the view's current artifact.
+    /// The row used to show the newest image, which is the last thing GENERATED — after choosing a different candidate
+    /// from the deck the row and the deck disagreed about which image the view actually is.
+    /// </summary>
+    private string? PreviewFor(CharacterIdentityBodyView? view)
+    {
+        var accepted = view is null
+            ? null
+            : CandidatesFor(view.Key()).FirstOrDefault(
+                candidate => candidate.CandidateDecision == SceneAssetCandidateDecision.Accepted);
+        var artifactId = accepted?.Id ?? view?.OutputArtifactId;
+        return string.IsNullOrWhiteSpace(artifactId) || !_previews.TryGetValue(artifactId, out var url) ? null : url;
+    }
+
+    /// <summary>The shared image editor, addressed by the image's own asset — the same screen the asset library uses.</summary>
+    private string? EditUrlFor(SceneAssetImage candidate)
+        => string.IsNullOrWhiteSpace(candidate.AssetId) || string.IsNullOrWhiteSpace(candidate.Id)
+            ? null
+            : $"/assets/{candidate.AssetId}/images/{candidate.Id}/edit";
+
+    /// <summary>
+    /// The shared editor for the image this row currently shows, or null when the row has no image yet. A base view has
+    /// no source to derive from, so this — not "edit from accepted source" — is how its image is changed.
+    /// </summary>
+    private string? EditImageUrlFor(CharacterIdentityBodyView? view)
+    {
+        var imageId = view?.OutputArtifactId;
+        if (string.IsNullOrWhiteSpace(imageId))
+        {
+            return null;
+        }
+
+        var assetId = _candidatesByBatch.Values
+            .SelectMany(candidates => candidates)
+            .FirstOrDefault(candidate => string.Equals(candidate.Id, imageId, StringComparison.Ordinal))?.AssetId;
+
+        return string.IsNullOrWhiteSpace(assetId)
+            ? null
+            : $"/assets/{assetId}/images/{imageId}/edit";
+    }
+
+    /// <summary>
+    /// This view's review deck: the candidate batch this row's requests already write to.
+    ///
+    /// The URL carries the <c>asset</c> route kind, which is what makes the deck read SCENE ASSET candidate batches;
+    /// the bare <c>/review-deck/{batchId}</c> route reads the older produced-images table, so a body batch opened there
+    /// shows "No images are available for this batch" no matter how many it has (verified against the live DB,
+    /// 2026-09-23).
+    /// </summary>
+    private string ReviewDeckUrlFor(CharacterIdentityBodyViewKey key)
+        => $"/review-deck/asset/{key.BatchIdFor(BuildId)}";
+
+    /// <summary>
+    /// The accepted base body an angle render sends, as a thumbnail: the front of this row's state. Null when that base
+    /// is not accepted yet — which is exactly the prerequisite an angle render refuses on.
+    /// </summary>
+    private string? AcceptedBasePreview(CharacterIdentityBodyViewKey key)
+    {
+        var baseView = ViewFor(CharacterIdentityBodyViewKey.Canonical(key.State, SceneImageReferenceBodyView.Front));
+        return baseView is null || baseView.Status != CharacterIdentityAngleStatus.Accepted
+            ? null
+            : PreviewFor(baseView);
+    }
+
+    /// <summary>
+    /// True when a view's artifact id is not among the container's images: a row whose image was deleted after it was
+    /// queued. The poll completes a Pending view from the ARTIFACT, so without this the row waits forever.
+    /// </summary>
+    private bool MissingArtifact(CharacterIdentityBodyView view)
+        => !string.IsNullOrWhiteSpace(view.OutputArtifactId) && !_imageStatuses.ContainsKey(view.OutputArtifactId!);
+
+    /// <summary>Every candidate this view has produced, NEWEST first — empty until something has been generated.</summary>
+    private IReadOnlyList<SceneAssetImage> CandidatesFor(CharacterIdentityBodyViewKey key)
+        => _candidatesByBatch.TryGetValue(key.BatchIdFor(BuildId), out var candidates) ? candidates : [];
+
+    /// <summary>The candidate's image URL, from the container preview map that already holds every attempt.</summary>
+    private string? CandidatePreview(SceneAssetImage candidate)
+        => _previews.TryGetValue(candidate.Id, out var url) ? url : null;
+
+    private static string CandidateBadge(SceneAssetImage candidate) => candidate.CandidateDecision switch
+    {
+        SceneAssetCandidateDecision.Accepted => "text-bg-success",
+        SceneAssetCandidateDecision.Rejected => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+
+    /// <summary>
+    /// The model that produced this candidate, read from the snapshot the image row already carries. When it is
+    /// absent or unreadable the fact is stated rather than a model name being invented (repo no-fallback rule).
+    /// </summary>
+    private static string CandidateModel(SceneAssetImage candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate.ModelSnapshotJson))
+        {
+            return "not recorded";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(candidate.ModelSnapshotJson);
+            var root = document.RootElement;
+            var identifier = SnapshotString(root, "modelIdentifier") ?? SnapshotString(root, "requestedModelId");
+            var provider = SnapshotString(root, "providerName");
+
+            if (identifier is null)
+            {
+                return "not recorded";
+            }
+
+            return provider is null ? identifier : $"{identifier} ({provider})";
+        }
+        catch (JsonException)
+        {
+            return "snapshot unreadable";
+        }
+    }
+
+    private static string? SnapshotString(JsonElement element, string name)
+        => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    /// <summary>
+    /// Records the operator's judgement about one candidate. This is a decision ABOUT an image, so it never moves
+    /// or deletes the image — the whole point of the deck is that every attempt stays comparable.
+    /// </summary>
+    private async Task DecideCandidateAsync(
+        CharacterIdentityBodyViewKey key, string imageId, SceneAssetCandidateDecision decision)
+    {
+        var keyText = key.Describe();
+        if (!_submitting.Add(keyText))
+        {
+            return;
+        }
+
+        try
+        {
+            await AssetService.SetImageCandidateDecisionAsync(imageId, decision, null);
+            await RefreshAsync();
+            SetMessage(keyText, $"Candidate {imageId} marked {decision}.");
+        }
+        catch (Exception error)
+        {
+            SetMessage(keyText, error.Message);
+        }
+        finally
+        {
+            _submitting.Remove(keyText);
+        }
+    }
+
+    /// <summary>
+    /// Opens one view's image at full size. The source is shown beside it when the view was produced as an edit of
+    /// an accepted view, because that is the comparison the operator is actually making.
+    /// </summary>
+    private void OpenViewer(string label, CharacterIdentityBodyView? view)
+    {
+        if (PreviewFor(view) is not { } url)
+        {
+            return;
+        }
+
+        var sourceUrl = view?.InputArtifactId is { } inputId
+            && _previews.TryGetValue(inputId, out var source)
+                ? source
+                : null;
+        _viewer = new ViewerState(label, url, sourceUrl, view);
+        _viewerZoomed = false;
+    }
+
+    private void CloseViewer() => _viewer = null;
+
+    /// <summary>What the full-size viewer is showing.</summary>
+    private sealed record ViewerState(
+        string Label, string Url, string? SourceUrl, CharacterIdentityBodyView? View);
+
+    /// <summary>Rows whose prompt is being resolved right now, so the button can say so.</summary>
+    private readonly HashSet<string> _reloading = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Bumped each time a row's prompt is re-resolved. It is the textarea's <c>@key</c>, which is the only reliable
+    /// way to make Blazor recreate an uncontrolled input so it shows the resolved text again.
+    /// </summary>
+    private readonly Dictionary<string, int> _promptRevisions = new(StringComparer.Ordinal);
+
+    private void BumpPromptRevision(string keyText)
+        => _promptRevisions[keyText] = _promptRevisions.TryGetValue(keyText, out var revision) ? revision + 1 : 1;
+
+    private int PromptRevisionFor(string keyText)
+        => _promptRevisions.TryGetValue(keyText, out var revision) ? revision : 0;
+
+    /// <summary>True while this row's prompt is being resolved.</summary>
+    private bool IsReloading(string keyText) => _reloading.Contains(keyText);
+
+    private string PromptFor(string keyText) => _prompts.TryGetValue(keyText, out var prompt) ? prompt : string.Empty;    private string? PromptOrNull(CharacterIdentityBodyViewKey key)
+    {
+        var prompt = PromptFor(key.Describe());
+        return string.IsNullOrWhiteSpace(prompt) ? null : prompt;
+    }
+
+    private void SetPrompt(string keyText, string? value) => _prompts[keyText] = value ?? string.Empty;
+
+    private string MessageFor(string keyText) => _messages.TryGetValue(keyText, out var message) ? message : string.Empty;
+
+    private string ReviewerFor(string keyText) => _reviewers.TryGetValue(keyText, out var value) ? value : string.Empty;
+
+    private string NoteFor(string keyText) => _notes.TryGetValue(keyText, out var value) ? value : string.Empty;
+
+    private string OverrideReasonFor(string keyText) => _overrideReasons.TryGetValue(keyText, out var value) ? value : string.Empty;
+
+    private string OverrideAuthorFor(string keyText) => _overrideAuthors.TryGetValue(keyText, out var value) ? value : string.Empty;
+
+    private string VerdictFor(string keyText, CharacterIdentityBodyCheck check)
+    {
+        var draftKey = $"{keyText}|{check}";
+        if (_draftVerdicts.TryGetValue(draftKey, out var draft))
+        {
+            return draft.ToString();
+        }
+
+        // Nothing drafted yet: the row shows what the view already recorded, so a reviewer edits a real state
+        // rather than a silent default.
+        var view = _views.FirstOrDefault(candidate => string.Equals(candidate.Key().Describe(), keyText, StringComparison.Ordinal));
+        return (view?.Findings.VerdictFor(check) ?? CharacterIdentityBodyCheckVerdict.NotReviewed).ToString();
+    }
+
+    private void SetVerdict(string keyText, CharacterIdentityBodyCheck check, string? value)
+        => _draftVerdicts[$"{keyText}|{check}"] =
+            Enum.TryParse<CharacterIdentityBodyCheckVerdict>(value, out var verdict)
+                ? verdict
+                : CharacterIdentityBodyCheckVerdict.NotReviewed;
+
+    private CharacterIdentityBodyViewKey ExtendedKey()
+        => CharacterIdentityBodyViewKey.Extended(_extendedState, _extendedRotation, _extendedPosition);
+
+    /// <summary>
+    /// True when a model and a size are both chosen. Nothing here falls back to "the first model" or a guessed size:
+    /// an image produced with a model the operator did not choose would be a silent decision about their identity
+    /// pack.
+    /// </summary>
+    private bool CanGenerate => !string.IsNullOrWhiteSpace(ModelId) && !string.IsNullOrWhiteSpace(ImageSize);
+
+    /// <summary>
+    /// The extended-view actions validate their key BEFORE anything calls <c>Describe()</c>, because an extended key
+    /// with no position refuses to describe itself — and a refusal thrown out of an event handler is a button that
+    /// silently does nothing, which is exactly what this guard exists to prevent.
+    /// </summary>
+    private bool TryExtendedKey(out CharacterIdentityBodyViewKey key, out string refusal)
+    {
+        if (string.IsNullOrWhiteSpace(_extendedPosition))
+        {
+            key = CharacterIdentityBodyViewKey.Extended(_extendedState, _extendedRotation, string.Empty);
+            refusal = "An extended view needs a position key (for example 'standing'). Without it the request has no "
+                + "identity, so nothing was started.";
+            return false;
+        }
+
+        key = ExtendedKey();
+        refusal = string.Empty;
+        return true;
+    }
+
+    private Task GenerateExtendedAsync()
+    {
+        if (!TryExtendedKey(out var key, out var refusal))
+        {
+            ShowPanelRefusal(refusal);
+            return Task.CompletedTask;
+        }
+
+        return RunExtendedAsync(() => GenerateAsync(key));
+    }
+
+    private Task ToggleExtendedAsync()
+    {
+        if (!TryExtendedKey(out var key, out var refusal))
+        {
+            ShowPanelRefusal(refusal);
+            return Task.CompletedTask;
+        }
+
+        return RunExtendedAsync(() => ToggleAsync(key));
+    }
+
+    /// <summary>Gives the extended-view controls their own in-flight state, since their key is not a slot.</summary>
+    private async Task RunExtendedAsync(Func<Task> action)
+    {
+        if (_extendedBusy)
+        {
+            return;
+        }
+
+        _extendedBusy = true;
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            _extendedBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// A refusal that belongs to the panel's own form (the model/size choice, an incomplete extended key) is shown at
+    /// the top of the panel — visible no matter which view happens to be open.
+    /// </summary>
+    private void ShowPanelRefusal(string refusal)
+    {
+        _panelMessage = refusal;
+        _panelMessageIsError = true;
+    }
+
+    private static string StatusBadge(CharacterIdentityBodyView? view) => view?.Status switch
+    {
+        CharacterIdentityAngleStatus.Accepted => "text-bg-success",
+        CharacterIdentityAngleStatus.Complete => "text-bg-info",
+        CharacterIdentityAngleStatus.Pending => "text-bg-primary",
+        CharacterIdentityAngleStatus.Failed or CharacterIdentityAngleStatus.Blocked => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+
+    private static SceneImageReferenceBodyState ParseState(string? value)
+        => Enum.TryParse<SceneImageReferenceBodyState>(value, out var state)
+            ? state
+            : throw new InvalidOperationException($"Unsupported body state '{value}'.");
+
+    private static int ParseRotation(string? value)
+        => int.TryParse(value, out var rotation) ? rotation : 0;
+}

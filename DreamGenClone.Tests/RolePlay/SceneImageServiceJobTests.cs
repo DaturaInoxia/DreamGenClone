@@ -41,7 +41,7 @@ public sealed class SceneImageServiceJobTests
     }
 
     [Fact]
-    public void BuildEditorIdentityInstructionUsesFacePrimaryPictureRecipe()
+    public void BuildFaceOnlyIdentityInstructionUsesFacePrimaryPictureRecipe()
     {
         var instruction = SceneImageService.BuildEditorIdentityInstruction(
         [
@@ -53,6 +53,26 @@ public sealed class SceneImageServiceJobTests
         Assert.Contains("Keep that person's facial identity consistent with Picture 2 for the entire image; do not change anyone else.", instruction, StringComparison.Ordinal);
         Assert.Contains("Apply the face of the person shown in Picture 3 to the man at image right.", instruction, StringComparison.Ordinal);
         Assert.Contains("Keep the pose, bodies, position, clothing, lighting, and everything else in the image exactly unchanged except the selected faces.", instruction, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Pins the FULL face-only identity instruction for the two-character case, verbatim.
+    /// </summary>
+    /// <remarks>
+    /// The UI's identity action persists this exact text as the edit prompt (the freeform instruction it
+    /// passes to EnqueueIdentityAsync is discarded), and the offline proof runner
+    /// (helpers/local-comfyui-host/run-local-aio-edit-proof.ps1, -IdentityBindingsPath) reproduces it so a
+    /// proof render sends what the app sends. The runner's copy is hand-kept, so any edit here MUST be
+    /// mirrored there in the same change - this test is what fails when they drift.
+    /// </remarks>
+    [Fact]
+    public void BuildFaceOnlyIdentityInstructionIsPinnedForTwoCharacterIdentityPass()
+    {
+        var instruction = SceneImageService.BuildFaceOnlyIdentityInstruction([(1, "Becky"), (2, "Dean")]);
+
+        Assert.Equal(
+            """Identity correction only for the selected character faces: Becky, Dean. Image 1 is the existing scene and must remain the base image. Reference image 2 is the approved face identity reference for Becky and applies only to that character's face in image 1. Reference image 3 is the approved face identity reference for Dean and applies only to that character's face in image 1. The additional approved face images are identity references only, not replacement images or composition sources. Transfer the approved reference identity into the matching face region: preserve and reproduce the reference's distinguishing facial geometry, eye color and shape, eyebrows, nose, lips, freckles, complexion markers, and hairline-adjacent facial details, adapted to the existing face's scale, angle, expression, and lighting. Use the reference only to correct face-local identity details for those selected characters. Treat the existing scene's visible neck and body skin tone as authoritative: harmonize the corrected face skin tone, undertone, exposure, and shading with that body under the existing scene lighting, without importing a mismatched complexion from the reference. Preserve everything outside those selected face regions exactly: every person and unselected face, bodies, poses, hands, clothing, accessories, expression, action, scene geometry, framing, camera, crop, background, objects, lighting, color, and composition. Do not copy the reference image framing, background, body, pose, clothing, or lighting. Do not add, remove, move, restyle, or otherwise alter anything outside the selected character face regions.""",
+            instruction);
     }
 
     /// <summary>

@@ -198,9 +198,146 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                 BuildWorkflow(model, sourceImageName, instruction, referenceImageNames),
             ImageEditorGraphKind.MergedCheckpoint =>
                 BuildAioMergedCheckpointWorkflow(model, sourceImageName, instruction, referenceImageNames),
+            ImageEditorGraphKind.QwenImage21Native =>
+                BuildQwenImage21EditWorkflow(model, sourceImageName, instruction, referenceImageNames),
             _ => throw new InvalidOperationException(
                 $"Image editor model '{model.ModelIdentifier}' has no editor graph kind configured. Set 'Editor Graph' for it in Model Manager (/model-manager).")
         };
+
+    /// <summary>
+    /// Qwen-Image-2.1 native edit graph: the source image and every reference travel through ONE
+    /// <c>TextEncodeQwenImage21</c> node that also returns the latent the sampler consumes. The source
+    /// occupies <c>images.image_1</c> (it is both the edit target and the latent's shape source) and
+    /// reference i occupies <c>images.image_{i+2}</c>. <c>QwenImage21Cache</c> sits between the UNET and
+    /// the sampler (prefix KV cache).
+    ///
+    /// Reference sub-inputs are declared as flat, dotted autogrow ids - the ONLY shape ComfyUI accepts.
+    /// Flat <c>image_N</c> kwargs raise a TypeError inside execute() and a hand-built <c>images</c> dict is
+    /// silently ignored, so a sloppy wiring would DROP every reference without failing; both were ruled
+    /// out on the host 2026-09-22. <c>resolution</c> is a pixel BUDGET, not a dimension.
+    /// </summary>
+    internal static JsonObject BuildQwenImage21EditWorkflow(
+        ResolvedImageEditorModel model,
+        string sourceImageName,
+        string instruction,
+        IReadOnlyList<string>? referenceImageNames = null)
+    {
+        var resolutionBudget = model.ResolutionBudget
+            ?? throw new InvalidOperationException(
+                $"Image editor model '{model.ModelIdentifier}' uses the Qwen-Image-2.1 native graph but has no reference "
+                + "resolution budget. Add 'Resolution' to its NativeMultiReference qualification in Model Manager (/model-manager).");
+
+        var encodeInputs = new JsonObject
+        {
+            ["clip"] = new JsonArray("3", 0),
+            ["vae"] = new JsonArray("4", 0),
+            ["prompt"] = instruction,
+            ["negative_prompt"] = string.Empty,
+            ["resolution"] = resolutionBudget,
+            ["images.image_1"] = new JsonArray("1", 0)
+        };
+
+        var wf = new JsonObject
+        {
+            ["1"] = new JsonObject
+            {
+                ["class_type"] = "LoadImage",
+                ["inputs"] = new JsonObject { ["image"] = sourceImageName }
+            },
+            ["2"] = new JsonObject
+            {
+                ["class_type"] = "UNETLoader",
+                ["inputs"] = new JsonObject { ["unet_name"] = model.DiffusionModel, ["weight_dtype"] = "default" }
+            },
+            ["3"] = new JsonObject
+            {
+                ["class_type"] = "CLIPLoader",
+                ["inputs"] = new JsonObject { ["clip_name"] = model.TextEncoder, ["type"] = "qwen_image", ["device"] = "default" }
+            },
+            ["4"] = new JsonObject
+            {
+                ["class_type"] = "VAELoader",
+                ["inputs"] = new JsonObject { ["vae_name"] = model.Vae }
+            },
+            ["5"] = new JsonObject
+            {
+                ["class_type"] = "QwenImage21Cache",
+                ["inputs"] = new JsonObject { ["model"] = new JsonArray("2", 0), ["device"] = "auto", ["dtype"] = "default" }
+            },
+            ["6"] = new JsonObject
+            {
+                ["class_type"] = "TextEncodeQwenImage21",
+                ["inputs"] = encodeInputs
+            },
+            ["7"] = new JsonObject
+            {
+                ["class_type"] = "KSampler",
+                ["inputs"] = new JsonObject
+                {
+                    ["seed"] = Random.Shared.NextInt64(long.MaxValue),
+                    ["steps"] = model.Steps,
+                    ["cfg"] = model.Cfg,
+                    ["sampler_name"] = model.Sampler,
+                    ["scheduler"] = model.Scheduler,
+                    ["denoise"] = model.Denoise,
+                    ["model"] = new JsonArray("5", 0),
+                    ["positive"] = new JsonArray("6", 0),
+                    ["negative"] = new JsonArray("6", 1),
+                    ["latent_image"] = new JsonArray("6", 2)
+                }
+            },
+            ["8"] = new JsonObject
+            {
+                ["class_type"] = "VAEDecode",
+                ["inputs"] = new JsonObject { ["samples"] = new JsonArray("7", 0), ["vae"] = new JsonArray("4", 0) }
+            },
+            ["9"] = new JsonObject
+            {
+                ["class_type"] = "SaveImage",
+                ["inputs"] = new JsonObject { ["images"] = new JsonArray("8", 0), ["filename_prefix"] = "dreamgen_app/qwen21-edit" }
+            }
+        };
+
+        if (referenceImageNames is { Count: > 0 })
+        {
+            for (var index = 0; index < referenceImageNames.Count; index++)
+            {
+                var nodeId = (20 + index).ToString();
+                wf[nodeId] = new JsonObject
+                {
+                    ["class_type"] = "LoadImage",
+                    ["inputs"] = new JsonObject { ["image"] = referenceImageNames[index] }
+                };
+                encodeInputs[$"images.image_{index + 2}"] = new JsonArray(nodeId, 0);
+            }
+        }
+
+        // Editor LoRA feeds the MODEL and the CLIP: wiring only the model branch would silently apply
+        // the LoRA to half the stack (the rule the 2511 editor path learned the hard way).
+        if (!string.IsNullOrWhiteSpace(model.LoraName))
+        {
+            var strength = model.LoraStrength
+                ?? throw new InvalidOperationException(
+                    $"Image editor model '{model.ModelIdentifier}' configures editor LoRA '{model.LoraName}' without an explicit strength.");
+
+            wf["17"] = new JsonObject
+            {
+                ["class_type"] = "LoraLoader",
+                ["inputs"] = new JsonObject
+                {
+                    ["lora_name"] = model.LoraName,
+                    ["strength_model"] = strength,
+                    ["strength_clip"] = strength,
+                    ["model"] = new JsonArray("5", 0),
+                    ["clip"] = new JsonArray("3", 0)
+                }
+            };
+            wf["7"]!["inputs"]!["model"] = new JsonArray("17", 0);
+            encodeInputs["clip"] = new JsonArray("17", 0);
+        }
+
+        return wf;
+    }
 
     /// <summary>
     /// Builds the Qwen-Image-Edit workflow for a merged AIO checkpoint

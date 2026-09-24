@@ -96,7 +96,8 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
             SELECT Id, CharacterProfileId, EditorModelId, UpscalerModelName, EnhanceTargetLongEdge,
                    EyeGateMaxAbsIrisDyPercent, QualityGateMinSharpness, CropHeadroomPercent, CropTargetAspect,
                    DeriveByMirrorThreeQuarterRight, DeriveByMirrorProfileRight, DeriveByMirrorThreeQuarterLeft,
-                   DeriveByMirrorProfileLeft, EyeToolPythonPath, UpdatedUtc, FrontModelId
+                   DeriveByMirrorProfileLeft, EyeToolPythonPath, UpdatedUtc, FrontModelId, AngleYawMinAbsPercent,
+                   BodyModelId, BodyImageSize
             FROM ReferenceWorkflowSettings WHERE Id = $id;
             """;
         command.Parameters.AddWithValue("$id", id.Trim());
@@ -114,16 +115,19 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 Id, CharacterProfileId, EditorModelId, UpscalerModelName, EnhanceTargetLongEdge,
                 EyeGateMaxAbsIrisDyPercent, QualityGateMinSharpness, CropHeadroomPercent, CropTargetAspect,
                 DeriveByMirrorThreeQuarterRight, DeriveByMirrorProfileRight, DeriveByMirrorThreeQuarterLeft,
-                DeriveByMirrorProfileLeft, EyeToolPythonPath, UpdatedUtc, FrontModelId)
+                DeriveByMirrorProfileLeft, EyeToolPythonPath, UpdatedUtc, FrontModelId, AngleYawMinAbsPercent,
+                BodyModelId, BodyImageSize)
             VALUES (
                 $id, $characterProfileId, $editorModelId, $upscalerModelName, $enhanceTargetLongEdge,
                 $eyeGate, $qualityGate, $cropHeadroom, $cropAspect,
-                $mirror3qr, $mirrorProfR, $mirror3ql, $mirrorProfL, $eyeToolPythonPath, $updatedUtc, $frontModelId)
+                $mirror3qr, $mirrorProfR, $mirror3ql, $mirrorProfL, $eyeToolPythonPath, $updatedUtc, $frontModelId,
+                $angleYawMinAbs, $bodyModelId, $bodyImageSize)
             ON CONFLICT(Id) DO UPDATE SET
                 EditorModelId = excluded.EditorModelId,
                 UpscalerModelName = excluded.UpscalerModelName,
                 EnhanceTargetLongEdge = excluded.EnhanceTargetLongEdge,
                 EyeGateMaxAbsIrisDyPercent = excluded.EyeGateMaxAbsIrisDyPercent,
+                AngleYawMinAbsPercent = excluded.AngleYawMinAbsPercent,
                 QualityGateMinSharpness = excluded.QualityGateMinSharpness,
                 CropHeadroomPercent = excluded.CropHeadroomPercent,
                 CropTargetAspect = excluded.CropTargetAspect,
@@ -133,6 +137,8 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 DeriveByMirrorProfileLeft = excluded.DeriveByMirrorProfileLeft,
                 EyeToolPythonPath = excluded.EyeToolPythonPath,
                 FrontModelId = excluded.FrontModelId,
+                BodyModelId = excluded.BodyModelId,
+                BodyImageSize = excluded.BodyImageSize,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
         command.Parameters.AddWithValue("$id", settings.Id.Trim());
@@ -151,6 +157,9 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
         command.Parameters.AddWithValue("$eyeToolPythonPath", (object?)settings.EyeToolPythonPath ?? DBNull.Value);
         command.Parameters.AddWithValue("$updatedUtc", settings.UpdatedUtc.ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$frontModelId", (object?)settings.FrontModelId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$angleYawMinAbs", settings.AngleYawMinAbsPercent);
+        command.Parameters.AddWithValue("$bodyModelId", (object?)settings.BodyModelId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$bodyImageSize", (object?)settings.BodyImageSize ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -196,7 +205,10 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                     DeriveByMirrorProfileLeft INTEGER NOT NULL DEFAULT 0,
                     EyeToolPythonPath TEXT NULL,
                     UpdatedUtc TEXT NOT NULL,
-                    FrontModelId TEXT NULL
+                    FrontModelId TEXT NULL,
+                    AngleYawMinAbsPercent REAL NOT NULL DEFAULT 5.0,
+                    BodyModelId TEXT NULL,
+                    BodyImageSize TEXT NULL
                 );
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
@@ -207,6 +219,29 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 await using var alter = connection.CreateCommand();
                 alter.CommandText = "ALTER TABLE ReferenceWorkflowSettings ADD COLUMN FrontModelId TEXT NULL;";
                 await alter.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            if (!settingsColumns.Contains("AngleYawMinAbsPercent"))
+            {
+                // 5.0 is the seed's starting value written into the column for existing rows; the value in
+                // force is always the persisted one.
+                await using var alterYaw = connection.CreateCommand();
+                alterYaw.CommandText = "ALTER TABLE ReferenceWorkflowSettings ADD COLUMN AngleYawMinAbsPercent REAL NOT NULL DEFAULT 5.0;";
+                await alterYaw.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            if (!settingsColumns.Contains("BodyModelId"))
+            {
+                await using var alterBodyModel = connection.CreateCommand();
+                alterBodyModel.CommandText = "ALTER TABLE ReferenceWorkflowSettings ADD COLUMN BodyModelId TEXT NULL;";
+                await alterBodyModel.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            if (!settingsColumns.Contains("BodyImageSize"))
+            {
+                await using var alterBodySize = connection.CreateCommand();
+                alterBodySize.CommandText = "ALTER TABLE ReferenceWorkflowSettings ADD COLUMN BodyImageSize TEXT NULL;";
+                await alterBodySize.ExecuteNonQueryAsync(cancellationToken);
             }
         }
 
@@ -240,8 +275,10 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                     Id, CharacterProfileId, EditorModelId, UpscalerModelName, EnhanceTargetLongEdge,
                     EyeGateMaxAbsIrisDyPercent, QualityGateMinSharpness, CropHeadroomPercent, CropTargetAspect,
                     DeriveByMirrorThreeQuarterRight, DeriveByMirrorProfileRight, DeriveByMirrorThreeQuarterLeft,
-                    DeriveByMirrorProfileLeft, EyeToolPythonPath, UpdatedUtc, FrontModelId)
-                VALUES ('global', NULL, NULL, NULL, 1024, 1.5, 250, 8, 1.0, 1, 1, 0, 0, NULL, $updatedUtc, NULL);
+                    DeriveByMirrorProfileLeft, EyeToolPythonPath, UpdatedUtc, FrontModelId, AngleYawMinAbsPercent,
+                    BodyImageSize)
+                VALUES ('global', NULL, NULL, NULL, 1024, 1.5, 250, 8, 1.0, 1, 1, 0, 0, NULL, $updatedUtc, NULL, 5.0,
+                        '1024x1536');
                 """;
             settingsCommand.Parameters.AddWithValue("$updatedUtc", now);
             await settingsCommand.ExecuteNonQueryAsync(cancellationToken);
@@ -287,6 +324,104 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 Key = "identity.angle.profile.right",
                 WorkflowStep = "Angles",
                 Body = "Turn the person's head to a full profile so the nose points toward the RIGHT side of the image and the right side of the face is shown in full profile. Keep the exact same face, hair, facial features, identity, bare neck and bare shoulders, and lighting unchanged. Do not add any clothing. Keep the identical crop, framing, zoom and head size."
+            },
+
+            // B-122 Phase 0 — the body target's keys. These are the same store, a body namespace: the body
+            // pipeline resolves its prompt by key exactly as the face pipeline does, so no prompt body is
+            // embedded in code. The card line ({BodyCard}) is the invariant body description and is pasted
+            // verbatim, never paraphrased.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.ClothedAcquire,
+                WorkflowStep = "BodyClothedBase",
+                Body = "Full-body photograph of {CharacterName}, head to feet, standing straight and facing the camera: {BodyCard}. Wearing plain everyday clothing. Neutral background, even lighting, sharp focus, natural skin texture, the whole body in frame and unobstructed."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.UnclothedAcquire,
+                WorkflowStep = "BodyUnclothedBase",
+                Body = "Full-body photograph of {CharacterName}, head to feet, standing straight and facing the camera: {BodyCard}. No clothing covering the body. Neutral background, even lighting, sharp focus, natural skin texture, the whole body in frame and unobstructed."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.AngleThreeQuarterLeft,
+                WorkflowStep = "BodyAngles",
+                Body = "Rotate the person's whole body to a three-quarter view so they face toward the LEFT side of the image. Keep the identical body, proportions, skin, body hair and marks, the identical head-to-feet framing, zoom and lighting. Do not change the body shape or the set."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.AngleThreeQuarterRight,
+                WorkflowStep = "BodyAngles",
+                Body = "Rotate the person's whole body to a three-quarter view so they face toward the RIGHT side of the image. Keep the identical body, proportions, skin, body hair and marks, the identical head-to-feet framing, zoom and lighting. Do not change the body shape or the set."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.AngleProfileLeft,
+                WorkflowStep = "BodyAngles",
+                Body = "Rotate the person's whole body to a full profile facing toward the LEFT side of the image, seen from the side. Keep the identical body, proportions, skin, body hair and marks, the identical head-to-feet framing, zoom and lighting. Do not change the body shape or the set."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.AngleProfileRight,
+                WorkflowStep = "BodyAngles",
+                Body = "Rotate the person's whole body to a full profile facing toward the RIGHT side of the image, seen from the side. Keep the identical body, proportions, skin, body hair and marks, the identical head-to-feet framing, zoom and lighting. Do not change the body shape or the set."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.ExtendedView,
+                WorkflowStep = "BodyExtended",
+                Body = "Turn the person's whole body to the requested rotation and body position while keeping the identical body, proportions, skin, body hair and marks. Keep the identical head-to-feet framing, zoom, lighting and set. Do not change the body shape."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.Normalize,
+                WorkflowStep = "BodyNormalize",
+                Body = "Keep the pose, position, framing, lighting and background exactly as they are and align only the body to this description: {BodyCard}. Do not change the pose or the composition."
+            },
+
+            // The ANGLE RENDER camera clauses. These are appended to the compiled body prompt when an angle is
+            // RENDERED from an accepted body rather than rotated out of it, and they say where the camera is — the
+            // geometry of the view — because the committed angle skeleton supplies the pose and the accepted body
+            // supplies the build. Measured 2026-09-23: this wording, with those two references, is what produced a
+            // true three-quarter and a true edge-on profile (cases body-angle-34-*, body-profile-*).
+            //
+            // They are deliberately SHORT and deliberately do NOT restate the framing or use {CharacterName}: the
+            // combined text is validated as one body prompt, whose ceiling is 800 characters (§2.2) and which forbids
+            // a name (§2.3 rule 2). A long clause made every angle render exceed the ceiling and refuse — measured
+            // 2026-09-23 on the live build: 563-char body prompt + 328-char clause = 891 > 800.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.RenderThreeQuarterLeft,
+                WorkflowStep = "BodyAngleRender",
+                Body = "Camera slightly to the front-left, body turned three-quarters away, left side nearer the camera, facing left of frame."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.RenderThreeQuarterRight,
+                WorkflowStep = "BodyAngleRender",
+                Body = "Camera slightly to the front-right, body turned three-quarters away, right side nearer the camera, facing right of frame."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.RenderProfileLeft,
+                WorkflowStep = "BodyAngleRender",
+                Body = "Camera directly to the left, body edge-on in full left profile, nose pointing to the left of frame."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.RenderProfileRight,
+                WorkflowStep = "BodyAngleRender",
+                Body = "Camera directly to the right, body edge-on in full right profile, nose pointing to the right of frame."
+            },
+            // The BACK view's clause (operator request, 2026-09-24). "No face is visible" is not decoration: the accepted
+            // body reference is the FRONT, so without that sentence the model is free to turn the head and present the
+            // face it was shown. Measured: with this wording the render is a true back view with no face (proof case
+            // body-back-front-plus-skeleton).
+            new ImageWorkflowPromptTemplate
+            {
+                Key = CharacterBodyWorkflowKeys.RenderBack,
+                WorkflowStep = "BodyAngleRender",
+                Body = "Camera directly behind the subject in a full back view: the back of the head, the back, the backside and the backs of the legs, the face not visible."
             }
         };
 
@@ -327,7 +462,10 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
         DeriveByMirrorProfileLeft = reader.GetInt32(12) != 0,
         EyeToolPythonPath = reader.IsDBNull(13) ? null : reader.GetString(13),
         UpdatedUtc = ParseUtc(reader.GetString(14)),
-        FrontModelId = reader.IsDBNull(15) ? null : reader.GetString(15)
+        FrontModelId = reader.IsDBNull(15) ? null : reader.GetString(15),
+        AngleYawMinAbsPercent = reader.GetDouble(16),
+        BodyModelId = reader.IsDBNull(17) ? null : reader.GetString(17),
+        BodyImageSize = reader.IsDBNull(18) ? null : reader.GetString(18)
     };
 
     private static void ValidateTemplate(ImageWorkflowPromptTemplate template)

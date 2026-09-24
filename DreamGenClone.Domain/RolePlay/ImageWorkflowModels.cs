@@ -68,6 +68,13 @@ public sealed class ReferenceWorkflowSettings
 
     public double EyeGateMaxAbsIrisDyPercent { get; set; } = 1.5;
 
+    /// <summary>
+    /// The smallest absolute nose offset (%) that still counts as "the head is turned" for the angle gate.
+    /// Below it the render is treated as facing the camera, which violates every 3/4 and profile view. Seeded
+    /// by the migration; the value is never assumed in code beyond this starting point.
+    /// </summary>
+    public double AngleYawMinAbsPercent { get; set; } = 5.0;
+
     public int QualityGateMinSharpness { get; set; } = 250;
 
     /// <summary>
@@ -93,6 +100,24 @@ public sealed class ReferenceWorkflowSettings
     public bool DeriveByMirrorProfileLeft { get; set; }
 
     public string? EyeToolPythonPath { get; set; }
+
+    /// <summary>
+    /// The image model used for body-target reference acquisition (B-122 Phase 0: the clothed and unclothed
+    /// body bases and their canonical views). Required wherever a body action resolves it; no model is assumed,
+    /// so an unset value fails fast naming <c>BodyModelId</c>.
+    /// </summary>
+    public string? BodyModelId { get; set; }
+
+    /// <summary>
+    /// The size every body-target reference is rendered at (B-122 E-2), for example <c>1024x1536</c>.
+    /// <para>
+    /// It lives here rather than being typed per view because it is a quality decision about the whole body set —
+    /// a full-body frame needs portrait proportions the model can actually draw, and every view of one body must use
+    /// the SAME size or the views are not comparable. Unset means unset: nothing invents a size, and a body view
+    /// action fails fast naming this setting.
+    /// </para>
+    /// </summary>
+    public string? BodyImageSize { get; set; }
 
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 

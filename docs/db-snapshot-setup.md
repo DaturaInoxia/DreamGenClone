@@ -24,7 +24,7 @@ The repo tracks exactly **one** database file: `DreamGenClone.Web/data/dreamgenc
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\helpers\dbq.ps1 b100-analyzer-configure
    ```
-   This idempotently assigns `DeepSeek / deepseek-v4-flash` to `RolePlaySceneBeatAnalyzer` and persists all required analyzer settings. It fails without changing the database if that enabled provider/model pair is unavailable or ambiguous.
+   This idempotently assigns the DeepSeek flash model to `RolePlaySceneBeatAnalyzer` and persists all required analyzer settings. It also converges that model row onto the identifier DeepSeek actually reports back (`deepseek-flash`), rewriting the legacy alias `deepseek-v4-flash` that older snapshots carry — DeepSeek accepts the alias as a request but always reports the canonical name, and the structured-text client requires an exact match. It fails without changing the database if that enabled provider/model pair is unavailable or ambiguous.
 4. Start the app:
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\helpers\start-webapp-dev-clean.ps1

@@ -132,6 +132,108 @@ public sealed class SceneImageResolutionTests
     }
 
     [Fact]
+    public async Task ListSceneImageModels_IdentityCapableOnly_IncludesAModelWhoseOnlyIdentityRouteIsItsOwnReferenceSlots()
+    {
+        var (service, _, models, providers) = Build();
+        SeedLocalComfyUiProvider(providers);
+        models.Add(new RegisteredModel
+        {
+            Id = "qwen-native",
+            ProviderId = LocalProviderId,
+            ModelIdentifier = "qwen_image_2.1_int8_convrot.safetensors",
+            DisplayName = "Qwen-Image-2.1 (Local ComfyUI)",
+            ModelKind = ModelKind.Image,
+            IsEnabled = true,
+            SceneImageModelFamily = SceneImageModelFamily.QwenImage21,
+            PromptDialect = SceneImagePromptDialect.NaturalLanguage,
+            SupportedVisualStrategiesJson = """["NativeMultiReference"]""",
+            CapabilityQualificationsJson =
+                """[{"Strategy":"NativeMultiReference","EndpointId":"prov-local","Qualified":true,"ProofId":"proof-1"}]"""
+        });
+
+        var choices = await service.ListSceneImageModelsAsync(identityCapableOnly: true, CancellationToken.None);
+
+        var choice = Assert.Single(choices);
+        Assert.Equal("qwen-native", choice.ModelId);
+        Assert.True(choice.HasIdentity);
+
+        // The choice carries the strategies this model can actually execute, so a reference panel built from it offers
+        // the model's own reference route instead of a list frozen per page (reported 2026-09-24: with 2.1 selected
+        // "the identity is not available to allow but it should be").
+        Assert.Equal(["TextOnly", "NativeMultiReference"], choice.QualifiedStrategies);
+    }
+
+    [Fact]
+    public async Task ListSceneImageModels_CarriesOnlyTheStrategiesTheEndpointCanExecute()
+    {
+        var (service, _, models, providers) = Build();
+        SeedLocalComfyUiProvider(providers);
+
+        // Declared but NOT qualified: the declaration alone must not reach the picker.
+        models.Add(new RegisteredModel
+        {
+            Id = "posed-sdxl",
+            ProviderId = LocalProviderId,
+            ModelIdentifier = "juggernautXL_ragnarok.safetensors",
+            DisplayName = "Juggernaut XL Ragnarok (Local ComfyUI)",
+            ModelKind = ModelKind.Image,
+            IsEnabled = true,
+            SceneImageModelFamily = SceneImageModelFamily.Sdxl,
+            PromptDialect = SceneImagePromptDialect.SdxlNaturalLanguage,
+            SupportedVisualStrategiesJson = """["PoseControlNet","ReferenceConditioning","WardrobeTryOn"]""",
+            CapabilityQualificationsJson =
+                """[{"Strategy":"PoseControlNet","EndpointId":"prov-local","Qualified":true,"ProofId":"pose-proof"},{"Strategy":"ReferenceConditioning","EndpointId":"prov-local","Qualified":true,"ProofId":"identity-proof"}]"""
+        });
+
+        var all = await service.ListSceneImageModelsAsync(identityCapableOnly: false, CancellationToken.None);
+        var posed = all.Single(choice => choice.ModelId == "posed-sdxl");
+
+        Assert.Equal(["TextOnly", "PoseControlNet", "ReferenceConditioning"], posed.QualifiedStrategies);
+        Assert.DoesNotContain("WardrobeTryOn", posed.QualifiedStrategies);
+    }
+
+    [Fact]
+    public async Task ListSceneImageModels_IdentityCapableOnly_ExcludesAModelWithNoQualifiedIdentityRoute()
+    {
+        var (service, _, models, providers) = Build();
+        SeedLocalComfyUiProvider(providers);
+        models.Add(new RegisteredModel
+        {
+            Id = "no-identity",
+            ProviderId = LocalProviderId,
+            ModelIdentifier = "pony_v6.safetensors",
+            DisplayName = "Pony V6 XL (Local ComfyUI)",
+            ModelKind = ModelKind.Image,
+            IsEnabled = true,
+            SceneImageModelFamily = SceneImageModelFamily.Pony,
+            PromptDialect = SceneImagePromptDialect.PonyV6Tags,
+            SupportedVisualStrategiesJson = "[]",
+            CapabilityQualificationsJson = "[]"
+        });
+
+        Assert.Empty(await service.ListSceneImageModelsAsync(identityCapableOnly: true, CancellationToken.None));
+
+        var all = await service.ListSceneImageModelsAsync(identityCapableOnly: false, CancellationToken.None);
+        var listed = Assert.Single(all);
+        Assert.False(listed.HasIdentity);
+    }
+
+    private const string LocalProviderId = "prov-local";
+
+    private static void SeedLocalComfyUiProvider(FakeProviderRepository providers) => providers.Add(new Provider
+    {
+        Id = LocalProviderId,
+        Name = "Local ComfyUI (WOOD-GAME-MAIN 5080)",
+        ProviderType = ProviderType.LmStudio,
+        BaseUrl = "http://192.168.0.11:8188",
+        ImageCapability = ImageProviderCapability.TextAndImage,
+        ImageGenerationPath = string.Empty,
+        ContentPolicy = ImageContentPolicy.AdultAllowed,
+        ImageProtocol = ImageProtocol.ComfyUi,
+        IsEnabled = true
+    });
+
+    [Fact]
     public async Task ResolveImageModel_NoFunctionDefault_FailsFast()
     {
         var (service, _, _, _) = Build();

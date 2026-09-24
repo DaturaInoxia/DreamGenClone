@@ -19,6 +19,12 @@ Reports, per image:
     vertical distance as head_height_px, and the full face_box (min/max over all
     landmarks). NOTE FaceMesh stops at the hairline, so landmark 10 is the highest
     FACIAL point, not the crown of the head (hair above it is not measured).
+  - yaw evidence: nose_tip (landmark 1) and nose_offset_pct = (nose_tip_x -
+    face_box_centre_x) / face_box_width * 100, SIGNED in image space: NEGATIVE means
+    the nose points toward the LEFT of the image, POSITIVE toward the RIGHT. This is
+    the one number the identity studio's angle gate asserts (Profile/ThreeQuarter
+    Left must be negative, Right must be positive); it is deliberately NOT derived
+    from iris/interocular distance, which is invalid under yaw.
 
 Draws markers at iris + eye-corner centers on an annotated copy saved to
 <repo>/artifacts/tmp/eye-output/<stem>_iris.png (GIT-IGNORED) so placement is
@@ -58,6 +64,8 @@ IRIS_R = [473, 474, 475, 476, 477]
 # head-extent landmarks (10 is the hairline, not the crown - see module docstring)
 FOREHEAD_TOP = 10
 CHIN = 152
+# nose tip, for the signed yaw evidence (image-space sign, see module docstring)
+NOSE_TIP = 1
 
 
 def mid(a, b):
@@ -89,6 +97,15 @@ def analyze(path):
     chin = pt(CHIN)
     xs = [lm[i].x * w for i in range(len(lm))]
     ys = [lm[i].y * h for i in range(len(lm))]
+    face_box = (round(min(xs)), round(min(ys)),
+                round(max(xs) - min(xs)), round(max(ys) - min(ys)))
+    # Yaw evidence: the nose tip's horizontal offset from the face-box centre, as a % of face-box
+    # width. Signed in IMAGE space (negative = nose toward image-left, positive = image-right), so a
+    # caller can assert the view convention without knowing how the model was prompted. Deliberately
+    # not derived from iris/interocular distance: those are invalid under yaw.
+    nose = pt(NOSE_TIP)
+    face_centre_x = face_box[0] + face_box[2] / 2.0
+    nose_offset_pct = (nose[0] - face_centre_x) / face_box[2] * 100.0
     info = {
         "iris_L": (round(li[0]), round(li[1])),
         "iris_R": (round(ri[0]), round(ri[1])),
@@ -102,8 +119,9 @@ def analyze(path):
         "forehead_top": (round(forehead[0]), round(forehead[1])),
         "chin": (round(chin[0]), round(chin[1])),
         "head_height_px": round(chin[1] - forehead[1], 1),
-        "face_box": (round(min(xs)), round(min(ys)),
-                     round(max(xs) - min(xs)), round(max(ys) - min(ys))),
+        "face_box": face_box,
+        "nose_tip": (round(nose[0]), round(nose[1])),
+        "nose_offset_pct": round(nose_offset_pct, 2),
     }
     # annotate
     for i in IRIS_L:
@@ -121,11 +139,17 @@ def analyze(path):
     cv2.circle(img, (int(chin[0]), int(chin[1])), 9, (0, 165, 255), 3)
     cv2.line(img, (int(forehead[0]), int(forehead[1])), (int(chin[0]), int(chin[1])),
              (0, 165, 255), 2)
+    # yaw evidence: the face-box centre midline and the nose tip, so the sign can be checked by eye
+    cv2.line(img, (int(face_centre_x), int(min(ys))), (int(face_centre_x), int(max(ys))),
+             (255, 255, 0), 2)
+    cv2.circle(img, (int(nose[0]), int(nose[1])), 9, (0, 255, 255), 3)
     cv2.line(img, (0, int(le[1])), (w - 1, int(le[1])), (0, 0, 255), 3)
     cv2.line(img, (int(re[0]) - 20, int(re[1])), (int(re[0]) + 20, int(re[1])),
              (255, 0, 255), 3)
     cv2.putText(img, f"iris dy {info['iris_dy_pct']}%  eye dy {info['eye_dy_pct']}%",
                 (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
+    cv2.putText(img, f"nose {info['nose_offset_pct']}% ({'image-left' if info['nose_offset_pct'] < 0 else 'image-right'})",
+                (30, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 3)
     stem = os.path.splitext(os.path.basename(path))[0]
     out_p = os.path.join(OUT, f"{stem}_iris.png")
     cv2.imwrite(out_p, img)
@@ -139,7 +163,7 @@ def main():
     paths = [a for a in args if a != "--json"]
     if not as_json:
         print(f"{'image':10} {'irisL':>11} {'irisR':>11} {'irisDy%':>9} {'eyeL':>11} "
-              f"{'eyeR':>11} {'eyeDy%':>8} {'interoc':>8}")
+              f"{'eyeR':>11} {'eyeDy%':>8} {'interoc':>8} {'noseOffset%':>12}")
     for path in paths:
         stem = os.path.splitext(os.path.basename(path))[0]
         info, err = analyze(path)
@@ -155,17 +179,19 @@ def main():
                 "chin": info["chin"] if info else None,
                 "head_height_px": info["head_height_px"] if info else None,
                 "face_box": info["face_box"] if info else None,
+                "nose_tip": info["nose_tip"] if info else None,
+                "nose_offset_pct": info["nose_offset_pct"] if info else None,
                 "annot": info.get("annot") if info else None,
             }))
             continue
         if err:
             print(f"{stem:10} {'-':>11} {'-':>11} {'-':>9} {'-':>11} {'-':>11} "
-                  f"{'-':>8} {'-':>8}  {err}")
+                  f"{'-':>8} {'-':>8} {'-':>12}  {err}")
             continue
         print(f"{stem:10} {str(info['iris_L']):>11} {str(info['iris_R']):>11} "
               f"{str(info['iris_dy_pct']):>9} {str(info['eyeL']):>11} "
               f"{str(info['eyeR']):>11} {str(info['eye_dy_pct']):>8} "
-              f"{str(info['interoc']):>8}")
+              f"{str(info['interoc']):>8} {str(info['nose_offset_pct']):>12}")
 
 
 if __name__ == "__main__":

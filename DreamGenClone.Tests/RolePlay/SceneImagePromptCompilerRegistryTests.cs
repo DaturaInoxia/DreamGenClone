@@ -15,11 +15,13 @@ public sealed class SceneImagePromptCompilerRegistryTests
         var pony = new PonySceneImagePromptCompiler(new PonySceneImagePromptBuilder());
         var sdxl = new SdxlSceneImagePromptCompiler(new SdxlSceneImagePromptBuilder());
         var flux = new FluxSceneImagePromptCompiler(new SdxlSceneImagePromptBuilder());
-        var registry = new SceneImagePromptCompilerRegistry([pony, sdxl, flux]);
+        var qwen21 = new QwenImage21SceneImagePromptCompiler(new SdxlSceneImagePromptBuilder());
+        var registry = new SceneImagePromptCompilerRegistry([pony, sdxl, flux, qwen21]);
 
         Assert.Same(pony, registry.Resolve(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags));
         Assert.Same(sdxl, registry.Resolve(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage));
         Assert.Same(flux, registry.Resolve(SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage));
+        Assert.Same(qwen21, registry.Resolve(SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage));
     }
 
     [Fact]
@@ -47,6 +49,99 @@ public sealed class SceneImagePromptCompilerRegistryTests
             registry.Resolve(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags));
 
         Assert.Contains("Multiple scene-image prompt compilers", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every compiler must name the BUILDER DIALECT it needs by concrete type. Two builders implement
+    /// <c>ISceneImageLLMPromptBuilder</c> (Pony tags and natural language), so DI can bind that interface to only
+    /// one of them - and it is bound to the Pony tag builder. A compiler that injects the interface therefore
+    /// compiles its family's prompt in whatever dialect DI happened to pick. That is exactly what happened to
+    /// Qwen-Image-2.1 and the API family (reported 2026-09-24: with 2.1 selected "Generate Prompt" returned
+    /// <c>score_9, score_8_up, ... rating_explicit, 1girl, ...</c> into the natural-language draft). This guard
+    /// keeps the trap from returning for any future family.
+    /// </summary>
+    [Fact]
+    public void NoCompiler_DependsOnTheAmbiguousPromptBuilderInterface()
+    {
+        var compilerTypes = typeof(SceneImagePromptCompilerRegistry).Assembly
+            .GetTypes()
+            .Where(type => type is { IsClass: true, IsAbstract: false })
+            .Where(type => typeof(ISceneImagePromptCompiler).IsAssignableFrom(type))
+            .ToList();
+
+        Assert.NotEmpty(compilerTypes);
+
+        foreach (var compilerType in compilerTypes)
+        {
+            foreach (var constructor in compilerType.GetConstructors())
+            {
+                Assert.DoesNotContain(
+                    constructor.GetParameters(),
+                    parameter => parameter.ParameterType == typeof(ISceneImageLLMPromptBuilder));
+            }
+        }
+    }
+
+    /// <summary>
+    /// The natural-language families (Qwen-Image-2.1 and API image models) must compile the natural-language
+    /// photography brief, and must not carry the Pony tag vocabulary, regardless of which builder DI hands out.
+    /// </summary>
+    [Fact]
+    public void NaturalLanguageFamilies_CompileTheBrief_NotPonyTags()
+    {
+        var naturalLanguageBuilder = new SdxlSceneImagePromptBuilder();
+        var ponyBuilder = new PonySceneImagePromptBuilder();
+        var qwen21 = new QwenImage21SceneImagePromptCompiler(naturalLanguageBuilder);
+        var api = new ApiSceneImagePromptCompiler(naturalLanguageBuilder);
+
+        // Wiring proof by identity: neither compiler can hold the tag builder.
+        Assert.Same(naturalLanguageBuilder, qwen21.PromptBuilder);
+        Assert.Same(naturalLanguageBuilder, api.PromptBuilder);
+        Assert.NotSame(ponyBuilder, qwen21.PromptBuilder);
+        Assert.NotSame(ponyBuilder, api.PromptBuilder);
+
+        var moment = CreateMoment();
+        var selected = new RolePlayInteraction
+        {
+            Id = "interaction-1",
+            ActorName = "Becky",
+            Content = moment.VisualDescription
+        };
+        var fullTurn = new FullTurnContext
+        {
+            Interactions = [selected],
+            SelectedInteraction = selected
+        };
+        var session = new RolePlaySession { Id = "session-1", Title = "Compiler dialect proof" };
+        var state = new AdaptiveScenarioState
+        {
+            CurrentPhase = NarrativePhase.BuildUp,
+            CurrentSceneLocation = moment.Location,
+            CurrentTimeOfDay = TimeOfDay.Evening
+        };
+        var settings = new SceneImageStudioSettings { Style = "cinematic", ImageSize = "1024x1024" };
+
+        var expected = naturalLanguageBuilder.BuildMessages(
+            session, fullTurn, state, settings, ImageContentPolicy.AdultAllowed,
+            null, null, selectedBeat: moment, pov: SceneImagePovFramer.Omniscient);
+        var pony = ponyBuilder.BuildMessages(
+            session, fullTurn, state, settings, ImageContentPolicy.AdultAllowed,
+            null, null, selectedBeat: moment, pov: SceneImagePovFramer.Omniscient);
+
+        // The drafted dialect, not the render workflow, is what went wrong: the tag system prompt and the brief
+        // system prompt must differ, and the natural-language families must produce the brief.
+        Assert.NotEqual(pony.SystemPrompt, expected.SystemPrompt);
+        Assert.Contains("score_9", pony.SystemPrompt, StringComparison.Ordinal);
+
+        foreach (var compiler in new ISceneImagePromptCompiler[] { qwen21, api })
+        {
+            var messages = compiler.PromptBuilder.BuildMessages(
+                session, fullTurn, state, settings, ImageContentPolicy.AdultAllowed,
+                null, null, selectedBeat: moment, pov: SceneImagePovFramer.Omniscient);
+
+            Assert.Equal(expected.SystemPrompt, messages.SystemPrompt);
+            Assert.Equal(expected.UserPrompt, messages.UserPrompt);
+        }
     }
 
     [Fact]

@@ -9,6 +9,7 @@ public sealed class SceneImageModelFamilyTests
     [InlineData(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags)]
     [InlineData(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage)]
     [InlineData(SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage)]
+    [InlineData(SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage)]
     public void IsCompatible_RegisteredPair_ReturnsTrue(
         SceneImageModelFamily family,
         SceneImagePromptDialect dialect)
@@ -21,6 +22,8 @@ public sealed class SceneImageModelFamilyTests
     [InlineData(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.PonyV6Tags)]
     [InlineData(SceneImageModelFamily.Unknown, SceneImagePromptDialect.PonyV6Tags)]
     [InlineData(SceneImageModelFamily.Pony, SceneImagePromptDialect.Unknown)]
+    [InlineData(SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.FluxNaturalLanguage)]
+    [InlineData(SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.PonyV6Tags)]
     public void IsCompatible_UnregisteredPair_ReturnsFalse(
         SceneImageModelFamily family,
         SceneImagePromptDialect dialect)
@@ -41,6 +44,7 @@ public sealed class SceneImageModelFamilyTests
     [InlineData(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
     [InlineData(SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
     [InlineData(SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
+    [InlineData(SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
     public void PromptStyleResolver_MapsFamilyDialectToStyle(
         SceneImageModelFamily family,
         SceneImagePromptDialect dialect,

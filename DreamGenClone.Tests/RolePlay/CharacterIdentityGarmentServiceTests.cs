@@ -3,6 +3,7 @@ using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 
@@ -114,7 +115,7 @@ public sealed class CharacterIdentityGarmentServiceTests
     public async Task ResolveGarmentSource_RequiresACompletedFrontStep()
     {
         using var fixture = await Fixture.CreateAsync();
-        var build = await fixture.Builds.CreateBuildAsync("char-1", null);
+        var build = await fixture.Builds.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
             () => fixture.Service.ResolveGarmentSourceAsync(build.Id));
@@ -139,8 +140,10 @@ public sealed class CharacterIdentityGarmentServiceTests
             => Task.FromResult(_images.TryGetValue(imageId, out var image) ? image : null);
 
         public Task<SceneAsset> CreateAssetAsync(string name, SceneAssetType type, string? characterProfileId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<SceneAssetImage> AddGeneratedImageAsync(string assetId, string prompt, string modelId, string imageSize, CancellationToken cancellationToken = default, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null, string? candidateBatchId = null) => throw new NotSupportedException();
+        public Task<SceneAssetImage> AddGeneratedImageAsync(string assetId, string prompt, string modelId, string imageSize, CancellationToken cancellationToken = default, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null, string? candidateBatchId = null, SceneAssetImageGenerationOptions? options = null) => throw new NotSupportedException();
         public Task<SceneAssetImage> AddUploadedImageAsync(string assetId, string fileName, Stream content, CancellationToken cancellationToken = default, string? candidateBatchId = null) => throw new NotSupportedException();
+
+        public Task<SceneAssetImage> AddDerivedImageAsync(string assetId, string sourceImageId, MediaEditOperationKind operation, string fileName, Stream content, CancellationToken cancellationToken = default, string? candidateBatchId = null) => throw new NotSupportedException();
         public Task<SceneAssetImage> EnqueueImageEditAsync(string assetId, string sourceImageId, string editPrompt, string modelId, CancellationToken cancellationToken = default, string? candidateBatchId = null, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null) => throw new NotSupportedException();
         public Task<IReadOnlyList<SceneAssetImage>> ListImagesAsync(string assetId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<SceneAssetImage>> ListImagesByCandidateBatchAsync(string candidateBatchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -211,7 +214,10 @@ public sealed class CharacterIdentityGarmentServiceTests
             assets.Add(FrontImageId);
 
             var builds = new CharacterIdentityBuildService(
-                buildRepo, assets, Microsoft.Extensions.Logging.Abstractions.NullLogger<CharacterIdentityBuildService>.Instance);
+                buildRepo,
+                assets,
+                new CharacterIdentityStepPlanService(buildRepo),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<CharacterIdentityBuildService>.Instance);
             var templates = new ImageWorkflowTemplateService(templateRepo);
 
             var service = new CharacterIdentityGarmentService(buildRepo, templates, assets);
@@ -229,7 +235,7 @@ public sealed class CharacterIdentityGarmentServiceTests
         /// <summary>Front completed, Validate skipped → GarmentRemoval is the current step.</summary>
         public async Task<CharacterIdentityBuild> StartBuildAtGarmentRemovalAsync()
         {
-            var build = await Builds.CreateBuildAsync("char-1", null);
+            var build = await Builds.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
             await Builds.CompleteStepAsync(
                 build.Id,
                 CharacterIdentityBuildStep.Front,

@@ -42,12 +42,23 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
         => _repository.ListAssetsAsync(packId, cancellationToken);
 
     public async Task<CharacterImageIdentityPack> CreateDraftPackAsync(
-        string characterProfileId, CancellationToken cancellationToken = default)
+        string characterProfileId,
+        CharacterImageIdentityPackScope scope,
+        CancellationToken cancellationToken = default)
     {
+        RequireScope(scope);
         var packs = await _repository.ListPacksAsync(characterProfileId, cancellationToken);
         var existingDraft = packs.FirstOrDefault(p => p.Status == CharacterImageIdentityPackStatus.Draft);
         if (existingDraft is not null)
         {
+            if (!ScopeCovers(existingDraft.PackScope, scope))
+            {
+                throw new InvalidOperationException(
+                    $"Draft identity pack '{existingDraft.Id}' is {existingDraft.PackScope}, which does not cover the "
+                    + $"requested {scope}. Creating the draft again never raises it: raise it explicitly with "
+                    + "SetDraftPackScopeAsync, naming the canonical full-body asset.");
+            }
+
             return existingDraft;
         }
 
@@ -59,13 +70,92 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
 
         var pack = new CharacterImageIdentityPack
         {
-            CharacterProfileId = characterProfileId,
+            CharacterTemplateId = characterProfileId,
             Version = 1,
-            Status = CharacterImageIdentityPackStatus.Draft
+            Status = CharacterImageIdentityPackStatus.Draft,
+            PackScope = scope
         };
         var created = await _repository.UpsertDraftAsync(pack, cancellationToken);
-        _logger.LogInformation("Created identity pack draft {PackId} v{Version} for character {CharacterId}", created.Id, created.Version, characterProfileId);
+        _logger.LogInformation("Created identity pack draft {PackId} v{Version} ({Scope}) for character {CharacterId}", created.Id, created.Version, created.PackScope, characterProfileId);
         return created;
+    }
+
+    /// <summary>
+    /// Scope and canonical-full-body pointer are draft-time data: <c>ApproveAsync</c> writes neither, so a pack
+    /// that claims to be body-complete must already carry both before approval. This is the ONE way to raise a
+    /// draft's scope, and it refuses to narrow one — a pack holding full-body references is body-complete by
+    /// definition, and weakening the claim would be a silent scope change.
+    /// </summary>
+    public async Task<CharacterImageIdentityPack> SetDraftPackScopeAsync(
+        string packId,
+        CharacterImageIdentityPackScope scope,
+        string? canonicalFullBodyAssetId,
+        CancellationToken cancellationToken = default)
+    {
+        RequireScope(scope);
+        var pack = await _repository.GetPackAsync(packId, cancellationToken)
+            ?? throw new InvalidOperationException($"Identity pack '{packId}' was not found.");
+        if (pack.Status != CharacterImageIdentityPackStatus.Draft)
+        {
+            throw new InvalidOperationException(
+                $"Identity pack '{pack.Id}' is {pack.Status}; only a draft pack can change scope. Supersede it to "
+                + "create an editable draft, and promote into that.");
+        }
+
+        if (!ScopeCovers(scope, pack.PackScope))
+        {
+            throw new InvalidOperationException(
+                $"Identity pack '{pack.Id}' is {pack.PackScope} and cannot be narrowed to {scope}: a pack that "
+                + "carries full-body references is a body-complete pack.");
+        }
+
+        if (scope == CharacterImageIdentityPackScope.FaceOnly)
+        {
+            if (!string.IsNullOrWhiteSpace(canonicalFullBodyAssetId))
+            {
+                throw new InvalidOperationException(
+                    "A FaceOnly identity pack cannot carry a canonical full-body asset id.");
+            }
+
+            pack.CanonicalFullBodyAssetId = null;
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(canonicalFullBodyAssetId))
+            {
+                throw new InvalidOperationException(
+                    "A BodyComplete identity pack requires the canonical full-body asset id (the unclothed Front "
+                    + "full-body reference).");
+            }
+
+            var assets = await _repository.ListAssetsAsync(pack.Id, cancellationToken);
+            var canonical = assets.FirstOrDefault(a =>
+                string.Equals(a.Id, canonicalFullBodyAssetId.Trim(), StringComparison.Ordinal))
+                ?? throw new InvalidOperationException(
+                    "The canonical full-body asset must belong to the pack whose scope is being set.");
+            if (canonical.AssetKind != SceneImageReferenceAssetKind.FullBody)
+            {
+                throw new InvalidOperationException("The canonical full-body asset must be a full-body reference.");
+            }
+
+            if (canonical.BodyState != SceneImageReferenceBodyState.Unclothed
+                || canonical.BodyView != SceneImageReferenceBodyView.Front)
+            {
+                throw new InvalidOperationException(
+                    "The canonical full-body asset must be the unclothed Front full-body reference.");
+            }
+
+            pack.CanonicalFullBodyAssetId = canonical.Id;
+        }
+
+        pack.PackScope = scope;
+        var saved = await _repository.UpsertDraftAsync(pack, cancellationToken);
+        _logger.LogInformation(
+            "Identity pack {PackId} scope set to {Scope} (canonical full-body: {CanonicalBody})",
+            saved.Id,
+            saved.PackScope,
+            saved.CanonicalFullBodyAssetId ?? "none");
+        return saved;
     }
 
     public Task<CharacterImageIdentityPack> ApprovePackAsync(
@@ -130,7 +220,7 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
             extension = ".png";
         }
 
-        var stored = await _storage.SaveAsync(pack.CharacterProfileId, $"{assetId}{extension.ToLowerInvariant()}", content, cancellationToken);
+        var stored = await _storage.SaveAsync(pack.CharacterTemplateId, $"{assetId}{extension.ToLowerInvariant()}", content, cancellationToken);
         await using var analyzeStream = await _storage.OpenReadAsync(stored.RelativePath, cancellationToken);
         (var rating, var qualityNotes) = _analyzer.Analyze(analyzeStream, stored.Width ?? 0, stored.Height ?? 0, stored.ByteLength);
 
@@ -218,4 +308,27 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
             await _storage.DeleteAsync(fileRelativePath, cancellationToken);
         }
     }
+
+    private static void RequireScope(CharacterImageIdentityPackScope scope)
+    {
+        if (!Enum.IsDefined(scope))
+        {
+            throw new InvalidOperationException(
+                $"Unsupported identity pack scope '{(int)scope}'; FaceOnly or BodyComplete is required.");
+        }
+    }
+
+    /// <summary>
+    /// Whether an existing scope already satisfies a requested one. A <c>FaceOnly</c> pack holds the five face
+    /// slots; a <c>BodyComplete</c> pack is a strict superset of it (its face half is unconditional), so it
+    /// covers both requests — that is the whole relation, stated once.
+    /// </summary>
+    private static bool ScopeCovers(
+        CharacterImageIdentityPackScope existing, CharacterImageIdentityPackScope requested)
+        => existing switch
+        {
+            CharacterImageIdentityPackScope.FaceOnly => requested == CharacterImageIdentityPackScope.FaceOnly,
+            CharacterImageIdentityPackScope.BodyComplete => true,
+            _ => throw new InvalidOperationException($"Unsupported identity pack scope '{existing}'.")
+        };
 }

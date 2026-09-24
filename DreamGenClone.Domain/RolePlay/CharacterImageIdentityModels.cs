@@ -40,7 +40,15 @@ public enum SceneImageReferenceBodyView
     ThreeQuarterLeft = 2,
     ThreeQuarterRight = 3,
     ProfileLeft = 4,
-    ProfileRight = 5
+    ProfileRight = 5,
+
+    /// <summary>
+    /// The full back view: the body seen from directly behind, with NO face visible (operator request, 2026-09-24).
+    /// Added at the END deliberately — the other five are persisted values, and renumbering them would silently
+    /// reinterpret every stored row. It is a canonical slot like the rest, so a pack can carry it and the grid offers
+    /// it as the last angle of each state.
+    /// </summary>
+    Back = 6
 }
 
 /// <summary>
@@ -149,14 +157,14 @@ public sealed class CharacterIdentityDecision
 
 /// <summary>
 /// A versioned, auditable collection of reference assets that together define how one recurring
-/// character should look. Tied to a single scenario character via <see cref="CharacterProfileId"/>.
+/// character should look. Tied to a single scenario character via <see cref="CharacterTemplateId"/>.
 /// </summary>
 public sealed class CharacterImageIdentityPack
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     /// <summary>The scenario character this pack describes (owner scope).</summary>
-    public string CharacterProfileId { get; set; } = string.Empty;
+    public string CharacterTemplateId { get; set; } = string.Empty;
 
     /// <summary>Positive, unique per character.</summary>
     public int Version { get; set; } = 1;

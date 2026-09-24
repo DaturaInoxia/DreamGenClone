@@ -19,7 +19,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft,
                 DescriptorSnapshotJson = "{\"hair\":\"dark\"}"
@@ -31,7 +31,7 @@ public sealed class CharacterImageIdentityRepositoryTests
 
             var loaded = await repo.GetPackAsync(pack.Id);
             Assert.NotNull(loaded);
-            Assert.Equal("char-1", loaded!.CharacterProfileId);
+            Assert.Equal("char-1", loaded!.CharacterTemplateId);
             Assert.Equal(CharacterImageIdentityPackStatus.Draft, loaded.Status);
             Assert.Equal("{\"hair\":\"dark\"}", loaded.DescriptorSnapshotJson);
 
@@ -52,14 +52,14 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
 
             await Assert.ThrowsAsync<SqliteException>(() => repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             }));
@@ -78,7 +78,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -106,7 +106,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -133,7 +133,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -156,7 +156,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -185,7 +185,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -211,7 +211,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -235,7 +235,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -253,7 +253,7 @@ public sealed class CharacterImageIdentityRepositoryTests
             await Assert.ThrowsAsync<InvalidOperationException>(() => repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
                 Id = pack.Id,
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             }));
@@ -275,7 +275,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -314,7 +314,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -334,6 +334,89 @@ public sealed class CharacterImageIdentityRepositoryTests
     }
 
     [Fact]
+    public async Task Supersede_RepointsTheCanonicalFullBodyAsset_AtTheCopiedAsset()
+    {
+        var repo = await CreateRepoAsync(out var dbPath);
+        try
+        {
+            var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
+            {
+                CharacterTemplateId = "char-1",
+                Version = 1,
+                Status = CharacterImageIdentityPackStatus.Draft,
+                PackScope = CharacterImageIdentityPackScope.BodyComplete
+            });
+            var faces = await AddFaceSetAsync(repo, pack.Id);
+            var bodies = await AddBodySetAsync(repo, pack.Id);
+            var canonical = bodies.Single(a =>
+                a.BodyState == SceneImageReferenceBodyState.Unclothed
+                && a.BodyView == SceneImageReferenceBodyView.Front);
+            pack.CanonicalFullBodyAssetId = canonical.Id;
+            await repo.UpsertDraftAsync(pack);
+            await repo.ApproveAsync(pack.Id, "{\"hair\":\"dark\"}", faces[0].Id);
+
+            var next = await repo.SupersedeAsync(pack.Id);
+
+            // The pointer names an asset of the NEW pack, sharing the same immutable file — otherwise the
+            // superseding draft could never be approved (approval only accepts a pointer inside the pack).
+            var copied = (await repo.ListAssetsAsync(next.Id)).Single(a => a.Id == next.CanonicalFullBodyAssetId);
+            Assert.NotEqual(canonical.Id, copied.Id);
+            Assert.Equal(canonical.FileRelativePath, copied.FileRelativePath);
+            Assert.Equal(SceneImageReferenceBodyState.Unclothed, copied.BodyState);
+            Assert.Equal(SceneImageReferenceBodyView.Front, copied.BodyView);
+
+            var nextFaces = await repo.ListAssetsAsync(next.Id);
+            var approved = await repo.ApproveAsync(next.Id, "{\"hair\":\"dark\"}",
+                nextFaces.Single(a => a.FaceView == SceneImageReferenceFaceView.Front).Id);
+            Assert.Equal(CharacterImageIdentityPackStatus.Approved, approved.Status);
+            Assert.Equal(CharacterImageIdentityPackScope.BodyComplete, approved.PackScope);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task Supersede_RefusesACanonicalFullBodyPointerThatIsNotInThePack()
+    {
+        var repo = await CreateRepoAsync(out var dbPath);
+        try
+        {
+            var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
+            {
+                CharacterTemplateId = "char-1",
+                Version = 1,
+                Status = CharacterImageIdentityPackStatus.Draft,
+                PackScope = CharacterImageIdentityPackScope.BodyComplete
+            });
+            var faces = await AddFaceSetAsync(repo, pack.Id);
+            var bodies = await AddBodySetAsync(repo, pack.Id);
+            pack.CanonicalFullBodyAssetId = bodies.Single(a =>
+                a.BodyState == SceneImageReferenceBodyState.Unclothed
+                && a.BodyView == SceneImageReferenceBodyView.Front).Id;
+            await repo.UpsertDraftAsync(pack);
+            await repo.ApproveAsync(pack.Id, "{\"hair\":\"dark\"}", faces[0].Id);
+
+            // A pack cannot be APPROVED with a foreign pointer (approval refuses it), so a stored wrong pointer can
+            // only come from outside the API — a hand-edited or half-migrated database. Write that row directly,
+            // then prove supersede refuses rather than carrying the broken pointer into the new draft.
+            await SetCanonicalFullBodyPointerDirectlyAsync(dbPath, pack.Id, "not-an-asset-of-this-pack");
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => repo.SupersedeAsync(pack.Id));
+
+            Assert.Contains("not-an-asset-of-this-pack", error.Message, StringComparison.Ordinal);
+            // The pack was not retired, because nothing was written.
+            Assert.Equal(CharacterImageIdentityPackStatus.Approved, (await repo.GetPackAsync(pack.Id))!.Status);
+            Assert.Empty(await repo.ListPacksAsync("char-1").ContinueWith(t => t.Result.Where(p => p.Version > 1).ToList()));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task Delete_ApprovedPackBlocked()
     {
         var repo = await CreateRepoAsync(out var dbPath);
@@ -341,7 +424,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -366,7 +449,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -391,7 +474,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var approved = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -431,7 +514,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -457,7 +540,7 @@ public sealed class CharacterImageIdentityRepositoryTests
         {
             var pack = await repo.UpsertDraftAsync(new CharacterImageIdentityPack
             {
-                CharacterProfileId = "char-1",
+                CharacterTemplateId = "char-1",
                 Version = 1,
                 Status = CharacterImageIdentityPackStatus.Draft
             });
@@ -477,6 +560,18 @@ public sealed class CharacterImageIdentityRepositoryTests
         }
     }
 
+    private static async Task SetCanonicalFullBodyPointerDirectlyAsync(
+        string dbPath, string packId, string canonicalFullBodyAssetId)
+    {
+        await using var connection = new SqliteConnection($"Data Source={dbPath};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE CharacterImageIdentityPacks SET CanonicalFullBodyAssetId = $canonicalBody WHERE Id = $id;";
+        command.Parameters.AddWithValue("$canonicalBody", canonicalFullBodyAssetId);
+        command.Parameters.AddWithValue("$id", packId);
+        await command.ExecuteNonQueryAsync();
+    }
+
     private static async Task<IReadOnlyList<SceneImageReferenceAsset>> AddFaceSetAsync(
         CharacterImageIdentityRepository repo, string packId)
     {
@@ -489,6 +584,26 @@ public sealed class CharacterImageIdentityRepositoryTests
             faces.Add(face);
         }
         return faces;
+    }
+
+    private static async Task<IReadOnlyList<SceneImageReferenceAsset>> AddBodySetAsync(
+        CharacterImageIdentityRepository repo, string packId)
+    {
+        var bodies = new List<SceneImageReferenceAsset>();
+        foreach (var state in Enum.GetValues<SceneImageReferenceBodyState>())
+        {
+            foreach (var view in Enum.GetValues<SceneImageReferenceBodyView>())
+            {
+                var body = FullBodyAsset(packId);
+                body.BodyState = state;
+                body.BodyView = view;
+                body.IsApproved = true;
+                await repo.AddAssetAsync(body);
+                bodies.Add(body);
+            }
+        }
+
+        return bodies;
     }
 
     private static SceneImageReferenceAsset FaceAsset(

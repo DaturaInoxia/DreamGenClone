@@ -26,8 +26,9 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
     private readonly ISceneBeatAnalyzerResolver _durableSettingsResolver;
     private readonly TimeProvider _timeProvider;
     private readonly IMediaEditCompilationService _mediaEdits;
+    private readonly ISceneImageProductionService _productionService;
 
-    public SceneAssetImageEditCompilationService(ISceneAssetRepository assetRepository, ISceneAssetImageEditRepository editRepository, ISceneAssetStorageService storage, IMultimodalModelResolutionService modelResolver, ISceneImageEditPromptCompiler compiler, IDurableBackgroundJobQueue queue, ISceneBeatAnalyzerResolver durableSettingsResolver, TimeProvider timeProvider, IMediaEditCompilationService mediaEdits)
+    public SceneAssetImageEditCompilationService(ISceneAssetRepository assetRepository, ISceneAssetImageEditRepository editRepository, ISceneAssetStorageService storage, IMultimodalModelResolutionService modelResolver, ISceneImageEditPromptCompiler compiler, IDurableBackgroundJobQueue queue, ISceneBeatAnalyzerResolver durableSettingsResolver, TimeProvider timeProvider, IMediaEditCompilationService mediaEdits, ISceneImageProductionService productionService)
     {
         _assetRepository = assetRepository;
         _editRepository = editRepository;
@@ -38,6 +39,7 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
         _durableSettingsResolver = durableSettingsResolver;
         _timeProvider = timeProvider;
         _mediaEdits = mediaEdits;
+        _productionService = productionService;
     }
 
     public async Task<SceneAssetImageEditSession> CreateSessionAsync(CreateSceneAssetImageEditSessionRequest request, CancellationToken cancellationToken = default)
@@ -248,7 +250,107 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
         return image;
     }
 
+    /// <summary>
+    /// Creates the derived image row for a face-only identity correction and hands it to the shared editing
+    /// pipeline. This is the asset-store twin of the scene identity stage: the instruction is authored from
+    /// the bound characters (never compiled — there is no compiler artifact), and the approved identity-pack
+    /// faces are persisted on the row as its references, read back by the subject writer.
+    /// </summary>
+    public async Task<SceneAssetImage> EnqueueIdentityEditAsync(
+        EnqueueSceneAssetImageIdentityEditRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.EditorModelId))
+            throw new InvalidOperationException("An asset identity edit requires the editor model chosen in the editor form.");
+
+        var selections = request.Selections ?? [];
+        if (selections.Count == 0)
+            throw new InvalidOperationException("An asset identity edit requires at least one bound person.");
+        if (selections.Any(selection => string.IsNullOrWhiteSpace(selection.CharacterId)
+            || string.IsNullOrWhiteSpace(selection.ReferenceAssetId)
+            || string.IsNullOrWhiteSpace(selection.CharacterName)
+            || string.IsNullOrWhiteSpace(selection.VisibleLocator)))
+        {
+            throw new InvalidOperationException(
+                "Every identity selection requires a character, character name, approved face reference, and visible locator.");
+        }
+        if (selections.Select(selection => selection.CharacterId.Trim()).Distinct(StringComparer.Ordinal).Count() != selections.Count)
+            throw new InvalidOperationException("Each selected character may correct at most one detected person per identity edit.");
+
+        var source = await RequireSourceAsync(request.AssetId, request.SourceImageId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(source.Sha256))
+            throw new InvalidOperationException("The source asset image has no stored checksum.");
+
+        // The SAME identity-reference resolution the scene identity stage uses, so an asset run and a scene
+        // run can never disagree about what an approved pack face is.
+        var resolved = await _productionService.ResolveCharacterIdentitySelectionsAsync(
+            selections
+                .Select(selection => new SceneImageIdentityReferenceSelection(selection.CharacterId.Trim(), selection.ReferenceAssetId.Trim()))
+                .ToList(),
+            cancellationToken);
+        var resolvedByCharacter = resolved.ToDictionary(item => item.CharacterId, StringComparer.Ordinal);
+        if (resolvedByCharacter.Count != selections.Count)
+            throw new InvalidOperationException("Every selected character reference must resolve to its approved identity pack.");
+
+        var bindings = selections.Select((selection, index) =>
+        {
+            var item = resolvedByCharacter[selection.CharacterId.Trim()];
+            return new MediaEditIdentityBinding(
+                index + 1,
+                item.CharacterId,
+                selection.CharacterName.Trim(),
+                item.IdentityPackId,
+                item.IdentityPackVersion,
+                item.CanonicalFaceAssetId,
+                item.FileRelativePath,
+                item.Sha256,
+                selection.TargetKey.Trim(),
+                selection.VisibleLocator.Trim());
+        }).ToList();
+        MediaEditIdentityProvenance.Validate(bindings);
+
+        var instruction = SceneImageService.BuildEditorIdentityInstruction(
+            bindings
+                .Select(binding => (
+                    binding.Ordinal,
+                    SubjectLabel: string.IsNullOrWhiteSpace(binding.TargetKey) ? binding.CharacterName : binding.TargetKey,
+                    binding.VisibleLocator))
+                .ToList());
+
+        var provenance = JsonSerializer.Serialize(new
+        {
+            operation = MediaEditProvenance.EditValue,
+            sourceImageSha256 = source.Sha256,
+            identityReferences = bindings
+        }, JsonOptions);
+
+        var candidateBatchId = string.IsNullOrWhiteSpace(source.CandidateBatchId) ? null : source.CandidateBatchId.Trim();
+        var image = new SceneAssetImage
+        {
+            AssetId = source.AssetId,
+            Kind = SceneAssetKind.Edited,
+            Status = SceneAssetStatus.Pending,
+            Prompt = instruction,
+            SourceImageId = source.Id,
+            SourceProvenanceJson = provenance,
+            CandidateBatchId = candidateBatchId,
+            CandidateDecision = candidateBatchId is null ? null : SceneAssetCandidateDecision.Undecided
+        };
+        await _assetRepository.UpsertImageAsync(image, cancellationToken);
+
+        var editAttempts = (await _durableSettingsResolver.ResolveAsync(cancellationToken)).RetryDelaysSeconds.Count + 1;
+        await _mediaEdits.EnqueueRunAsync(
+            new MediaEditRunRequest(
+                MediaEditSubjectKind.AssetImage,
+                image.Id,
+                request.EditorModelId.Trim(),
+                editAttempts),
+            cancellationToken);
+        return image;
+    }
+
     public Task<SceneAssetImageEditSession?> GetSessionAsync(string editSessionId, CancellationToken cancellationToken = default) => _editRepository.GetSessionAsync(editSessionId, cancellationToken);
+
     public Task<SceneAssetImageEditCompilationAttempt?> GetLatestAttemptAsync(string editSessionId, CancellationToken cancellationToken = default) => _editRepository.GetLatestAttemptAsync(editSessionId, cancellationToken);
     public Task<IReadOnlyList<SceneAssetImageEditPromptRevision>> ListRevisionsAsync(string attemptId, CancellationToken cancellationToken = default) => _editRepository.ListRevisionsAsync(attemptId, cancellationToken);
 

@@ -188,7 +188,8 @@ public sealed class SceneAssetProfilePackJobHandler : IBackgroundJobHandler, IDu
             return (await _identityService.SupersedePackAsync(approved.Id, cancellationToken)).Id;
         }
 
-        return (await _identityService.CreateDraftPackAsync(characterProfileId, cancellationToken)).Id;
+        return (await _identityService.CreateDraftPackAsync(
+            characterProfileId, CharacterImageIdentityPackScope.FaceOnly, cancellationToken)).Id;
     }
 
     private async Task UploadFaceAsync(

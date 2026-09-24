@@ -237,7 +237,7 @@ public sealed class CharacterLoraTrainingService : ICharacterLoraTrainingService
             await _repository.CreateArtifactAsync(new CharacterLoraArtifact
             {
                 Id = artifactId,
-                CharacterProfileId = dataset.CharacterProfileId,
+                CharacterTemplateId = dataset.CharacterTemplateId,
                 DatasetId = dataset.Id,
                 TrainingAttemptId = attempt.Id,
                 Version = request.ArtifactVersion,

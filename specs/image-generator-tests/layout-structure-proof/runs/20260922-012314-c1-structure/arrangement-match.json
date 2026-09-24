@@ -1,0 +1,86 @@
+{
+  "reference": "specs\\image-generator-tests\\sex-slideshow\\runs\\20260914-02-slideshow-hq\\step14-woman-bends-over.png",
+  "canvas": "1216x832",
+  "results": [
+    {
+      "variant": "bigLustv16-canny",
+      "file": "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-canny\\bigLustv16-canny_0.png",
+      "iou": 0.9658,
+      "row_corr": 0.9981,
+      "col_corr": 0.9992,
+      "centroid_dx": -0.6,
+      "centroid_dy": -1.2,
+      "area_ratio": 1.002
+    },
+    {
+      "variant": "juggernaut-depth",
+      "file": "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-depth\\juggernaut-depth_0.png",
+      "iou": 0.9616,
+      "row_corr": 0.9968,
+      "col_corr": 0.9991,
+      "centroid_dx": -0.5,
+      "centroid_dy": -1.0,
+      "area_ratio": 0.987
+    },
+    {
+      "variant": "bigLustv16-depth",
+      "file": "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-depth\\bigLustv16-depth_0.png",
+      "iou": 0.9606,
+      "row_corr": 0.9972,
+      "col_corr": 0.9988,
+      "centroid_dx": -0.6,
+      "centroid_dy": -1.9,
+      "area_ratio": 0.997
+    },
+    {
+      "variant": "juggernaut-canny",
+      "file": "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-canny\\juggernaut-canny_0.png",
+      "iou": 0.9459,
+      "row_corr": 0.9943,
+      "col_corr": 0.9974,
+      "centroid_dx": 1.5,
+      "centroid_dy": -3.1,
+      "area_ratio": 0.999
+    },
+    {
+      "variant": "bigLustv16-openpose",
+      "file": "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-openpose\\bigLustv16-openpose_0.png",
+      "iou": 0.7959,
+      "row_corr": 0.9151,
+      "col_corr": 0.9829,
+      "centroid_dx": -0.0,
+      "centroid_dy": 13.0,
+      "area_ratio": 0.978
+    },
+    {
+      "variant": "juggernaut-openpose",
+      "file": "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-openpose\\juggernaut-openpose_0.png",
+      "iou": 0.7926,
+      "row_corr": 0.9609,
+      "col_corr": 0.9857,
+      "centroid_dx": -2.0,
+      "centroid_dy": -14.6,
+      "area_ratio": 0.887
+    },
+    {
+      "variant": "bigLustv16-text",
+      "file": "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\bigLustv16-text\\bigLustv16-text_0.png",
+      "iou": 0.2588,
+      "row_corr": 0.7309,
+      "col_corr": 0.5928,
+      "centroid_dx": 80.6,
+      "centroid_dy": -52.6,
+      "area_ratio": 0.737
+    },
+    {
+      "variant": "juggernaut-text",
+      "file": "specs\\image-generator-tests\\layout-structure-proof\\runs\\20260922-012314-c1-structure\\juggernaut-text\\juggernaut-text_0.png",
+      "iou": 0.1308,
+      "row_corr": 0.8391,
+      "col_corr": 0.1852,
+      "centroid_dx": 138.0,
+      "centroid_dy": -24.3,
+      "area_ratio": 0.476
+    }
+  ]
+}

@@ -40,6 +40,7 @@ public static class CharacterIdentityMeasurementParser
             IrisDyPercent = ReadNumber(root, "iris_dy_pct"),
             EyeDyPercent = ReadNumber(root, "eye_dy_pct"),
             InterocularPixels = ReadNumber(root, "interoc"),
+            NoseOffsetPercent = ReadNumber(root, "nose_offset_pct"),
             Head = ReadHeadExtent(root),
             Error = error
         };

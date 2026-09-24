@@ -26,6 +26,7 @@ canonical evidence packages; this matrix organizes them by the behavior being co
 | NSFW identity solo | One person | Dean | NSFW | `identity-single-character/` runner template | Planned; add explicit solo-position workflows |
 | NSFW identity positions | Two people | Dean + Becky | NSFW | `identity-two-character/positions/` | Committed workflows; generated evidence varies by run |
 | NSFW identity mechanism | Two people | Dean + Becky | NSFW | `identity-two-character/prompts/matrix/`, `faceid/`, `multiangle/` | Committed proof package; mechanism scorecards included |
+| Native-reference composition (Qwen-Image-2.1) | One person | Becky (frontal ref) | SFW | `qwen-21-native-reference/` | Committed; location + pose + identity in ONE call, pose carried by an **OpenPose skeleton as a reference image** (no ControlNet exists for 2.1). A photoreal full-body person in slot 1 is reproduced wholesale and is NOT a pose donor |
 
 ## Simple prompt catalog
 

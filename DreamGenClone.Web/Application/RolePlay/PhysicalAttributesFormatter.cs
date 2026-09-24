@@ -21,14 +21,17 @@ internal static class PhysicalAttributesFormatter
         // ── General ──────────────────────────────────────────────────────────
         Append(sb, "Age", attrs.Age);
         Append(sb, "Height", attrs.Height);
-        Append(sb, "Weight", attrs.Weight);
         Append(sb, "Ethnicity", attrs.Ethnicity);
 
         // ── Appearance ───────────────────────────────────────────────────────
         Append(sb, "Hair", CombineNotEmpty(attrs.HairStyle, attrs.HairColour, separator: ", "));
         Append(sb, "Eyes", attrs.EyeColour);
         Append(sb, "Skin", CombineNotEmpty(attrs.SkinTone, attrs.SkinTexture, separator: ", "));
-        Append(sb, "Body type", attrs.BodyType);
+        Append(sb, "Physique", BuildBodyAxes(attrs));
+        // Body hair and pubic hair are body invariants (B-122's body card pre-fills from them), so they render
+        // next to the appearance lines rather than with style.
+        Append(sb, "Body hair", attrs.BodyHair);
+        Append(sb, "Pubic hair", attrs.PubicHair);
 
         // ── Measurements ─────────────────────────────────────────────────────
         Append(sb, "Bust", attrs.BustSize);
@@ -93,8 +96,8 @@ internal static class PhysicalAttributesFormatter
     /// visual fields are absent.
     ///
     /// Unlike <see cref="FormatBlock"/>, this is limited to the stable visual anchors that make a
-    /// character look like the SAME person in images: age, height, weight, ethnicity, hair, eyes,
-    /// skin, body type, a figure line (bust/waist/hips/rear as prose scale terms), and
+    /// character look like the SAME person in images: age, height, ethnicity, hair, eyes, skin,
+    /// the physique axes, a figure line (bust/waist/hips/rear as prose scale terms), and
     /// distinguishing marks/piercings/tattoos. Intimate/sexual fields are intentionally EXCLUDED —
     /// they don't affect a still's appearance and can trip content-policy clamps. Body proportions
     /// are kept (as prose, never numeric measurements) because they ARE renderable on a full-body
@@ -109,12 +112,14 @@ internal static class PhysicalAttributesFormatter
 
         Append(sb, "Age", attrs.Age);
         Append(sb, "Height", attrs.Height);
-        Append(sb, "Weight", attrs.Weight);
         Append(sb, "Ethnicity", attrs.Ethnicity);
         Append(sb, "Hair", CombineNotEmpty(attrs.HairStyle, attrs.HairColour, separator: ", "));
         Append(sb, "Iris color", attrs.EyeColour);
         Append(sb, "Skin", CombineNotEmpty(attrs.SkinTone, attrs.SkinTexture, separator: ", "));
-        Append(sb, "Body type", attrs.BodyType);
+        Append(sb, "Physique", BuildBodyAxes(attrs));
+        // Renderable on an unclothed full-body frame, so they belong to the appearance block.
+        Append(sb, "Body hair", attrs.BodyHair);
+        Append(sb, "Pubic hair", attrs.PubicHair);
         Append(sb, "Figure", BuildFigure(attrs));
         Append(sb, "Marks", attrs.DistinguishingMarks);
         Append(sb, "Piercings", attrs.Piercings);
@@ -127,7 +132,7 @@ internal static class PhysicalAttributesFormatter
 
     /// <summary>
     /// Returns a compact, single-line **body** description for the Composition Composer's Body
-    /// reference row: weight, body type and the prose figure line (bust/waist/hips/rear) — the
+    /// reference row: the physique axes and the prose figure line (bust/waist/hips/rear) — the
     /// renderable body anchors only, with no face/hair/eye anchors. Returns
     /// <see cref="string.Empty"/> when nothing body-related is configured.
     /// </summary>
@@ -136,11 +141,32 @@ internal static class PhysicalAttributesFormatter
         if (attrs is null) return string.Empty;
 
         var sb = new StringBuilder();
-        Append(sb, "Weight", attrs.Weight);
-        Append(sb, "Body type", attrs.BodyType);
+        Append(sb, "Physique", BuildBodyAxes(attrs));
+        Append(sb, "Body hair", attrs.BodyHair);
+        Append(sb, "Pubic hair", attrs.PubicHair);
         Append(sb, "Figure", BuildFigure(attrs));
 
         return sb.Length == 0 ? string.Empty : sb.ToString();
+    }
+
+    /// <summary>
+    /// The body axes as ONE conditioned line — "average frame, average weight, fuller rear with a soft belly".
+    ///
+    /// They are joined into a single line rather than emitted as six labelled lines on purpose: the image
+    /// pre-processor is explicitly instructed never to emit a metadata block (see the Pony system prompt), and six
+    /// "Label: value" lines is exactly that anti-pattern. Joined, the values read as descriptors instead.
+    /// Returns null when no axis is set, so the line is omitted entirely — never defaulted.
+    /// </summary>
+    private static string? BuildBodyAxes(PhysicalAttributes attrs)
+    {
+        var parts = new List<string>(6);
+        AddFigurePart(parts, null, attrs.BodyBuild);
+        AddFigurePart(parts, null, attrs.Silhouette);
+        AddFigurePart(parts, null, attrs.Adiposity);
+        AddFigurePart(parts, null, attrs.FatDistribution);
+        AddFigurePart(parts, null, attrs.MuscleMass);
+        AddFigurePart(parts, null, attrs.MuscleDefinition);
+        return parts.Count == 0 ? null : string.Join(", ", parts);
     }
 
     /// <summary>
@@ -157,10 +183,13 @@ internal static class PhysicalAttributesFormatter
         return parts.Count == 0 ? null : string.Join(", ", parts);
     }
 
-    private static void AddFigurePart(List<string> parts, string label, string? value)
+    private static void AddFigurePart(List<string> parts, string? label, string? value)
     {
-        if (!string.IsNullOrWhiteSpace(value))
-            parts.Add($"{label} {value.Trim()}");
+        if (string.IsNullOrWhiteSpace(value))
+            return;
+
+        var trimmed = value.Trim();
+        parts.Add(string.IsNullOrEmpty(label) ? trimmed : $"{label} {trimmed}");
     }
 
     /// <summary>

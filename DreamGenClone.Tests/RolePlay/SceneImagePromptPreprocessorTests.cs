@@ -135,7 +135,7 @@ public sealed class SceneImagePromptPreprocessorTests
                     HairColour = "auburn",
                     HairStyle = "shoulder-length",
                     EyeColour = "green",
-                    BodyType = "athletic",
+                    MuscleMass = "fit, athletic build",
                     SkinTone = "fair"
                 }
             }
@@ -245,7 +245,7 @@ public sealed class SceneImagePromptPreprocessorTests
             Height = "6'1\"",
             HairColour = "dark brown",
             EyeColour = "hazel",
-            BodyType = "lean"
+            Adiposity = "lean, slim"
         };
         // Ken is actively in the encounter → the persona participates and is included.
         var state = MakeState();
@@ -270,7 +270,7 @@ public sealed class SceneImagePromptPreprocessorTests
             Height = "6'1\"",
             HairColour = "dark brown",
             EyeColour = "hazel",
-            BodyType = "lean"
+            Adiposity = "lean, slim"
         };
         // Ken is NOT present (no location, no encounter state, not named in text) → excluded.
         var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
@@ -691,16 +691,16 @@ public sealed class SceneImagePromptPreprocessorTests
     }
 
     [Fact]
-    public void BuildDeterministicBeatPrompt_VisualIdentity_DoesNotDuplicateBodyType()
+    public void BuildDeterministicBeatPrompt_VisualIdentity_DoesNotDuplicateThePhysiqueLine()
     {
         var characters = MakeThreeCharactersWithDistinctAppearances().ToList();
-        characters.Single(character => character.Name == "Becky").PhysicalAttributes!.BodyType = "athletic";
+        characters.Single(character => character.Name == "Becky").PhysicalAttributes!.Adiposity = "average weight";
 
         var prompt = _preprocessor.BuildDeterministicBeatPrompt(
             MakeSession(), MakeThreeCharacterBeat(), "Ken",
             new SceneImageStudioSettings(), ImageContentPolicy.AdultAllowed, NarrativePhase.BuildUp, null, characters);
 
-        Assert.Equal(1, CountOccurrences(prompt, "Body type"));
+        Assert.Equal(1, CountOccurrences(prompt, "Physique"));
     }
 
     [Fact]

@@ -19,7 +19,7 @@
 | Host | **WOOD-GAME-MAIN** (Windows 11, RTX 5080 16 GB, ComfyUI 0.34.0 at `D:\ComfyUI`) |
 | Service | `main.py --listen 0.0.0.0 --port 8188` |
 | Base URL (on the ComfyUI host itself) | `http://127.0.0.1:8188` |
-| Base URL (from other LAN hosts) | `http://192.168.0.16:8188` |
+| Base URL (from other LAN hosts) | `http://192.168.0.11:8188` (reassigned 2026-09-21; the old `192.168.0.16` no longer routes) |
 | **Current provider `BaseUrl` on this system** | **`https://comfy.kenacwood.net`** — a public HTTPS front for the same ComfyUI (verified 2026-09-13: `/system_stats` → HTTP 200, `comfyui_version 0.34.0`). Use this from any host; the LAN URL is the fallback. Note the scheme: `http://…:8188` through the domain does **not** work (only HTTPS/443 is served). |
 | Protocol in Model Manager | `ImageProtocol = ComfyUi` (`/prompt`), **not** `ComfyUiServerless`, **not** a pod |
 | Generation checkpoints served | `juggernautXL_ragnarok.safetensors`, `bigLust_v16.safetensors`, `ponyDiffusionV6XL_v6.safetensors`, `ponyRealism_V23ULTRA.safetensors`, `flux1-dev-fp8.safetensors` |
@@ -156,6 +156,23 @@ text encoder `qwen_2.5_vl_7b_fp8_scaled.safetensors`, VAE `qwen_image_vae.safete
 > DWPose extract PASS + OpenPoseXL2 ControlNet render PASS. Proof workflows (git-ignored):
 > `artifacts/tmp/controlnet-local-proof/*.json`. **No Model Manager rows** — ControlNet/DWPose are
 > workflow-side conditioning, not served checkpoints.
+>
+> **SDXL depth + canny ControlNet weights installed 2026-09-22 (B-119 T01, route C1):** route C1
+> contracts a layout from a reference image, and until now the host had **only** the OpenPose weight,
+> so every depth/canny graph failed at load. Installed into `D:\ComfyUI\models\controlnet\` by the
+> idempotent helper `helpers/local-comfyui-host/install-sdxl-controlnets.ps1` (run over SSH; it
+> re-runs safely and skips hash-verified files):
+>
+> | File | Bytes | SHA-256 | Source |
+> |---|---|---|---|
+> | `controlnet-depth-sdxl-1.0.safetensors` | 2,502,139,134 | `66a6813e6bd7270ecfe68206a59ddd605a011ae85321188376605c66e0a4f303` | `diffusers/controlnet-depth-sdxl-1.0` → `diffusion_pytorch_model.fp16.safetensors` |
+> | `controlnet-canny-sdxl-1.0.safetensors` | 2,502,139,136 | `b2e7d3921058a442cc80430d1ec8847f42599c705e2451c95e77cf4dcf8d6c25` | `diffusers/controlnet-canny-sdxl-1.0` → `diffusion_pytorch_model.fp16.safetensors` |
+>
+> The depth hash is a **byte-exact match** for the `controlnet-depth-sdxl-1.0.safetensors` recorded in
+> the RunPod identity-worker manifest (`specs/Planning/B-032-scene-image-generator/phase-2-character-identity/proofs/identity-conditioning/model-manifest-2026-08-26.md`),
+> so the same workflow JSON runs on the host and the worker unchanged. Verified: `ControlNetLoader`
+> lists both weights with **no ComfyUI restart** (folder mtime cache invalidation). Host-only change —
+> **not** a RunPod pod, so it is not in `helpers/runpod/pod-registry.json`.
 
 > **Identity / ReferenceConditioning declarations 2026-09-09:** `local-comfyui-configure` now
 > declares **and** qualifies `ReferenceConditioning` (IP-Adapter PLUS FACE, strength 0.8) for the
@@ -190,7 +207,7 @@ dotnet run --project DreamGenClone.DbQuery -- qwen-edit-remix-aio-lora-configure
 ```
 
 Substitute the URL your host can reach (`http://127.0.0.1:8188` on the ComfyUI host itself,
-`http://192.168.0.16:8188` on the LAN, `https://comfy.kenacwood.net` from anywhere).
+`http://192.168.0.11:8188` on the LAN, `https://comfy.kenacwood.net` from anywhere).
 
 Every command is **idempotent** (upserts in one transaction) and matches on a stable key, so
 re-running with a different value updates in place instead of duplicating: the editor variants match

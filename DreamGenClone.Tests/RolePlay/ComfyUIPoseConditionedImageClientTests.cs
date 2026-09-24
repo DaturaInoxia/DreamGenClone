@@ -105,6 +105,100 @@ public sealed class ComfyUIPoseConditionedImageClientTests
         Assert.Equal(1024, (int)wf["5"]!["inputs"]!["height"]);
     }
 
+    /// <summary>The FLUX references a test supplies, all configured — nothing in the graph is an app default.</summary>
+    private static ResolvedPoseImageModel ResolveFlux() => new(
+        ProviderBaseUrl: "http://192.168.0.11:8188",
+        ProviderTimeoutSeconds: 600,
+        ModelIdentifier: "flux1-dev-fp8.safetensors",
+        ContentPolicy: ImageContentPolicy.AdultAllowed,
+        ProviderName: "Local ComfyUI (WOOD-GAME-MAIN 5080)",
+        ControlNetAdapterRef: "flux-openpose-controlnet-raulc0399.safetensors",
+        DefaultStrength: 0.85,
+        ImageProtocol: ImageProtocol.ComfyUi,
+        Family: SceneImageModelFamily.Flux,
+        Flux: new FluxPoseRefs(
+            UnetName: "flux1-dev-fp8.safetensors",
+            ClipName1: "t5xxl_fp8_e4m3fn.safetensors",
+            ClipName2: "clip_l.safetensors",
+            VaeName: "ae.safetensors",
+            ControlNetModelName: "flux-dev-fp8",
+            Guidance: 3.5,
+            Steps: 28,
+            TimestepToStartCfg: 1));
+
+    /// <summary>
+    /// The FLUX OpenPose graph is the XLabs one, mirroring the proven LOCAL workflow — UNETLoader + DualCLIPLoader +
+    /// VAELoader with a plain CLIPTextEncode and FluxGuidance, conditioned through
+    /// LoadFluxControlNet/ApplyFluxControlNet into XlabsSampler. It must NOT be the SDXL graph (a FLUX checkpoint
+    /// through CheckpointLoaderSimple cannot run) and must NOT be the pod's variant, which used
+    /// CheckpointLoaderSimple + CLIPTextEncodeFlux against the same file served as a checkpoint.
+    /// </summary>
+    [Fact]
+    public void BuildOpenPoseFluxWorkflow_UsesTheXlabsGraph_NotTheSdxlOne()
+    {
+        var wf = ComfyUIPoseConditionedImageClient.BuildOpenPoseFluxWorkflow(ResolveFlux(), "pose_abc.png", Request());
+
+        // FLUX loads a UNET plus its own encoders and VAE.
+        Assert.Equal("UNETLoader", (string?)wf["4"]!["class_type"]);
+        Assert.Equal("flux1-dev-fp8.safetensors", (string?)wf["4"]!["inputs"]!["unet_name"]);
+        Assert.Equal("default", (string?)wf["4"]!["inputs"]!["weight_dtype"]);
+        Assert.Equal("DualCLIPLoader", (string?)wf["2"]!["class_type"]);
+        Assert.Equal("t5xxl_fp8_e4m3fn.safetensors", (string?)wf["2"]!["inputs"]!["clip_name1"]);
+        Assert.Equal("clip_l.safetensors", (string?)wf["2"]!["inputs"]!["clip_name2"]);
+        Assert.Equal("flux", (string?)wf["2"]!["inputs"]!["type"]);
+        Assert.Equal("VAELoader", (string?)wf["11"]!["class_type"]);
+        Assert.Equal("ae.safetensors", (string?)wf["11"]!["inputs"]!["vae_name"]);
+
+        // The XLabs loader takes the ControlNet PATH and the FLUX variant it was built for — both configured.
+        Assert.Equal("LoadFluxControlNet", (string?)wf["14"]!["class_type"]);
+        Assert.Equal("flux-openpose-controlnet-raulc0399.safetensors", (string?)wf["14"]!["inputs"]!["controlnet_path"]);
+        Assert.Equal("flux-dev-fp8", (string?)wf["14"]!["inputs"]!["model_name"]);
+        Assert.Equal("ApplyFluxControlNet", (string?)wf["15"]!["class_type"]);
+        Assert.Equal(new JsonArray("9", 0).ToJsonString(), wf["15"]!["inputs"]!["image"]!.ToJsonString());
+        Assert.Equal(0.8, (double)wf["15"]!["inputs"]!["strength"]);
+        Assert.Equal("LoadImage", (string?)wf["9"]!["class_type"]);
+        Assert.Equal("pose_abc.png", (string?)wf["9"]!["inputs"]!["image"]);
+
+        // The guidance is applied to the POSITIVE only, and the sampler consumes the conditioned pair.
+        Assert.Equal("FluxGuidance", (string?)wf["8"]!["class_type"]);
+        Assert.Equal(new JsonArray("6", 0).ToJsonString(), wf["8"]!["inputs"]!["conditioning"]!.ToJsonString());
+        Assert.Equal(3.5, (double)wf["8"]!["inputs"]!["guidance"]);
+        Assert.Equal("XlabsSampler", (string?)wf["3"]!["class_type"]);
+        Assert.Equal(new JsonArray("8", 0).ToJsonString(), wf["3"]!["inputs"]!["conditioning"]!.ToJsonString());
+        Assert.Equal(new JsonArray("7", 0).ToJsonString(), wf["3"]!["inputs"]!["neg_conditioning"]!.ToJsonString());
+        Assert.Equal(new JsonArray("15", 0).ToJsonString(), wf["3"]!["inputs"]!["controlnet_condition"]!.ToJsonString());
+
+        // Configured sampling values, and the two structural ones for a from-nothing render.
+        Assert.Equal(28, (int)wf["3"]!["inputs"]!["steps"]);
+        Assert.Equal(1, (int)wf["3"]!["inputs"]!["timestep_to_start_cfg"]);
+        Assert.Equal(3.5, (double)wf["3"]!["inputs"]!["true_gs"]);
+        Assert.Equal(0.0, (double)wf["3"]!["inputs"]!["image_to_image_strength"]);
+        Assert.Equal(1.0, (double)wf["3"]!["inputs"]!["denoise_strength"]);
+        Assert.Equal(42L, (long)wf["3"]!["inputs"]!["noise_seed"]);
+
+        // No SDXL node types survive into the FLUX graph.
+        foreach (var node in wf)
+        {
+            var type = (string?)node.Value!["class_type"];
+            Assert.NotEqual("CheckpointLoaderSimple", type);
+            Assert.NotEqual("ControlNetApplyAdvanced", type);
+            Assert.NotEqual("KSampler", type);
+        }
+    }
+
+    /// <summary>A FLUX model with no resolved references must fail before building a half-graph.</summary>
+    [Fact]
+    public void BuildOpenPoseFluxWorkflow_WithoutResolvedRefs_Throws()
+    {
+        var flux = ResolveFlux();
+        var incomplete = flux with { Flux = null };
+
+        var ex = Assert.Throws<ImageGenerationException>(
+            () => ComfyUIPoseConditionedImageClient.BuildOpenPoseFluxWorkflow(incomplete, "pose_abc.png", Request()));
+
+        Assert.Equal("pose_flux_refs_missing", ex.ReasonCode);
+    }
+
     [Fact]
     public async Task GenerateAsync_StrengthOutOfRange_ThrowsBeforeHttp()
     {

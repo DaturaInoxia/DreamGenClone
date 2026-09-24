@@ -2,6 +2,7 @@ using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 
@@ -49,7 +50,7 @@ public sealed class CharacterIdentityFrontServiceTests
         var (service, assets, dbPath) = CreateService();
         try
         {
-            var build = await assets.Builds.CreateBuildAsync("char-1", null);
+            var build = await assets.Builds.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
 
             var attempt = await service.GenerateFrontAttemptAsync(build.Id, "Dean front", "a portrait of Dean", "model-1", "1024x1024");
             Assert.Equal("Pending", attempt.Status.ToString());
@@ -81,7 +82,7 @@ public sealed class CharacterIdentityFrontServiceTests
         var (service, assets, dbPath) = CreateService();
         try
         {
-            var build = await assets.Builds.CreateBuildAsync("char-1", null);
+            var build = await assets.Builds.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
             await service.EnsureFrontContainerAsync(build.Id, "Dean front");
             assets.Images.Add(new SceneAssetImage
             {
@@ -225,7 +226,10 @@ public sealed class CharacterIdentityFrontServiceTests
 
         var assets = new StubSceneAssetService();
         var builds = new CharacterIdentityBuildService(
-            buildRepo, assets, Microsoft.Extensions.Logging.Abstractions.NullLogger<CharacterIdentityBuildService>.Instance);
+            buildRepo,
+            assets,
+            new CharacterIdentityStepPlanService(buildRepo),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<CharacterIdentityBuildService>.Instance);
         var templates = new ImageWorkflowTemplateService(templateRepo);
         assets.Builds = builds;
         var service = new CharacterIdentityFrontService(builds, assets, templates);
@@ -263,7 +267,7 @@ public sealed class CharacterIdentityFrontServiceTests
         public Task<SceneAsset?> GetAssetAsync(string assetId, CancellationToken cancellationToken = default)
             => Task.FromResult(Assets.FirstOrDefault(a => a.Id == assetId));
 
-        public Task<SceneAssetImage> AddGeneratedImageAsync(string assetId, string prompt, string modelId, string imageSize, CancellationToken cancellationToken = default, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null, string? candidateBatchId = null)
+        public Task<SceneAssetImage> AddGeneratedImageAsync(string assetId, string prompt, string modelId, string imageSize, CancellationToken cancellationToken = default, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null, string? candidateBatchId = null, SceneAssetImageGenerationOptions? options = null)
         {
             var image = new SceneAssetImage { Id = Guid.NewGuid().ToString("N"), AssetId = assetId, Prompt = prompt, Status = SceneAssetStatus.Pending };
             Images.Add(image);
@@ -276,6 +280,9 @@ public sealed class CharacterIdentityFrontServiceTests
             Images.Add(image);
             return Task.FromResult(image);
         }
+
+        public Task<SceneAssetImage> AddDerivedImageAsync(string assetId, string sourceImageId, MediaEditOperationKind operation, string fileName, Stream content, CancellationToken cancellationToken = default, string? candidateBatchId = null)
+            => throw new NotSupportedException();
 
         public Task<IReadOnlyList<SceneAssetImage>> ListImagesAsync(string assetId, CancellationToken cancellationToken = default)
         {

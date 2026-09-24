@@ -467,7 +467,12 @@ public sealed class SceneImageService : ISceneImageService
             IdentityReferenceBindingsJson = JsonSerializer.Serialize(bindings, JsonOptions)
         };
         await _repository.InsertImageAsync(record, cancellationToken);
-        var resolvedEditorModel = await ResolveEditorModelForDispatchAsync(cancellationToken);
+
+        // The editor model is the one the editor form chose, resolved here by that exact id. The run's
+        // writer carries the same id onward, so the pipeline never resolves a second, different model.
+        if (string.IsNullOrWhiteSpace(request.EditorModelId))
+            throw new InvalidOperationException("An identity edit requires the editor model chosen in the editor form.");
+        var resolvedEditorModel = await ResolveEditorModelByIdForDispatchAsync(request.EditorModelId, cancellationToken);
         return await DispatchEditAsync(
             record,
             new SceneImageEditingJobPayload
@@ -688,16 +693,17 @@ public sealed class SceneImageService : ISceneImageService
             // The settings snapshot is informational; a malformed snapshot does not block rendering.
         }
 
-        // Pose-controlled composition: fail fast before queueing when the pose cannot be honoured
-        // (a pinned local ComfyUI model is required). Full capability qualification is re-validated at
-        // render time by the pose resolver — this is the enqueue gate, never a fallback.
+        // Pose-conditioned composition: fail fast before queueing when the request cannot name a model at all.
+        // WHICH mechanism carries the pose is decided at render time by the capability resolver (an OpenPose
+        // ControlNet graph, or a native-reference model that takes the skeleton as a reference image) — this gate
+        // never assumes a model family, and never substitutes a default.
         var poseReference = ReadPoseReferenceFromSettings(settingsJson);
         if (poseReference is not null)
         {
             if (string.IsNullOrWhiteSpace(request.RequestedModelId))
             {
                 throw new InvalidOperationException(
-                    "Pose-controlled rendering requires a user-pinned image model. Pin an SDXL-family local ComfyUI model (BigLust/Juggernaut) in the Studio, then retry.");
+                    "Pose conditioning requires a user-pinned image model: pin a model that can carry a pose (a local ComfyUI model qualifying an OpenPose ControlNet, or one that takes the pose as a reference image) in the Studio, then retry.");
             }
             if (string.IsNullOrWhiteSpace(poseReference.StoragePath))
             {

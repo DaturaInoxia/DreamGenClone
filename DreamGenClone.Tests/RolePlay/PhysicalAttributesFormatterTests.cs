@@ -131,20 +131,19 @@ public class PhysicalAttributesFormatterTests
     // ── Body-only block (Composition Composer Body reference row) ────────────
 
     [Fact]
-    public void FormatVisualBody_IncludesBodyTypeAndFigure_ButNoFaceAnchors()
+    public void FormatVisualBody_IncludesThePhysiqueAxesAndFigure_ButNoFaceAnchors()
     {
         var output = PhysicalAttributesFormatter.FormatVisualBody(new PhysicalAttributes
         {
-            Weight = "Average",
-            BodyType = "Athletic",
+            BodyBuild = "average frame",
+            Adiposity = "average weight",
             BustSize = "Medium",
             HipSize = "Wide",
             HairColour = "brown",
             EyeColour = "blue"
         });
 
-        Assert.Contains("Weight: Average", output, StringComparison.Ordinal);
-        Assert.Contains("Body type: Athletic", output, StringComparison.Ordinal);
+        Assert.Contains("Physique: average frame, average weight", output, StringComparison.Ordinal);
         Assert.Contains("Figure: bust Medium, hips Wide", output, StringComparison.Ordinal);
         Assert.DoesNotContain("Hair", output, StringComparison.Ordinal);
         Assert.DoesNotContain("Iris", output, StringComparison.Ordinal);

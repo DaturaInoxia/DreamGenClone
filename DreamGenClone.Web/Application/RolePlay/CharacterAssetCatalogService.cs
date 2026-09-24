@@ -31,11 +31,11 @@ public sealed class CharacterAssetCatalogService : ICharacterAssetCatalogService
         {
             var assets = await _assets.ListByPackAsync(pack.Id, cancellationToken);
             results.Add(new CharacterAssetVersionSnapshot(
-                CharacterAssetVersionKind.Identity, pack.Id, pack.CharacterProfileId, pack.Version,
+                CharacterAssetVersionKind.Identity, pack.Id, pack.CharacterTemplateId, pack.Version,
                 pack.Status.ToString(), pack.SupersedesId, pack.DescriptorSnapshotJson,
                 assets.Select(asset => PickerOption(
                     CharacterAssetVersionKind.Identity, pack.Id, pack.Version, pack.Status.ToString(),
-                    pack.CharacterProfileId, asset, "identity-reference")).ToList()));
+                    pack.CharacterTemplateId, asset, "identity-reference")).ToList()));
         }
 
         foreach (var body in await _appearance.ListBodyProfilesAsync(characterProfileId.Trim(), cancellationToken))

@@ -11,7 +11,9 @@ using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Infrastructure.Models;
 
-public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextCompletionClient
+public sealed class OpenAiStructuredTextCompletionClient :
+    IStructuredTextCompletionClient,
+    ISynchronousStructuredTextCompletionClient
 {
     private const string HttpClientName = "StructuredTextCompletionClient";
 
@@ -35,15 +37,34 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
         CancellationToken cancellationToken = default)
     {
         ValidateRequest(analyzer, request);
-        var resolved = analyzer.Model;
+        return await GenerateCoreAsync(
+            analyzer.Model, analyzer.StructuredOutputMode, request, cancellationToken);
+    }
+
+    public async Task<StructuredTextCompletionResult> GenerateAsync(
+        ResolvedStructuredTextFunction function,
+        StructuredTextCompletionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateFunctionRequest(function, request);
+        return await GenerateCoreAsync(
+            function.Model, function.StructuredOutputMode, request, cancellationToken);
+    }
+
+    private async Task<StructuredTextCompletionResult> GenerateCoreAsync(
+        ResolvedModel resolved,
+        StructuredOutputMode structuredOutputMode,
+        StructuredTextCompletionRequest request,
+        CancellationToken cancellationToken)
+    {
         var stopwatch = Stopwatch.StartNew();
         using var client = CreateClient(resolved);
         using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         requestTimeout.CancelAfter(client.Timeout);
-        var systemMessage = analyzer.StructuredOutputMode == StructuredOutputMode.JsonObject
+        var systemMessage = structuredOutputMode == StructuredOutputMode.JsonObject
             ? BuildJsonObjectSystemMessage(request)
             : request.SystemMessage;
-        var responseFormat = analyzer.StructuredOutputMode switch
+        var responseFormat = structuredOutputMode switch
         {
             StructuredOutputMode.StrictJsonSchema => new ResponseFormat(
                 "json_schema",
@@ -266,6 +287,35 @@ public sealed class OpenAiStructuredTextCompletionClient : IStructuredTextComple
                 $"Provider '{resolved.ProviderName}' inference credential could not be decrypted.",
                 false,
                 ex);
+        }
+    }
+
+    private static void ValidateFunctionRequest(
+        ResolvedStructuredTextFunction function,
+        StructuredTextCompletionRequest request)
+    {
+        if (function.Model.IsSessionOverride)
+            throw new StructuredTextCompletionException(
+                "structured_text_session_override_forbidden",
+                $"Function '{function.Function}' cannot use a session model override.",
+                false);
+        if (function.Model.ThinkingMode == ThinkingMode.Default)
+            throw new StructuredTextCompletionException(
+                "structured_text_thinking_mode_missing",
+                $"Function '{function.Function}' requires an explicit thinking mode.",
+                false);
+        if (string.IsNullOrWhiteSpace(request.SystemMessage) || string.IsNullOrWhiteSpace(request.UserMessage))
+            throw new StructuredTextCompletionException(
+                "structured_text_prompt_missing",
+                "Structured text system and user messages are required.",
+                false);
+        if (string.IsNullOrWhiteSpace(request.ResponseSchemaName)
+            || request.ResponseSchema.ValueKind != JsonValueKind.Object)
+        {
+            throw new StructuredTextCompletionException(
+                "structured_text_schema_missing",
+                "A named JSON object response schema is required.",
+                false);
         }
     }
 

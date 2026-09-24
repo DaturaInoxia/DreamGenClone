@@ -73,6 +73,107 @@ public sealed class SceneAssetImageEditRunCutoverTests
         Assert.Empty(recorder.Runs);
     }
 
+    /// <summary>
+    /// The Asset Manager editor's identity tab is the same run as the scene one, on the asset store: the
+    /// bound approved faces are the run's references and the instruction is authored from the bindings, so
+    /// there is no compiler artifact, no edit session and no revision involved.
+    /// </summary>
+    [Fact]
+    public async Task EnqueueIdentityEditAsync_CreatesAChildImageCarryingTheBoundFaceReferences()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var recorder = new RecordingMediaEditCompilationService();
+        var queue = new CapturingDurableQueue();
+        var production = new StubIdentityProductionService();
+        var service = fixture.BuildService(recorder, queue, production);
+
+        var image = await service.EnqueueIdentityEditAsync(fixture.BuildIdentityRequest());
+
+        // The chosen face is resolved through the ONE identity-reference path; this service never re-derives
+        // what an approved pack face is.
+        var selection = Assert.Single(production.Selections);
+        Assert.Equal("becky-1", selection.CharacterId);
+        Assert.Equal(StubIdentityProductionService.FaceAssetId, selection.ReferenceAssetId);
+
+        // The run reaches the shared pipeline carrying the model the editor form chose.
+        var run = Assert.Single(recorder.Runs);
+        Assert.Equal(MediaEditSubjectKind.AssetImage, run.SubjectKind);
+        Assert.Equal(image.Id, run.ImageId);
+        Assert.Equal(Fixture.EditorModelId, run.EditorModelId);
+
+        // And no second job path is produced: an identity run is the same edit job as everything else.
+        Assert.Empty(queue.Enqueued);
+
+        // The child row is an edited image of the subject, in the subject's own draft group, whose instruction
+        // is authored from the bindings and whose provenance records the faces it must apply.
+        var persisted = await fixture.Assets.GetImageAsync(image.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(SceneAssetKind.Edited, persisted!.Kind);
+        Assert.Equal(SceneAssetStatus.Pending, persisted.Status);
+        Assert.Equal(fixture.SourceImageId, persisted.SourceImageId);
+        Assert.Contains("Apply the face of the person shown in Picture 2 to the man on the left at left third of the frame", persisted.Prompt!, StringComparison.Ordinal);
+
+        var bindings = MediaEditIdentityProvenance.TryRead(persisted.SourceProvenanceJson);
+        var binding = Assert.Single(bindings!);
+        Assert.Equal(1, binding.Ordinal);
+        Assert.Equal("becky-1", binding.CharacterId);
+        Assert.Equal("Becky", binding.CharacterName);
+        Assert.Equal(StubIdentityProductionService.PackId, binding.IdentityPackId);
+        Assert.Equal(StubIdentityProductionService.FaceAssetId, binding.CanonicalFaceAssetId);
+        Assert.Equal(StubIdentityProductionService.FaceRelativePath, binding.FileRelativePath);
+        Assert.Equal(StubIdentityProductionService.FaceSha256, binding.Sha256);
+    }
+
+    [Fact]
+    public async Task EnqueueIdentityEditAsync_JoinsTheSubjectsCandidateBatch()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var recorder = new RecordingMediaEditCompilationService();
+        var service = fixture.BuildService(recorder, new CapturingDurableQueue(), new StubIdentityProductionService());
+
+        var source = await fixture.Assets.GetImageAsync(fixture.SourceImageId);
+        source!.CandidateBatchId = "batch-1";
+        source.CandidateDecision = SceneAssetCandidateDecision.Undecided;
+        await fixture.Assets.UpsertImageAsync(source);
+
+        var image = await service.EnqueueIdentityEditAsync(fixture.BuildIdentityRequest());
+
+        var persisted = await fixture.Assets.GetImageAsync(image.Id);
+        Assert.Equal("batch-1", persisted!.CandidateBatchId);
+    }
+
+    [Fact]
+    public async Task EnqueueIdentityEditAsync_RequiresTheEditorModelChosenInTheEditorForm()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var recorder = new RecordingMediaEditCompilationService();
+        var service = fixture.BuildService(recorder, new CapturingDurableQueue(), new StubIdentityProductionService());
+
+        var request = fixture.BuildIdentityRequest();
+        request.EditorModelId = "  ";
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueIdentityEditAsync(request));
+
+        Assert.Contains("editor model", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(recorder.Runs);
+    }
+
+    [Fact]
+    public async Task EnqueueIdentityEditAsync_RequiresAtLeastOneBoundPerson()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var recorder = new RecordingMediaEditCompilationService();
+        var service = fixture.BuildService(recorder, new CapturingDurableQueue(), new StubIdentityProductionService());
+
+        var request = fixture.BuildIdentityRequest();
+        request.Selections = [];
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueIdentityEditAsync(request));
+
+        Assert.Contains("bound person", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(recorder.Runs);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private const string AssetId = "asset-1";
@@ -212,8 +313,31 @@ public sealed class SceneAssetImageEditRunCutoverTests
             EditorModelId = EditorModelId
         };
 
+        public EnqueueSceneAssetImageIdentityEditRequest BuildIdentityRequest() => new()
+        {
+            AssetId = AssetId,
+            SourceImageId = SourceImageId,
+            EditorModelId = EditorModelId,
+            Selections =
+            [
+                new ImageIdentitySelection(
+                    "man on the left",
+                    "left third of the frame",
+                    null,
+                    "becky-1",
+                    "Becky",
+                    StubIdentityProductionService.FaceAssetId)
+            ]
+        };
+
         public SceneAssetImageEditCompilationService BuildService(
             IMediaEditCompilationService mediaEdits, IDurableBackgroundJobQueue queue)
+            => BuildService(mediaEdits, queue, new StubIdentityProductionService());
+
+        public SceneAssetImageEditCompilationService BuildService(
+            IMediaEditCompilationService mediaEdits,
+            IDurableBackgroundJobQueue queue,
+            ISceneImageProductionService productionService)
             => new(
                 Assets,
                 Edits,
@@ -223,7 +347,8 @@ public sealed class SceneAssetImageEditRunCutoverTests
                 queue,
                 new StubDurableSettingsResolver(),
                 TimeProvider.System,
-                mediaEdits);
+                mediaEdits,
+                productionService);
 
         public ValueTask DisposeAsync()
         {
@@ -285,6 +410,87 @@ public sealed class SceneAssetImageEditRunCutoverTests
             => throw new NotSupportedException();
 
         public Task<IReadOnlyList<MediaEditPromptRevision>> ListRevisionsAsync(string attemptId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// The shared identity-reference resolution: the ONE place that decides whether a chosen face is an
+    /// approved <c>Face</c> asset of the character's single approved pack. It records what it was asked so the
+    /// enqueue test can prove the asset service forwards the user's selection rather than re-deriving the rule.
+    /// </summary>
+    private sealed class StubIdentityProductionService : ISceneImageProductionService
+    {
+        public const string PackId = "pack-1";
+        public const string FaceAssetId = "face-1";
+        public const string FaceRelativePath = "identity/becky/front.png";
+        public const string FaceSha256 = "AB12CD34";
+
+        public List<SceneImageIdentityReferenceSelection> Selections { get; } = [];
+
+        public Task<IReadOnlyList<SceneImageIdentityReadiness>> ResolveCharacterIdentitySelectionsAsync(
+            IReadOnlyList<SceneImageIdentityReferenceSelection> selections,
+            CancellationToken cancellationToken = default)
+        {
+            Selections.AddRange(selections);
+            return Task.FromResult<IReadOnlyList<SceneImageIdentityReadiness>>(
+                selections.Select(selection => new SceneImageIdentityReadiness(
+                    selection.CharacterId,
+                    string.Empty,
+                    PackId,
+                    3,
+                    FaceAssetId,
+                    FaceRelativePath,
+                    FaceSha256,
+                    SceneImageReferenceFaceView.Front)).ToList());
+        }
+
+        // Everything below is unreachable from an identity enqueue; a call would be a real defect.
+        public Task<IReadOnlyList<SceneImageIdentityReadiness>> ResolveIdentityReadinessAsync(
+            string productionGroupId,
+            IReadOnlyList<SceneImageIdentityReferenceSelection>? selections = null,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<CompiledMediaBrief> GetOrCreateStillBriefAsync(string productionGroupId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageProductionGroup> GetOrCreateGroupAsync(CreateSceneImageProductionGroupRequest request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageProductionGroup> SkipIdentityAsync(string groupId, string reason, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageProductionGroup> ClearIdentitySkipAsync(string groupId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageProductionGroup?> GetCurrentGroupAsync(string momentEnrichmentId, string pov, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageProductionGroup?> GetGroupAsync(string groupId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneImageRecord>> ListAttemptsAsync(string groupId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<ApprovedSceneFrameDecision>> ListApprovalDecisionsAsync(string groupId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task SetDispositionAsync(string imageId, string groupId, SceneImageAttemptDisposition expectedDisposition, SceneImageAttemptDisposition nextDisposition, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ApprovedSceneFrameDecision> ApproveAsync(string groupId, string imageId, string sha256, string decidedBy, string? note, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageAttemptRetentionPolicy?> GetRetentionPolicyAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageAttemptRetentionPolicy> SaveRetentionPolicyAsync(SceneImageAttemptRetentionPolicy policy, long? expectedVersion, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task PurgeRejectedBytesAsync(string imageId, string requestedBy, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneAsset> PromoteApprovedFrameAsync(string groupId, string name, SceneAssetType type, string? associationMetadataJson, string? characterProfileId, string requestedBy, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 

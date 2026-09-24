@@ -78,7 +78,7 @@ public enum CharacterIdentityStrategyKind
 public sealed class CharacterLoraDataset
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
-    public string CharacterProfileId { get; set; } = string.Empty;
+    public string CharacterTemplateId { get; set; } = string.Empty;
     public string IdentityPackId { get; set; } = string.Empty;
     public int Version { get; set; }
     public CharacterLoraDatasetStatus Status { get; set; }
@@ -185,7 +185,7 @@ public sealed class CharacterLoraTrainingAttempt
 public sealed class CharacterLoraArtifact
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
-    public string CharacterProfileId { get; set; } = string.Empty;
+    public string CharacterTemplateId { get; set; } = string.Empty;
     public string DatasetId { get; set; } = string.Empty;
     public string TrainingAttemptId { get; set; } = string.Empty;
     public int Version { get; set; }
@@ -230,7 +230,7 @@ public static class CharacterLoraManifestHash
         var values = new[]
         {
             dataset.Id,
-            dataset.CharacterProfileId,
+            dataset.CharacterTemplateId,
             dataset.IdentityPackId,
             dataset.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
             dataset.TriggerToken,

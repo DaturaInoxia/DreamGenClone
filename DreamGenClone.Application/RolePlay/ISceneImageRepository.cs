@@ -50,6 +50,20 @@ public interface ISceneImageRepository
         string sessionId,
         DateTime cancelledUtc,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Claims the queued row for the run that is about to call the model: 'Pending' becomes 'Generating'
+    /// and the start timestamp is recorded.
+    ///
+    /// <see cref="TryCompleteImageAsync"/> only completes a claimed row, so every render and every edit
+    /// must claim first. Only a 'Pending' row is claimed — a row that already finished, was cancelled, or
+    /// was claimed by an earlier delivery of the same job matches nothing and returns false.
+    /// </summary>
+    Task<bool> TryClaimImageAsync(
+        string imageId,
+        DateTime startedUtc,
+        CancellationToken cancellationToken = default);
+
     Task<bool> TryCompleteImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default);
 
     /// <summary>

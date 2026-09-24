@@ -1,0 +1,446 @@
+﻿{
+    "status":  "passed-pose-identity-location-body-angles-and-back-via-native-references",
+    "area":  "qwen-21-native-reference",
+    "completedUtc":  "2026-09-23T00:00:00Z",
+    "model":  {
+                  "name":  "Qwen-Image-2.1 (int8 convrot)",
+                  "diffusionModel":  "qwen_image_2.1_int8_convrot.safetensors",
+                  "textEncoder":  "qwen3vl_8b_int8_convrot.safetensors",
+                  "vae":  "qwen_image_2.1_vae_bf16.safetensors",
+                  "host":  "local ComfyUI WOOD-GAME-MAIN (RTX 5080 16 GB, ComfyUI 0.37.1)",
+                  "note":  "No ControlNet is used anywhere in this proof. References travel through the model\u0027s own autogrow reference slots (images.image_1..image_N on TextEncodeQwenImage21)."
+              },
+    "envelope":  {
+                     "seed":  20260922,
+                     "steps":  25,
+                     "cfg":  1,
+                     "sampler":  "euler",
+                     "scheduler":  "simple",
+                     "resolutionBudget":  1024,
+                     "note":  "resolution is a total pixel budget, not a dimension; negative_prompt is inert at cfg 1."
+                 },
+    "runner":  "helpers/local-comfyui-host/run-qwen-2-1-proof.ps1",
+    "replay":  {
+                   "runA":  "\u0026 helpers/local-comfyui-host/run-qwen-2-1-proof.ps1 -Cells posePlate,poseTextRef",
+                   "runB":  "\u0026 helpers/local-comfyui-host/run-qwen-2-1-proof.ps1 -Cells poseRef,poseSkel,poseSkelKneel",
+                   "runC":  "\u0026 helpers/local-comfyui-host/run-qwen-2-1-proof.ps1 -Cells appPoseIdFront,appPoseIdKneel,appComposeWide,appComposeTall,appComposeOrder",
+                   "note":  "Every reference input is SHA-256 verified by the runner before upload; run A must produce the plate before run B consumes it."
+               },
+    "references":  {
+                       "bedroom":  {
+                                       "path":  "specs/image-generator-tests/dual-base-location/runs/dual-location-local-fast/refs/locref-bedroom.png",
+                                       "sha256":  "96B9BA7791DE4CB1ED121E045E8110BE8FCFF45DB6D718EE2E1B4C20A7BF8075"
+                                   },
+                       "skeletonStanding":  {
+                                                "path":  "DreamGenClone.Web/wwwroot/pose-library/standing.png",
+                                                "sha256":  "D99E07DCC8950187809E995DE452A0B25F42D31A59E9447E4109134B2860E4F1"
+                                            },
+                       "skeletonKneeling":  {
+                                                "path":  "DreamGenClone.Web/wwwroot/pose-library/kneeling.png",
+                                                "sha256":  "0E14567222F06D64DF52E04FDEB991759C8520659FF259530A8042F34B5E298E"
+                                            },
+                       "beckyProfileLeft":  {
+                                                "path":  "DreamGenClone.Web/data/scene-images/identity/f58f959a-8050-4388-a219-99d2df3446a1/D9ED3C9881A8DBDC5A6962071DEFDF98.png",
+                                                "sha256":  "5E4F3477BF8A73C6B698373A3F0F138E7865900A2D55F74794D2B470E8E9D343"
+                                            },
+                       "beckyFront":  {
+                                          "path":  "DreamGenClone.Web/data/scene-images/identity/f58f959a-8050-4388-a219-99d2df3446a1/FF0C9C766633F03336D4A9EA7C03475F.png",
+                                          "sha256":  "8ECBB81352F698F71E314C9D9388E4D35367CBCDCA8726C49964382FE1CFF618"
+                                      },
+                       "posePlate":  {
+                                         "path":  "images/01-pose-plate.png",
+                                         "sha256":  "06DA715AC525AD09D50DDF7BFF1578606E3D322791523F95CE2F4C5CFE8E3424"
+                                     },
+                       "beckyFrontBody":  {
+                                              "description":  "Becky accepted Clothed Front body render (scene-images/assets/ab27c7ca23394071bcb35c148bcc770e.png)",
+                                              "path":  "DreamGenClone.Web/data/scene-images/assets/ab27c7ca23394071bcb35c148bcc770e.png",
+                                              "sha256":  "4E3F9B29EF06A00A1735D573DA8F50D802D9BF3966B1C9CDF5A2A07C328D0913"
+                                          },
+                       "angleSkel34Left":  {
+                                               "description":  "annotated 3/4-left skeleton: DWPose on the plate34Left cell output",
+                                               "path":  "skeletons/angle-34-left.png",
+                                               "sha256":  "854ECED5E6EEE031DA76FEBDD831641477CCBA7D8965486E5987A51639ED4109"
+                                           },
+                       "angleSkel34Right":  {
+                                                "description":  "annotated 3/4-right skeleton: DWPose on the plate34Right output, REGENERATED 2026-09-23 from the strengthened plate prompt (seed 20260924). The original file claimed the same provenance but was MEASURED to be the same body pose as the 3/4-left skeleton (chamfer(left,right)=7.13px vs chamfer(left,mirrored right)=14.58px), so every 3/4-right render faced left. The current annotation measures chamfer(left,right)=16.63px vs chamfer(left,mirrored right)=7.19px - a genuine right turn, independent of the left (a base mirror measures 0.00px and was used only as an interim stopgap).",
+                                                "path":  "skeletons/angle-34-right.png",
+                                                "sha256":  "D2F5562132EAFB1BA64B25FC2C2DACC6557245A860A04AD173DCD3A93353C19E"
+                                            },
+                       "angleSkelProfileLeft":  {
+                                                    "description":  "annotated profile-left skeleton: DWPose on the plateProfileLeft cell output",
+                                                    "path":  "skeletons/angle-profile-left.png",
+                                                    "sha256":  "34B4540B05E004ADDB8385F2C91BE040BCFCC1113BA551F34603BBD1156E13A0"
+                                                },
+                       "angleSkelProfileRight":  {
+                                                     "description":  "annotated profile-right skeleton: DWPose on the plateProfileRight cell output",
+                                                     "path":  "skeletons/angle-profile-right.png",
+                                                     "sha256":  "BF6219E132854EEC5228461093DF6F63253B4A683DC7D5D6EDA06CB827377A79"
+                                                 },
+                       "becky34LeftFace":  {
+                                               "description":  "Becky approved pack face, ThreeQuarterLeft (pack v8)",
+                                               "path":  "DreamGenClone.Web/data/scene-images/identity/de351eb3-69d3-421a-a762-79ae8ee183ed/456abbf779f544fcbf00d88a0c6f7c4d.png",
+                                               "sha256":  "3A5E658BD5CA40EB842AAE46745E5983F6ACC8D193A71EA2120CE1575536A0E2"
+                                           }
+                   },
+    "cases":  [
+                  {
+                      "id":  "pose-plate",
+                      "image":  "images/01-pose-plate.png",
+                      "promptFile":  "prompts/posePlate.json",
+                      "size":  "832x1216",
+                      "referenceInputs":  [
+
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "98e8b5a9-d8fd-4925-9f80-c317f24f8e7b",
+                      "elapsedSeconds":  15.1,
+                      "bytes":  984989,
+                      "sha256":  "06DA715AC525AD09D50DDF7BFF1578606E3D322791523F95CE2F4C5CFE8E3424",
+                      "prompt":  "Photorealistic full-body photograph of a person standing upright facing the camera, arms relaxed and hanging at their sides with a small gap from the body, feet about shoulder width apart, neutral expression, wearing a plain light-grey t-shirt and dark trousers, plain white seamless studio background, even soft lighting, sharp focus, full body head to feet, shot on 50mm",
+                      "result":  "passed",
+                      "verdict":  "Clean full-body photoreal plate produced; used only as the photoreal-reference input for the pose-photoreal-reference case."
+                  },
+                  {
+                      "id":  "pose-text-baseline",
+                      "image":  "images/02-pose-text-baseline.png",
+                      "promptFile":  "prompts/poseTextRef.json",
+                      "size":  "832x1216",
+                      "referenceInputs":  [
+                                              "beckyProfileLeft"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "61761746-51ac-406a-9b5a-cd8d86fd8c63",
+                      "elapsedSeconds":  20.3,
+                      "bytes":  917673,
+                      "sha256":  "39AE4B93FB8B2A0511B2B46B1FDC754ADDE34E394C9C403A117442371D7F63B4",
+                      "prompt":  "Photorealistic full-body photograph of the woman from \u003cimage1\u003e, standing upright facing the camera with her arms relaxed and hanging at her sides with a small gap from her body, and her feet about shoulder width apart. Keep her face, hair, hair colour and skin tone exactly as in \u003cimage1\u003e. She wears a plain light-grey t-shirt and dark trousers. Plain white seamless studio background, even soft lighting, sharp focus, full body head to feet, shot on 50mm.",
+                      "result":  "passed",
+                      "verdict":  "Pose from words only: correct stance (arms at sides, feet apart). Identity carried the reference\u0027s distinctive updo but the reference is a PROFILE view while the prompt asks for a frontal pose, so the head angle did not match the reference."
+                  },
+                  {
+                      "id":  "pose-photoreal-reference",
+                      "image":  "images/03-pose-photoreal-reference.png",
+                      "promptFile":  "prompts/poseRef.json",
+                      "size":  "832x1216",
+                      "referenceInputs":  [
+                                              "posePlate",
+                                              "beckyProfileLeft"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "14e7a6b4-1b2b-41bd-bcd0-f5cebcf601b7",
+                      "elapsedSeconds":  25.1,
+                      "bytes":  1097527,
+                      "sha256":  "E3322F85B2EAE1CBAAF5553CE2D2904A95515BC7AC8F2736B05D77BCC7C29A20",
+                      "prompt":  "Photorealistic full-body photograph of the woman from \u003cimage2\u003e, standing in the exact pose shown in \u003cimage1\u003e - the same stance, the same limb positions and the same body angles. Keep her face, hair, hair colour and skin tone exactly as in \u003cimage2\u003e. She wears a plain light-grey t-shirt and dark trousers. Plain white seamless studio background, even soft lighting, sharp focus, full body head to feet, shot on 50mm.",
+                      "result":  "failed",
+                      "verdict":  "FAILED as a pose-transfer mechanism: the output is the PLATE\u0027s person reproduced wholesale (same man, same pose, same clothing) and the identity reference in \u003cimage2\u003e had no effect. A photoreal full-body person in \u003cimage1\u003e is treated as the base image to reproduce, not as a pose donor."
+                  },
+                  {
+                      "id":  "pose-standing-skeleton",
+                      "image":  "images/04-pose-standing-skeleton.png",
+                      "promptFile":  "prompts/poseSkel.json",
+                      "size":  "832x1216",
+                      "referenceInputs":  [
+                                              "skeletonStanding",
+                                              "beckyProfileLeft"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "6821893f-05d4-40f9-8869-5855b7632bd9",
+                      "elapsedSeconds":  25.2,
+                      "bytes":  934139,
+                      "sha256":  "AF80F120065C0A363700DC3E333B45E39F633D07B0B848E5A90D8A4273FD4FBC",
+                      "prompt":  "Photorealistic full-body photograph of the woman from \u003cimage2\u003e, standing in the exact pose shown in \u003cimage1\u003e - the same stance, the same limb positions and the same body angles. Keep her face, hair, hair colour and skin tone exactly as in \u003cimage2\u003e. She wears a plain light-grey t-shirt and dark trousers. Plain white seamless studio background, even soft lighting, sharp focus, full body head to feet, shot on 50mm.",
+                      "result":  "passed",
+                      "verdict":  "PASSED: identical wording and seed to the failed photoreal-reference case, only \u003cimage1\u003e differs (OpenPose skeleton instead of a photograph). The figure adopts the skeleton\u0027s splayed arms and wide stance rather than reproducing a person. An OpenPose skeleton in a reference slot acts as POSE GUIDANCE."
+                  },
+                  {
+                      "id":  "pose-kneeling-skeleton-confirmation",
+                      "image":  "images/05-pose-kneeling-skeleton.png",
+                      "promptFile":  "prompts/poseSkelKneel.json",
+                      "size":  "832x1216",
+                      "referenceInputs":  [
+                                              "skeletonKneeling",
+                                              "beckyProfileLeft"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "559c7d66-179a-4b74-b7db-78973c66973b",
+                      "elapsedSeconds":  25.2,
+                      "bytes":  961625,
+                      "sha256":  "C80EB6CF7ACAFCAD28AE733E3D0932D1B909D485EEF8DC1B00D0D534A3B9A2F0",
+                      "prompt":  "Photorealistic full-body photograph of the woman from \u003cimage2\u003e, standing in the exact pose shown in \u003cimage1\u003e - the same stance, the same limb positions and the same body angles. Keep her face, hair, hair colour and skin tone exactly as in \u003cimage2\u003e. She wears a plain light-grey t-shirt and dark trousers. Plain white seamless studio background, even soft lighting, sharp focus, full body head to feet, shot on 50mm.",
+                      "result":  "passed",
+                      "verdict":  "DECISIVE. Same seed and identical wording as the standing-skeleton case, and the prompt still says standing, yet the output follows the KNEELING skeleton: kneeling, both arms raised overhead, knees apart - exactly that skeleton\u0027s geometry. The pose comes from the skeleton image, overriding both the seed and the explicit word standing."
+                  },
+                  {
+                      "id":  "app-pose-identity-front",
+                      "image":  "images/06-app-pose-identity-front.png",
+                      "promptFile":  "prompts/appPoseIdFront.json",
+                      "size":  "832x1216",
+                      "referenceInputs":  [
+                                              "skeletonStanding",
+                                              "beckyFront"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "995d24e2-062e-4dec-9ab3-a0a9d122a238",
+                      "elapsedSeconds":  25.2,
+                      "bytes":  998029,
+                      "sha256":  "E1BCB6D4D5C629FEDDF508F8C8FF9FE9CE3E7B68C85B36F2985DEF3A8F030A39",
+                      "prompt":  "Photorealistic full-body photograph of the woman in \u003cimage2\u003e, standing in the exact pose shown in \u003cimage1\u003e - the same stance, the same limb positions and the same body angles. Her face, hair, hair colour and skin tone are exactly those of the woman in \u003cimage2\u003e: the same eyes, nose, mouth, jawline and freckles. She wears a plain light-grey t-shirt and dark jeans. Plain white seamless studio background, even soft lighting, sharp focus, full body head to feet, shot on 50mm.",
+                      "result":  "passed",
+                      "verdict":  "Pose PASS (skeleton\u0027s splayed arms and wide stance) and identity PASS (the frontal reference\u0027s face, hair colour and messy top-bun reproduced). Using the ANGLE-MATCHED frontal reference is what makes identity land - the same cells with the profile reference kept only the hair."
+                  },
+                  {
+                      "id":  "app-pose-identity-kneel",
+                      "image":  "images/07-app-pose-identity-kneel.png",
+                      "promptFile":  "prompts/appPoseIdKneel.json",
+                      "size":  "832x1216",
+                      "referenceInputs":  [
+                                              "skeletonKneeling",
+                                              "beckyFront"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "946ca2f4-34cc-4de1-b9e0-892fa5799335",
+                      "elapsedSeconds":  25.3,
+                      "bytes":  1014286,
+                      "sha256":  "BD0A6549EBE2C55E59D1DB706C2DBCDDF9EC6561270BC514B9B21EC1F2B30FEA",
+                      "prompt":  "Photorealistic full-body photograph of the woman in \u003cimage2\u003e, standing in the exact pose shown in \u003cimage1\u003e - the same stance, the same limb positions and the same body angles. Her face, hair, hair colour and skin tone are exactly those of the woman in \u003cimage2\u003e: the same eyes, nose, mouth, jawline and freckles. She wears a plain light-grey t-shirt and dark jeans. Plain white seamless studio background, even soft lighting, sharp focus, full body head to feet, shot on 50mm.",
+                      "result":  "passed",
+                      "verdict":  "Second stance confirmed: kneeling with both arms overhead, and the frontal identity reproduced. Pose variety is available on the same mechanism."
+                  },
+                  {
+                      "id":  "app-location-pose-identity-tall",
+                      "image":  "images/08-app-location-pose-identity-tall.png",
+                      "promptFile":  "prompts/appComposeTall.json",
+                      "size":  "832x1216",
+                      "referenceInputs":  [
+                                              "bedroom",
+                                              "skeletonStanding",
+                                              "beckyFront"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "f395ae9b-a30f-4c77-b641-251ca3cad586",
+                      "elapsedSeconds":  20.6,
+                      "bytes":  1717438,
+                      "sha256":  "F246255D0CF2F7E6D34DEDC5BA2D51ED315CF23A252CB32829EEA6E0D2C3D217",
+                      "prompt":  "Photorealistic photograph of a woman standing in the bedroom shown in \u003cimage1\u003e, in the exact pose shown in \u003cimage2\u003e - the same stance, the same limb positions and the same body angles. Her face, hair, hair colour and skin tone are exactly those of the woman in \u003cimage3\u003e. Reproduce the room faithfully: the wooden bed with the grey textured throw, the bedside lamps lit with warm light, the tall windows with cream curtains, the pale carpet and wall colour, and the same camera angle and framing. She wears a plain light-grey t-shirt and dark jeans. Keep her build and scale natural for the room. Sharp focus, natural skin texture, shot on 50mm.",
+                      "result":  "passed",
+                      "verdict":  "THE APP SHAPE: location AND pose AND identity in ONE native-reference call. Room reads as the referenced bedroom (semantic, not pixel-faithful), pose follows the skeleton, identity matches the frontal reference."
+                  },
+                  {
+                      "id":  "app-location-pose-identity-wide",
+                      "image":  "images/09-app-location-pose-identity-wide.png",
+                      "promptFile":  "prompts/appComposeWide.json",
+                      "size":  "1216x832",
+                      "referenceInputs":  [
+                                              "bedroom",
+                                              "skeletonStanding",
+                                              "beckyFront"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "862656e5-b9b6-4b99-bcda-a17eab3c032d",
+                      "elapsedSeconds":  30.2,
+                      "bytes":  1729458,
+                      "sha256":  "BBDA739C049F457BE35F5F20EE6F248EA166CA39035CAC800F6A25646CCC6E7B",
+                      "prompt":  "Photorealistic photograph of a woman standing in the bedroom shown in \u003cimage1\u003e, in the exact pose shown in \u003cimage2\u003e - the same stance, the same limb positions and the same body angles. Her face, hair, hair colour and skin tone are exactly those of the woman in \u003cimage3\u003e. Reproduce the room faithfully: the wooden bed with the grey textured throw, the bedside lamps lit with warm light, the tall windows with cream curtains, the pale carpet and wall colour, and the same camera angle and framing. She wears a plain light-grey t-shirt and dark jeans. Keep her build and scale natural for the room. Sharp focus, natural skin texture, shot on 50mm.",
+                      "result":  "passed",
+                      "verdict":  "Same three inputs in the LOCATION\u0027s own wide frame (1216x832): room, pose and identity all still land, so the earlier wide-frame identity loss is specific to the EDIT path with an angle-mismatched reference, not to generation-with-references. Known framing flaw: the wide stance pushes the left arm to the frame edge and crops the feet - the caller should pick a pose/framing combination that fits."
+                  },
+                  {
+                      "id":  "app-slot-order-face-first",
+                      "image":  "images/10-app-slot-order-face-first.png",
+                      "promptFile":  "prompts/appComposeOrder.json",
+                      "size":  "1216x832",
+                      "referenceInputs":  [
+                                              "beckyFront",
+                                              "skeletonStanding",
+                                              "bedroom"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "225f3933-9ff6-49e2-84bb-deca98a465d3",
+                      "elapsedSeconds":  30.3,
+                      "bytes":  1720375,
+                      "sha256":  "8F61DDAE5C62068D8B2C5E37E2931B0B09E92168E305AB1519EC8F7F68DEE3BE",
+                      "prompt":  "Photorealistic photograph of a woman standing in the bedroom shown in \u003cimage3\u003e, in the exact pose shown in \u003cimage2\u003e - the same stance, the same limb positions and the same body angles. Her face, hair, hair colour and skin tone are exactly those of the woman in \u003cimage1\u003e. Reproduce the room faithfully: the wooden bed with the grey textured throw, the bedside lamps lit with warm light, the tall windows with cream curtains, the pale carpet and wall colour, and the same camera angle and framing. She wears a plain light-grey t-shirt and dark jeans. Keep her build and scale natural for the room. Sharp focus, natural skin texture, shot on 50mm.",
+                      "result":  "passed",
+                      "verdict":  "Slot-ORDER probe: the FACE as image_1, then pose, then location. Room, pose and identity all still landed, so in a 3-reference composition the order did NOT change the outcome. This refines the earlier failure: a photoreal FULL-BODY person in slot 1 is reproduced wholesale, while a FACE crop in slot 1 is used as a feature source. Order still matters for placement/composition; it is not a capability gate here."
+                  },
+                  {
+                      "id":  "app-builder-face-and-skeleton",
+                      "image":  "images/11-app-builder-face-and-skeleton.png",
+                      "promptFile":  "prompts/app-posed-graph-emitted.json",
+                      "size":  "1024x1024",
+                      "referenceInputs":  [
+                                              "beckyFront",
+                                              "skeletonStanding"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "a3f71d4a-b38e-4b8e-b654-cf1ea7bfae1b",
+                      "bytes":  1062867,
+                      "sha256":  "6E3EABC64EA5F5F7814D15EA697B198663164DFE44E1D5DAB53F73FB9077CF3F",
+                      "prompt":  "Photorealistic full-body photograph of the woman in \u003cimage1\u003e, standing in the exact pose shown in \u003cimage2\u003e - the same stance, the same limb positions and the same body angles. Her face, hair, hair colour and skin tone are exactly those of the woman in \u003cimage1\u003e: the same eyes, nose, mouth, jawline and freckles. She wears a plain light-grey t-shirt and dark jeans. Plain white seamless studio background, even soft lighting, sharp focus, full body head to feet, shot on 50mm.",
+                      "result":  "passed",
+                      "verdict":  "THE APPLICATION\u0027S OWN GRAPH. This is the file produced by ComfyUIImageClient.BuildQwenImage21Workflow (the production graph builder), submitted UNCHANGED to the host with both references uploaded under their graph names â€” not a hand-built proof graph. Identity lands (the reference woman\u0027s face, freckles and top-bun) and the pose follows the skeleton\u0027s splayed arms and wide stance, which is exactly the shape the app sends once a native-reference render carries a pose. Replay: emit with QWEN21_EMIT_GRAPH/QWEN21_EMIT_PROMPT/QWEN21_EMIT_REFS, then helpers/local-comfyui-host/run-local-proof.ps1 -WorkflowPath \u003cgraph\u003e -ImagesJsonPath \u003cmanifest\u003e."
+                  },
+                  {
+                      "id":  "body-angle-34-left-front-plus-skeleton",
+                      "image":  "images/12-body-angle-34-left-front-plus-skeleton.png",
+                      "promptFile":  "prompts/bodyAngle34FrontPose.json",
+                      "size":  "1024x1536",
+                      "referenceInputs":  [
+                                              "beckyFrontBody",
+                                              "angleSkel34Left"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "18db0709-ae44-4808-8535-3b8f00913c3c",
+                      "elapsedSeconds":  30.7,
+                      "bytes":  1850409,
+                      "sha256":  "6FF30A3D89539EB7AF27E44A8964CE46ADF42C9E4DB9B0852503C427054D86FD",
+                      "prompt":  "Photorealistic full-body photograph of the woman in \u003cimage1\u003e, her body turned three-quarters to her left, standing in the exact pose shown in \u003cimage2\u003e - the same stance, the same limb positions and the same body angles. Keep her build, her proportions, her skin tone and her tattoo of a tree on her left calf exactly as in \u003cimage1\u003e. She wears T-Shirt and 3/4 Jeans. Whole body in frame and unobstructed, head to feet, natural skin texture, soft even lighting, sharp focus, 35mm photograph.",
+                      "result":  "passed",
+                      "verdict":  "The RECOMMENDED shape for a non-front body view: the accepted FRONT body render plus that angle\u0027s annotated skeleton. The same woman and the same body come back turned three-quarters to her left, the left-calf tattoo travels with the body, and the wardrobe (white t-shirt, rolled jeans) comes from the PROMPT, not from any reference. No face reference was supplied and identity was still correct."
+                  },
+                  {
+                      "id":  "body-angle-34-right-front-plus-skeleton",
+                      "image":  "images/13-body-angle-34-right-front-plus-skeleton.png",
+                      "promptFile":  "prompts/bodyAngle34RightFromFront.json",
+                      "size":  "1024x1536",
+                      "referenceInputs":  [
+                                              "beckyFrontBody",
+                                              "angleSkel34Right"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "68f710a5-83e8-402f-b239-8e5af5d8df2e",
+                      "elapsedSeconds":  35.2,
+                      "bytes":  1848580,
+                      "sha256":  "D3D9654024A977FFF14AB8BA520A89B3AAE01E02AAF812CB53C9A96003FA8823",
+                      "prompt":  "Photorealistic full-body photograph of the woman in \u003cimage1\u003e, her body turned three-quarters to her right, standing in the exact pose shown in \u003cimage2\u003e - the same stance, the same limb positions and the same body angles. Keep her build, her proportions, her skin tone and her tattoo of a tree on her left calf exactly as in \u003cimage1\u003e. She wears T-Shirt and 3/4 Jeans. Whole body in frame and unobstructed, head to feet, natural skin texture, soft even lighting, sharp focus, 35mm photograph.",
+                      "result":  "passed",
+                      "verdict":  "RE-VERIFIED 2026-09-23 after the skeleton regeneration. The previous verdict claimed a 3/4-right turn without measuring it; the render in fact faced LEFT (nose_offset_pct -15.73%) because angle-34-right.png was the same body pose as the left. With the regenerated skeleton (plate34Right strengthened, seed 20260924) the render now measures nose_offset_pct +38.11% - a genuine RIGHT-facing turn, and the identity, build and left-calf tattoo still carry from the accepted front. Confirms the turn comes from the skeleton (the only input that changed)."
+                  },
+                  {
+                      "id":  "body-profile-left-front-plus-skeleton",
+                      "image":  "images/14-body-profile-left-front-plus-skeleton.png",
+                      "promptFile":  "prompts/bodyProfileLeftFromFront.json",
+                      "size":  "1024x1536",
+                      "referenceInputs":  [
+                                              "beckyFrontBody",
+                                              "angleSkelProfileLeft"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "ca1ff850-1f00-429c-a01d-19988c47777e",
+                      "elapsedSeconds":  30.2,
+                      "bytes":  1714406,
+                      "sha256":  "16AB6269B552BFDEAA14C62E24EE9B59C104DF8FD2DE4EB8A3C3F4FCB45E8310",
+                      "prompt":  "Photorealistic full-body photograph of the woman in \u003cimage1\u003e photographed from her left side so her body is seen edge-on in full left profile, standing in the exact pose shown in \u003cimage2\u003e - the same stance, the same limb positions and the same body angles. Keep her build, her proportions, her skin tone and her tattoo of a tree on her left calf exactly as in \u003cimage1\u003e. She wears T-Shirt and 3/4 Jeans. Whole body in frame and unobstructed, head to feet, natural skin texture, soft even lighting, sharp focus, 35mm photograph.",
+                      "result":  "passed",
+                      "verdict":  "A true full LEFT profile from a frontal body reference. The left-calf tattoo is visible, which is correct: in a left profile the left leg is the NEAR leg. No face reference was supplied."
+                  },
+                  {
+                      "id":  "body-profile-right-front-plus-skeleton",
+                      "image":  "images/15-body-profile-right-front-plus-skeleton.png",
+                      "promptFile":  "prompts/bodyProfileRightFromFront.json",
+                      "size":  "1024x1536",
+                      "referenceInputs":  [
+                                              "beckyFrontBody",
+                                              "angleSkelProfileRight"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "80bc7273-3da9-4fc1-acb2-89d2f16a3950",
+                      "elapsedSeconds":  30.4,
+                      "bytes":  1686543,
+                      "sha256":  "8AE43D831B42F45825A2D511C53F50E7C4597FF03B6041AE6CA8E7073EBB7FBF",
+                      "prompt":  "Photorealistic full-body photograph of the woman in \u003cimage1\u003e photographed from her right side so her body is seen edge-on in full right profile, standing in the exact pose shown in \u003cimage2\u003e - the same stance, the same limb positions and the same body angles. Keep her build, her proportions, her skin tone and her tattoo of a tree on her left calf exactly as in \u003cimage1\u003e. She wears T-Shirt and 3/4 Jeans. Whole body in frame and unobstructed, head to feet, natural skin texture, soft even lighting, sharp focus, 35mm photograph.",
+                      "result":  "passed",
+                      "verdict":  "A true full RIGHT profile. The left-calf tattoo is correctly NOT visible because the left leg is now the FAR leg - the strongest evidence that the model is following the pose reference and the body reference together rather than pasting learned details."
+                  },
+                  {
+                      "id":  "body-angle-34-left-words-and-face-only",
+                      "image":  "images/16-body-angle-34-left-no-skeleton.png",
+                      "promptFile":  "prompts/bodyAngle34NoSkel.json",
+                      "size":  "1024x1536",
+                      "referenceInputs":  [
+                                              "becky34LeftFace"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "019104d2-c548-4bed-ba01-9ded73726ab4",
+                      "elapsedSeconds":  25.2,
+                      "bytes":  1673374,
+                      "sha256":  "C20E9CE31A810230F588A25D6CB65409D0AA673987F9EAE5981231EDF7AE910D",
+                      "prompt":  "Photorealistic full-body photograph of the woman in \u003cimage1\u003e, her body turned three-quarters to her left, standing upright with her arms relaxed at her sides and her feet about shoulder width apart. Her face, hair, hair colour and skin tone are exactly those of the woman in \u003cimage1\u003e. Body: an average frame, an hourglass figure with a narrow waist, slightly soft with a little roundness, evenly distributed, no visible muscle, soft, with no muscle definition, an average bust, average waist, average hips, an average rear, tattoo of a tree on left calf. Wearing T-Shirt and 3/4 Jeans. Whole body in frame and unobstructed, head to feet, natural skin texture, soft even lighting, sharp focus, 35mm photograph.",
+                      "result":  "passed",
+                      "verdict":  "ISOLATION for the angle axis: with NO skeleton, a 3/4 turn still appears from the angle-matched face reference plus the words alone. So an angle skeleton is NOT required to turn the body."
+                  },
+                  {
+                      "id":  "body-angle-34-left-skeleton-plus-face",
+                      "image":  "images/17-body-angle-34-left-skeleton-plus-face.png",
+                      "promptFile":  "prompts/bodyAngle34Real.json",
+                      "size":  "1024x1536",
+                      "referenceInputs":  [
+                                              "angleSkel34Left",
+                                              "becky34LeftFace"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "ebb35226-348e-4ec1-b6e1-23144abcd775",
+                      "elapsedSeconds":  35.4,
+                      "bytes":  1652489,
+                      "sha256":  "97A4FB97537788445D4C6B8B13F4B4031669AEB1C1FCFE590F1E1675EF93E1ED",
+                      "prompt":  "Photorealistic full-body photograph of the woman in \u003cimage2\u003e, her body turned three-quarters to her left, standing in the exact pose shown in \u003cimage1\u003e - the same stance, the same limb positions and the same body angles. Her face, hair, hair colour and skin tone are exactly those of the woman in \u003cimage2\u003e. Body: an average frame, an hourglass figure with a narrow waist, slightly soft with a little roundness, evenly distributed, no visible muscle, soft, with no muscle definition, an average bust, average waist, average hips, an average rear, tattoo of a tree on left calf. Wearing T-Shirt and 3/4 Jeans. Whole body in frame and unobstructed, head to feet, natural skin texture, soft even lighting, sharp focus, 35mm photograph.",
+                      "result":  "passed-with-caveat",
+                      "verdict":  "Angle and identity pass, but the BODY is invented and reads visibly heavier than the accepted front, because no body reference was supplied. This is what makes the body reference (case 12) necessary rather than optional: the angle alone does not preserve the build."
+                  },
+                  {
+                      "id":  "body-angle-34-left-front-plus-skeleton-plus-face",
+                      "image":  "images/18-body-angle-34-left-front-plus-skeleton-plus-face.png",
+                      "promptFile":  "prompts/bodyAngle34FrontPoseFace.json",
+                      "size":  "1024x1536",
+                      "referenceInputs":  [
+                                              "beckyFrontBody",
+                                              "angleSkel34Left",
+                                              "becky34LeftFace"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  "c371c521-a62b-4e4d-9a53-0a137ec824e0",
+                      "elapsedSeconds":  45.4,
+                      "bytes":  1853813,
+                      "sha256":  "D37032E64C41FC0D657E7B3318C9921C8FC35A2277C26F17A7A65891F11FB9AD",
+                      "prompt":  "Photorealistic full-body photograph of the woman in \u003cimage1\u003e, her body turned three-quarters to her left, standing in the exact pose shown in \u003cimage2\u003e - the same stance, the same limb positions and the same body angles. Keep her build, her proportions, her skin tone and her tattoo of a tree on her left calf exactly as in \u003cimage1\u003e. Her face, hair, hair colour and hairstyle are exactly those of the woman in \u003cimage3\u003e. She wears T-Shirt and 3/4 Jeans. Whole body in frame and unobstructed, head to feet, natural skin texture, soft even lighting, sharp focus, 35mm photograph.",
+                      "result":  "passed-but-redundant",
+                      "verdict":  "Identical to case 12 - mean absolute pixel difference 2.89/255 - so the face reference is REDUNDANT once the body reference is present. At full-body scale the accepted front already fixes identity, and the third slot buys nothing."
+                  },
+                  {
+                      "id":  "body-back-front-plus-skeleton",
+                      "image":  "images/19-body-back-front-plus-skeleton.png",
+                      "promptFile":  "prompts/bodyBackFromFront.json",
+                      "size":  "1024x1536",
+                      "referenceInputs":  [
+                                              "beckyFrontBody",
+                                              "angleSkelBack"
+                                          ],
+                      "seed":  20260922,
+                      "promptId":  null,
+                      "elapsedSeconds":  null,
+                      "bytes":  1904152,
+                      "sha256":  "08086A8A235ACF39F914F82FDEF34FDE6622C1966A4D62509BE38670790AF9E7",
+                      "prompt":  null,
+                      "result":  "passed",
+                      "verdict":  "True full back view: back of the head with NO face visible, the accepted body build preserved, and the tree tattoo on her LEFT calf - i.e. no face and the correct side. The skeleton is DWPose-annotated from plateBack, whose face keypoints are a clump precisely because the face is hidden."
+                  }
+              ],
+    "conclusions":  {
+                        "supported":  [
+                                          "Qwen-Image-2.1 reads an OpenPose skeleton in a native reference slot as POSE GUIDANCE - no ControlNet adapter is required for pose on this model.",
+                                          "Location + pose + identity compose in ONE native-reference call, in both portrait and wide frames.",
+                                          "An ANGLE-MATCHED (frontal) face reference transfers identity well; an angle-mismatched profile reference does not.",
+                                          "Slot order does not gate capability in a 3-reference composition."
+                                      ],
+                        "notSupported":  [
+                                             "A photoreal full-body photograph in \u003cimage1\u003e does NOT act as a pose donor - it is reproduced as the base image."
+                                         ],
+                        "notTested":  [
+                                          "Precision of skeleton adherence (limb angles are approximate, not exact).",
+                                          "Ambiguous stances (lying, all-fours) through the native route; ControlNet itself fails on those.",
+                                          "More than one posed person in a single call (two skeletons + two faces).",
+                                          "Explicit/adult content behaviour of this composition."
+                                      ]
+                    }
+}

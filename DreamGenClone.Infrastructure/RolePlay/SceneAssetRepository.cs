@@ -218,13 +218,13 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                 Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                 LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-                CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson)
+                CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId)
             VALUES (
                 $id, $assetId, $kind, $status, $prompt, $sourceImageId, $modelSnapshotJson,
                 $associationMetadataJson, $fileRelativePath, $mediaType, $width, $height, $byteLength,
                 $sha256, $errorMessage, $sourceProvenanceJson, $productionApprovalStatus, $consentState,
                 $licenseState, $licenseLabel, $approvedUseScope, $contentPolicyKey,
-                $compatibilityMetadataJson, $productionVersion, $candidateBatchId, $candidateDecision, $candidateNotes, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $validationResultJson, $pipelineStepsJson)
+                $compatibilityMetadataJson, $productionVersion, $candidateBatchId, $candidateDecision, $candidateNotes, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $validationResultJson, $pipelineStepsJson, $negativePrompt, $promptCompilerId)
             ON CONFLICT(Id) DO UPDATE SET
                 Status = excluded.Status,
                 ModelSnapshotJson = excluded.ModelSnapshotJson,
@@ -252,7 +252,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 CompletedUtc = excluded.CompletedUtc,
                 UpdatedUtc = excluded.UpdatedUtc,
                 ValidationResultJson = excluded.ValidationResultJson,
-                PipelineStepsJson = excluded.PipelineStepsJson;
+                PipelineStepsJson = excluded.PipelineStepsJson,
+                NegativePrompt = excluded.NegativePrompt,
+                PromptCompilerId = excluded.PromptCompilerId
             """;
         AddImageParameters(command, image);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -707,7 +709,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-               CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson
+               CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId
         FROM SceneAssetImages
         """;
 
@@ -748,7 +750,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             CompletedUtc = reader.IsDBNull(29) ? null : ParseUtc(reader.GetString(29), id, "CompletedUtc"),
             UpdatedUtc = ParseUtc(reader.GetString(30), id, "UpdatedUtc"),
             ValidationResultJson = reader.IsDBNull(31) ? null : reader.GetString(31),
-            PipelineStepsJson = reader.IsDBNull(32) ? null : reader.GetString(32)
+            PipelineStepsJson = reader.IsDBNull(32) ? null : reader.GetString(32),
+            NegativePrompt = reader.IsDBNull(33) ? null : reader.GetString(33),
+            PromptCompilerId = reader.IsDBNull(34) ? null : reader.GetString(34)
         };
     }
 
@@ -787,6 +791,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.Parameters.AddWithValue("$updatedUtc", image.UpdatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$validationResultJson", (object?)image.ValidationResultJson ?? DBNull.Value);
         command.Parameters.AddWithValue("$pipelineStepsJson", (object?)image.PipelineStepsJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$negativePrompt", (object?)image.NegativePrompt ?? DBNull.Value);
+        command.Parameters.AddWithValue("$promptCompilerId", (object?)image.PromptCompilerId ?? DBNull.Value);
     }
 
     private static void AddPromotionParameters(SqliteCommand command, SceneAsset asset)
@@ -1032,6 +1038,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 UpdatedUtc TEXT NOT NULL,
                 ValidationResultJson TEXT NULL,
                 PipelineStepsJson TEXT NULL,
+                NegativePrompt TEXT NULL,
+                PromptCompilerId TEXT NULL,
                 FOREIGN KEY (AssetId) REFERENCES SceneAssets(Id),
                 FOREIGN KEY (SourceImageId) REFERENCES SceneAssetImages(Id)
             );
@@ -1049,7 +1057,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ("CandidateDecision", "ALTER TABLE SceneAssetImages ADD COLUMN CandidateDecision TEXT NULL"),
             ("CandidateNotes", "ALTER TABLE SceneAssetImages ADD COLUMN CandidateNotes TEXT NULL"),
             ("ValidationResultJson", "ALTER TABLE SceneAssetImages ADD COLUMN ValidationResultJson TEXT NULL"),
-            ("PipelineStepsJson", "ALTER TABLE SceneAssetImages ADD COLUMN PipelineStepsJson TEXT NULL")
+            ("PipelineStepsJson", "ALTER TABLE SceneAssetImages ADD COLUMN PipelineStepsJson TEXT NULL"),
+            ("NegativePrompt", "ALTER TABLE SceneAssetImages ADD COLUMN NegativePrompt TEXT NULL"),
+            ("PromptCompilerId", "ALTER TABLE SceneAssetImages ADD COLUMN PromptCompilerId TEXT NULL")
         })
         {
             await using var imageColumnCheck = connection.CreateCommand();

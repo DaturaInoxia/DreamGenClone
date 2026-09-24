@@ -1,7 +1,60 @@
 # B-121 Implementation Plan — Character Identity Studio
 
-**Status:** Plan only — handoff document. No code written under this item.
+**Status:** **Implemented — Phases A–H complete; Phase I open.** Built and proven in the
+app 2026-09-21 (see *Implementation status* below). This file remains the design authority for the phases
+still open (the Phase I close-out: `AngleEdits` removal, the eleven acceptance scenarios, the grep proofs).
 **Spec:** [spec.md](spec.md) · **Tasks:** [tasks.md](tasks.md) · **UI:** [ui-contract.md](ui-contract.md)
+*(the Faces-section layout in [ui-notes-plan.md](ui-notes-plan.md), approved 2026-09-12, supersedes
+`ui-contract.md`'s step-rail layout and its `/asset-studio/identity/{buildId}` route)*
+
+## Implementation status (2026-09-21)
+
+**Implemented and driving the studio today.** The Faces section of the Character Studio
+(`/characters/{id}`, `CharacterStudio.razor`) runs the pipeline end-to-end with the user driving every
+step: front (generate or upload) → validate (measured iris offset, gate, manual override) → de-clothe /
+crop / enhance (shared `ImageEditWorkspace`, or *skip 3·4·5* for a front that needs no edit) → four face
+angles (render or upload, accept per view) → promote into a view-tagged draft pack. Verified live by
+building the *Becky* (`f58f959a…`) pack through to a Promote panel reporting all five views Ready.
+
+| Phase | State | Evidence |
+|---|---|---|
+| A — Prompt templates and settings persistence | **Complete** | `ImageWorkflowModels.cs` (`ImageWorkflowPromptTemplate`, `ReferenceWorkflowSettings`), `ImageWorkflowRepository.cs` (idempotent seed; re-run neither duplicates nor overwrites an edited body), `ImageWorkflowTemplateService` (character → global → fail fast naming the key; `ResetToSeedAsync`); `ImageWorkflowTemplateServiceTests` |
+| B — Build pipeline record | **Complete** | `CharacterIdentityBuild` + `CharacterIdentityBuildStepRecord` + repository + the step state machine (fixed order, skip recorded, `FirstIncomplete` resume, per-step re-run that clears the withdrawn override); `CharacterIdentityBuildServiceTests` |
+| C — Front acquisition | **Complete** except target-extensibility | `CharacterIdentityFrontService`: `GenerateFrontAttemptAsync` (durable generation through `ISceneAssetService.AddGeneratedImageAsync`) and `UploadFrontAttemptAsync` converge on one artifact; the resolved prompt and model are written to the step; `CharacterIdentityFrontServiceTests` |
+| D — Validate step | **Complete** | `CharacterIdentityMeasurementService` (subprocess, parse, raw stdout persisted) + `CharacterIdentityValidationService` (verdict against the configured threshold, override with reason/author/time, `CanAdvance` + `BlockReason`); `CharacterIdentityValidationServiceTests`, `CharacterIdentityMeasurementParserTests` |
+| E — Garment removal, crop, enhance | **Complete** | Shared `ImageEditWorkspace` + `MediaEditOperations` / `MediaEditOperationExecutors` + `ComfyUIImageUpscaleClient` (configured upscaler, then Lanczos to the configured long edge); steps 3/4/5 recorded from the approved image's own lineage as done **or** skipped; `CharacterIdentityGarmentServiceTests`, `ImageEnhanceTests` |
+| F — Angle step | **Complete** (extended views open) | Four views in order, per-view re-run, upload, accept, profile visual confirmation **enforced** on the attempt path. The direction gate measures the nose offset (the canonical tool's signed `nose_offset_pct`), asserts the per-view convention, applies the configured mirror remedy as a new `MirrorDerived` attempt through `IImageMirrorEngine` + `AddDerivedImageAsync`, and otherwise blocks the view with the measured reason; every attempt stores its measurement as evidence. The iris/interocular metrics are never consulted (FR21-023). Still open: B121-025a — a single user-driven extended view with `ViewDescriptorJson` |
+| G — Promotion with view tagging | **Complete** (scope explicit with B-122) | `SetCanonicalFrontAsync` + `CharacterIdentityPromotionService` promote the canonical front and the four accepted angles with distinct `SceneImageReferenceFaceView` values and record `ProducedIdentityPackId`. Readiness now gates on the **Validate** gate (asked of `ICharacterIdentityValidationService`), the **direction** convention (re-run over the accepted attempt's recorded measurement, so it agrees with the panel; a recorded override defers it) and the configured **`QualityGateMinSharpness`** floor (the one `IReferenceImageQualityAnalyzer` metric, exposed as `ComputeSharpness`), naming the offending view in every case. Pack scope still comes from `CreateDraftPackAsync`'s default and becomes explicit with B-122 Phase 0 |
+| H — UI | **Complete** in the approved panel shape | The Faces section per `ui-notes-plan.md`: Panel A (front · validate) with per-candidate verdicts, the always-visible override control and the recorded-front state, Panel B (de-clothe · crop · enhance) with the *use the front as-is* path, Panel C (four angle cards, upload, accept, prompt per view), Panel D (promote readiness + destination); editable prompt with *Reload default* and scope badge |
+| I — Validation | **Open** | Session-level targeted runs green (`CharacterStudioFacesContractTests`, `CharacterIdentity*`, `CharacterIdentityAngleYawGateTests`, `CharacterIdentityAnglesDirectionGateTests`, `CharacterIdentityPromotionGateTests`, `SceneAsset*` — 207 green on the identity/reference/media-edit filter); the eleven acceptance scenarios have not been run as a formal pass and `AngleEdits` is still in `SceneAssetProfilePackJobHandler` (B121-044) |
+
+**Carried forward — what is still open:**
+
+1. **Phase I close-out** — remove the superseded `AngleEdits` constants, run the eleven acceptance
+   scenarios, record the grep proofs.
+2. **B121-025a** — the single user-driven extended view (`ViewDescriptorJson`, no canonical `FaceView`),
+   which is not part of the Phase F/G gates.
+3. **`ReferenceWorkflowSettings` has no UI editor** — every column (eye gate, yaw deadband, quality floor,
+   crop, mirror flags, tool path) is seeded, persisted and editable through the DB tool, but no page exposes
+   the table. Carried as a follow-up, not a gate.
+
+The angle gate and the reference quality gate landed 2026-09-21 (`debug/049-angle-direction-and-quality-gates.md`):
+the direction gate reads the signed nose offset ONLY, profiles are never asserted (the tool returns no face mesh
+on a true profile, so their direction stays the user's explicit confirmation), and the mirror remedy is synchronous
+because a queued mirror would leave the attempt `Pending` with nothing to complete it.
+
+*(The target-extensible step set — B121-011a, the original item 1 here — landed 2026-09-21: a build's
+pipeline is a persisted, seeded step plan selected by the build's target kind (`CharacterIdentityStepPlans`
++ `ICharacterIdentityStepPlanService`), and the machinery is kind-agnostic: it creates a row per planned
+step, advances to the first incomplete one and treats the plan's last step as terminal. The face step
+handlers keep their own template keys and asset types until the first non-face handler needs the plan's;
+see `debug/048-target-extensible-step-plan.md`.)*
+
+**Defects found and fixed while proving the flow (2026-09-21):** the Validate manual-override control was
+unreachable for a build whose recorded front image had been deleted
+(`debug/046-character-studio-validate-override-unreachable.md`), steps 3–5 had no no-edit path, and
+Panel C's cards rendered a stale image list so four uploaded angles looked like one image
+(`debug/047-character-studio-angle-cards-stale-image-list.md`).
 
 ## Program context
 
@@ -170,45 +223,45 @@ not require redoing the first three.
 
 ## Implementation phases
 
-**Phase A — Prompt templates and settings persistence**
+**Phase A — Prompt templates and settings persistence** · **COMPLETE**
 New `ImageWorkflowPromptTemplate` + `ReferenceWorkflowSettings` (domain records, SQLite tables,
 repositories), the idempotent seed migration carrying the validated prompt texts, and the
 resolve-or-fail-fast service. *Exit:* a seeded template resolves globally, a character override wins,
 removing a row fails fast with the key named.
 
-**Phase B — Build pipeline record**
+**Phase B — Build pipeline record** · **COMPLETE**
 `CharacterIdentityBuild` + per-step rows, repository, and the step-status state machine.
 *Exit:* a build persists, advances step by step, resumes after interruption, and each step is
 independently re-runnable.
 
-**Phase C — Front acquisition**
+**Phase C — Front acquisition** · **COMPLETE**
 Generation path (via `SceneAssetPromptCompiler` + the generation client, reusing the profile-pack
 handler's front logic) and upload path (`SceneAssetService.CreateFromUploadAsync`); both converge on
 one artifact type. *Exit:* acceptance scenarios 1 and 2 reach the validate step by both routes.
 
-**Phase D — Validate step**
+**Phase D — Validate step** · **COMPLETE**
 Subprocess invocation of the canonical tool, parsing, persistence, manual override UI, and the
 advance-blocking gate. *Exit:* acceptance scenario 6.
 
-**Phase E — Garment removal, crop, enhance**
+**Phase E — Garment removal, crop, enhance** · **COMPLETE**
 Three steps reusing the edit client, ImageSharp, and local ComfyUI respectively, each reading its
 prompt/settings from the store. *Exit:* acceptance scenario 3; each step re-runnable and non-destructive.
 
-**Phase F — Angle step**
+**Phase F — Angle step** · **PARTIAL** — orchestration done; the yaw gate and mirror remedy are open
 Ordered 3/4-L → 3/4-R → profile-L → profile-R, yaw measurement, convention assertion, configure-driven
 mirror remedy, per-view gate. *Exit:* acceptance scenario 7.
 
-**Phase G — Promotion with view tagging**
+**Phase G — Promotion with view tagging** · **PARTIAL** — view tagging done; the gates are open
 Extend face promotion to carry the canonical slot plus descriptor; gate on validate/yaw/quality;
 write the five canonical and any accepted extended views into an explicit `FaceOnly` draft pack.
 *Exit:* acceptance scenarios 8, 9, 11 — and the existing reference-bootstrap tests stay green.
 
-**Phase H — UI**
+**Phase H — UI** · **COMPLETE** in the approved panel shape (the Faces section per `ui-notes-plan.md`)
 The studio surface per [ui-contract.md](ui-contract.md), including the prompt editor with scope
 switching and Reset to default, inside Asset Manager. *Exit:* acceptance scenarios 4, 5, 10; Razor
 diagnostics clean.
 
-**Phase I — Validation**
+**Phase I — Validation** · **OPEN**
 Focused tests, affected project builds, all eleven scenarios live, the grep proofs from the exit gate.
 
 ## Risks
@@ -242,3 +295,32 @@ hand-run scripts and no DB writes; templates are editable/resettable/fail-fast; 
 reference-bootstrap behaviour and tests are unchanged; focused tests and affected builds are green;
 Razor diagnostics are clean; and the exit-gate greps show no hardcoded pipeline prompt and no new LoRA
 coupling.
+
+## Next phase
+
+**Stage 3 of `specs/Planning/identity-lora-program-map.md`: B-122 Phase 0 — the body-complete pack**
+(`specs/Planning/B-122-body-complete-identity-and-lora-image-studio/plan.md`), preceded by the B-121
+close-out work above.
+
+**Entry criteria — what B-122 Phase 0 consumes from B-121 unchanged** (all present today): the resumable
+step pipeline; the seeded, editable, scoped template store (body prompts become additional seeded rows
+keyed by target kind); the eye/face-landmark subprocess capability with manual override; the reference
+quality gate; view-tagged promotion into an identity pack (a canonical `SceneImageReferenceFaceView` slot
+per artifact); and the same-image edit primitive plus editor-model resolution.
+
+**Order of work in the next phase:**
+
+1. ~~**B121-011a — the target kind selects the step set and the template-key namespace.**~~
+   **DELIVERED 2026-09-21** (see *Implementation status*). The remaining handler-side parameterisation —
+   the face step handlers reading their key/asset type from the plan — lands with the first non-face
+   handler.
+2. **Phase I close-out** — delete `AngleEdits` (B121-044), run the eleven acceptance scenarios on the
+   *Becky* build (already at Promote, all five views Ready), update the B-111 `P2-tasks.md` reference,
+   record the grep proofs (B121-045/048/049).
+3. **Phase F/G gates** — ~~yaw measurement + convention assertion + the configured mirror remedy, and the
+   validate / yaw / quality promotion gates~~. **DELIVERED 2026-09-21** (see *Implementation status* and
+   `debug/049-angle-direction-and-quality-gates.md`). B-122 Phase 0.4 extends this discipline to body
+   invariants, so the machinery was landed before the body work, not during it.
+4. **B-122 Phase 0** — `BodyCard` editor with every `[DECIDE]` item resolved and recorded, full-body
+   multi-angle references clothed **and** unclothed, body-invariant validation, and an explicit
+   `PackScope = BodyComplete` pack, as a new target kind on this pipeline.

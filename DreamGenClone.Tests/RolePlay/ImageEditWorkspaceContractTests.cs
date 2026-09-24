@@ -70,12 +70,39 @@ public sealed class ImageEditWorkspaceContractTests
     [Fact]
     public void IdentityIsACapability_NotAFork()
     {
-        // Identity is the studio's extra capability; the character-identity step must not request it.
+        // Identity is a store capability the one workspace offers wherever the store implements it, so BOTH
+        // stores answer it and both edit surfaces show the tab. A store that cannot bind identity packs would
+        // say so with SupportsIdentity => false and the tab would simply not exist for that subject.
         Assert.Contains("SupportsIdentity => true", SceneAdapterSource, StringComparison.Ordinal);
-        Assert.Contains("SupportsIdentity => false", AssetAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("SupportsIdentity => true", AssetAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("IImageIdentityEditService", AssetAdapterSource, StringComparison.Ordinal);
         Assert.Contains("ShowIdentity=\"true\"", SceneEditorSource, StringComparison.Ordinal);
+        Assert.Contains("ShowIdentity=\"true\"", AssetEditorSource, StringComparison.Ordinal);
+
+        // The character-identity build step is not an image-edit surface: it never requests the tab.
         Assert.Contains("ShowIdentity=\"false\"", CharacterStudioSource, StringComparison.Ordinal);
         Assert.Contains("IdentityAvailable", WorkspaceSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The editor form decides the editor model, once, for every run it starts. The identity run must carry
+    /// that same choice (a second resolution inside the pipeline is how a user's chosen model gets silently
+    /// swapped for a configured default), and the roster must be asked about the whole subject, because the
+    /// roster's source is store-specific and the form does not know which field names it.
+    /// </summary>
+    [Fact]
+    public void TheFormDecidesTheModel_ForIdentityToo()
+    {
+        Assert.Contains("RunIdentityEditAsync(Subject, selections, _selectedEditorModelId!)", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("LoadRosterAsync(Subject)", WorkspaceSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("LoadRosterAsync(Subject.SessionId", WorkspaceSource, StringComparison.Ordinal);
+
+        // The tab refuses to run without a chosen model, exactly as the Edit tab's run does.
+        Assert.Contains("string.IsNullOrWhiteSpace(_selectedEditorModelId)", WorkspaceSource, StringComparison.Ordinal);
+
+        // And neither adapter resolves one of its own for the identity run.
+        Assert.Contains("EditorModelId = (editorModelId ?? string.Empty).Trim()", SceneAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("EditorModelId = editorModelId", AssetAdapterSource, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -102,6 +129,24 @@ public sealed class ImageEditWorkspaceContractTests
         Assert.Contains("CropAspectPresets", WorkspaceSource, StringComparison.Ordinal);
         Assert.Contains("Measure head", WorkspaceSource, StringComparison.Ordinal);
         Assert.Contains("CropRemovesNothing", WorkspaceSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The asset adapter's first resolution of a result must respect the subject's candidate batch when it has
+    /// one. Without it the resolver returned "the newest image derived from the subject image", and since the
+    /// face-angle cards share the front container, each card adopted whatever the container produced last —
+    /// left recording right's renders and vice versa (B-121 note 010). The tracked-result path is unaffected, so
+    /// a run started in this session still reports its own image.
+    /// </summary>
+    [Fact]
+    public void AssetResultResolution_MustStayInTheSubjectsCandidateBatch()
+    {
+        Assert.Contains("ResolveResultAsync", AssetAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("subject.CandidateBatchId", AssetAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("image.CandidateBatchId", AssetAdapterSource, StringComparison.Ordinal);
+
+        // The scene adapter resolves by session instead — that one was already correct.
+        Assert.Contains("image.EditSessionId, sessionId", SceneAdapterSource, StringComparison.Ordinal);
     }
 
     private static string Read(params string[] segments)

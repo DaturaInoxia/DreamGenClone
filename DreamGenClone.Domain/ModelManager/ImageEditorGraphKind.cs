@@ -12,7 +12,15 @@ public enum ImageEditorGraphKind
     SplitUnet = 0,
 
     /// <summary>A single merged checkpoint bundling model+clip+vae, loaded with CheckpointLoaderSimple.</summary>
-    MergedCheckpoint = 1
+    MergedCheckpoint = 1,
+
+    /// <summary>
+    /// Qwen-Image-2.1 native editing: split DiT + Qwen3-VL text encoder + RGBA VAE behind ONE
+    /// <c>TextEncodeQwenImage21</c> node that returns positive, negative AND the latent, with the
+    /// source image and every reference carried through its autogrow <c>images</c> input. The
+    /// reference pixel budget comes from the model's NativeMultiReference qualification.
+    /// </summary>
+    QwenImage21Native = 2
 }
 
 /// <summary>Persistence text contract for <see cref="ImageEditorGraphKind"/>.</summary>
@@ -20,14 +28,16 @@ public static class ImageEditorGraphKinds
 {
     public const string SplitUnet = "SplitUnet";
     public const string MergedCheckpoint = "MergedCheckpoint";
+    public const string QwenImage21Native = "QwenImage21Native";
 
     /// <summary>All persisted values, in UI order.</summary>
-    public static IReadOnlyList<string> All { get; } = [SplitUnet, MergedCheckpoint];
+    public static IReadOnlyList<string> All { get; } = [SplitUnet, MergedCheckpoint, QwenImage21Native];
 
     public static string ToPersistedValue(ImageEditorGraphKind kind) => kind switch
     {
         ImageEditorGraphKind.SplitUnet => SplitUnet,
         ImageEditorGraphKind.MergedCheckpoint => MergedCheckpoint,
+        ImageEditorGraphKind.QwenImage21Native => QwenImage21Native,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown image editor graph kind.")
     };
 
@@ -44,6 +54,7 @@ public static class ImageEditorGraphKinds
         {
             SplitUnet => ImageEditorGraphKind.SplitUnet,
             MergedCheckpoint => ImageEditorGraphKind.MergedCheckpoint,
+            QwenImage21Native => ImageEditorGraphKind.QwenImage21Native,
             _ => throw new InvalidOperationException(
                 $"Unknown image editor graph kind '{value}'. Allowed values: {string.Join(", ", All)}.")
         };

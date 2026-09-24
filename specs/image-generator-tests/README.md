@@ -29,6 +29,20 @@ image-generator-tests/
 │   ├── images/                  #   base.png, accepted edits, exploratory/, adult-fellatio/
 │   ├── manifest.json            #   per-edit metadata + hashes
 │   └── RUNBOOK.md               #   portable proof runbook
+├── qwen-21-native-reference/     # Qwen-Image-2.1 native reference slots: pose (OpenPose skeleton as a
+│   ├── images/                   #   reference), identity and location in ONE call — no ControlNet
+│   ├── prompts/                  #   the exact request graphs (flat dotted reference ids)
+│   ├── manifest.json             #   per-case prompts, seeds, reference hashes, verdicts
+│   └── RUNBOOK.md                #   purpose, verdicts, honest limits, replay
+├── dual-base-location/          # location reference + dual-base (two characters, two orientations) proof
+│   ├── FINDINGS.md              #   verified limitations + the FLUX OpenPose composite pipeline
+│   ├── FINDINGS-FLUX-OPENPOSE-PIPELINE.md  # the proven 5-step route (see its §"Failed-approach graveyard")
+│   ├── LOCAL-RUN.md             #   the same graphs on the local ComfyUI host + the two identity paths
+│   └── proofs-local/            #   local-ported graphs
+├── layout-structure-proof/      # B-119 route C1: Depth/Canny structure from a layout reference
+│   ├── run-c1-structure-proof.ps1          # 2 checkpoints x {text, openpose, depth, canny}, one seed
+│   ├── measure-arrangement-match.py        # silhouette IoU + arrangement profile correlation
+│   └── FINDINGS.md              #   measured table, per-image verdicts, what is NOT yet proven
 ├── identity-single-character/   # identity conditioning proof — ONE person (Dean)
 │   ├── runners/                 #   reusable parameterized runner (IP-Adapter / PuLID)
 │   ├── prompts/                 #   frozen workflow JSONs (ipadapter + pulid)
@@ -58,6 +72,7 @@ image-generator-tests/
 - Juggernaut base generation and the Qwen six-edit replay: see `qwen/RUNBOOK.md` and `helpers/runpod/run-juggernaut-simple-people-base.ps1` / `helpers/runpod/run-qwen-simple-people-proof.ps1`.
 - The Juggernaut NSFW workflows in `juggernaut/prompts/` run against the production ComfyUI pod via `helpers/runpod/generate-one.ps1`.
 - The identity suites are documented in their own `RUNBOOK.md`s: `identity-single-character/RUNBOOK.md` and `identity-two-character/RUNBOOK.md`. They require a pod with the Juggernaut checkpoint + IP-Adapter nodes (the proof pod `7i2mutjmry5tkt` is currently EXITED).
+- The local-ComfyUI proofs (no pod) run through `helpers/local-comfyui-host/run-local-proof.ps1`; the dual-base route is orchestrated by `dual-base-location/run-local-dual-location.ps1` and the B-119 C1 structure route by `layout-structure-proof/run-c1-structure-proof.ps1`. Both need the host-side weights installed first (`helpers/local-comfyui-host/provision-xlabs-flux.ps1`, `install-sdxl-controlnets.ps1`).
 - The 2-person pack position test (`identity-two-character/positions/`) is generated from the baseline — regenerate with `identity-two-character/dump_positions.py`.
 
 ## Rules

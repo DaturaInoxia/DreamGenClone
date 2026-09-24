@@ -23,7 +23,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$ComfyUiUrl = 'http://192.168.0.16:8188',
+    [string]$ComfyUiUrl = 'https://comfy.kenacwood.net',
     [string]$Checkpoint = 'Qwen-Rapid-AIO-NSFW-v23.safetensors',
     [string]$ManifestPath = 'specs/image-generator-tests/qwen/manifest.json',
     [string]$SourceImage = 'specs/image-generator-tests/qwen/images/base.png',

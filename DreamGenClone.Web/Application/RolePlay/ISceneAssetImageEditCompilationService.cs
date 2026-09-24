@@ -12,6 +12,15 @@ public interface ISceneAssetImageEditCompilationService
     Task<SceneAssetImage> EnqueueEditAsync(EnqueueSceneAssetImageEditRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Queues a face-only identity correction of an existing asset image into a new derived image. No prompt
+    /// compilation, edit session or revision is involved: the instruction is authored from the bound
+    /// characters and the approved identity-pack faces become the run's references, exactly as the scene
+    /// identity stage does. The run uses the editor model the editor form selected.
+    /// </summary>
+    Task<SceneAssetImage> EnqueueIdentityEditAsync(
+        EnqueueSceneAssetImageIdentityEditRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Queues a deterministic crop of an existing asset image into a new derived image. No editor model,
     /// prompt or compilation revision is involved.
     /// </summary>

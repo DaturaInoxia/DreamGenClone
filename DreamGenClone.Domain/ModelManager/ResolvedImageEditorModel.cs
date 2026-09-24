@@ -29,4 +29,11 @@ public sealed record ResolvedImageEditorModel(
     string? RegisteredModelId = null,
     ImageEditorGraphKind? GraphKind = null,
     string? LoraName = null,
-    double? LoraStrength = null);
+    double? LoraStrength = null,
+
+    /// <summary>
+    /// <c>TextEncodeQwenImage21.resolution</c> for <see cref="ImageEditorGraphKind.QwenImage21Native"/>:
+    /// a total pixel BUDGET (not a dimension) used to resize the source and every reference. Read from
+    /// the model's NativeMultiReference qualification; null for every other graph kind.
+    /// </summary>
+    int? ResolutionBudget = null);

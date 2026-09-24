@@ -71,6 +71,20 @@ public interface IMediaEditSubjectWriter
     /// </summary>
     Task<MediaEditRunPlan?> PrepareAsync(MediaEditRunContext context, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Claims the queued row for this run, after preparation and BEFORE the model is called. Returns false
+    /// when the row can no longer be claimed (already complete, cancelled, or otherwise terminal); the run
+    /// is then skipped instead of paying for work whose result could not be recorded.
+    ///
+    /// A scene-image edit MUST be claimed: <c>ISceneImageRepository.TryCompleteImageAsync</c> only completes
+    /// a row in 'Generating', because the retired per-stage handlers claimed before they ran. A deterministic
+    /// operation is deliberately never claimed — its completion accepts a row that is still 'Pending' — so a
+    /// writer reports the claim as satisfied for one. The scene asset store has no claim transition at all
+    /// (a scene asset is Pending, Complete or Failed and completes through an unguarded upsert), so that
+    /// writer reports the claim as satisfied too, rather than inventing a status its store does not have.
+    /// </summary>
+    Task<bool> ClaimAsync(MediaEditRunContext context, CancellationToken cancellationToken = default);
+
     /// <summary>Stores the produced bytes and completes the image row and its edit session.</summary>
     Task CompleteAsync(MediaEditRunPlan plan, MediaEditRunOutput output, CancellationToken cancellationToken = default);
 

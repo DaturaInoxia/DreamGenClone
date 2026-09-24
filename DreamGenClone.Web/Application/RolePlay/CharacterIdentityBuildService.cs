@@ -11,6 +11,7 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
 {
     private readonly ICharacterIdentityBuildRepository _repository;
     private readonly ISceneAssetService _assets;
+    private readonly ICharacterIdentityStepPlanService _plans;
     private readonly ILogger<CharacterIdentityBuildService> _logger;
 
     /// <summary>
@@ -34,34 +35,43 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
     public CharacterIdentityBuildService(
         ICharacterIdentityBuildRepository repository,
         ISceneAssetService assets,
+        ICharacterIdentityStepPlanService plans,
         ILogger<CharacterIdentityBuildService> logger)
     {
         _repository = repository;
         _assets = assets;
+        _plans = plans;
         _logger = logger;
     }
 
     public async Task<CharacterIdentityBuild> CreateBuildAsync(
-        string characterProfileId, string? batchId, CancellationToken cancellationToken = default)
+        string characterProfileId,
+        string? batchId,
+        CharacterIdentityTargetKind targetKind,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(characterProfileId))
             throw new InvalidOperationException("A character profile id is required to start a build.");
 
+        // The steps come from the target kind's plan, so a new target kind starts here with no change to this
+        // method: the rows are whatever the plan names, in the plan's order.
+        var plan = await _plans.GetPlanAsync(targetKind, cancellationToken);
         var build = new CharacterIdentityBuild
         {
-            CharacterProfileId = characterProfileId.Trim(),
+            CharacterTemplateId = characterProfileId.Trim(),
             BatchId = string.IsNullOrWhiteSpace(batchId) ? null : batchId.Trim(),
-            CurrentStep = CharacterIdentityBuildStep.Front,
+            TargetKind = targetKind,
+            CurrentStep = plan.Ordered[0].Step,
             Status = CharacterIdentityBuildStatus.InProgress
         };
         await _repository.UpsertBuildAsync(build, cancellationToken);
 
-        foreach (var step in CharacterIdentityBuildSteps.Ordered)
+        foreach (var definition in plan.Ordered)
         {
             await _repository.UpsertStepAsync(new CharacterIdentityBuildStepRecord
             {
                 BuildId = build.Id,
-                Step = step,
+                Step = definition.Step,
                 Status = CharacterIdentityBuildStepStatus.NotStarted
             }, cancellationToken);
         }
@@ -91,10 +101,11 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
         CancellationToken cancellationToken = default)
     {
         var (build, steps) = await LoadAsync(buildId, cancellationToken);
+        var plan = await _plans.GetPlanAsync(build.TargetKind, cancellationToken);
         EnsureInProgress(build);
-        EnsureCurrent(build, steps, step);
+        EnsureCurrent(plan, steps, step);
 
-        if (step != CharacterIdentityBuildStep.Front && string.IsNullOrWhiteSpace(inputArtifactId))
+        if (step != plan.Ordered[0].Step && string.IsNullOrWhiteSpace(inputArtifactId))
             throw new InvalidOperationException($"Step {step} requires an input artifact.");
         if (string.IsNullOrWhiteSpace(outputArtifactId))
             throw new InvalidOperationException($"Step {step} requires an output artifact.");
@@ -110,8 +121,8 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
         row.UpdatedUtc = DateTime.UtcNow;
         await _repository.UpsertStepAsync(row, cancellationToken);
 
-        build.CurrentStep = FirstIncomplete(steps);
-        build.Status = AllDone(steps) ? CharacterIdentityBuildStatus.Complete : CharacterIdentityBuildStatus.InProgress;
+        build.CurrentStep = FirstIncomplete(plan, steps);
+        build.Status = AllDone(plan, steps) ? CharacterIdentityBuildStatus.Complete : CharacterIdentityBuildStatus.InProgress;
         build.UpdatedUtc = DateTime.UtcNow;
         await _repository.UpsertBuildAsync(build, cancellationToken);
         return build;
@@ -124,8 +135,9 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
             throw new InvalidOperationException("A failure reason is required.");
 
         var (build, steps) = await LoadAsync(buildId, cancellationToken);
+        var plan = await _plans.GetPlanAsync(build.TargetKind, cancellationToken);
         EnsureInProgress(build);
-        EnsureCurrent(build, steps, step);
+        EnsureCurrent(plan, steps, step);
 
         var row = RequireRow(steps, step);
         row.Status = CharacterIdentityBuildStepStatus.Failed;
@@ -143,8 +155,9 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
         string buildId, CharacterIdentityBuildStep step, CancellationToken cancellationToken = default)
     {
         var (build, steps) = await LoadAsync(buildId, cancellationToken);
+        var plan = await _plans.GetPlanAsync(build.TargetKind, cancellationToken);
         EnsureInProgress(build);
-        EnsureCurrent(build, steps, step);
+        EnsureCurrent(plan, steps, step);
 
         var row = RequireRow(steps, step);
         row.Status = CharacterIdentityBuildStepStatus.Skipped;
@@ -152,8 +165,8 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
         row.UpdatedUtc = DateTime.UtcNow;
         await _repository.UpsertStepAsync(row, cancellationToken);
 
-        build.CurrentStep = FirstIncomplete(steps);
-        build.Status = AllDone(steps) ? CharacterIdentityBuildStatus.Complete : CharacterIdentityBuildStatus.InProgress;
+        build.CurrentStep = FirstIncomplete(plan, steps);
+        build.Status = AllDone(plan, steps) ? CharacterIdentityBuildStatus.Complete : CharacterIdentityBuildStatus.InProgress;
         build.UpdatedUtc = DateTime.UtcNow;
         await _repository.UpsertBuildAsync(build, cancellationToken);
         return build;
@@ -163,10 +176,11 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
         string buildId, CharacterIdentityBuildStep step, CancellationToken cancellationToken = default)
     {
         var (build, steps) = await LoadAsync(buildId, cancellationToken);
+        var plan = await _plans.GetPlanAsync(build.TargetKind, cancellationToken);
+        var definition = plan.Require(step);
 
-        var startIndex = Array.IndexOf(CharacterIdentityBuildSteps.Ordered, step);
         var now = DateTime.UtcNow;
-        foreach (var row in steps.Where(s => Array.IndexOf(CharacterIdentityBuildSteps.Ordered, s.Step) >= startIndex))
+        foreach (var row in steps.Where(s => plan.Require(s.Step).Order >= definition.Order))
         {
             row.Status = CharacterIdentityBuildStepStatus.NotStarted;
             row.InputArtifactId = null;
@@ -175,6 +189,13 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
             row.ResolvedModelId = null;
             row.FailureReason = null;
             row.MirrorDerived = false;
+            // A manual override is a decision about the artifact this step was validated against. Resetting
+            // the step withdraws that artifact, so the recorded decision goes with it: a newly chosen front
+            // must not inherit an override that was written about a different image.
+            row.ManualOverrideApplied = false;
+            row.ManualOverrideReason = null;
+            row.ManualOverrideAuthor = null;
+            row.ManualOverrideUtc = null;
             row.UpdatedUtc = now;
             await _repository.UpsertStepAsync(row, cancellationToken);
         }
@@ -220,15 +241,16 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
             throw new InvalidOperationException("An image id is required to approve a canonical front.");
 
         var (build, steps) = await LoadAsync(buildId, cancellationToken);
+        var plan = await _plans.GetPlanAsync(build.TargetKind, cancellationToken);
         if (string.IsNullOrWhiteSpace(build.FrontContainerAssetId))
             throw new InvalidOperationException("This build has no front container yet.");
 
-        var frontRow = RequireRow(steps, CharacterIdentityBuildStep.Front);
+        var frontRow = RequireRow(steps, plan.Ordered[0].Step);
         if (frontRow.Status != CharacterIdentityBuildStepStatus.Complete
             || string.IsNullOrWhiteSpace(frontRow.OutputArtifactId))
         {
             throw new InvalidOperationException(
-                "The Front step must be complete before a canonical front can be approved.");
+                $"The {plan.Ordered[0].Step} step must be complete before a canonical front can be approved.");
         }
 
         var frontArtifactId = frontRow.OutputArtifactId.Trim();
@@ -260,8 +282,8 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
             cancellationToken);
 
         build.CanonicalFrontAssetId = image.Id;
-        build.CurrentStep = FirstIncomplete(steps);
-        build.Status = AllDone(steps)
+        build.CurrentStep = FirstIncomplete(plan, steps);
+        build.Status = AllDone(plan, steps)
             ? CharacterIdentityBuildStatus.Complete
             : CharacterIdentityBuildStatus.InProgress;
         build.UpdatedUtc = now;
@@ -434,9 +456,11 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
     }
 
     private static void EnsureCurrent(
-        CharacterIdentityBuild build, IReadOnlyList<CharacterIdentityBuildStepRecord> steps, CharacterIdentityBuildStep step)
+        CharacterIdentityStepPlan plan,
+        IReadOnlyList<CharacterIdentityBuildStepRecord> steps,
+        CharacterIdentityBuildStep step)
     {
-        var current = FirstIncomplete(steps);
+        var current = FirstIncomplete(plan, steps);
         if (step != current)
             throw new InvalidOperationException($"Step {step} is out of order; the current step is {current}.");
     }
@@ -446,25 +470,28 @@ public sealed class CharacterIdentityBuildService : ICharacterIdentityBuildServi
         => steps.FirstOrDefault(s => s.Step == step)
             ?? throw new InvalidOperationException($"Step {step} has no step record on this build.");
 
-    private static CharacterIdentityBuildStep FirstIncomplete(IReadOnlyList<CharacterIdentityBuildStepRecord> steps)
+    private static CharacterIdentityBuildStep FirstIncomplete(
+        CharacterIdentityStepPlan plan, IReadOnlyList<CharacterIdentityBuildStepRecord> steps)
     {
-        foreach (var step in CharacterIdentityBuildSteps.Ordered)
+        foreach (var definition in plan.Ordered)
         {
-            var row = steps.FirstOrDefault(s => s.Step == step);
+            var row = steps.FirstOrDefault(s => s.Step == definition.Step);
             if (row is null
                 || row.Status is CharacterIdentityBuildStepStatus.NotStarted
                     or CharacterIdentityBuildStepStatus.Running
                     or CharacterIdentityBuildStepStatus.Failed)
             {
-                return step;
+                return definition.Step;
             }
         }
 
-        return CharacterIdentityBuildStep.Promote;
+        // Every step is done: the build sits on its own terminal step, whatever the plan names as last.
+        return plan.TerminalStep;
     }
 
-    private static bool AllDone(IReadOnlyList<CharacterIdentityBuildStepRecord> steps)
-        => CharacterIdentityBuildSteps.Ordered.All(step =>
-            steps.FirstOrDefault(s => s.Step == step)?.Status is
+    private static bool AllDone(
+        CharacterIdentityStepPlan plan, IReadOnlyList<CharacterIdentityBuildStepRecord> steps)
+        => plan.Ordered.All(definition =>
+            steps.FirstOrDefault(s => s.Step == definition.Step)?.Status is
                 CharacterIdentityBuildStepStatus.Complete or CharacterIdentityBuildStepStatus.Skipped);
 }

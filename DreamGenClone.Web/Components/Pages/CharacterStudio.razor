@@ -8,6 +8,7 @@
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Application.ModelManager
 @using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Domain.Templates
 @using DreamGenClone.Components.Assets
 @using DreamGenClone.Components.Editing
 @using DreamGenClone.Web.Application.RolePlay.Editing
@@ -15,12 +16,17 @@
 @inject IScenarioService ScenarioService
 @inject ICharacterImageIdentityService IdentityService
 @inject ICharacterIdentityBuildService BuildService
+@inject ICharacterIdentityStepPlanService StepPlanService
 @inject ISceneAssetService AssetService
 @inject ICharacterIdentityFrontService FrontService
 @inject ICharacterIdentityValidationService ValidationService
 @inject ICharacterIdentityGarmentService GarmentService
 @inject ICharacterIdentityAnglesService AnglesService
 @inject ICharacterIdentityPromotionService PromotionService
+@inject ICharacterIdentityBodyService BodyService
+@inject ICharacterBodyCardPrefillService PrefillService
+@inject ICharacterIdentityOwnerResolver OwnerResolver
+@inject NavigationManager Navigation
 @inject IModelResolutionService ModelResolutionService
 
 <PageTitle>Character Studio - DreamGenClone</PageTitle>
@@ -36,7 +42,27 @@
 
     @if (_scenarioName is not null)
     {
-        <p class="text-muted small mb-3">@_scenarioName · @_packs.Count identity pack@(_packs.Count == 1 ? "" : "s")</p>
+        <p class="text-muted small mb-1">@_scenarioName · @_packs.Count identity pack@(_packs.Count == 1 ? "" : "s")</p>
+    }
+
+    @* The identity owner, said plainly: identity belongs to the character template, and this page may have been
+       reached through a scenario instance or an asset (B-127). *@
+    @if (_owner is not null)
+    {
+        <p class="text-muted small mb-3">
+            Identity owner: <strong>@_owner.TemplateName</strong> <code>@_owner.TemplateId</code>
+            @if (_owner.IsInstance)
+            {
+                <span>· opened from the @_owner.DescribeKind() <strong>@_owner.InstanceName</strong> <code>@_owner.InstanceId</code></span>
+            }
+        </p>
+    }
+
+    @* An unresolvable character must say so on EVERY tab: identity is keyed by the character template, so nothing
+       on this page can work, and a message buried in one section is a dead end (B-127). *@
+    @if (!string.IsNullOrWhiteSpace(_ownerMessage))
+    {
+        <div class="alert alert-danger">@_ownerMessage</div>
     }
 
     <ul class="nav nav-pills mb-3">
@@ -83,16 +109,20 @@
                     else
                     {
                         <div class="small text-muted mb-2">Build @_build.Id.Substring(0, 8)… · @_build.Status</div>
-                        @* One line of pipeline state. The panels below hold the controls, so the step status is
+                        @* One line of pipeline state, in the build's own step order (the plan for its target kind).
+                           The panels below hold the controls, so the step status is
                            not repeated as a second list (B-121 note 007). *@
-                        <div class="d-flex flex-wrap align-items-center gap-1 mb-3">
-                            @foreach (var step in CharacterIdentityBuildSteps.Ordered)
-                            {
-                                var row = _buildStepRows.FirstOrDefault(r => r.Step == step);
-                                var status = row?.Status ?? CharacterIdentityBuildStepStatus.NotStarted;
-                                <span class="badge @StepBadge(status) @(step == _build.CurrentStep ? "border border-light" : "")" title="@step: @status">@StepLabel(step) · @status</span>
-                            }
-                        </div>
+                        @if (_stepPlan is { } plan)
+                        {
+                            <div class="d-flex flex-wrap align-items-center gap-1 mb-3">
+                                @foreach (var definition in plan.Ordered)
+                                {
+                                    var row = _buildStepRows.FirstOrDefault(r => r.Step == definition.Step);
+                                    var status = row?.Status ?? CharacterIdentityBuildStepStatus.NotStarted;
+                                    <span class="badge @StepBadge(status) @(definition.Step == _build.CurrentStep ? "border border-light" : "")" title="@definition.Step: @status">@StepLabel(definition.Step) · @status</span>
+                                }
+                            </div>
+                        }
                     }
 
                     @if (_build is not null)
@@ -156,6 +186,19 @@
                                 <div class="small text-muted mb-2">@_frontMessage</div>
                             }
 
+                            @if (_validateStepRecord is { ManualOverrideApplied: true } overrideRow)
+                            {
+                                <div class="alert alert-warning py-1 small mb-2">Manual visual override recorded by @overrideRow.ManualOverrideAuthor: @overrideRow.ManualOverrideReason</div>
+                            }
+
+                            @if (_recordedFrontArtifactMissing)
+                            {
+                                <div class="alert alert-warning py-1 small mb-2">
+                                    The front this build recorded (@_recordedFrontArtifactLabel) is no longer in this pack — its image was deleted.
+                                    Choose a candidate again with "Use this"; the build then records that one as its front.
+                                </div>
+                            }
+
                             @{ var promptImages = _frontAttempts.Where(a => a.Kind != SceneAssetKind.Edited).ToList(); }
                             @if (promptImages.Count > 0)
                             {
@@ -193,10 +236,20 @@
                                                 <div class="small text-muted">not validated</div>
                                             }
                                             <button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-1" @onclick="() => RevalidateAsync(attempt)" disabled="@(_validationBusy || attempt.Status != SceneAssetStatus.Complete)">@(validation is null ? "Run validation" : "Re-validate")</button>
-                                            @if (IsChosenFront(attempt) && validation?.Verdict == CharacterIdentityValidationVerdict.Fail)
+                                            @* ui-contract.md §3: the override control is always visible — it belongs to every
+                                               candidate the gate blocks, not only the one recorded on the build. Gating it on
+                                               "this is the chosen front" left a deleted recorded front with no override at all
+                                               (B-121 note 008). *@
+                                            @if (validation is not null
+                                                && (validation.Verdict == CharacterIdentityValidationVerdict.Fail
+                                                    || validation.Verdict == CharacterIdentityValidationVerdict.NoFaceMesh))
                                             {
                                                 <div class="border border-warning rounded p-2 mt-2" @onclick:stopPropagation="true">
-                                                    <div class="small text-warning">Validation failed. Record a manual visual override to continue.</div>
+                                                    <div class="small text-warning">
+                                                        @(validation.Verdict == CharacterIdentityValidationVerdict.NoFaceMesh
+                                                            ? "No face mesh was measured on this image. Record a manual visual override to continue."
+                                                            : "Validation failed. Record a manual visual override to continue.")
+                                                    </div>
                                                     <input class="form-control form-control-sm mt-1" placeholder="Override reason" @bind="_frontOverrideReason" />
                                                     <input class="form-control form-control-sm mt-1" placeholder="Author" @bind="_frontOverrideAuthor" />
                                                     <button type="button" class="btn btn-sm btn-warning mt-1" @onclick="RecordFrontOverrideAsync">Record front override</button>
@@ -208,7 +261,7 @@
                                                 <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Reject" @onclick="() => SetFrontDecisionAsync(attempt, SceneAssetCandidateDecision.Rejected)"><i class="bi bi-x-circle"></i></button>
                                             </div>
                                             <button type="button" class="btn btn-sm @(IsChosenFront(attempt) ? "btn-success" : "btn-outline-success") w-100 mt-1" @onclick="() => SelectFrontAsync(attempt.Id)" disabled="@(attempt.Status != SceneAssetStatus.Complete)" title="@(IsChosenFront(attempt) && _build?.CurrentStep == CharacterIdentityBuildStep.Validate ? "Continue past validation with this front" : "Make this candidate the input to Panel B")">@(IsChosenFront(attempt) && _build?.CurrentStep == CharacterIdentityBuildStep.Validate ? "Continue" : IsChosenFront(attempt) ? "Chosen" : "Use this")</button>
-                                            <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1" @onclick="() => DeleteImageAsync(attempt)" disabled="@_frontBusy" title="Delete this image"><i class="bi bi-trash me-1"></i>Delete</button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1" @onclick="() => DeleteImageAsync(attempt)" disabled="@(_frontBusy || IsChosenFront(attempt))" title="@(IsChosenFront(attempt) ? "The build's recorded front cannot be deleted. Choose another candidate with Use this first." : "Delete this image")"><i class="bi bi-trash me-1"></i>Delete</button>
                                         </div>
                                     }
                                 </div>
@@ -252,6 +305,20 @@
                             @if (!string.IsNullOrWhiteSpace(_garmentMessage))
                             {
                                 <div class="alert alert-secondary py-1 small mb-2">@_garmentMessage</div>
+                            }
+
+                            @* Steps 3, 4 and 5 are steps, not requirements: a front that needs no de-clothe, crop or
+                               enhance (an upload, or an already-clean render) has to be able to reach the face angles.
+                               Approving the candidate chosen in Panel A as-is records all three as skipped — the design's
+                               own recorded state for "this image never went through it" — and moves the build to Angles
+                               (B-121 note 008). Offered only until a canonical front is approved: swapping the canonical
+                               front afterwards would rewrite the recorded lineage of steps 3/4/5. *@
+                            @if (_garmentSource is not null && string.IsNullOrWhiteSpace(_build?.CanonicalFrontAssetId))
+                            {
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                    <button type="button" class="btn btn-sm btn-outline-success" @onclick="ApproveFrontAsIsAsync" disabled="@_frontBusy">Use the front as-is — skip 3 · 4 · 5</button>
+                                    <span class="small text-muted">No edit needed: de-clothe, crop and enhance are recorded as skipped and the build moves on to the face angles.</span>
+                                </div>
                             }
 
                             @* The edited images are their own list: this is where the user picks the picture that
@@ -349,7 +416,7 @@
                                         <div class="col-md-6">
                                             <div class="border rounded p-2 h-100 @(view == _selectedAngleView ? "border-primary border-2" : "")" role="button" tabindex="0" @onclick="() => SelectAngleAsync(view)" @onkeydown="eventArgs => OnAngleCardKeyDown(eventArgs, view)">
                                                 <h6>@AngleLabel(view)</h6>
-                                                <div class="small text-muted mb-2">Source: @(source is null ? "waiting for previous view" : source[..Math.Min(8, source.Length)] + "…")</div>
+                                                <div class="small text-muted mb-2">Source: @AngleSourceLabel(view, source)</div>
                                                 <a class="small" href="@AngleReviewDeckUrl(view)" target="_blank" @onclick:stopPropagation="true">Review @AngleLabel(view) attempts</a>
                                                 @if (angle?.OutputArtifactId is { Length: > 0 } output)
                                                 {
@@ -360,10 +427,15 @@
                                                     }
                                                 }
                                                 <div class="small mb-2">Status: @(angle?.Status.ToString() ?? "NotStarted")</div>
+                                                <div class="small text-muted mb-2">Attempts on this card: @AngleAttemptCount(view)</div>
+                                                @if (!string.IsNullOrWhiteSpace(angle?.FailureReason))
+                                                {
+                                                    <div class="small text-danger mb-2">@angle.FailureReason</div>
+                                                }
                                                 @if (view == _selectedAngleView && _angleAttempts.Count > 0)
                                                 {
                                                     <div class="mt-2 border-top pt-2">
-                                                        <div class="small fw-semibold">Attempts (@_angleAttempts.Count)</div>
+                                                        <div class="small fw-semibold">@AngleLabel(view) attempts (@_angleAttempts.Count)</div>
                                                         @foreach (var attempt in _angleAttempts)
                                                         {
                                                             var attemptImage = _angleAttemptImages.FirstOrDefault(image => image.Id == attempt.OutputArtifactId);
@@ -393,14 +465,26 @@
                                                                 @if (attempt.Status == CharacterIdentityAngleStatus.Failed)
                                                                 {
                                                                     <div class="mt-2">
-                                                                        <input class="form-control form-control-sm" placeholder="Override reason" @bind="_overrideReasons[attempt.Id]" @onclick:stopPropagation="true" />
-                                                                        <input class="form-control form-control-sm mt-1" placeholder="Author" @bind="_overrideAuthors[attempt.Id]" @onclick:stopPropagation="true" />
+                                                                        <input class="form-control form-control-sm" placeholder="Override reason" value="@OverrideReason(attempt.Id)" @oninput="args => SetOverrideReason(attempt.Id, args.Value?.ToString() ?? string.Empty)" @onclick:stopPropagation="true" />
+                                                                        <input class="form-control form-control-sm mt-1" placeholder="Author" value="@OverrideAuthor(attempt.Id)" @oninput="args => SetOverrideAuthor(attempt.Id, args.Value?.ToString() ?? string.Empty)" @onclick:stopPropagation="true" />
                                                                         <button type="button" class="btn btn-sm btn-warning mt-1" @onclick:stopPropagation="true" @onclick="() => RecordAngleOverrideAsync(view, attempt.Id)">Record visual override</button>
                                                                     </div>
                                                                 }
                                                                 @if (attempt.ManualOverrideApplied)
                                                                 {
                                                                     <div class="small text-warning mt-1">Override recorded by @attempt.ManualOverrideAuthor</div>
+                                                                }
+                                                                @if (attempt.MirrorDerived)
+                                                                {
+                                                                    <div class="small text-info mt-1">Mirror-derived — the configured remedy mirrored the wrong-facing render into this view's side.</div>
+                                                                }
+                                                                @if (!string.IsNullOrWhiteSpace(attempt.FailureReason))
+                                                                {
+                                                                    <div class="small text-danger mt-1">@attempt.FailureReason</div>
+                                                                }
+                                                                @if (DescribeDirection(attempt) is { Length: > 0 } directionNote)
+                                                                {
+                                                                    <div class="small text-muted mt-1">@directionNote</div>
                                                                 }
                                                             </div>
                                                         }
@@ -414,10 +498,10 @@
                                                         <button type="button" class="btn btn-sm btn-success" @onclick:stopPropagation="true" @onclick="() => AcceptAngleAsync(view)">Use this angle</button>
                                                     }
                                                 </div>
-                                                @if (view is CharacterIdentityAngleView.ProfileLeft or CharacterIdentityAngleView.ProfileRight && angle?.Status == CharacterIdentityAngleStatus.Pending)
+                                                @if (angle?.ManualConfirmationRequired == true && angle.Status != CharacterIdentityAngleStatus.Accepted)
                                                 {
                                                     <div class="form-check mt-2">
-                                                        <input class="form-check-input" type="checkbox" @bind="_profileConfirmations[view]" id="confirm-@view" />
+                                                        <input class="form-check-input" type="checkbox" checked="@ProfileConfirmed(view)" @onchange="args => SetProfileConfirmed(view, args.Value is bool confirmed && confirmed)" id="confirm-@view" />
                                                         <label class="form-check-label small" for="confirm-@view">I confirm this profile faces the expected image direction.</label>
                                                     </div>
                                                 }
@@ -478,10 +562,334 @@
             </div>
             break;
         case "Body":
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Body</h5>
-                    <p class="text-muted mb-0">BodyCard and full-body references (clothed + unclothed) — B-122 Phase 0, a new target kind of the same pipeline. Not yet implemented.</p>
+            <div>
+                @if (!string.IsNullOrWhiteSpace(_bodyMessage))
+                {
+                    <div class="alert alert-info small py-1">@_bodyMessage</div>
+                }
+
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Body card</strong>
+                        <span class="small @(_bodyCard.IsReady && _bodyCardVersion > 0 ? "text-success" : "text-warning")">@BodyCardStatus</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="small text-muted">
+                            The single source of every body prompt: this line is pasted verbatim into each body reference
+                            prompt, and generation refuses while a field is unanswered. A field marked <strong>[DECIDE]</strong>
+                            needs an exact value or an explicit "none" — a vague body does not train.
+                        </p>
+                        @* The SAME vocabulary the character template uses, here on the card, because the template is
+                           only the start point and the tweaks live on the card.
+
+                           A SELECT, not a datalist. The pickers were datalists, and a datalist is filtered by whatever
+                           is already in the box — so a field that had a value showed an EMPTY popup, which reads as
+                           "there are no options" and is exactly what was reported. A select always shows the whole
+                           catalog, and "(custom…)" opens a text box for wording the catalog does not carry, so a
+                           catalog pick and a typed override are two visible choices rather than one ambiguous box. *@
+                        <div class="border rounded p-2 mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="small fw-semibold">Body parts</span>
+                                <button type="button" class="btn btn-outline-primary btn-sm"
+                                        @onclick="ComposeBodyAxesAsync" disabled="@_bodyCard.Axes.IsEmpty">
+                                    Compose into body shape
+                                </button>
+                            </div>
+                            @if (BodyShapeLineIsStale)
+                            {
+                                @* These picks are what GENERATE — only they carry a per-family rendering, so the line
+                                   below is a record, not the source. Say so here rather than at generation time, where
+                                   the mismatch was invisible and looked like a broken button. *@
+                                <div class="alert alert-warning py-1 px-2 small mb-2">
+                                    The body shape line no longer matches these picks. The <strong>picks</strong> are what
+                                    generate; press <strong>Compose into body shape</strong> to rewrite the line from them.
+                                </div>
+                            }
+                            @* WHICH value set these pickers show, and why. The gender gate recognises "Male" exactly, so a
+                               character whose gender is unset or "Any" silently gets the female-typical set — the operator's
+                               "all the dropdowns are for a typical female body" (2026-09-23). *@
+                            <div class="small text-muted mb-2">@BodyAxisSourceNote</div>
+                            <div class="row g-2">
+                                @foreach (var picker in BodyAxisPickers)
+                                {
+                                    var picked = picker.Read(_bodyCard.Axes) ?? string.Empty;
+                                    var custom = IsCustomAxis(picker, picked);
+                                    <div class="@picker.ColumnClass">
+                                        <label class="form-label small mb-1">@picker.Label</label>
+                                        <select class="form-select form-select-sm"
+                                                value="@(custom ? CustomAxisValue : picked)"
+                                                @onchange="e => OnAxisPicked(picker, e.Value?.ToString())">
+                                            <option value="">— not set —</option>
+                                            @foreach (var option in picker.Options)
+                                            {
+                                                <option value="@option">@option</option>
+                                            }
+                                            <option value="@CustomAxisValue">(custom…)</option>
+                                        </select>
+                                        @if (custom)
+                                        {
+                                            <input class="form-control form-control-sm mt-1"
+                                                   placeholder="type your own wording"
+                                                   value="@picked"
+                                                   @oninput="e => picker.Write(_bodyCard.Axes, e.Value?.ToString())" />
+                                        }
+                                        @if (DescribeAxisConsequence(picker.Axis, picked) is { Length: > 0 } consequence)
+                                        {
+                                            @* The consequence, not just a label. A value whose name is vague and whose
+                                               Pony rendering is EMPTY looks identical to one that works — which is exactly
+                                               how "my pick did nothing" happens. *@
+                                            <div class="small text-muted mt-1">@consequence</div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label class="form-label small mb-1">@BodyCardLabel(CharacterBodyCardField.BodyShape)</label>
+                                <input class="form-control form-control-sm" @bind="_bodyCard.BodyShape" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small mb-1">@BodyCardLabel(CharacterBodyCardField.HeightBuild)</label>
+                                <input class="form-control form-control-sm" @bind="_bodyCard.HeightBuild" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small mb-1">@BodyCardLabel(CharacterBodyCardField.Skin)</label>
+                                <input class="form-control form-control-sm" @bind="_bodyCard.Skin" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small mb-1">
+                                    @BodyCardLabel(CharacterBodyCardField.BodyHair)
+                                    @if (BodyCardRequiresDecision(CharacterBodyCardField.BodyHair))
+                                    {
+                                        <span class="badge text-bg-warning ms-1">[DECIDE]</span>
+                                    }
+                                </label>
+                                <input class="form-control form-control-sm" list="body-card-body-hair-options" @bind="_bodyCard.BodyHair" />
+                                <datalist id="body-card-body-hair-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.BodyHairOptions)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small mb-1">
+                                    @BodyCardLabel(CharacterBodyCardField.Tattoos)
+                                    @if (BodyCardRequiresDecision(CharacterBodyCardField.Tattoos))
+                                    {
+                                        <span class="badge text-bg-warning ms-1">[DECIDE]</span>
+                                    }
+                                </label>
+                                <input class="form-control form-control-sm" @bind="_bodyCard.Tattoos" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small mb-1">@BodyCardLabel(CharacterBodyCardField.ScarsMarks)</label>
+                                <input class="form-control form-control-sm" @bind="_bodyCard.ScarsMarks" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small mb-1">
+                                    @BodyCardLabel(CharacterBodyCardField.PubicHair)
+                                    @if (BodyCardRequiresDecision(CharacterBodyCardField.PubicHair))
+                                    {
+                                        <span class="badge text-bg-warning ms-1">[DECIDE]</span>
+                                    }
+                                </label>
+                                <input class="form-control form-control-sm" list="body-card-pubic-hair-options" @bind="_bodyCard.PubicHair" />
+                                <datalist id="body-card-pubic-hair-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.PubicHairOptions)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                        </div>
+                        <div class="border-top mt-3 pt-2">
+                            <div class="d-flex gap-2 flex-wrap align-items-center">
+                                <button type="button" class="btn btn-outline-primary btn-sm"
+                                        @onclick="PrefillFromCharacterAsync" disabled="@_prefillBusy">
+                                    Prefill from character
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm"
+                                        @onclick="DraftFromDescriptionAsync" disabled="@_prefillBusy">
+                                    Draft from description
+                                </button>
+                                @if (_prefillBusy)
+                                {
+                                    <span class="small text-muted">Working…</span>
+                                }
+                            </div>
+                            <div class="form-text">
+                                Either source fills only the fields you have left EMPTY, and nothing is saved until you press
+                                Save. <strong>Prefill from character</strong> copies the character template's physical
+                                attributes; <strong>Draft from description</strong> asks the configured model what the
+                                character's description actually states, and proposes nothing for the rest.
+                            </div>
+
+                            @if (!string.IsNullOrWhiteSpace(_prefillMessage))
+                            {
+                                <div class="alert @(_prefillMessageIsError ? "alert-danger" : "alert-info") small py-1 px-2 mt-2 mb-0">@_prefillMessage</div>
+                            }
+
+                            @if (_prefill is not null)
+                            {
+                                <div class="mt-2">
+                                    <div class="small text-muted mb-1">
+                                        @_prefill.Proposals.Count proposal(s) from
+                                        @(_prefill.Source == CharacterBodyCardPrefillSource.CharacterAttributes
+                                            ? "the character template"
+                                            : $"the description draft ({_prefill.ModelIdentifier})")
+                                    </div>
+                                    @if (_prefill.Proposals.Count == 0)
+                                    {
+                                        <p class="small mb-1">Nothing could be proposed.</p>
+                                    }
+                                    else
+                                    {
+                                        <ul class="list-group list-group-flush">
+                                            @foreach (var proposal in _prefill.Proposals)
+                                            {
+                                                var applies = BodyCardAcceptsProposal(proposal);
+                                                <li class="list-group-item px-0 py-1">
+                                                    <div class="d-flex justify-content-between align-items-start gap-2">
+                                                        <span class="small">
+                                                            <strong>@proposal.Label</strong>: @proposal.ProposedValue
+                                                            <br />
+                                                            <span class="text-muted">@proposal.Provenance</span>
+                                                        </span>
+                                                        <button type="button" class="btn btn-sm btn-outline-success"
+                                                                disabled="@(!applies)"
+                                                                @onclick="() => ApplyPrefillProposalAsync(proposal)">
+                                                            @(applies ? "Apply" : "Already set")
+                                                        </button>
+                                                    </div>
+                                                </li>
+                                            }
+                                        </ul>
+                                        <button type="button" class="btn btn-sm btn-outline-success mt-2"
+                                                @onclick="ApplyPrefillToEmptyFieldsAsync">
+                                            Fill the empty fields
+                                        </button>
+                                    }
+
+                                    @if (_prefill.Gaps.Count > 0)
+                                    {
+                                        <details class="mt-2">
+                                            <summary class="small">
+                                                @_prefill.Gaps.Count field(s) nothing could answer
+                                            </summary>
+                                            <ul class="small text-muted mb-0">
+                                                @foreach (var gap in _prefill.Gaps)
+                                                {
+                                                    <li>
+                                                        <strong>@gap.Label</strong>@(gap.RequiresDecision ? " [DECIDE]" : string.Empty): @gap.Reason
+                                                    </li>
+                                                }
+                                            </ul>
+                                        </details>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <button type="button" class="btn btn-primary btn-sm mt-3" @onclick="SaveBodyCardAsync" disabled="@_bodyCardBusy">
+                            @(_bodyCardVersion == 0 ? "Record body card" : "Save body card")
+                        </button>
+                        @if (_bodyCardVersion > 0)
+                        {
+                            <span class="small text-muted ms-2">v@_bodyCardVersion</span>
+                        }
+                    </div>
+                </div>
+
+                <div class="card mt-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Body build</strong>
+                        <button type="button" class="btn btn-sm btn-primary" @onclick="StartBodyBuildAsync" disabled="@_bodyStartingBuild">
+                            @(_bodyBuild is null ? "Start body build" : "Start over")
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        @if (_bodyBuild is null)
+                        {
+                            <p class="text-muted small mb-0">
+                                The body target is the same pipeline as the face build, on its own plan: one request
+                                produces one image, in the order the plan lists — a base in each state, then the angles.
+                                There is no batch and no "generate all".
+                            </p>
+                        }
+                        else
+                        {
+                            <p class="small text-muted mb-2">
+                                Build <code>@_bodyBuild.Id</code> · @_bodyBuild.Status · current step <strong>@StepLabel(_bodyBuild.CurrentStep)</strong>
+                            </p>
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var row in _bodyStepRows)
+                                {
+                                    <span class="badge @StepBadge(row.Status)" title="@row.FailureReason">@StepLabel(row.Step)</span>
+                                }
+                            </div>
+
+                            @* B-122 E-2: the clothed and unclothed view grids. One row per canonical slot, one
+                               request per row — the panel owns the per-view actions and this page only tells it
+                               which build it is acquiring and which settings apply. *@
+                            <div class="card mt-3">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <strong>Body view settings</strong>
+                                    <span class="small text-muted">set once — used by every body view</span>
+                                </div>
+                                <div class="card-body">
+                                    <p class="small text-muted mb-2">
+                                        The image model and the render size for the whole body set. A full-body frame
+                                        needs portrait proportions, and every view of one body must be rendered at
+                                        the SAME size — otherwise the views are not comparable. Nothing here is
+                                        assumed: an unset value disables Generate rather than quietly picking one.
+                                    </p>
+                                    @if (!string.IsNullOrWhiteSpace(_bodyViewSettingsMessage))
+                                    {
+                                        <div class="alert alert-secondary py-1 small mb-2">@_bodyViewSettingsMessage</div>
+                                    }
+                                    <div class="row g-2 align-items-end">
+                                        <div class="col-md-5">
+                                            <label class="form-label small mb-1">Body view model</label>
+                                            <select class="form-select form-select-sm" @bind="_bodyViewModelId">
+                                                <option value="">Select model…</option>
+                                                @foreach (var choice in _bodyViewModels)
+                                                {
+                                                    <option value="@choice.ModelId">@choice.DisplayName</option>
+                                                }
+                                            </select>
+                                            @if (!string.IsNullOrWhiteSpace(_bodyViewModelsMessage))
+                                            {
+                                                <div class="small text-warning mt-1">
+                                                    @_bodyViewModelsMessage
+                                                    <button type="button" class="btn btn-sm btn-link p-0 align-baseline"
+                                                            @onclick="() => RetryBodyViewModelListAsync()">Retry</button>
+                                                </div>
+                                            }
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small mb-1">Image size</label>
+                                            <input class="form-control form-control-sm" @bind="_bodyViewImageSize" />
+                                        </div>
+                                        <div class="col-md-4">
+                                            <button type="button" class="btn btn-sm btn-primary"
+                                                    @onclick="SaveBodyViewSettingsAsync" disabled="@_bodyViewSettingsBusy">
+                                                Save body view settings
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mt-3">
+                                <BodyViewsPanel BuildId="@_bodyBuild.Id" CharacterName="@BodyPanelCharacterName"
+                                                ModelId="@_bodyViewModelId" ModelName="@BodyViewModelName"
+                                                ImageSize="@_bodyViewImageSize"
+                                                SettingsRevision="@_bodyViewSettingsRevision" />
+                            </div>
+                        }
+                    </div>
                 </div>
             </div>
             break;
@@ -556,12 +964,175 @@
 
     [Parameter] public string? PackId { get; set; }
 
+    /// <summary>
+    /// The character whose identity this page edits (B-127). The route may arrive with any owner id — a character
+    /// template, a scenario character or a character asset — and identity always resolves to the template, so every
+    /// identity call below uses <see cref="IdentityKey"/> rather than the raw route id. Resolution is refused, never
+    /// guessed: an unresolvable id shows the resolver's message instead of an empty page.
+    /// </summary>
+    private CharacterIdentityOwner? _owner;
+
+    /// <summary>
+    /// The name the body views' prompts address. It is the owner template's name — the same identity the rest of
+    /// this page reads and writes — and never the route id a caller happened to arrive with.
+    /// </summary>
+    private string BodyPanelCharacterName => _owner?.TemplateName ?? string.Empty;
+
+    /// <summary>The display name of the model the body set is configured with, for the grid's read-only summary.</summary>
+    private string BodyViewModelName => _bodyViewModels
+        .FirstOrDefault(choice => string.Equals(choice.ModelId, _bodyViewModelId, StringComparison.Ordinal))
+        ?.DisplayName ?? _bodyViewModelId;
+
+    /// <summary>
+    /// The body set's settings (model + render size) come from the persisted workflow settings and are edited in the
+    /// card above the grid, not per view: one body, one size, one model.
+    /// </summary>
+    private async Task RefreshBodyViewSettingsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(IdentityKey))
+        {
+            return;
+        }
+
+        // The MODEL LIST is loaded on its own, deliberately NOT inside the settings try below. They were one block, so any
+        // failure (a transient "database is locked", a half-written provider row) left the picker EMPTY with nothing but a
+        // message — "no models are showing up in the list to pick" (operator report, 2026-09-23) — and the two facts, "the
+        // list could not be read" and "this character has no model", were indistinguishable.
+        try
+        {
+            if (_bodyViewModels.Count == 0)
+            {
+                _bodyViewModels = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
+            }
+
+            _bodyViewModelsMessage = _bodyViewModels.Count == 0
+                ? "No image model is registered for generation (Model Manager → models of kind Image without an editor "
+                  + "diffusion model). A body render needs one."
+                : string.Empty;
+        }
+        catch (Exception error)
+        {
+            // The list itself failed. Say so, and offer the retry, instead of leaving an empty dropdown to be read as
+            // "nothing is configured".
+            _bodyViewModelsMessage = $"The image-model list could not be read: {error.Message}";
+        }
+
+        try
+        {
+            var settings = await BodyService.ResolveViewSettingsAsync(IdentityKey);
+            _bodyViewModelId = settings.ModelId;
+            _bodyViewImageSize = settings.ImageSize;
+        }
+        catch (Exception error)
+        {
+            _bodyViewSettingsMessage = error.Message;
+        }
+    }
+
+    private async Task SaveBodyViewSettingsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(IdentityKey))
+        {
+            return;
+        }
+
+        _bodyViewSettingsBusy = true;
+        try
+        {
+            await BodyService.SaveViewSettingsAsync(IdentityKey, _bodyViewModelId, _bodyViewImageSize);
+            await RefreshBodyViewSettingsAsync();
+
+            // The model dropdown is two-way bound, so the panel's ModelId parameter changes BEFORE the save persists.
+            // The panel's capability answer is therefore re-asked against the OLD settings and never again — which is
+            // how a model that declares identity kept showing "identity is unavailable" after the save. The SAVE is the
+            // event that changes the persisted setting, so the save is what tells the panel to re-ask.
+            _bodyViewSettingsRevision++;
+            _bodyViewSettingsMessage = $"Body view settings saved: {BodyViewModelName} at {_bodyViewImageSize}.";
+        }
+        catch (Exception error)
+        {
+            _bodyViewSettingsMessage = error.Message;
+        }
+        finally
+        {
+            _bodyViewSettingsBusy = false;
+        }
+    }
+
+    /// <summary>The identity key: the owner's character template id. Empty while the owner is unresolved.</summary>
+    private string IdentityKey => _owner?.TemplateId ?? string.Empty;
+
+    /// <summary>Why the character could not be resolved to an identity owner — shown on every tab.</summary>
+    private string? _ownerMessage;
+
     private string _activeSection = "Packs";
     private string _characterName = "Character";
     private string? _scenarioName;
     private List<CharacterImageIdentityPack> _packs = [];
     private CharacterIdentityBuild? _build;
     private List<CharacterIdentityBuildStepRecord> _buildStepRows = [];
+
+    /// <summary>
+    /// The BODY build, kept apart from <see cref="_build"/> (the face build): both target kinds can exist for one
+    /// character at the same time, and "the newest build" would make the Faces tab render body steps — or the
+    /// body tab render the face plan — the moment a character has both.
+    /// </summary>
+    private CharacterIdentityBuild? _bodyBuild;
+    private CharacterIdentityStepPlan? _bodyStepPlan;
+    private List<CharacterIdentityBuildStepRecord> _bodyStepRows = [];
+
+    /// <summary>The character's body card, edited in place and saved through the body service.</summary>
+    private CharacterBodyCard? _bodyCard;
+
+    /// <summary>The version the editor loaded, so a save cannot overwrite a newer one.</summary>
+    private int _bodyCardVersion;
+    private string? _bodyMessage;
+    private bool _bodyCardBusy;
+    private bool _bodyStartingBuild;
+
+    /// <summary>
+    /// The last prefill/draft result for the body card (B-122). Proposals are shown, never applied silently, and
+    /// they are cleared whenever the card is re-read so a stale proposal cannot be applied to a newer card.
+    /// </summary>
+    private CharacterBodyCardPrefill? _prefill;
+    private bool _prefillBusy;
+    private string? _prefillMessage;
+    private bool _prefillMessageIsError;
+
+    /// <summary>The body set's acquisition settings, edited in the Body tab's settings card.</summary>
+    /// <summary>
+    /// Re-reads the image-model list after a failure. The picker is the ONE way a body render gets its model, so a list
+    /// that could not be read must be recoverable without reloading the page — and a successful retry clears the message.
+    /// </summary>
+    private async Task RetryBodyViewModelListAsync()
+    {
+        _bodyViewModels.Clear();
+        _bodyViewModelsMessage = string.Empty;
+        await RefreshBodyViewSettingsAsync();
+    }
+
+    private List<SceneImageModelChoice> _bodyViewModels = [];
+
+    /// <summary>Why the body view model list is empty, or empty when it is not — never an empty dropdown with no reason.</summary>
+    private string _bodyViewModelsMessage = string.Empty;
+    private string _bodyViewModelId = string.Empty;
+    private string _bodyViewImageSize = string.Empty;
+    private string? _bodyViewSettingsMessage;
+    private bool _bodyViewSettingsBusy;
+
+    /// <summary>
+    /// Bumped on every successful save of the body view settings. The body grid's capability answer (identity, pose)
+    /// belongs to the SAVED model, so the panel keys its cache on this as well as on the model id — the model dropdown
+    /// is two-way bound, so the model id changes before the save and would otherwise be the only, too-early signal.
+    /// </summary>
+    private int _bodyViewSettingsRevision;
+
+    /// <summary>
+    /// The step plan of the loaded build's target kind: what the status line renders and what the step
+    /// services resolve their template keys from. It is read once per build, because a build's kind never
+    /// changes.
+    /// </summary>
+    private CharacterIdentityStepPlan? _stepPlan;
     private string _frontPrompt = string.Empty;
     private bool _frontPromptIsCharacterOverride;
     private string? _frontModelId;
@@ -609,6 +1180,7 @@
     private string? _angleReviewDeckUrl;
     private readonly Dictionary<CharacterIdentityAngleView, string> _anglePrompts = [];
     private readonly Dictionary<CharacterIdentityAngleView, bool> _profileConfirmations = [];
+    private readonly Dictionary<CharacterIdentityAngleView, int> _angleAttemptCounts = [];
     private static readonly CharacterIdentityAngleView[] AngleViews =
     [
         CharacterIdentityAngleView.ThreeQuarterLeft,
@@ -717,6 +1289,23 @@
         => !string.IsNullOrWhiteSpace(_chosenFrontArtifactId)
             && string.Equals(_chosenFrontArtifactId, attempt.Id, StringComparison.Ordinal);
 
+    /// <summary>The Validate step's own row: it carries the manual override recorded for this build.</summary>
+    private CharacterIdentityBuildStepRecord? _validateStepRecord
+        => _buildStepRows.FirstOrDefault(row => row.Step == CharacterIdentityBuildStep.Validate);
+
+    /// <summary>
+    /// True when the build names a front artifact that no image in the pack has any more (the image was
+    /// deleted). The state is named rather than rendered as "nothing chosen": with no chosen card the
+    /// candidate controls would be unreachable (B-121 note 008).
+    /// </summary>
+    private bool _recordedFrontArtifactMissing
+        => !string.IsNullOrWhiteSpace(_chosenFrontArtifactId)
+            && _frontAttempts.Count > 0
+            && _frontAttempts.All(attempt => !IsChosenFront(attempt));
+
+    private string _recordedFrontArtifactLabel
+        => _chosenFrontArtifactId is { Length: > 8 } recorded ? recorded[..8] + "…" : _chosenFrontArtifactId ?? string.Empty;
+
     /// <summary>
     /// True for the image approved in Panel B as the canonical front — the value the later steps work
     /// from. It is stored on the build, not on a step, because the Front step is long complete by then.
@@ -726,7 +1315,7 @@
             && string.Equals(canonical, image.Id, StringComparison.Ordinal);
 
     /// <summary>
-    /// Approves an edited image as this build's canonical front, which also finishes the de-clothe / crop /
+    /// Approves an image as this build's canonical front, which also finishes the de-clothe / crop /
     /// enhance part of the pipeline: the service derives those three steps from the approved image's own
     /// lineage. The Front step keeps the generated candidate it recorded — nothing is re-opened.
     /// </summary>
@@ -745,8 +1334,14 @@
             await RefreshBuildStepsAsync();
             // The image now carries its own pipeline record, so the list has to be re-read to show it.
             await RefreshEditedImagesAsync();
-            _frontMessage = $"Canonical front approved: {image.Id[..8]}… — the de-clothe, crop and enhance "
-                + "this image went through are recorded on it, and the pipeline is at Angles.";
+            // Report what was actually recorded, read from the approved image's own record: with no edit at
+            // all the three steps are recorded as skipped, and the message must say that rather than imply
+            // work that never happened.
+            var approved = await AssetService.GetImageAsync(image.Id) ?? image;
+            var recorded = DescribePipeline(approved);
+            _frontMessage = recorded is null
+                ? $"Canonical front approved: {image.Id[..8]}… — the image carries no pipeline record."
+                : $"Canonical front approved: {image.Id[..8]}… — {recorded}. The pipeline is at the face angles.";
         }
         catch (Exception ex)
         {
@@ -756,6 +1351,23 @@
         {
             _frontBusy = false;
         }
+    }
+
+    /// <summary>
+    /// Approves the candidate chosen in Panel A as the canonical front with no de-clothe, crop or enhance
+    /// edit at all. The service derives those three steps from the approved image's own lineage, so a front
+    /// that never went through them is recorded as skipped and the build moves on to the face angles. This is
+    /// the way out of steps 3-5 for a front that needs no edit; the pipeline otherwise had no path to the
+    /// angles that did not require an edit.
+    /// </summary>
+    private async Task ApproveFrontAsIsAsync()
+    {
+        if (_garmentSource is null)
+        {
+            return;
+        }
+
+        await ApproveCanonicalFrontAsync(_garmentSource);
     }
 
     private bool _frontStepComplete
@@ -771,7 +1383,15 @@
 
         foreach (var scenario in await ScenarioService.GetAllScenariosAsync())
         {
-            var character = scenario.Characters.FirstOrDefault(c => string.Equals(c.Id, characterId, StringComparison.Ordinal));
+            // The route id may be the character's OWN id or the TEMPLATE it is backed by — B-127 resolves "any owner id"
+            // to the template, and a page opened from the template (which is how the identity work is reached) carries
+            // the template id. Matching on Id alone therefore missed the character entirely, so its Gender was never
+            // read and every body-axis picker silently fell back to the female-typical set: the operator's "all of the
+            // body building dropdowns are for a typical female body, but the template has the gender set to male"
+            // (2026-09-23, Dean, whose stored Gender is "Male").
+            var character = scenario.Characters.FirstOrDefault(c =>
+                string.Equals(c.Id, characterId, StringComparison.Ordinal)
+                || string.Equals(c.TemplateId, characterId, StringComparison.Ordinal));
             if (character is not null)
             {
                 _characterName = string.IsNullOrWhiteSpace(character.Name) ? "Character" : character.Name;
@@ -790,19 +1410,53 @@
             }
         }
 
-        _packs = (await IdentityService.ListPacksAsync(characterId)).ToList();
+        // B-127: resolve the route id (template, scenario character or character asset) to the character that owns
+        // this identity. Identity is keyed by the character TEMPLATE, so every identity call below uses IdentityKey;
+        // an unresolvable character is reported with the resolver's remedy, never guessed.
+        try
+        {
+            _owner = await OwnerResolver.ResolveAsync(characterId);
+        }
+        catch (Exception ex)
+        {
+            _ownerMessage = ex.Message;
+            return;
+        }
 
-        var builds = await BuildService.ListBuildsAsync(characterId);
-        _build = builds.FirstOrDefault();
+        // The character template is the canonical address (B-127). Arriving through a scenario character or an
+        // asset still works and lands on the same identity, but the URL is normalised so a character has ONE
+        // address instead of one per scenario it appears in.
+        if (!string.Equals(characterId, _owner.TemplateId, StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo($"/characters/{Uri.EscapeDataString(_owner.TemplateId)}", replace: true);
+            return;
+        }
+
+        _packs = (await IdentityService.ListPacksAsync(IdentityKey)).ToList();
+
+        var builds = await BuildService.ListBuildsAsync(IdentityKey);
+        _build = builds.FirstOrDefault(build => build.TargetKind == CharacterIdentityTargetKind.Face);
         if (_build is not null)
         {
+            _stepPlan = await StepPlanService.GetPlanAsync(_build.TargetKind);
             _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+        }
+
+        _bodyBuild = builds.FirstOrDefault(build => build.TargetKind == CharacterIdentityTargetKind.Body);
+        if (_bodyBuild is not null)
+        {
+            _bodyStepPlan = await StepPlanService.GetPlanAsync(_bodyBuild.TargetKind);
+            _bodyStepRows = (await BuildService.ListStepsAsync(_bodyBuild.Id)).ToList();
+
+            // B-122 E-2: the model and the render size for the whole body set come from the persisted workflow
+            // settings, so the operator sets them once instead of typing a size per view.
+            await RefreshBodyViewSettingsAsync();
         }
 
         try
         {
             _frontModels = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
-            var savedModel = await FrontService.ResolveFrontModelAsync(characterId);
+            var savedModel = await FrontService.ResolveFrontModelAsync(IdentityKey);
             _frontModelId = !string.IsNullOrWhiteSpace(savedModel) && _frontModels.Any(m => string.Equals(m.ModelId, savedModel, StringComparison.Ordinal))
                 ? savedModel
                 : _frontModels.Count > 0 ? _frontModels[0].ModelId : null;
@@ -814,8 +1468,8 @@
 
         try
         {
-            _frontPrompt = await FrontService.ResolveFrontPromptAsync(characterId, _characterName, "");
-            _frontPromptIsCharacterOverride = await FrontService.HasFrontPromptOverrideAsync(characterId);
+            _frontPrompt = await FrontService.ResolveFrontPromptAsync(IdentityKey, _characterName, "");
+            _frontPromptIsCharacterOverride = await FrontService.HasFrontPromptOverrideAsync(IdentityKey);
         }
         catch (Exception ex)
         {
@@ -826,6 +1480,7 @@
         await RefreshGarmentAsync();
         await RefreshAnglesAsync();
         await RefreshPromotionAsync();
+        await RefreshBodyCardAsync();
     }
     private static string StepBadge(CharacterIdentityBuildStepStatus status) => status switch
     {
@@ -848,7 +1503,8 @@
         _facesError = null;
         try
         {
-            _build = await BuildService.CreateBuildAsync(characterId, null);
+            _build = await BuildService.CreateBuildAsync(IdentityKey, null, CharacterIdentityTargetKind.Face);
+            _stepPlan = await StepPlanService.GetPlanAsync(_build.TargetKind);
             _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
         }
         catch (Exception ex)
@@ -858,6 +1514,443 @@
         finally
         {
             _startingBuild = false;
+        }
+    }
+
+    /// <summary>
+    /// The body card's own readiness, in its own words: a card that was never recorded is named as such, and an
+    /// incomplete one lists every unanswered field with the <c>[DECIDE]</c> items marked. Nothing here decides
+    /// anything — the card's own domain rule does.
+    /// </summary>
+    private string BodyCardStatus
+    {
+        get
+        {
+            if (_bodyCardVersion == 0)
+            {
+                return "Not recorded yet";
+            }
+
+            if (_bodyCard.IsReady)
+            {
+                return "Complete";
+            }
+
+            return "Incomplete: " + string.Join(
+                ", ",
+                _bodyCard.UnresolvedFields.Select(field =>
+                    field.RequiresDecision ? $"{field.Label} [DECIDE]" : field.Label));
+        }
+    }
+
+    /// <summary>The field label the store and the prompt line use — never a second copy of the wording.</summary>
+    private static string BodyCardLabel(CharacterBodyCardField field) => CharacterBodyCardFields.Require(field).Label;
+
+    /// <summary>True when this character is male, which selects the male silhouette and distribution lists.</summary>
+    private bool IsMaleCharacter => string.Equals(_characterGender, "Male", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Silhouette values for this character's gender — the apparel classification, or the menswear equivalent.</summary>
+    private IReadOnlyList<string> SilhouetteOptions
+        => IsMaleCharacter ? PhysicalAttributesCatalog.MaleSilhouettes : PhysicalAttributesCatalog.Silhouettes;
+
+    /// <summary>Fat-distribution values for this character's gender.</summary>
+    private IReadOnlyList<string> FatDistributionOptions
+        => IsMaleCharacter ? PhysicalAttributesCatalog.MaleFatDistributions : PhysicalAttributesCatalog.FatDistributions;
+
+    /// <summary>
+    /// Frame, chest, waist, hips and rear for this character's gender. The male sets exist because a female value on a
+    /// male card is not "close enough": "petite, fine-boned", "Enormous" (a bust volume) and "Voluptuous" hips
+    /// describe a female body, and a model renders what it is given. The axis NAMES are unchanged — one axis per body
+    /// part, and the card stays comparable across genders — while the values and the chest label follow the gender the
+    /// template already carries.
+    /// </summary>
+    private IReadOnlyList<string> BodyBuildOptions
+        => IsMaleCharacter ? PhysicalAttributesCatalog.MaleBodyBuilds : PhysicalAttributesCatalog.BodyBuilds;
+
+    private IReadOnlyList<string> ChestOptions
+        => IsMaleCharacter ? PhysicalAttributesCatalog.MaleChestSizes : PhysicalAttributesCatalog.BustSizes;
+
+    private string ChestAxisLabel => IsMaleCharacter ? "Chest" : "Bust";
+
+    private IReadOnlyList<string> WaistOptions
+        => IsMaleCharacter ? PhysicalAttributesCatalog.MaleWaistSizes : PhysicalAttributesCatalog.WaistSizes;
+
+    private IReadOnlyList<string> HipOptions
+        => IsMaleCharacter ? PhysicalAttributesCatalog.MaleHipSizes : PhysicalAttributesCatalog.HipSizes;
+
+    private IReadOnlyList<string> RearOptions
+        => IsMaleCharacter ? PhysicalAttributesCatalog.MaleButtSizes : PhysicalAttributesCatalog.ButtSizes;
+
+    /// <summary>
+    /// Which value set the pickers are showing, and WHY. The gender gate only recognises "Male" exactly, so a character
+    /// whose gender is blank, "Any" or an abbreviation silently gets the female-typical set — the operator's "all the
+    /// dropdowns are for a typical female body, but the template says male" (2026-09-23). Nothing is defaulted here: the
+    /// line names the gender the studio actually read, so a set that does not match the template is visible before a
+    /// render is spent.
+    /// </summary>
+    private string BodyAxisSourceNote
+    {
+        get
+        {
+            if (IsMaleCharacter)
+            {
+                return $"Body values shown for MALE characters (the character's gender is '{_characterGender}').";
+            }
+
+            if (string.Equals(_characterGender, "Female", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"Body values shown for FEMALE characters (the character's gender is '{_characterGender}').";
+            }
+
+            return $"Body values shown for FEMALE characters, because this character's gender is "
+                + $"'{(_characterGender ?? "(unset)")}' rather than 'Male' — set the gender to Male on the character to "
+                + "get the male value set.";
+        }
+    }
+
+    /// <summary>
+    /// Writes the picked body parts into the body shape line. BodyShape stays the authored, gate-checked field that
+    /// reaches the prompt — this only fills it, and it stays hand-editable afterwards. Nothing is saved here; Save
+    /// remains the only writer of the card.
+    /// </summary>
+    private Task ComposeBodyAxesAsync()
+    {
+        if (_bodyCard is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        // The chest label travels WITH the picks: the composed line has to read "chest Average" on a male card, and
+        // three places compare the stored line against Compose() — a label passed only here would make a male card look
+        // permanently stale.
+        _bodyCard.Axes.ChestLabel = ChestAxisLabel.ToLowerInvariant();
+        var composed = _bodyCard.Axes.Compose();
+        if (string.IsNullOrWhiteSpace(composed))
+        {
+            _bodyMessage = "No body parts picked yet, so there is nothing to compose.";
+            return Task.CompletedTask;
+        }
+
+        _bodyCard.BodyShape = composed;
+        _bodyMessage = "Body shape composed from the picked body parts. Save the card to keep it.";
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Offers the template's axis picks as the card's start point, without overwriting picks the operator has
+    /// already made — the same rule the field proposals follow (the operator's decision always wins).
+    /// </summary>
+    private void TrySeedAxesFromPrefill()
+    {
+        if (_bodyCard is null || _prefill?.Axes is null || !_bodyCard.Axes.IsEmpty)
+        {
+            return;
+        }
+
+        _bodyCard.Axes = _prefill.Axes;
+    }
+
+    /// <summary>
+    /// One body-part picker: its label, its layout width, the catalog it picks from, and how to read and write the
+    /// axis on the card. Declared once so the pickers are generated from a list rather than hand-copied — ten copied
+    /// blocks is how a picker gets left behind when an axis is added.
+    /// </summary>
+    private sealed record BodyAxisPicker(
+        BodyAxis Axis,
+        string Label,
+        string ColumnClass,
+        IReadOnlyList<string> Options,
+        Func<CharacterBodyAxes, string?> Read,
+        Action<CharacterBodyAxes, string?> Write);
+
+    /// <summary>
+    /// The value a picker carries when the operator wants to type their own wording. Not a value any catalog can
+    /// contain, so a pick can never be confused with a typed override.
+    /// </summary>
+    private const string CustomAxisValue = "__custom__";
+
+    /// <summary>
+    /// True when the card's shape line is not what its picked parts compose. The PARTS generate (only they carry a
+    /// per-family rendering); the line is their record. Drift is normal — changing a picker does not rewrite the line —
+    /// so it is shown as a warning with the one-click fix, and the compiler does not refuse on it.
+    /// </summary>
+    private bool BodyShapeLineIsStale
+        => _bodyCard is not null
+            && !_bodyCard.Axes.IsEmpty
+            && !string.Equals(
+                _bodyCard.BodyShape.Trim(), _bodyCard.Axes.Compose().Trim(), StringComparison.Ordinal);
+
+    /// <summary>Axes whose picker is currently open for a typed override, keyed by the picker's label.</summary>
+    private readonly HashSet<string> _customAxes = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The ten body-part pickers, in the composed order — the same order <see cref="CharacterBodyAxes.Compose"/>
+    /// writes, so the form reads the way the line it produces reads. Silhouette and fat distribution are the
+    /// gender-dependent pair: the template offers a narrower set for a male character.
+    /// </summary>
+    private IReadOnlyList<BodyAxisPicker> BodyAxisPickers =>
+    [
+        new(BodyAxis.BodyBuild, "Build (frame)", "col-md-4", BodyBuildOptions,
+            axes => axes.BodyBuild, (axes, value) => axes.BodyBuild = value),
+        new(BodyAxis.Silhouette, "Silhouette", "col-md-4", SilhouetteOptions,
+            axes => axes.Silhouette, (axes, value) => axes.Silhouette = value),
+        new(BodyAxis.Adiposity, "Adiposity (body fat)", "col-md-4", PhysicalAttributesCatalog.AdiposityLevels,
+            axes => axes.Adiposity, (axes, value) => axes.Adiposity = value),
+        new(BodyAxis.FatDistribution, "Fat distribution (where it sits)", "col-md-4", FatDistributionOptions,
+            axes => axes.FatDistribution, (axes, value) => axes.FatDistribution = value),
+        new(BodyAxis.MuscleMass, "Muscle mass", "col-md-4", PhysicalAttributesCatalog.MuscleMasses,
+            axes => axes.MuscleMass, (axes, value) => axes.MuscleMass = value),
+        new(BodyAxis.MuscleDefinition, "Muscle definition", "col-md-4", PhysicalAttributesCatalog.MuscleDefinitions,
+            axes => axes.MuscleDefinition, (axes, value) => axes.MuscleDefinition = value),
+        new(BodyAxis.BustSize, ChestAxisLabel, "col-md-3", ChestOptions,
+            axes => axes.BustSize, (axes, value) => axes.BustSize = value),
+        new(BodyAxis.WaistSize, "Waist", "col-md-3", WaistOptions,
+            axes => axes.WaistSize, (axes, value) => axes.WaistSize = value),
+        new(BodyAxis.HipSize, "Hips", "col-md-3", HipOptions,
+            axes => axes.HipSize, (axes, value) => axes.HipSize = value),
+        new(BodyAxis.ButtSize, "Rear", "col-md-3", RearOptions,
+            axes => axes.ButtSize, (axes, value) => axes.ButtSize = value)
+    ];
+
+    /// <summary>
+    /// What the picked value BECOMES for each target family, or why it becomes nothing for one of them.
+    ///
+    /// The picker's job is to make the prompt legible before a render is spent: the vocabulary deliberately omits
+    /// values Pony has no reliable token for, and those omissions were invisible — the operator saw a plausible value
+    /// selected and no effect in the image. This reuses the vocabulary's own reason (one source), so the hint cannot
+    /// drift from what the compiler does.
+    /// </summary>
+    private static string DescribeAxisConsequence(BodyAxis axis, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = value.Trim();
+        if (!BodyAxisVocabulary.HasRendering(axis, trimmed))
+        {
+            return "→ SDXL: sent as written · Pony: nothing (hand-written wording cannot be tagged)";
+        }
+
+        var rendering = BodyAxisVocabulary.Require(axis, trimmed);
+        if (rendering.IsOmittedForPony)
+        {
+            return $"→ SDXL: {rendering.SdxlPhrase} · Pony: nothing";
+        }
+
+        return $"→ SDXL: {rendering.SdxlPhrase} · Pony: {rendering.PonyTags}";
+    }
+
+    /// <summary>
+    /// True when this axis shows its text box. A value the catalog does not carry opens the box on its own: silently
+    /// showing it as an unselected dropdown would hide wording the operator typed earlier.
+    /// </summary>
+    private bool IsCustomAxis(BodyAxisPicker picker, string value)
+        => _customAxes.Contains(picker.Label)
+            || (!string.IsNullOrWhiteSpace(value) && !picker.Options.Contains(value, StringComparer.Ordinal));
+
+    /// <summary>
+    /// Applies a pick. "(custom…)" opens the text box and leaves the current value alone so it can be edited; any
+    /// other choice is written straight to the axis, and "— not set —" clears it (an unset axis is omitted from the
+    /// composed line, never defaulted).
+    /// </summary>
+    private void OnAxisPicked(BodyAxisPicker picker, string? picked)
+    {
+        if (string.Equals(picked, CustomAxisValue, StringComparison.Ordinal))
+        {
+            _customAxes.Add(picker.Label);
+            return;
+        }
+
+        _customAxes.Remove(picker.Label);
+        picker.Write(_bodyCard.Axes, string.IsNullOrWhiteSpace(picked) ? null : picked);
+    }
+
+    private static bool BodyCardRequiresDecision(CharacterBodyCardField field)
+        => CharacterBodyCardFields.Require(field).RequiresDecision;
+
+    /// <summary>
+    /// Reads the character's body card. A character with no card yet gets an empty editor that still names its
+    /// owner, so a first save creates v1 rather than saving a card nobody owns.
+    /// </summary>
+    private async Task RefreshBodyCardAsync()
+    {
+        var characterId = CharacterId;
+        if (string.IsNullOrWhiteSpace(characterId))
+        {
+            return;
+        }
+
+        try
+        {
+            var stored = await BodyService.GetBodyCardAsync(IdentityKey);
+            if (stored is null)
+            {
+                _bodyCard = new CharacterBodyCard { CharacterTemplateId = IdentityKey };
+                _bodyCardVersion = 0;
+                return;
+            }
+
+            _bodyCard = stored;
+            _bodyCardVersion = stored.Version;
+        }
+        catch (Exception ex)
+        {
+            _bodyMessage = ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// Loads the deterministic proposals from the character template's structured attributes (B-122). Nothing is
+    /// written here: the operator applies what they want, and Save stays the only writer of the card.
+    /// </summary>
+    private Task PrefillFromCharacterAsync() => RunPrefillAsync(
+        "the character template's physical attributes",
+        () => PrefillService.FromCharacterTemplateAsync(IdentityKey));
+
+    /// <summary>
+    /// Asks the configured draft model what the character's description actually states. The model's answer is a
+    /// proposal list; fields it could not see in the description come back as gaps, never as invented values.
+    /// </summary>
+    private Task DraftFromDescriptionAsync() => RunPrefillAsync(
+        "the configured body-card draft model",
+        () => PrefillService.DraftFromDescriptionAsync(IdentityKey));
+
+    private async Task RunPrefillAsync(string source, Func<Task<CharacterBodyCardPrefill>> produce)
+    {
+        if (_prefillBusy)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(IdentityKey))
+        {
+            _prefill = null;
+            _prefillMessage = _ownerMessage
+                ?? "This page has no character template yet, so there is no body card to prefill.";
+            _prefillMessageIsError = true;
+            return;
+        }
+
+        _prefillBusy = true;
+        _prefillMessage = null;
+        _prefillMessageIsError = false;
+        try
+        {
+            _prefill = await produce();
+            TrySeedAxesFromPrefill();
+            _prefillMessage = _prefill.IsEmpty
+                ? $"Nothing could be proposed from {source}."
+                : $"Proposed {_prefill.Proposals.Count} field(s) from {source}. Apply the ones you want — nothing is saved yet.";
+            _prefillMessageIsError = _prefill.IsEmpty;
+        }
+        catch (Exception error)
+        {
+            _prefill = null;
+            _prefillMessage = error.Message;
+            _prefillMessageIsError = true;
+        }
+        finally
+        {
+            _prefillBusy = false;
+        }
+    }
+
+    /// <summary>False when the field already has a value: a prefill never overwrites the operator's decision.</summary>
+    private bool BodyCardAcceptsProposal(CharacterBodyCardFieldProposal proposal)
+        => _bodyCard is not null
+            && !string.IsNullOrWhiteSpace(proposal.ProposedValue)
+            && !CharacterBodyCardFields.Require(proposal.Field).IsAnswered(_bodyCard);
+
+    private Task ApplyPrefillProposalAsync(CharacterBodyCardFieldProposal proposal)
+    {
+        if (_bodyCard is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var applied = _bodyCard.TryApplyPrefill(proposal.Field, proposal.ProposedValue);
+        _prefillMessage = applied
+            ? $"Applied {proposal.Label} from {proposal.DescribeSource()}. Save the card to keep it."
+            : $"{proposal.Label} already has a value, so nothing was applied.";
+        _prefillMessageIsError = !applied;
+        return Task.CompletedTask;
+    }
+
+    private Task ApplyPrefillToEmptyFieldsAsync()
+    {
+        if (_bodyCard is null || _prefill is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var applied = _prefill.Proposals.Count(
+            proposal => _bodyCard.TryApplyPrefill(proposal.Field, proposal.ProposedValue));
+        _prefillMessage = applied == 0
+            ? "Every proposed field already has a value, so nothing was applied."
+            : $"Applied {applied} proposed field(s). Save the card to keep them.";
+        _prefillMessageIsError = false;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Saves the card under the version the editor loaded, and reports what is still unanswered.</summary>
+    private async Task SaveBodyCardAsync()
+    {
+        var characterId = CharacterId;
+        if (string.IsNullOrWhiteSpace(characterId))
+        {
+            return;
+        }
+
+        _bodyCardBusy = true;
+        _bodyMessage = null;
+        try
+        {
+            _bodyCard.CharacterTemplateId = IdentityKey;
+            _bodyCard = await BodyService.SaveBodyCardAsync(_bodyCard, _bodyCardVersion);
+            _bodyCardVersion = _bodyCard.Version;
+            _bodyMessage = _bodyCard.IsReady
+                ? $"Body card saved (v{_bodyCard.Version}). It is complete, so body prompts can be generated."
+                : $"Body card saved (v{_bodyCard.Version}). Still unanswered: {string.Join(", ", _bodyCard.UnresolvedFields.Select(field => field.Label))}.";
+        }
+        catch (Exception ex)
+        {
+            _bodyMessage = ex.Message;
+        }
+        finally
+        {
+            _bodyCardBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Starts the character's BODY build — the same build machinery as the face build, on the plan seeded for the
+    /// body target kind. It is a separate build from the face build, and the two are never conflated.
+    /// </summary>
+    private async Task StartBodyBuildAsync()
+    {
+        var characterId = CharacterId;
+        if (string.IsNullOrWhiteSpace(characterId))
+        {
+            return;
+        }
+
+        _bodyStartingBuild = true;
+        _bodyMessage = null;
+        try
+        {
+            _bodyBuild = await BuildService.CreateBuildAsync(IdentityKey, null, CharacterIdentityTargetKind.Body);
+            _bodyStepPlan = await StepPlanService.GetPlanAsync(_bodyBuild.TargetKind);
+            _bodyStepRows = (await BuildService.ListStepsAsync(_bodyBuild.Id)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _bodyMessage = ex.Message;
+        }
+        finally
+        {
+            _bodyStartingBuild = false;
         }
     }
 
@@ -985,29 +2078,31 @@
                 return;
             }
 
-            // A different candidate can be chosen after Front has already been completed. Re-open only
-            // the Front step, record the new candidate, and then continue through its existing validation
-            // result. This keeps the visible "Use this" action as the single continuation path.
+            // A different candidate can be chosen after Front has already been completed. Re-open only the
+            // Front step and record the new candidate there: choosing a candidate is not the same act as
+            // advancing past Validate, so a candidate the eye gate rejects is accepted here and left blocked
+            // on its own verdict — which is the state whose card offers the manual override (B-121 note 008).
+            // Refusing the selection outright left a deleted recorded front with no way forward at all.
             if (_build.CurrentStep == CharacterIdentityBuildStep.Validate)
             {
-                var validation = ParseValidation(selected?.ValidationResultJson);
-                if (validation?.Verdict != CharacterIdentityValidationVerdict.Pass)
-                {
-                    _frontMessage = validation is null
-                        ? "Validate this front first before continuing."
-                        : $"Validate is {validation.Verdict}: {validation.BlockReason}";
-                    return;
-                }
-
                 _build = await BuildService.ReRunStepAsync(_build.Id, CharacterIdentityBuildStep.Front);
                 _build = await FrontService.SelectFrontAsync(_build.Id, imageId);
                 _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
-                await ValidationService.MeasureAsync(_build.Id);
-                await ValidationService.AdvanceAsync(_build.Id);
-                _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
-                _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
-                await RefreshGarmentAsync();
-                _frontMessage = $"Front selected and validated — build advanced to {_build.CurrentStep}.";
+                var measured = await ValidationService.MeasureAsync(_build.Id);
+                if (measured.CanAdvance)
+                {
+                    await ValidationService.AdvanceAsync(_build.Id);
+                    _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
+                    _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+                    await RefreshGarmentAsync();
+                    _frontMessage = $"Front selected and past the eye gate — build advanced to {_build.CurrentStep}.";
+                }
+                else
+                {
+                    _frontMessage = $"Front selected. Validate is {measured.Verdict}: {measured.BlockReason}";
+                }
+
+                await RefreshFrontAttemptsAsync();
                 return;
             }
 
@@ -1124,7 +2219,7 @@
 
     private async Task PersistFrontPromptAsync()
     {
-        var characterId = CharacterId;
+        var characterId = IdentityKey;
         if (string.IsNullOrWhiteSpace(characterId) || string.IsNullOrWhiteSpace(_frontPrompt))
         {
             return;
@@ -1144,7 +2239,7 @@
 
     private async Task PersistFrontModelAsync()
     {
-        var characterId = CharacterId;
+        var characterId = IdentityKey;
         if (string.IsNullOrWhiteSpace(characterId) || string.IsNullOrWhiteSpace(_frontModelId))
         {
             return;
@@ -1246,7 +2341,7 @@
                 ? null
                 : $"/review-deck/asset/{_garmentSource.CandidateBatchId}";
             _garmentIntent = await GarmentService.ResolveGarmentPromptAsync(
-                _build.CharacterProfileId, _characterName, _characterGender);
+                _build.CharacterTemplateId, _characterName, _characterGender);
             _garmentEditorModelId = await GarmentService.ResolveEditorModelIdAsync();
             await RefreshEditedImagesAsync();
         }
@@ -1264,12 +2359,32 @@
         try
         {
             _angles = (await AnglesService.ListAsync(_build.Id)).ToList();
-            if (_build.CanonicalFrontAssetId is { Length: > 0 } canonicalId)
+
+            // Each card renders the image its own record names, resolved by id. This must not be a scan of one
+            // container read when the page loaded: an image created during the session (an upload, or an edit
+            // result) is not in that list, and a card that cannot find its image renders nothing at all.
+            var images = new List<SceneAssetImage>();
+            foreach (var outputId in _angles
+                         .Select(angle => angle.OutputArtifactId)
+                         .Where(id => !string.IsNullOrWhiteSpace(id))
+                         .Distinct(StringComparer.Ordinal))
             {
-                var canonical = await AssetService.GetImageAsync(canonicalId);
-                if (canonical is not null)
-                    _angleImages = (await AssetService.ListImagesAsync(canonical.AssetId)).ToList();
+                var image = await AssetService.GetImageAsync(outputId!);
+                if (image is not null)
+                {
+                    images.Add(image);
+                }
             }
+
+            _angleImages = images;
+
+            // Every card's own attempt count, read here so the FIRST render has it too: counting only in the
+            // panel refresh left every card reporting zero attempts until the user acted (B-121 note 010).
+            foreach (var countedView in AngleViews)
+            {
+                _angleAttemptCounts[countedView] = (await AnglesService.ListAttemptsAsync(_build.Id, countedView)).Count;
+            }
+
             foreach (var view in AngleViews)
             {
                 if (!_anglePrompts.ContainsKey(view))
@@ -1282,6 +2397,38 @@
         {
             _anglesMessage = ex.Message;
         }
+    }
+
+    /// <summary>
+    /// Re-reads everything Panel C draws from — the four angle records, the image each card shows, and the
+    /// attempts of the open card — plus the Promote readiness that depends on those records. Every angle
+    /// action ends here, so no card can keep rendering the state it had when the page loaded: an image created
+    /// during the session is not in a list read at page load, and a card that cannot find its own image renders
+    /// nothing at all (B-121 note 009).
+    /// </summary>
+    private async Task RefreshAnglePanelAsync(CharacterIdentityAngleView? attemptsView = null)
+    {
+        if (_build is null)
+        {
+            return;
+        }
+
+        await RefreshAnglesAsync();
+
+        var view = attemptsView ?? _selectedAngleView;
+        if (view is null)
+        {
+            _angleAttempts = [];
+            _angleAttemptImages = [];
+        }
+        else
+        {
+            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, view.Value)).ToList();
+            _angleAttemptImages = await LoadAngleAttemptImagesAsync(_angleAttempts);
+        }
+
+        // Readiness reads the same records, so accepting the last angle has to show up in Panel D too.
+        await RefreshPromotionAsync();
     }
 
     private async Task RefreshPromotionAsync()
@@ -1306,7 +2453,7 @@
         try
         {
             _promotion = await PromotionService.PromoteAsync(_build.Id);
-            _packs = (await IdentityService.ListPacksAsync(_build.CharacterProfileId)).ToList();
+            _packs = (await IdentityService.ListPacksAsync(_build.CharacterTemplateId)).ToList();
             _promotionMessage = $"Promoted the five accepted views to draft identity pack {_promotion.PackId}.";
             _activeSection = "Packs";
         }
@@ -1358,9 +2505,7 @@
             _angleReviewDeckUrl = string.IsNullOrWhiteSpace(_angleSource.CandidateBatchId)
                 ? null
                 : $"/review-deck/asset/{_angleSource.CandidateBatchId}";
-            _angles = (await AnglesService.ListAsync(_build.Id)).ToList();
-            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, view)).ToList();
-            _angleAttemptImages = await LoadAngleAttemptImagesAsync(_angleAttempts);
+            await RefreshAnglePanelAsync(view);
             _anglesMessage = $"{AngleLabel(view)} selected. Prepare the prompt, then run the edit.";
         }
         catch (Exception ex)
@@ -1411,9 +2556,7 @@
         try
         {
             await AnglesService.RecordResultAsync(_build.Id, resultView, result.ImageId, AnglePrompt(resultView));
-            _angles = (await AnglesService.ListAsync(_build.Id)).ToList();
-            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, resultView)).ToList();
-            _angleAttemptImages = await LoadAngleAttemptImagesAsync(_angleAttempts);
+            await RefreshAnglePanelAsync(resultView);
             _anglesMessage = $"{AngleLabel(resultView)} produced a result. Review it, then use this angle.";
         }
         catch (Exception ex)
@@ -1430,11 +2573,9 @@
         {
             await AnglesService.AcceptAsync(_build.Id, view, _profileConfirmations.GetValueOrDefault(view));
             _anglesMessage = $"{AngleLabel(view)} accepted.";
-            _angles = (await AnglesService.ListAsync(_build.Id)).ToList();
-            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, view)).ToList();
-            _angleAttemptImages = await LoadAngleAttemptImagesAsync(_angleAttempts);
             _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
             _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+            await RefreshAnglePanelAsync(view);
         }
         catch (Exception ex)
         {
@@ -1449,11 +2590,9 @@
         try
         {
             await AnglesService.AcceptAttemptAsync(_build.Id, view, attemptId, _profileConfirmations.GetValueOrDefault(view));
-            _angles = (await AnglesService.ListAsync(_build.Id)).ToList();
-            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, view)).ToList();
-            _angleAttemptImages = await LoadAngleAttemptImagesAsync(_angleAttempts);
             _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
             _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+            await RefreshAnglePanelAsync(view);
             _anglesMessage = $"{AngleLabel(view)} attempt selected.";
         }
         catch (Exception ex)
@@ -1469,8 +2608,7 @@
         try
         {
             await AnglesService.DeleteAttemptAsync(_build.Id, view, attemptId);
-            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, view)).ToList();
-            _angleAttemptImages = await LoadAngleAttemptImagesAsync(_angleAttempts);
+            await RefreshAnglePanelAsync(view);
             _anglesMessage = $"Deleted the selected {AngleLabel(view)} attempt output.";
         }
         catch (Exception ex)
@@ -1491,7 +2629,7 @@
                 attemptId,
                 _overrideReasons.GetValueOrDefault(attemptId) ?? string.Empty,
                 _overrideAuthors.GetValueOrDefault(attemptId) ?? string.Empty);
-            _angleAttempts = (await AnglesService.ListAttemptsAsync(_build.Id, view)).ToList();
+            await RefreshAnglePanelAsync(view);
             _anglesMessage = $"Recorded visual override for {AngleLabel(view)} attempt.";
         }
         catch (Exception ex)
@@ -1521,6 +2659,90 @@
 
         return images;
     }
+
+    /// <summary>
+    /// The direction the angle gate read for one attempt, in the gate's own terms: the signed nose offset in
+    /// image space, or the tool's reason when the view cannot be measured (a profile). Empty when the attempt
+    /// has no recorded measurement.
+    /// </summary>
+    private static string DescribeDirection(CharacterIdentityAngleAttempt attempt)
+    {
+        if (string.IsNullOrWhiteSpace(attempt.MeasurementJson))
+        {
+            return string.Empty;
+        }
+
+        CharacterIdentityEyeMeasurement? measurement;
+        try
+        {
+            measurement = JsonSerializer.Deserialize<CharacterIdentityEyeMeasurement>(attempt.MeasurementJson, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
+        }
+
+        if (measurement is null)
+        {
+            return string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(measurement.Error))
+        {
+            return $"Direction: {measurement.Error} — this view is not asserted by measurement.";
+        }
+
+        return measurement.NoseOffsetPercent is { } offset
+            ? $"Direction: nose offset {offset:F2}% — facing {(offset < 0 ? "image-left" : "image-right")}."
+            : string.Empty;
+    }
+
+    /// <summary>
+    /// Which image this card will edit, or what it is waiting for. The two three-quarter views chain to the
+    /// approved canonical front and the profiles to the previously accepted view on their own side, so the
+    /// "waiting for" wording says which of the two this card needs (B-121 note 010).
+    /// </summary>
+    private static string AngleSourceLabel(CharacterIdentityAngleView view, string? sourceImageId)
+    {
+        if (!string.IsNullOrWhiteSpace(sourceImageId))
+        {
+            return sourceImageId[..Math.Min(8, sourceImageId.Length)] + "…";
+        }
+
+        return view is CharacterIdentityAngleView.ThreeQuarterLeft or CharacterIdentityAngleView.ThreeQuarterRight
+            ? "waiting for the approved canonical front"
+            : $"waiting for the accepted {AngleLabel(view == CharacterIdentityAngleView.ProfileLeft ? CharacterIdentityAngleView.ThreeQuarterLeft : CharacterIdentityAngleView.ThreeQuarterRight)} view";
+    }
+
+    /// <summary>
+    /// How many attempts this card owns. Shown on every card so it is obvious which images belong to which view:
+    /// the attempts list itself only renders for the open card, and an image that migrated between cards was
+    /// exactly the confusing symptom of B-121 note 010.
+    /// </summary>
+    private int AngleAttemptCount(CharacterIdentityAngleView view)
+        => _angleAttemptCounts.TryGetValue(view, out var count) ? count : 0;
+
+    /// <summary>
+    /// Panel C reads and writes these three per-attempt/per-view inputs through these helpers, never through a
+    /// dictionary indexer in the markup. <c>@bind="_profileConfirmations[view]"</c> reads the key during render,
+    /// so a view that had not been touched yet threw <see cref="KeyNotFoundException"/> and killed the circuit
+    /// (B-121 note 009). Reads are always tolerant; writes create the entry.
+    /// </summary>
+    private bool ProfileConfirmed(CharacterIdentityAngleView view)
+        => _profileConfirmations.TryGetValue(view, out var confirmed) && confirmed;
+
+    private void SetProfileConfirmed(CharacterIdentityAngleView view, bool confirmed)
+        => _profileConfirmations[view] = confirmed;
+
+    private string OverrideReason(string attemptId)
+        => _overrideReasons.TryGetValue(attemptId, out var reason) ? reason : string.Empty;
+
+    private void SetOverrideReason(string attemptId, string reason) => _overrideReasons[attemptId] = reason;
+
+    private string OverrideAuthor(string attemptId)
+        => _overrideAuthors.TryGetValue(attemptId, out var author) ? author : string.Empty;
+
+    private void SetOverrideAuthor(string attemptId, string author) => _overrideAuthors[attemptId] = author;
 
     private static string AngleLabel(CharacterIdentityAngleView view) => view switch
     {
@@ -1556,6 +2778,15 @@
         if (IsCanonicalFront(image))
         {
             _frontMessage = "The canonical front cannot be deleted. Choose another image first.";
+            return;
+        }
+
+        // The Front step names this image as the build's front and Validate measures that artifact. Deleting
+        // it would leave the step naming a file that no longer exists — the state that once made the front
+        // list show no chosen card, and therefore no override control (B-121 note 008).
+        if (IsChosenFront(image))
+        {
+            _frontMessage = "This image is the build's recorded front. Choose another candidate with \"Use this\" first.";
             return;
         }
 

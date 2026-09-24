@@ -3,6 +3,7 @@ using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
@@ -115,7 +116,7 @@ public sealed class CharacterIdentityValidationServiceTests
     {
         using var fixture = await Fixture.CreateAsync();
         await fixture.SetInterpreterAsync();
-        var build = await fixture.Builds.CreateBuildAsync("char-1", null);
+        var build = await fixture.Builds.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
             () => fixture.Service.MeasureAsync(build.Id));
@@ -206,8 +207,10 @@ public sealed class CharacterIdentityValidationServiceTests
             });
 
         public Task<SceneAsset> CreateAssetAsync(string name, SceneAssetType type, string? characterProfileId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<SceneAssetImage> AddGeneratedImageAsync(string assetId, string prompt, string modelId, string imageSize, CancellationToken cancellationToken = default, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null, string? candidateBatchId = null) => throw new NotSupportedException();
+        public Task<SceneAssetImage> AddGeneratedImageAsync(string assetId, string prompt, string modelId, string imageSize, CancellationToken cancellationToken = default, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null, string? candidateBatchId = null, SceneAssetImageGenerationOptions? options = null) => throw new NotSupportedException();
         public Task<SceneAssetImage> AddUploadedImageAsync(string assetId, string fileName, Stream content, CancellationToken cancellationToken = default, string? candidateBatchId = null) => throw new NotSupportedException();
+
+        public Task<SceneAssetImage> AddDerivedImageAsync(string assetId, string sourceImageId, MediaEditOperationKind operation, string fileName, Stream content, CancellationToken cancellationToken = default, string? candidateBatchId = null) => throw new NotSupportedException();
         public Task<SceneAssetImage> EnqueueImageEditAsync(string assetId, string sourceImageId, string editPrompt, string modelId, CancellationToken cancellationToken = default, string? candidateBatchId = null, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null) => throw new NotSupportedException();
         public Task<IReadOnlyList<SceneAssetImage>> ListImagesAsync(string assetId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<SceneAssetImage>> ListImagesByCandidateBatchAsync(string candidateBatchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -297,7 +300,10 @@ public sealed class CharacterIdentityValidationServiceTests
             var environment = new StubHostEnvironment { ContentRootPath = contentRoot };
 
             var builds = new CharacterIdentityBuildService(
-                buildRepo, assets, NullLogger<CharacterIdentityBuildService>.Instance);
+                buildRepo,
+                assets,
+                new CharacterIdentityStepPlanService(buildRepo),
+                NullLogger<CharacterIdentityBuildService>.Instance);
             var templates = new ImageWorkflowTemplateService(templateRepo);
 
             var measurements = new CharacterIdentityMeasurementService(
@@ -327,7 +333,7 @@ public sealed class CharacterIdentityValidationServiceTests
 
         public async Task<CharacterIdentityBuild> StartBuildWithFrontAsync()
         {
-            var build = await Builds.CreateBuildAsync("char-1", null);
+            var build = await Builds.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
             await Builds.CompleteStepAsync(
                 build.Id,
                 CharacterIdentityBuildStep.Front,

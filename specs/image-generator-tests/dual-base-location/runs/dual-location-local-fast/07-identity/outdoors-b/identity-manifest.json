@@ -1,0 +1,27 @@
+{
+    "sourceImage":  "specs/image-generator-tests/dual-base-location/runs/dual-location-local-fast/06-harmonized-outdoors-b/img-local-outdoors-b_0.png",
+    "identityBindingsPath":  "specs/image-generator-tests/dual-base-location/runs/dual-location-local-fast/07-identity/bindings-B.json",
+    "comfyUiUrl":  "http://192.168.0.11:8188",
+    "seed":  73191,
+    "mode":  "sequential-single-reference",
+    "steps":  [
+                  {
+                      "pass":  1,
+                      "character":  "Becky",
+                      "faceView":  "ProfileRight",
+                      "visibleLocator":  "image right facing right",
+                      "reference":  "identity/f58f959a-8050-4388-a219-99d2df3446a1/2740419D331F2FB7225113890A151325.png",
+                      "output":  "step1-Becky\\local-aio-qwen-edit-local_00590_.png"
+                  },
+                  {
+                      "pass":  2,
+                      "character":  "Dean",
+                      "faceView":  "ProfileRight",
+                      "visibleLocator":  "image left facing right",
+                      "reference":  "identity/faee1ec0-1cf3-459e-97d2-ad59717c41ba/d5dfe951cc314de9be3be39af39e0781.png",
+                      "output":  "step2-Dean\\local-aio-qwen-edit-local_00591_.png"
+                  }
+              ],
+    "final":  "final.png",
+    "finishedAt":  "2026-09-21T21:41:27.0759146-04:00"
+}

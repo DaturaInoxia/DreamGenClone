@@ -11,7 +11,6 @@ public sealed class PhysicalAttributes
     // ── General ─────────────────────────────────────────────────────────────
     public string? Age { get; set; }
     public string? Height { get; set; }
-    public string? Weight { get; set; }
     public string? Ethnicity { get; set; }
 
     // ── Appearance ──────────────────────────────────────────────────────────
@@ -20,7 +19,37 @@ public sealed class PhysicalAttributes
     public string? EyeColour { get; set; }
     public string? SkinTone { get; set; }
     public string? SkinTexture { get; set; }
-    public string? BodyType { get; set; }
+
+    // ── Body axes ───────────────────────────────────────────────────────────
+    // One value per axis, each independent of the others. These replace the single `BodyType` field, which mixed
+    // frame, fat and muscle into one list, so selecting two of its values was a contradiction rather than more
+    // detail — and nothing stated WHERE mass sat, which is why bodies rendered "too thick". Every axis is optional
+    // and renders only when set: there is no defaulting and no substitution between axes.
+
+    /// <summary>Skeletal frame — bone width at shoulders, ribcage and pelvis ("average frame", "broad-framed").</summary>
+    public string? BodyBuild { get; set; }
+
+    /// <summary>Front-view outline ("hourglass", "rectangle", "V-taper").</summary>
+    public string? Silhouette { get; set; }
+
+    /// <summary>How much body fat as a visible band ("lean, slim", "average weight"). Never a kg/lb number.</summary>
+    public string? Adiposity { get; set; }
+
+    /// <summary>Where the fat sits ("fuller rear with a soft belly", "belly carried forward").</summary>
+    public string? FatDistribution { get; set; }
+
+    /// <summary>How much muscle ("toned", "muscular").</summary>
+    public string? MuscleMass { get; set; }
+
+    /// <summary>How visible the muscle is ("defined, visible abs"); independent of <see cref="MuscleMass"/>.</summary>
+    public string? MuscleDefinition { get; set; }
+
+    /// <summary>
+    /// Body-WIDE hair pattern ("full chest hair", "treasure trail only", "very little body hair", or an explicit
+    /// "none"). The body card's BodyHair field prefills from this. Blank means the operator has not decided yet —
+    /// it is never read as "none". The pubic region is <see cref="PubicHair"/>.
+    /// </summary>
+    public string? BodyHair { get; set; }
 
     // ── Measurements (female/mixed) ─────────────────────────────────────────
     /// <summary>Preset scale from flat to enormous; informs LLM description weight.</summary>
@@ -41,6 +70,11 @@ public sealed class PhysicalAttributes
     public string? DistinguishingMarks { get; set; }
     public string? Piercings { get; set; }
     public string? Tattoos { get; set; }
+    /// <summary>
+    /// The pubic region's hair and how it is kept ("neatly trimmed", "thin landing strip", or an explicit "none").
+    /// The body card's PubicHair field prefills from this; "none" is an explicit answer, blank is not.
+    /// </summary>
+    public string? PubicHair { get; set; }
     /// <summary>Integer 1–10 enforced by UI min/max.</summary>
     public int? AttractivenessRating { get; set; }
 
@@ -77,6 +111,56 @@ public sealed class PhysicalAttributes
     public string? Lubrication { get; set; }
     /// <summary>Ease and frequency of orgasm.</summary>
     public string? OrgasmicCapacity { get; set; }
+
+    /// <summary>
+    /// A field-for-field copy — the ONE implementation. Four editors used to hand-write this initializer, and each
+    /// of them silently dropped whatever was added later (ButtSize and DefaultClothing were already being lost, as
+    /// were BodyHair and the pubic-hair field before they existed — the latter was named Grooming then). A new
+    /// field is now added here once and copied by construction.
+    /// </summary>
+    public PhysicalAttributes Clone() => new()
+    {
+        Age = Age,
+        Height = Height,
+        Ethnicity = Ethnicity,
+        HairColour = HairColour,
+        HairStyle = HairStyle,
+        EyeColour = EyeColour,
+        SkinTone = SkinTone,
+        SkinTexture = SkinTexture,
+        BodyBuild = BodyBuild,
+        Silhouette = Silhouette,
+        Adiposity = Adiposity,
+        FatDistribution = FatDistribution,
+        MuscleMass = MuscleMass,
+        MuscleDefinition = MuscleDefinition,
+        BodyHair = BodyHair,
+        BustSize = BustSize,
+        WaistSize = WaistSize,
+        HipSize = HipSize,
+        ButtSize = ButtSize,
+        ClothingStyle = ClothingStyle,
+        DefaultClothing = DefaultClothing,
+        DistinguishingMarks = DistinguishingMarks,
+        Piercings = Piercings,
+        Tattoos = Tattoos,
+        PubicHair = PubicHair,
+        AttractivenessRating = AttractivenessRating,
+        Scent = Scent,
+        SexualSkill = SexualSkill,
+        SexualDrive = SexualDrive,
+        SexualConfidence = SexualConfidence,
+        OralSkill = OralSkill,
+        EndowmentLength = EndowmentLength,
+        EndowmentGirth = EndowmentGirth,
+        Stamina = Stamina,
+        Recovery = Recovery,
+        EjaculationIntensity = EjaculationIntensity,
+        VaginalTightness = VaginalTightness,
+        Sensitivity = Sensitivity,
+        Lubrication = Lubrication,
+        OrgasmicCapacity = OrgasmicCapacity
+    };
 
     // ── Legacy aliases kept for JSON backwards-compat ───────────────────────
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]

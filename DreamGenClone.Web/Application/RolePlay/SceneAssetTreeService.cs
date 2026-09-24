@@ -16,17 +16,30 @@ public sealed class SceneAssetTreeService : ISceneAssetTreeService
     private readonly ICharacterImageIdentityService _identity;
     private readonly ISceneAssetService _library;
     private readonly IReferenceBootstrapRepository _locations;
+    private readonly ICharacterIdentityOwnerResolver _owners;
+
+    /// <summary>One identity owner's row in the tree: the owner key plus the instance ids that resolve to it.</summary>
+    private sealed class OwnerGroup(string ownerId, string ownerName)
+    {
+        public string OwnerId { get; } = ownerId;
+
+        public string OwnerName { get; } = ownerName;
+
+        public List<string> InstanceIds { get; } = [];
+    }
 
     public SceneAssetTreeService(
         IScenarioService scenarios,
         ICharacterImageIdentityService identity,
         ISceneAssetService library,
-        IReferenceBootstrapRepository locations)
+        IReferenceBootstrapRepository locations,
+        ICharacterIdentityOwnerResolver owners)
     {
         _scenarios = scenarios;
         _identity = identity;
         _library = library;
         _locations = locations;
+        _owners = owners;
     }
 
     public async Task<IReadOnlyList<AssetTreeRoot>> BuildTreeAsync(CancellationToken cancellationToken = default)
@@ -36,7 +49,11 @@ public sealed class SceneAssetTreeService : ISceneAssetTreeService
         var libraryById = libraryAssets.ToDictionary(a => a.Id, StringComparer.Ordinal);
         var consumedLibraryIds = new HashSet<string>(StringComparer.Ordinal);
 
-        var charactersByName = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        // B-127: group by identity OWNER (the character template), never by display name. The Asset Manager used to
+        // merge characters by name and link to the first id it happened to see, which could open the scenario
+        // instance that holds no packs at all. A character whose identity cannot be resolved keeps its own root so
+        // nothing disappears from the list.
+        var groupsByOwner = new Dictionary<string, OwnerGroup>(StringComparer.Ordinal);
         foreach (var scenario in await _scenarios.GetAllScenariosAsync())
         {
             foreach (var character in scenario.Characters)
@@ -46,30 +63,39 @@ public sealed class SceneAssetTreeService : ISceneAssetTreeService
                     continue;
                 }
 
-                var name = string.IsNullOrWhiteSpace(character.Name) ? "Unnamed" : character.Name;
-                if (!charactersByName.TryGetValue(name, out var ids))
+                var instanceName = string.IsNullOrWhiteSpace(character.Name) ? "Unnamed" : character.Name;
+                string ownerId;
+                string ownerName;
+                try
                 {
-                    ids = [];
-                    charactersByName[name] = ids;
+                    var owner = await _owners.ResolveAsync(character.Id, cancellationToken);
+                    ownerId = owner.TemplateId;
+                    ownerName = owner.TemplateName;
+                }
+                catch (InvalidOperationException)
+                {
+                    // No character template (yet): its own root, named as itself and marked as unlinked.
+                    ownerId = character.Id;
+                    ownerName = $"{instanceName} (unlinked)";
                 }
 
-                if (!ids.Contains(character.Id, StringComparer.Ordinal))
+                if (!groupsByOwner.TryGetValue(ownerId, out var group))
                 {
-                    ids.Add(character.Id);
+                    group = new OwnerGroup(ownerId, ownerName);
+                    groupsByOwner[ownerId] = group;
                 }
+
+                group.InstanceIds.Add(character.Id);
             }
         }
 
-        foreach (var (characterName, characterIds) in charactersByName)
+        foreach (var group in groupsByOwner.Values)
         {
-            var hasContent = false;
-            foreach (var characterId in characterIds)
+            var hasContent = (await _identity.ListPacksAsync(group.OwnerId, cancellationToken)).Any();
+            foreach (var instanceId in group.InstanceIds)
             {
-                var packs = (await _identity.ListPacksAsync(characterId, cancellationToken)).ToList();
-                hasContent |= packs.Count > 0;
-
                 foreach (var lib in libraryAssets
-                    .Where(a => string.Equals(a.CharacterProfileId, characterId, StringComparison.Ordinal)))
+                    .Where(a => string.Equals(a.CharacterProfileId, instanceId, StringComparison.Ordinal)))
                 {
                     consumedLibraryIds.Add(lib.Id);
                     hasContent = true;
@@ -86,9 +112,9 @@ public sealed class SceneAssetTreeService : ISceneAssetTreeService
                 Owner = new AssetTreeOwner
                 {
                     RootKind = "Character",
-                    OwnerId = characterIds[0],
-                    OwnerName = characterName,
-                    Href = $"/characters/{Uri.EscapeDataString(characterIds[0])}"
+                    OwnerId = group.OwnerId,
+                    OwnerName = group.OwnerName,
+                    Href = $"/characters/{Uri.EscapeDataString(group.OwnerId)}"
                 },
                 Groups = []
             });
@@ -100,10 +126,23 @@ public sealed class SceneAssetTreeService : ISceneAssetTreeService
         {
             consumedLibraryIds.Add(asset.Id);
 
-            // Mapped to a scenario character → represented by that scenario character's root above.
+            // Mapped to a scenario character → represented by that character's owner root above.
             if (!string.IsNullOrWhiteSpace(asset.CharacterProfileId))
             {
                 continue;
+            }
+
+            // B-127: a character asset is an instance, so it is labelled by the owner it resolves to; one that
+            // resolves to nothing is marked as such rather than posing as an identity root of its own.
+            var ownerLabel = asset.Name;
+            try
+            {
+                var owner = await _owners.ResolveAsync(asset.Id, cancellationToken);
+                ownerLabel = owner.TemplateName;
+            }
+            catch (InvalidOperationException)
+            {
+                ownerLabel = $"{asset.Name} (unlinked)";
             }
 
             roots.Add(new AssetTreeRoot
@@ -112,7 +151,7 @@ public sealed class SceneAssetTreeService : ISceneAssetTreeService
                 {
                     RootKind = "Character",
                     OwnerId = asset.Id,
-                    OwnerName = asset.Name,
+                    OwnerName = ownerLabel,
                     Href = $"/characters/{Uri.EscapeDataString(asset.Id)}"
                 },
                 Groups = []

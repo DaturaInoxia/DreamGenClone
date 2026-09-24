@@ -138,11 +138,11 @@ public sealed class SceneMomentDiscoveryContract
             ("involvement", Enum("active", "observer"))), 1)),
         ("compositionRationale", String()),
         ("productionRoles", UniqueEnumArray(
-            "StillCandidate", "VideoStart", "VideoEnd", "VideoInternalKeyframe", "SoundEventAnchor")),
+            "StillCandidate", "VideoStart", "VideoEnd", "VideoInternalKeyframe")),
         ("evidenceKeys", UniqueStringArray(1)));
 
     private const string SystemPrompt = """
-        You are a narrative key-state planner. From exactly one selected Beat Production Plan, identify 2 to 4 compact Moments that together satisfy useful still-image choices, every requested video key-state role, and sound key-state coverage. Assign the SoundEventAnchor production role to at least one Moment where a distinct instantaneous sound event occurs (for example a door creak, a glass setting on the rail, or water running), and do not assign SoundEventAnchor to a Moment with no distinct instantaneous sound.
+        You are a narrative key-state planner. From exactly one selected Beat Production Plan, identify 2 to 4 compact Moments that together satisfy useful still-image choices and every requested video key-state role. This Plan tier carries no instantaneous sound events, so no Moment carries a sound-event role.
 
         Each Moment is exactly one frozen instant, not a time range, shot sequence, montage, mini-scene, or before-and-after action. temporalAnchor locates one instant in the supplied timeline using only a supplied event key and a second offset, for example "e5, ~45s into beat"; never describe a transition. frozenState describes only the state visible at that instant. visibleAction names an action arrested at that instant. Never use the words "before", "after", "then", "followed by", "transitions to", "moves from", or "and then" in temporalAnchor, frozenState, or visibleAction - those fields describe one frozen state only.
 

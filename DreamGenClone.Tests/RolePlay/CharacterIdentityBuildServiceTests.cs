@@ -18,7 +18,7 @@ public sealed class CharacterIdentityBuildServiceTests
         var (service, _, dbPath) = CreateService();
         try
         {
-            var build = await service.CreateBuildAsync("char-1", null);
+            var build = await service.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
             var steps = await service.ListStepsAsync(build.Id);
 
             Assert.Equal(7, steps.Count);
@@ -38,7 +38,7 @@ public sealed class CharacterIdentityBuildServiceTests
         var (service, _, dbPath) = CreateService();
         try
         {
-            var build = await service.CreateBuildAsync("char-1", null);
+            var build = await service.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
 
             build = await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Front, null, "front-1");
             Assert.Equal(CharacterIdentityBuildStep.Validate, build.CurrentStep);
@@ -69,7 +69,7 @@ public sealed class CharacterIdentityBuildServiceTests
         var (service, _, dbPath) = CreateService();
         try
         {
-            var build = await service.CreateBuildAsync("char-1", null);
+            var build = await service.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
 
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(
                 () => service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Validate, "x", "y"));
@@ -88,7 +88,7 @@ public sealed class CharacterIdentityBuildServiceTests
         var (service, _, dbPath) = CreateService();
         try
         {
-            var build = await service.CreateBuildAsync("char-1", null);
+            var build = await service.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
 
             build = await service.SkipStepAsync(build.Id, CharacterIdentityBuildStep.Front);
             Assert.Equal(CharacterIdentityBuildStep.Validate, build.CurrentStep);
@@ -109,7 +109,7 @@ public sealed class CharacterIdentityBuildServiceTests
         var (service, repo, dbPath) = CreateService();
         try
         {
-            var build = await service.CreateBuildAsync("char-1", null);
+            var build = await service.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
             await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Front, null, "front-1");
             await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Validate, "front-1", "validated-1");
 
@@ -135,7 +135,7 @@ public sealed class CharacterIdentityBuildServiceTests
         var (service, _, dbPath) = CreateService();
         try
         {
-            var build = await service.CreateBuildAsync("char-1", null);
+            var build = await service.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
             await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Front, null, "front-1");
             await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Validate, "front-1", "validated-1");
 
@@ -157,12 +157,47 @@ public sealed class CharacterIdentityBuildServiceTests
     }
 
     [Fact]
+    public async Task ReRunStep_ClearsTheManualOverrideRecordedOnTheResetStep()
+    {
+        var (service, repo, dbPath) = CreateService();
+        try
+        {
+            var build = await service.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
+            await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Front, null, "front-1");
+            await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Validate, "front-1", "validated-1");
+
+            var validate = (await repo.ListStepsAsync(build.Id))
+                .Single(row => row.Step == CharacterIdentityBuildStep.Validate);
+            validate.ManualOverrideApplied = true;
+            validate.ManualOverrideReason = "Iris offset confirmed by eye.";
+            validate.ManualOverrideAuthor = "ken";
+            validate.ManualOverrideUtc = DateTime.UtcNow;
+            await repo.UpsertStepAsync(validate);
+
+            // Selecting a different front re-opens Front, which withdraws the artifact Validate was measured
+            // against — the recorded decision goes with it, so the next candidate cannot inherit it.
+            await service.ReRunStepAsync(build.Id, CharacterIdentityBuildStep.Front);
+
+            var cleared = (await repo.ListStepsAsync(build.Id))
+                .Single(row => row.Step == CharacterIdentityBuildStep.Validate);
+            Assert.False(cleared.ManualOverrideApplied);
+            Assert.Null(cleared.ManualOverrideReason);
+            Assert.Null(cleared.ManualOverrideAuthor);
+            Assert.Null(cleared.ManualOverrideUtc);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task MissingInputArtifact_FailsFast()
     {
         var (service, _, dbPath) = CreateService();
         try
         {
-            var build = await service.CreateBuildAsync("char-1", null);
+            var build = await service.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
             await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Front, null, "front-1");
 
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -181,7 +216,7 @@ public sealed class CharacterIdentityBuildServiceTests
         var (service, _, dbPath) = CreateService();
         try
         {
-            var build = await service.CreateBuildAsync("char-1", null);
+            var build = await service.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
             await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Front, null, "front-1");
 
             build = await service.FailStepAsync(build.Id, CharacterIdentityBuildStep.Validate, "no face mesh");
@@ -311,6 +346,46 @@ public sealed class CharacterIdentityBuildServiceTests
     }
 
     [Fact]
+    public async Task SetCanonicalFront_WithoutAnyEdit_RecordsTheThreeStepsAsSkipped_AndMovesToAngles()
+    {
+        var (service, _, assets, dbPath) = CreateServiceWithAssets();
+        try
+        {
+            var build = await StartBuildWithFrontAsync(service, assets);
+
+            // The front candidate itself is approved: de-clothe, crop and enhance were never run on it. This is
+            // the path Panel B offers for an uploaded or already-clean front.
+            var updated = await service.SetCanonicalFrontAsync(build.Id, "front-candidate");
+
+            Assert.Equal("front-candidate", updated.CanonicalFrontAssetId);
+            Assert.Equal(CharacterIdentityBuildStep.Angles, updated.CurrentStep);
+
+            var steps = await service.ListStepsAsync(build.Id);
+            foreach (var step in new[]
+                     {
+                         CharacterIdentityBuildStep.GarmentRemoval,
+                         CharacterIdentityBuildStep.Crop,
+                         CharacterIdentityBuildStep.Enhance,
+                     })
+            {
+                var row = steps.Single(s => s.Step == step);
+                Assert.Equal(CharacterIdentityBuildStepStatus.Skipped, row.Status);
+                Assert.Null(row.OutputArtifactId);
+                Assert.Equal("front-candidate", row.InputArtifactId);
+            }
+
+            // The image carries the record, so the UI can state what was (and was not) done to it.
+            var pipeline = ParsePipeline(assets.PipelineSteps["front-candidate"]);
+            Assert.Equal("front-candidate", pipeline.FrontArtifactId);
+            Assert.All(pipeline.Steps, step => Assert.Equal(CharacterIdentityBuildStepStatus.Skipped, step.Outcome));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task SetCanonicalFront_TakesTheOperationNearestTheApprovedImage()
     {
         var (service, _, assets, dbPath) = CreateServiceWithAssets();
@@ -419,7 +494,7 @@ public sealed class CharacterIdentityBuildServiceTests
         var (service, _, assets, dbPath) = CreateServiceWithAssets();
         try
         {
-            var build = await service.CreateBuildAsync("char-1", null);
+            var build = await service.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
             build = await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Front, null, "front-container");
             build = await service.SetFrontContainerAsync(build.Id, "front-container");
 
@@ -441,6 +516,82 @@ public sealed class CharacterIdentityBuildServiceTests
     }
 
     /// <summary>
+    /// B121-011a's exit criterion: a second target kind walks its own plan with no change to this machinery.
+    /// The plan below is deliberately not the face pipeline — four steps, a different terminal step — and is
+    /// written for a kind the app does not ship, because since B-122 Phase 0 the Body kind has a seeded plan
+    /// of its own. The order, the step set and the end of the build can only have come from the plan.
+    /// </summary>
+    [Fact]
+    public async Task SecondTargetKind_WalksItsOwnPlan_WithNoMachineryChange()
+    {
+        var (service, _, dbPath) = CreateService();
+        try
+        {
+            var unshippedKind = (CharacterIdentityTargetKind)99;
+            await SeedPlanAsync(
+                dbPath,
+                unshippedKind,
+                (1, CharacterIdentityBuildStep.Front, CharacterIdentityBuildHandlers.Front),
+                (2, CharacterIdentityBuildStep.Validate, CharacterIdentityBuildHandlers.ValidateEye),
+                (3, CharacterIdentityBuildStep.GarmentRemoval, CharacterIdentityBuildHandlers.GarmentRemoval),
+                (4, CharacterIdentityBuildStep.Promote, CharacterIdentityBuildHandlers.PromoteFacePack));
+
+            var build = await service.CreateBuildAsync("char-1", null, unshippedKind);
+            Assert.Equal(unshippedKind, build.TargetKind);
+            Assert.Equal(CharacterIdentityBuildStep.Front, build.CurrentStep);
+
+            var steps = await service.ListStepsAsync(build.Id);
+            Assert.Equal(4, steps.Count);
+            Assert.DoesNotContain(steps, step => step.Step == CharacterIdentityBuildStep.Crop);
+
+            build = await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Front, null, "body-base");
+            Assert.Equal(CharacterIdentityBuildStep.Validate, build.CurrentStep);
+
+            build = await service.CompleteStepAsync(
+                build.Id, CharacterIdentityBuildStep.Validate, "body-base", "body-validated");
+            build = await service.SkipStepAsync(build.Id, CharacterIdentityBuildStep.GarmentRemoval);
+
+            // The terminal step is the plan's last, not a hardcoded one.
+            Assert.Equal(CharacterIdentityBuildStep.Promote, build.CurrentStep);
+            build = await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Promote, "body-base", "pack-1");
+            Assert.Equal(CharacterIdentityBuildStatus.Complete, build.Status);
+
+            // A step this kind's plan does not contain fails fast, naming the kind.
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.ReRunStepAsync(build.Id, CharacterIdentityBuildStep.Crop));
+            Assert.Contains("not part of the step plan", error.Message, StringComparison.Ordinal);
+            Assert.Contains("99", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>Writes a target kind's plan rows, the way the schema seed writes the Face plan.</summary>
+    private static async Task SeedPlanAsync(
+        string dbPath,
+        CharacterIdentityTargetKind kind,
+        params (int Order, CharacterIdentityBuildStep Step, string HandlerKey)[] steps)
+    {
+        await using var connection = new SqliteConnection($"Data Source={dbPath};Pooling=False");
+        await connection.OpenAsync();
+        foreach (var (order, step, handlerKey) in steps)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO CharacterIdentityStepPlans (Kind, Step, OrderIndex, HandlerKey, TemplateKey)
+                VALUES ($kind, $step, $orderIndex, $handlerKey, NULL);
+                """;
+            command.Parameters.AddWithValue("$kind", (int)kind);
+            command.Parameters.AddWithValue("$step", (int)step);
+            command.Parameters.AddWithValue("$orderIndex", order);
+            command.Parameters.AddWithValue("$handlerKey", handlerKey);
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+
+    /// <summary>
     /// A build whose Front step is complete and whose front container is set — the state the user is in
     /// when they approve a canonical front in Panel B. The container holds the candidate the Front step
     /// chose, which is where the derived chain has to end.
@@ -457,7 +608,7 @@ public sealed class CharacterIdentityBuildServiceTests
             Sha256 = ShaOf("front-candidate")
         });
 
-        var build = await service.CreateBuildAsync("char-1", null);
+        var build = await service.CreateBuildAsync("char-1", null, CharacterIdentityTargetKind.Face);
         build = await service.CompleteStepAsync(build.Id, CharacterIdentityBuildStep.Front, null, "front-candidate");
         build = await service.CompleteStepAsync(
             build.Id, CharacterIdentityBuildStep.Validate, "front-candidate", "front-candidate");
@@ -519,7 +670,10 @@ public sealed class CharacterIdentityBuildServiceTests
         repo.EnsureSchemaAsync().GetAwaiter().GetResult();
         var assets = new StubSceneAssetService();
         var service = new CharacterIdentityBuildService(
-            repo, assets, Microsoft.Extensions.Logging.Abstractions.NullLogger<CharacterIdentityBuildService>.Instance);
+            repo,
+            assets,
+            new CharacterIdentityStepPlanService(repo),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<CharacterIdentityBuildService>.Instance);
         return (service, repo, assets, dbPath);
     }
 
@@ -550,10 +704,13 @@ public sealed class CharacterIdentityBuildServiceTests
         public Task<SceneAsset> CreateAssetAsync(string name, SceneAssetType type, string? characterProfileId = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public Task<SceneAssetImage> AddGeneratedImageAsync(string assetId, string prompt, string modelId, string imageSize, CancellationToken cancellationToken = default, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null, string? candidateBatchId = null)
+        public Task<SceneAssetImage> AddGeneratedImageAsync(string assetId, string prompt, string modelId, string imageSize, CancellationToken cancellationToken = default, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null, string? candidateBatchId = null, SceneAssetImageGenerationOptions? options = null)
             => throw new NotSupportedException();
 
         public Task<SceneAssetImage> AddUploadedImageAsync(string assetId, string fileName, Stream content, CancellationToken cancellationToken = default, string? candidateBatchId = null)
+            => throw new NotSupportedException();
+
+        public Task<SceneAssetImage> AddDerivedImageAsync(string assetId, string sourceImageId, MediaEditOperationKind operation, string fileName, Stream content, CancellationToken cancellationToken = default, string? candidateBatchId = null)
             => throw new NotSupportedException();
 
         public Task<SceneAssetImage> EnqueueImageEditAsync(string assetId, string sourceImageId, string editPrompt, string modelId, CancellationToken cancellationToken = default, string? candidateBatchId = null, IReadOnlyList<ReferenceApplicationSelection>? referenceApplications = null)

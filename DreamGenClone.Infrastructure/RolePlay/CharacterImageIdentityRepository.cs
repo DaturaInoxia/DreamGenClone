@@ -224,7 +224,7 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
 
         var assets = await ListAssetsAsync(connection, pack.Id, cancellationToken);
 
-        var nextVersion = await GetNextVersionAsync(connection, (SqliteTransaction)transaction, pack.CharacterProfileId, cancellationToken);
+        var nextVersion = await GetNextVersionAsync(connection, (SqliteTransaction)transaction, pack.CharacterTemplateId, cancellationToken);
 
         await using var retire = connection.CreateCommand();
         retire.Transaction = (SqliteTransaction)transaction;
@@ -234,7 +234,7 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
 
         var newPack = new CharacterImageIdentityPack
         {
-            CharacterProfileId = pack.CharacterProfileId,
+            CharacterTemplateId = pack.CharacterTemplateId,
             Version = nextVersion,
             Status = CharacterImageIdentityPackStatus.Draft,
             DescriptorSnapshotJson = pack.DescriptorSnapshotJson,
@@ -258,6 +258,7 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         // Carry forward the reference assets so the new draft is an editable copy. Each asset gets a
         // new id but shares the same immutable file (path + checksum). Provenance/consent/approval
         // are inherited; the user may re-approve the copied pack.
+        string? canonicalFullBodyCopyId = null;
         foreach (var asset in assets)
         {
             var copy = new SceneImageReferenceAsset
@@ -281,6 +282,33 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
                 CreatedUtc = DateTime.UtcNow
             };
             await InsertAssetAsync(connection, (SqliteTransaction)transaction, copy, cancellationToken);
+
+            // The canonical full-body pointer has to follow the COPY: the asset it named belongs to the pack being
+            // superseded, and approval only accepts a pointer into the pack being approved.
+            if (!string.IsNullOrWhiteSpace(pack.CanonicalFullBodyAssetId)
+                && string.Equals(asset.Id, pack.CanonicalFullBodyAssetId.Trim(), StringComparison.Ordinal))
+            {
+                canonicalFullBodyCopyId = copy.Id;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(pack.CanonicalFullBodyAssetId))
+        {
+            if (canonicalFullBodyCopyId is null)
+            {
+                throw new InvalidOperationException(
+                    $"Identity pack '{pack.Id}' names canonical full-body asset "
+                    + $"'{pack.CanonicalFullBodyAssetId}', which is not one of its own assets. Fix the pointer "
+                    + "before superseding it.");
+            }
+
+            await using var repoint = connection.CreateCommand();
+            repoint.Transaction = (SqliteTransaction)transaction;
+            repoint.CommandText =
+                "UPDATE CharacterImageIdentityPacks SET CanonicalFullBodyAssetId = $canonicalBody WHERE Id = $id;";
+            repoint.Parameters.AddWithValue("$canonicalBody", canonicalFullBodyCopyId);
+            repoint.Parameters.AddWithValue("$id", newPack.Id.Trim());
+            await repoint.ExecuteNonQueryAsync(cancellationToken);
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -686,7 +714,7 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         return new CharacterImageIdentityPack
         {
             Id = id,
-            CharacterProfileId = reader.GetString(1),
+            CharacterTemplateId = reader.GetString(1),
             Version = reader.GetInt32(2),
             Status = ParseEnum<CharacterImageIdentityPackStatus>(reader.GetString(3), "identity pack", id),
             DescriptorSnapshotJson = reader.GetString(4),
@@ -729,7 +757,7 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
     private static void AddPackParameters(SqliteCommand command, CharacterImageIdentityPack pack)
     {
         command.Parameters.AddWithValue("$id", pack.Id.Trim());
-        command.Parameters.AddWithValue("$profileId", pack.CharacterProfileId.Trim());
+        command.Parameters.AddWithValue("$profileId", pack.CharacterTemplateId.Trim());
         command.Parameters.AddWithValue("$version", pack.Version);
         command.Parameters.AddWithValue("$status", pack.Status.ToString());
         command.Parameters.AddWithValue("$descriptor", pack.DescriptorSnapshotJson);
@@ -767,7 +795,7 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
     private static void ValidatePack(CharacterImageIdentityPack pack)
     {
         Require(pack.Id, "Identity pack id");
-        Require(pack.CharacterProfileId, "Character profile id");
+        Require(pack.CharacterTemplateId, "Character profile id");
         if (pack.Version <= 0) throw new InvalidOperationException("Identity pack version must be positive.");
         if (!Enum.IsDefined(pack.PackScope))
             throw new InvalidOperationException($"Identity pack scope '{pack.PackScope}' is invalid; FaceOnly or BodyComplete is required.");

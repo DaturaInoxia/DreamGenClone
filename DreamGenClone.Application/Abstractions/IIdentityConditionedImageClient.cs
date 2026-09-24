@@ -62,6 +62,22 @@ public sealed class IdentityControlledImageRequest
     /// </summary>
     public List<IdentityReferenceInput> References { get; set; } = [];
 
+    /// <summary>
+    /// Optional OpenPose skeleton to condition the POSE with, alongside the identity reference. The two compose
+    /// because they touch different edges of the graph: the identity chain rewires the sampler's model input and the
+    /// ControlNet rewires its conditioning. Null means no pose was asked for.
+    /// </summary>
+    public byte[]? PoseImageBytes { get; set; }
+
+    /// <summary>
+    /// The resolved pose model's ControlNet adapter, required exactly when <see cref="PoseImageBytes"/> is set. The
+    /// client does not look one up: conditioning on an unstated ControlNet is not a rendering decision it can make.
+    /// </summary>
+    public string? ControlNetAdapterRef { get; set; }
+
+    /// <summary>ControlNet strength, or null for the client's qualified default.</summary>
+    public double? PoseStrength { get; set; }
+
     /// <summary>Correlation / render-attempt id for logging and provenance.</summary>
     public string CorrelationId { get; set; } = string.Empty;
 }

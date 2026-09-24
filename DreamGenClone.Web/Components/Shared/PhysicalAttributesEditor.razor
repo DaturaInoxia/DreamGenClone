@@ -5,25 +5,19 @@
     @* ── Group: General ── *@
     <div class="pa-group-header">General</div>
     <div class="row g-2 mb-2">
-        <div class="col-md-3">
+        <div class="col-md-4">
             <label class="form-label small">Age</label>
             <input type="text" class="form-control form-control-sm"
                    value="@Attributes?.Age"
                    @onchange="@(e => SetField(a => a.Age = e.Value?.ToString()))" />
         </div>
-        <div class="col-md-3">
+        <div class="col-md-4">
             <label class="form-label small">Height</label>
             <input type="text" class="form-control form-control-sm"
                    value="@Attributes?.Height"
                    @onchange="@(e => SetField(a => a.Height = e.Value?.ToString()))" />
         </div>
-        <div class="col-md-3">
-            <label class="form-label small">Weight</label>
-            <input type="text" class="form-control form-control-sm"
-                   value="@Attributes?.Weight"
-                   @onchange="@(e => SetField(a => a.Weight = e.Value?.ToString()))" />
-        </div>
-        <div class="col-md-3">
+        <div class="col-md-4">
             <label class="form-label small">Ethnicity</label>
             <select class="form-select form-select-sm"
                     value="@GetSelectValue(Attributes?.Ethnicity, PhysicalAttributesCatalog.Ethnicities)"
@@ -144,91 +138,171 @@
                        @onchange="@(e => SetField(a => a.SkinTexture = e.Value?.ToString()))" />
             }
         </div>
+    </div>
+
+    @* ── Group: Body (the axes) ── *@
+    @* One value per axis. These replace the old single "Body Type" list, which mixed frame, fat and muscle so two
+       selections contradicted each other, and which never said WHERE mass sat — the reason bodies rendered "too
+       thick". "Curvy" is deliberately absent from every list: it means normal weight with a fuller rear and a
+       little belly (NOT voluptuous), and both the image model and the prefill LLM misread the bare word. *@
+    <div class="pa-group-header">Body</div>
+    <div class="row g-2 mb-2">
         <div class="col-md-4">
-            <label class="form-label small">Body Type</label>
+            <label class="form-label small">Build (frame)</label>
             <select class="form-select form-select-sm"
-                    value="@GetSelectValue(Attributes?.BodyType, PhysicalAttributesCatalog.BodyTypes)"
-                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.BodyTypes, a => a.BodyType = e.Value?.ToString(), v => _bodyTypeCustom = v))">
+                    value="@GetSelectValue(Attributes?.BodyBuild, BuildOptions)"
+                    @onchange="@(e => SelectedPreset(e, BuildOptions, a => a.BodyBuild = e.Value?.ToString()))">
                 <option value="">(none)</option>
-                @foreach (var opt in PhysicalAttributesCatalog.BodyTypes)
+                @foreach (var opt in BuildOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Silhouette</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.Silhouette, SilhouetteOptions)"
+                    @onchange="@(e => SelectedPreset(e, SilhouetteOptions, a => a.Silhouette = e.Value?.ToString()))">
+                <option value="">(none)</option>
+                @foreach (var opt in SilhouetteOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Adiposity (body fat)</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.Adiposity, PhysicalAttributesCatalog.AdiposityLevels)"
+                    @onchange="@(e => SelectedPreset(e, PhysicalAttributesCatalog.AdiposityLevels, a => a.Adiposity = e.Value?.ToString()))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.AdiposityLevels)
+                {
+                    <option value="@opt">@opt</option>
+                }
+            </select>
+        </div>
+    </div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <label class="form-label small">Fat Distribution (where it sits)</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.FatDistribution, FatDistributionOptions)"
+                    @onchange="@(e => SelectedPreset(e, FatDistributionOptions, a => a.FatDistribution = e.Value?.ToString()))">
+                <option value="">(none)</option>
+                @foreach (var opt in FatDistributionOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Muscle Mass</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.MuscleMass, PhysicalAttributesCatalog.MuscleMasses)"
+                    @onchange="@(e => SelectedPreset(e, PhysicalAttributesCatalog.MuscleMasses, a => a.MuscleMass = e.Value?.ToString()))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.MuscleMasses)
+                {
+                    <option value="@opt">@opt</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Muscle Definition</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.MuscleDefinition, PhysicalAttributesCatalog.MuscleDefinitions)"
+                    @onchange="@(e => SelectedPreset(e, PhysicalAttributesCatalog.MuscleDefinitions, a => a.MuscleDefinition = e.Value?.ToString()))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.MuscleDefinitions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    @* ── Group: Body Measurements ── *@
+    @* Shown for BOTH genders: a male body has a chest, a waist, hips and a rear too, and hiding the group for a male
+       template is how "there is no male equivalent" happened. The values and the chest label follow the gender; the axes
+       are the same ones. *@
+    <div class="pa-group-header">Body Measurements</div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <label class="form-label small">@ChestLabel</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.BustSize, ChestOptions)"
+                    @onchange="@(e => OnPresetChanged(e, ChestOptions, a => a.BustSize = e.Value?.ToString(), v => _bustCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in ChestOptions)
                 {
                     <option value="@opt">@opt</option>
                 }
                 <option value="__custom__">(Custom...)</option>
             </select>
-            @if (IsCustom(Attributes?.BodyType, PhysicalAttributesCatalog.BodyTypes))
+            @if (IsCustom(Attributes?.BustSize, ChestOptions))
             {
                 <input type="text" class="form-control form-control-sm mt-1"
-                       value="@Attributes?.BodyType"
-                       @onchange="@(e => SetField(a => a.BodyType = e.Value?.ToString()))" />
+                       value="@Attributes?.BustSize"
+                       @onchange="@(e => SetField(a => a.BustSize = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Waist</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.WaistSize, WaistOptions)"
+                    @onchange="@(e => OnPresetChanged(e, WaistOptions, a => a.WaistSize = e.Value?.ToString(), v => _waistCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in WaistOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.WaistSize, WaistOptions))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.WaistSize"
+                       @onchange="@(e => SetField(a => a.WaistSize = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Hips</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.HipSize, HipOptions)"
+                    @onchange="@(e => OnPresetChanged(e, HipOptions, a => a.HipSize = e.Value?.ToString(), v => _hipCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in HipOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.HipSize, HipOptions))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.HipSize"
+                       @onchange="@(e => SetField(a => a.HipSize = e.Value?.ToString()))" />
             }
         </div>
     </div>
-
-    @* ── Group: Body Measurements (female / mixed) ── *@
-    @if (!string.Equals(Gender, "Male", StringComparison.OrdinalIgnoreCase))
-    {
-        <div class="pa-group-header">Body Measurements</div>
-        <div class="row g-2 mb-2">
-            <div class="col-md-4">
-                <label class="form-label small">Bust</label>
-                <select class="form-select form-select-sm"
-                        value="@GetSelectValue(Attributes?.BustSize, PhysicalAttributesCatalog.BustSizes)"
-                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.BustSizes, a => a.BustSize = e.Value?.ToString(), v => _bustCustom = v))">
-                    <option value="">(none)</option>
-                    @foreach (var opt in PhysicalAttributesCatalog.BustSizes)
-                    {
-                        <option value="@opt">@opt</option>
-                    }
-                    <option value="__custom__">(Custom...)</option>
-                </select>
-                @if (IsCustom(Attributes?.BustSize, PhysicalAttributesCatalog.BustSizes))
+    @* Rear (ButtSize) had a field and a figure-part mapping but no catalog and no input at all, so it could
+       never be set. It is distinct from HipSize, which is skeletal hip WIDTH. *@
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <label class="form-label small">Rear</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.ButtSize, RearOptions)"
+                    @onchange="@(e => SelectedPreset(e, RearOptions, a => a.ButtSize = e.Value?.ToString()))">
+                <option value="">(none)</option>
+                @foreach (var opt in RearOptions)
                 {
-                    <input type="text" class="form-control form-control-sm mt-1"
-                           value="@Attributes?.BustSize"
-                           @onchange="@(e => SetField(a => a.BustSize = e.Value?.ToString()))" />
+                    <option value="@opt">@opt</option>
                 }
-            </div>
-            <div class="col-md-4">
-                <label class="form-label small">Waist</label>
-                <select class="form-select form-select-sm"
-                        value="@GetSelectValue(Attributes?.WaistSize, PhysicalAttributesCatalog.WaistSizes)"
-                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.WaistSizes, a => a.WaistSize = e.Value?.ToString(), v => _waistCustom = v))">
-                    <option value="">(none)</option>
-                    @foreach (var opt in PhysicalAttributesCatalog.WaistSizes)
-                    {
-                        <option value="@opt">@opt</option>
-                    }
-                    <option value="__custom__">(Custom...)</option>
-                </select>
-                @if (IsCustom(Attributes?.WaistSize, PhysicalAttributesCatalog.WaistSizes))
-                {
-                    <input type="text" class="form-control form-control-sm mt-1"
-                           value="@Attributes?.WaistSize"
-                           @onchange="@(e => SetField(a => a.WaistSize = e.Value?.ToString()))" />
-                }
-            </div>
-            <div class="col-md-4">
-                <label class="form-label small">Hips</label>
-                <select class="form-select form-select-sm"
-                        value="@GetSelectValue(Attributes?.HipSize, PhysicalAttributesCatalog.HipSizes)"
-                        @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.HipSizes, a => a.HipSize = e.Value?.ToString(), v => _hipCustom = v))">
-                    <option value="">(none)</option>
-                    @foreach (var opt in PhysicalAttributesCatalog.HipSizes)
-                    {
-                        <option value="@opt">@opt</option>
-                    }
-                    <option value="__custom__">(Custom...)</option>
-                </select>
-                @if (IsCustom(Attributes?.HipSize, PhysicalAttributesCatalog.HipSizes))
-                {
-                    <input type="text" class="form-control form-control-sm mt-1"
-                           value="@Attributes?.HipSize"
-                           @onchange="@(e => SetField(a => a.HipSize = e.Value?.ToString()))" />
-                }
-            </div>
+            </select>
         </div>
-    }
+    </div>
 
     @* ── Group: Style and Misc ── *@
     <div class="pa-group-header">Style &amp; Misc</div>
@@ -264,6 +338,40 @@
             <input type="number" class="form-control form-control-sm" min="1" max="10"
                    value="@Attributes?.AttractivenessRating"
                    @onchange="@(e => SetField(a => a.AttractivenessRating = TryParseInt(e.Value?.ToString())))" />
+        </div>
+    </div>
+    @* Body hair and pubic hair are here so the character template is the single capture surface; the studio's body
+       card prefills its [DECIDE] fields from them, and blank stays "not decided" rather than reading as "none".
+       Each input offers the catalog's typical values and accepts anything typed: the list is a suggestion, the
+       text is the decision. *@
+    <div class="row g-2 mb-2">
+        <div class="col-md-6">
+            <label class="form-label small">Body Hair (chest, stomach, arms, legs)</label>
+            <input type="text" class="form-control form-control-sm"
+                   list="pa-body-hair-options"
+                   placeholder="e.g. full chest hair, or none"
+                   value="@Attributes?.BodyHair"
+                   @onchange="@(e => SetField(a => a.BodyHair = e.Value?.ToString()))" />
+            <datalist id="pa-body-hair-options">
+                @foreach (var option in PhysicalAttributesCatalog.BodyHairOptions)
+                {
+                    <option value="@option"></option>
+                }
+            </datalist>
+        </div>
+        <div class="col-md-6">
+            <label class="form-label small">Pubic Hair</label>
+            <input type="text" class="form-control form-control-sm"
+                   list="pa-pubic-hair-options"
+                   placeholder="e.g. neatly trimmed, or none"
+                   value="@Attributes?.PubicHair"
+                   @onchange="@(e => SetField(a => a.PubicHair = e.Value?.ToString()))" />
+            <datalist id="pa-pubic-hair-options">
+                @foreach (var option in PhysicalAttributesCatalog.PubicHairOptions)
+                {
+                    <option value="@option"></option>
+                }
+            </datalist>
         </div>
     </div>
 
@@ -579,7 +687,6 @@
     private string? _eyeColourCustom;
     private string? _skinToneCustom;
     private string? _skinTextureCustom;
-    private string? _bodyTypeCustom;
     private string? _ethnicityCustom;
     private string? _bustCustom;
     private string? _waistCustom;
@@ -601,6 +708,61 @@
 
     private async Task SetField(Action<PhysicalAttributes> setter)
     {
+        var copy = Attributes is null ? new PhysicalAttributes() : ShallowCopy(Attributes);
+        setter(copy);
+        await AttributesChanged.InvokeAsync(copy);
+    }
+
+    /// <summary>True when the target gender is male, which selects the male silhouette and distribution lists.</summary>
+    private bool IsMaleGender => string.Equals(Gender, "Male", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Silhouette values for the target gender — the apparel classification, or the menswear-fit equivalent.</summary>
+    private IReadOnlyList<string> SilhouetteOptions
+        => IsMaleGender ? PhysicalAttributesCatalog.MaleSilhouettes : PhysicalAttributesCatalog.Silhouettes;
+
+    /// <summary>Fat-distribution values for the target gender.</summary>
+    private IReadOnlyList<string> FatDistributionOptions
+        => IsMaleGender ? PhysicalAttributesCatalog.MaleFatDistributions : PhysicalAttributesCatalog.FatDistributions;
+
+    /// <summary>
+    /// The remaining axes, gender-aware on the same rule as the silhouettes: a female value on a male template is not
+    /// "close enough" — "petite, fine-boned", a bust volume of "Enormous" and "Voluptuous" hips describe a female
+    /// body, and a model renders what it is given. The AXIS names are unchanged, so the two templates stay comparable.
+    /// </summary>
+    private IReadOnlyList<string> BuildOptions
+        => IsMaleGender ? PhysicalAttributesCatalog.MaleBodyBuilds : PhysicalAttributesCatalog.BodyBuilds;
+
+    private IReadOnlyList<string> ChestOptions
+        => IsMaleGender ? PhysicalAttributesCatalog.MaleChestSizes : PhysicalAttributesCatalog.BustSizes;
+
+    private string ChestLabel => IsMaleGender ? "Chest" : "Bust";
+
+    private IReadOnlyList<string> WaistOptions
+        => IsMaleGender ? PhysicalAttributesCatalog.MaleWaistSizes : PhysicalAttributesCatalog.WaistSizes;
+
+    private IReadOnlyList<string> HipOptions
+        => IsMaleGender ? PhysicalAttributesCatalog.MaleHipSizes : PhysicalAttributesCatalog.HipSizes;
+
+    private IReadOnlyList<string> RearOptions
+        => IsMaleGender ? PhysicalAttributesCatalog.MaleButtSizes : PhysicalAttributesCatalog.ButtSizes;
+
+    /// <summary>
+    /// Preset picker for the body axes. Unlike <see cref="OnPresetChanged"/> these deliberately offer no
+    /// "(Custom...)" escape hatch: the axis catalogs ARE the controlled vocabulary, and a value outside them is
+    /// rejected rather than silently accepted (repo no-fallback rule).
+    /// </summary>
+    private async Task SelectedPreset(
+        ChangeEventArgs e,
+        IReadOnlyList<string> catalog,
+        Action<PhysicalAttributes> setter)
+    {
+        var value = e.Value?.ToString() ?? string.Empty;
+        if (value.Length > 0 && !catalog.Contains(value))
+        {
+            throw new InvalidOperationException(
+                $"'{value}' is not a value of the body-axis catalog this control is bound to.");
+        }
+
         var copy = Attributes is null ? new PhysicalAttributes() : ShallowCopy(Attributes);
         setter(copy);
         await AttributesChanged.InvokeAsync(copy);
@@ -750,41 +912,7 @@
     private static bool StartsWithVowelSound(string s) =>
         s.Length > 0 && s[0] is 'a' or 'e' or 'i' or 'o' or 'u' or 'A' or 'E' or 'I' or 'O' or 'U';
 
-    private static PhysicalAttributes ShallowCopy(PhysicalAttributes src) => new()
-    {
-        Age = src.Age,
-        Height = src.Height,
-        Weight = src.Weight,
-        Ethnicity = src.Ethnicity,
-        HairColour = src.HairColour,
-        HairStyle = src.HairStyle,
-        EyeColour = src.EyeColour,
-        SkinTone = src.SkinTone,
-        SkinTexture = src.SkinTexture,
-        BodyType = src.BodyType,
-        BustSize = src.BustSize,
-        WaistSize = src.WaistSize,
-        HipSize = src.HipSize,
-        ClothingStyle = src.ClothingStyle,
-        DistinguishingMarks = src.DistinguishingMarks,
-        Piercings = src.Piercings,
-        Tattoos = src.Tattoos,
-        AttractivenessRating = src.AttractivenessRating,
-        Scent = src.Scent,
-        SexualSkill = src.SexualSkill,
-        SexualDrive = src.SexualDrive,
-        SexualConfidence = src.SexualConfidence,
-        OralSkill = src.OralSkill,
-        EndowmentLength = src.EndowmentLength,
-        EndowmentGirth = src.EndowmentGirth,
-        Stamina = src.Stamina,
-        Recovery = src.Recovery,
-        EjaculationIntensity = src.EjaculationIntensity,
-        VaginalTightness = src.VaginalTightness,
-        Sensitivity = src.Sensitivity,
-        Lubrication = src.Lubrication,
-        OrgasmicCapacity = src.OrgasmicCapacity,
-    };
+    private static PhysicalAttributes ShallowCopy(PhysicalAttributes src) => src.Clone();
 
     private static int? TryParseInt(string? value)
     {

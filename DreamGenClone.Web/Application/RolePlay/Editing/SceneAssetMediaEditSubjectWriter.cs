@@ -18,17 +18,20 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
     private readonly ISceneAssetImageEditRepository _edits;
     private readonly ISceneAssetStorageService _storage;
     private readonly MediaEditReferenceResolver _references;
+    private readonly ICharacterImageAssetStorageService? _identityStorage;
 
     public SceneAssetMediaEditSubjectWriter(
         ISceneAssetRepository assets,
         ISceneAssetImageEditRepository edits,
         ISceneAssetStorageService storage,
-        MediaEditReferenceResolver references)
+        MediaEditReferenceResolver references,
+        ICharacterImageAssetStorageService? identityStorage = null)
     {
         _assets = assets;
         _edits = edits;
         _storage = storage;
         _references = references;
+        _identityStorage = identityStorage;
     }
 
     public MediaEditSubjectKind Kind => MediaEditSubjectKind.AssetImage;
@@ -58,6 +61,12 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
             throw new InvalidOperationException(
                 "Asset image editing requires an edited image with source and compiler provenance.");
         }
+
+        // An identity run carries the approved identity-pack faces on the row instead of a compiled prompt
+        // revision, so it is resolved from those references and is never validated against a compiler artifact.
+        var identityBindings = MediaEditIdentityProvenance.TryRead(image.SourceProvenanceJson);
+        if (identityBindings is not null)
+            return await PrepareIdentityAsync(image, context, identityBindings, cancellationToken);
 
         using var provenance = JsonDocument.Parse(image.SourceProvenanceJson);
         var root = provenance.RootElement;
@@ -101,8 +110,10 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
             : JsonSerializer.Deserialize<IReadOnlyList<ReferenceApplicationSelection>>(
                 context.ReferenceApplicationsJson, JsonOptions)
                 ?? throw new InvalidOperationException("Asset edit reference applications are invalid.");
+        // The resolver needs the EXACT registered editor model to prove the declared strategy is qualified;
+        // handing it nothing made every reference-carrying asset edit fail at run time.
         var references = await _references.ResolveAsync(
-            null, applications, qualifiedStrategy: "ReferenceConditioning", cancellationToken);
+            context.ExplicitEditorModelId, applications, qualifiedStrategy: "ReferenceConditioning", cancellationToken);
 
         return new MediaEditRunPlan(
             image.Id,
@@ -115,6 +126,79 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
             Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),
             LogScope: $"AssetId={image.AssetId}");
     }
+
+    /// <summary>
+    /// The asset-store twin of the scene identity stage: the row's prompt is the service-authored face-only
+    /// instruction and its references are the approved identity-pack faces recorded on the row. There is no
+    /// compiler artifact to validate, so the checks are the source's completeness and checksum plus the exact
+    /// file metadata of every reference.
+    /// </summary>
+    private async Task<MediaEditRunPlan> PrepareIdentityAsync(
+        SceneAssetImage image,
+        MediaEditRunContext context,
+        IReadOnlyList<MediaEditIdentityBinding> bindings,
+        CancellationToken cancellationToken)
+    {
+        var identityStorage = _identityStorage
+            ?? throw new InvalidOperationException("Asset identity editing requires identity asset storage.");
+        if (string.IsNullOrWhiteSpace(context.ExplicitEditorModelId))
+            throw new InvalidOperationException("Asset identity editing requires the editor model chosen in the editor form.");
+        if (string.IsNullOrWhiteSpace(image.Prompt))
+            throw new InvalidOperationException("Asset identity editing requires the queued row's identity instruction.");
+        if (string.IsNullOrWhiteSpace(image.SourceImageId))
+            throw new InvalidOperationException("Asset identity editing requires the queued row to name its source image.");
+
+        var source = await _assets.GetImageAsync(image.SourceImageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene asset image '{image.SourceImageId}' was not found.");
+        if (!string.Equals(source.AssetId, image.AssetId, StringComparison.Ordinal)
+            || source.Status != SceneAssetStatus.Complete
+            || string.IsNullOrWhiteSpace(source.FileRelativePath))
+        {
+            throw new InvalidOperationException("The source asset image is not complete, stored, and owned by the queued asset.");
+        }
+
+        using var provenance = JsonDocument.Parse(image.SourceProvenanceJson!);
+        var sourceSha256 = provenance.RootElement.GetProperty(MediaEditProvenance.SourceShaKey).GetString()
+            ?? throw new InvalidOperationException("Asset identity provenance is missing the source checksum.");
+        if (string.IsNullOrWhiteSpace(source.Sha256)
+            || !string.Equals(source.Sha256, sourceSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The source asset image checksum changed after the identity edit was queued.");
+        }
+
+        var sourceFileRelativePath = source.FileRelativePath;
+        var references = new List<MediaEditReference>(bindings.Count);
+        foreach (var binding in bindings)
+        {
+            var relativePath = binding.FileRelativePath;
+            references.Add(new MediaEditReference(
+                binding.Ordinal,
+                $"selected face identity reference for {binding.CharacterName} (CharacterFace:{binding.CharacterId})",
+                $"{binding.CharacterId}.png",
+                binding.Sha256,
+                token => identityStorage.OpenReadAsync(relativePath, token)));
+        }
+
+        return new MediaEditRunPlan(
+            image.Id,
+            source.Id,
+            token => _storage.OpenReadAsync(sourceFileRelativePath, token),
+            sourceSha256,
+            MediaEditOperation.ForEdit,
+            Prompt: image.Prompt,
+            References: references,
+            Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),
+            LogScope: $"AssetId={image.AssetId}, Stage=Identity");
+    }
+
+    /// <summary>
+    /// A scene asset has no claim transition: its status is Pending, Complete or Failed, and it completes
+    /// through an unguarded upsert (<c>UpsertImageAsync</c>), which is why asset edits could always be
+    /// recorded. So there is nothing to claim and nothing that can refuse the run — inventing a status the
+    /// store does not have would be worse than claiming nothing.
+    /// </summary>
+    public Task<bool> ClaimAsync(MediaEditRunContext context, CancellationToken cancellationToken = default)
+        => Task.FromResult(true);
 
     /// <summary>
     /// Prepares a deterministic operation on an asset image. The only things it needs are the queued

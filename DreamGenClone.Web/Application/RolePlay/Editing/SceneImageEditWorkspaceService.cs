@@ -17,19 +17,22 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
     private readonly ISessionService _sessions;
     private readonly IScenarioService _scenarios;
     private readonly ICharacterImageIdentityService _identity;
+    private readonly ICharacterIdentityOwnerResolver _owners;
 
     public SceneImageEditWorkspaceService(
         ISceneImageService images,
         ISceneImageEditCompilationService compilations,
         ISessionService sessions,
         IScenarioService scenarios,
-        ICharacterImageIdentityService identity)
+        ICharacterImageIdentityService identity,
+        ICharacterIdentityOwnerResolver owners)
     {
         _images = images;
         _compilations = compilations;
         _sessions = sessions;
         _scenarios = scenarios;
         _identity = identity;
+        _owners = owners;
     }
 
     public ImageEditSubjectKind Kind => ImageEditSubjectKind.SceneImage;
@@ -229,9 +232,11 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
     }
 
     public async Task<ImageIdentityRosterResult> LoadRosterAsync(
-        string sessionId, CancellationToken cancellationToken = default)
+        ImageEditSubject subject, CancellationToken cancellationToken = default)
     {
-        var session = await _sessions.LoadRolePlaySessionAsync(sessionId);
+        var session = string.IsNullOrWhiteSpace(subject.SessionId)
+            ? null
+            : await _sessions.LoadRolePlaySessionAsync(subject.SessionId);
         if (session is null || string.IsNullOrWhiteSpace(session.ScenarioId))
             return new ImageIdentityRosterResult([], "This role-play session has no scenario characters to bind identity packs to.");
 
@@ -240,51 +245,43 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
             return new ImageIdentityRosterResult([], "This scenario defines no characters, so no identity packs can be applied.");
 
         var choices = new List<ImageIdentityCharacterChoice>();
+        var reasons = new List<string>();
         foreach (var character in characters)
         {
             if (string.IsNullOrWhiteSpace(character.Id))
                 continue;
 
-            var packs = await _identity.ListPacksAsync(character.Id);
-            var approved = packs
-                .Where(pack => pack.Status == CharacterImageIdentityPackStatus.Approved)
-                .OrderByDescending(pack => pack.Version)
-                .ToArray();
-            if (approved.Length != 1)
-                continue;
-
-            var pack = approved[0];
-            var assets = await _identity.ListAssetsAsync(pack.Id);
-            var faces = assets
-                .Where(asset => asset.AssetKind == SceneImageReferenceAssetKind.Face
-                    && asset.IsApproved
-                    && asset.FaceView.HasValue
-                    && !string.IsNullOrWhiteSpace(asset.FileRelativePath)
-                    && !string.IsNullOrWhiteSpace(asset.Sha256))
-                .OrderBy(asset => asset.FaceView)
-                .ToList();
-            if (faces.Count == 0)
-                continue;
-
-            choices.Add(new ImageIdentityCharacterChoice(
-                character.Id,
-                string.IsNullOrWhiteSpace(character.Name) ? character.Id : character.Name,
-                pack.Id,
-                pack.Version,
-                faces.Any(face => string.Equals(face.Id, pack.CanonicalFaceAssetId, StringComparison.Ordinal))
-                    ? pack.CanonicalFaceAssetId!
-                    : faces[0].Id,
-                faces));
+            // The scenario character is a PROJECTION of its template (B-127), so the builder resolves the owner
+            // before reading packs. Passing the raw scenario id here is what produced "no scenario characters
+            // currently have an approved identity pack" for characters whose packs exist under their template.
+            var (choice, reason) = await ImageIdentityRosterBuilder.TryBuildChoiceAsync(
+                _identity, _owners, character.Id, character.Name ?? string.Empty, cancellationToken);
+            if (choice is not null)
+                choices.Add(choice);
+            else if (!string.IsNullOrWhiteSpace(reason))
+                reasons.Add(reason);
         }
 
         var ordered = choices.OrderBy(choice => choice.CharacterName, StringComparer.OrdinalIgnoreCase).ToList();
-        return ordered.Count == 0
-            ? new ImageIdentityRosterResult(ordered, "No scenario characters currently have an approved identity pack with approved face references.")
-            : new ImageIdentityRosterResult(ordered, null);
+        if (ordered.Count > 0)
+        {
+            return new ImageIdentityRosterResult(ordered, null);
+        }
+
+        // Say WHICH rule each character failed — including the resolver's own "link it to a template" refusal —
+        // so an empty roster can be acted on instead of only stating that it is empty.
+        return new ImageIdentityRosterResult(
+            ordered,
+            reasons.Count > 0
+                ? string.Join(" ", reasons.Distinct(StringComparer.Ordinal))
+                : "No scenario characters currently have an approved identity pack with approved face references.");
     }
 
     public async Task<ImageEditResultView> RunIdentityEditAsync(
-        ImageEditSubject subject, IReadOnlyList<ImageIdentitySelection> selections, CancellationToken cancellationToken = default)
+        ImageEditSubject subject,
+        IReadOnlyList<ImageIdentitySelection> selections,
+        string editorModelId,
+        CancellationToken cancellationToken = default)
     {
         if (selections.Count == 0)
         {
@@ -297,6 +294,8 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
             SessionId = Require(subject.SessionId, "SessionId"),
             InteractionId = Require(subject.InteractionId, "InteractionId"),
             SourceImageId = subject.ImageId,
+            // The model the editor form chose. Resolution happens once, from this id, at dispatch.
+            EditorModelId = (editorModelId ?? string.Empty).Trim(),
             Selections = selections.Select(selection => new SceneImageEditorIdentitySelection
             {
                 TargetKey = selection.TargetKey,

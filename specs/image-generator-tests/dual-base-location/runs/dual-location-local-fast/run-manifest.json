@@ -1,0 +1,43 @@
+{
+    "runLabel":  "dual-location-local-fast",
+    "comfyUiUrl":  "http://192.168.0.11:8188",
+    "startedAt":  "2026-09-21T19:05:44.3200921-04:00",
+    "sourceRun":  "runs/dual-location-20260919-132253",
+    "locations":  [
+                      "bedroom",
+                      "outdoors"
+                  ],
+    "scenePrompts":  {
+                         "bedroom|B":  "photorealistic cinematic photograph of a man and a woman standing side by side facing right on a bedroom carpet, both in right-facing profile, warm afternoon window light, soft warm key light on their faces matching the room\u0027s lamp glow, natural realistic skin, natural fabric texture on T-shirts and jeans, realistic shadows under their feet, beige carpet on the floor around them, natural eyes, film grain",
+                         "outdoors|B":  "photorealistic cinematic photograph of a man and a woman standing side by side facing right in a sunlit forest clearing, both in right-facing profile, dappled green forest light from above and behind, soft natural key light on their faces with green leaf-shadow mottling matching the clearing, natural realistic skin, natural fabric texture on T-shirts and jeans, realistic shadows under their feet on the grass, natural eyes, film grain",
+                         "bedroom|A":  "photorealistic cinematic photograph of a man and a woman standing face to face on a bedroom carpet, warm afternoon window light from behind, soft warm key light on their faces matching the room\u0027s lamp glow, natural realistic skin, natural fabric texture on T-shirts and jeans, realistic shadows under their feet, beige carpet on the floor around them, natural eyes, film grain",
+                         "outdoors|A":  "photorealistic cinematic photograph of a man and a woman standing face to face in a sunlit forest clearing, dappled green forest light from above and behind, soft natural key light on their faces with green leaf-shadow mottling matching the clearing, natural realistic skin, natural fabric texture on T-shirts and jeans, realistic shadows under their feet on the grass, natural eyes, film grain"
+                     },
+    "jobs":  [
+                 {
+                     "name":  "06-harmonized-bedroom-a",
+                     "workflow":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-bedroom-a\\workflow.json",
+                     "images":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-bedroom-a\\images.json",
+                     "outDir":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-bedroom-a"
+                 },
+                 {
+                     "name":  "06-harmonized-bedroom-b",
+                     "workflow":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-bedroom-b\\workflow.json",
+                     "images":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-bedroom-b\\images.json",
+                     "outDir":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-bedroom-b"
+                 },
+                 {
+                     "name":  "06-harmonized-outdoors-a",
+                     "workflow":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-outdoors-a\\workflow.json",
+                     "images":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-outdoors-a\\images.json",
+                     "outDir":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-outdoors-a"
+                 },
+                 {
+                     "name":  "06-harmonized-outdoors-b",
+                     "workflow":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-outdoors-b\\workflow.json",
+                     "images":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-outdoors-b\\images.json",
+                     "outDir":  "specs\\image-generator-tests\\dual-base-location\\runs\\dual-location-local-fast\\06-harmonized-outdoors-b"
+                 }
+             ],
+    "finishedAt":  "2026-09-21T19:06:43.6488042-04:00"
+}

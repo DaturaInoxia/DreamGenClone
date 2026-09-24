@@ -228,6 +228,7 @@ builder.Services.AddScoped<StoryAnalysisFacade>();
 builder.Services.AddSingleton<IProviderRepository, ProviderRepository>();
 builder.Services.AddSingleton<IRegisteredModelRepository, RegisteredModelRepository>();
 builder.Services.AddSingleton<IReferenceStrategyResolver, ReferenceStrategyResolver>();
+builder.Services.AddSingleton<IdentityFaceReferenceResolver>();
 builder.Services.AddSingleton<IFunctionDefaultRepository, FunctionDefaultRepository>();
 builder.Services.AddSingleton<IHealthCheckRepository, HealthCheckRepository>();
 builder.Services.AddSingleton<IPromptTestRunRepository, PromptTestRunRepository>();
@@ -244,7 +245,11 @@ builder.Services.AddScoped<IMultimodalModelResolutionService>(serviceProvider =>
     serviceProvider.GetRequiredService<IModelResolutionService>() as ModelResolutionService
     ?? throw new InvalidOperationException("The configured model resolver does not support multimodal resolution."));
 builder.Services.AddScoped<ISceneBeatAnalyzerResolver, SceneBeatAnalyzerResolver>();
-builder.Services.AddSingleton<IStructuredTextCompletionClient, OpenAiStructuredTextCompletionClient>();
+builder.Services.AddSingleton<OpenAiStructuredTextCompletionClient>();
+builder.Services.AddSingleton<IStructuredTextCompletionClient>(
+    services => services.GetRequiredService<OpenAiStructuredTextCompletionClient>());
+builder.Services.AddSingleton<ISynchronousStructuredTextCompletionClient>(
+    services => services.GetRequiredService<OpenAiStructuredTextCompletionClient>());
 builder.Services.AddScoped<IImageEditorModelResolver, ImageEditorModelResolver>();
 builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
 builder.Services.AddScoped<ModelManagerFacade>();
@@ -296,6 +301,7 @@ builder.Services.AddSingleton<ImageGenerationClient>();
 builder.Services.AddSingleton<ComfyUIImageClient>();
 builder.Services.AddSingleton<RunPodServerlessImageClient>();
 builder.Services.AddSingleton<IImageGenerationClient, ImageGenerationClientDispatcher>();
+builder.Services.AddSingleton<IReferenceConditionedImageClient, ReferenceConditionedImageClientDispatcher>();
 builder.Services.AddSingleton<ComfyUIImageEditingClient>();
 builder.Services.AddSingleton<RunPodServerlessEditingClient>();
 builder.Services.AddSingleton<IImageEditingClient, ImageEditingClientDispatcher>();
@@ -420,9 +426,25 @@ builder.Services.AddSingleton<IReferenceBootstrapRepository, ReferenceBootstrapR
 builder.Services.AddSingleton<IPosePresetRepository, PosePresetRepository>();
 builder.Services.AddSingleton<IImageWorkflowRepository, ImageWorkflowRepository>();
 builder.Services.AddSingleton<ICharacterIdentityBuildRepository, CharacterIdentityBuildRepository>();
+builder.Services.AddSingleton<ICharacterBodyCardRepository, CharacterBodyCardRepository>();
+// B-127: the explicit character-instance -> character-template links that own identity.
+builder.Services.AddSingleton<ICharacterIdentityLinkRepository, CharacterIdentityLinkRepository>();
+// The ONE path from any character id (template / scenario character / asset character) to its identity owner.
+builder.Services.AddScoped<ICharacterIdentityOwnerResolver, CharacterIdentityOwnerResolver>();
+builder.Services.AddScoped<ICharacterIdentityOwnerLinkService, CharacterIdentityOwnerLinkService>();
+builder.Services.AddScoped<ICharacterBodyCardDraftModelResolver, CharacterBodyCardDraftModelResolver>();
+builder.Services.AddScoped<ICharacterBodyCardPrefillService, CharacterBodyCardPrefillService>();
+builder.Services.AddSingleton<IStancePoseSkeletonProvider, StancePoseSkeletonProvider>();
+// The canonical-angle skeletons live in the same pose-library folder but answer a different question ("which view"
+// rather than "which pose"), so they are their own reader with their own refusal text.
+builder.Services.AddSingleton<IBodyAngleSkeletonProvider, BodyAngleSkeletonProvider>();
+builder.Services.AddScoped<IBodyReferenceBriefFactory, BodyReferenceBriefFactory>();
+builder.Services.AddScoped<ICharacterIdentityBodyService, CharacterIdentityBodyService>();
 builder.Services.AddScoped<IReferenceBootstrapService, ReferenceBootstrapService>();
 builder.Services.AddScoped<IImageWorkflowTemplateService, ImageWorkflowTemplateService>();
 builder.Services.AddScoped<ICharacterIdentityBuildService, CharacterIdentityBuildService>();
+// The one reader of a target kind's persisted step plan (steps, order, handler, prompt template).
+builder.Services.AddScoped<ICharacterIdentityStepPlanService, CharacterIdentityStepPlanService>();
 builder.Services.AddScoped<ICharacterIdentityFrontService, CharacterIdentityFrontService>();
 builder.Services.AddScoped<ICharacterIdentityValidationService, CharacterIdentityValidationService>();
 builder.Services.AddScoped<ICharacterIdentityGarmentService, CharacterIdentityGarmentService>();
@@ -434,7 +456,11 @@ builder.Services.AddScoped<IMediaEditHeadMeasurementService, MediaEditHeadMeasur
 builder.Services.AddScoped<SceneImageEditWorkspaceService>();
 builder.Services.AddScoped<IImageEditWorkspaceService>(sp => sp.GetRequiredService<SceneImageEditWorkspaceService>());
 builder.Services.AddScoped<IImageIdentityEditService>(sp => sp.GetRequiredService<SceneImageEditWorkspaceService>());
-builder.Services.AddScoped<IImageEditWorkspaceService, SceneAssetImageEditWorkspaceService>();
+// The Asset Manager editor implements the same edit AND identity contracts, so one registration answers both
+// (a single instance per scope, exactly as the scene adapter above does).
+builder.Services.AddScoped<SceneAssetImageEditWorkspaceService>();
+builder.Services.AddScoped<IImageEditWorkspaceService>(sp => sp.GetRequiredService<SceneAssetImageEditWorkspaceService>());
+builder.Services.AddScoped<IImageIdentityEditService>(sp => sp.GetRequiredService<SceneAssetImageEditWorkspaceService>());
 builder.Services.AddScoped<ImageEditWorkspaceServiceResolver>();
 builder.Services.AddSingleton<ICharacterIdentityMeasurementRunner, ProcessCharacterIdentityMeasurementRunner>();
 builder.Services.AddHostedService<SceneAssetPendingJobRecovery>();
@@ -493,10 +519,17 @@ builder.Services.AddSingleton<IImageResizeEngine, ImageResizeEngine>();
 // scoped because the enhance executor resolves the configured editor endpoint, which is scoped.
 builder.Services.AddScoped<IMediaEditOperationExecutor, CropOperationExecutor>();
 builder.Services.AddScoped<IMediaEditOperationExecutor, EnhanceOperationExecutor>();
+// The deterministic horizontal mirror is the identity angle remedy; its pixel work is one engine in the
+// shared editing namespace rather than a second image-manipulation path.
+builder.Services.AddSingleton<IImageMirrorEngine, ImageMirrorEngine>();
 builder.Services.AddScoped<MediaEditOperationExecutorResolver>();
 builder.Services.AddSingleton<PonySceneImagePromptBuilder>();
 builder.Services.AddSingleton<IPonySceneImagePromptBuilder>(sp => sp.GetRequiredService<PonySceneImagePromptBuilder>());
-builder.Services.AddSingleton<ISceneImageLLMPromptBuilder>(sp => sp.GetRequiredService<PonySceneImagePromptBuilder>());
+// NOTE: there is deliberately NO registration for ISceneImageLLMPromptBuilder. Both the Pony tag builder and the
+// natural-language builder implement that interface (it is the compilers' PromptBuilder surface), so a single
+// binding can only ever be right for one dialect and silently wrong for the other - it was bound to the Pony
+// builder, which compiled Qwen-Image-2.1 and API prompts as Pony tags (reported 2026-09-24). Each compiler now
+// names its builder dialect by concrete type, and SceneImagePromptCompilerRegistryTests guards the rule.
 builder.Services.AddSingleton<ISceneImageEditPromptCompiler, QwenSceneImageEditPromptCompiler>();
 builder.Services.AddSingleton<SdxlSceneImagePromptBuilder>();
 builder.Services.AddSingleton<ISdxlSceneImagePromptBuilder>(sp => sp.GetRequiredService<SdxlSceneImagePromptBuilder>());
@@ -504,6 +537,7 @@ builder.Services.AddSingleton<ISceneImagePromptCompiler, PonySceneImagePromptCom
 builder.Services.AddSingleton<ISceneImagePromptCompiler, SdxlSceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, ApiSceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, FluxSceneImagePromptCompiler>();
+builder.Services.AddSingleton<ISceneImagePromptCompiler, QwenImage21SceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompilerRegistry, SceneImagePromptCompilerRegistry>();
 
 // Prompt-queue navigation resilience (B-027)
@@ -529,6 +563,17 @@ using (var scope = app.Services.CreateScope())
             "Media edit store migration copied {Sessions} sessions, {Attempts} attempts and {Revisions} prompt revisions out of the legacy scene/asset edit stores.",
             mediaEditReport.Sessions, mediaEditReport.Attempts, mediaEditReport.Revisions);
     }
+
+    // B-122 Phase 0: the character body card — one row per character, the single owner of the invariant
+    // body description. Created at startup like the other reference stores.
+    await scope.ServiceProvider.GetRequiredService<ICharacterBodyCardRepository>().EnsureSchemaAsync();
+
+    // B-127: the explicit identity links (character instance -> character template).
+    await scope.ServiceProvider.GetRequiredService<ICharacterIdentityLinkRepository>().EnsureSchemaAsync();
+
+    // The identity build store owns the shipped step plans (Face and, since B-122 Phase 0, Body). Ensuring it at
+    // startup keeps the seeded plans in the database from the moment the app is up, instead of on first use.
+    await scope.ServiceProvider.GetRequiredService<ICharacterIdentityBuildRepository>().EnsureSchemaAsync();
 
     var themeCatalogService = scope.ServiceProvider.GetRequiredService<IThemeCatalogService>();
     await themeCatalogService.SeedDefaultsAsync();
