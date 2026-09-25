@@ -1,3 +1,5 @@
+using DreamGenClone.Domain.Processing;
+
 namespace DreamGenClone.Web.Application.RolePlay.Editing;
 
 /// <summary>
@@ -20,6 +22,17 @@ public interface IImageEditWorkspaceService
     Task<ImageEditSessionView> GetSessionAsync(string sessionId, CancellationToken cancellationToken = default);
 
     Task ReanalyzeAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// What became of the source-description job this session's analysis runs as, or null when no such job exists.
+    ///
+    /// The workspace waits for that description before it will prepare an edit, so a description that FAILED has to
+    /// be reportable: without it the wait never ends, the panel reports work in flight forever and every control
+    /// that depends on it stays disabled with nothing said (2026-09-24 — the provider served a different model id and
+    /// "Prepare edit" was greyed out with no message; `debug/071`).
+    /// </summary>
+    Task<ImageEditDescriptionOutcome?> GetDescriptionOutcomeAsync(
+        string sessionId, CancellationToken cancellationToken = default);
 
     Task<ImageEditAttemptView?> GetLatestAttemptAsync(string sessionId, CancellationToken cancellationToken = default);
 
@@ -69,6 +82,34 @@ public interface IImageEditWorkspaceService
 
     Task<IReadOnlyList<ImageEditLineageItem>> ListLineageAsync(
         ImageEditSubject subject, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// What became of a session's source-description job: whether it can still produce one, and why it did not when it
+/// cannot. In-flight states are NOT terminal — only Complete, Failed and Cancelled are — so the caller keeps waiting
+/// while work is genuinely still queued or running.
+/// </summary>
+public sealed record ImageEditDescriptionOutcome(bool IsTerminal, string? FailureMessage)
+{
+    /// <summary>Reads a durable job row into the answer the workspace needs, with no inference about its type.</summary>
+    public static ImageEditDescriptionOutcome From(DurableBackgroundJob job)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+
+        var terminal = job.Status is DurableBackgroundJobStatus.Complete
+            or DurableBackgroundJobStatus.Failed
+            or DurableBackgroundJobStatus.Cancelled;
+        var failure = job.Status switch
+        {
+            DurableBackgroundJobStatus.Failed or DurableBackgroundJobStatus.Cancelled =>
+                string.IsNullOrWhiteSpace(job.ErrorMessage)
+                    ? job.ErrorCode ?? $"The description job ended as {job.Status}."
+                    : job.ErrorMessage,
+            _ => null
+        };
+
+        return new ImageEditDescriptionOutcome(terminal, failure);
+    }
 }
 
 /// <summary>

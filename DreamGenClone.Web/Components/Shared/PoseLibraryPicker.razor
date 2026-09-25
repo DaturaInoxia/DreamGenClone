@@ -1,0 +1,418 @@
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@inject IPoseLibraryService LibraryService
+@inject IPoseLibraryImporter LibraryImporter
+@inject IPosePackDownloader PackDownloader
+@inject ILogger<PoseLibraryPicker> Logger
+
+@if (Visible)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.6);">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <strong>Pose library</strong>
+                        <span class="d-block small text-muted">Search every pose, pick one, or start a new library. A pose picked here is copied into this session's pose input, so the render path is unchanged.</span>
+                    </div>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="CloseAsync"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-5">
+                            <label class="form-label small fw-semibold mb-1">Keyword</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="standing, kneeling, hand, 029..."
+                                   value="@_keyword" @oninput="e => _keyword = e.Value?.ToString()" @onkeydown="OnKeywordKeyDownAsync" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold mb-1">Library</label>
+                            <select class="form-select form-select-sm" value="@_libraryId" @onchange="OnLibraryFilterChangedAsync">
+                                <option value="">All libraries</option>
+                                @foreach (var library in _libraries)
+                                {
+                                    <option value="@library.Id">@library.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold mb-1">Category</label>
+                            <select class="form-select form-select-sm" value="@_category" @onchange="OnCategoryFilterChangedAsync">
+                                <option value="">All categories</option>
+                                @foreach (var category in _categories)
+                                {
+                                    <option value="@category">@category</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-1 d-grid">
+                            <button type="button" class="btn btn-sm btn-primary" disabled="@_busy" @onclick="SearchAsync">Search</button>
+                        </div>
+                    </div>
+
+                    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ClearFiltersAsync">Clear filters</button>
+                        @if (_busy)
+                        {
+                            <span class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Working...</span>
+                        }
+                        <span class="small text-muted">@_results.Count pose(s)</span>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_error))
+                    {
+                        <div class="alert alert-danger py-1 small mt-2 mb-0">@_error</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_status))
+                    {
+                        <div class="alert alert-info py-1 small mt-2 mb-0">@_status</div>
+                    }
+
+                    <details class="border rounded p-2 mt-3">
+                        <summary class="small fw-semibold">Libraries and import</summary>
+                        <div class="row g-2 align-items-end mt-1">
+                            <div class="col-md-4">
+                                <label class="form-label small fw-semibold mb-1">New library name</label>
+                                <input type="text" class="form-control form-control-sm" placeholder="Handshakes"
+                                       value="@_newLibraryName" @oninput="e => _newLibraryName = e.Value?.ToString()" />
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label small fw-semibold mb-1">Description</label>
+                                <input type="text" class="form-control form-control-sm" placeholder="What belongs in this library"
+                                       value="@_newLibraryDescription" @oninput="e => _newLibraryDescription = e.Value?.ToString()" />
+                            </div>
+                            <div class="col-md-3 d-grid">
+                                <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="CreateLibraryAsync">
+                                    <i class="bi bi-plus-lg me-1"></i>Create library
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ImportPackAsync">
+                                <i class="bi bi-box-arrow-in-down me-1"></i>Import pose packs
+                            </button>
+                            <span class="form-text ms-2">Imports every pack folder. Re-running adds nothing and leaves edited presets alone; missing skeletons are re-rendered.</span>
+                        </div>
+                        <div class="row g-2 align-items-end mt-3 pt-3 border-top">
+                            <div class="col-md-4">
+                                <label class="form-label small fw-semibold mb-1">Download a pack (zip URL)</label>
+                                <input type="text" class="form-control form-control-sm" placeholder="https://.../pack.zip"
+                                       value="@_downloadUrl" @oninput="e => _downloadUrl = e.Value?.ToString()" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-semibold mb-1">Pack name</label>
+                                <input type="text" class="form-control form-control-sm" placeholder="Anime poses"
+                                       value="@_downloadName" @oninput="e => _downloadName = e.Value?.ToString()" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-semibold mb-1">Description</label>
+                                <input type="text" class="form-control form-control-sm" placeholder="Optional"
+                                       value="@_downloadDescription" @oninput="e => _downloadDescription = e.Value?.ToString()" />
+                            </div>
+                            <div class="col-md-2 d-grid">
+                                <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="DownloadPackAsync">
+                                    <i class="bi bi-cloud-arrow-down me-1"></i>Download
+                                </button>
+                            </div>
+                            <div class="col-12"><span class="form-text">The zip is added as its own library. A pack that already exists, is not a zip, or tries to write outside its folder is refused and leaves nothing behind.</span></div>
+                        </div>
+                    </details>
+
+                    @if (_results.Count == 0 && !_busy)
+                    {
+                        <div class="alert alert-warning py-2 small mt-3 mb-0">
+                            @if (_totalPoses == 0)
+                            {
+                                <strong>This library is empty, so there is nothing to search.</strong>
+                                <span> Importing the pack folders is a one-time step per database — until it is done, every
+                                search here returns nothing no matter what you type.</span>
+                                <div class="mt-2">
+                                    <button type="button" class="btn btn-sm btn-primary" disabled="@_busy" @onclick="ImportPackAsync">
+                                        <i class="bi bi-box-arrow-in-down me-1"></i>Import pose packs
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                <strong>No pose matches these filters.</strong>
+                                <span> The library holds @_totalPoses pose(s); clear the filters to see them.</span>
+                                <div class="mt-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ClearFiltersAsync">
+                                        Clear filters
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="row g-2 mt-2">
+                            @foreach (var preset in _results)
+                            {
+                                <div class="col-6 col-md-4 col-xl-3">
+                                    <button type="button"
+                                            class="card h-100 w-100 text-start p-0 @(preset.Id == _selected?.Id ? "border-primary" : "")"
+                                            style="cursor: pointer;"
+                                            @onclick="() => Select(preset)">
+                                        <div class="d-flex justify-content-center align-items-center bg-black" style="height: 130px;">
+                                            @if (LibraryService.SkeletonUrl(preset) is string url)
+                                            {
+                                                <img src="@url" alt="@preset.Name skeleton" style="max-height: 126px; max-width: 100%;" />
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted small">no skeleton</span>
+                                            }
+                                        </div>
+                                        <div class="p-2">
+                                            <div class="small fw-semibold text-truncate" title="@preset.Name">@preset.Name</div>
+                                            <div class="d-flex flex-wrap align-items-center gap-1 mt-1">
+                                                <span class="badge text-bg-secondary">@preset.Category</span>
+                                                @if (preset.KnownGood)
+                                                {
+                                                    <span class="badge text-bg-success" title="Measured to hold under the control model">known-good</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer">
+                    @if (_selected is not null)
+                    {
+                        <span class="small text-muted me-auto">Selected: <strong>@_selected.Name</strong></span>
+                        <button type="button" class="btn btn-sm btn-success" disabled="@_busy" @onclick="ConfirmAsync">
+                            <i class="bi bi-check2 me-1"></i>Use this pose
+                        </button>
+                    }
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CloseAsync">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Whether the picker is shown. Owned by the host so the host decides where it appears.</summary>
+    [Parameter] public bool Visible { get; set; }
+
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+
+    /// <summary>Raised with the chosen preset just before the picker closes.</summary>
+    [Parameter] public EventCallback<PosePreset> OnSelected { get; set; }
+
+    private IReadOnlyList<PoseLibrary> _libraries = [];
+    private IReadOnlyList<PosePreset> _results = [];
+    private IReadOnlyList<string> _categories = [];
+    private PosePreset? _selected;
+    private string? _keyword;
+    private string? _category;
+    private string? _libraryId;
+    private string? _newLibraryName;
+    private string? _newLibraryDescription;
+    private string? _downloadUrl;
+    private string? _downloadName;
+    private string? _downloadDescription;
+    private string? _error;
+    private string? _status;
+    private bool _busy;
+    private bool _loaded;
+
+    /// <summary>How many poses the library holds with NO filters. Only read when a search came back empty, because
+    /// that is the only moment the difference matters.</summary>
+    private int _totalPoses;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Visible && !_loaded)
+        {
+            _loaded = true;
+            await SearchAsync();
+        }
+    }
+
+    private async Task OnKeywordKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (string.Equals(args.Key, "Enter", StringComparison.Ordinal))
+        {
+            await SearchAsync();
+        }
+    }
+
+    private async Task OnLibraryFilterChangedAsync(ChangeEventArgs args)
+    {
+        _libraryId = args.Value?.ToString();
+        await SearchAsync();
+    }
+
+    private async Task OnCategoryFilterChangedAsync(ChangeEventArgs args)
+    {
+        _category = args.Value?.ToString();
+        await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            // The bundled pack is seeded before the first search, so opening the picker on a fresh database shows
+            // poses instead of an empty library that reads as a broken search (reported 2026-09-25).
+            await EnsureBundledPackAsync();
+            _libraries = await LibraryService.ListLibrariesAsync();
+            _categories = await LibraryService.ListCategoriesAsync();
+            _results = await LibraryService.SearchAsync(new PoseLibraryQuery(_keyword, _category, _libraryId));
+
+            // Asked only when nothing matched. "Your library is empty" and "your filters excluded everything" need
+            // opposite actions, and telling an operator to import a pack that is already imported — or to clear
+            // filters that are already clear — is how a working search reads as a broken one.
+            if (_results.Count == 0)
+            {
+                _totalPoses = (await LibraryService.SearchAsync(new PoseLibraryQuery())).Count;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Seeds the bundled pack on first use, so a pack that ships with the app is simply present. A failure is
+    /// surfaced rather than swallowed: the picker stays usable, but the operator is told why it is empty instead of
+    /// being left to conclude the search is broken.
+    /// </summary>
+    private async Task EnsureBundledPackAsync()
+    {
+        try
+        {
+            var seeded = await LibraryImporter.EnsureBundledPackAsync();
+            if (seeded is not null)
+            {
+                _status = $"Imported the bundled pose pack: {seeded.PresetsImported} pose(s) added, "
+                    + $"{seeded.SkeletonsRendered} skeleton(s) rendered. This happens once.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"The bundled pose pack could not be imported: {ex.Message}";
+        }
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        _keyword = null;
+        _category = null;
+        _libraryId = null;
+        await SearchAsync();
+    }
+
+    private async Task CreateLibraryAsync()
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var library = await LibraryService.CreateLibraryAsync(_newLibraryName ?? string.Empty, _newLibraryDescription ?? string.Empty);
+            _status = $"Created library '{library.Name}'. It is searchable immediately.";
+            _newLibraryName = null;
+            _newLibraryDescription = null;
+            _libraryId = library.Id;
+            _libraries = await LibraryService.ListLibrariesAsync();
+            _results = await LibraryService.SearchAsync(new PoseLibraryQuery(_keyword, _category, _libraryId));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ImportPackAsync()
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var result = await LibraryImporter.ImportAsync();
+            _status = $"Import finished: {result.Packs} pack(s), {result.PresetsImported} added, "
+                + $"{result.PresetsAlreadyPresent} already present, {result.SkeletonsRendered} skeletons rendered, "
+                + $"{result.Skipped.Count} skipped.";
+            if (result.Skipped.Count > 0)
+            {
+                Logger.LogWarning("Pose import skipped {Count} files: {Skipped}", result.Skipped.Count, string.Join(" | ", result.Skipped));
+            }
+
+            await SearchAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DownloadPackAsync()
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var result = await PackDownloader.DownloadAsync(
+                _downloadUrl ?? string.Empty, _downloadName ?? string.Empty, _downloadDescription);
+
+            _status = $"Pack '{result.PackFolder}' added: {result.Import.PresetsImported} poses imported, "
+                + $"{result.FilesIgnored} non-pack file(s) ignored. It is searchable now.";
+            _downloadUrl = null;
+            _downloadName = null;
+            _downloadDescription = null;
+            await SearchAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Select(PosePreset preset) => _selected = preset;
+
+    private async Task ConfirmAsync()
+    {
+        if (_selected is null) return;
+
+        var chosen = _selected;
+        _selected = null;
+        _loaded = false;
+        await OnSelected.InvokeAsync(chosen);
+        await VisibleChanged.InvokeAsync(false);
+    }
+
+    private async Task CloseAsync()
+    {
+        _selected = null;
+        _loaded = false;
+        await VisibleChanged.InvokeAsync(false);
+    }
+}

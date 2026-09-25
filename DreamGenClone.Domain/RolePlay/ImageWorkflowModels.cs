@@ -119,6 +119,14 @@ public sealed class ReferenceWorkflowSettings
     /// </summary>
     public string? BodyImageSize { get; set; }
 
+    /// <summary>
+    /// The image model used for LoRA coverage cell renders (B-123). Required by a cell render, so an unset value
+    /// fails fast naming this setting instead of picking a model for the operator; the picker writes it the moment
+    /// a model is chosen. It is a per-character default, and the model actually used is recorded on every attempt,
+    /// so changing this never rewrites the provenance of images already shot.
+    /// </summary>
+    public string? LoraCellModelId { get; set; }
+
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 
     public static string ComputeId(string? characterProfileId)

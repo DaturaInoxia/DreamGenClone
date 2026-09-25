@@ -225,6 +225,14 @@ Rules to preserve (already true in the engine, must become visible in the UI):
 - Widen the page-level lists: `FinishReferenceStrategies` in `SceneImageStudio.razor` must include `NativeMultiReference`; `CompositionComposer.razor` currently passes `["TextOnly"]`, so it must take the model's qualified set.
 - Remove the `throw` on unknown element keys; unknown kinds must render as "unsupported" rather than crashing the page.
 
+> **STATUS 2026-09-25 (verified in code, session CASE-20):** the *page-level* half of U1 is **DONE**
+> (fixed 2026-09-24, §5.1.1 — `SceneImageModelChoice.QualifiedStrategies` → `SelectedModelStrategies` in
+> `CompositionComposer.razor`, `ProductionModelStrategies` in `SceneImageStudio.razor`, both fail-fast when
+> the id is not in the enabled list). The **per-element** half is **STILL OPEN** and is what blocks a native
+> location reference from every surface: `ReferenceApplyPanel.razor`'s `StrategiesFor` map still reads
+> `"Location" => ["TextOnly", "ControlNet"]` with no `NativeMultiReference` arm, and still `throw`s on an
+> unknown element key. `PromptAssetCreator.razor` also still passes `["TextOnly"]`.
+
 **U2 — multi-reference list with ordering**
 - Extend `ReferenceApplicationSelection` with `Ordinal` + `Kind` (additive; persisted bindings stay backwards compatible — missing ordinal means "use the legacy element order").
 - Rework the panel into a single ordered list: add / remove / move-up / move-down, with the ordinal shown on each card and a colour/`badge` per kind.
@@ -235,6 +243,30 @@ Rules to preserve (already true in the engine, must become visible in the UI):
 - `SceneImageCompose.razor`: add the reference panel and a render-mode choice (`PromptOnly` / `IdentityControlled` / `NativeReference`), defaulting to the current behaviour.
 - The compose page must set `RenderMode = NativeReference` when any binding uses `NativeMultiReference`, and must block submit with an explicit reason when the selected model cannot serve the requested bindings.
 - Surface the reference **head-angle** warning in the compose flow (see 5.2 rule 3).
+
+> **BLOCKER FOUND 2026-09-25 (session CASE-20) — U3 as written cannot work.** Setting
+> `RenderMode = NativeReference` is **not sufficient**: the create path never builds the identity bindings
+> the native render consumes. In `SceneImageService.EnqueueRenderAsync`, both `IdentityPackId` and
+> `IdentityPacksJson` are populated **only** when `RenderMode == SceneImageRenderMode.IdentityControlled`,
+> and `IdentityReferenceBindingsJson` is never written on the create path at all (it is currently only
+> built by the identity *edit* paths — `EnqueueIdentityAsync` / `EnqueueEditorIdentityAsync`).
+> Consequence: a `NativeReference` create reaches `SceneImageRenderingJobHandler.BuildNativeReferencesAsync`
+> with **no face references** — the identity face set is empty, so the render either fails fast (if the
+> reference set is empty) or renders the location only, silently **dropping identity**. That is exactly the
+> "no reference is ever dropped to make a render succeed" rule in §5.4.
+>
+> Required additions to U3 (in addition to the render-mode choice):
+> 1. On create with `RenderMode == NativeReference`, build `IdentityReferenceBindingsJson` from the chosen
+>    identity packs using the **same resolution the identity-edit path already uses**
+>    (`ISceneImageProductionService.ResolveCharacterIdentitySelectionsAsync` → `CanonicalFaceAssetId` /
+>    `FileRelativePath` / `Sha256` / `FaceView`), so the ordinal-ordered face list is the one
+>    `BuildNativeReferencesAsync` expects.
+> 2. Keep `AppliedReferenceBindingsJson` flowing as it does today (`SerializeReferenceApplications`
+>    already persists it for any render mode), so location/wardrobe bindings survive the mode switch.
+> 3. Decide and document **one control, two mechanisms** for identity on create: the resolver picks the
+>    mechanism per model (`NativeMultiReference` → reference images, `ReferenceConditioning` →
+>    IP-Adapter/PuLID) and the UI **names** it, matching the pattern already shipped for the studio's
+>    identity card in §5.1.1 and §7 Q2. Do not add a second user-facing control.
 
 **U4 — Pose as a reference**
 - Once 2.1 ControlNet weights exist (or immediately, as a reference-image path): add `Pose` as a first-class kind whose asset comes from the existing pose store, routed as an additional reference image instead of a ControlNet skeleton.

@@ -17,6 +17,22 @@ public sealed record SceneAssetPoseConditioning(BodyReferenceStance Stance, doub
 public sealed record SceneAssetIdentityConditioning(string PackId, string FaceAssetId);
 
 /// <summary>
+/// The approved BODY reference a generated asset image is conditioned on, so the character's BUILD travels with
+/// the render instead of being left to the model. The caller resolves it from the cell's own rule (the coverage
+/// plan already records the body slot and the state per cell) and the render path re-reads the pack and the
+/// asset before using it, exactly as the face reference does.
+///
+/// It is a SECOND reference, not a replacement: it conditions on an approved full-body image whose clothing
+/// state matches the cell, because a reference IMAGE carries its state with it (measured 2026-09-23 — a
+/// bare-shouldered reference made a clothed render come out unclothed).
+///
+/// Only a model that carries references natively (its own reference slots, e.g. Qwen-Image-2.1) can take it. A
+/// model whose identity travels through a single-slot graph (IP-Adapter / PuLID) refuses the render by name
+/// rather than dropping the second reference silently.
+/// </summary>
+public sealed record SceneAssetBodyReferenceConditioning(string PackId, string BodyAssetId);
+
+/// <summary>
 /// A canonical body angle asked for as a RENDER rather than as an edit: the accepted body image supplies the build
 /// and the committed angle skeleton supplies the turn (measured 2026-09-23 — cases body-angle-*, runbook
 /// <c>specs/image-generator-tests/qwen-21-native-reference/RUNBOOK.md</c>). The source is named by IMAGE id: the
@@ -49,6 +65,13 @@ public sealed record SceneAssetImageGenerationOptions
     public SceneAssetPoseConditioning? Pose { get; init; }
 
     public SceneAssetIdentityConditioning? Identity { get; init; }
+
+    /// <summary>
+    /// The approved body reference the character's build comes from, or null for a render that does not condition
+    /// on one. Carried beside <see cref="Identity"/> rather than inside it: a cell can legitimately need the body
+    /// without a face (a view from directly behind has no face in frame) and the two travel to different slots.
+    /// </summary>
+    public SceneAssetBodyReferenceConditioning? BodyReference { get; init; }
 
     /// <summary>A canonical angle rendered from an accepted body image, or null for a render that starts from text.</summary>
     public SceneAssetBodyAngleConditioning? BodyAngle { get; init; }

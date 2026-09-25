@@ -206,6 +206,54 @@ public sealed class CharacterStudioBodyContractTests
         }
     }
 
+    /// <summary>
+    /// Operator report, 2026-09-24: every body card for Becky was finished and accepted, and there was still no way
+    /// to promote the set — because the Body tab had NO promotion panel at all, and the Faces tab's panel is gated on
+    /// the FACE build's <c>CurrentStep >= Promote</c>.
+    ///
+    /// The gate itself was the trap: the body plan's remaining steps (Validate, Angles, ValidateView, Promote) are
+    /// completed BY the promotion, so gating the promotion on those steps being complete is circular and can never
+    /// open. Readiness is the gate instead, and every unmet requirement is named in the panel.
+    /// </summary>
+    [Fact]
+    public void TheBodyPromotionPanel_IsGatedByReadiness_NotByTheBuildsStepIndex()
+    {
+        Assert.Contains("Promote the body set to a BodyComplete pack", BodySection, StringComparison.Ordinal);
+
+        // Readiness drives the panel: the badge, the per-slot cards and the disabled state.
+        Assert.Contains("@BodyPromotionStatus", BodySection, StringComparison.Ordinal);
+        Assert.Contains("_bodyPromotion.Views", BodySection, StringComparison.Ordinal);
+        Assert.Contains("_bodyPromotion.BodyViews", BodySection, StringComparison.Ordinal);
+        Assert.Contains("disabled=\"@(!_bodyPromotion.Ready || _bodyPromotionBusy)\"", BodySection, StringComparison.Ordinal);
+
+        // What is missing is spelled out, one requirement per line: a disabled button with no reason is the dead end
+        // this panel replaces.
+        Assert.Contains("What this promotion still needs", BodySection, StringComparison.Ordinal);
+        Assert.Contains("_bodyPromotion.BlockingReasons", BodySection, StringComparison.Ordinal);
+
+        // The step-index gate belongs to the FACE panel only — the body promotion must not inherit it, in the Body
+        // section or anywhere else in the studio.
+        Assert.DoesNotContain("_build.CurrentStep >= (int)CharacterIdentityBuildStep.Promote", BodySection, StringComparison.Ordinal);
+        Assert.DoesNotContain("_bodyBuild.CurrentStep >= (int)CharacterIdentityBuildStep.Promote", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheBodyPromotion_ReadsAndPromotesTheBodyBuild_AndReReadsWhenTheTabOpens()
+    {
+        // The body build's own readiness and promotion — never the face build's.
+        Assert.Contains("PromotionService.GetReadinessAsync(_bodyBuild.Id)", Source, StringComparison.Ordinal);
+        Assert.Contains("PromotionService.PromoteAsync(buildId)", Source, StringComparison.Ordinal);
+        Assert.Contains("var buildId = _bodyBuild.Id;", Source, StringComparison.Ordinal);
+
+        // Re-read on both paths that can change the answer: resolving the build on load, and opening the Body tab.
+        Assert.Contains("await RefreshBodyPromotionAsync();", Source, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"() => SelectSectionAsync(tab)\"", Source, StringComparison.Ordinal);
+        Assert.Contains("string.Equals(section, \"Body\", StringComparison.Ordinal)", Source, StringComparison.Ordinal);
+
+        // Promoting re-reads the plan's step records, so the rail shows the steps the promotion just completed.
+        Assert.Contains("_bodyStepRows = (await BuildService.ListStepsAsync(buildId)).ToList();", Source, StringComparison.Ordinal);
+    }
+
     private static string Slice(string text, string startMarker, string endMarker)
     {
         var start = text.IndexOf(startMarker, StringComparison.Ordinal);

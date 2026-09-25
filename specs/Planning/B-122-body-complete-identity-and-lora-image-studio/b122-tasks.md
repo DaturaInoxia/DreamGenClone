@@ -198,19 +198,31 @@ configuration. Missing configuration fails fast by key. Full-body assets always 
   (`CharacterIdentityTargetKind.Body`). The studio now selects the face build and the body build **by kind** — the
   old `_build = builds.FirstOrDefault()` would have rendered the body plan under the Faces tab. Verified live in
   the browser on the dev DB.
-- [ ] **B122-020** Add clothed/unclothed view grids showing canonical requirements, extended views,
+- [x] **B122-020** Add clothed/unclothed view grids showing canonical requirements, extended views,
   validation state, attempt history and one-view create/edit/upload/re-run actions.
-  **Next (E-2).**
-- [ ] **B122-021** Add promotion readiness with exact missing-item diagnostics. Do not expose a batch,
+  *Done 2026-09-23/24 (E-2, `debug/063`, `debug/064`, `debug/065`, `debug/068`)* — `BodyViewsPanel` renders the
+  canonical slots of both states with status, findings verdicts, candidate deck (accept/undecide/delete),
+  per-view prompt length against the 800-char ceiling, the accepted-base + skeleton + identity-face preview of what
+  a render sends, and one-view actions only (Generate / Render angle / Edit from accepted source / Review deck /
+  Edit image). **The canonical set is 6 views per state, not 5**: the operator added a **Back** view (full back,
+  no face, `angle-back.png` skeleton, `identity.body.angle.render.back` clause, `CharacterBodyWorkflowKeys.RenderBack`),
+  so a `BodyComplete` pack is 12 body + 5 face = 17 assets. Extended views are refused by name rather than rendered .
+- [x] **B122-021** Add promotion readiness with exact missing-item diagnostics. Do not expose a batch,
   sweep or "generate all" action.
-  **Next (E-3)** — the readiness service side exists (`debug/055`); the panel, the target-aware
-  `CurrentStep >= Promote` guard, per-asset approval and the settings surface (`BodyModelId`,
-  `AngleYawMinAbsPercent`, `QualityGateMinSharpness`) are still to build.
+  *Done 2026-09-24 (E-3, `debug/068`)* — the Body tab renders its own **Promote the body set to a BodyComplete pack**
+  panel from `PromotionService.GetReadinessAsync(_bodyBuild.Id)`: one card per slot (5 face slots of the target draft
+  + the 12 body slots) with Ready/Blocked, and every unmet requirement listed verbatim as its own line. The panel is
+  gated by **readiness, not by the build's step index** — the body plan's remaining steps (Validate → Angles →
+  ValidateView → Promote) are completed *by* the promotion, so the old `CurrentStep >= Promote` gate was circular and
+  could never open; that guard is now face-only, and a source-contract test forbids it in the body path. The body
+  section still exposes no batch/sweep/"generate all" action.
 - [ ] **B122-022 [P]** Add source-contract/component tests and run Razor diagnostics for every
   touched component.
-  **PARTIAL** — `CharacterStudioBodyContractTests` (5) covers the Body tab's structural invariants and
-  `CharacterIdentityBodyServiceTests` +2 covers the card save; the view-grid and promotion-panel contract tests
-  come with E-2/E-3.
+  **PARTIAL** — `CharacterStudioBodyContractTests` (10) covers the Body tab's structural invariants, the gender
+  lookup, the male catalogs and (as of E-3) the promotion panel's readiness gating and its wiring to the body build;
+  `CharacterIdentityBodyViewsPanelTests` (19) covers the view grid; `CharacterIdentityBodyServiceTests` and
+  `CharacterIdentityBodyPromotionTests` (8) cover the service and the promotion. Run Razor diagnostics on each touched
+  component before closing this item.
 
 ## F. Validation and handoff
 
@@ -222,6 +234,10 @@ configuration. Missing configuration fails fast by key. Full-body assets always 
   pack and asset ids; no hand-run scripts or direct DB writes.
 - [ ] **B122-025** Record grep/source proofs that there is one pipeline, one template store, one edit
   primitive, one promotion path, no batch action and no inferred/default body state.
+- [ ] **B122-026** Expose the body render's remaining settings on a UI-backed surface: `AngleYawMinAbsPercent`
+  and `QualityGateMinSharpness` are read from `ReferenceWorkflowSettings` for every body render
+  (`CharacterIdentityBodyService`), but no screen edits them — the same class of hidden-configuration gap the
+  no-fallback rule forbids. `BodyModelId` / `BodyImageSize` already have a settings card in the Body tab.
 
 ## Definition of done
 

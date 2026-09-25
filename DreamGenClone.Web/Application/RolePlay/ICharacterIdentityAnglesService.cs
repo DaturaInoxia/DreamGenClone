@@ -49,6 +49,17 @@ public interface ICharacterIdentityAnglesService
         bool manualConfirmed = false,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Accepts one image of this view's flow as the angle — including an image the edit / crop / enhance chain
+    /// produced from an attempt, which the attempt list alone cannot select.
+    /// </summary>
+    Task<CharacterIdentityAngleRecord> AcceptCandidateAsync(
+        string buildId,
+        CharacterIdentityAngleView view,
+        string imageId,
+        bool manualConfirmed = false,
+        CancellationToken cancellationToken = default);
+
     Task DeleteAttemptAsync(
         string buildId,
         CharacterIdentityAngleView view,

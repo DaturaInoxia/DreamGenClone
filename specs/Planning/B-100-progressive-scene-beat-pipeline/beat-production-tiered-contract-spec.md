@@ -72,6 +72,40 @@ still image's camera/view is produced later at moment enrichment (`compositionRa
 production roles), not from the beat plan. For the image tier we keep a compact `shotIntent` and **wire
 it into the still composition** so images are camera-aware.
 
+### MEASURED EVIDENCE for wiring `shotIntent` into the still composition (2026-09-25, session CASE-20)
+
+Reproduced live on the local ComfyUI host with Qwen-Image-2.1, same identity + location references,
+**only the framing changed**:
+
+| frame | refs | result |
+|---|---|---|
+| 1216x832 "wide" | location + 2 faces | **1 figure** (second figure dropped), subject ≈ **1/7 of frame height** ("miniature"), noisy |
+| 1216x1216 "medium, figures fill the frame" | location + 2 faces | **both figures**, correct scale, man looking down at her as prompted, clean |
+
+Full record: `specs/image-generator-tests/qwen-21-native-reference/CASE-20-shed-production-moment.md`.
+The wide frame let the *empty-room* location reference take the composition: the room became the subject,
+the people shrank to props, and the second figure was dropped entirely.
+
+**Three wide-by-default sources currently feed the still path, which is why this happens without anyone
+asking for a wide shot:**
+
+1. `SceneBeatProductionAssembler.cs` writes `lensIntent = "Static wide establishing shots with selective
+   close-ups on key actions."` as the deterministic default (authored, but the still path ignores it —
+   this is the gap above).
+2. The moment's `compositionRationale` is a **still-compiler prompt field**
+   (`ScenePromptOverrides` → `moment.compositionRationale`) and the LLM authors it in wide language —
+   the case example reads *"**Wide** workbench view establishes both joined bodies…"*.
+3. `SceneImageStudio.razor`'s `OmniscientAngles` presets are **all** wide/angle variants, and the null
+   default (`SceneImagePovFramer.BuildFramingLine`) is "frame the complete visible event in one coherent
+   composition", which the prompt LLM renders as "wide shot".
+
+**Corroboration from the project's own baselines:** every two-figure position proof under
+`specs/image-generator-tests/**` (juggernaut, identity-two-character, baseline/positions) specifies
+**"medium shot"** — the create path is out of step with the framing the project already proved works.
+This also matches the compiler standards §2.4 ("the compiler must tighten framing … never rely on a
+distant figure carrying the image"), which cites the B-103 "Becky dropped" failure class — the same
+failure reproduced here.
+
 ### Tier 2 — Audio (on demand; AVN)
 
 Adds, generated only when an audio consumer is requested:

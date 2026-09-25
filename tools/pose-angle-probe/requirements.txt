@@ -1,0 +1,2 @@
+# No third-party dependencies: the tool uses only the standard library (json, math, urllib).
+# ComfyUI is reached over its HTTP API rather than through a client package, so there is nothing to pin.

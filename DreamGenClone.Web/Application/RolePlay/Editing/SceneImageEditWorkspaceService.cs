@@ -1,4 +1,6 @@
+using DreamGenClone.Application.Processing;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
@@ -18,6 +20,7 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
     private readonly IScenarioService _scenarios;
     private readonly ICharacterImageIdentityService _identity;
     private readonly ICharacterIdentityOwnerResolver _owners;
+    private readonly IDurableBackgroundJobRepository _jobs;
 
     public SceneImageEditWorkspaceService(
         ISceneImageService images,
@@ -25,7 +28,8 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
         ISessionService sessions,
         IScenarioService scenarios,
         ICharacterImageIdentityService identity,
-        ICharacterIdentityOwnerResolver owners)
+        ICharacterIdentityOwnerResolver owners,
+        IDurableBackgroundJobRepository jobs)
     {
         _images = images;
         _compilations = compilations;
@@ -33,6 +37,7 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
         _scenarios = scenarios;
         _identity = identity;
         _owners = owners;
+        _jobs = jobs;
     }
 
     public ImageEditSubjectKind Kind => ImageEditSubjectKind.SceneImage;
@@ -68,6 +73,19 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
 
     public Task ReanalyzeAsync(string sessionId, CancellationToken cancellationToken = default)
         => _compilations.EnqueueDescriptionAsync(sessionId, force: true, cancellationToken);
+
+    public async Task<ImageEditDescriptionOutcome?> GetDescriptionOutcomeAsync(
+        string sessionId, CancellationToken cancellationToken = default)
+    {
+        // The description job's id is deterministic — "<jobType>:<dedupe key>", the same key the enqueue used — so
+        // the exact row is read rather than guessed from a recent-jobs list.
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return null;
+
+        var job = await _jobs.GetAsync(
+            $"{BackgroundJobTypes.SceneImageEditDescription}:{sessionId}", cancellationToken);
+        return job is null ? null : ImageEditDescriptionOutcome.From(job);
+    }
 
     public async Task<ImageEditAttemptView?> GetLatestAttemptAsync(
         string sessionId, CancellationToken cancellationToken = default)

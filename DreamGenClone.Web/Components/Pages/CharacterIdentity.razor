@@ -470,7 +470,12 @@
         if (_draft is not null)
         {
             _assets = (await IdentityService.ListAssetsAsync(_draft.Id)).ToList();
-            _descriptor = _draft.DescriptorSnapshotJson == "{}" ? string.Empty : _draft.DescriptorSnapshotJson;
+            // Pre-fill with the descriptor TEXT, never with the stored snapshot: the snapshot is an object
+            // ({"descriptor":"…"}) and approval wraps the editor's value in exactly that object, so seeding the
+            // editor from the snapshot nested it one level deeper on every supersede+approve
+            // ({"descriptor":"{\"descriptor\":…"}). DescriptorText unwraps every level, so a legacy snapshot
+            // converges to plain text the next time it is approved.
+            _descriptor = DescriptorText(_draft.DescriptorSnapshotJson);
 
             // Automatically analyse any face reference that has not been rated yet.
             var pending = _assets.Where(a => a.AssetKind == SceneImageReferenceAssetKind.Face
@@ -764,21 +769,38 @@
             ? string.Empty
             : (_packs.FirstOrDefault(p => p.Id == packId)?.Version.ToString() ?? "?");
 
+    /// <summary>
+    /// The descriptor TEXT inside a pack's snapshot. The snapshot is <c>{"descriptor":"…"}</c>, and approvals
+    /// before 2026-09-24 wrapped an already-wrapped value, so a pack can carry several nested levels; every level is
+    /// unwrapped here (bounded, so a pathological value cannot loop), which is also what heals those snapshots the
+    /// next time the pack is approved.
+    /// </summary>
     private static string DescriptorText(string descriptorJson)
     {
-        if (string.IsNullOrWhiteSpace(descriptorJson))
+        var text = descriptorJson;
+        for (var level = 0; level < 16 && !string.IsNullOrWhiteSpace(text); level++)
         {
-            return string.Empty;
+            string? inner;
+            try
+            {
+                using var doc = JsonDocument.Parse(text);
+                inner = doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("descriptor", out var d)
+                    && d.ValueKind == JsonValueKind.String
+                        ? d.GetString()
+                        : null;
+            }
+            catch (JsonException)
+            {
+                // The value is the text itself, not a wrapper: that is the shape we want.
+                return text;
+            }
+
+            if (inner is null)
+                return text;
+            text = inner;
         }
 
-        try
-        {
-            using var doc = JsonDocument.Parse(descriptorJson);
-            return doc.RootElement.TryGetProperty("descriptor", out var d) ? (d.GetString() ?? string.Empty) : string.Empty;
-        }
-        catch (JsonException)
-        {
-            return string.Empty;
-        }
+        return text;
     }
 }

@@ -1,6 +1,8 @@
+using DreamGenClone.Application.Processing;
 using DreamGenClone.Application.Templates;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.Templates;
+using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Web.Application.RolePlay.Editing;
@@ -18,19 +20,22 @@ public sealed class SceneAssetImageEditWorkspaceService : IImageEditWorkspaceSer
     private readonly ITemplateService _templates;
     private readonly ICharacterImageIdentityService _identity;
     private readonly ICharacterIdentityOwnerResolver _owners;
+    private readonly IDurableBackgroundJobRepository _jobs;
 
     public SceneAssetImageEditWorkspaceService(
         ISceneAssetService assets,
         ISceneAssetImageEditCompilationService compilations,
         ITemplateService templates,
         ICharacterImageIdentityService identity,
-        ICharacterIdentityOwnerResolver owners)
+        ICharacterIdentityOwnerResolver owners,
+        IDurableBackgroundJobRepository jobs)
     {
         _assets = assets;
         _compilations = compilations;
         _templates = templates;
         _identity = identity;
         _owners = owners;
+        _jobs = jobs;
     }
 
     public ImageEditSubjectKind Kind => ImageEditSubjectKind.AssetImage;
@@ -64,6 +69,19 @@ public sealed class SceneAssetImageEditWorkspaceService : IImageEditWorkspaceSer
 
     public Task ReanalyzeAsync(string sessionId, CancellationToken cancellationToken = default)
         => _compilations.EnqueueDescriptionAsync(sessionId, force: true, cancellationToken);
+
+    public async Task<ImageEditDescriptionOutcome?> GetDescriptionOutcomeAsync(
+        string sessionId, CancellationToken cancellationToken = default)
+    {
+        // The description job's id is deterministic — "<jobType>:<dedupe key>", the same key the enqueue used — so
+        // the exact row is read rather than guessed from a recent-jobs list.
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return null;
+
+        var job = await _jobs.GetAsync(
+            $"{BackgroundJobTypes.SceneAssetImageEditDescription}:{sessionId}", cancellationToken);
+        return job is null ? null : ImageEditDescriptionOutcome.From(job);
+    }
 
     public async Task<ImageEditAttemptView?> GetLatestAttemptAsync(
         string sessionId, CancellationToken cancellationToken = default)

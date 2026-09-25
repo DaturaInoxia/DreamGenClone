@@ -53,6 +53,53 @@ search, and no shared picker.
    stated in the UI, not discovered in a render.
 5. **Raster IoU is invalid as a pose-adherence score** (established in B-123's scoping). Adherence is
    measured with joint geometry.
+6. **The projection is now measured, and one angle family is calibrated wrong (2026-09-02).** All five
+   named body angles were projected, rendered through `juggernautXL_ragnarok` + `OpenPoseXL2` (0.85) on a
+   1024×1024 plate, and read back with DWPose via `tools/pose-angle-probe`. Mean joint error as a
+   percentage of figure height: **front 2.12, 3/4 left 2.68, 3/4 right 2.57, profile left 3.50, profile
+   right 4.28** — all inside a 6 % bar, so the projection itself is sound. The **shoulder span** column
+   disagrees at profile: the rig keeps **7.30 %** where the renders read **1.76 %/2.05 %**, while the
+   front-facing angles agree to within ~2 points (22.61 vs 20.34, 16.89 vs 17.81/17.32). The cause is
+   perspective, not pose: at profile the shoulders are separated in *depth*, and `CameraDistance = 4.5`
+   spreads them on screen further than a real lens does. Pinned by
+   `PoseProjectionTests.AProfileSpanShrinksTowardTheRealRenderAsTheCameraMovesBack`. **Lever:
+   `PoseStudio:CameraDistance`** — raise it and re-run the probe; do not "fix" this in the rig or the
+   projection code. No angle is `known-good` until this is re-measured.
+7. **The skeleton canvas is square and ControlNet does not preserve aspect.** ComfyUI's ControlNet apply
+   resizes the conditioning image to the latent **non-uniformly**, so conditioning a portrait-aspect render
+   from a 1024×1024 skeleton squeezes the figure horizontally and stretches it vertically. The measurement
+   above had to be taken on a square plate to be valid. Nothing in the current render path renders the
+   skeleton at the target aspect, so this is an open defect for any portrait-aspect consumer of a pose
+   preset.
+8. **On the native-reference route a skeleton carries the pose but NOT the facing (measured 2026-09-24).**
+   The app's own `BuildQwenImage21Workflow` was submitted unchanged with the front-angle skeleton as its only
+   reference, seed 20260922. With a prompt that said only "standing upright, arms at their sides" the render
+   came back **facing away from the camera — 17.30 % mean joint error**. Adding "facing the camera, front
+   view, we can see her face" to the same graph, same seed, same skeleton, scored **2.45 %** and reproduced
+   the rig's stance exactly, foot stagger included. The cause is a size limit: front-versus-back in a COCO-18
+   skeleton lives in **five small face dots**, which a diffusion encoder cannot read, and the pack's own
+   DWPose skeletons have the same property. **Consequences for the design:** (a) the angle must travel in the
+   **prompt** as well as in the skeleton for any native-reference model — a pose preset alone is not an angle
+   instruction there; (b) the UI must not imply that picking a pose preset sets the view on that route;
+   (c) the pose-heavy limbs DO carry (2.45 %), so the skeleton is still doing its job.
+9. **The projected skeleton must carry its own facing, and the first version did not (fixed 2026-09-24).**
+   `PoseProjection` hardcoded **confidence 1.0 on every joint**, so the renderer drew a complete face — nose
+   and both eyes — in every view. The front skeleton differed from its own mirror by 1.2 % of pixels, a
+   profile drew two eyes stacked vertically, and a front view and a backwards view were the same picture.
+   Visibility is now derived per joint from a facing normal (`PoseMannequin`: the nose keeps 120°, each eye
+   100° offset 26.6° toward its own side, ears unlimited because they are visible from the back too), and the
+   emitted confidence is that visibility — which is the channel OpenPose actually uses. Pinned by
+   `PoseProjectionTests`.
+10. **A bare rest pose is not a legible pose in a side view (fixed 2026-09-24).** With the arms hanging
+    straight down and the legs straight and together, a profile projects the arms onto the torso and the two
+    legs onto each other: the profile skeleton was a **bare vertical line**. `PoseMannequin.StandingStance()`
+    now swings the arms ~8° forward at the shoulder and elbow (a *sideways* offset would have been along the
+    view axis and projected to nothing) and staggers the legs fore/aft ~6°, and the authoring path poses with
+    it. Pinned by `TheStandingStanceLiftsTheArmOffTheTorsoInAProfileView`.
+11. **The figure needs headroom or a render crops the head (fixed 2026-09-24).** The rig has no skull, so the
+    skeleton's topmost joint is a nose or an eye; at a 48 px margin both the ControlNet route and Qwen-2.1
+    drew the crown and hair off the top of the frame. `PoseSkeletonRenderer.Margin` is now 128 px on a 1024
+    canvas, pinned by `FitToCanvas_LeavesHeadroomSoARenderCannotCropTheHead`.
 
 ## Prior art and reuse (researched 2026-09-23)
 

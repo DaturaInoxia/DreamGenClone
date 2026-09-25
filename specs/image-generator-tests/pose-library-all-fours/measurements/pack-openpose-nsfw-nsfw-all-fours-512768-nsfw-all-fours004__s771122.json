@@ -1,0 +1,68 @@
+{
+  "joints_compared": 13,
+  "mean_error_pct_of_height": 3.205,
+  "p95_error_pct_of_height": 6.048,
+  "max_error_pct_of_height": 6.655,
+  "worst_joint": "l_hip",
+  "per_joint": [
+    {
+      "joint": "l_hip",
+      "error_pct": 6.655
+    },
+    {
+      "joint": "r_shoulder",
+      "error_pct": 6.048
+    },
+    {
+      "joint": "l_ear",
+      "error_pct": 5.654
+    },
+    {
+      "joint": "neck",
+      "error_pct": 4.947
+    },
+    {
+      "joint": "l_shoulder",
+      "error_pct": 3.059
+    },
+    {
+      "joint": "l_wrist",
+      "error_pct": 2.799
+    },
+    {
+      "joint": "l_eye",
+      "error_pct": 2.797
+    },
+    {
+      "joint": "nose",
+      "error_pct": 2.549
+    },
+    {
+      "joint": "r_eye",
+      "error_pct": 1.909
+    },
+    {
+      "joint": "r_hip",
+      "error_pct": 1.889
+    },
+    {
+      "joint": "l_ankle",
+      "error_pct": 1.299
+    },
+    {
+      "joint": "l_elbow",
+      "error_pct": 1.171
+    },
+    {
+      "joint": "l_knee",
+      "error_pct": 0.889
+    }
+  ],
+  "candidate_shoulder_span_pct_of_height": 10.937,
+  "reference_shoulder_span_pct_of_height": 9.549,
+  "angle": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours004",
+  "candidate_path": "D:\\src\\DreamGenClone\\pose-packs\\openpose-nsfw\\NSFW_all_fours\\512768\\NSFW_all_fours004.json",
+  "reference_path": "D:\\src\\DreamGenClone\\specs\\image-generator-tests\\pose-library-all-fours\\images\\pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours004__s771122.png (DWPose)",
+  "max_mean_pct": 6.0,
+  "passed": true
+}

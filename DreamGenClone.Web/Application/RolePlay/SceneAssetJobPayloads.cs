@@ -32,6 +32,20 @@ public sealed class SceneAssetGenerationJobPayload
     public string? IdentityFaceAssetId { get; set; }
 
     /// <summary>
+    /// The approved identity pack the BODY reference comes from, or null when the render carries no body
+    /// reference. Stated separately from <see cref="IdentityPackId"/> because a view from directly behind has no
+    /// face in frame and therefore no face reference, yet still conditions on the character's build.
+    /// </summary>
+    public string? BodyReferencePackId { get; set; }
+
+    /// <summary>
+    /// The approved full-body asset within <see cref="BodyReferencePackId"/> whose view and state match this
+    /// cell. The handler re-reads it and its bytes, so a reference that was unapproved or replaced between the
+    /// queue and the render fails the render rather than quietly rendering a different build.
+    /// </summary>
+    public string? BodyReferenceAssetId { get; set; }
+
+    /// <summary>
     /// The canonical angle this render is asked for, or null when the render is not an angle render. The handler
     /// resolves the skeleton from the committed angle library by this value, so an angle whose skeleton does not
     /// exist fails the render rather than turning the body by inference.

@@ -332,13 +332,14 @@ public sealed class CharacterIdentityPromotionService : ICharacterIdentityPromot
 
         var build = await _builds.GetBuildAsync(buildId, cancellationToken)
             ?? throw new InvalidOperationException($"Character identity build '{buildId}' was not found.");
-        if (!string.IsNullOrWhiteSpace(build.ProducedIdentityPackId))
-        {
-            var existing = await _identity.GetPackAsync(build.ProducedIdentityPackId, cancellationToken);
-            if (existing is not null)
-                return readiness with { PackId = existing.Id };
-        }
 
+        // Promoting again is the SAME operation as promoting: the target pack's slots are replaced from the build's
+        // CURRENT accepted views, so pressing Promote after accepting different views updates the pack and reports
+        // what it replaced. The earlier early return reported "Promoted the five accepted views…" while uploading
+        // nothing, so an operator who had re-accepted every view was told the pack held their new images when it
+        // still held the old ones (2026-09-24). A produced pack that is no longer a draft needs no special case:
+        // creating the draft refuses with "supersede the latest approved pack…", and the body path names the
+        // missing draft.
         return build.TargetKind switch
         {
             CharacterIdentityTargetKind.Face => await PromoteFaceAsync(build, readiness, cancellationToken),
@@ -355,6 +356,7 @@ public sealed class CharacterIdentityPromotionService : ICharacterIdentityPromot
     {
         var pack = await _identity.CreateDraftPackAsync(
             build.CharacterTemplateId, CharacterImageIdentityPackScope.FaceOnly, cancellationToken);
+        var replaced = 0;
         foreach (var view in readiness.Views)
         {
             var image = await _assets.GetImageAsync(view.ArtifactId, cancellationToken)
@@ -363,13 +365,27 @@ public sealed class CharacterIdentityPromotionService : ICharacterIdentityPromot
                 throw new InvalidOperationException($"Promotion image '{view.ArtifactId}' for {view.Label} has no stored file.");
             var downloaded = await _assets.OpenImageForDownloadAsync(image.Id, cancellationToken);
             await using var content = downloaded.Stream;
-            var asset = await _identity.UploadAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, $"{view.Label}.png", content, FaceViewFor(view.View), cancellationToken: cancellationToken);
-            await _identity.SetAssetProvenanceAsync(asset.Id, $"Character identity build {build.Id}; {view.Label}", SceneImageReferenceConsentState.NotApplicable, cancellationToken);
+            // The slot is REPLACED, never appended to: a pack that keeps the previous asset for a view keeps showing
+            // (and supplying) the old image, which is exactly what a promotion that "did nothing" looks like.
+            var write = await _identity.ReplaceSlotAssetAsync(
+                pack.Id,
+                SceneImageReferenceAssetKind.Face,
+                $"{view.Label}.png",
+                content,
+                faceView: FaceViewFor(view.View),
+                cancellationToken: cancellationToken);
+            await _identity.SetAssetProvenanceAsync(write.Asset.Id, $"Character identity build {build.Id}; {view.Label}", SceneImageReferenceConsentState.NotApplicable, cancellationToken);
+            replaced += write.ReplacedAssets;
         }
 
         build.ProducedIdentityPackId = pack.Id;
         await _repository.UpsertBuildAsync(build, cancellationToken);
-        return readiness with { PackId = pack.Id };
+        return readiness with
+        {
+            PackId = pack.Id,
+            UploadedSlots = readiness.Views.Count,
+            ReplacedSlots = replaced
+        };
     }
 
     /// <summary>
@@ -388,6 +404,7 @@ public sealed class CharacterIdentityPromotionService : ICharacterIdentityPromot
                 $"Character '{build.CharacterTemplateId}' has no draft identity pack to promote the body into.");
 
         string? canonicalBodyAssetId = null;
+        var replaced = 0;
         foreach (var slot in readiness.BodyViews)
         {
             if (!slot.Ready || string.IsNullOrWhiteSpace(slot.ArtifactId))
@@ -402,19 +419,21 @@ public sealed class CharacterIdentityPromotionService : ICharacterIdentityPromot
                 throw new InvalidOperationException($"Promotion image '{slot.ArtifactId}' for {slot.Label} has no stored file.");
             var downloaded = await _assets.OpenImageForDownloadAsync(image.Id, cancellationToken);
             await using var content = downloaded.Stream;
-            var asset = await _identity.UploadAssetAsync(
+            // Replaced, not appended to — the same rule as the face half, and the same symptom otherwise: the pack
+            // keeps supplying the reference it already had.
+            var write = await _identity.ReplaceSlotAssetAsync(
                 draft.Id,
                 SceneImageReferenceAssetKind.FullBody,
                 $"{slot.Label}.png",
                 content,
-                faceView: null,
                 bodyView: slot.View,
                 bodyState: slot.State,
                 cancellationToken: cancellationToken);
-            await _identity.SetAssetProvenanceAsync(asset.Id, $"Character identity build {build.Id}; {slot.Label}", SceneImageReferenceConsentState.NotApplicable, cancellationToken);
+            await _identity.SetAssetProvenanceAsync(write.Asset.Id, $"Character identity build {build.Id}; {slot.Label}", SceneImageReferenceConsentState.NotApplicable, cancellationToken);
+            replaced += write.ReplacedAssets;
 
             if (slot.State == SceneImageReferenceBodyState.Unclothed && slot.View == SceneImageReferenceBodyView.Front)
-                canonicalBodyAssetId = asset.Id;
+                canonicalBodyAssetId = write.Asset.Id;
         }
 
         if (canonicalBodyAssetId is null)
@@ -429,7 +448,12 @@ public sealed class CharacterIdentityPromotionService : ICharacterIdentityPromot
         build.ProducedIdentityPackId = draft.Id;
         await _repository.UpsertBuildAsync(build, cancellationToken);
         await CompleteBodyStepsAsync(build.Id, draft.Id, canonicalBodyAssetId, readiness, cancellationToken);
-        return readiness with { PackId = draft.Id };
+        return readiness with
+        {
+            PackId = draft.Id,
+            UploadedSlots = readiness.BodyViews.Count,
+            ReplacedSlots = replaced
+        };
     }
 
     /// <summary>

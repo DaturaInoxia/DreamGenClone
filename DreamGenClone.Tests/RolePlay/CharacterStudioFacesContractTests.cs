@@ -171,6 +171,79 @@ public sealed class CharacterStudioFacesContractTests
         Assert.Contains("_overrideAuthors.TryGetValue(attemptId, out var author)", Source, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Operator report 2026-09-24: "I did the remove-background, crop and enhance edits but the images do not show in
+    /// the list, so I cannot choose to accept the final enhanced one." Panel B — the only surface that lists edited
+    /// images and accepts one as the canonical front — was gated on <c>CurrentStep &gt;= GarmentRemoval</c>. The build
+    /// was sitting on Validate (its upload failed the eye gate), so a finished de-clothe → crop → enhance chain that
+    /// already lived in the build's front container was rendered NOWHERE on the Faces page; only the review deck
+    /// (which reads the container's candidate batch) could see it. The panel is scoped to the container instead, and
+    /// its actions name their prerequisites.
+    /// </summary>
+    [Fact]
+    public void PanelB_IsScopedToTheFrontContainer_NotToTheStepIndex()
+    {
+        Assert.Contains(
+            "_build is not null && !string.IsNullOrWhiteSpace(_build.FrontContainerAssetId)",
+            Markup,
+            StringComparison.Ordinal);
+
+        // The step-index gate IS the defect: while it was there, the panel and everything it owns were unreachable
+        // for a build that had not yet passed Validate.
+        Assert.DoesNotContain(
+            "_build is not null && (int)_build.CurrentStep >= (int)CharacterIdentityBuildStep.GarmentRemoval",
+            Markup,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EditedImages_AreReadFromTheBuildsFrontContainer_NotFromTheEditSource()
+    {
+        // The edit source only resolves once the step index reaches the edit steps, so reading the list through it
+        // hid exactly the images the operator was looking for.
+        Assert.Contains(
+            "await AssetService.ListImagesAsync(_build.FrontContainerAssetId)",
+            Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("AssetService.ListImagesAsync(_garmentSource.AssetId)", Source, StringComparison.Ordinal);
+
+        // Read with the candidates, so the canonical-front choice never depends on the edit workspace resolving.
+        Assert.Contains("await RefreshEditedImagesAsync();", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CanonicalFrontAction_NamesItsPrerequisite_WhenTheFrontIsNotChosen()
+    {
+        Assert.Contains("|| !_frontStepComplete", Source, StringComparison.Ordinal);
+        Assert.Contains("Choose a front candidate in Panel A first", Source, StringComparison.Ordinal);
+
+        // A hidden workspace says what it is waiting for — never a bare "unavailable".
+        Assert.Contains("@EditWorkspaceUnavailableReason", Source, StringComparison.Ordinal);
+        Assert.Contains("private string EditWorkspaceUnavailableReason", Source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Operator report 2026-09-24 (three-quarter left): "I did the edit, crop and enhance; the review deck lets me
+    /// accept the final enhanced one, but it does not show as the 3/4 panel accepted, and it does not show the cropped
+    /// edit either." Panel C's attempt list only knows a RENDER, so the chain built from one had no way in. The card
+    /// now lists every image of the view's candidate batch — renders, crop, enhance — with the decision the review
+    /// deck carries and an action that accepts one as the view.
+    /// </summary>
+    [Fact]
+    public void PanelC_ListsEveryImageOfTheViewsBatch_AndAcceptsIt()
+    {
+        Assert.Contains("AcceptAngleImageAsync", Markup, StringComparison.Ordinal);
+        Assert.Contains("pick the accepted one", Markup, StringComparison.Ordinal);
+        Assert.Contains("@AngleEditImageUrlFor(candidate)", Markup, StringComparison.Ordinal);
+
+        // The batch is the view's flow, read from the one helper that defines it — never re-spelled in the component.
+        Assert.Contains(
+            "CharacterIdentityAnglesService.CandidateBatchIdFor(_build.Id, view)",
+            Source,
+            StringComparison.Ordinal);
+        Assert.Contains("AnglesService.AcceptCandidateAsync(", Source, StringComparison.Ordinal);
+    }
+
     /// <summary>The component's markup and code with line comments removed, for assertions about what it does.</summary>
     private static readonly string Markup = string.Join(
         '\n',

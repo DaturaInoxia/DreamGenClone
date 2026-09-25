@@ -1,0 +1,707 @@
+@page "/pose-library"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using Microsoft.Extensions.Options
+@inject IPoseLibraryService LibraryService
+@inject IPoseLibraryImporter LibraryImporter
+@inject IPosePackDownloader PackDownloader
+@inject IPoseTestRenderService PoseTestRender
+@inject IOptions<PoseStudioOptions> StudioOptions
+@inject ILogger<PoseLibraryPage> Logger
+
+<PageTitle>Pose Library - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+        <div>
+            <h4 class="mb-1">Pose Library</h4>
+            <div class="small text-muted">
+                Every pose the app can condition a render on. Search by keyword across names, categories and keywords,
+                filter by library or category, and keep your own libraries beside the imported pack.
+            </div>
+        </div>
+        <div class="text-end small text-muted">
+            <div><strong>@_results.Count</strong> pose(s) shown</div>
+            <div><strong>@_libraries.Count</strong> library/libraries</div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-5">
+                    <label class="form-label small fw-semibold mb-1">Keyword</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="standing, kneeling, hand, 029..."
+                           value="@_keyword" @oninput="e => _keyword = e.Value?.ToString()" @onkeydown="OnKeywordKeyDownAsync" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold mb-1">Library</label>
+                    <select class="form-select form-select-sm" value="@_libraryId" @onchange="OnLibraryFilterChangedAsync">
+                        <option value="">All libraries</option>
+                        @foreach (var library in _libraries)
+                        {
+                            <option value="@library.Id">@library.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold mb-1">Category</label>
+                    <select class="form-select form-select-sm" value="@_category" @onchange="OnCategoryFilterChangedAsync">
+                        <option value="">All categories</option>
+                        @foreach (var category in _categories)
+                        {
+                            <option value="@category">@category</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-1 d-grid">
+                    <button type="button" class="btn btn-sm btn-primary" disabled="@_busy" @onclick="SearchAsync">Search</button>
+                </div>
+            </div>
+
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ClearFiltersAsync">Clear filters</button>
+                @if (_busy)
+                {
+                    <span class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Working...</span>
+                }
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_error))
+            {
+                <div class="alert alert-danger py-1 small mt-2 mb-0">@_error</div>
+            }
+            @if (!string.IsNullOrWhiteSpace(_status))
+            {
+                <div class="alert alert-info py-1 small mt-2 mb-0">@_status</div>
+            }
+
+            <div class="row g-2 align-items-end mt-3 pt-3 border-top">
+                <div class="col-md-4">
+                    <label class="form-label small fw-semibold mb-1">New library name</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Handshakes"
+                           value="@_newLibraryName" @oninput="e => _newLibraryName = e.Value?.ToString()" />
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label small fw-semibold mb-1">Description</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="What belongs in this library"
+                           value="@_newLibraryDescription" @oninput="e => _newLibraryDescription = e.Value?.ToString()" />
+                </div>
+                <div class="col-md-3 d-grid">
+                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="CreateLibraryAsync">
+                        <i class="bi bi-plus-lg me-1"></i>Create library
+                    </button>
+                </div>
+            </div>
+            <div class="mt-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ImportPackAsync">
+                    <i class="bi bi-box-arrow-in-down me-1"></i>Import pose packs
+                </button>
+                <span class="form-text ms-2">Re-running the import adds nothing and leaves edited presets alone; any missing skeleton is re-rendered.</span>
+            </div>
+
+            <div class="row g-2 align-items-end mt-2">
+                <div class="col-md-6">
+                    <label class="form-label small fw-semibold mb-1">Export projected poses for the probe</label>
+                    <input type="text" class="form-control form-control-sm"
+                           value="@_exportFolder" @oninput="e => _exportFolder = e.Value?.ToString()" />
+                </div>
+                <div class="col-md-6">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ExportProjectedAsync">
+                        <i class="bi bi-filetype-json me-1"></i>Export angle keypoints
+                    </button>
+                    <span class="form-text ms-2">
+                        Writes one JSON per named angle for <code>tools/pose-angle-probe</code>, which measures how
+                        closely the projection agrees with DWPose. The app cannot mark an angle known-good on its
+                        own — that needs this measurement.
+                    </span>
+                </div>
+            </div>
+
+            <div class="row g-2 align-items-end mt-3 pt-3 border-top">
+                <div class="col-md-4">
+                    <label class="form-label small fw-semibold mb-1">Download a pack (zip URL)</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="https://.../pack.zip"
+                           value="@_downloadUrl" @oninput="e => _downloadUrl = e.Value?.ToString()" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold mb-1">Pack name</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Anime poses"
+                           value="@_downloadName" @oninput="e => _downloadName = e.Value?.ToString()" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold mb-1">Description</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Optional"
+                           value="@_downloadDescription" @oninput="e => _downloadDescription = e.Value?.ToString()" />
+                </div>
+                <div class="col-md-2 d-grid">
+                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="DownloadPackAsync">
+                        <i class="bi bi-cloud-arrow-down me-1"></i>Download
+                    </button>
+                </div>
+                <div class="col-12"><span class="form-text">The zip becomes its own library under <code>pose-packs/</code>. A pack that already exists, is not a zip, or tries to write outside its folder is refused and leaves nothing behind.</span></div>
+            </div>
+        </div>
+    </div>
+
+    <PoseAuthorPanel OnSaved="OnPoseSavedAsync" Loaded="_loaded" LoadedFrom="_loadedFrom" />
+
+    <div class="card mb-3">
+        <div class="card-header">
+            <strong>Test a library pose</strong>
+            <span class="d-block small text-muted">
+                Renders one throwaway image of the picked pose and saves nothing — no session, no gallery entry. The
+                skeleton sent is the pose's <strong>own file</strong>, the same artifact the pose proofs used, so a
+                result here can be reproduced outside the app.
+            </span>
+        </div>
+        <div class="card-body">
+            @if (_testPreset is null)
+            {
+                <div class="small text-muted">Pick a pose with <strong>Test this pose</strong> below.</div>
+            }
+            else
+            {
+                <div class="row g-3">
+                    <div class="col-lg-3">
+                        <div class="d-flex justify-content-center align-items-center bg-black border rounded" style="height: 240px;">
+                            @if (LibraryService.SkeletonUrl(_testPreset) is string url)
+                            {
+                                <img src="@url" alt="@_testPreset.Name skeleton" style="max-height: 236px; max-width: 100%;" />
+                            }
+                        </div>
+                        <div class="form-text"><strong>@_testPreset.Name</strong> — this is the skeleton that will be sent.</div>
+                    </div>
+                    <div class="col-lg-9">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold mb-1">Image model</label>
+                                @if (_testModels.Count == 0)
+                                {
+                                    <span class="text-muted d-block small">No image models are enabled in Model Manager.</span>
+                                }
+                                else
+                                {
+                                    <select class="form-select form-select-sm" value="@_testModelId"
+                                            @onchange="e => _testModelId = e.Value?.ToString()">
+                                        @foreach (var model in _testModels)
+                                        {
+                                            <option value="@model.ModelId" disabled="@(!model.CanCarryPose)">
+                                                @model.DisplayName - @model.ProviderName (@model.MechanismLabel)
+                                            </option>
+                                        }
+                                    </select>
+                                }
+                                <span class="form-text">@TestMechanismHint()</span>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-semibold mb-1">Seed (optional)</label>
+                                <input type="text" class="form-control form-control-sm" placeholder="random"
+                                       value="@_testSeed" @oninput="e => _testSeed = e.Value?.ToString()" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-semibold mb-1">Canvas</label>
+                                <input type="text" class="form-control form-control-sm"
+                                       value="@_testSize" @oninput="e => _testSize = e.Value?.ToString()" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small fw-semibold mb-1">Prompt</label>
+                                <textarea class="form-control form-control-sm" rows="3"
+                                          value="@_testPrompt" @oninput="e => _testPrompt = e.Value?.ToString()"></textarea>
+                                <span class="form-text">
+                                    Square canvas keeps the skeleton's own aspect. On a reference-conditioned model the
+                                    skeleton carries the body but not which way the figure faces, so keep the view in
+                                    the wording.
+                                </span>
+                            </div>
+                            <div class="col-12">
+                                <button type="button" class="btn btn-sm btn-primary" disabled="@(_testBusy || !CanTestPose())"
+                                        @onclick="RunTestAsync">
+                                    @if (_testBusy)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                    }
+                                    <i class="bi bi-eye me-1"></i>Test this pose
+                                </button>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_testError))
+                        {
+                            <div class="alert alert-danger py-1 small mt-2 mb-0">@_testError</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_testNote))
+                        {
+                            <div class="alert alert-info py-1 small mt-2 mb-0">@_testNote</div>
+                        }
+                        @if (_testImageUrl is not null)
+                        {
+                            <div class="mt-2 d-flex justify-content-center bg-black border rounded p-2">
+                                <img src="@_testImageUrl" alt="Pose test render" style="max-height: 420px; max-width: 100%;" />
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (_results.Count == 0 && !_busy)
+    {
+        <div class="alert alert-warning py-2 small mb-0">
+            @if (_totalPoses == 0)
+            {
+                <strong>This library is empty.</strong>
+                <span> No pose has been imported into this database yet, so every search returns nothing —
+                <strong>Import pose packs</strong> above is a one-time step.</span>
+            }
+            else
+            {
+                <strong>No pose matches these filters.</strong>
+                <span> The library holds @_totalPoses pose(s); clear the filters to see them.</span>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var preset in _results)
+            {
+                <div class="col-6 col-md-4 col-xl-3">
+                    <div class="card h-100">
+                        <div class="d-flex justify-content-center align-items-center bg-black" style="height: 160px;">
+                            @if (LibraryService.SkeletonUrl(preset) is string url)
+                            {
+                                <img src="@url" alt="@preset.Name skeleton" style="max-height: 156px; max-width: 100%;" />
+                            }
+                            else
+                            {
+                                <span class="text-muted small">no skeleton</span>
+                            }
+                        </div>
+                        <div class="card-body p-2">
+                            <div class="small fw-semibold text-truncate" title="@preset.Name">@preset.Name</div>
+                            <div class="d-flex flex-wrap align-items-center gap-1 mt-1">
+                                <span class="badge text-bg-secondary">@preset.Category</span>
+                                @if (preset.KnownGood)
+                                {
+                                    <span class="badge text-bg-success" title="Measured to hold under the control model">known-good</span>
+                                }
+                            </div>
+                            <div class="small text-muted mt-1 text-truncate" title="@preset.Keywords">@preset.Keywords</div>
+                            <div class="d-grid gap-1 mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(_busy || _testBusy)"
+                                        @onclick="() => SelectForTestAsync(preset)">
+                                    <i class="bi bi-eye me-1"></i>Test this pose
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy"
+                                        @onclick="() => OpenInEditorAsync(preset)">
+                                    <i class="bi bi-pencil-square me-1"></i>Open in editor
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<PoseLibrary> _libraries = [];
+    private IReadOnlyList<PosePreset> _results = [];
+    private IReadOnlyList<string> _categories = [];
+    private string? _keyword;
+    private string? _category;
+    private string? _libraryId;
+    private string? _newLibraryName;
+    private string? _newLibraryDescription;
+
+    /// <summary>
+    /// Where the probe candidates are written. Git-ignored and relative to the app's content root, and visible in
+    /// the UI rather than buried in code so the path the tool is told to read is the path the app wrote.
+    /// </summary>
+    private string? _exportFolder = "../artifacts/tmp/pose-probes";
+    private string? _downloadUrl;
+    private string? _downloadName;
+    private string? _downloadDescription;
+    private string? _error;
+    private string? _status;
+    private bool _busy;
+
+    /// <summary>How many poses the library holds with NO filters. Only read when a search came back empty, because
+    /// that is the only moment the difference between an empty library and an over-narrow filter matters.</summary>
+    private int _totalPoses;
+
+    /// <summary>The rig fitted onto a library pose, handed to the authoring panel as its starting point.</summary>
+    private PoseRigFitResult? _loaded;
+
+    /// <summary>The preset <see cref="_loaded"/> came from, so the panel can name it and refuse to overwrite it.</summary>
+    private PosePreset? _loadedFrom;
+
+    /// <summary>
+    /// The library pose selected for a test render, plus that render's state.
+    ///
+    /// The test lives on the PAGE rather than only inside the authoring panel because the panel works on a rig FIT:
+    /// the bytes it can offer are the projection of the fitted rig, so a pose the rig cannot place would be
+    /// untestable, and the thing tested would be a projection of the pose rather than the pose. From here the bytes
+    /// sent are the preset's OWN skeleton - the same artifact the recorded proof used - which is what makes a test
+    /// result reproducible outside the UI.
+    /// </summary>
+    private PosePreset? _testPreset;
+    private IReadOnlyList<PoseTestModelChoice> _testModels = [];
+    private string? _testModelId;
+    private string? _testPrompt;
+    private string? _testSeed;
+    private string _testSize = "1024x1024";
+    private string? _testImageUrl;
+    private string? _testNote;
+    private string? _testError;
+    private bool _testBusy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await SearchAsync();
+        await LoadTestModelsAsync();
+    }
+
+    /// <summary>
+    /// The models a pose can be tested against, each with the mechanism it would really use. Failing to load them
+    /// must not take out the library, so the reason is surfaced where the test panel sits.
+    /// </summary>
+    private async Task LoadTestModelsAsync()
+    {
+        try
+        {
+            _testModels = await PoseTestRender.ListModelsAsync();
+
+            // The first model that CAN carry a pose, from a list the service already ordered reference-route first,
+            // so the default is the mechanism this work is built on rather than whatever sorts first by name.
+            _testModelId = _testModels.FirstOrDefault(model => model.CanCarryPose)?.ModelId;
+        }
+        catch (Exception ex)
+        {
+            _testError = $"The test render could not list image models: {ex.Message}";
+        }
+    }
+
+    /// <summary>Selects a library pose for testing without fitting a rig onto it.</summary>
+    private Task SelectForTestAsync(PosePreset preset)
+    {
+        _testPreset = preset;
+        _testError = null;
+        _testNote = null;
+        _testImageUrl = null;
+        // Offered, never enforced: it stays editable in the box next to the button.
+        _testPrompt ??= PoseTestPrompts.Default;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>True only when a pose is selected AND the selected model can carry a pose.</summary>
+    private bool CanTestPose() =>
+        _testPreset is not null && _testModels.Any(model => model.ModelId == _testModelId && model.CanCarryPose);
+
+    /// <summary>
+    /// Names the mechanism the selected model will use, or the resolver's reason it cannot carry the pose, so the
+    /// words on screen and the graph that runs come from the same decision.
+    /// </summary>
+    private string TestMechanismHint()
+    {
+        var selected = _testModels.FirstOrDefault(model => model.ModelId == _testModelId);
+        if (selected is null)
+        {
+            return "Pick a model to see how it will carry the pose.";
+        }
+
+        return selected.CanCarryPose
+            ? $"This model carries the pose through: {selected.MechanismLabel}."
+            : $"This model cannot carry a pose: {selected.Reason}";
+    }
+
+    /// <summary>
+    /// Renders one throwaway image of the SELECTED pose. The skeleton is read from the library, so the bytes that
+    /// condition the render are the preset's own artifact - the proof's input - and not a rig projection of it.
+    /// Nothing is persisted: no session, no gallery entry.
+    /// </summary>
+    private async Task RunTestAsync()
+    {
+        if (_testPreset is null) return;
+
+        _testBusy = true;
+        _testError = null;
+        _testNote = null;
+        _testImageUrl = null;
+        try
+        {
+            long? seed = null;
+            if (!string.IsNullOrWhiteSpace(_testSeed))
+            {
+                // Refused rather than ignored: a seed that silently became "random" would make two runs differ for
+                // a reason the operator cannot see.
+                if (!long.TryParse(_testSeed.Trim(), out var parsed))
+                {
+                    throw new InvalidOperationException(
+                        $"'{_testSeed}' is not a whole-number seed. Leave it blank for a random one.");
+                }
+
+                seed = parsed;
+            }
+
+            var skeleton = await LibraryService.ReadSkeletonAsync(_testPreset.Id);
+
+            var result = await PoseTestRender.RenderAsync(new PoseTestRenderRequest(
+                skeleton,
+                _testPreset.Name,
+                _testModelId ?? string.Empty,
+                _testPrompt ?? string.Empty,
+                null,
+                _testSize,
+                seed));
+
+            _testImageUrl = "data:image/png;base64," + Convert.ToBase64String(result.Image);
+            _testNote = $"Sent the library skeleton for '{_testPreset.Name}' ({skeleton.Length:N0} bytes). "
+                + $"Carried the pose through: {result.Mechanism}. {result.Note}";
+        }
+        catch (Exception ex)
+        {
+            _testError = ex.Message;
+        }
+        finally
+        {
+            _testBusy = false;
+        }
+    }
+
+    private async Task OnKeywordKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (string.Equals(args.Key, "Enter", StringComparison.Ordinal))
+        {
+            await SearchAsync();
+        }
+    }
+
+    private async Task OnLibraryFilterChangedAsync(ChangeEventArgs args)
+    {
+        _libraryId = args.Value?.ToString();
+        await SearchAsync();
+    }
+
+    private async Task OnCategoryFilterChangedAsync(ChangeEventArgs args)
+    {
+        _category = args.Value?.ToString();
+        await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await EnsureBundledPackAsync();
+            _libraries = await LibraryService.ListLibrariesAsync();
+            _categories = await LibraryService.ListCategoriesAsync();
+            _results = await LibraryService.SearchAsync(new PoseLibraryQuery(_keyword, _category, _libraryId));
+
+            // Asked only when nothing matched: an empty library and a filter that excluded everything need opposite
+            // actions, and naming the wrong one is how a working search reads as a broken one.
+            if (_results.Count == 0)
+            {
+                _totalPoses = (await LibraryService.SearchAsync(new PoseLibraryQuery())).Count;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Seeds the bundled pack the first time it is needed, so a pack that ships with the app is simply present. It
+    /// runs before the search, and a failure is SURFACED rather than swallowed: the library stays browsable, but the
+    /// operator is told why it is empty instead of being left to conclude the search is broken.
+    /// </summary>
+    private async Task EnsureBundledPackAsync()
+    {
+        try
+        {
+            var seeded = await LibraryImporter.EnsureBundledPackAsync();
+            if (seeded is not null)
+            {
+                _status = $"Imported the bundled pose pack: {seeded.PresetsImported} pose(s) added, "
+                    + $"{seeded.SkeletonsRendered} skeleton(s) rendered. This happens once.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"The bundled pose pack could not be imported: {ex.Message}";
+        }
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        _keyword = null;
+        _category = null;
+        _libraryId = null;
+        await SearchAsync();
+    }
+
+    private async Task CreateLibraryAsync()
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var library = await LibraryService.CreateLibraryAsync(_newLibraryName ?? string.Empty, _newLibraryDescription ?? string.Empty);
+            _status = $"Created library '{library.Name}'. It is searchable immediately.";
+            _newLibraryName = null;
+            _newLibraryDescription = null;
+            _libraryId = library.Id;
+            await SearchAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DownloadPackAsync()
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var result = await PackDownloader.DownloadAsync(
+                _downloadUrl ?? string.Empty, _downloadName ?? string.Empty, _downloadDescription);
+
+            _status = $"Pack '{result.PackFolder}' added: {result.Import.PresetsImported} poses imported, "
+                + $"{result.FilesIgnored} non-pack file(s) ignored. It is searchable now.";
+            _downloadUrl = null;
+            _downloadName = null;
+            _downloadDescription = null;
+
+            _libraries = await LibraryService.ListLibrariesAsync();
+            _categories = await LibraryService.ListCategoriesAsync();
+            _results = await LibraryService.SearchAsync(new PoseLibraryQuery(_keyword, _category, _libraryId));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Shows the pose that was just saved. The filters are moved to it rather than left as they were: a new pose
+    /// that does not appear because a stale filter excludes it reads as a failed save.
+    /// /// </summary>
+    private async Task OnPoseSavedAsync(PosePreset preset)
+    {
+        _keyword = null;
+        _category = null;
+        _libraryId = preset.LibraryId;
+
+        _libraries = await LibraryService.ListLibrariesAsync();
+        _categories = await LibraryService.ListCategoriesAsync();
+        _results = await LibraryService.SearchAsync(new PoseLibraryQuery(null, null, _libraryId));
+    }
+
+    private async Task ExportProjectedAsync()
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var written = await LibraryService.ExportProjectedPosesAsync(_exportFolder ?? string.Empty);
+            _status = $"Exported {written.Count} angle keypoint file(s) to {Path.GetDirectoryName(written[0])}. "
+                + "Run tools/pose-angle-probe against them to measure the angles.";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Fits the rig onto a library pose and hands it to the authoring panel, so a pose that was never authored here
+    /// — a pack pose extracted from a photograph — can still be edited with every tool: the 5° arrows, the head
+    /// tool and the drag editor.
+    ///
+    /// The fit is an approximation, because a single 2D view carries no depth, so its residual travels with it and
+    /// is shown rather than hidden. A pose that cannot be fitted at all (too few visible joints) reports the reason
+    /// instead of opening an empty editor.
+    /// </summary>
+    private Task OpenInEditorAsync(PosePreset preset)
+    {
+        _error = null;
+        _status = null;
+        try
+        {
+            var observed = OpenPosePoseJson.Parse(preset.KeypointsJson, preset.Name);
+            _loaded = PoseRigFit.Fit(observed, StudioOptions.Value);
+            _loadedFrom = preset;
+
+            _status = $"Fitted the rig onto '{preset.Name}': {_loaded.MeanErrorPercentOfHeight:0.0}% mean joint error. "
+                + "Edit it in the panel above — saving adds a new pose and leaves this one alone.";
+        }
+        catch (Exception ex)
+        {
+            // Deliberately not left half-loaded: a failed fit must not leave the panel editing the previous pose
+            // while the message claims otherwise.
+            _loaded = null;
+            _loadedFrom = null;
+            _error = $"'{preset.Name}' could not be opened in the editor: {ex.Message}";
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task ImportPackAsync()
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var result = await LibraryImporter.ImportAsync();
+            _status = $"Import finished: {result.Packs} pack(s), {result.PresetsImported} added, "
+                + $"{result.PresetsAlreadyPresent} already present, {result.SkeletonsRendered} skeletons rendered, "
+                + $"{result.Skipped.Count} skipped.";
+            if (result.Skipped.Count > 0)
+            {
+                Logger.LogWarning("Pose import skipped {Count} files: {Skipped}", result.Skipped.Count, string.Join(" | ", result.Skipped));
+            }
+
+            _libraries = await LibraryService.ListLibrariesAsync();
+            _categories = await LibraryService.ListCategoriesAsync();
+            _results = await LibraryService.SearchAsync(new PoseLibraryQuery(_keyword, _category, _libraryId));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

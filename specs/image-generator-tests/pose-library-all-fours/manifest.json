@@ -1,0 +1,401 @@
+{
+  "graphSource": "artifacts\\tmp\\qwen-2-1\\pose-allfours-graph.json",
+  "graphSha256": "f722d6f49a0a7783010e6957e5f2ee1b8573c513545e761550244a2a1b714e7d",
+  "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, on all fours, natural skin texture, photorealistic, plain studio background, 85mm",
+  "referenceSlots": [
+    "images.image_1"
+  ],
+  "skeletonRoot": "DreamGenClone.Web\\wwwroot\\pose-library\\library\\openpose-nsfw",
+  "seeds": [
+    20260922,
+    771122
+  ],
+  "comfy": "https://comfy.kenacwood.net",
+  "runs": [
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours003",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours003.png",
+      "skeletonSha256": "93127bfe746c68524378ddaeb62bc60342186a90cf3a8e6dbe2df08d157fe8a5",
+      "referenceName": "pose-proof-6d1615a61927.png",
+      "promptId": "20aaba35-dda0-400e-bcd7-4465fcd3f0ee",
+      "elapsedSeconds": 22.9,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours003__s20260922.png",
+          "sha256": "f63c64efcdb4eb81581d26eceb2621b8b2e87492d572ee6ed037e52e5ed30ad7",
+          "bytes": 1371525
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours003",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours003.png",
+      "skeletonSha256": "93127bfe746c68524378ddaeb62bc60342186a90cf3a8e6dbe2df08d157fe8a5",
+      "referenceName": "pose-proof-c2d2c9558b09.png",
+      "promptId": "96a82690-1594-4c71-a50f-33157a2405b3",
+      "elapsedSeconds": 22.3,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours003__s771122.png",
+          "sha256": "eabc2712fd797c6d153bc8bfc862ca7b822183e0ce848044ddbd352c0c616a2a",
+          "bytes": 1380172
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours004",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours004.png",
+      "skeletonSha256": "07c5aeaaf7ca509c0ebc055c7235c92a45224d078e6bc88fca1533a699aee94f",
+      "referenceName": "pose-proof-49b1626c9004.png",
+      "promptId": "8f9a4071-4ce5-4b54-92f2-be2d1de000f7",
+      "elapsedSeconds": 22.3,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours004__s20260922.png",
+          "sha256": "72fc849307935fccb034b74e839cca5f346452e9c7a26c8c72beadf74dcd97e1",
+          "bytes": 1421736
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours004",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours004.png",
+      "skeletonSha256": "07c5aeaaf7ca509c0ebc055c7235c92a45224d078e6bc88fca1533a699aee94f",
+      "referenceName": "pose-proof-1d8dc3aef1e7.png",
+      "promptId": "895e833e-a7b9-4010-8166-0ef2830d72ac",
+      "elapsedSeconds": 22.2,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours004__s771122.png",
+          "sha256": "b29cee3c4b82ed65c301b9fa83540337923d8b0a02c2fb78fa24e91eaee1bb8c",
+          "bytes": 1410810
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours005",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours005.png",
+      "skeletonSha256": "9f264623e1b431738198274b87b9ee51c46f844b85c006db20fd6b91b5a16f9d",
+      "referenceName": "pose-proof-19cfe85d98ec.png",
+      "promptId": "6157d229-27ea-4397-9350-0f96612507e1",
+      "elapsedSeconds": 26.3,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours005__s20260922.png",
+          "sha256": "03065ac32b2b74c760f77d9db74a9d024971d9b0290bf66c95789dc5e2c1faf9",
+          "bytes": 1401105
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours005",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours005.png",
+      "skeletonSha256": "9f264623e1b431738198274b87b9ee51c46f844b85c006db20fd6b91b5a16f9d",
+      "referenceName": "pose-proof-7da8e2a10278.png",
+      "promptId": "fa665137-8e2d-45cb-bcc0-c31675fa06d7",
+      "elapsedSeconds": 22.0,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours005__s771122.png",
+          "sha256": "15a397a8191a864ea35bc83c4c50259eade3c489119992655e23372fd26ea320",
+          "bytes": 1357373
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006.png",
+      "skeletonSha256": "f783380a292b8bf77e53a89bd7da3e665bd2a5b1283ddaaa5c80ab82888b0a3e",
+      "referenceName": "pose-proof-940255308d5a.png",
+      "promptId": "ba969054-9c27-4eb1-a7e8-0cd1a59a50a3",
+      "elapsedSeconds": 30.5,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006__s20260922.png",
+          "sha256": "77bfb73abff409be97d0351b547241faeacc90a062c27e4156487afc5ec2958e",
+          "bytes": 1442794
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006.png",
+      "skeletonSha256": "f783380a292b8bf77e53a89bd7da3e665bd2a5b1283ddaaa5c80ab82888b0a3e",
+      "referenceName": "pose-proof-bc916cd45232.png",
+      "promptId": "5b60913f-8235-4839-adb1-b504aa833a35",
+      "elapsedSeconds": 22.1,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006__s771122.png",
+          "sha256": "caba7894038cf1580cedbba01c96ecc8c7ab29ba0884b76ace872efebc8867ab",
+          "bytes": 1517125
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours007",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours007.png",
+      "skeletonSha256": "c0ab48766a61d51be132d596ec26cf88ce86afb3c954a04037b0c7c4e093ff38",
+      "referenceName": "pose-proof-3c7f6c8d2130.png",
+      "promptId": "064d4b8b-9140-493c-a953-f56da618c7d6",
+      "elapsedSeconds": 22.1,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours007__s20260922.png",
+          "sha256": "b320ea7859818c42bc9ffa6cc818dd416a6b2c9299edaa54c6829bd033d8b3d6",
+          "bytes": 1420324
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours007",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours007.png",
+      "skeletonSha256": "c0ab48766a61d51be132d596ec26cf88ce86afb3c954a04037b0c7c4e093ff38",
+      "referenceName": "pose-proof-b9c8deab3a32.png",
+      "promptId": "8e66d659-e465-4333-b975-bf8fa0c4e175",
+      "elapsedSeconds": 22.6,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours007__s771122.png",
+          "sha256": "6949c72ac9f6587081a8e317c21c4695f8648b4361da1706e08e3c981a07f22f",
+          "bytes": 1450409
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008.png",
+      "skeletonSha256": "0006f4be587bc20efdf7997d984e2f2ddcedc54a16a4c3c8139bbc6e114dc1b0",
+      "referenceName": "pose-proof-7ba6e247d35b.png",
+      "promptId": "614eea97-e095-4f40-b5e2-d9634404868d",
+      "elapsedSeconds": 20.1,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008__s20260922.png",
+          "sha256": "f7341de79f2db3e4bacd859d0f66735ec8a1b39e8e002b839256130acbdfe2e0",
+          "bytes": 1389796
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008.png",
+      "skeletonSha256": "0006f4be587bc20efdf7997d984e2f2ddcedc54a16a4c3c8139bbc6e114dc1b0",
+      "referenceName": "pose-proof-419532fd8864.png",
+      "promptId": "415ac45b-3e86-481c-a9fe-d173afb16a1b",
+      "elapsedSeconds": 22.1,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008__s771122.png",
+          "sha256": "0df2ead7e54566853de58c0679f9ec15beef76d51039d643c0a1738fa9e083ef",
+          "bytes": 1389154
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours009",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours009.png",
+      "skeletonSha256": "7c2f298ec23b90603fa52caf0e887215666b2888772e35d17c5e094eabdac1d2",
+      "referenceName": "pose-proof-057ed026e34f.png",
+      "promptId": "7423a5fa-8ebf-4485-8e20-000f2a2b52ad",
+      "elapsedSeconds": 37.0,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours009__s20260922.png",
+          "sha256": "3133650b98f501819de092a16fd7bb9a902e47d3748232d0bf3b15c9d753ef4c",
+          "bytes": 1462553
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours009",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours009.png",
+      "skeletonSha256": "7c2f298ec23b90603fa52caf0e887215666b2888772e35d17c5e094eabdac1d2",
+      "referenceName": "pose-proof-adcf6a74757d.png",
+      "promptId": "58ec3f58-9b5b-4679-8b41-ee6696d7932d",
+      "elapsedSeconds": 41.3,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours009__s771122.png",
+          "sha256": "4d81522e2d456d02e448f371a06f5ebea6b7e66383da626f6e32c029386b712a",
+          "bytes": 1445107
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010.png",
+      "skeletonSha256": "6e2e398c62dbae5d047883e0af6453907b0dafd9d9a79be0bad0e4cf0bcb6940",
+      "referenceName": "pose-proof-0c7bcbc9d580.png",
+      "promptId": "2461e2bd-e55a-475f-9008-ff85ca4a854d",
+      "elapsedSeconds": 34.9,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010__s20260922.png",
+          "sha256": "317df766906586ce329de9982eb9463e4452f6cdd9aa80052d1cdc4b67fd9f62",
+          "bytes": 1248142
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010.png",
+      "skeletonSha256": "6e2e398c62dbae5d047883e0af6453907b0dafd9d9a79be0bad0e4cf0bcb6940",
+      "referenceName": "pose-proof-5e0f054ca01f.png",
+      "promptId": "94b078e4-7161-4af0-8bdc-052d8aa72be2",
+      "elapsedSeconds": 30.7,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010__s771122.png",
+          "sha256": "b931164d26472980105dcc99c3e00c0e4305f65748e8ab05a8d14c66ab45f664",
+          "bytes": 1268393
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours.png",
+      "skeletonSha256": "f63792c2d3c4856ecb46d5268fea5e5ec8ec5e82451f205904e469ac0abaada6",
+      "referenceName": "pose-proof-46b97c938aaf.png",
+      "promptId": "e8d1a483-5dac-45ab-a728-250b6401b4db",
+      "elapsedSeconds": 35.0,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours__s20260922.png",
+          "sha256": "0e86024d8b98505e0bed49345755cc7a19f416de10c21cfad0b9a2413f1fed28",
+          "bytes": 1118396
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours.png",
+      "skeletonSha256": "f63792c2d3c4856ecb46d5268fea5e5ec8ec5e82451f205904e469ac0abaada6",
+      "referenceName": "pose-proof-fb4935b7310b.png",
+      "promptId": "f04178e3-7869-44fc-a0f8-ec6c6b68b6c1",
+      "elapsedSeconds": 39.0,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours__s771122.png",
+          "sha256": "907e569f81600413e472ef2af5053d2cbbd5dcc388740d338498838b33211a21",
+          "bytes": 1106293
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001.png",
+      "skeletonSha256": "4fb677ab50926c1c962dcabe0d46d58f0789ea83d1957502deee9d24eeec073e",
+      "referenceName": "pose-proof-176cba8a248e.png",
+      "promptId": "b6e239bb-5d01-496f-b4d7-0435b9165a61",
+      "elapsedSeconds": 22.0,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001__s20260922.png",
+          "sha256": "e955b148427fee5a5f9d6edba2d6a81bf48842e4cf19271844b7afdb6836a128",
+          "bytes": 1136581
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001.png",
+      "skeletonSha256": "4fb677ab50926c1c962dcabe0d46d58f0789ea83d1957502deee9d24eeec073e",
+      "referenceName": "pose-proof-627a332e94f9.png",
+      "promptId": "da739509-0b83-44a3-bb2f-821776742978",
+      "elapsedSeconds": 30.5,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001__s771122.png",
+          "sha256": "11164ca381e5be6fbe6160d0089e18d21c7dcb8bc6e9bb99ac267ebaba64f532",
+          "bytes": 1170852
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002.png",
+      "skeletonSha256": "93968690700c409bc9b13e0b493b3bb2c05bac73abf49981feee8a2f5aedafb1",
+      "referenceName": "pose-proof-f36755f8cd37.png",
+      "promptId": "b201d94e-e0f8-4343-bb2f-c2f7f508346a",
+      "elapsedSeconds": 22.3,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002__s20260922.png",
+          "sha256": "e2ea5b242dae060e08e3c7b36b2eeb11f691c9d36e7c693153cca86ed430aefe",
+          "bytes": 1091164
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002.png",
+      "skeletonSha256": "93968690700c409bc9b13e0b493b3bb2c05bac73abf49981feee8a2f5aedafb1",
+      "referenceName": "pose-proof-677264e124c1.png",
+      "promptId": "bad91b53-7528-4d2b-ae06-3184d5ed92fe",
+      "elapsedSeconds": 24.2,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002__s771122.png",
+          "sha256": "a46c5036b7cc6dfd1bb9d9413de4ba4e70a7ce0f4d709bd092b86c3867dbf27a",
+          "bytes": 1082287
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours011",
+      "seed": 20260922,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours011.png",
+      "skeletonSha256": "8d8894da65501db835ed850f779aa58bd180a5d8166ce3d73958bc00be2a4edb",
+      "referenceName": "pose-proof-d68c95a5bbce.png",
+      "promptId": "55fe0257-ce8a-4a7a-b2b0-d90ea0e7fced",
+      "elapsedSeconds": 20.8,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours011__s20260922.png",
+          "sha256": "e756f08f4229d88bb7700503f748ea0d8b3eff2ca3ac52f8918cf413a290c1fb",
+          "bytes": 1280609
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours011",
+      "seed": 771122,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours011.png",
+      "skeletonSha256": "8d8894da65501db835ed850f779aa58bd180a5d8166ce3d73958bc00be2a4edb",
+      "referenceName": "pose-proof-6d7afde26081.png",
+      "promptId": "7e60cc02-1cfa-4084-bac2-dffab3b71f8a",
+      "elapsedSeconds": 57.2,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours011__s771122.png",
+          "sha256": "385dc64fc02049d60ee977f039d094bbde31485ceab566586e61a4cb584d075d",
+          "bytes": 1280974
+        }
+      ]
+    }
+  ],
+  "imagesSubdir": "images"
+}

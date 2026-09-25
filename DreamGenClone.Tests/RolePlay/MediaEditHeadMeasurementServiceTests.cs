@@ -114,6 +114,9 @@ public sealed class MediaEditHeadMeasurementServiceTests
         public Task<ImageEditSessionView> OpenSessionAsync(ImageEditSubject subject, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ImageEditSessionView> GetSessionAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task ReanalyzeAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<ImageEditDescriptionOutcome?> GetDescriptionOutcomeAsync(
+            string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ImageEditAttemptView?> GetLatestAttemptAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ImageEditAttemptView> PrepareAsync(string sessionId, string rawIntent, IReadOnlyList<string> clarificationHistory, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<ImageEditRevisionView>> ListRevisionsAsync(string compilationAttemptId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

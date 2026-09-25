@@ -41,6 +41,13 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
     /// does this pack contribute" has one implementation.
     /// </summary>
     private readonly IdentityFaceReferenceResolver? _identityFaceResolver;
+
+    /// <summary>
+    /// Optional for the same reason as <see cref="_identityFaceResolver"/>: only a render that conditions on the
+    /// character's build needs it, and such a render fails fast when it is absent rather than leaving the build to
+    /// the model.
+    /// </summary>
+    private readonly IdentityBodyReferenceResolver? _identityBodyReferenceResolver;
     private readonly ILogger<SceneAssetGenerationJobHandler> _logger;
 
     public SceneAssetGenerationJobHandler(
@@ -58,7 +65,8 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         ICharacterImageIdentityRepository identityRepository,
         ICharacterImageAssetStorageService identityStorage,
         ILogger<SceneAssetGenerationJobHandler> logger,
-        IdentityFaceReferenceResolver? identityFaceResolver = null)
+        IdentityFaceReferenceResolver? identityFaceResolver = null,
+        IdentityBodyReferenceResolver? identityBodyReferenceResolver = null)
     {
         _repository = repository;
         _storage = storage;
@@ -74,6 +82,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         _identityRepository = identityRepository;
         _identityStorage = identityStorage;
         _identityFaceResolver = identityFaceResolver;
+        _identityBodyReferenceResolver = identityBodyReferenceResolver;
         _logger = logger;
     }
 
@@ -183,7 +192,11 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
 
             var bytes = !string.IsNullOrWhiteSpace(payload.BodyAngleView)
                 ? await RenderBodyAngleAsync(image, model, payload, compiledPrompt, negativePrompt, cancellationToken)
+                // A pack reference decides this route: EITHER a face or a body reference is enough, because a view
+                // from directly behind carries no face in frame and still conditions on the character's build.
+                // Treating the face as the only trigger is what would leave those cells unconditioned.
                 : string.IsNullOrWhiteSpace(payload.IdentityFaceAssetId)
+                    && string.IsNullOrWhiteSpace(payload.BodyReferenceAssetId)
                     ? string.IsNullOrWhiteSpace(payload.PoseStance)
                         ? await _imageClient.GenerateAsync(model, compiledPrompt, payload.ImageSize, negativePrompt, null, cancellationToken)
                             ?? throw new InvalidOperationException("The image model returned no image bytes.")
@@ -517,9 +530,9 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
     }
 
     /// <summary>
-    /// Renders through the identity-conditioned client. The pack and its face asset are RE-READ here rather than
+    /// Renders through the reference-conditioned route. The pack and each reference are RE-READ here rather than
     /// trusted from the queue, so a reference that was superseded, unapproved or deleted between queueing and
-    /// rendering fails the render instead of silently producing a different person.
+    /// rendering fails the render instead of silently producing a different person or build.
     /// </summary>
     private async Task<byte[]> RenderIdentityConditionedAsync(
         ResolvedImageModel model,
@@ -531,46 +544,67 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         CancellationToken cancellationToken,
         bool poseIsNative = false)
     {
-        if (string.IsNullOrWhiteSpace(payload.IdentityPackId))
-        {
-            throw new InvalidOperationException(
-                "Identity conditioning names a face asset but no pack, so the reference cannot be verified. Enqueue "
-                + "the render again through the body panel's identity option.");
-        }
+        var hasFaceReference = !string.IsNullOrWhiteSpace(payload.IdentityFaceAssetId);
+        var hasBodyReference = !string.IsNullOrWhiteSpace(payload.BodyReferenceAssetId);
 
-        // The pack, its approval, and the exact face are re-read here rather than trusted from the queue, so a
-        // reference that was superseded, unapproved or deleted between queueing and rendering fails the render
-        // instead of silently producing a different person. Shared with the scene render path: one
-        // implementation of "which approved face does this pack contribute".
-        var face = await (_identityFaceResolver
-                ?? throw new InvalidOperationException(
-                    "Identity conditioning requires the identity face reference resolver."))
-            .ResolveExactFaceAsync(1, payload.IdentityPackId, payload.IdentityFaceAssetId ?? string.Empty, cancellationToken);
-
-        byte[] referenceBytes;
-        await using (var source = await _identityStorage.OpenReadAsync(face.FileRelativePath, cancellationToken))
-        using (var buffer = new MemoryStream())
-        {
-            await source.CopyToAsync(buffer, cancellationToken);
-            referenceBytes = buffer.ToArray();
-        }
-
-        if (referenceBytes.Length == 0)
-        {
-            throw new InvalidOperationException($"Identity face asset '{face.FaceAssetId}' contains no image bytes.");
-        }
-
-        // HOW this model carries identity is decided by the same resolver the panel asks, so an offered switch is never
-        // one the render refuses. Two mechanisms exist and they are NOT interchangeable: a configured IP-Adapter/PuLID
-        // graph conditions the sampler's model input, while a native-reference model takes the face as an image
-        // alongside the prompt in one call. Falling back from one to the other would produce an unconditioned image
-        // that looks exactly like a conditioned one, so an unavailable strategy fails here.
+        // HOW this model carries a reference is decided ONCE, before either reference is read, because the answer
+        // decides whether a second reference is even expressible: a configured IP-Adapter/PuLID graph conditions the
+        // sampler's model input through ONE slot, while a native-reference model takes images alongside the prompt in
+        // one call. A mechanism that cannot carry both must refuse the render, never drop one silently.
         var strategy = await ReferenceStrategyResolver.ResolveIdentityAsync(
             _referenceStrategies, payload.ModelId, cancellationToken);
         if (!strategy.IsAvailable)
         {
             throw new InvalidOperationException(
-                $"Identity conditioning was requested, but this model cannot carry it: {strategy.Reason}");
+                $"Reference conditioning was requested, but this model cannot carry it: {strategy.Reason}");
+        }
+
+        var carriesReferencesNatively = string.Equals(
+            strategy.Strategy, ReferenceStrategyResolver.IdentityNativeMultiReference, StringComparison.OrdinalIgnoreCase);
+
+        // Shared with the scene render path: one implementation of "which approved face does this pack contribute".
+        ResolvedIdentityFaceReference? face = null;
+        byte[]? referenceBytes = null;
+        if (hasFaceReference)
+        {
+            if (string.IsNullOrWhiteSpace(payload.IdentityPackId))
+            {
+                throw new InvalidOperationException(
+                    "Identity conditioning names a face asset but no pack, so the reference cannot be verified. Enqueue "
+                    + "the render again through the body panel's identity option.");
+            }
+
+            face = await (_identityFaceResolver
+                    ?? throw new InvalidOperationException(
+                        "Identity conditioning requires the identity face reference resolver."))
+                .ResolveExactFaceAsync(1, payload.IdentityPackId, payload.IdentityFaceAssetId!, cancellationToken);
+            referenceBytes = await ReadIdentityReferenceBytesAsync(
+                face.FileRelativePath, $"identity face asset '{face.FaceAssetId}'", cancellationToken);
+        }
+
+        ResolvedIdentityBodyReference? bodyReference = null;
+        byte[]? bodyReferenceBytes = null;
+        if (hasBodyReference)
+        {
+            if (!carriesReferencesNatively)
+            {
+                throw new InvalidOperationException(
+                    $"A body reference was requested, but model '{payload.ModelId}' carries references through "
+                    + $"'{strategy.Strategy}', which has a single reference slot, so the body would be dropped. This "
+                    + "render was NOT submitted: select a model that carries references natively, or render the cell "
+                    + "without a body reference.");
+            }
+
+            bodyReference = await (_identityBodyReferenceResolver
+                    ?? throw new InvalidOperationException(
+                        "Body reference conditioning requires the identity body reference resolver."))
+                .ResolveExactBodyAsync(
+                    2, payload.BodyReferencePackId ?? string.Empty, payload.BodyReferenceAssetId!, cancellationToken);
+            bodyReferenceBytes = await ReadIdentityReferenceBytesAsync(
+                bodyReference.FileRelativePath,
+                $"identity body asset '{bodyReference.BodyAssetId}' "
+                + $"({bodyReference.BodyView}/{bodyReference.BodyState})",
+                cancellationToken);
         }
 
         if (string.Equals(
@@ -587,31 +621,41 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                     + "that carries both as references.");
             }
 
-            // ONE reference today: the approved FACE, plus the pose skeleton when the model carries poses natively.
-            // This list is the single place a further reference would be added — when a pack carries a canonical BODY
-            // reference as well (CharacterImageIdentityPack.CanonicalFullBodyAssetId), a native-reference model can
-            // take both in the same call: the face for identity, the body for proportions. Nothing else on this path
-            // would change: the strategy, the pack/face validation and the refusal rules are about the MECHANISM, not
-            // about how many references travel with it.
-            List<ReferenceConditionedImageInput> references =
-            [
-                new ReferenceConditionedImageInput
+            // The approved FACE (identity) and the approved BODY (build), plus the pose skeleton when the model
+            // carries poses natively. Order is face, body, skeleton: the face anchors the person, the body the build,
+            // and the skeleton goes LAST. Slot order is a placement convention, not a capability gate — the host
+            // proof landed identity, build and pose together in any order (measured 2026-09-23).
+            List<ReferenceConditionedImageInput> references = [];
+            if (face is not null)
+            {
+                references.Add(new ReferenceConditionedImageInput
                 {
                     SemanticRole = $"approved identity face for the body reference ({face.FaceView?.ToString() ?? "unspecified view"})",
                     FileName = $"identity-{face.FaceAssetId}.png",
-                    Content = referenceBytes
-                }
-            ];
+                    Content = referenceBytes!
+                });
+            }
 
-            // Pose goes LAST (faces, then approved scene assets, then the pose skeleton) — a deterministic convention,
-            // not a capability requirement: the host proof landed identity and pose together in any slot order.
+            if (bodyReference is not null)
+            {
+                references.Add(new ReferenceConditionedImageInput
+                {
+                    SemanticRole = $"approved body build reference ({bodyReference.BodyView}/{bodyReference.BodyState})",
+                    FileName = $"body-{bodyReference.BodyAssetId}.png",
+                    Content = bodyReferenceBytes!
+                });
+            }
+
             if (poseIsNative)
                 references.Add(await ReadPoseSkeletonAsync(payload, cancellationToken));
 
             _logger.LogInformation(
-                "Scene asset identity render via NATIVE reference: ImageId={ImageId}, Model={Model}, Pack={PackId} v{Version}, "
-                + "Face={FaceId}, Angle={FaceView}, References={References}",
-                image.Id, model.ModelIdentifier, face.PackId, face.PackVersion, face.FaceAssetId, face.FaceView, references.Count);
+                "Scene asset reference-conditioned render via NATIVE reference: ImageId={ImageId}, Model={Model}, "
+                + "Pack={PackId} v{Version}, Face={FaceId}, Body={BodyId}, References={References}",
+                image.Id, model.ModelIdentifier,
+                face?.PackId ?? bodyReference!.PackId,
+                face?.PackVersion ?? bodyReference!.PackVersion,
+                face?.FaceAssetId, bodyReference?.BodyAssetId, references.Count);
 
             return await _referenceClient.GenerateWithReferencesAsync(
                 model,
@@ -625,6 +669,17 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                     CorrelationId = image.Id
                 },
                 cancellationToken);
+        }
+
+        // A graph mechanism conditions through ONE slot: the approved face. A body-only render therefore cannot be
+        // carried here — and the check above already refused a second reference on this route — so this states the
+        // remaining case rather than letting a face-less render reach a mechanism with nothing to condition on.
+        if (face is null || referenceBytes is null)
+        {
+            throw new InvalidOperationException(
+                $"Model '{payload.ModelId}' carries references through '{strategy.Strategy}', which conditions on the "
+                + "approved FACE. This render named no face reference, so that mechanism has nothing to condition on and "
+                + "the render was NOT submitted: select a model that carries references natively.");
         }
 
         // The model must declare and qualify an identity MECHANISM; the resolver fails fast otherwise, because a
@@ -674,6 +729,29 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 CorrelationId = image.Id
             },
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads one approved pack reference's stored bytes. The label is what the failure names, so a missing file says
+    /// which reference it was rather than "an image".
+    /// </summary>
+    private async Task<byte[]> ReadIdentityReferenceBytesAsync(
+        string fileRelativePath, string label, CancellationToken cancellationToken)
+    {
+        byte[] bytes;
+        await using (var source = await _identityStorage.OpenReadAsync(fileRelativePath, cancellationToken))
+        using (var buffer = new MemoryStream())
+        {
+            await source.CopyToAsync(buffer, cancellationToken);
+            bytes = buffer.ToArray();
+        }
+
+        if (bytes.Length == 0)
+        {
+            throw new InvalidOperationException($"The {label} contains no image bytes, so it cannot be sent as a reference.");
+        }
+
+        return bytes;
     }
 
     private async Task CompleteWithBytesAsync(SceneAssetImage image, string fileName, byte[] bytes, CancellationToken cancellationToken)

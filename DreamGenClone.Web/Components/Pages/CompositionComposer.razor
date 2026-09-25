@@ -26,6 +26,7 @@
 @inject ICharacterIdentityOwnerResolver OwnerResolver
 @inject IReferenceStrategyResolver ReferenceStrategies
 @inject ISceneMomentEnrichmentPipelineService MomentEnrichmentService
+@inject IPoseLibraryService PoseCatalog
 
 <PageTitle>Composition Composer - DreamGenClone</PageTitle>
 
@@ -260,8 +261,13 @@
                                 }
                                 else if (string.IsNullOrWhiteSpace(_poseStoragePath))
                                 {
-                                    <InputFile accept=".png,.jpg,.jpeg,.webp" OnChange="OnPoseFileSelectedAsync" />
-                                    <div class="form-text">OpenPose skeleton PNG (pose library or DWPose extract). When attached, the render uses the OpenPose ControlNet graph instead of plain text.</div>
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <InputFile accept=".png,.jpg,.jpeg,.webp" OnChange="OnPoseFileSelectedAsync" />
+                                        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_poseBusy" @onclick="OpenPosePicker">
+                                            <i class="bi bi-grid-3x3-gap me-1"></i>Choose from library
+                                        </button>
+                                    </div>
+                                    <div class="form-text">OpenPose skeleton PNG — upload one, pick one from the pose library, or use a DWPose extract. When attached, the render uses the OpenPose ControlNet graph instead of plain text.</div>
                                 }
                                 else
                                 {
@@ -280,6 +286,10 @@
                                 }
                             </div>
                         </div>
+
+                        <PoseLibraryPicker Visible="_posePickerOpen"
+                                           VisibleChanged="value => _posePickerOpen = value"
+                                           OnSelected="OnPosePickedAsync" />
 
                         <div class="border-top mt-4 pt-3" aria-label="Identity on create">
                             <div class="d-flex justify-content-between align-items-start gap-2">
@@ -1112,6 +1122,39 @@
     {
         if (style == SceneImagePromptStyle.PonyV6Tags) _ponyPromptText = value;
         else _sdxlPromptText = value;
+    }
+
+    private bool _posePickerOpen;
+
+    private void OpenPosePicker() => _posePickerOpen = true;
+
+    /// <summary>
+    /// Attaches a pose chosen from the library by copying its skeleton into this session's pose input. The render
+    /// path is untouched: it still receives a stored skeleton, exactly as an upload does, so there is one
+    /// conditioning path rather than two.
+    /// </summary>
+    private async Task OnPosePickedAsync(PosePreset preset)
+    {
+        _poseUploadError = string.Empty;
+        _poseBusy = true;
+        try
+        {
+            var bytes = await PoseCatalog.ReadSkeletonAsync(preset.Id);
+            var name = $"pose_{preset.Id}_{Guid.NewGuid():N}.png";
+            await using var stream = new MemoryStream(bytes);
+            _poseStoragePath = await SceneImageStorage.SaveAsync(sessionId, name, stream);
+            _poseImageName = $"{preset.Name} (pose library)";
+            _poseStrength = 0.8;
+        }
+        catch (Exception ex)
+        {
+            _poseUploadError = $"Failed to attach the library pose: {ex.Message}";
+        }
+        finally
+        {
+            _poseBusy = false;
+            StateHasChanged();
+        }
     }
 
     private async Task OnPoseFileSelectedAsync(InputFileChangeEventArgs e)

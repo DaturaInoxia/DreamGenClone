@@ -1,0 +1,990 @@
+@using System.Text.Json
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Components.Shared
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Web.Application.RolePlay
+
+@inject ICharacterLoraRepository LoraRepository
+@inject ICharacterLoraCoveragePlanGenerator PlanGenerator
+@inject ICharacterLoraCellService CellService
+@inject ICharacterImageIdentityService IdentityService
+@inject ICharacterIdentityBodyService BodyService
+@inject ICharacterIdentityOwnerResolver OwnerResolver
+@inject IModelResolutionService ModelResolutionService
+@inject IImageWorkflowTemplateService TemplateService
+@inject ILogger<LoraDatasetWorkspace> Logger
+
+@* The LoRA images tab: the plan on the left, the cell being worked on the right.
+   The plan is a checklist the operator works through one cell at a time. Nothing here renders: there is no
+   "generate them all" action anywhere in this component, and adding one would defeat the item. *@
+
+@if (!string.IsNullOrWhiteSpace(_ownerMessage))
+{
+    <div class="alert alert-danger">@_ownerMessage</div>
+}
+else if (_loadFailed)
+{
+    @* A configuration or data failure, shown instead of the tab rather than inside it: rendering the workspace
+       around it would also render "no body-complete pack exists", which is not the reason. *@
+    <div class="alert alert-danger">
+        <strong>The LoRA dataset workspace could not open.</strong>
+        <div class="mt-1">@_error</div>
+    </div>
+}
+else if (_loading)
+{
+    <div class="card">
+        <div class="card-body text-muted">Reading this character's datasets…</div>
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger py-2">@_error</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_status))
+    {
+        <div class="alert alert-info py-2">@_status</div>
+    }
+
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="d-flex align-items-center gap-2">
+            <label class="form-label small mb-0" for="lora-dataset">Dataset</label>
+            <select id="lora-dataset" class="form-select form-select-sm" style="min-width:20rem;"
+                    value="@_selectedDatasetId" @onchange="OnDatasetChangedAsync" disabled="@(_datasets.Count == 0)">
+                @if (_datasets.Count == 0)
+                {
+                    <option value="">No dataset yet for @_characterName</option>
+                }
+                @foreach (var dataset in _datasets)
+                {
+                    <option value="@dataset.Id">v@dataset.Version · @dataset.Status · @dataset.TargetModelFamily · @dataset.TriggerToken</option>
+                }
+            </select>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            @if (_plan is not null)
+            {
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleGrid">
+                    <i class="bi @(_gridCollapsed ? "bi-chevron-double-right" : "bi-chevron-double-left") me-1"></i>
+                    @(_gridCollapsed ? "Show cells" : "Collapse cells")
+                </button>
+            }
+            <button type="button" class="btn btn-sm btn-primary" @onclick="ToggleNewDatasetAsync">
+                @(_newDatasetOpen ? "Cancel" : "New dataset")
+            </button>
+        </div>
+    </div>
+
+    @if (_newDatasetOpen)
+    {
+        <section class="card mb-3" aria-label="New LoRA dataset">
+            <div class="card-header"><strong>New dataset</strong></div>
+            <div class="card-body">
+                @if (_approvedPacks.Count == 0)
+                {
+                    <div class="alert alert-warning py-2 mb-0">
+                        No approved, body-complete identity pack exists for @_characterName. A LoRA dataset conditions
+                        half its cells on the unclothed body reference, so the body set has to be built and promoted
+                        first — open the <strong>Body</strong> tab.
+                    </div>
+                }
+                else
+                {
+                    <div class="row g-2">
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-pack">Approved identity pack</label>
+                            <select id="lora-pack" class="form-select form-select-sm" value="@_newPackId" @onchange="OnNewPackChanged">
+                                @foreach (var pack in _approvedPacks)
+                                {
+                                    <option value="@pack.Id">v@pack.Version · approved @pack.ApprovedUtc?.ToLocalTime().ToString("g")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-token">Trigger token</label>
+                            <input id="lora-token" class="form-control form-control-sm" @bind="_newTriggerToken" />
+                            <div class="form-text">The one word the character's identity binds to. It is the first token of every caption.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small" for="lora-family">Target model family</label>
+                            <input id="lora-family" class="form-control form-control-sm" @bind="_newTargetFamily" />
+                            <div class="form-text">The family a training profile exists for; a LoRA is trained per base model.</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary mt-3" @onclick="CreateDatasetAsync" disabled="@_busy">
+                        Create dataset
+                    </button>
+                }
+            </div>
+        </section>
+    }
+
+    @if (_plan is null)
+    {
+        <div class="card">
+            <div class="card-body text-muted">
+                No coverage plan to show. Create a dataset to project @_characterName's approved pack onto the
+                coverage matrix — 30 core cells and 6 variation cells, each with its own seed.
+            </div>
+        </div>
+    }
+    else
+    {
+        <section class="card mb-3" aria-label="Dataset readiness">
+            <div class="card-body py-2">
+                <div class="d-flex flex-wrap align-items-center gap-3 small">
+                    <span><strong>cells accepted</strong> @AcceptedCount/@_plan.Records.Count</span>
+                    <span><strong>captions</strong> @CaptionCount/@AcceptedCount</span>
+                    <span><strong>clothed / nude</strong> @ClothedCount / @UnclothedCount</span>
+                    <span><strong>backgrounds</strong> @BackgroundCount (min @_policy?.MinimumDistinctBackgrounds)</span>
+                    <span><strong>pose classes</strong> @PoseClassCount (min @_policy?.MinimumPoseClasses)</span>
+                    <span><strong>seeds</strong> @_plan.SeedRangeStart–@(_plan.SeedRangeStart + _plan.Records.Count - 1)</span>
+                </div>
+                @if (Gaps.Count > 0)
+                {
+                    <div class="mt-2 small">
+                        <span class="text-warning-emphasis me-1"><i class="bi bi-exclamation-triangle me-1"></i>Gaps</span>
+                        @foreach (var gap in Gaps)
+                        {
+                            <span class="badge text-bg-warning me-1">@gap</span>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="mt-2 small text-success-emphasis">
+                        <i class="bi bi-check2-circle me-1"></i>The plan meets every configured minimum.
+                    </div>
+                }
+            </div>
+        </section>
+
+        <div class="row g-3">
+            <div class="col-12 @(_gridCollapsed ? "col-lg-auto" : "col-lg-4")">
+                <section class="card" aria-label="Coverage cells">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Cells</strong>
+                        @if (!_gridCollapsed)
+                        {
+                            <select class="form-select form-select-sm w-auto" value="@_filter" @onchange="OnFilterChanged" aria-label="Filter cells">
+                                <option value="all">All @_plan.Records.Count</option>
+                                <option value="remaining">Not accepted (@(_plan.Records.Count - AcceptedCount))</option>
+                                <option value="accepted">Accepted (@AcceptedCount)</option>
+                            </select>
+                        }
+                    </div>
+                    @if (_gridCollapsed)
+                    {
+                        <div class="card-body py-2 text-muted small" style="max-width:9rem;">
+                            @_plan.Records.Count cells<br />
+                            @AcceptedCount accepted
+                        </div>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush" style="max-height:70vh;overflow-y:auto;">
+                            @foreach (var row in FilteredRows)
+                            {
+                                <li class="list-group-item py-2 @(row.Record.Key == _selectedCellKey ? "active" : "")"
+                                    style="cursor:pointer;" @onclick="() => SelectCell(row.Record.Key)">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div class="small">
+                                            <div>
+                                                <span class="font-monospace">@row.Record.Key</span>
+                                            </div>
+                                            <div class="@(row.Record.Key == _selectedCellKey ? "" : "text-muted")">
+                                                @row.Record.AngleFamily · @row.Record.Distance · @row.Record.WardrobeState · @row.Record.PoseClass
+                                            </div>
+                                            <div class="@(row.Record.Key == _selectedCellKey ? "" : "text-muted")">
+                                                @LoraCellWorkflowKeys.ShortName(row.Record.OutfitKey) ·
+                                                @LoraCellWorkflowKeys.ShortName(row.Record.BackgroundKey) ·
+                                                seed @row.Record.Seed · @row.Record.Split
+                                            </div>
+                                        </div>
+                                        <span class="badge @StatusBadge(row.Status)">@row.Status</span>
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </section>
+            </div>
+
+            <div class="col-12 @(_gridCollapsed ? "col-lg" : "col-lg-8")">
+                @if (SelectedRecord is null)
+                {
+                    <section class="card">
+                        <div class="card-body text-muted">Pick a cell on the left to work on it.</div>
+                    </section>
+                }
+                else
+                {
+                    <section class="card" aria-label="Cell workspace">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <strong>@SelectedRecord.Key</strong>
+                            <span class="small text-muted">
+                                @SelectedRecord.AngleFamily · @SelectedRecord.Distance · @SelectedRecord.Aspect · seed @SelectedRecord.Seed
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <dl class="row small mb-3">
+                                <dt class="col-sm-3">Wardrobe</dt>
+                                <dd class="col-sm-9">@SelectedRecord.WardrobeState — @SelectedWardrobePhrase</dd>
+                                <dt class="col-sm-3">Pose class</dt>
+                                <dd class="col-sm-9">@SelectedRecord.PoseClass — @SelectedPosePhrase</dd>
+                                <dt class="col-sm-3">Expression</dt>
+                                <dd class="col-sm-9">@SelectedExpressionPhrase</dd>
+                                <dt class="col-sm-3">Lighting</dt>
+                                <dd class="col-sm-9">@SelectedLightingPhrase</dd>
+                                <dt class="col-sm-3">Background</dt>
+                                <dd class="col-sm-9">@SelectedBackgroundPhrase</dd>
+                                <dt class="col-sm-3">References</dt>
+                                <dd class="col-sm-9">@SelectedRecord.DescribeReferenceRule()</dd>
+                                <dt class="col-sm-3">Split</dt>
+                                <dd class="col-sm-9">@SelectedRecord.Split</dd>
+                            </dl>
+
+                            <h6 class="text-uppercase text-muted small">Render prompt</h6>
+                            <p class="small font-monospace border rounded p-2">@SelectedRenderPrompt</p>
+
+                            <h6 class="text-uppercase text-muted small">Caption</h6>
+                            <p class="small font-monospace border rounded p-2">@SelectedCaption</p>
+                            <div class="form-text mb-3">
+                                The trigger token comes first and the invariant features are deliberately absent — they
+                                bind to the token instead of to a description the model could vary.
+                            </div>
+
+                            <h6 class="text-uppercase text-muted small">Shoot this cell</h6>
+                            <div class="row g-2 align-items-end mb-3">
+                                <div class="col-md-5">
+                                    <label class="form-label small mb-1" for="lora-cell-model">Model</label>
+                                    <select id="lora-cell-model" class="form-select form-select-sm"
+                                            value="@_cellModelId" @onchange="OnCellModelChangedAsync">
+                                        <option value="">Select model…</option>
+                                        @foreach (var model in _cellModels)
+                                        {
+                                            <option value="@model.ModelId">@model.DisplayName</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small mb-1">Size</label>
+                                    <input class="form-control form-control-sm" value="@SelectedRecord.Aspect" readonly />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small mb-1">Seed</label>
+                                    <input class="form-control form-control-sm" value="@SelectedRecord.Seed" readonly />
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <button type="button" class="btn btn-sm btn-primary w-100" @onclick="RenderCellAsync"
+                                            disabled="@(_cellBusy || string.IsNullOrWhiteSpace(_cellModelId) || !CanRender)">
+                                        Render image
+                                    </button>
+                                </div>
+                            </div>
+                            @if (!CanRender)
+                            {
+                                <div class="alert alert-warning py-2 small">
+                                    @RenderBlockedReason
+                                </div>
+                            }
+
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h6 class="text-uppercase text-muted small mb-1">
+                                    Attempts — this cell (@_cellAttempts.Count)
+                                </h6>
+                                <div class="d-flex gap-1">
+                                    @if (!string.IsNullOrWhiteSpace(_cellIdentityReference))
+                                    {
+                                        <span class="small text-muted align-self-center me-2">
+                                            <i class="bi bi-person-badge me-1"></i>@_cellIdentityReference
+                                        </span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(_cellBodyReference))
+                                    {
+                                        <span class="small text-muted align-self-center me-2">
+                                            <i class="bi bi-person-arms-up me-1"></i>@_cellBodyReference
+                                        </span>
+                                    }
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshAttemptsAsync"
+                                            disabled="@_cellBusy">
+                                        Refresh
+                                    </button>
+                                </div>
+                            </div>
+                            @if (_cellAttempts.Count == 0)
+                            {
+                                <p class="small text-muted">
+                                    Nothing shot for this cell yet. One render produces one image; there is no
+                                    generate-them-all action here by design.
+                                </p>
+                            }
+                            else
+                            {
+                                <CandidateGrid Items="AttemptItems" SelectedId="_selectedAttemptId"
+                                               SelectedIdChanged="OnAttemptSelected" />
+                                @if (_selectedAttempt is not null)
+                                {
+                                    <div class="border rounded p-2 mb-3">
+                                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                                            <span class="small text-muted font-monospace">@_selectedAttempt.Id</span>
+                                            <span class="badge text-bg-secondary">@_selectedAttempt.Status</span>
+                                            @if (!string.IsNullOrWhiteSpace(_selectedAttempt.FileRelativePath))
+                                            {
+                                                <a class="btn btn-sm btn-outline-secondary" target="_blank"
+                                                   href="/scene-images/@_selectedAttempt.FileRelativePath" title="Open full size">
+                                                    <i class="bi bi-arrows-fullscreen me-1"></i>Open full size
+                                                </a>
+                                            }
+                                            <button type="button" class="btn btn-sm btn-outline-danger"
+                                                    @onclick="() => DiscardSelectedAttemptAsync()" disabled="@_cellBusy"
+                                                    title="Discard this attempt">
+                                                <i class="bi bi-trash me-1"></i>Discard
+                                            </button>
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(_selectedAttempt.ErrorMessage))
+                                        {
+                                            <div class="alert alert-danger py-2 small mt-2 mb-0">@_selectedAttempt.ErrorMessage</div>
+                                        }
+                                    </div>
+                                }
+                            }
+
+                            <div class="alert alert-secondary py-2 small mb-0">
+                                Once an attempt is good, accepting it into the dataset is the next step: the image has
+                                to be approved as a Scene Asset for LoRA training before it can become a dataset member,
+                                and that approval carries the consent, licence and content-policy facts that a training
+                                set has to be able to prove.
+                            </div>
+                        </div>
+                    </section>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    /// <summary>The identity-resolving route input. Resolved to the character template before any identity read.</summary>
+    [Parameter] public string? CharacterId { get; set; }
+
+    /// <summary>Matches the options the repository writes with, so a member's coverage snapshot reads back.</summary>
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private CharacterIdentityOwner? _owner;
+    private string _ownerMessage = string.Empty;
+    private string _characterName = "Character";
+    private string _identityKey = string.Empty;
+
+    private readonly List<ImageWorkflowPromptTemplate> _unused = [];
+    private List<CharacterImageIdentityPack> _approvedPacks = [];
+    private List<CharacterLoraDataset> _datasets = [];
+    private List<CharacterLoraDatasetMember> _members = [];
+    private CoveragePlan? _plan;
+    private CurationPolicy? _policy;
+    private CharacterBodyCard? _bodyCard;
+
+    private string _selectedDatasetId = string.Empty;
+    private string _selectedCellKey = string.Empty;
+    private string _filter = "all";
+    private string? _renderTemplateBody;
+    private string? _captionTemplateBody;
+    private bool _gridCollapsed;
+    private bool _newDatasetOpen;
+    private bool _busy;
+    private bool _loading = true;
+    private bool _loadFailed;
+    private string _error = string.Empty;
+    private string _status = string.Empty;
+
+    private string _newPackId = string.Empty;
+    private string _newTriggerToken = string.Empty;
+    private string _newTargetFamily = string.Empty;
+
+    private List<SceneImageModelChoice> _cellModels = [];
+    private string _cellModelId = string.Empty;
+    private List<SceneAssetImage> _cellAttempts = [];
+    private string? _selectedAttemptId;
+    private string _cellIdentityReference = string.Empty;
+    private string _cellBodyReference = string.Empty;
+    private bool _cellBusy;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = string.Empty;
+        _loadFailed = false;
+        if (string.IsNullOrWhiteSpace(CharacterId))
+        {
+            _ownerMessage = "No character was given, so there is no identity to build a dataset for.";
+            return;
+        }
+
+        try
+        {
+            // B-127: identity is keyed by the character TEMPLATE, so every read below uses the resolved key and
+            // never the raw route id — the route may carry a scenario character or an asset.
+            _owner = await OwnerResolver.ResolveAsync(CharacterId);
+        }
+        catch (Exception exception)
+        {
+            _ownerMessage = exception.Message;
+            return;
+        }
+
+        _ownerMessage = string.Empty;
+        _identityKey = _owner.TemplateId;
+        _characterName = string.IsNullOrWhiteSpace(_owner.TemplateName) ? "Character" : _owner.TemplateName;
+
+        // Everything past the owner resolve can fail on DATA rather than on a bug: a missing policy row, a stored
+        // plan written by an older schema, a dataset whose policy will not parse. A component that lets one of
+        // those escape takes the whole circuit down and shows the operator nothing — which is exactly what happened
+        // on 2026-09-25. So the load is guarded and the failure is put on screen in the service's own words. That
+        // is still failing fast: visibly, with its own reason, and never by continuing with a substitute.
+        try
+        {
+            _policy = await LoraRepository.ResolveCurationPolicyAsync(_identityKey);
+            _bodyCard = await BodyService.GetBodyCardAsync(_identityKey);
+            _approvedPacks = (await IdentityService.ListPacksAsync(_identityKey))
+                .Where(pack => pack.Status == CharacterImageIdentityPackStatus.Approved
+                    && pack.PackScope == CharacterImageIdentityPackScope.BodyComplete)
+                .OrderByDescending(pack => pack.Version)
+                .ToList();
+            _datasets = (await LoraRepository.ListDatasetsAsync(_identityKey))
+                .OrderByDescending(dataset => dataset.Version)
+                .ToList();
+
+            if (_approvedPacks.Count > 0 && string.IsNullOrWhiteSpace(_newPackId))
+            {
+                _newPackId = _approvedPacks[0].Id;
+            }
+
+            if (string.IsNullOrWhiteSpace(_newTriggerToken))
+            {
+                // A proposal, not a hidden default: it is on screen, and the operator can overwrite it before saving.
+                _newTriggerToken = $"ohwx-{Slug(_characterName)}";
+            }
+
+            _cellModels = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
+            var savedCellModel = await CellService.ResolveCellModelAsync(_identityKey);
+            _cellModelId = !string.IsNullOrWhiteSpace(savedCellModel)
+                && _cellModels.Any(model => string.Equals(model.ModelId, savedCellModel, StringComparison.Ordinal))
+                    ? savedCellModel
+                    : _cellModels.Count > 0 ? _cellModels[0].ModelId : string.Empty;
+
+            if (_datasets.Count > 0)
+            {
+                var target = _datasets.Any(dataset => dataset.Id == _selectedDatasetId)
+                    ? _selectedDatasetId
+                    : _datasets[0].Id;
+                await LoadDatasetAsync(target);
+            }
+            else
+            {
+                _selectedDatasetId = string.Empty;
+                _plan = null;
+                _members = [];
+                _selectedCellKey = string.Empty;
+            }
+        }
+        catch (Exception exception)
+        {
+            _plan = null;
+            _members = [];
+            _loadFailed = true;
+            _error = exception.Message;
+            Logger.LogError(exception, "The LoRA dataset workspace could not load for character {CharacterId}.", _identityKey);
+        }
+    }
+
+    private async Task LoadDatasetAsync(string datasetId)
+    {
+        var dataset = _datasets.FirstOrDefault(candidate => candidate.Id == datasetId)
+            ?? throw new InvalidOperationException($"LoRA dataset '{datasetId}' is not in this character's list.");
+
+        _selectedDatasetId = dataset.Id;
+        _plan = CoveragePlan.FromJson(dataset.CoveragePlanJson);
+        _policy = CurationPolicy.FromJson(dataset.CurationPolicyJson);
+        _members = (await LoraRepository.ListDatasetMembersAsync(dataset.Id)).ToList();
+
+        var rejected = _members.Count(member => member.CurationStatus == CharacterLoraCurationStatus.Rejected);
+        if (rejected > 0)
+        {
+            _status = $"{rejected} cell(s) in this dataset were rejected and need re-shooting.";
+        }
+    }
+
+    /// <summary>The resolved key for identity calls, exposed so a source contract can assert the route id is never used.</summary>
+    private string IdentityKey => _identityKey;
+
+    private IReadOnlyList<CellRow> FilteredRows
+    {
+        get
+        {
+            if (_plan is null)
+            {
+                return [];
+            }
+
+            var rows = _plan.Records.Select(record => new CellRow(record, MemberFor(record))).ToList();
+            return _filter switch
+            {
+                "accepted" => rows.Where(row => row.Member is { CurationStatus: CharacterLoraCurationStatus.Accepted }).ToList(),
+                "remaining" => rows.Where(row => row.Member is not { CurationStatus: CharacterLoraCurationStatus.Accepted }).ToList(),
+                _ => rows
+            };
+        }
+    }
+
+    /// <summary>
+    /// Finds the member a cell already has. The join is the cell KEY recorded in the member's coverage snapshot,
+    /// not its ordinal, so re-planning a dataset can never silently re-point a picture at the wrong cell.
+    /// </summary>
+    private CharacterLoraDatasetMember? MemberFor(CoverageRecord record)
+    {
+        foreach (var member in _members)
+        {
+            if (string.IsNullOrWhiteSpace(member.CoverageJson))
+            {
+                continue;
+            }
+
+            CoverageRecord? stored;
+            try
+            {
+                stored = JsonSerializer.Deserialize<CoverageRecord>(member.CoverageJson, JsonOptions);
+            }
+            catch (JsonException)
+            {
+                // A snapshot that cannot be read is not silently matched to a cell; it simply claims none, and
+                // the member still counts towards the dataset's totals.
+                continue;
+            }
+
+            if (stored is not null && string.Equals(stored.Key, record.Key, StringComparison.Ordinal))
+            {
+                return member;
+            }
+        }
+
+        return null;
+    }
+
+    private int AcceptedCount => _members.Count(member => member.CurationStatus == CharacterLoraCurationStatus.Accepted);
+
+    private int CaptionCount => _members.Count(member =>
+        member.CurationStatus == CharacterLoraCurationStatus.Accepted && !string.IsNullOrWhiteSpace(member.Caption));
+
+    private int ClothedCount => _plan?.Records.Count(record => record.WardrobeState == LoraCoverageWardrobeState.Clothed) ?? 0;
+
+    private int UnclothedCount => _plan?.Records.Count(record => record.WardrobeState == LoraCoverageWardrobeState.Unclothed) ?? 0;
+
+    private int BackgroundCount => _plan?.Records.Select(record => record.BackgroundKey).Distinct(StringComparer.Ordinal).Count() ?? 0;
+
+    private int PoseClassCount => _plan?.Records.Select(record => record.PoseClass).Distinct().Count() ?? 0;
+
+    private IReadOnlyList<string> Gaps => _plan is null || _policy is null ? [] : _plan.DescribeGaps(_policy);
+
+    private CoverageRecord? SelectedRecord => _plan?.Records
+        .FirstOrDefault(record => string.Equals(record.Key, _selectedCellKey, StringComparison.Ordinal));
+
+    private string SelectedWardrobePhrase => Phrase(record => record.OutfitKey);
+
+    private string SelectedPosePhrase => Phrase(record => LoraCellWorkflowKeys.PoseKey(record.PoseClass));
+
+    private string SelectedExpressionPhrase => Phrase(record => record.ExpressionKey);
+
+    private string SelectedLightingPhrase => Phrase(record => record.LightingKey);
+
+    private string SelectedBackgroundPhrase => Phrase(record => record.BackgroundKey);
+
+    private string SelectedRenderPrompt => Compose(record => LoraCellPromptComposer.ComposeRenderPrompt(
+        _plan!, record, BodyCardLine, _renderTemplateBody ?? string.Empty));
+
+    private string SelectedCaption => Compose(record => LoraCellPromptComposer.ComposeCaption(
+        _plan!, record, _captionTemplateBody ?? string.Empty));
+
+    /// <summary>
+    /// The invariant body line, pasted verbatim into every render prompt. An incomplete card refuses to render a
+    /// line at all (by design), so the workspace says what is missing rather than composing a prompt without it.
+    /// </summary>
+    private string BodyCardLine
+    {
+        get
+        {
+            if (_bodyCard is null)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return _bodyCard.ToPromptLine();
+            }
+            catch (InvalidOperationException)
+            {
+                return string.Empty;
+            }
+        }
+    }
+
+    private string BodyCardNotice
+        => _bodyCard is null
+            ? "This character has no body card yet, so the render prompt cannot be composed. Fill it in on the Body tab."
+            : string.IsNullOrWhiteSpace(BodyCardLine)
+                ? "This character's body card still has unanswered fields, so the render prompt cannot be composed. Finish it on the Body tab."
+                : string.Empty;
+
+    private string Phrase(Func<CoverageRecord, string> select)
+        => _plan is null || SelectedRecord is null ? string.Empty : _plan.PhraseFor(select(SelectedRecord));
+
+    private string Compose(Func<CoverageRecord, string> compose)
+    {
+        if (_plan is null || SelectedRecord is null)
+        {
+            return string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(BodyCardNotice))
+        {
+            return BodyCardNotice;
+        }
+
+        try
+        {
+            return compose(SelectedRecord);
+        }
+        catch (Exception exception)
+        {
+            // The prompt is shown on screen, so a composition failure belongs on screen too. Returning a blank
+            // would read as "this cell has no prompt" rather than "this template needs fixing".
+            return exception.Message;
+        }
+    }
+
+    private async Task SelectCellAsync(string key)
+    {
+        _selectedCellKey = key;
+        _renderTemplateBody = null;
+        _captionTemplateBody = null;
+        _cellAttempts = [];
+
+        var record = SelectedRecord;
+        if (record is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _renderTemplateBody = (await TemplateService.ResolveAsync(
+                LoraCellPromptComposer.RenderTemplateKey(record), _identityKey)).Body;
+            _captionTemplateBody = (await TemplateService.ResolveAsync(
+                LoraCellWorkflowKeys.Caption, _identityKey)).Body;
+
+            // What the render will be conditioned on, read from the pack before anything is shot, so a missing
+            // reference is visible up front instead of surfacing as a failed render. Both references are read:
+            // the face carries identity and the body carries the build, and a cell cannot be shot without the
+            // state-matched body reference its own rule names.
+            _cellIdentityReference = await CellService.DescribeIdentityReferenceAsync(_selectedDatasetId, record.Key);
+            _cellBodyReference = await CellService.DescribeBodyReferenceAsync(_selectedDatasetId, record.Key);
+            await RefreshAttemptsAsync();
+        }
+        catch (Exception exception)
+        {
+            _cellIdentityReference = string.Empty;
+            _cellBodyReference = string.Empty;
+            _error = exception.Message;
+        }
+    }
+
+    /// <summary>Re-reads this cell's attempts. Renders are queued, so a shot in flight is Pending until it lands.</summary>
+    private async Task RefreshAttemptsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedDatasetId) || string.IsNullOrWhiteSpace(_selectedCellKey))
+        {
+            _cellAttempts = [];
+            _selectedAttemptId = null;
+            return;
+        }
+
+        try
+        {
+            _cellAttempts = (await CellService.ListCellAttemptsAsync(_selectedDatasetId, _selectedCellKey)).ToList();
+            if (_selectedAttemptId is null || _cellAttempts.All(attempt => attempt.Id != _selectedAttemptId))
+            {
+                _selectedAttemptId = _cellAttempts.FirstOrDefault()?.Id;
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    /// <summary>The shared candidate grid's view of this cell's attempts.</summary>
+    private IReadOnlyList<CandidateGridItem> AttemptItems => _cellAttempts
+        .Select(attempt => new CandidateGridItem(
+            attempt.Id,
+            attempt.FileRelativePath,
+            attempt.Status.ToString(),
+            attempt.CreatedUtc.ToLocalTime().ToString("g")))
+        .ToList();
+
+    private SceneAssetImage? _selectedAttempt => _selectedAttemptId is null
+        ? null
+        : _cellAttempts.FirstOrDefault(attempt => string.Equals(attempt.Id, _selectedAttemptId, StringComparison.Ordinal));
+
+    private void OnAttemptSelected(string id) => _selectedAttemptId = id;
+
+    /// <summary>
+    /// True when this cell can be shot at all: it needs a renderable body card, a resolved render template and a
+    /// chosen model. The workspace says which of those is missing rather than leaving a dead button.
+    /// </summary>
+    private bool CanRender => _plan is not null
+        && SelectedRecord is not null
+        && string.IsNullOrWhiteSpace(BodyCardNotice)
+        && !string.IsNullOrWhiteSpace(_renderTemplateBody)
+        && !string.IsNullOrWhiteSpace(_cellModelId);
+
+    private string RenderBlockedReason => !string.IsNullOrWhiteSpace(BodyCardNotice)
+        ? BodyCardNotice
+        : string.IsNullOrWhiteSpace(_cellModelId)
+            ? "Choose the image model this cell is shot with."
+            : string.Empty;
+
+    /// <summary>The exact text this cell is rendered from — the same composition shown above, never a second one.</summary>
+    private string RenderPromptForShoot => Compose(record => LoraCellPromptComposer.ComposeRenderPrompt(
+        _plan!, record, BodyCardLine, _renderTemplateBody ?? string.Empty));
+
+    private void SelectCell(string key) => _ = SelectCellAsync(key);
+
+    private async Task OnCellModelChangedAsync(ChangeEventArgs args)
+    {
+        _cellModelId = args.Value?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(_cellModelId) || string.IsNullOrWhiteSpace(_identityKey))
+        {
+            return;
+        }
+
+        try
+        {
+            await CellService.SaveCellModelAsync(_identityKey, _cellModelId);
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    /// <summary>
+    /// Shoots ONE image for the selected cell. There is no batch here and there must never be one: the training set
+    /// is judged frame by frame, and a sweep is how a set of near-duplicates gets made.
+    /// </summary>
+    private async Task RenderCellAsync()
+    {
+        var record = SelectedRecord;
+        if (record is null || string.IsNullOrWhiteSpace(_selectedDatasetId))
+        {
+            return;
+        }
+
+        _cellBusy = true;
+        _error = string.Empty;
+        _status = string.Empty;
+        try
+        {
+            var image = await CellService.RenderCellAsync(
+                _selectedDatasetId, record.Key, RenderPromptForShoot, _cellModelId, record.Aspect);
+            var reference = string.IsNullOrWhiteSpace(_cellIdentityReference)
+                ? "no face reference — this view shows none"
+                : _cellIdentityReference;
+            var bodyReference = string.IsNullOrWhiteSpace(_cellBodyReference)
+                ? "no body reference — this cell cannot be rendered on the character's build"
+                : _cellBodyReference;
+            _status = $"Queued one render for {record.Key} with {_cellModelId}, conditioned on {reference} "
+                + $"and {bodyReference}. It appears here as Pending until the worker finishes it.";
+            Logger.LogInformation(
+                "Queued one LoRA coverage cell render: DatasetId={DatasetId}, Cell={Cell}, ImageId={ImageId}, Model={Model}.",
+                _selectedDatasetId, record.Key, image.Id, _cellModelId);
+            await RefreshAttemptsAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            Logger.LogWarning(exception, "Rendering LoRA coverage cell {Cell} failed.", record.Key);
+        }
+        finally
+        {
+            _cellBusy = false;
+        }
+    }
+
+    private async Task DiscardSelectedAttemptAsync()
+    {
+        var attempt = _selectedAttempt;
+        if (attempt is null)
+        {
+            return;
+        }
+
+        _cellBusy = true;
+        _error = string.Empty;
+        try
+        {
+            await CellService.DiscardAttemptAsync(attempt.Id);
+            _selectedAttemptId = null;
+            await RefreshAttemptsAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _cellBusy = false;
+        }
+    }
+
+    private void ToggleGrid() => _gridCollapsed = !_gridCollapsed;
+
+    private void OnFilterChanged(ChangeEventArgs args) => _filter = args.Value?.ToString() ?? "all";
+
+    private void OnNewPackChanged(ChangeEventArgs args) => _newPackId = args.Value?.ToString() ?? string.Empty;
+
+    private async Task OnDatasetChangedAsync(ChangeEventArgs args)
+    {
+        var datasetId = args.Value?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(datasetId))
+        {
+            return;
+        }
+
+        _error = string.Empty;
+        _selectedCellKey = string.Empty;
+        _renderTemplateBody = null;
+        _captionTemplateBody = null;
+
+        try
+        {
+            await LoadDatasetAsync(datasetId);
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private async Task ToggleNewDatasetAsync()
+    {
+        _newDatasetOpen = !_newDatasetOpen;
+        _error = string.Empty;
+        _status = string.Empty;
+
+        if (!_newDatasetOpen || _approvedPacks.Count == 0 || !string.IsNullOrWhiteSpace(_newTargetFamily))
+        {
+            return;
+        }
+
+        // The family is proposed from a training profile that actually exists and is qualified, so the operator
+        // picks between real options instead of inventing a name no profile will ever match.
+        var qualified = (await LoraRepository.ListTrainingProfilesAsync())
+            .Where(profile => profile.Status == CharacterLoraTrainingProfileStatus.Qualified && profile.Enabled)
+            .Select(profile => profile.TargetModelFamily)
+            .Where(family => !string.IsNullOrWhiteSpace(family))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (qualified.Count > 0)
+        {
+            _newTargetFamily = qualified[0];
+        }
+    }
+
+    private async Task CreateDatasetAsync()
+    {
+        _busy = true;
+        _error = string.Empty;
+        _status = string.Empty;
+        try
+        {
+            var pack = _approvedPacks.FirstOrDefault(candidate => candidate.Id == _newPackId)
+                ?? throw new InvalidOperationException("Select an approved, body-complete identity pack first.");
+
+            var plan = await PlanGenerator.GenerateAsync(new CoveragePlanRequest(
+                _identityKey,
+                pack.Id,
+                pack.Version,
+                pack.PackScope,
+                _newTriggerToken,
+                _newTargetFamily));
+            var policy = await LoraRepository.ResolveCurationPolicyAsync(_identityKey);
+
+            var nextVersion = _datasets.Count == 0 ? 1 : _datasets.Max(dataset => dataset.Version) + 1;
+            var dataset = new CharacterLoraDataset
+            {
+                CharacterTemplateId = _identityKey,
+                IdentityPackId = pack.Id,
+                Version = nextVersion,
+                Status = CharacterLoraDatasetStatus.Draft,
+                TriggerToken = _newTriggerToken.Trim(),
+                TargetModelFamily = _newTargetFamily.Trim(),
+                CoveragePlanJson = plan.ToJson(),
+                CurationPolicyJson = policy.ToJson(),
+                CreatedUtc = DateTime.UtcNow
+            };
+            await LoraRepository.CreateDatasetAsync(dataset);
+
+            _selectedCellKey = string.Empty;
+            _renderTemplateBody = null;
+            _captionTemplateBody = null;
+            _newDatasetOpen = false;
+            await LoadAsync();
+            _status = $"Created dataset v{dataset.Version} with {plan.Records.Count} cells from pack v{pack.Version}.";
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            Logger.LogWarning(exception, "Creating a LoRA dataset for character {CharacterId} failed.", _identityKey);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string StatusBadge(string status) => status switch
+    {
+        "accepted" => "text-bg-success",
+        "rejected" => "text-bg-danger",
+        "in review" => "text-bg-info",
+        _ => "text-bg-secondary"
+    };
+
+    private static string Slug(string value)
+    {
+        var characters = value.Where(char.IsLetterOrDigit).ToArray();
+        return characters.Length == 0 ? "character" : new string(characters).ToLowerInvariant();
+    }
+
+    private sealed record CellRow(CoverageRecord Record, CharacterLoraDatasetMember? Member)
+    {
+        public string Status => Member is null
+            ? "planned"
+            : Member.CurationStatus switch
+            {
+                CharacterLoraCurationStatus.Accepted => "accepted",
+                CharacterLoraCurationStatus.Rejected => "rejected",
+                _ => "in review"
+            };
+    }
+}

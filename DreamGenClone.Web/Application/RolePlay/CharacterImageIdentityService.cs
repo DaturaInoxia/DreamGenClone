@@ -2,6 +2,7 @@ using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
 using Microsoft.Extensions.Logging;
+using System.Security.Cryptography;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -256,6 +257,116 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
 
         _logger.LogInformation("Uploaded identity reference asset {AssetId} ({Kind}) to pack {PackId}", asset.Id, kind, packId);
         return asset;
+    }
+
+    /// <summary>
+    /// Writes one slot of a draft pack, replacing whatever occupied it, and moves a canonical pointer that named a
+    /// replaced asset onto the replacement. See the contract for why a promotion must own its slot.
+    /// </summary>
+    public async Task<SceneImageReferenceSlotWrite> ReplaceSlotAssetAsync(
+        string packId,
+        SceneImageReferenceAssetKind kind,
+        string fileName,
+        Stream content,
+        SceneImageReferenceFaceView? faceView = null,
+        SceneImageReferenceBodyView? bodyView = null,
+        SceneImageReferenceBodyState? bodyState = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (kind == SceneImageReferenceAssetKind.Face && faceView is null)
+            throw new InvalidOperationException("Replacing a face slot requires the face view it occupies.");
+        if (kind == SceneImageReferenceAssetKind.FullBody && (bodyView is null || bodyState is null))
+            throw new InvalidOperationException(
+                "Replacing a full-body slot requires the body state and view it occupies.");
+        if (kind is not (SceneImageReferenceAssetKind.Face or SceneImageReferenceAssetKind.FullBody))
+            throw new InvalidOperationException(
+                $"Asset kind '{kind}' has no canonical slot, so it cannot be replaced: only Face and FullBody "
+                + "references occupy named slots.");
+
+        var pack = await _repository.GetPackAsync(packId, cancellationToken)
+            ?? throw new InvalidOperationException($"Identity pack '{packId}' was not found.");
+        if (pack.Status != CharacterImageIdentityPackStatus.Draft)
+        {
+            throw new InvalidOperationException(
+                $"Identity pack '{pack.Id}' is {pack.Status}; only a draft pack can be written. Supersede it to "
+                + "create an editable draft, and promote into that.");
+        }
+
+        var occupied = (await _repository.ListAssetsAsync(pack.Id, cancellationToken))
+            .Where(asset => asset.AssetKind == kind
+                && asset.FaceView == faceView
+                && asset.BodyView == bodyView
+                && asset.BodyState == bodyState)
+            .ToList();
+
+        // Read the bytes once: the write is skipped when the slot already holds exactly these bytes, so pressing
+        // Promote again is a no-op on the store instead of re-uploading the same images and deleting their
+        // predecessors. The comparison is on content, never on the caller's intent.
+        var bytes = await ReadAllAsync(content, cancellationToken);
+        var incomingSha = Convert.ToHexString(SHA256.HashData(bytes));
+        var identical = occupied.Count == 1
+            && string.Equals(occupied[0].Sha256, incomingSha, StringComparison.OrdinalIgnoreCase);
+        if (identical)
+        {
+            _logger.LogInformation(
+                "Identity reference slot already holds these bytes: PackId={PackId}, Kind={Kind}, AssetId={AssetId}",
+                pack.Id, kind, occupied[0].Id);
+            return new SceneImageReferenceSlotWrite(occupied[0], 0);
+        }
+
+        var written = await UploadAssetAsync(
+            pack.Id, kind, fileName, new MemoryStream(bytes), faceView, bodyView, bodyState, cancellationToken);
+
+        foreach (var replaced in occupied)
+        {
+            await _repository.DeleteAssetAsync(replaced.Id, cancellationToken);
+            await DeleteFileIfUnreferencedAsync(replaced.FileRelativePath, cancellationToken);
+        }
+
+        // A pointer that named a replaced asset follows the replacement, and the promoted Front SEEDS the canonical
+        // face when none is chosen — the same shape the body path already uses for its canonical full-body pointer.
+        // A pointer that named a surviving asset is left alone: that choice belongs to the operator.
+        var pointerMoved = false;
+        if (kind == SceneImageReferenceAssetKind.Face)
+        {
+            var replacesCanonicalFace = occupied.Any(asset =>
+                string.Equals(asset.Id, pack.CanonicalFaceAssetId, StringComparison.Ordinal));
+            if (replacesCanonicalFace
+                || (string.IsNullOrWhiteSpace(pack.CanonicalFaceAssetId)
+                    && faceView == SceneImageReferenceFaceView.Front))
+            {
+                pack.CanonicalFaceAssetId = written.Id;
+                pointerMoved = true;
+            }
+        }
+        else if (occupied.Any(asset =>
+            string.Equals(asset.Id, pack.CanonicalFullBodyAssetId, StringComparison.Ordinal)))
+        {
+            pack.CanonicalFullBodyAssetId = written.Id;
+            pointerMoved = true;
+        }
+
+        if (pointerMoved)
+            await _repository.UpsertDraftAsync(pack, cancellationToken);
+
+        _logger.LogInformation(
+            "Wrote identity reference slot: PackId={PackId}, Kind={Kind}, FaceView={FaceView}, BodyState={BodyState}, "
+            + "BodyView={BodyView}, AssetId={AssetId}, Replaced={Replaced}, CanonicalPointerMoved={PointerMoved}",
+            pack.Id, kind, faceView, bodyState, bodyView, written.Id, occupied.Count, pointerMoved);
+
+        return new SceneImageReferenceSlotWrite(written, occupied.Count);
+    }
+
+    /// <summary>Reads a whole reference asset stream: reference images are bounded, and the write decision needs the bytes.</summary>
+    private static async Task<byte[]> ReadAllAsync(Stream content, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        if (content is MemoryStream buffered)
+            return buffered.ToArray();
+
+        using var copy = new MemoryStream();
+        await content.CopyToAsync(copy, cancellationToken);
+        return copy.ToArray();
     }
 
     public Task SetAssetProvenanceAsync(

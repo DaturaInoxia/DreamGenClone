@@ -573,6 +573,17 @@ public sealed class CharacterIdentityPromotionGateTests
             });
         }
 
+        /// <summary>
+        /// The slot writer the promotion uses: it records the same uploads, and reports the slot as empty because
+        /// this stub holds no assets — a promotion into an empty pack replaces nothing.
+        /// </summary>
+        public async Task<SceneImageReferenceSlotWrite> ReplaceSlotAssetAsync(string packId, SceneImageReferenceAssetKind kind, string fileName, Stream content, SceneImageReferenceFaceView? faceView = null, SceneImageReferenceBodyView? bodyView = null, SceneImageReferenceBodyState? bodyState = null, CancellationToken cancellationToken = default)
+        {
+            var asset = await UploadAssetAsync(
+                packId, kind, fileName, content, faceView, bodyView, bodyState, cancellationToken);
+            return new SceneImageReferenceSlotWrite(asset, 0);
+        }
+
         public Task SetAssetProvenanceAsync(string assetId, string sourceLabel, SceneImageReferenceConsentState consentState, CancellationToken cancellationToken = default)
         {
             Provenance.Add((assetId, sourceLabel, consentState));

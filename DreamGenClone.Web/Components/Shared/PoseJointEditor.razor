@@ -1,0 +1,344 @@
+@using DreamGenClone.Web.Application.RolePlay
+@inject IPoseLibraryService LibraryService
+
+<div class="border rounded p-2 mt-3">
+    <div class="d-flex justify-content-between align-items-start gap-2">
+        <div>
+            <strong class="small">Drag the pose</strong>
+            <span class="d-block small text-muted">
+                Drag a hand or a foot. The limb solves to follow it, and the shoulder or hip it hangs from stays put,
+                so a bone can never be stretched — the shape stays renderable. Hands-at-sides to a handshake is a
+                wrist drag.
+            </span>
+        </div>
+        <div class="d-flex gap-1">
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(_history.Count == 0)" @onclick="Undo">
+                Undo
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(_history.Count == 0)" @onclick="ResetPoseAsync">
+                Reset drags
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-3 mt-1">
+        <div class="col-lg-6">
+            <svg viewBox="0 0 1024 1024" width="512" height="512"
+                 class="border rounded bg-black d-block"
+                 @onpointermove="OnPointerMoveAsync"
+                 @onpointerup="StopDrag"
+                 @onpointerleave="StopDrag">
+                @foreach (var link in PoseSkeletonRenderer.BodyLinks)
+                {
+                    if (Visible(link.A) && Visible(link.B))
+                    {
+                        <line x1="@X(link.A)" y1="@Y(link.A)" x2="@X(link.B)" y2="@Y(link.B)"
+                              stroke="@Colour(link)" stroke-width="5" stroke-linecap="round" />
+                    }
+                }
+                @foreach (var index in DraggableJoints)
+                {
+                    if (Visible(index))
+                    {
+                        <circle cx="@X(index)" cy="@Y(index)" r="18" fill="#ffc107" stroke="#000" stroke-width="2"
+                                style="cursor: grab;" @onpointerdown="() => StartDrag(index)" />
+                    }
+                }
+            </svg>
+            <div class="form-text">
+                512 px on screen for a 1024 canvas, so pointer coordinates are scaled by two.
+                @if (!string.IsNullOrWhiteSpace(_drag))
+                {
+                    <span class="ms-1">Dragging <strong>@_drag</strong>. @_drags.Count drag(s) so far.</span>
+                }
+                else
+                {
+                    <span class="ms-1">@_drags.Count drag(s) so far.</span>
+                }
+            </div>
+            @if (_reachWarning is not null)
+            {
+                <div class="alert alert-warning py-1 small mt-1 mb-0">@_reachWarning</div>
+            }
+        </div>
+
+        <div class="col-lg-6">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label small fw-semibold mb-1">Name</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Standing, handshake"
+                           value="@_name" @oninput="e => _name = e.Value?.ToString()" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small fw-semibold mb-1">Category</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="standing"
+                           value="@_category" @oninput="e => _category = e.Value?.ToString()" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small fw-semibold mb-1">Library</label>
+                    <select class="form-select form-select-sm" value="@_libraryId" @onchange="e => _libraryId = e.Value?.ToString()">
+                        @foreach (var library in _libraries)
+                        {
+                            <option value="@library.Id">@library.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small fw-semibold mb-1">Keywords (optional)</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="handshake, reach"
+                           value="@_keywords" @oninput="e => _keywords = e.Value?.ToString()" />
+                </div>
+                <div class="col-12 d-grid">
+                    <button type="button" class="btn btn-sm btn-success"
+                            disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_category))"
+                            @onclick="SaveAsync">
+                        <i class="bi bi-save me-1"></i>Save dragged pose
+                    </button>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_error))
+            {
+                <div class="alert alert-danger py-1 small mt-2 mb-0">@_error</div>
+            }
+            @if (!string.IsNullOrWhiteSpace(_status))
+            {
+                <div class="alert alert-success py-1 small mt-2 mb-0">@_status</div>
+            }
+
+            <div class="small text-muted mt-2">
+                The pose starts from the body view and head angle above, then your drags are applied on top. Only the
+                four limb ends are draggable: dragging a shoulder or a hip would move the whole figure, which is what
+                the view controls are for.
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>The pose the drags started from, before any joint was moved.</summary>
+    [Parameter] public PosePerson Start { get; set; } = new() { Body = [] };
+
+    [Parameter] public PoseView BodyView { get; set; } = new();
+
+    [Parameter] public PoseHeadRotation Head { get; set; } = new();
+
+    [Parameter] public EventCallback<PosePreset> OnSaved { get; set; }
+
+    /// <summary>The joints the editor offers, in the order the rig draws them.</summary>
+    private static readonly int[] DraggableJoints = [4, 7, 10, 13];
+
+    private PosePerson _person = new() { Body = [] };
+    private readonly List<PosePerson> _history = [];
+    private readonly List<string> _drags = [];
+    private int? _dragging;
+    private string? _drag;
+    private string? _reachWarning;
+    private IReadOnlyList<DreamGenClone.Domain.RolePlay.PoseLibrary> _libraries = [];
+    private string? _name;
+    private string? _category = "standing";
+    private string? _keywords;
+    private string? _libraryId;
+    private string? _error;
+    private string? _status;
+    private bool _busy;
+
+    /// <summary>
+    /// Screen pixels to canvas pixels. The svg is fixed at 512 px for a 1024 viewBox so a pointer coordinate can be
+    /// doubled without measuring anything, which keeps the drag free of interop.
+    /// </summary>
+    private const double PointerScale = 1024.0 / 512.0;
+
+    /// <summary>The view and head the current working pose was projected from, so a re-render of the same scene does
+    /// not throw away the operator's drags while a genuine view change does.</summary>
+    private PoseView? _baseView;
+    private PoseHeadRotation? _baseHead;
+
+    protected override Task OnParametersSetAsync()
+    {
+        var baseChanged = _baseView is null || _baseHead is null
+            || !Same(_baseView, BodyView) || !Same(_baseHead, Head);
+
+        if (Start.Body.Count > 0 && baseChanged)
+        {
+            _baseView = BodyView;
+            _baseHead = Head;
+            _person = Start;
+            _history.Clear();
+            _drags.Clear();
+            _reachWarning = null;
+            StopDrag();
+        }
+
+        return LoadLibrariesAsync();
+    }
+
+    private async Task LoadLibrariesAsync()
+    {
+        if (_libraries.Count > 0) return;
+
+        try
+        {
+            var authored = await LibraryService.EnsureAuthoredLibraryAsync();
+            _libraries = (await LibraryService.ListLibrariesAsync())
+                .Where(library => !library.IsSystem)
+                .ToArray();
+            _libraryId = _libraries.Any(library => library.Id == authored.Id)
+                ? authored.Id
+                : _libraries.FirstOrDefault()?.Id;
+        }
+        catch (Exception ex)
+        {
+            _error = $"The drag editor could not load the library list: {ex.Message}";
+        }
+    }
+
+    private static bool Same(PoseView left, PoseView right) =>
+        Math.Abs(left.YawDegrees - right.YawDegrees) < 0.001
+        && Math.Abs(left.PitchDegrees - right.PitchDegrees) < 0.001
+        && Math.Abs(left.RollDegrees - right.RollDegrees) < 0.001;
+
+    private static bool Same(PoseHeadRotation left, PoseHeadRotation right) =>
+        Math.Abs(left.YawDegrees - right.YawDegrees) < 0.001
+        && Math.Abs(left.PitchDegrees - right.PitchDegrees) < 0.001
+        && Math.Abs(left.RollDegrees - right.RollDegrees) < 0.001;
+
+    private bool Visible(int index) =>
+        index < _person.Body.Count
+        && _person.Body[index].Confidence > OpenPosePoseJson.VisibilityFloor;
+
+    private string X(int index) => _person.Body[index].X.ToString("0.##");
+
+    private string Y(int index) => _person.Body[index].Y.ToString("0.##");
+
+    private static string Colour((int A, int B, SixLabors.ImageSharp.PixelFormats.Rgb24 Color) link) =>
+        $"#{link.Color.R:X2}{link.Color.G:X2}{link.Color.B:X2}";
+
+    private void StartDrag(int index)
+    {
+        _dragging = index;
+        _drag = JointName(index);
+
+        // One undo step per drag, not per pointer move: a move fires many times and would bury the previous state.
+        _history.Add(_person);
+    }
+
+    private void StopDrag()
+    {
+        _dragging = null;
+        _drag = null;
+    }
+
+    private async Task OnPointerMoveAsync(PointerEventArgs args)
+    {
+        if (_dragging is not int index) return;
+
+        var target = new PoseKeypoint(args.OffsetX * PointerScale, args.OffsetY * PointerScale, 1.0);
+
+        try
+        {
+            _person = PoseIk.Drag(_person, index, target);
+            _drags.Add($"{JointName(index)} → ({target.X:0},{target.Y:0})");
+            _reachWarning = ReachWarning(index, target);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// A drag past the limb's reach lays the chain out straight at the target and stops. Saying so is the point:
+    /// a silently-clamped drag looks like the editor ignored the pointer.
+    /// </summary>
+    private string? ReachWarning(int index, PoseKeypoint target)
+    {
+        var chain = PoseIk.JointsOf(index switch
+        {
+            4 => PoseDragChain.RightArm,
+            7 => PoseDragChain.LeftArm,
+            10 => PoseDragChain.RightLeg,
+            _ => PoseDragChain.LeftLeg
+        });
+
+        var root = _person.Body[chain[0]];
+        var reach = 0.0;
+        for (var step = 0; step < chain.Count - 1; step++)
+        {
+            var a = _person.Body[chain[step]];
+            var b = _person.Body[chain[step + 1]];
+            reach += Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
+        }
+
+        var distance = Math.Sqrt(Math.Pow(target.X - root.X, 2) + Math.Pow(target.Y - root.Y, 2));
+
+        return distance > reach
+            ? $"{JointName(index)} cannot reach that far — the limb is {reach:0} long and the pointer is {distance:0} "
+                + "away, so it has been laid out straight towards it."
+            : null;
+    }
+
+    private void Undo()
+    {
+        if (_history.Count == 0) return;
+
+        _person = _history[^1];
+        _history.RemoveAt(_history.Count - 1);
+        if (_drags.Count > 0) _drags.RemoveAt(_drags.Count - 1);
+        _reachWarning = null;
+        _status = null;
+    }
+
+    private Task ResetPoseAsync()
+    {
+        _person = Start;
+        _history.Clear();
+        _drags.Clear();
+        _reachWarning = null;
+        _status = null;
+        StopDrag();
+        return Task.CompletedTask;
+    }
+
+    private static string JointName(int index) => index switch
+    {
+        4 => "right hand",
+        7 => "left hand",
+        10 => "right foot",
+        13 => "left foot",
+        _ => $"joint {index}"
+    };
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var preset = await LibraryService.SaveAuthoredPoseAsync(new AuthoredPoseRequest(
+                _name ?? string.Empty,
+                _category ?? string.Empty,
+                _keywords,
+                BodyView,
+                _libraryId ?? string.Empty,
+                Head,
+                _person,
+                _drags.ToArray()));
+
+            _status = $"Saved '{preset.Name}' as a dragged pose. It is searchable now.";
+            _name = null;
+            await OnSaved.InvokeAsync(preset);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

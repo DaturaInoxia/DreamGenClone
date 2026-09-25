@@ -264,6 +264,88 @@ public sealed class CharacterIdentityAnglesDirectionGateTests
         return image[x, y];
     }
 
+    /// <summary>
+    /// Operator report, 2026-09-24: "the review deck lets me accept the final enhanced one, but it does not show as
+    /// the 3/4 panel accepted, and it does not show the cropped edit either." The attempt list can only accept a
+    /// RENDER, so the edit / crop / enhance chain built from one had no way to become the view's artifact — even
+    /// though every image of the chain is in the view's candidate batch and the review deck can decide on it.
+    /// </summary>
+    [Fact]
+    public async Task AcceptCandidateAsync_TakesAnImageTheChainBuiltFromAnAttempt_AsTheViewArtifact()
+    {
+        var world = CreateWorld(settings => settings.DeriveByMirrorThreeQuarterLeft = false);
+        try
+        {
+            var build = await ReachAnglesAsync(world);
+            world.Measurements.Measure = _ => Nose(-20);   // 3/4 left needs the nose toward image-left
+
+            var view = CharacterIdentityAngleView.ThreeQuarterLeft;
+            var angle = await world.Angles.UploadAsync(
+                build.Id, view, "shot.png", new MemoryStream(AsymmetricPng(40, 24)));
+            Assert.Equal(CharacterIdentityAngleStatus.Complete, angle.Status);
+            var attempt = Assert.Single(await world.Angles.ListAttemptsAsync(build.Id, view));
+
+            // The operator's chain: a crop, then an enhance — two images between the render and the accepted one.
+            var batchId = CharacterIdentityAnglesService.CandidateBatchIdFor(build.Id, view);
+            var cropped = await world.Assets.AddDerivedImageAsync(
+                "front-container", attempt.OutputArtifactId, MediaEditOperationKind.Crop, "cropped.png",
+                new MemoryStream(AsymmetricPng(40, 24)), candidateBatchId: batchId);
+            var enhanced = await world.Assets.AddDerivedImageAsync(
+                "front-container", cropped.Id, MediaEditOperationKind.Enhance, "enhanced.png",
+                new MemoryStream(AsymmetricPng(40, 24)), candidateBatchId: batchId);
+
+            var accepted = await world.Angles.AcceptCandidateAsync(build.Id, view, enhanced.Id);
+
+            Assert.Equal(enhanced.Id, accepted.OutputArtifactId);
+            Assert.Equal(CharacterIdentityAngleStatus.Accepted, accepted.Status);
+            // The attempt the chain descends from is resolved TWO hops up and recorded, so the card can still say
+            // which render this view came from; the accepted artifact is the chain's image.
+            Assert.Equal(attempt.Id, accepted.AcceptedAttemptId);
+            // The view's recorded SOURCE is the artifact that render was produced from (the canonical front for a
+            // three-quarter view), not the attempt's own output.
+            Assert.Equal(attempt.InputArtifactId, accepted.InputArtifactId);
+            Assert.Equal(CharacterIdentityAngleStatus.Accepted, Assert.Single(
+                await world.Angles.ListAttemptsAsync(build.Id, view)).Status);
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
+    /// <summary>The view's batch IS the flow: an image outside it is refused by name, never accepted on inspection.</summary>
+    [Fact]
+    public async Task AcceptCandidateAsync_RefusesAnImageThatBelongsToAnotherViewsBatch()
+    {
+        var world = CreateWorld(settings => settings.DeriveByMirrorThreeQuarterLeft = false);
+        try
+        {
+            var build = await ReachAnglesAsync(world);
+            world.Measurements.Measure = _ => Nose(-20);
+
+            var view = CharacterIdentityAngleView.ThreeQuarterLeft;
+            await world.Angles.UploadAsync(build.Id, view, "shot.png", new MemoryStream(AsymmetricPng(40, 24)));
+            var attempt = Assert.Single(await world.Angles.ListAttemptsAsync(build.Id, view));
+
+            var stray = await world.Assets.AddDerivedImageAsync(
+                "front-container", attempt.OutputArtifactId, MediaEditOperationKind.Crop, "stray.png",
+                new MemoryStream(AsymmetricPng(40, 24)),
+                candidateBatchId: CharacterIdentityAnglesService.CandidateBatchIdFor(
+                    build.Id, CharacterIdentityAngleView.ProfileLeft));
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => world.Angles.AcceptCandidateAsync(build.Id, view, stray.Id));
+            Assert.Contains("not to ThreeQuarterLeft's batch", error.Message, StringComparison.Ordinal);
+
+            var angle = Assert.Single(await world.Angles.ListAsync(build.Id));
+            Assert.NotEqual(stray.Id, angle.OutputArtifactId);
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
     /// <summary>Drives the build to the point the angle panel starts from: a build at Angles with a canonical front.</summary>
     private static async Task<CharacterIdentityBuild> ReachAnglesAsync(World world)
     {

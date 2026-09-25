@@ -149,6 +149,25 @@ public sealed class ImageEditWorkspaceContractTests
         Assert.Contains("image.EditSessionId, sessionId", SceneAdapterSource, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A FAILED source description must not disable the editor forever. The workspace reported "work in flight" for
+    /// as long as no description text arrived, so when the description job failed (2026-09-24: the provider served a
+    /// different model id) every control stayed greyed out with nothing on screen, and the poll loop never stopped
+    /// (debug/071). The description is context for the compiler, not a prerequisite for preparing an edit.
+    /// </summary>
+    [Fact]
+    public void AFailedSourceDescription_IsReported_InsteadOfWaitingForever()
+    {
+        Assert.Contains("GetDescriptionOutcomeAsync(_session.Id)", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("The source description could not be produced", WorkspaceSource, StringComparison.Ordinal);
+
+        // Both adapters answer it from the description job's deterministic row, never from a heuristic.
+        Assert.Contains("GetDescriptionOutcomeAsync", AssetAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("BackgroundJobTypes.SceneAssetImageEditDescription", AssetAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("GetDescriptionOutcomeAsync", SceneAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("BackgroundJobTypes.SceneImageEditDescription", SceneAdapterSource, StringComparison.Ordinal);
+    }
+
     private static string Read(params string[] segments)
         => File.ReadAllText(Path.Combine([Root, "DreamGenClone.Web", .. segments]));
 

@@ -69,7 +69,7 @@
         @foreach (var tab in _sections)
         {
             <li class="nav-item">
-                <button type="button" class="nav-link @(tab == _activeSection ? "active" : "")" @onclick="() => _activeSection = tab">@tab</button>
+                <button type="button" class="nav-link @(tab == _activeSection ? "active" : "")" @onclick="() => SelectSectionAsync(tab)">@tab</button>
             </li>
         }
     </ul>
@@ -274,7 +274,13 @@
                         </div>
                     }
 
-                    @if (_build is not null && (int)_build.CurrentStep >= (int)CharacterIdentityBuildStep.GarmentRemoval)
+                    @* Panel B is scoped to the build's front CONTAINER, not to the step index (2026-09-24). The old
+                       "CurrentStep >= GarmentRemoval" gate hid this panel — and with it every edited image and the
+                       canonical-front choice — while the build was still on Front/Validate, even though the container
+                       already held a de-clothe → crop → enhance chain the operator had produced. "I did the edits but
+                       they do not show up" was that gate: the images existed and only the review deck could see them.
+                       The panel's own actions still state their prerequisites instead. *@
+                    @if (_build is not null && !string.IsNullOrWhiteSpace(_build.FrontContainerAssetId))
                     {
                         <div class="card mt-3">
                             <div class="card-header d-flex justify-content-between align-items-center">
@@ -323,10 +329,21 @@
 
                             @* The edited images are their own list: this is where the user picks the picture that
                                becomes the canonical front the later steps work from (B-121 note 007). *@
-                            @if (_editedImages.Count > 0)
+                            @if (_editedImages.Count == 0)
+                            {
+                                <div class="small text-muted mb-2">No edited images in this build's container yet.</div>
+                            }
+                            else
                             {
                                 <div class="mb-3">
                                     <div class="small fw-semibold mb-1">Edited images — pick the canonical front</div>
+                                    @if (!_frontStepComplete)
+                                    {
+                                        <div class="small text-warning mb-1">
+                                            Choose a front candidate in Panel A first: the canonical front is recorded as the result
+                                            of that candidate's edit chain.
+                                        </div>
+                                    }
                                     <div class="d-flex flex-wrap gap-2">
                                         @foreach (var edited in _editedImages)
                                         {
@@ -360,7 +377,7 @@
                                                     <div class="small text-muted" title="What this image went through, from its own record">@editedPipeline</div>
                                                 }
                                                 <button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-1" @onclick="() => RevalidateAsync(edited)" disabled="@(_validationBusy || edited.Status != SceneAssetStatus.Complete)">@(editedValidation is null ? "Run validation" : "Re-validate")</button>
-                                                <button type="button" class="btn btn-sm @(IsCanonicalFront(edited) ? "btn-success" : "btn-outline-success") w-100 mt-1" @onclick="() => ApproveCanonicalFrontAsync(edited)" disabled="@(_frontBusy || edited.Status != SceneAssetStatus.Complete)" title="Make this the canonical front for the next steps">@(IsCanonicalFront(edited) ? "Canonical front" : "Use this")</button>
+                                                <button type="button" class="btn btn-sm @(IsCanonicalFront(edited) ? "btn-success" : "btn-outline-success") w-100 mt-1" @onclick="() => ApproveCanonicalFrontAsync(edited)" disabled="@(_frontBusy || edited.Status != SceneAssetStatus.Complete || !_frontStepComplete)" title="@(_frontStepComplete ? "Make this the canonical front for the next steps" : "Choose a front candidate in Panel A first — the canonical front is recorded as the result of that candidate's edit chain")">@(IsCanonicalFront(edited) ? "Canonical front" : "Use this")</button>
                                                 <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1" @onclick="() => DeleteImageAsync(edited)" disabled="@(_frontBusy || IsCanonicalFront(edited))" title="@(IsCanonicalFront(edited) ? "The canonical front cannot be deleted" : "Delete this image")"><i class="bi bi-trash me-1"></i>Delete</button>
                                             </div>
                                         }
@@ -380,7 +397,7 @@
                             }
                             else
                             {
-                                <div class="text-muted small">The front image for this step is unavailable.</div>
+                                <div class="text-muted small">@EditWorkspaceUnavailableReason</div>
                             }
 
                             @* De-clothe, crop and enhance are recorded from the approved image's own lineage when
@@ -488,6 +505,54 @@
                                                                 }
                                                             </div>
                                                         }
+                                                    </div>
+                                                }
+                                                @* Every image of this view — the renders AND what the edit / crop / enhance chain produced
+                                                   from them — is a candidate for the view, and an image the review deck accepted is one of
+                                                   them. The attempt list above only knows a render, so the chain was invisible here and an
+                                                   edited image could never become the angle (operator report, 2026-09-24). *@
+                                                @{ IReadOnlyList<SceneAssetImage> viewImages = _angleViewImages.TryGetValue(view, out var viewImageList) ? viewImageList : []; }
+                                                @if (view == _selectedAngleView && viewImages.Count > 0)
+                                                {
+                                                    <div class="mt-2 border-top pt-2">
+                                                        <div class="small fw-semibold">@AngleLabel(view) images — pick the accepted one</div>
+                                                        <div class="small text-muted mb-1">Every image of this view, newest first, with the decision it carries in the review deck.</div>
+                                                        <div class="d-flex flex-wrap gap-2">
+                                                            @foreach (var candidate in viewImages)
+                                                            {
+                                                                <div class="border rounded p-1 text-center @(IsAcceptedAngleImage(angle, candidate) ? "border-success border-2" : "")" style="width:150px;">
+                                                                    <button type="button" class="btn w-100 p-0 border-0 bg-transparent" @onclick:stopPropagation="true" @onclick="() => OpenAttemptViewer(candidate)" title="View larger">
+                                                                        @if (candidate.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(candidate.FileRelativePath))
+                                                                        {
+                                                                            <img src="/scene-images/@candidate.FileRelativePath" style="height:150px; width:100%; object-fit:contain;" alt="@AngleLabel(view) image" />
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <div class="d-flex align-items-center justify-content-center text-muted small" style="height:150px;">@candidate.Status</div>
+                                                                        }
+                                                                    </button>
+                                                                    <div class="d-flex justify-content-between align-items-center small mt-1 px-1">
+                                                                        <span class="font-monospace text-truncate">@candidate.Id[..8]…</span>
+                                                                        <span class="badge @FrontDecisionBadge(candidate.CandidateDecision)">@(candidate.CandidateDecision?.ToString() ?? "—")</span>
+                                                                    </div>
+                                                                    @{ var candidatePipeline = DescribePipeline(candidate); }
+                                                                    @if (candidatePipeline is not null)
+                                                                    {
+                                                                        <div class="small text-muted" title="What this image went through, from its own record">@candidatePipeline</div>
+                                                                    }
+                                                                    @if (IsAcceptedAngleImage(angle, candidate))
+                                                                    {
+                                                                        <div class="small text-success fw-semibold">accepted · this view</div>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <button type="button" class="btn btn-sm btn-outline-success w-100 mt-1" @onclick:stopPropagation="true" @onclick="() => AcceptAngleImageAsync(view, candidate)" disabled="@(candidate.Status != SceneAssetStatus.Complete)">Accept this image</button>
+                                                                    }
+                                                                    <a class="btn btn-sm btn-outline-secondary w-100 mt-1" href="@AngleEditImageUrlFor(candidate)" @onclick:stopPropagation="true">Edit image</a>
+                                                                    <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1" @onclick:stopPropagation="true" @onclick="() => DeleteAngleImageAsync(view, candidate)" disabled="@IsAcceptedAngleImage(angle, candidate)"><i class="bi bi-trash me-1"></i>Delete</button>
+                                                                </div>
+                                                            }
+                                                        </div>
                                                     </div>
                                                 }
                                                 <div class="small text-muted mt-2">Select this card to edit this angle with the prepared prompt.</div>
@@ -888,18 +953,97 @@
                                                 ImageSize="@_bodyViewImageSize"
                                                 SettingsRevision="@_bodyViewSettingsRevision" />
                             </div>
+
+                            @* The BODY build's own promotion panel. Its readiness — not the build's step index — is the gate: the
+                               body plan's remaining steps are completed BY the promotion (CompleteBodyStepsAsync), so hiding
+                               this behind "CurrentStep >= Promote" hid the one action that finishes them and left a fully
+                               accepted body set with no way into a BodyComplete pack. Every unmet requirement is named here
+                               instead, and the button stays disabled until none is left. *@
+                            <div class="mt-3">
+                                <div class="card">
+                                    <div class="card-header d-flex justify-content-between align-items-center">
+                                        <strong>Promote the body set to a BodyComplete pack</strong>
+                                        <span class="badge @(BodyPromotionReady ? "text-bg-success" : "text-bg-secondary")">@BodyPromotionStatus</span>
+                                    </div>
+                                    <div class="card-body">
+                                        @if (_bodyPromotion is null)
+                                        {
+                                            <p class="text-muted small mb-0">Reading what this promotion still needs…</p>
+                                        }
+                                        else
+                                        {
+                                            <p class="small text-muted mb-2">
+                                                A <code>BodyComplete</code> pack is the twelve body images (six canonical views ×
+                                                clothed/unclothed) plus the five face references it carries. Both halves are read
+                                                below: the body slots from this build's accepted images, the face slots from the
+                                                draft pack the promotion writes into.
+                                            </p>
+                                            <div class="row g-2 mb-2">
+                                                @foreach (var slot in _bodyPromotion.Views)
+                                                {
+                                                    <div class="col-md-2">
+                                                        <div class="border rounded p-2 small" title="@slot.ArtifactId">
+                                                            <strong>Face · @slot.Label</strong><br />
+                                                            <span class="@(slot.Ready ? "text-success" : "text-danger")">@(slot.Ready ? "Ready" : "Blocked")</span>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                            <div class="row g-2 mb-3">
+                                                @foreach (var slot in _bodyPromotion.BodyViews)
+                                                {
+                                                    <div class="col-md-2">
+                                                        <div class="border rounded p-2 small" title="@slot.ArtifactId">
+                                                            <strong>@slot.Label</strong><br />
+                                                            <span class="@(slot.Ready ? "text-success" : "text-danger")">@(slot.Ready ? "Ready" : "Blocked")</span><br />
+                                                            <span class="font-monospace text-muted">@ShortId(slot.ArtifactId)</span>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                            @if (_bodyPromotion.BlockingReasons.Count > 0)
+                                            {
+                                                <div class="alert alert-warning small mb-2">
+                                                    <strong>What this promotion still needs</strong>
+                                                    <ul class="mb-0">
+                                                        @foreach (var reason in _bodyPromotion.BlockingReasons)
+                                                        {
+                                                            <li>@reason</li>
+                                                        }
+                                                    </ul>
+                                                </div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(_bodyPromotionMessage))
+                                            {
+                                                <div class="alert alert-info small">@_bodyPromotionMessage</div>
+                                            }
+                                            <div class="d-flex align-items-center gap-2">
+                                                <button type="button" class="btn btn-primary" @onclick="PromoteBodySetAsync"
+                                                        disabled="@(!_bodyPromotion.Ready || _bodyPromotionBusy)">
+                                                    Promote body set to a BodyComplete pack
+                                                </button>
+                                                <button type="button" class="btn btn-outline-secondary" @onclick="RefreshBodyPromotionAsync"
+                                                        disabled="@_bodyPromotionBusy">
+                                                    Re-read readiness
+                                                </button>
+                                                @if (!string.IsNullOrWhiteSpace(_bodyPromotion.PackId))
+                                                {
+                                                    <a class="btn btn-outline-success" href="/characters/@CharacterId#packs">Open identity packs</a>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
                         }
                     </div>
                 </div>
             </div>
             break;
         case "LoRA images":
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">LoRA images</h5>
-                    <p class="text-muted mb-0">LoRA dataset coverage cells, created one at a time with pose + identity — B-123 Phases 1–7. Not yet implemented.</p>
-                </div>
-            </div>
+            @* B-123 Phase 1: the coverage plan and the cell workspace, side by side. The tab plans and shows the
+               render prompt and caption per cell; it renders nothing and offers no batch action. *@
+            <LoraDatasetWorkspace CharacterId="@CharacterId" />
             break;
         case "LoRAs":
             <div class="card">
@@ -1089,6 +1233,95 @@
     private string? _bodyMessage;
     private bool _bodyCardBusy;
     private bool _bodyStartingBuild;
+    private CharacterIdentityPackPromotionResult? _bodyPromotion;
+    private string? _bodyPromotionMessage;
+    private bool _bodyPromotionBusy;
+
+    /// <summary>
+    /// Whether the BODY build can be promoted right now. The panel is rendered from this rather than from the build's
+    /// step index: the promotion is what completes the body plan's remaining steps, so a step-index gate would hide
+    /// the only action that finishes them.
+    /// </summary>
+    private bool BodyPromotionReady => _bodyPromotion?.Ready == true;
+
+    /// <summary>The badge text: how many requirements are still unmet, or that readiness has not been read yet.</summary>
+    private string BodyPromotionStatus => _bodyPromotion is null
+        ? "Reading…"
+        : _bodyPromotion.Ready
+            ? "Ready"
+            : $"{_bodyPromotion.BlockingReasons.Count} blocking";
+
+    /// <summary>
+    /// Re-reads what the body promotion still needs. Called when the body build is resolved, when the Body tab is
+    /// opened, and by the panel's own button — the accepted views change underneath the panel while it is on screen,
+    /// and a stale blocking list is worse than none.
+    /// </summary>
+    private async Task RefreshBodyPromotionAsync()
+    {
+        if (_bodyBuild is null)
+            return;
+
+        try
+        {
+            _bodyPromotion = await PromotionService.GetReadinessAsync(_bodyBuild.Id);
+            _bodyPromotionMessage = null;
+        }
+        catch (Exception ex)
+        {
+            _bodyPromotionMessage = ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// Promotes the accepted body set into the draft pack as a <c>BodyComplete</c> pack. The service refuses while
+    /// anything is missing and names what, so the button's disabled state and the service's refusal cannot disagree;
+    /// the same call completes this build's remaining steps (Validate then Angles then ValidateView then Promote).
+    /// </summary>
+    private async Task PromoteBodySetAsync()
+    {
+        if (_bodyBuild is null)
+            return;
+
+        var buildId = _bodyBuild.Id;
+        var ownerTemplateId = _bodyBuild.CharacterTemplateId;
+        _bodyPromotionBusy = true;
+        try
+        {
+            _bodyPromotion = await PromotionService.PromoteAsync(buildId);
+            _packs = (await IdentityService.ListPacksAsync(ownerTemplateId)).ToList();
+            _bodyStepRows = (await BuildService.ListStepsAsync(buildId)).ToList();
+            _bodyBuild = (await BuildService.ListBuildsAsync(ownerTemplateId))
+                .FirstOrDefault(build => string.Equals(build.Id, buildId, StringComparison.Ordinal)) ?? _bodyBuild;
+            _bodyPromotionMessage =
+                $"Promoted the twelve accepted body images and the pack's five face references to identity pack "
+                + $"{_bodyPromotion.PackId} (scope {_bodyPromotion.Scope}).";
+            _activeSection = "Packs";
+        }
+        catch (Exception ex)
+        {
+            _bodyPromotionMessage = ex.Message;
+        }
+        finally
+        {
+            _bodyPromotionBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Switching tabs is a read. The Body tab re-reads its promotion readiness so the panel cannot show a list that
+    /// the views accepted since the last load have already invalidated.
+    /// </summary>
+    private async Task SelectSectionAsync(string section)
+    {
+        _activeSection = section;
+        if (string.Equals(section, "Body", StringComparison.Ordinal))
+            await RefreshBodyPromotionAsync();
+    }
+
+    /// <summary>The first eight characters of an artifact id, so a readiness card stays readable; an empty id stays empty.</summary>
+    private static string ShortId(string? id) => string.IsNullOrWhiteSpace(id)
+        ? "—"
+        : id.Length <= 8 ? id : id[..8];
 
     /// <summary>
     /// The last prefill/draft result for the body card (B-122). Proposals are shown, never applied silently, and
@@ -1181,6 +1414,13 @@
     private readonly Dictionary<CharacterIdentityAngleView, string> _anglePrompts = [];
     private readonly Dictionary<CharacterIdentityAngleView, bool> _profileConfirmations = [];
     private readonly Dictionary<CharacterIdentityAngleView, int> _angleAttemptCounts = [];
+
+    /// <summary>
+    /// Every image of each view's candidate batch, newest first: the renders an attempt produced AND what the edit /
+    /// crop / enhance chain produced from them. The attempt list only knows renders, so this is the list the accepted
+    /// image is chosen from — including an image the review deck already accepted (2026-09-24).
+    /// </summary>
+    private readonly Dictionary<CharacterIdentityAngleView, List<SceneAssetImage>> _angleViewImages = [];
     private static readonly CharacterIdentityAngleView[] AngleViews =
     [
         CharacterIdentityAngleView.ThreeQuarterLeft,
@@ -1451,6 +1691,10 @@
             // B-122 E-2: the model and the render size for the whole body set come from the persisted workflow
             // settings, so the operator sets them once instead of typing a size per view.
             await RefreshBodyViewSettingsAsync();
+
+            // What the body promotion still needs is read with the build, so the Body tab's panel never opens on a
+            // stale or empty list.
+            await RefreshBodyPromotionAsync();
         }
 
         try
@@ -1965,6 +2209,9 @@
         try
         {
             _frontAttempts = (await FrontService.ListFrontAttemptsAsync(_build.Id)).ToList();
+            // The edited images live in the same container as the candidates, so they are read with them: the
+            // canonical-front choice must not depend on the edit workspace having resolved its own source.
+            await RefreshEditedImagesAsync();
         }
         catch (Exception ex)
         {
@@ -2378,6 +2625,9 @@
 
             _angleImages = images;
 
+            // The per-view image lists are read with the records, so a card shows the chain the moment it opens.
+            await LoadAngleViewImagesAsync();
+
             // Every card's own attempt count, read here so the FIRST render has it too: counting only in the
             // panel refresh left every card reporting zero attempts until the user acted (B-121 note 010).
             foreach (var countedView in AngleViews)
@@ -2454,7 +2704,13 @@
         {
             _promotion = await PromotionService.PromoteAsync(_build.Id);
             _packs = (await IdentityService.ListPacksAsync(_build.CharacterTemplateId)).ToList();
-            _promotionMessage = $"Promoted the five accepted views to draft identity pack {_promotion.PackId}.";
+            // Say what happened to the pack, not just which pack: "Promoted the five accepted views…" while nothing
+            // was written is how an operator was told their new images were in the pack when they were not.
+            _promotionMessage = _promotion.ReplacedSlots > 0
+                ? $"Promoted {_promotion.UploadedSlots} view(s) into draft identity pack {_promotion.PackId}, replacing "
+                    + $"{_promotion.ReplacedSlots} asset(s) that occupied those slots."
+                : $"Promoted {_promotion.UploadedSlots} view(s) into draft identity pack {_promotion.PackId} (no slot "
+                    + "was replaced — the pack already held these images).";
             _activeSection = "Packs";
         }
         catch (Exception ex)
@@ -2638,6 +2894,84 @@
         }
     }
 
+    /// <summary>
+    /// Every image of each view's candidate batch, newest first. The batch is the view's flow: renders, uploads and
+    /// everything the edit / crop / enhance chain produced all join
+    /// <see cref="CharacterIdentityAnglesService.CandidateBatchIdFor"/>, so membership is read from the record.
+    /// </summary>
+    private async Task LoadAngleViewImagesAsync()
+    {
+        if (_build is null || string.IsNullOrWhiteSpace(_build.FrontContainerAssetId))
+        {
+            _angleViewImages.Clear();
+            return;
+        }
+
+        var images = await AssetService.ListImagesAsync(_build.FrontContainerAssetId);
+        foreach (var view in AngleViews)
+        {
+            var batchId = CharacterIdentityAnglesService.CandidateBatchIdFor(_build.Id, view);
+            _angleViewImages[view] = images
+                .Where(image => string.Equals(image.CandidateBatchId, batchId, StringComparison.Ordinal))
+                .OrderByDescending(image => image.CreatedUtc)
+                .ToList();
+        }
+    }
+
+    /// <summary>True when this image is the view's accepted artifact — the value the later steps work from.</summary>
+    private static bool IsAcceptedAngleImage(CharacterIdentityAngleRecord? angle, SceneAssetImage image)
+        => angle?.OutputArtifactId is { Length: > 0 } accepted
+            && string.Equals(accepted, image.Id, StringComparison.Ordinal);
+
+    /// <summary>The media-edit page for one image of a chain — the page the review deck's own edit action opens.</summary>
+    private static string AngleEditImageUrlFor(SceneAssetImage image)
+        => $"/assets/{image.AssetId}/images/{image.Id}/edit";
+
+    /// <summary>
+    /// Accepts one image of a view — a render, or what the chain produced from it — as that view's artifact. This is
+    /// the route an edited image takes to become the angle; the attempt list alone can only accept a render.
+    /// </summary>
+    private async Task AcceptAngleImageAsync(CharacterIdentityAngleView view, SceneAssetImage image)
+    {
+        if (_build is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await AnglesService.AcceptCandidateAsync(
+                _build.Id, view, image.Id, _profileConfirmations.GetValueOrDefault(view));
+            _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
+            _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+            await RefreshAnglePanelAsync(view);
+            _anglesMessage = $"{AngleLabel(view)} accepted {image.Id[..8]}… as the view.";
+        }
+        catch (Exception ex)
+        {
+            _anglesMessage = ex.Message;
+        }
+    }
+
+    private async Task DeleteAngleImageAsync(CharacterIdentityAngleView view, SceneAssetImage image)
+    {
+        if (_build is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await AssetService.DeleteImageAsync(image.Id);
+            await RefreshAnglePanelAsync(view);
+            _anglesMessage = $"Deleted {image.Id[..8]}… from {AngleLabel(view)}.";
+        }
+        catch (Exception ex)
+        {
+            _anglesMessage = ex.Message;
+        }
+    }
+
     private async Task<List<SceneAssetImage>> LoadAngleAttemptImagesAsync(
         IEnumerable<CharacterIdentityAngleAttempt> attempts)
     {
@@ -2753,21 +3087,39 @@
         _ => view.ToString()
     };
 
-    /// <summary>Loads the edited images of the front asset, newest first.</summary>
+    /// <summary>
+    /// Loads the edited images of the build's front container, newest first. The CONTAINER is the scope, not the
+    /// current edit source: a build whose step index has not reached the edit steps still owns every image an editor
+    /// produced in that container, and hiding them made a finished de-clothe → crop → enhance chain unreachable
+    /// (2026-09-24 — the chain existed, the review deck showed it, and the Faces page showed nothing).
+    /// </summary>
     private async Task RefreshEditedImagesAsync()
     {
-        if (_garmentSource is null)
+        if (_build is null || string.IsNullOrWhiteSpace(_build.FrontContainerAssetId))
         {
             _editedImages = [];
             return;
         }
 
-        var images = await AssetService.ListImagesAsync(_garmentSource.AssetId);
+        var images = await AssetService.ListImagesAsync(_build.FrontContainerAssetId);
         _editedImages = images
             .Where(image => image.Kind == SceneAssetKind.Edited)
             .OrderByDescending(image => image.CreatedUtc)
             .ToList();
     }
+
+    /// <summary>
+    /// Why the edit workspace is not on screen, in the panel's own words. The panel itself is visible from the moment
+    /// a front container exists — its list of recorded edits is the point — so an absent workspace says what it is
+    /// waiting for instead of a bare "unavailable".
+    /// </summary>
+    private string EditWorkspaceUnavailableReason => _build is null
+        ? "No build is selected."
+        : (int)_build.CurrentStep < (int)CharacterIdentityBuildStep.GarmentRemoval
+            ? "The edit workspace opens once the front candidate passes the eye gate (Run validation, or record the "
+                + "manual override, in Panel A). The edited images below are already recorded in this build's container "
+                + "and can be accepted as the canonical front."
+            : "The front image for this step is unavailable — see the message above.";
 
     /// <summary>
     /// Deletes one image. The canonical front is refused: the build's steps point at it, and removing it

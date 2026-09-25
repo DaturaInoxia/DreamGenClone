@@ -1333,6 +1333,19 @@ else
         {
             _descriptionPending = false;
         }
+        else if (_descriptionPending
+            && await _service.GetDescriptionOutcomeAsync(_session.Id) is { IsTerminal: true } descriptionOutcome)
+        {
+            // The description cannot arrive. Stop reporting work in flight so the editor stays usable — the
+            // description is context for the compiler, not a prerequisite for preparing an edit — and say why: a
+            // wait that never ends, with nothing on screen, disabled every control in this panel with no message
+            // (2026-09-24, debug/071: the provider echoed a different model id).
+            _descriptionPending = false;
+            if (!string.IsNullOrWhiteSpace(descriptionOutcome.FailureMessage))
+            {
+                _errorMessage = $"The source description could not be produced: {descriptionOutcome.FailureMessage}";
+            }
+        }
 
         var latestAttempt = await _service.GetLatestAttemptAsync(_session.Id);
         if (latestAttempt is not null)

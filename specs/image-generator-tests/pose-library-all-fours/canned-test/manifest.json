@@ -1,0 +1,196 @@
+{
+  "graphSource": "artifacts\\tmp\\qwen-2-1\\pose-allfours-graph.json",
+  "graphSha256": "f722d6f49a0a7783010e6957e5f2ee1b8573c513545e761550244a2a1b714e7d",
+  "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, on all fours, natural skin texture, photorealistic, plain studio background, 85mm",
+  "referenceSlots": [
+    "images.image_1"
+  ],
+  "skeletonRoot": "artifacts\\tmp\\pose-probes\\canned-refs",
+  "seeds": [
+    20260922,
+    771122
+  ],
+  "comfy": "https://comfy.kenacwood.net",
+  "runs": [
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006",
+      "seed": 20260922,
+      "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, kneeling with one hand planted on the floor beside her knee and the other arm held out away from her body, both shins on the floor, head up, natural skin texture, photorealistic, plain studio background, 85mm",
+      "cannedPrompt": true,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006.png",
+      "skeletonSha256": "f783380a292b8bf77e53a89bd7da3e665bd2a5b1283ddaaa5c80ab82888b0a3e",
+      "referenceName": "pose-proof-06ca998cd81b.png",
+      "promptId": "91e6cf70-66a4-48d3-8d30-7bd6a7f69470",
+      "elapsedSeconds": 25.2,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006__s20260922.png",
+          "sha256": "54e63a5b35ab6d05de190d1d37a896fae70bf6f7a7c800f09b33e2b0d95a6d14",
+          "bytes": 1446144
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006",
+      "seed": 771122,
+      "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, kneeling with one hand planted on the floor beside her knee and the other arm held out away from her body, both shins on the floor, head up, natural skin texture, photorealistic, plain studio background, 85mm",
+      "cannedPrompt": true,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006.png",
+      "skeletonSha256": "f783380a292b8bf77e53a89bd7da3e665bd2a5b1283ddaaa5c80ab82888b0a3e",
+      "referenceName": "pose-proof-64198d3593c6.png",
+      "promptId": "b1e17637-c075-4298-97c8-7f618f36ff82",
+      "elapsedSeconds": 23.1,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006__s771122.png",
+          "sha256": "6b428cd325c0a32cb4fbd281b822143b7de9d700a4fa8981236ab8d025f0b602",
+          "bytes": 1504630
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008",
+      "seed": 20260922,
+      "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, kneeling with both hands planted flat on the floor beside her knees and both shins folded beneath her, sitting low over her heels, head up, natural skin texture, photorealistic, plain studio background, 85mm",
+      "cannedPrompt": true,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008.png",
+      "skeletonSha256": "0006f4be587bc20efdf7997d984e2f2ddcedc54a16a4c3c8139bbc6e114dc1b0",
+      "referenceName": "pose-proof-0535becff8be.png",
+      "promptId": "75c4457e-f685-443b-a9f9-c5736d29b4fb",
+      "elapsedSeconds": 22.4,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008__s20260922.png",
+          "sha256": "cce0bb3805e76655c1849737d2f10591e0fc139ad0d982006acb8cbb3228dd5f",
+          "bytes": 1379609
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008",
+      "seed": 771122,
+      "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, kneeling with both hands planted flat on the floor beside her knees and both shins folded beneath her, sitting low over her heels, head up, natural skin texture, photorealistic, plain studio background, 85mm",
+      "cannedPrompt": true,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008.png",
+      "skeletonSha256": "0006f4be587bc20efdf7997d984e2f2ddcedc54a16a4c3c8139bbc6e114dc1b0",
+      "referenceName": "pose-proof-da2347b7f5c3.png",
+      "promptId": "e60a870a-fd46-442a-8026-c35c74867ef1",
+      "elapsedSeconds": 22.1,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008__s771122.png",
+          "sha256": "788245eef633bb93a8be55bdf8924ca4a8a65a4e941fa1c5b6c2ec596a8acadd",
+          "bytes": 1372181
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010",
+      "seed": 20260922,
+      "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, kneeling with her left hand planted on the floor beside her and the other arm held in against her body, both legs folded beneath her, head up, natural skin texture, photorealistic, plain studio background, 85mm",
+      "cannedPrompt": true,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010.png",
+      "skeletonSha256": "6e2e398c62dbae5d047883e0af6453907b0dafd9d9a79be0bad0e4cf0bcb6940",
+      "referenceName": "pose-proof-319a301e384b.png",
+      "promptId": "e488e040-2c6f-45f0-9372-e252fb12a71c",
+      "elapsedSeconds": 22.0,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010__s20260922.png",
+          "sha256": "b9495f348704e8ab75b55fc5f5e941ce0004b5bd2148544553ad96ae1c81864b",
+          "bytes": 1290213
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010",
+      "seed": 771122,
+      "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, kneeling with her left hand planted on the floor beside her and the other arm held in against her body, both legs folded beneath her, head up, natural skin texture, photorealistic, plain studio background, 85mm",
+      "cannedPrompt": true,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010.png",
+      "skeletonSha256": "6e2e398c62dbae5d047883e0af6453907b0dafd9d9a79be0bad0e4cf0bcb6940",
+      "referenceName": "pose-proof-9bdef25b381e.png",
+      "promptId": "9e85d8f2-506a-4307-ab1b-a29e95918761",
+      "elapsedSeconds": 22.3,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010__s771122.png",
+          "sha256": "560cc7837bd79c8cece30213da31ec6a962a3bb15913848eb026511eed5ed80b",
+          "bytes": 1301027
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001",
+      "seed": 20260922,
+      "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, crouched low on her knees with both hands planted flat on the floor in front of her, shins folded back beneath her so her body sits low and compact, head up, seen from the side, natural skin texture, photorealistic, plain studio background, 85mm",
+      "cannedPrompt": true,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001.png",
+      "skeletonSha256": "4fb677ab50926c1c962dcabe0d46d58f0789ea83d1957502deee9d24eeec073e",
+      "referenceName": "pose-proof-5a3df215641e.png",
+      "promptId": "aaec7d66-e76e-4601-9aa3-bc894ecc6a59",
+      "elapsedSeconds": 22.0,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001__s20260922.png",
+          "sha256": "5c8b6a846d031d326646bc07be8ab6ee06740fdbf07244a78326dafec383df3e",
+          "bytes": 1136349
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001",
+      "seed": 771122,
+      "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, crouched low on her knees with both hands planted flat on the floor in front of her, shins folded back beneath her so her body sits low and compact, head up, seen from the side, natural skin texture, photorealistic, plain studio background, 85mm",
+      "cannedPrompt": true,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001.png",
+      "skeletonSha256": "4fb677ab50926c1c962dcabe0d46d58f0789ea83d1957502deee9d24eeec073e",
+      "referenceName": "pose-proof-547d30b3c225.png",
+      "promptId": "6da2b2dd-5313-4647-ad83-e5a9f01d5022",
+      "elapsedSeconds": 22.0,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001__s771122.png",
+          "sha256": "4d3e55e32302c9d56c52986051448c22594c93de9e09c918a0b823b3cd14770f",
+          "bytes": 1163928
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002",
+      "seed": 20260922,
+      "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, kneeling on both knees and both hands, hips raised above her knees with her shins tucked under her on the floor, head up, seen from the side, natural skin texture, photorealistic, plain studio background, 85mm",
+      "cannedPrompt": true,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002.png",
+      "skeletonSha256": "93968690700c409bc9b13e0b493b3bb2c05bac73abf49981feee8a2f5aedafb1",
+      "referenceName": "pose-proof-c94ed8084175.png",
+      "promptId": "ca08444c-23e2-47eb-8687-9f82e6c5ba3c",
+      "elapsedSeconds": 21.9,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002__s20260922.png",
+          "sha256": "3d6477d2b1bc61785415487275e15bfc52b939f598d6cf68b2ea649c1596f148",
+          "bytes": 1099678
+        }
+      ]
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002",
+      "seed": 771122,
+      "prompt": "A full-body photograph of a fully clothed woman in a plain grey sweater and dark trousers, kneeling on both knees and both hands, hips raised above her knees with her shins tucked under her on the floor, head up, seen from the side, natural skin texture, photorealistic, plain studio background, 85mm",
+      "cannedPrompt": true,
+      "skeleton": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002.png",
+      "skeletonSha256": "93968690700c409bc9b13e0b493b3bb2c05bac73abf49981feee8a2f5aedafb1",
+      "referenceName": "pose-proof-9c0bee247ca8.png",
+      "promptId": "afcfd07d-1172-4fcc-8946-5cb21c4b2d4f",
+      "elapsedSeconds": 22.0,
+      "outputs": [
+        {
+          "file": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002__s771122.png",
+          "sha256": "e33fa73e3f122444b2eafd31c2a021de54765a938bd432e61e179627330f20fd",
+          "bytes": 1079890
+        }
+      ]
+    }
+  ]
+}

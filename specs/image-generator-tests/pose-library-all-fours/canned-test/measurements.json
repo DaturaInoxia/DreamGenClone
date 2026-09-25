@@ -1,0 +1,129 @@
+{
+  "maxMeanPct": 6.0,
+  "comfy": "https://comfy.kenacwood.net",
+  "rows": [
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006",
+      "seed": 20260922,
+      "candidate": "pose-packs\\openpose-nsfw\\NSFW_all_fours\\512768\\NSFW_all_fours006.json",
+      "image": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006__s20260922.png",
+      "joints": 14,
+      "mean": 7.259,
+      "p95": 18.672,
+      "max": 18.719,
+      "worst": "r_ankle",
+      "passed": false
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006",
+      "seed": 771122,
+      "candidate": "pose-packs\\openpose-nsfw\\NSFW_all_fours\\512768\\NSFW_all_fours006.json",
+      "image": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours006__s771122.png",
+      "joints": 14,
+      "mean": 8.366,
+      "p95": 15.619,
+      "max": 19.869,
+      "worst": "r_ankle",
+      "passed": false
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008",
+      "seed": 20260922,
+      "candidate": "pose-packs\\openpose-nsfw\\NSFW_all_fours\\512768\\NSFW_all_fours008.json",
+      "image": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008__s20260922.png",
+      "joints": 16,
+      "mean": 3.446,
+      "p95": 6.993,
+      "max": 10.592,
+      "worst": "r_ankle",
+      "passed": true
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008",
+      "seed": 771122,
+      "candidate": "pose-packs\\openpose-nsfw\\NSFW_all_fours\\512768\\NSFW_all_fours008.json",
+      "image": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours008__s771122.png",
+      "joints": 16,
+      "mean": 6.702,
+      "p95": 12.259,
+      "max": 17.781,
+      "worst": "r_ankle",
+      "passed": false
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010",
+      "seed": 20260922,
+      "candidate": "pose-packs\\openpose-nsfw\\NSFW_all_fours\\512768\\NSFW_all_fours010.json",
+      "image": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010__s20260922.png",
+      "joints": 14,
+      "mean": 14.606,
+      "p95": 23.63,
+      "max": 32.394,
+      "worst": "r_knee",
+      "passed": false
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010",
+      "seed": 771122,
+      "candidate": "pose-packs\\openpose-nsfw\\NSFW_all_fours\\512768\\NSFW_all_fours010.json",
+      "image": "images/pack-openpose-nsfw-nsfw-all-fours-512768-nsfw-all-fours010__s771122.png",
+      "joints": 15,
+      "mean": 13.951,
+      "p95": 24.723,
+      "max": 37.662,
+      "worst": "r_knee",
+      "passed": false
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001",
+      "seed": 20260922,
+      "candidate": "pose-packs\\openpose-nsfw\\NSFW_all_fours\\768512\\NSFW_all_fours001.json",
+      "image": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001__s20260922.png",
+      "joints": 16,
+      "mean": 6.963,
+      "p95": 16.127,
+      "max": 16.859,
+      "worst": "l_ear",
+      "passed": false
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001",
+      "seed": 771122,
+      "candidate": "pose-packs\\openpose-nsfw\\NSFW_all_fours\\768512\\NSFW_all_fours001.json",
+      "image": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours001__s771122.png",
+      "joints": 14,
+      "mean": 9.198,
+      "p95": 23.053,
+      "max": 25.159,
+      "worst": "l_ear",
+      "passed": false
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002",
+      "seed": 20260922,
+      "candidate": "pose-packs\\openpose-nsfw\\NSFW_all_fours\\768512\\NSFW_all_fours002.json",
+      "image": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002__s20260922.png",
+      "joints": 14,
+      "mean": 7.11,
+      "p95": 15.257,
+      "max": 18.272,
+      "worst": "l_knee",
+      "passed": false
+    },
+    {
+      "pose": "pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002",
+      "seed": 771122,
+      "candidate": "pose-packs\\openpose-nsfw\\NSFW_all_fours\\768512\\NSFW_all_fours002.json",
+      "image": "images/pack-openpose-nsfw-nsfw-all-fours-768512-nsfw-all-fours002__s771122.png",
+      "joints": 15,
+      "mean": 5.833,
+      "p95": 10.122,
+      "max": 16.735,
+      "worst": "l_knee",
+      "passed": true
+    }
+  ],
+  "passed": 2,
+  "failed": 8,
+  "errors": 0
+}

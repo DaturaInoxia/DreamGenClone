@@ -12,7 +12,7 @@ Usage:
   python helpers/runpod/batch-render-poses.py [pack_dir] [out_dir]
 
 Defaults:
-  pack_dir = helpers/runpod/openposeNSFWPosePackage_final
+  pack_dir = pose-packs/openpose-nsfw
   out_dir  = artifacts/tmp/openpose-render
 """
 import json
@@ -132,7 +132,7 @@ def parse_source(json_path, pack_dir):
 
 
 def main():
-    pack_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("helpers/runpod/openposeNSFWPosePackage_final")
+    pack_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("pose-packs/openpose-nsfw")
     out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("artifacts/tmp/openpose-render")
     out_dir.mkdir(parents=True, exist_ok=True)
 

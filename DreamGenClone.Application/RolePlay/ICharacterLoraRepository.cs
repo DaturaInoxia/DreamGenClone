@@ -21,6 +21,20 @@ public interface ICharacterLoraRepository
         DateTime qualifiedUtc,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Resolves the coverage/gate thresholds: character row, else the global row, else a hard error naming
+    /// the missing row. Never a code default — a gate that runs on a guessed threshold is worse than one
+    /// that refuses to run.
+    /// </summary>
+    Task<CurationPolicy> ResolveCurationPolicyAsync(
+        string? characterProfileId, CancellationToken cancellationToken = default);
+
+    Task<CurationPolicy> SaveCurationPolicyAsync(
+        CurationPolicy policy, string? characterProfileId, CancellationToken cancellationToken = default);
+
+    Task<CurationPolicy> ResetCurationPolicyToSeedAsync(
+        string? characterProfileId, CancellationToken cancellationToken = default);
+
     Task<CharacterLoraDataset> CreateDatasetAsync(
         CharacterLoraDataset dataset, CancellationToken cancellationToken = default);
 
@@ -32,6 +46,13 @@ public interface ICharacterLoraRepository
 
     Task AddDatasetMemberAsync(
         CharacterLoraDatasetMember member, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Record the asset that holds this dataset's cell attempts. Only a draft dataset can be given a container:
+    /// the container is where every attempt of a live dataset lives, so it is fixed once the set is frozen.
+    /// </summary>
+    Task<CharacterLoraDataset> SetDatasetContainerAsync(
+        string datasetId, string containerAssetId, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<CharacterLoraDatasetMember>> ListDatasetMembersAsync(
         string datasetId, CancellationToken cancellationToken = default);

@@ -68,7 +68,97 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
         Assert.Contains("pose reference", request.References[1].SemanticRole, StringComparison.Ordinal);
     }
 
-    /// <summary>A configured mechanism is used when the model has one, so adding the native path cannot reroute it.</summary>
+    /// <summary>
+    /// The character's BUILD travels beside the face as a second reference image: the approved face first, then the
+    /// state-matched body reference. Neither is a substitute for the other, so both the count and the ORDER are
+    /// asserted on the bytes the client received.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_NativeReferenceWithABodyReference_SendsTheFaceThenTheBody()
+    {
+        var world = new World();
+        var referenceClient = new RecordingReferenceClient();
+        var handler = world.CreateHandler(referenceClient: referenceClient, identityClient: new NeverCalledIdentityClient());
+
+        await handler.HandleAsync(
+            world.JobForBodyReference(packId: "pack-1", faceAssetId: "face-1", bodyAssetId: "body-1"),
+            CancellationToken.None);
+
+        var request = Assert.Single(referenceClient.Requests);
+        Assert.Equal(2, request.References.Count);
+        Assert.Equal(world.FaceBytes, request.References[0].Content);
+        Assert.Equal(World.BodyBytes, request.References[1].Content);
+        Assert.Contains("body-1", request.References[1].FileName, StringComparison.Ordinal);
+        Assert.Contains("Front", request.References[1].SemanticRole, StringComparison.Ordinal);
+        Assert.Contains("Clothed", request.References[1].SemanticRole, StringComparison.Ordinal);
+        Assert.Equal(0, world.PromptOnlyClient.Calls);
+    }
+
+    /// <summary>
+    /// A view from directly behind has NO face in frame, so the render is routed by the BODY reference alone. Without
+    /// this the cell would fall through to the prompt-only branch and be rendered with no conditioning at all while
+    /// still reporting success.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_BodyReferenceWithoutAFace_StillTravelsAsAReference()
+    {
+        var world = new World();
+        var referenceClient = new RecordingReferenceClient();
+        var handler = world.CreateHandler(referenceClient: referenceClient, identityClient: new NeverCalledIdentityClient());
+
+        await handler.HandleAsync(
+            world.JobForBodyReference(packId: "pack-1", faceAssetId: null, bodyAssetId: "body-1"),
+            CancellationToken.None);
+
+        var request = Assert.Single(referenceClient.Requests);
+        var reference = Assert.Single(request.References);
+        Assert.Equal(World.BodyBytes, reference.Content);
+        Assert.Equal(0, world.PromptOnlyClient.Calls);
+    }
+
+    /// <summary>
+    /// A mechanism with ONE reference slot refuses a second reference by name rather than dropping it: an image that
+    /// silently lost the build reference looks exactly like a conditioned one in the deck.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_BodyReferenceOnAModelWithOneReferenceSlot_RefusesAndNamesTheModel()
+    {
+        var world = new World(modelId: "juggernaut-ipadapter");
+        var referenceClient = new RecordingReferenceClient();
+        var identityClient = new RecordingIdentityClient();
+        var handler = world.CreateHandler(referenceClient: referenceClient, identityClient: identityClient);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => handler.HandleAsync(
+            world.JobForBodyReference(packId: "pack-1", faceAssetId: "face-1", bodyAssetId: "body-1"),
+            CancellationToken.None));
+
+        Assert.Contains("juggernaut-ipadapter", error.Message, StringComparison.Ordinal);
+        Assert.Contains("single reference slot", error.Message, StringComparison.Ordinal);
+        Assert.Contains("NOT submitted", error.Message, StringComparison.Ordinal);
+        Assert.Empty(referenceClient.Requests);
+        Assert.Empty(identityClient.Requests);
+        Assert.Equal(0, world.PromptOnlyClient.Calls);
+    }
+
+    /// <summary>An unapproved body reference is refused rather than rendered without it.</summary>
+    [Fact]
+    public async Task HandleAsync_AnUnapprovedBodyReference_RefusesRatherThanRenderingWithoutIt()
+    {
+        var world = new World(bodyApproved: false);
+        var referenceClient = new RecordingReferenceClient();
+        var handler = world.CreateHandler(referenceClient: referenceClient, identityClient: new NeverCalledIdentityClient());
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => handler.HandleAsync(
+            world.JobForBodyReference(packId: "pack-1", faceAssetId: "face-1", bodyAssetId: "body-1"),
+            CancellationToken.None));
+
+        Assert.Contains("APPROVED full-body reference", error.Message, StringComparison.Ordinal);
+        Assert.Empty(referenceClient.Requests);
+    }
+
+    /// <summary>
+    /// A configured mechanism is used when the model has one, so adding the native path cannot reroute it.
+    /// </summary>
     [Fact]
     public async Task HandleAsync_IpAdapterIdentity_StillUsesTheIdentityClientAndTheMechanism()
     {
@@ -202,7 +292,7 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
     /// </summary>
     private sealed class World
     {
-        public World(string modelId = "qwen-native")
+        public World(string modelId = "qwen-native", bool bodyApproved = true)
         {
             RequestedModelId = modelId;
             AssetId = $"asset-{Guid.NewGuid():N}";
@@ -249,8 +339,23 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
                     IsApproved = true,
                     FileRelativePath = "identity/becky/face-1.png",
                     Sha256 = "FACE1HASH"
+                },
+                // The approved full-body reference the character's BUILD comes from. Its view and state are declared,
+                // because a body reference that cannot be matched to a cell is not usable as one.
+                new SceneImageReferenceAsset
+                {
+                    Id = "body-1",
+                    IdentityPackId = "pack-1",
+                    AssetKind = SceneImageReferenceAssetKind.FullBody,
+                    BodyView = SceneImageReferenceBodyView.Front,
+                    BodyState = SceneImageReferenceBodyState.Clothed,
+                    IsApproved = bodyApproved,
+                    FileRelativePath = "identity/becky/body-1.png",
+                    Sha256 = "BODY1HASH"
                 });
-            IdentityStorage = new StubIdentityStorage(FaceBytes);
+            IdentityStorage = new StubIdentityStorage(
+                FaceBytes,
+                new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["identity/becky/body-1.png"] = BodyBytes });
         }
 
         public string RequestedModelId { get; }
@@ -262,6 +367,9 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
         public string SourceImageId { get; }
 
         public byte[] FaceBytes { get; } = [9, 9, 9, 9];
+
+        /// <summary>The body reference's bytes, distinct from the face's, so the two references are told apart.</summary>
+        public static readonly byte[] BodyBytes = [3, 3, 3, 3];
 
         public static readonly byte[] SkeletonBytes = [4, 4, 4, 4];
 
@@ -293,6 +401,27 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
                     IdentityFaceAssetId = faceAssetId,
                     PoseStance = poseStance,
                     PoseStrength = poseStance is null ? null : 0.6
+                })
+            };
+
+        /// <summary>
+        /// A cell render's request: the face that carries identity (null for a view from directly behind) and the
+        /// approved body reference that carries the build.
+        /// </summary>
+        public BackgroundJobEnvelope JobForBodyReference(string packId, string? faceAssetId, string bodyAssetId)
+            => new()
+            {
+                JobType = BackgroundJobTypes.SceneAssetGeneration,
+                PayloadJson = JsonSerializer.Serialize(new SceneAssetGenerationJobPayload
+                {
+                    AssetId = AssetId,
+                    ImageId = ImageId,
+                    ModelId = RequestedModelId,
+                    ImageSize = "1024x1536",
+                    IdentityPackId = faceAssetId is null ? null : packId,
+                    IdentityFaceAssetId = faceAssetId,
+                    BodyReferencePackId = packId,
+                    BodyReferenceAssetId = bodyAssetId
                 })
             };
 
@@ -340,7 +469,10 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
                 NullLogger<SceneAssetGenerationJobHandler>.Instance,
                 // The shared pack -> approved face resolver, constructed over the same stub repository so the
                 // production validation (approval, ownership, face kind) is the code under test.
-                new IdentityFaceReferenceResolver(IdentityRepository));
+                new IdentityFaceReferenceResolver(IdentityRepository),
+                // The body twin, over the same repository, so which body reference a pack contributes is validated by
+                // the production rules rather than by the test's own copy of them.
+                new IdentityBodyReferenceResolver(IdentityRepository));
     }
 
     private sealed class StubSceneAssetRepository(SceneAsset asset, params SceneAssetImage[] images) : ISceneAssetRepository
@@ -438,13 +570,13 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
 
     private sealed class StubIdentityRepository(
         CharacterImageIdentityPack pack,
-        SceneImageReferenceAsset asset) : ICharacterImageIdentityRepository
+        params SceneImageReferenceAsset[] assets) : ICharacterImageIdentityRepository
     {
         public Task<CharacterImageIdentityPack?> GetPackAsync(string packId, CancellationToken cancellationToken = default)
             => Task.FromResult<CharacterImageIdentityPack?>(pack.Id == packId ? pack : null);
 
         public Task<SceneImageReferenceAsset?> GetAssetAsync(string assetId, CancellationToken cancellationToken = default)
-            => Task.FromResult<SceneImageReferenceAsset?>(asset.Id == assetId ? asset : null);
+            => Task.FromResult(assets.FirstOrDefault(asset => asset.Id == assetId));
 
         public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(
             string characterProfileId, CancellationToken cancellationToken = default)
@@ -497,10 +629,11 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
             => throw new NotSupportedException();
     }
 
-    private sealed class StubIdentityStorage(byte[] bytes) : ICharacterImageAssetStorageService
+    private sealed class StubIdentityStorage(byte[] bytes, Dictionary<string, byte[]>? perPath = null) : ICharacterImageAssetStorageService
     {
         public Task<Stream> OpenReadAsync(string relativePath, CancellationToken cancellationToken = default)
-            => Task.FromResult<Stream>(new MemoryStream(bytes));
+            => Task.FromResult<Stream>(new MemoryStream(
+                perPath is not null && perPath.TryGetValue(relativePath, out var specific) ? specific : bytes));
 
         public Task<StoredCharacterImageAsset> SaveAsync(
             string characterProfileId, string fileName, Stream content, CancellationToken cancellationToken = default)

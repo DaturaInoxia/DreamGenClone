@@ -88,6 +88,14 @@ public sealed class CharacterLoraDataset
     public string CurationPolicyJson { get; set; } = string.Empty;
     public string? ManifestSha256 { get; set; }
     public string? SupersedesId { get; set; }
+
+    /// <summary>
+    /// The Scene Asset that holds this dataset's coverage-cell attempts. A cell render is one image in this one
+    /// container, which is what lets a render be conditioned on the character's identity: the identity-aware
+    /// generation path attaches references to an ASSET, while the prompt-only path cannot carry any (B-123).
+    /// Created on the first attempt and kept for the dataset's life.
+    /// </summary>
+    public string? ContainerAssetId { get; set; }
     public DateTime CreatedUtc { get; set; }
     public DateTime? FrozenUtc { get; set; }
     public string? FrozenBy { get; set; }

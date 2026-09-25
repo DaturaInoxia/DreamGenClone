@@ -1,0 +1,7 @@
+{
+  "name": "OpenPose NSFW pack",
+  "description": "472 single-person OpenPose poses (18-joint COCO body plus 21-joint hands each) with the pack's own pre-rendered bone-structure and depth images. Bundled with the app.",
+  "source": "bundled",
+  "attribution": "'OpenPose, NSFW pose package. (total 525 poses)' by dickccchen761 — Civitai model 297881, version 574236 (Final), published 2024-06-15. Pack zip 'openposeNSFWPosePackage_final.zip', sha256 814ef6e3dff2b3437607d859428da274ac92be85e4410fae100398e786974fb4.",
+  "license": "CreativeML Open RAIL-M"
+}

@@ -20,7 +20,137 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
 
     public async Task EnsureSchemaAsync(CancellationToken cancellationToken = default)
     {
+        // Opening the store is what creates the schema and writes the seeded policy row, so this is the explicit
+        // "make the store ready" entry point and nothing else has to remember to call it before a read.
+        await using var _ = await OpenAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Writes the seeded thresholds once. Idempotent, and it runs on every open rather than only from
+    /// <see cref="EnsureSchemaAsync"/>: the sibling prompt store does the same, and the asymmetry cost a real
+    /// failure on 2026-09-25 — the table existed (created by an open) without its row (written only by an ensure),
+    /// so opening the LoRA images tab died on a policy that was never inserted. A schema and the data that makes
+    /// it usable must arrive together.
+    /// </summary>
+    private static async Task SeedCurationPolicyRowAsync(
+        SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var policy = SeedCurationPolicy();
+        await using var seed = connection.CreateCommand();
+        seed.CommandText = """
+            INSERT OR IGNORE INTO CharacterLoraCurationPolicies
+                (Id, CharacterProfileId, PayloadJson, SeedPayloadJson, UpdatedUtc)
+            VALUES ($id, NULL, $payload, $payload, $updatedUtc);
+            """;
+        seed.Parameters.AddWithValue("$id", CharacterLoraCurationPolicyKeys.GlobalId);
+        seed.Parameters.AddWithValue("$payload", Serialize(policy));
+        seed.Parameters.AddWithValue("$updatedUtc", FormatUtc(DateTime.UtcNow));
+        await seed.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The canonical starting thresholds. Migration data, written once and never edited by the app — so
+    /// "reset to default" restores exactly this, and a value the operator changes survives a restart.
+    /// </summary>
+    private static CurationPolicy SeedCurationPolicy()
+    {
+        var policy = new CurationPolicy
+        {
+            // The matrix in DATASET-CAPTURE-LIST.md: 30 core cells, 6 variation cells.
+            ExpectedCoreCellCount = 30,
+            ExpectedVariationCellCount = 6,
+            SeedRangeStart = 41000,
+            SeedRangeLength = 100,
+            CloseUpAspect = "1024x1024",
+            PortraitAspect = "832x1216",
+            // Diversity minima from the capture list: at least four outfits, backgrounds, lighting setups
+            // and expressions, and at least three pose classes so the set is not all one stance.
+            MinimumDistinctOutfits = 4,
+            MinimumDistinctBackgrounds = 4,
+            MinimumDistinctLighting = 4,
+            MinimumDistinctExpressions = 4,
+            MinimumPoseClasses = 3,
+            WardrobeBalanceTolerancePercent = 12,
+            MinimumTrainMembers = 24,
+            MinimumValidationMembers = 6,
+            NearDuplicateMaxSimilarity = 0.96,
+            BodyInvariantDriftTolerancePercent = 12,
+            PoseAdherenceMaxJointErrorPercent = 8
+        };
+        policy.Validate();
+        return policy;
+    }
+
+    public async Task<CurationPolicy> ResolveCurationPolicyAsync(
+        string? characterProfileId, CancellationToken cancellationToken = default)
+    {
         await using var connection = await OpenAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(characterProfileId))
+        {
+            var characterRow = await ReadCurationPolicyAsync(
+                connection, CharacterLoraCurationPolicyKeys.ComputeId(characterProfileId), cancellationToken);
+            if (characterRow is not null)
+            {
+                return characterRow;
+            }
+        }
+
+        return await ReadCurationPolicyAsync(connection, CharacterLoraCurationPolicyKeys.GlobalId, cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Missing required LoRA curation policy row '{CharacterLoraCurationPolicyKeys.GlobalId}'. "
+                + "No global row exists for this profile, and no threshold is assumed in code.");
+    }
+
+    public async Task<CurationPolicy> SaveCurationPolicyAsync(
+        CurationPolicy policy, string? characterProfileId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        policy.Validate();
+        var id = CharacterLoraCurationPolicyKeys.ComputeId(characterProfileId);
+        var seedPayload = id == CharacterLoraCurationPolicyKeys.GlobalId
+            ? policy.ToJson()
+            : Serialize(await ResolveCurationPolicyAsync(null, cancellationToken));
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        // The seed text is only ever written by the row's first insert, so an edited body never becomes the
+        // value "reset to default" restores.
+        command.CommandText = """
+            INSERT INTO CharacterLoraCurationPolicies (Id, CharacterProfileId, PayloadJson, SeedPayloadJson, UpdatedUtc)
+            VALUES ($id, $character, $payload, $seed, $updatedUtc)
+            ON CONFLICT(Id) DO UPDATE SET PayloadJson = $payload, UpdatedUtc = $updatedUtc;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$character", DbValue(characterProfileId));
+        command.Parameters.AddWithValue("$payload", policy.ToJson());
+        command.Parameters.AddWithValue("$seed", seedPayload);
+        command.Parameters.AddWithValue("$updatedUtc", FormatUtc(DateTime.UtcNow));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        return policy;
+    }
+
+    public async Task<CurationPolicy> ResetCurationPolicyToSeedAsync(
+        string? characterProfileId, CancellationToken cancellationToken = default)
+    {
+        var id = CharacterLoraCurationPolicyKeys.ComputeId(characterProfileId);
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var read = connection.CreateCommand();
+        read.CommandText = "SELECT SeedPayloadJson FROM CharacterLoraCurationPolicies WHERE Id = $id;";
+        read.Parameters.AddWithValue("$id", id);
+        var seed = await read.ExecuteScalarAsync(cancellationToken) as string
+            ?? throw new InvalidOperationException($"Missing required LoRA curation policy row '{id}'.");
+        var policy = CurationPolicy.FromJson(seed);
+        var saved = await SaveCurationPolicyAsync(policy, characterProfileId, cancellationToken);
+        return saved;
+    }
+
+    private static async Task<CurationPolicy?> ReadCurationPolicyAsync(
+        SqliteConnection connection, string id, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT PayloadJson FROM CharacterLoraCurationPolicies WHERE Id = $id;";
+        command.Parameters.AddWithValue("$id", id);
+        var payload = await command.ExecuteScalarAsync(cancellationToken) as string;
+        return payload is null ? null : CurationPolicy.FromJson(payload);
     }
 
     public async Task<CharacterLoraTrainingProfile> CreateTrainingProfileAsync(
@@ -181,6 +311,37 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         Require(datasetId, "LoRA dataset id");
         await using var connection = await OpenAsync(cancellationToken);
         return await ListMembersAsync(connection, null, datasetId.Trim(), cancellationToken);
+    }
+
+    public async Task<CharacterLoraDataset> SetDatasetContainerAsync(
+        string datasetId, string containerAssetId, CancellationToken cancellationToken = default)
+    {
+        Require(datasetId, "LoRA dataset id");
+        Require(containerAssetId, "LoRA dataset container asset id");
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var dataset = await RequireDraftAsync(connection, transaction, datasetId.Trim(), cancellationToken);
+
+        // Sticky: the first container wins, because moving a dataset's attempts mid-shoot would orphan every image
+        // already filed under the old one. Asking twice is a no-op, not a silent re-point.
+        if (!string.IsNullOrWhiteSpace(dataset.ContainerAssetId))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return dataset;
+        }
+
+        dataset.ContainerAssetId = containerAssetId.Trim();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE CharacterLoraDatasets SET PayloadJson = $payload
+            WHERE Id = $id AND Status = 'Draft';
+            """;
+        command.Parameters.AddWithValue("$payload", Serialize(dataset));
+        command.Parameters.AddWithValue("$id", dataset.Id);
+        EnsureChanged(await command.ExecuteNonQueryAsync(cancellationToken), "LoRA dataset", dataset.Id);
+        await transaction.CommitAsync(cancellationToken);
+        return dataset;
     }
 
     public async Task<CharacterLoraDatasetMember> CurateDatasetMemberAsync(
@@ -692,6 +853,7 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         await using var command = connection.CreateCommand();
         command.CommandText = "PRAGMA foreign_keys = ON; " + SchemaSql;
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await SeedCurationPolicyRowAsync(connection, cancellationToken);
         return connection;
     }
 
@@ -1356,6 +1518,14 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
             FOREIGN KEY (CapabilityCellId) REFERENCES MediaCapabilityCells(Id) ON DELETE RESTRICT,
             FOREIGN KEY (LoraArtifactId) REFERENCES CharacterLoraArtifacts(Id) ON DELETE RESTRICT,
             UNIQUE (CompiledRequestId, ActorKey)
+        );
+
+        -- The LoRA coverage/gate thresholds. One global row plus optional per-character overrides, exactly
+        -- like the reference workflow settings: the seeded global row is migration data, and a missing value
+        -- inside it fails to deserialize by name rather than letting a gate run with a guessed threshold.
+        CREATE TABLE IF NOT EXISTS CharacterLoraCurationPolicies (
+            Id TEXT PRIMARY KEY, CharacterProfileId TEXT NULL,
+            PayloadJson TEXT NOT NULL, SeedPayloadJson TEXT NOT NULL, UpdatedUtc TEXT NOT NULL
         );
         """;
 }

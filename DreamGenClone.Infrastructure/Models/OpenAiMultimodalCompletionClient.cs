@@ -88,7 +88,13 @@ public sealed class OpenAiMultimodalCompletionClient : IMultimodalCompletionClie
         }
         if (!string.Equals(parsed.Model, model.ModelIdentifier, StringComparison.Ordinal))
         {
-            throw new MultimodalCompletionException("The multimodal provider returned an unexpected model identity.");
+            // Name BOTH ids. "unexpected model identity" alone cost an operator a database dig plus a hand probe of
+            // the provider to learn that the served id was the same model under an instance suffix (debug/067 asked
+            // for this; debug/071 paid for its absence: the configured id was `…-local`, the provider served
+            // `…-local:2`).
+            throw new MultimodalCompletionException(
+                $"The multimodal provider returned an unexpected model identity: configured '{model.ModelIdentifier}', "
+                + $"provider served '{parsed.Model}'.");
         }
 
         stopwatch.Stop();

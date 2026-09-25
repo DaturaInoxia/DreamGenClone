@@ -1,0 +1,609 @@
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Web.Application.RolePlay
+@using Microsoft.Extensions.Options
+@using System.Numerics
+@inject IPoseLibraryService LibraryService
+@inject IPoseTestRenderService PoseTestRender
+@inject IOptions<PoseStudioOptions> StudioOptions
+
+<div class="card mb-3">
+    <div class="card-header">
+        <strong>Author a pose</strong>
+        <span class="d-block small text-muted">
+            Turn the rig and project it. A real rotation foreshortens the figure instead of tilting or shearing it,
+            so a 3/4 and a profile here are geometry rather than an approximation. Saving adds the pose to the
+            library, where the picker finds it straight away.
+        </span>
+    </div>
+    <div class="card-body">
+        @if (_loadedFrom is not null)
+        {
+            <div class="alert alert-info py-2 small">
+                <strong>Editing the library pose '@_loadedFrom.Name'.</strong>
+                @if (!string.IsNullOrWhiteSpace(_fitSummary))
+                {
+                    <span>@_fitSummary</span>
+                }
+                <div class="mt-1">
+                    The rig was fitted onto this pose, so the 5&deg; arrows, the head tool and the drag editor all
+                    work on it. Saving writes a new pose; the original is not modified.
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary mt-2" disabled="@_busy"
+                        @onclick="ClearLoadedAsync">
+                    Start from the rig instead
+                </button>
+            </div>
+        }
+        <div class="row g-3">
+            <div class="col-lg-4">
+                <div class="d-flex justify-content-center align-items-center bg-black border rounded" style="height: 300px;">
+                    @if (_previewUrl is not null)
+                    {
+                        <img src="@_previewUrl" alt="Projected pose preview" style="max-height: 296px; max-width: 100%;" />
+                    }
+                    else
+                    {
+                        <span class="text-muted small">Rendering the rig...</span>
+                    }
+                </div>
+                <div class="form-text">
+                    @_view.YawDegrees.ToString("0")° yaw · @_view.PitchDegrees.ToString("0")° pitch · @_view.RollDegrees.ToString("0")° roll
+                    · one press = @StepDegrees.ToString("0")°
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <label class="form-label small fw-semibold mb-1">Target view</label>
+                <div class="d-flex flex-wrap gap-1 mb-3">
+                    @foreach (var target in TargetViews)
+                    {
+                        <button type="button" class="btn btn-sm @(IsCurrent(target.View) ? "btn-primary" : "btn-outline-secondary")"
+                                disabled="@_busy" @onclick="() => SetViewAsync(target.View)">
+                            @target.Label
+                        </button>
+                    }
+                </div>
+
+                <div class="row g-2 align-items-center mb-1">
+                    <div class="col-auto"><span class="small fw-semibold">Turn left / right</span></div>
+                    <div class="col-auto">
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-secondary" disabled="@_busy" title="Turn left" @onclick="() => RotateAsync(PoseRotationAxis.Yaw, -1)">&larr;</button>
+                            <button type="button" class="btn btn-outline-secondary" disabled="@_busy" title="Turn right" @onclick="() => RotateAsync(PoseRotationAxis.Yaw, 1)">&rarr;</button>
+                        </div>
+                    </div>
+                    <div class="col-auto"><span class="small text-muted">facing / profile</span></div>
+                </div>
+
+                <div class="row g-2 align-items-center mb-1">
+                    <div class="col-auto"><span class="small fw-semibold">Tip up / down</span></div>
+                    <div class="col-auto">
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-secondary" disabled="@_busy" title="Tip up" @onclick="() => RotateAsync(PoseRotationAxis.Pitch, 1)">&uarr;</button>
+                            <button type="button" class="btn btn-outline-secondary" disabled="@_busy" title="Tip down" @onclick="() => RotateAsync(PoseRotationAxis.Pitch, -1)">&darr;</button>
+                        </div>
+                    </div>
+                    <div class="col-auto"><span class="small text-muted">looking up / down</span></div>
+                </div>
+
+                <div class="row g-2 align-items-center mb-2">
+                    <div class="col-auto"><span class="small fw-semibold">Tilt</span></div>
+                    <div class="col-auto">
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-secondary" disabled="@_busy" title="Tilt counter-clockwise" @onclick="() => RotateAsync(PoseRotationAxis.Roll, -1)">&#8630;</button>
+                            <button type="button" class="btn btn-outline-secondary" disabled="@_busy" title="Tilt clockwise" @onclick="() => RotateAsync(PoseRotationAxis.Roll, 1)">&#8631;</button>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ResetAsync">Reset</button>
+                    </div>
+                </div>
+
+                <PoseHeadControls BodyView="_view" Head="_head" HeadChanged="OnHeadChangedAsync" />
+
+                <PoseJointEditor Start="_editorStart" BodyView="_view" Head="_head" OnSaved="OnNestedSavedAsync" />
+
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-semibold mb-1">Name</label>
+                        <input type="text" class="form-control form-control-sm" placeholder="Standing 3/4 right"
+                               value="@_name" @oninput="e => _name = e.Value?.ToString()" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold mb-1">Category</label>
+                        <input type="text" class="form-control form-control-sm" placeholder="standing"
+                               value="@_category" @oninput="e => _category = e.Value?.ToString()" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold mb-1">Library</label>
+                        <select class="form-select form-select-sm" value="@_libraryId" @onchange="e => _libraryId = e.Value?.ToString()">
+                            @foreach (var library in _libraries)
+                            {
+                                <option value="@library.Id">@library.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-grid">
+                        <button type="button" class="btn btn-sm btn-success" disabled="@(_busy || !CanSave())" @onclick="SaveAsync">
+                            <i class="bi bi-save me-1"></i>Save
+                        </button>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold mb-1">Keywords (optional)</label>
+                        <input type="text" class="form-control form-control-sm" placeholder="three quarter, turn, profile"
+                               value="@_keywords" @oninput="e => _keywords = e.Value?.ToString()" />
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_error))
+                {
+                    <div class="alert alert-danger py-1 small mt-2 mb-0">@_error</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(_status))
+                {
+                    <div class="alert alert-success py-1 small mt-2 mb-0">@_status</div>
+                }
+
+                <div class="border-top mt-3 pt-3">
+                    <div class="mb-1">
+                        <span class="small fw-semibold">Test this pose</span>
+                        <span class="small text-muted">
+                            Renders one throwaway image and saves nothing — no session, no gallery entry. An untouched
+                            library pose is sent as the <strong>library's own skeleton</strong>; once you change the
+                            view, the head or the joints, the rig's projection of your edited pose is sent instead.
+                            The result says which was sent.
+                        </span>
+                    </div>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold mb-1">Image model</label>
+                            @if (_testModels.Count == 0)
+                            {
+                                <span class="text-muted d-block small">No image models are enabled in Model Manager.</span>
+                            }
+                            else
+                            {
+                                <select class="form-select form-select-sm" value="@_testModelId"
+                                        @onchange="e => _testModelId = e.Value?.ToString()">
+                                    @foreach (var model in _testModels)
+                                    {
+                                        <option value="@model.ModelId" disabled="@(!model.CanCarryPose)">
+                                            @model.DisplayName - @model.ProviderName (@model.MechanismLabel)
+                                        </option>
+                                    }
+                                </select>
+                                <span class="form-text">@TestMechanismHint()</span>
+                            }
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold mb-1">Seed (optional)</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="random"
+                                   value="@_testSeed" @oninput="e => _testSeed = e.Value?.ToString()" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-semibold mb-1">Canvas</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   value="@_testSize" @oninput="e => _testSize = e.Value?.ToString()" />
+                        </div>
+                        <div class="col-md-3 d-grid">
+                            <button type="button" class="btn btn-sm btn-primary"
+                                    disabled="@(_busy || _testBusy || !CanTestPose())" @onclick="RunCurrentPoseTestAsync">
+                                @if (_testBusy)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                }
+                                <i class="bi bi-eye me-1"></i>Test this pose
+                            </button>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold mb-1">Prompt</label>
+                            <textarea class="form-control form-control-sm" rows="2"
+                                      placeholder="Full-body photograph of one person, front view, facing the camera, arms at their sides, plain background"
+                                      value="@_testPrompt" @oninput="e => _testPrompt = e.Value?.ToString()"></textarea>
+                            <span class="form-text">
+                                Square canvas keeps the skeleton's own aspect. On a reference-conditioned model the
+                                skeleton carries the body but not which way the figure faces, so state the view here.
+                            </span>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_testError))
+                    {
+                        <div class="alert alert-danger py-1 small mt-2 mb-0">@_testError</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_testNote))
+                    {
+                        <div class="alert alert-info py-1 small mt-2 mb-0">@_testNote</div>
+                    }
+                    @if (_testImageUrl is not null)
+                    {
+                        <div class="mt-2 d-flex justify-content-center bg-black border rounded p-2">
+                            <img src="@_testImageUrl" alt="Pose test render" style="max-height: 420px; max-width: 100%;" />
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Raised after a pose is saved, so the host can refresh its grid.</summary>
+    [Parameter] public EventCallback<PosePreset> OnSaved { get; set; }
+
+    /// <summary>
+    /// A library pose the rig has been fitted onto, from the host page. When it arrives the panel continues from
+    /// that pose instead of the bare rig, so every tool here works on a picked library pose as well as an authored
+    /// one — which is the whole point of fitting it.
+    /// </summary>
+    [Parameter] public PoseRigFitResult? Loaded { get; set; }
+
+    /// <summary>The preset <see cref="Loaded"/> came from, for the notice and the suggested name and category.</summary>
+    [Parameter] public PosePreset? LoadedFrom { get; set; }
+
+    /// <summary>
+    /// The named views, from the one canonical list, so this panel, the head tool and the probe export cannot
+    /// disagree about what "3/4 right" means.
+    /// </summary>
+    private static readonly (string Label, PoseView View)[] TargetViews = PoseNamedViews.BodyTargets;
+
+    private PoseView _view = new();
+    private PoseHeadRotation _head = new();
+
+    /// <summary>
+    /// The rig pose being projected, or null to project the natural standing stance. Non-null exactly when a
+    /// library pose has been fitted, and it is what makes a loaded pose turn with real geometry.
+    /// </summary>
+    private Quaternion[]? _rotations;
+
+    /// <summary>The id of the preset whose fit has already been adopted, so re-rendering does not reset the view.</summary>
+    private string? _adoptedPresetId;
+
+    /// <summary>
+    /// The view and head as adopted, so "has this library pose been edited here?" is a comparison against a
+    /// recorded point rather than a guess. This is what decides whether a test render sends the library's OWN
+    /// skeleton or the rig's projection of it.
+    /// </summary>
+    private PoseView? _adoptedView;
+    private PoseHeadRotation? _adoptedHead;
+
+    /// <summary>
+    /// Set when the drag editor saves a pose. It stores its result as its own preset rather than mutating this
+    /// panel's fit, so from here on the library skeleton is no longer what the operator is looking at.
+    /// </summary>
+    private bool _nestedSaveSinceAdoption;
+    private PosePreset? _loadedFrom;
+    private string? _fitSummary;
+
+    /// <summary>The projected pose the drag editor starts from. Rebuilt whenever the view or head changes, which is
+    /// what the editor treats as "a new starting pose".</summary>
+    private PosePerson _editorStart = new() { Body = [] };
+    private IReadOnlyList<PoseLibrary> _libraries = [];
+    private string? _previewUrl;
+    private string? _name;
+    private string? _category = "standing";
+    private string? _keywords;
+    private string? _libraryId;
+    private string? _error;
+    private string? _status;
+    private bool _busy;
+
+    private IReadOnlyList<PoseTestModelChoice> _testModels = [];
+    private string? _testModelId;
+    private string? _testPrompt;
+    private string? _testSize = "1024x1024";
+    private string? _testSeed;
+    private string? _testImageUrl;
+    private string? _testNote;
+    private string? _testError;
+    private bool _testBusy;
+
+    /// <summary>The configured step, so the button and the geometry use one number and it is changed in one place.</summary>
+    private double StepDegrees => StudioOptions.Value.RequireRotationStepDegrees();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _busy = true;
+        try
+        {
+            var authored = await LibraryService.EnsureAuthoredLibraryAsync();
+            _libraryId = authored.Id;
+            await LoadLibrariesAsync();
+            await RefreshPreviewAsync();
+
+            // Offered, never assumed: the operator sees this text and can change it. On a reference-conditioned
+            // model these words are the only thing that fixes which way the figure faces, so a silent default here
+            // would be a hidden cause of "the pose rendered backwards".
+            //
+            // From PoseTestPrompts: one copy of the wording that was MEASURED to work, including the clause that
+            // tells the model to take the pose from the reference image. The old default said "arms at their sides",
+            // which contradicts every non-standing pose in the library.
+            _testPrompt ??= PoseTestPrompts.Default;
+
+            try
+            {
+                _testModels = await PoseTestRender.ListModelsAsync();
+
+                // The first model that CAN carry a pose. The service orders the reference-image route ahead of the
+                // ControlNet graph, so this lands on the mechanism the pose work is built on rather than on whatever
+                // sorts first alphabetically (which was an SDXL ControlNet model).
+                _testModelId = _testModels.FirstOrDefault(model => model.CanCarryPose)?.ModelId;
+            }
+            catch (Exception ex)
+            {
+                _testError = $"The test render could not list image models: {ex.Message}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"The authoring tool could not start: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private bool CanSave() => !string.IsNullOrWhiteSpace(_name) && !string.IsNullOrWhiteSpace(_category);
+
+    /// <summary>
+    /// True only when the SELECTED model can carry a pose. Gated on the model's own resolved capability rather than
+    /// on the list being non-empty, so an incapable model is not offered a button whose only outcome is a refusal.
+    /// </summary>
+    private bool CanTestPose() =>
+        _testModels.Any(model => model.ModelId == _testModelId && model.CanCarryPose);
+
+    /// <summary>
+    /// Names the mechanism the SELECTED model will use, from the list the render itself resolved, so the words on
+    /// screen and the graph that runs cannot disagree. A model that cannot carry a pose says so here, with the
+    /// resolver's reason, instead of failing only after a render.
+    /// </summary>
+    private string TestMechanismHint()
+    {
+        var selected = _testModels.FirstOrDefault(model => model.ModelId == _testModelId);
+        if (selected is null)
+        {
+            return "Pick a model to see how it carries the pose.";
+        }
+
+        return selected.CanCarryPose
+            ? $"This model carries the pose through: {selected.MechanismLabel}."
+            : $"This model cannot carry a pose: {selected.Reason}";
+    }
+
+    /// <summary>
+    /// Adopts a fitted library pose when the host hands over a new one. Guarded by the preset id because this runs
+    /// on every parameter set, and adopting unconditionally would throw away the operator's view and head changes
+    /// on every re-render.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Loaded is null || LoadedFrom is null) return;
+        if (string.Equals(_adoptedPresetId, LoadedFrom.Id, StringComparison.Ordinal)) return;
+
+        _adoptedPresetId = LoadedFrom.Id;
+        _loadedFrom = LoadedFrom;
+        _rotations = Loaded.Rotations;
+        _view = Loaded.View;
+        _head = new PoseHeadRotation();
+        _adoptedView = _view;
+        _adoptedHead = _head;
+        _nestedSaveSinceAdoption = false;
+
+        // Suggested from the source so saving does not collide with the pose it was loaded from: the library
+        // refuses a duplicate name in the same library rather than overwriting it.
+        _name = $"{LoadedFrom.Name} (edited)";
+        _category = LoadedFrom.Category;
+        _keywords = LoadedFrom.Keywords;
+
+        // The residual is reported, never rounded away: a fitted pose is an approximation and the operator is the
+        // one who decides whether it is close enough to edit from. The ambiguity flag matters more than the number,
+        // because it says the TURN was not determined by the source pose at all.
+        _fitSummary = $"Rig fit: {Loaded.MeanErrorPercentOfHeight:0.0}% mean joint error"
+            + (Loaded.OrientationAmbiguous
+                ? ", and the source pose did not determine the turn — check the facing before saving."
+                : ".");
+
+        await RefreshPreviewAsync();
+    }
+
+    /// <summary>Drops the loaded pose and returns to authoring from the rig.</summary>
+    private async Task ClearLoadedAsync()
+    {
+        _rotations = null;
+        _loadedFrom = null;
+        _fitSummary = null;
+        _adoptedPresetId = null;
+        _adoptedView = null;
+        _adoptedHead = null;
+        _nestedSaveSinceAdoption = false;
+        _view = new PoseView();
+        _head = new PoseHeadRotation();
+        _name = null;
+        await RefreshPreviewAsync();
+    }
+
+    private bool IsCurrent(PoseView view) =>
+        Math.Abs(view.YawDegrees - _view.YawDegrees) < 0.001
+        && Math.Abs(view.PitchDegrees - _view.PitchDegrees) < 0.001
+        && Math.Abs(view.RollDegrees - _view.RollDegrees) < 0.001;
+
+    private async Task SetViewAsync(PoseView view)
+    {
+        _view = view;
+        await RefreshPreviewAsync();
+    }
+
+    private async Task RotateAsync(PoseRotationAxis axis, int steps)
+    {
+        _view = PoseProjection.Step(_view, axis, steps, StudioOptions.Value);
+        await RefreshPreviewAsync();
+    }
+
+    private Task ResetAsync() => SetViewAsync(new PoseView());
+
+    /// <summary>
+    /// The head is part of the same pose, so changing it re-renders the body preview too — the figure the operator
+    /// sees must be the figure that gets saved.
+    /// </summary>
+    private async Task OnHeadChangedAsync(PoseHeadRotation head)
+    {
+        _head = head;
+        await RefreshPreviewAsync();
+    }
+
+    private Task RefreshPreviewAsync()
+    {
+        _error = null;
+        _previewUrl = "data:image/png;base64," + Convert.ToBase64String(
+            LibraryService.RenderAuthoredPreview(_view, _head, PreviewCanvas, _rotations));
+
+        // The drag editor starts from the pose the view and head describe, so it has to be rebuilt whenever they
+        // change — that is exactly what tells the editor a new starting pose exists.
+        _editorStart = LibraryService.ProjectAuthoredPose(_view, _head, _rotations);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Raised by a nested tool (the drag editor) so the host refreshes exactly as a rig save does.</summary>
+    private Task OnNestedSavedAsync(PosePreset preset)
+    {
+        // The drag editor stores the pose it produced as its own preset instead of mutating this panel's fit, so
+        // without this the test render would keep sending the ORIGINAL library skeleton while the operator expects
+        // the dragged one. Recorded here so the test names what it actually sent.
+        _nestedSaveSinceAdoption = true;
+        return OnSaved.InvokeAsync(preset);
+    }
+
+    /// <summary>
+    /// True when the pose on screen no longer IS the library pose that was adopted — a view change, a head change,
+    /// or a drag-editor save. Compared against the adoption point rather than tracked by a flag on every action,
+    /// so it cannot drift from what the operator actually changed.
+    /// </summary>
+    private bool PoseEdited()
+    {
+        if (_loadedFrom is null) return true;
+        if (_nestedSaveSinceAdoption) return true;
+        if (_adoptedView is not null && !IsCurrent(_adoptedView)) return true;
+        return _adoptedHead is not null && !_head.Equals(_adoptedHead);
+    }
+
+    private async Task LoadLibrariesAsync()
+    {
+        var all = await LibraryService.ListLibrariesAsync();
+        // A pack is rebuilt on every import, so an authored pose cannot live there; the UI only offers libraries
+        // that can actually accept one.
+        _libraries = all.Where(library => !library.IsSystem).ToArray();
+
+        if (_libraryId is null || _libraries.All(library => library.Id != _libraryId))
+        {
+            _libraryId = _libraries.FirstOrDefault()?.Id;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var preset = await LibraryService.SaveAuthoredPoseAsync(new AuthoredPoseRequest(
+                _name ?? string.Empty,
+                _category ?? string.Empty,
+                _keywords,
+                _view,
+                _libraryId ?? string.Empty,
+                _head,
+                // A fitted pose is saved as the KEYPOINTS it projects to. Saving it as a view would re-derive the
+                // figure from the standing stance and silently discard the fit — the operator would get a different
+                // pose from the one on screen, described by a recipe that says otherwise.
+                Keypoints: _rotations is null ? null : _editorStart));
+
+            _status = $"Saved '{preset.Name}' to the library. It is searchable now.";
+            _name = null;
+            await OnSaved.InvokeAsync(preset);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Renders one throwaway image of the pose ON SCREEN. It conditions on the same bytes a real render would use —
+    /// the panel's current projection, fitted to the canvas — so a pose nudged by 5° can be tested without saving it
+    /// first. Nothing is persisted.
+    /// </summary>
+    private async Task RunCurrentPoseTestAsync()
+    {
+        _testBusy = true;
+        _testError = null;
+        _testNote = null;
+        _testImageUrl = null;
+        try
+        {
+            long? seed = null;
+            if (!string.IsNullOrWhiteSpace(_testSeed))
+            {
+                // Refused rather than ignored: a seed that silently became "random" would make two runs differ for a
+                // reason the operator cannot see.
+                if (!long.TryParse(_testSeed.Trim(), out var parsed))
+                {
+                    throw new InvalidOperationException(
+                        $"'{_testSeed}' is not a whole-number seed. Leave it blank for a random one.");
+                }
+
+                seed = parsed;
+            }
+
+            // WHAT gets tested is named explicitly, because the two objects are not the same thing. An untouched
+            // library pose is tested as the LIBRARY'S OWN skeleton — the bytes the operator selected — while a pose
+            // edited here is tested as the rig's projection, which is an approximation. Sending the projection for an
+            // untouched library pose is what made every all-fours test come back "contorted, not following the pose
+            // reference" (reported 2026-09-25): the fit of a quadruped stance onto a standing rig is exactly where
+            // that approximation is worst, and the panel previewed the pack skeleton while sending something else.
+            byte[] skeleton;
+            string sent;
+            if (_loadedFrom is not null && !string.IsNullOrWhiteSpace(_loadedFrom.SkeletonPngPath) && !PoseEdited())
+            {
+                skeleton = await LibraryService.ReadSkeletonAsync(_loadedFrom.Id);
+                sent = $"the library skeleton for '{_loadedFrom.Name}'";
+            }
+            else
+            {
+                skeleton = LibraryService.RenderAuthoredPreview(
+                    _view, _head, StudioOptions.Value.RequireCanvas(), _rotations);
+                sent = _loadedFrom is null
+                    ? "the rig projection of the pose on screen"
+                    : $"the rig projection of '{_loadedFrom.Name}' as edited here, NOT the library's own skeleton";
+            }
+
+            var result = await PoseTestRender.RenderAsync(new PoseTestRenderRequest(
+                skeleton,
+                _loadedFrom?.Name ?? "the authored pose",
+                _testModelId ?? string.Empty,
+                _testPrompt ?? string.Empty,
+                null,
+                _testSize,
+                seed));
+
+            _testImageUrl = "data:image/png;base64," + Convert.ToBase64String(result.Image);
+            _testNote = $"Sent {sent}. Carried the pose through: {result.Mechanism}. {result.Note}";
+        }
+        catch (Exception ex)
+        {
+            _testError = ex.Message;
+        }
+        finally
+        {
+            _testBusy = false;
+        }
+    }
+
+    /// <summary>Preview render size. Smaller than the saved skeleton, which is rendered at the full canvas.</summary>
+    private const int PreviewCanvas = 512;
+}

@@ -39,4 +39,6 @@ public sealed record CharacterIdentityPackPromotionResult(
     CharacterImageIdentityPackScope Scope,
     IReadOnlyList<CharacterIdentityPackPromotionView> Views,
     IReadOnlyList<CharacterIdentityPackPromotionBodyView> BodyViews,
-    IReadOnlyList<string> BlockingReasons);
+    IReadOnlyList<string> BlockingReasons,
+    int UploadedSlots = 0,
+    int ReplacedSlots = 0);

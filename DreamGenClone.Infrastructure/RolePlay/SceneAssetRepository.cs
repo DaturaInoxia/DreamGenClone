@@ -285,16 +285,102 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
     public async Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default)
     {
         Require(imageId, "Image id");
+        var id = imageId.Trim();
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, cancellationToken);
+
+        // An image's edit history is keyed by the image the operation CONSUMED, and those rows are RESTRICTed
+        // against deletion (SceneAssetImageEditSessions.SourceImageId and its compilation attempts / prompt
+        // revisions, plus the shared store's equivalents after the media-edit cutover). Without clearing them the
+        // source of any recorded operation could never be deleted — every source is held forever by the record of
+        // the operation that used it, and the operator only saw "SQLite Error 19: FOREIGN KEY constraint failed"
+        // (2026-09-24, deleting an uploaded front candidate whose de-clothe/crop/enhance chain was kept).
+        //
+        // The images those sessions PRODUCED are kept: their own operation provenance records the source checksum,
+        // and that checksum — not this row — is what the canonical-front lineage walk reads (B-121 note 011).
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        foreach (var statement in await BuildEditHistoryDeletesAsync(connection, cancellationToken))
+        {
+            await using var history = connection.CreateCommand();
+            history.Transaction = transaction;
+            history.CommandText = statement;
+            history.Parameters.AddWithValue("$id", id);
+            await history.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             UPDATE SceneAssetImages SET SourceImageId = NULL WHERE SourceImageId = $id;
             DELETE FROM SceneAssetImages WHERE Id = $id;
             """;
-        command.Parameters.AddWithValue("$id", imageId.Trim());
+        command.Parameters.AddWithValue("$id", id);
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The deletes that clear one image's edit history, bottom-up, for each edit store that exists in this database:
+    /// the asset-image edit tables and, after the media-edit cutover, the shared store's rows for asset images. The
+    /// tables are checked rather than assumed — the cutover is in progress, and a database that has never run an edit
+    /// has neither store's tables (which is also the shape the repository's own unit tests create).
+    /// </summary>
+    private static async Task<IReadOnlyList<string>> BuildEditHistoryDeletesAsync(
+        SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var statements = new List<string>();
+        var hasLegacySessions = await TableExistsAsync(connection, "SceneAssetImageEditSessions", cancellationToken);
+        var hasLegacyAttempts = await TableExistsAsync(connection, "SceneAssetImageEditCompilationAttempts", cancellationToken);
+        var hasLegacyRevisions = await TableExistsAsync(connection, "SceneAssetImageEditPromptRevisions", cancellationToken);
+        if (hasLegacyAttempts && hasLegacySessions)
+        {
+            if (hasLegacyRevisions)
+            {
+                statements.Add("""
+                    DELETE FROM SceneAssetImageEditPromptRevisions WHERE CompilationAttemptId IN (
+                        SELECT attempt.Id FROM SceneAssetImageEditCompilationAttempts attempt
+                        INNER JOIN SceneAssetImageEditSessions session ON session.Id = attempt.EditSessionId
+                        WHERE session.SourceImageId = $id);
+                    """);
+            }
+
+            statements.Add("""
+                DELETE FROM SceneAssetImageEditCompilationAttempts WHERE EditSessionId IN (
+                    SELECT Id FROM SceneAssetImageEditSessions WHERE SourceImageId = $id);
+                """);
+        }
+
+        if (hasLegacySessions)
+            statements.Add("DELETE FROM SceneAssetImageEditSessions WHERE SourceImageId = $id;");
+
+        var hasSessions = await TableExistsAsync(connection, "MediaEditSessions", cancellationToken);
+        var hasAttempts = await TableExistsAsync(connection, "MediaEditCompilationAttempts", cancellationToken);
+        var hasRevisions = await TableExistsAsync(connection, "MediaEditPromptRevisions", cancellationToken);
+        if (hasSessions && hasAttempts)
+        {
+            if (hasRevisions)
+            {
+                statements.Add("""
+                    DELETE FROM MediaEditPromptRevisions WHERE CompilationAttemptId IN (
+                        SELECT attempt.Id FROM MediaEditCompilationAttempts attempt
+                        INNER JOIN MediaEditSessions session ON session.Id = attempt.EditSessionId
+                        WHERE session.SubjectKind = 'AssetImage' AND session.SourceImageId = $id);
+                    """);
+            }
+
+            statements.Add("""
+                DELETE FROM MediaEditCompilationAttempts WHERE EditSessionId IN (
+                    SELECT Id FROM MediaEditSessions WHERE SubjectKind = 'AssetImage' AND SourceImageId = $id);
+                """);
+        }
+
+        if (hasSessions)
+            statements.Add("DELETE FROM MediaEditSessions WHERE SubjectKind = 'AssetImage' AND SourceImageId = $id;");
+
+        return statements;
     }
 
     public async Task<SceneAssetImage> ApproveImageForProductionAsync(

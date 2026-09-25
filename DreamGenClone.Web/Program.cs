@@ -229,6 +229,7 @@ builder.Services.AddSingleton<IProviderRepository, ProviderRepository>();
 builder.Services.AddSingleton<IRegisteredModelRepository, RegisteredModelRepository>();
 builder.Services.AddSingleton<IReferenceStrategyResolver, ReferenceStrategyResolver>();
 builder.Services.AddSingleton<IdentityFaceReferenceResolver>();
+builder.Services.AddSingleton<IdentityBodyReferenceResolver>();
 builder.Services.AddSingleton<IFunctionDefaultRepository, FunctionDefaultRepository>();
 builder.Services.AddSingleton<IHealthCheckRepository, HealthCheckRepository>();
 builder.Services.AddSingleton<IPromptTestRunRepository, PromptTestRunRepository>();
@@ -424,6 +425,15 @@ builder.Services.AddSingleton<IMediaEditRepository>(sp => sp.GetRequiredService<
 builder.Services.AddSingleton<IProducedImageRepository, ProducedImageRepository>();
 builder.Services.AddSingleton<IReferenceBootstrapRepository, ReferenceBootstrapRepository>();
 builder.Services.AddSingleton<IPosePresetRepository, PosePresetRepository>();
+// B-128: the pose library the operator searches, extends and picks from. One store, one search path.
+builder.Services.Configure<PoseLibraryOptions>(builder.Configuration.GetSection(PoseLibraryOptions.SectionName));
+builder.Services.Configure<PoseStudioOptions>(builder.Configuration.GetSection(PoseStudioOptions.SectionName));
+builder.Services.AddSingleton<IPoseLibraryService, PoseLibraryService>();
+builder.Services.AddSingleton<IPoseLibraryImporter, PoseLibraryImporter>();
+builder.Services.AddSingleton<IPosePackDownloader, PosePackDownloader>();
+// B-128: a throwaway pose test render. It picks its mechanism through the same resolver and calls the same clients
+// as the render path, and persists nothing — a test has no session to file into.
+builder.Services.AddScoped<IPoseTestRenderService, PoseTestRenderService>();
 builder.Services.AddSingleton<IImageWorkflowRepository, ImageWorkflowRepository>();
 builder.Services.AddSingleton<ICharacterIdentityBuildRepository, CharacterIdentityBuildRepository>();
 builder.Services.AddSingleton<ICharacterBodyCardRepository, CharacterBodyCardRepository>();
@@ -467,6 +477,8 @@ builder.Services.AddHostedService<SceneAssetPendingJobRecovery>();
 builder.Services.AddHostedService<TextAnalysisDurableWorker>();
 builder.Services.AddSingleton<ICharacterAppearanceVersionRepository, CharacterAppearanceVersionRepository>();
 builder.Services.AddSingleton<ICharacterLoraRepository, CharacterLoraRepository>();
+builder.Services.AddScoped<ICharacterLoraCoveragePlanGenerator, CharacterLoraCoveragePlanGenerator>();
+builder.Services.AddScoped<ICharacterLoraCellService, CharacterLoraCellService>();
 builder.Services.AddSingleton<ICharacterLoraTrainingDispatchAdapter, RunPodCharacterLoraTrainingDispatchAdapter>();
 builder.Services.AddSingleton<ICharacterLoraTrainingDispatchAdapterRegistry, CharacterLoraTrainingDispatchAdapterRegistry>();
 builder.Services.AddScoped<ICharacterLoraTrainingService, CharacterLoraTrainingService>();

@@ -339,6 +339,156 @@ public sealed class CharacterIdentityAnglesService : ICharacterIdentityAnglesSer
         return angle;
     }
 
+    /// <summary>
+    /// Accepts ONE image of this view's flow as the angle — including an image the edit / crop / enhance chain
+    /// produced from an attempt, which the attempt list alone cannot select. Operator report, 2026-09-24: "the review
+    /// deck lets me accept the final enhanced one, but it does not show as the 3/4 panel accepted, and it does not
+    /// show the cropped edit either" — the renders and the chain built from them are all images of the view's
+    /// candidate batch, so the batch is what membership is checked against, never a guess.
+    ///
+    /// The attempt the image descends from is resolved by walking <c>SourceImageId</c> back to an attempt output and
+    /// is recorded when it resolves; when an older operation lost that link, the acceptance is still explicit and the
+    /// link is left empty rather than invented.
+    /// </summary>
+    public async Task<CharacterIdentityAngleRecord> AcceptCandidateAsync(
+        string buildId,
+        CharacterIdentityAngleView view,
+        string imageId,
+        bool manualConfirmed = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(imageId))
+            throw new InvalidOperationException("An image id is required to accept an angle image.");
+
+        var build = await _builds.GetBuildAsync(buildId, cancellationToken)
+            ?? throw new InvalidOperationException($"Character identity build '{buildId}' was not found.");
+        var angle = (await _repository.ListAnglesAsync(build.Id, cancellationToken)).FirstOrDefault(a => a.View == view)
+            ?? throw new InvalidOperationException($"Angle '{view}' has not been run.");
+        var image = await _assets.GetImageAsync(imageId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Angle image '{imageId}' was not found.");
+        if (image.Status != SceneAssetStatus.Complete)
+            throw new InvalidOperationException($"Angle image '{image.Id}' is not complete yet ({image.Status}).");
+
+        var batchId = CandidateBatchIdFor(build.Id, view);
+        if (!string.Equals(image.CandidateBatchId, batchId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Image '{image.Id}' belongs to batch '{image.CandidateBatchId ?? "(none)"}', not to "
+                + $"{view}'s batch '{batchId}'. Only this view's images can be accepted as it.");
+        }
+
+        if (angle.ManualConfirmationRequired && !manualConfirmed && !angle.ManualConfirmed)
+        {
+            throw new InvalidOperationException(
+                $"Angle '{view}' requires explicit visual confirmation: a profile's direction cannot be measured, "
+                + "so tick the confirmation for this view before accepting it.");
+        }
+
+        var attempts = await _repository.ListAngleAttemptsAsync(angle.Id, cancellationToken);
+        var source = await ResolveSourceAttemptAsync(view, image, attempts, cancellationToken);
+        if (source is not null
+            && source.Status != CharacterIdentityAngleStatus.Complete
+            && !source.ManualOverrideApplied)
+        {
+            throw new InvalidOperationException(
+                $"Attempt {source.AttemptNumber} of angle '{view}' has not passed validation or received a manual "
+                + "override, so the image built from it cannot be accepted.");
+        }
+
+        var now = DateTime.UtcNow;
+        angle.OutputArtifactId = image.Id;
+        angle.AcceptedAttemptId = source?.Id;
+        angle.Status = CharacterIdentityAngleStatus.Accepted;
+        angle.ManualConfirmed |= manualConfirmed;
+        if (source is not null)
+        {
+            angle.InputArtifactId = source.InputArtifactId;
+            angle.ResolvedPromptText = source.PromptText;
+            angle.ResolvedModelId = source.ResolvedModelId;
+        }
+
+        angle.UpdatedUtc = now;
+        await _repository.UpsertAngleAsync(angle, cancellationToken);
+
+        // Exactly one attempt of an angle is the accepted one: the chain's acceptance replaces the render that was
+        // selected before, so the older selection is demoted to Complete instead of two rows claiming "Selected".
+        foreach (var accepted in attempts.Where(candidate => candidate.Status == CharacterIdentityAngleStatus.Accepted))
+        {
+            accepted.Status = source is not null && string.Equals(accepted.Id, source.Id, StringComparison.Ordinal)
+                ? CharacterIdentityAngleStatus.Accepted
+                : CharacterIdentityAngleStatus.Complete;
+            accepted.UpdatedUtc = now;
+            await _repository.UpsertAngleAttemptAsync(accepted, cancellationToken);
+        }
+
+        if (source is not null && source.Status != CharacterIdentityAngleStatus.Accepted)
+        {
+            source.Status = CharacterIdentityAngleStatus.Accepted;
+            source.UpdatedUtc = now;
+            await _repository.UpsertAngleAttemptAsync(source, cancellationToken);
+        }
+
+        await CompleteAnglesStepIfAllAcceptedAsync(build, image.Id, cancellationToken);
+        return angle;
+    }
+
+    /// <summary>
+    /// The attempt an image was derived from: the image itself when it IS an attempt's output, otherwise the first
+    /// attempt output found by walking <c>SourceImageId</c> upwards. Bounded and cycle-guarded, because a broken or
+    /// circular link must fail to resolve rather than loop; an unresolvable link returns null, which the caller
+    /// records as "no attempt link" instead of inventing one.
+    /// </summary>
+    private async Task<CharacterIdentityAngleAttempt?> ResolveSourceAttemptAsync(
+        CharacterIdentityAngleView view,
+        SceneAssetImage image,
+        IReadOnlyList<CharacterIdentityAngleAttempt> attempts,
+        CancellationToken cancellationToken)
+    {
+        var outputs = attempts.ToDictionary(attempt => attempt.OutputArtifactId, StringComparer.Ordinal);
+        var current = image;
+        for (var hop = 0; hop < 64; hop++)
+        {
+            if (outputs.TryGetValue(current.Id, out var matched))
+                return matched;
+
+            if (string.IsNullOrWhiteSpace(current.SourceImageId))
+                return null;
+
+            var next = await _assets.GetImageAsync(current.SourceImageId, cancellationToken);
+            if (next is null || string.Equals(next.Id, current.Id, StringComparison.Ordinal))
+                return null;
+            current = next;
+        }
+
+        // A lineage that never terminates is a broken record, not a long chain: refuse it by name rather than
+        // accepting an image whose origin cannot be read.
+        throw new InvalidOperationException(
+            $"Image '{image.Id}' has a circular source lineage, so the angle attempt it descends from cannot be read.");
+    }
+
+    /// <summary>
+    /// Completes the Angles step once every required view is accepted, naming the artifact the acceptance produced.
+    /// One writer for that transition, shared by both acceptance paths.
+    /// </summary>
+    private async Task CompleteAnglesStepIfAllAcceptedAsync(
+        CharacterIdentityBuild build, string acceptedArtifactId, CancellationToken cancellationToken)
+    {
+        var acceptedViews = (await _repository.ListAnglesAsync(build.Id, cancellationToken))
+            .ToDictionary(a => a.View, a => a.Status);
+        if (!Ordered.All(required => acceptedViews.TryGetValue(required, out var status)
+                && status == CharacterIdentityAngleStatus.Accepted))
+        {
+            return;
+        }
+
+        await _builds.CompleteStepAsync(
+            build.Id,
+            CharacterIdentityBuildStep.Angles,
+            build.CanonicalFrontAssetId,
+            acceptedArtifactId,
+            cancellationToken: cancellationToken);
+    }
+
     public async Task DeleteAttemptAsync(
         string buildId, CharacterIdentityAngleView view, string attemptId,
         CancellationToken cancellationToken = default)

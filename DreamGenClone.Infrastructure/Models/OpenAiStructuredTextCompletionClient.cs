@@ -214,7 +214,8 @@ public sealed class OpenAiStructuredTextCompletionClient :
         if (!string.Equals(parsed.Model, resolved.ModelIdentifier, StringComparison.Ordinal))
             throw new StructuredTextCompletionException(
                 "structured_text_model_identity_mismatch",
-                "The structured text provider returned an unexpected model identity.",
+                $"The structured text provider returned an unexpected model identity: configured "
+                + $"'{resolved.ModelIdentifier}', provider served '{parsed.Model}'.",
                 false);
 
         stopwatch.Stop();

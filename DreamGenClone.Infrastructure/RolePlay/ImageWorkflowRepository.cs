@@ -97,7 +97,7 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                    EyeGateMaxAbsIrisDyPercent, QualityGateMinSharpness, CropHeadroomPercent, CropTargetAspect,
                    DeriveByMirrorThreeQuarterRight, DeriveByMirrorProfileRight, DeriveByMirrorThreeQuarterLeft,
                    DeriveByMirrorProfileLeft, EyeToolPythonPath, UpdatedUtc, FrontModelId, AngleYawMinAbsPercent,
-                   BodyModelId, BodyImageSize
+                   BodyModelId, BodyImageSize, LoraCellModelId
             FROM ReferenceWorkflowSettings WHERE Id = $id;
             """;
         command.Parameters.AddWithValue("$id", id.Trim());
@@ -116,12 +116,12 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 EyeGateMaxAbsIrisDyPercent, QualityGateMinSharpness, CropHeadroomPercent, CropTargetAspect,
                 DeriveByMirrorThreeQuarterRight, DeriveByMirrorProfileRight, DeriveByMirrorThreeQuarterLeft,
                 DeriveByMirrorProfileLeft, EyeToolPythonPath, UpdatedUtc, FrontModelId, AngleYawMinAbsPercent,
-                BodyModelId, BodyImageSize)
+                BodyModelId, BodyImageSize, LoraCellModelId)
             VALUES (
                 $id, $characterProfileId, $editorModelId, $upscalerModelName, $enhanceTargetLongEdge,
                 $eyeGate, $qualityGate, $cropHeadroom, $cropAspect,
                 $mirror3qr, $mirrorProfR, $mirror3ql, $mirrorProfL, $eyeToolPythonPath, $updatedUtc, $frontModelId,
-                $angleYawMinAbs, $bodyModelId, $bodyImageSize)
+                $angleYawMinAbs, $bodyModelId, $bodyImageSize, $loraCellModelId)
             ON CONFLICT(Id) DO UPDATE SET
                 EditorModelId = excluded.EditorModelId,
                 UpscalerModelName = excluded.UpscalerModelName,
@@ -139,6 +139,7 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 FrontModelId = excluded.FrontModelId,
                 BodyModelId = excluded.BodyModelId,
                 BodyImageSize = excluded.BodyImageSize,
+                LoraCellModelId = excluded.LoraCellModelId,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
         command.Parameters.AddWithValue("$id", settings.Id.Trim());
@@ -160,6 +161,7 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
         command.Parameters.AddWithValue("$angleYawMinAbs", settings.AngleYawMinAbsPercent);
         command.Parameters.AddWithValue("$bodyModelId", (object?)settings.BodyModelId ?? DBNull.Value);
         command.Parameters.AddWithValue("$bodyImageSize", (object?)settings.BodyImageSize ?? DBNull.Value);
+        command.Parameters.AddWithValue("$loraCellModelId", (object?)settings.LoraCellModelId ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -208,7 +210,8 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                     FrontModelId TEXT NULL,
                     AngleYawMinAbsPercent REAL NOT NULL DEFAULT 5.0,
                     BodyModelId TEXT NULL,
-                    BodyImageSize TEXT NULL
+                    BodyImageSize TEXT NULL,
+                    LoraCellModelId TEXT NULL
                 );
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
@@ -242,6 +245,13 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 await using var alterBodySize = connection.CreateCommand();
                 alterBodySize.CommandText = "ALTER TABLE ReferenceWorkflowSettings ADD COLUMN BodyImageSize TEXT NULL;";
                 await alterBodySize.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            if (!settingsColumns.Contains("LoraCellModelId"))
+            {
+                await using var alterLoraCellModel = connection.CreateCommand();
+                alterLoraCellModel.CommandText = "ALTER TABLE ReferenceWorkflowSettings ADD COLUMN LoraCellModelId TEXT NULL;";
+                await alterLoraCellModel.ExecuteNonQueryAsync(cancellationToken);
             }
         }
 
@@ -422,6 +432,390 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 Key = CharacterBodyWorkflowKeys.RenderBack,
                 WorkflowStep = "BodyAngleRender",
                 Body = "Camera directly behind the subject in a full back view: the back of the head, the back, the backside and the backs of the legs, the face not visible."
+            },
+
+            // B-123 Phase 1 — the LoRA coverage cell's prompts. A training image is a photograph of a person
+            // under stated conditions, so each template states the framing, the angle family, the wardrobe and
+            // the four context axes, and nothing else. Slots only: the invariant body description arrives as
+            // {BodyCard} and the variable axes arrive as phrases resolved from the vocabulary rows below, so no
+            // wording lives in code and every word is editable here.
+            //
+            // There is deliberately no {CharacterName}: in a training image identity comes from the trigger
+            // token and the references, and a name in the text would bind the look to a word the caption is
+            // forbidden to contain.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderFrontClose,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic close-up photograph of {BodyCard}. {Facing}, the whole head and both shoulders in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderFrontHalf,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic photograph of {BodyCard} from the waist up. {Facing}, the whole upper body and both hands in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderFrontFull,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic full-body photograph of {BodyCard}, head to feet. {Facing}, the whole body in frame and unobstructed, nothing cropped. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderThreeQuarterClose,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic close-up photograph of {BodyCard}. The head and shoulders are turned three-quarters away from the camera, {Facing}, one cheek nearer the camera than the other, the whole head and both shoulders in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderThreeQuarterHalf,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic photograph of {BodyCard} from the waist up, the head and upper body turned three-quarters away from the camera, {Facing}, one side of the body nearer the camera, the whole upper body and both hands in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderThreeQuarterFull,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic full-body photograph of {BodyCard}, head to feet, the body turned three-quarters away from the camera, {Facing}, one side of the body nearer the camera, the whole body in frame and unobstructed. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderProfileClose,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic close-up photograph of {BodyCard} in full profile, seen from the side, {Facing}, a true edge-on profile of the head and shoulders rather than a turned head. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderProfileHalf,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic photograph of {BodyCard} from the waist up in full profile, seen from the side, {Facing}, a true edge-on profile of the head and upper body. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderProfileFull,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic full-body photograph of {BodyCard}, head to feet, in full profile seen from the side, {Facing}, a true edge-on profile of the whole body, nothing cropped. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderBehindClose,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic close-up photograph of {BodyCard} from behind, {Facing}, the back of the head and both shoulders in frame, no part of the face visible. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderBehindHalf,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic photograph of {BodyCard} from behind, from the waist up, {Facing}, the back of the head, the shoulders and the back in frame, no part of the face visible. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderBehindFull,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic full-body photograph of {BodyCard}, head to feet, from behind, {Facing}, the back of the head, the back, the backside and the backs of the legs in frame, no part of the face visible, nothing cropped. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+            },
+
+            // The caption. Comma-separated tags with the trigger token FIRST: the token is what the whole
+            // identity binds to, and pinning it at the front is what lets a trainer shuffle the tail without
+            // ever shuffling the identity into the middle of the caption. There is no invariant slot here, and
+            // there must never be one — face, body shape, skin, body hair, grooming, marks and tattoos bind to
+            // the token precisely because no caption ever names them.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.Caption,
+                WorkflowStep = "LoraCellCaption",
+                Body = "{TriggerToken}, {Wardrobe}, {Angle}, {Distance}, {Pose}, {Expression}, {Lighting}, {Background}"
+            },
+            // The minor-tweak edit: change one named thing, keep everything else byte-for-byte.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.EditTweak,
+                WorkflowStep = "LoraCellEdit",
+                Body = "Keep the identity, the body, the pose, the framing, the zoom, the lighting and the background exactly as they are and change only this: {Change}. Do not alter the face, the body shape or any mark on the body."
+            },
+            // No negative-prompt row: see the note in LoraCellWorkflowKeys. The families in use take no negative,
+            // and the render path compiles the cell prompt (no compiler id is set), which authors none itself.
+            // The reference rule, shown beside the picker so the operator can see what each reference is for
+            // and what it must NOT be allowed to bring along.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.References,
+                WorkflowStep = "LoraCellReferences",
+                Body = "Face reference: {FaceReference}. Body reference: {BodyReference}. Take identity from the face reference only, and body shape, proportions, skin, body hair and marks from the body reference only. Do not take the pose, the clothing, the lighting or the background from either reference."
+            },
+
+            // The variant wording. Every phrase here is data: the generator reads it and the operator can edit
+            // it. A phrase that is missing fails fast by key rather than falling back to a guess.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyWardrobeClothed,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "clothed"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyWardrobeUnclothed,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "nude"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyPoseStanding,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "standing"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyPoseSitting,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "sitting"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyPoseKneeling,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "kneeling"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyPoseLying,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "lying down"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyPoseAllFours,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "on all fours"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyPoseHandsRaised,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "with both arms raised above the head"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyExpressionNeutral,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "a neutral relaxed expression"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyExpressionSmiling,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "smiling"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyExpressionLaughing,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "laughing openly"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyExpressionSurprised,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "surprised, eyebrows raised, mouth slightly open"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyExpressionSerious,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "a serious closed-mouth expression"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyExpressionSensual,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "a soft sensual expression, lips slightly parted"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyLightingIndoorBright,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "even bright indoor lighting"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyLightingIndoorDim,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "dim indoor lighting with soft shadows"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyLightingOutdoorDay,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "flat daylight outdoors"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyLightingOutdoorGolden,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "warm golden-hour sunlight from the side"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyLightingOutdoorNight,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "low ambient light at night with a single practical light source"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyLightingHardRim,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "a hard rim light along the edge of the body against a dark surround"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyBackgroundPlainWall,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "a plain neutral wall"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyBackgroundBedroom,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "a simple bedroom with a plain bed and one window"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyBackgroundLivingRoom,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "a simply furnished living room"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyBackgroundKitchen,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "a plain kitchen with visible cabinets"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyBackgroundOutdoors,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "an outdoor setting with trees and open sky"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyBackgroundStudio,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "a plain studio backdrop with a soft shadow on the floor"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitCasual,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "wearing a plain t-shirt and jeans"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitFormal,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "wearing a buttoned shirt and tailored trousers"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitAthletic,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "wearing a fitted athletic top and shorts"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitLoungewear,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "wearing a loose knit sweater and soft trousers"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitSleepwear,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "wearing a thin sleeveless top and short sleep shorts"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitUnclothed,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "completely unclothed, with no clothing at all and nothing covering the body"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyDistanceClose,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "close-up"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyDistanceHalf,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "half-body"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyDistanceFull,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "full-body"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyAngleFront,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "front view"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyAngleThreeQuarter,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "three-quarter view"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyAngleProfile,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "profile view"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyAngleBehind,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "from behind"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyFacingCamera,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "facing the camera straight on"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyFacingLeft,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "with the nose pointing toward the left of frame"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyFacingRight,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "with the nose pointing toward the right of frame"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyFacingAway,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "with the back of the head toward the camera"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularySplitTrain,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "train"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularySplitValidation,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "validation"
             }
         };
 
@@ -465,7 +859,8 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
         FrontModelId = reader.IsDBNull(15) ? null : reader.GetString(15),
         AngleYawMinAbsPercent = reader.GetDouble(16),
         BodyModelId = reader.IsDBNull(17) ? null : reader.GetString(17),
-        BodyImageSize = reader.IsDBNull(18) ? null : reader.GetString(18)
+        BodyImageSize = reader.IsDBNull(18) ? null : reader.GetString(18),
+        LoraCellModelId = reader.IsDBNull(19) ? null : reader.GetString(19)
     };
 
     private static void ValidateTemplate(ImageWorkflowPromptTemplate template)

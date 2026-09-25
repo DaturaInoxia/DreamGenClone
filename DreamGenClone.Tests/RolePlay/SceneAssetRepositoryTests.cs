@@ -1,6 +1,7 @@
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -202,6 +203,138 @@ public sealed class SceneAssetRepositoryTests
         {
             Cleanup(dbPath);
         }
+    }
+
+    /// <summary>
+    /// Operator report 2026-09-24: the uploaded front candidate could not be deleted at all — "SQLite Error 19:
+    /// FOREIGN KEY constraint failed" — because <c>SceneAssetImageEditSessions.SourceImageId</c> references the image
+    /// ON DELETE RESTRICT and the delete only detached the derived <c>SceneAssetImages</c> rows. Every source of a
+    /// recorded operation was therefore held forever by the record of that operation. The delete now clears that
+    /// history in the same transaction and keeps what the sessions PRODUCED (their own provenance carries the source
+    /// checksum, which is what the canonical-front lineage walk reads).
+    /// </summary>
+    [Fact]
+    public async Task DeleteImageAsync_ClearsTheEditSessionsThatConsumedTheImage_AndKeepsWhatTheyProduced()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await repo.UpsertAsync(new SceneAsset
+            {
+                Id = "asset-1",
+                Name = "Becky front",
+                Kind = SceneAssetKind.Uploaded,
+                Status = SceneAssetStatus.Complete
+            });
+            await repo.UpsertImageAsync(new SceneAssetImage
+            {
+                Id = "upload",
+                AssetId = "asset-1",
+                Kind = SceneAssetKind.Uploaded,
+                Status = SceneAssetStatus.Complete,
+                FileRelativePath = "assets/upload.png"
+            });
+            await repo.UpsertImageAsync(new SceneAssetImage
+            {
+                Id = "edited",
+                AssetId = "asset-1",
+                Kind = SceneAssetKind.Edited,
+                Status = SceneAssetStatus.Complete,
+                SourceImageId = "upload",
+                FileRelativePath = "assets/edited.png"
+            });
+
+            await SeedEditHistoryAsync(dbPath, sourceImageId: "upload");
+
+            // Prove the constraint is enforced here: a direct row delete must fail. Without this probe the test
+            // would also pass against a schema that enforces nothing, which is exactly how the defect survived.
+            await AssertDirectDeleteIsBlockedAsync(dbPath, "upload");
+
+            await repo.DeleteImageAsync("upload");
+
+            Assert.Null(await repo.GetImageAsync("upload"));
+            var edited = await repo.GetImageAsync("edited");
+            Assert.NotNull(edited);
+            Assert.Null(edited!.SourceImageId);
+            Assert.Equal(0, await CountEditHistoryAsync(dbPath));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// Creates the asset-image edit tables with the RESTRICTed foreign key the live schema has, plus one session,
+    /// its compilation attempt and its prompt revision, all keyed by the image under test.
+    /// </summary>
+    private static async Task SeedEditHistoryAsync(string dbPath, string sourceImageId)
+    {
+        await using var connection = new SqliteConnection($"Data Source={dbPath};Pooling=False");
+        await connection.OpenAsync();
+        await using (var schema = connection.CreateCommand())
+        {
+            schema.CommandText = """
+                CREATE TABLE IF NOT EXISTS SceneAssetImageEditSessions (
+                    Id TEXT PRIMARY KEY, AssetId TEXT NOT NULL, SourceImageId TEXT NOT NULL, SourceImageSha256 TEXT NOT NULL,
+                    Status TEXT NOT NULL, DescriptionText TEXT NULL, CreatedUtc TEXT NOT NULL, UpdatedUtc TEXT NOT NULL,
+                    CompletedUtc TEXT NULL,
+                    FOREIGN KEY (SourceImageId) REFERENCES SceneAssetImages(Id) ON DELETE RESTRICT);
+                CREATE TABLE IF NOT EXISTS SceneAssetImageEditCompilationAttempts (
+                    Id TEXT PRIMARY KEY, EditSessionId TEXT NOT NULL, Ordinal INTEGER NOT NULL, RawIntent TEXT NOT NULL,
+                    Status TEXT NOT NULL, CreatedUtc TEXT NOT NULL,
+                    FOREIGN KEY (EditSessionId) REFERENCES SceneAssetImageEditSessions(Id) ON DELETE RESTRICT);
+                CREATE TABLE IF NOT EXISTS SceneAssetImageEditPromptRevisions (
+                    Id TEXT PRIMARY KEY, CompilationAttemptId TEXT NOT NULL, Ordinal INTEGER NOT NULL, Prompt TEXT NOT NULL,
+                    CreatedUtc TEXT NOT NULL,
+                    FOREIGN KEY (CompilationAttemptId) REFERENCES SceneAssetImageEditCompilationAttempts(Id) ON DELETE RESTRICT);
+                """;
+            await schema.ExecuteNonQueryAsync();
+        }
+
+        await using var rows = connection.CreateCommand();
+        rows.CommandText = """
+            INSERT INTO SceneAssetImageEditSessions
+                (Id, AssetId, SourceImageId, SourceImageSha256, Status, CreatedUtc, UpdatedUtc)
+            VALUES ('session-1', 'asset-1', $source, 'SHA', 'Completed',
+                    '2026-09-24T01:11:25.0000000Z', '2026-09-24T01:11:25.0000000Z');
+            INSERT INTO SceneAssetImageEditCompilationAttempts
+                (Id, EditSessionId, Ordinal, RawIntent, Status, CreatedUtc)
+            VALUES ('attempt-1', 'session-1', 0, 'remove the background', 'Completed', '2026-09-24T01:11:25.0000000Z');
+            INSERT INTO SceneAssetImageEditPromptRevisions
+                (Id, CompilationAttemptId, Ordinal, Prompt, CreatedUtc)
+            VALUES ('revision-1', 'attempt-1', 0, 'remove the background', '2026-09-24T01:11:25.0000000Z');
+            """;
+        rows.Parameters.AddWithValue("$source", sourceImageId);
+        await rows.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// Deletes the image row directly, bypassing the repository, and requires the foreign key to refuse it. This is
+    /// the condition that made the operator's delete fail ("SQLite Error 19: FOREIGN KEY constraint failed"); a schema
+    /// or connection that does not enforce it would make the cascade test above prove nothing.
+    /// </summary>
+    private static async Task AssertDirectDeleteIsBlockedAsync(string dbPath, string imageId)
+    {
+        await using var connection = new SqliteConnection($"Data Source={dbPath};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM SceneAssetImages WHERE Id = $id;";
+        command.Parameters.AddWithValue("$id", imageId);
+        await Assert.ThrowsAsync<SqliteException>(() => command.ExecuteNonQueryAsync());
+    }
+
+    private static async Task<int> CountEditHistoryAsync(string dbPath)
+    {
+        await using var connection = new SqliteConnection($"Data Source={dbPath};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT (SELECT COUNT(*) FROM SceneAssetImageEditSessions)
+                 + (SELECT COUNT(*) FROM SceneAssetImageEditCompilationAttempts)
+                 + (SELECT COUNT(*) FROM SceneAssetImageEditPromptRevisions);
+            """;
+        return Convert.ToInt32(await command.ExecuteScalarAsync());
     }
 
     private static SceneAssetRepository CreateRepoAsync(out string dbPath)

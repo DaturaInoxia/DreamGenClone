@@ -1,4 +1,7 @@
 @using DreamGenClone.Web.Application.RolePlay
+@using Microsoft.Extensions.Logging
+
+@inject ILogger<ReferenceApplyPanel> Logger
 
 <section class="border rounded p-3" aria-label="Reference application">
     <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
@@ -28,8 +31,16 @@
                         </div>
                         <div class="col-md-4">
                             <label class="form-label small mb-1">Strength</label>
-                            <input class="form-control form-control-sm" type="number" min="0" max="1" step="0.05"
-                                   value="@selection.Strength" @onchange="args => SetStrengthAsync(selection, args)" />
+                            @if (UsesStrength(selection.Strategy))
+                            {
+                                <input class="form-control form-control-sm" type="number" min="0" max="1" step="0.05"
+                                       value="@selection.Strength" @onchange="args => SetStrengthAsync(selection, args)" />
+                            }
+                            else
+                            {
+                                <input class="form-control form-control-sm" type="number" value="@selection.Strength" disabled />
+                                <span class="form-text">Not used on the reference-image route.</span>
+                            }
                         </div>
                     </div>
                     @if (!string.IsNullOrWhiteSpace(selection.ActorKey))
@@ -55,19 +66,50 @@
     [Parameter]
     public IReadOnlyList<string> ExecutableStrategies { get; set; } = ["TextOnly"];
 
+    /// <summary>
+    /// Which strategies are MEANINGFUL for each reference element, as data.
+    ///
+    /// This replaces a switch that hardcoded the same lists AND threw on an unknown element key. Two things were
+    /// wrong with that: the <c>Location</c> arm listed only <c>ControlNet</c>, so a model that carries a location as
+    /// its own reference image could never offer it (B-128 §5.3 U1 — reported 2026-09-24/25), and an element key this
+    /// panel had not been taught took out the whole panel instead of degrading.
+    ///
+    /// The lists are what each element MEANS; <see cref="ExecutableStrategies"/> is what the selected model can
+    /// actually run, and the two are intersected below. Meaning and capability are kept separate on purpose: a
+    /// catalogue that absorbed capability would offer a strategy no model can execute.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> ElementStrategies =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Identity"] = ["TextOnly", "ReferenceConditioning", "NativeMultiReference", "Lora"],
+            ["Body"] = ["TextOnly", "Lora"],
+            ["Wardrobe"] = ["TextOnly", "WardrobeTryOn"],
+            ["Location"] = ["TextOnly", "NativeMultiReference", "ControlNet"]
+        };
+
     private IReadOnlyList<string> StrategiesFor(string elementKey)
     {
-        var supportedStrategies = elementKey switch
+        if (!ElementStrategies.TryGetValue(elementKey, out var supportedStrategies))
         {
-            "Identity" => new[] { "TextOnly", "ReferenceConditioning", "NativeMultiReference", "Lora" },
-            "Body" => new[] { "TextOnly", "Lora" },
-            "Wardrobe" => new[] { "TextOnly", "WardrobeTryOn" },
-            "Location" => new[] { "TextOnly", "ControlNet" },
-            _ => throw new InvalidOperationException($"Unknown reference element '{elementKey}'.")
-        };
+            // Text is the one strategy every model can execute, so an unknown element degrades to it and says so in
+            // the log, rather than refusing to render. It is logged because an unreachable strategy must be a
+            // visible fact, not a silent omission.
+            Logger.LogWarning(
+                "No strategy catalogue entry for reference element '{Element}'; offering text only.", elementKey);
+            supportedStrategies = ["TextOnly"];
+        }
+
         var executableStrategies = new HashSet<string>(ExecutableStrategies, StringComparer.OrdinalIgnoreCase);
         return supportedStrategies.Where(executableStrategies.Contains).ToArray();
     }
+
+    /// <summary>
+    /// Whether the chosen strategy reads a strength at all. The model's own reference slots do NOT — the native
+    /// branch never reads it (recorded in the pose slice-2 notes, 2026-09-23) — so an editable number there invites
+    /// the operator to tune a value nothing consumes. Every other strategy is left exactly as it was.
+    /// </summary>
+    private static bool UsesStrength(string strategy) =>
+        !string.Equals(strategy, "NativeMultiReference", StringComparison.OrdinalIgnoreCase);
 
     private async Task SetAssetAsync(ReferenceApplicationSelection selection, SceneAssetReferenceChoice? choice)
     {

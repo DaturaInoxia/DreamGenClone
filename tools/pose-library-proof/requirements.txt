@@ -1,0 +1,2 @@
+# Standard library only (urllib / json / hashlib) - no third-party dependency, so no pin is needed.
+# Run with the repo venv:  d:/src/DreamGenClone/.venv/Scripts/python.exe

@@ -113,6 +113,10 @@ public sealed class SceneAssetService : ISceneAssetService
             PoseStrength = options?.Pose?.Strength,
             IdentityPackId = options?.Identity?.PackId,
             IdentityFaceAssetId = options?.Identity?.FaceAssetId,
+            // A body reference travels beside the face reference, never instead of it: a view from directly behind
+            // carries no face and still needs the build.
+            BodyReferencePackId = options?.BodyReference?.PackId,
+            BodyReferenceAssetId = options?.BodyReference?.BodyAssetId,
             // An angle render states BOTH: which angle and which accepted body it is that body turned. One without
             // the other is not a request the render path can honour, so it fails there rather than being guessed at.
             BodyAngleView = options?.BodyAngle?.View.ToString(),

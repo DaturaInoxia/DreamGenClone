@@ -12,7 +12,20 @@ public sealed class PosePreset
 
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>What kind of pose this is (standing, kneeling, …). Not the collection it lives in.</summary>
     public string Category { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The <see cref="PoseLibrary"/> this preset belongs to. Empty on rows that predate the library
+    /// model, which the importer assigns; a search by library id therefore never matches them silently.
+    /// </summary>
+    public string LibraryId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Free-text keywords the keyword search matches, in addition to the name and the category. Stored
+    /// as one string so a preset is a single row and a search stays one query.
+    /// </summary>
+    public string Keywords { get; set; } = string.Empty;
 
     /// <summary>Serialized COCO-18 body keypoints.</summary>
     public string KeypointsJson { get; set; } = "[]";

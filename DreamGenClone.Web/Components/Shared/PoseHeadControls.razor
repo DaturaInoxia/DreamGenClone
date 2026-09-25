@@ -1,0 +1,157 @@
+@using DreamGenClone.Web.Application.RolePlay
+@using Microsoft.Extensions.Options
+@inject IPoseLibraryService LibraryService
+@inject IOptions<PoseStudioOptions> StudioOptions
+
+<div class="border rounded p-2 mt-3">
+    <div class="d-flex justify-content-between align-items-start gap-2">
+        <div>
+            <strong class="small">Head</strong>
+            <span class="d-block small text-muted">
+                The head has its own pivot above the neck, so this is the same projection as the body and the arms
+                stay where they are. Turn it to a profile, or nod it from looking straight down to tipped back and up.
+            </span>
+        </div>
+    </div>
+
+    <div class="row g-3 mt-1">
+        <div class="col-lg-4">
+            <div class="d-flex justify-content-center align-items-center bg-black border rounded" style="height: 240px;">
+                @if (_previewUrl is not null)
+                {
+                    <img src="@_previewUrl" alt="Head close-up preview" style="max-height: 236px; max-width: 100%;" />
+                }
+                else
+                {
+                    <span class="text-muted small">Rendering the head...</span>
+                }
+            </div>
+            <div class="form-text">
+                Head close-up · @Head.YawDegrees.ToString("0")° yaw · @Head.PitchDegrees.ToString("0")° pitch
+                · @Head.RollDegrees.ToString("0")° roll
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="d-flex flex-wrap gap-1 mb-2">
+                @foreach (var target in HeadTargets)
+                {
+                    <button type="button" class="btn btn-sm @(IsCurrent(target.Head) ? "btn-primary" : "btn-outline-secondary")"
+                            @onclick="() => SetAsync(target.Head)">
+                        @target.Label
+                    </button>
+                }
+            </div>
+
+            <div class="row g-2 align-items-center mb-1">
+                <div class="col-auto"><span class="small fw-semibold">Face left / right</span></div>
+                <div class="col-auto">
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-secondary" title="Turn the face left" @onclick="() => StepAsync(PoseRotationAxis.Yaw, -1)">&larr;</button>
+                        <button type="button" class="btn btn-outline-secondary" title="Turn the face right" @onclick="() => StepAsync(PoseRotationAxis.Yaw, 1)">&rarr;</button>
+                    </div>
+                </div>
+                <div class="col-auto"><span class="small text-muted">front &rarr; profile</span></div>
+            </div>
+
+            <div class="row g-2 align-items-center mb-1">
+                <div class="col-auto"><span class="small fw-semibold">Look up / down</span></div>
+                <div class="col-auto">
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-secondary" title="Look up" @onclick="() => StepAsync(PoseRotationAxis.Pitch, 1)">&uarr;</button>
+                        <button type="button" class="btn btn-outline-secondary" title="Look down" @onclick="() => StepAsync(PoseRotationAxis.Pitch, -1)">&darr;</button>
+                    </div>
+                </div>
+                <div class="col-auto"><span class="small text-muted">tipped back &rarr; straight down</span></div>
+            </div>
+
+            <div class="row g-2 align-items-center mb-2">
+                <div class="col-auto"><span class="small fw-semibold">Tilt</span></div>
+                <div class="col-auto">
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-secondary" title="Tilt counter-clockwise" @onclick="() => StepAsync(PoseRotationAxis.Roll, -1)">&#8630;</button>
+                        <button type="button" class="btn btn-outline-secondary" title="Tilt clockwise" @onclick="() => StepAsync(PoseRotationAxis.Roll, 1)">&#8631;</button>
+                    </div>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => SetAsync(new PoseHeadRotation())">Reset head</button>
+                </div>
+            </div>
+
+            <div class="alert alert-secondary py-1 small mb-0">
+                A COCO body carries only five head points — nose, both eyes, both ears — so this is head
+                <em>angle</em>, not a face. Pitch stops at
+                @PoseHeadRotation.PitchLimitDegrees.ToString("0")° because at a right angle the head has no stable
+                orientation to project. OpenPose ControlNet does not reliably honour face keypoints at all, so a
+                turned head pays off on a model that reads a skeleton as a reference (Qwen-2.1) or on a framed head
+                shot like this one.
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>The body's view, needed because the head is projected inside the body's pose.</summary>
+    [Parameter] public PoseView BodyView { get; set; } = new();
+
+    [Parameter] public PoseHeadRotation Head { get; set; } = new();
+
+    [Parameter] public EventCallback<PoseHeadRotation> HeadChanged { get; set; }
+
+    /// <summary>
+    /// The named head views, from the one canonical list. There is no separate "lying down" preset because
+    /// tipped-back-and-up at the pitch limit <em>is</em> that pose on this rig — inventing a second name for it
+    /// would suggest a second mechanism.
+    /// </summary>
+    private static readonly (string Label, PoseHeadRotation Head)[] HeadTargets = PoseNamedViews.HeadTargets;
+
+    private string? _previewUrl;
+    private PoseView? _renderedForView;
+    private PoseHeadRotation? _renderedForHead;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_renderedForView is not null && _renderedForHead is not null
+            && Same(_renderedForView, BodyView) && Same(_renderedForHead, Head))
+        {
+            return;
+        }
+
+        await RefreshPreviewAsync();
+    }
+
+    private static bool Same(PoseView left, PoseView right) =>
+        Math.Abs(left.YawDegrees - right.YawDegrees) < 0.001
+        && Math.Abs(left.PitchDegrees - right.PitchDegrees) < 0.001
+        && Math.Abs(left.RollDegrees - right.RollDegrees) < 0.001;
+
+    private static bool Same(PoseHeadRotation left, PoseHeadRotation right) =>
+        Math.Abs(left.YawDegrees - right.YawDegrees) < 0.001
+        && Math.Abs(left.PitchDegrees - right.PitchDegrees) < 0.001
+        && Math.Abs(left.RollDegrees - right.RollDegrees) < 0.001;
+
+    private bool IsCurrent(PoseHeadRotation head) => Same(head, Head);
+
+    private Task SetAsync(PoseHeadRotation head) => PublishAsync(head);
+
+    private Task StepAsync(PoseRotationAxis axis, int steps) =>
+        PublishAsync(PoseHeadRotation.Step(Head, axis, steps, StudioOptions.Value));
+
+    private async Task PublishAsync(PoseHeadRotation head)
+    {
+        Head = head;
+        await HeadChanged.InvokeAsync(head);
+        await RefreshPreviewAsync();
+    }
+
+    private Task RefreshPreviewAsync()
+    {
+        _previewUrl = "data:image/png;base64," + Convert.ToBase64String(
+            LibraryService.RenderAuthoredHeadPreview(BodyView, Head, PreviewCanvas));
+        _renderedForView = BodyView;
+        _renderedForHead = Head;
+        return Task.CompletedTask;
+    }
+
+    private const int PreviewCanvas = 320;
+}

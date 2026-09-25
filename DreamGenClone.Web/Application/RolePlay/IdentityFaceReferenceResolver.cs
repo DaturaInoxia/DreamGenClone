@@ -136,3 +136,112 @@ public sealed class IdentityFaceReferenceResolver
             asset.Sha256);
     }
 }
+
+/// <summary>
+/// The approved BODY reference a pack contributes, with the metadata that makes it auditable: which pack
+/// version, which asset, which canonical slot and state it claims, and its checksum.
+///
+/// The slot and the state travel with the resolution because they are the two facts the caller decided on
+/// (a clothed cell must not be conditioned on an unclothed reference — measured 2026-09-23, when bare-shouldered
+/// references made a clothed render come out unclothed), so they must be re-asserted here rather than inferred.
+/// </summary>
+public sealed record ResolvedIdentityBodyReference(
+    int Ordinal,
+    string PackId,
+    int PackVersion,
+    string BodyAssetId,
+    SceneImageReferenceBodyView? BodyView,
+    SceneImageReferenceBodyState? BodyState,
+    string FileRelativePath,
+    string Sha256);
+
+/// <summary>
+/// Resolves the APPROVED full-body reference a pack contributes — the sibling of
+/// <see cref="IdentityFaceReferenceResolver"/> for the body-build axis. Deliberately a separate class rather
+/// than a second method on the face resolver: the face path conditions every identity render in the app, and
+/// rewriting it to share these checks would put a proven path at risk for a naming win. The two therefore
+/// mirror each other on purpose.
+///
+/// Nothing is substituted: an asset the caller named must be an approved full-body asset of that approved
+/// pack, and it must declare the canonical view and state the cell asked for. Every failure names what is
+/// wrong and what to do — a body reference that cannot resolve must fail the render, never quietly leave the
+/// build to the model's imagination.
+/// </summary>
+public sealed class IdentityBodyReferenceResolver
+{
+    private readonly ICharacterImageIdentityRepository _identity;
+
+    public IdentityBodyReferenceResolver(ICharacterImageIdentityRepository identity)
+    {
+        _identity = identity;
+    }
+
+    public async Task<ResolvedIdentityBodyReference> ResolveExactBodyAsync(
+        int ordinal,
+        string packId,
+        string bodyAssetId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(bodyAssetId))
+        {
+            throw new InvalidOperationException(
+                "Body reference conditioning requires an exact approved full-body asset id; none was provided.");
+        }
+
+        if (string.IsNullOrWhiteSpace(packId))
+        {
+            throw new InvalidOperationException(
+                "Body reference conditioning requires an exact identity pack id; none was provided.");
+        }
+
+        var pack = await _identity.GetPackAsync(packId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Identity pack '{packId}' was not found, so this render cannot be conditioned on the character's "
+                + "body. Approve a body reference for this character and generate again.");
+        if (pack.Status != CharacterImageIdentityPackStatus.Approved)
+        {
+            throw new InvalidOperationException(
+                $"Identity pack '{pack.Id}' is '{pack.Status}', not Approved. Only an approved pack may condition a "
+                + "render — an unapproved reference would put an unreviewed body into a render.");
+        }
+
+        var asset = await _identity.GetAssetAsync(bodyAssetId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"The identity body asset '{bodyAssetId}' was not found.");
+        if (!string.Equals(asset.IdentityPackId, pack.Id, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Body asset '{asset.Id}' belongs to pack '{asset.IdentityPackId}', not '{pack.Id}', so it cannot "
+                + "condition this render.");
+        }
+
+        if (asset.AssetKind != SceneImageReferenceAssetKind.FullBody || !asset.IsApproved)
+        {
+            throw new InvalidOperationException(
+                $"Body asset '{asset.Id}' must be an APPROVED full-body reference to condition a render, but it is "
+                + $"'{asset.AssetKind}'{(asset.IsApproved ? string.Empty : " and not approved")}.");
+        }
+
+        if (asset.BodyView is null || asset.BodyState is null)
+        {
+            throw new InvalidOperationException(
+                $"Body asset '{asset.Id}' declares no canonical view and state, so it cannot be matched to a coverage "
+                + "cell. Set the body slot and state on the body card first.");
+        }
+
+        if (string.IsNullOrWhiteSpace(asset.FileRelativePath) || string.IsNullOrWhiteSpace(asset.Sha256))
+        {
+            throw new InvalidOperationException(
+                $"Body asset '{asset.Id}' has no stored file or checksum, so it cannot be sent as a reference.");
+        }
+
+        return new ResolvedIdentityBodyReference(
+            ordinal,
+            pack.Id,
+            pack.Version,
+            asset.Id,
+            asset.BodyView,
+            asset.BodyState,
+            asset.FileRelativePath,
+            asset.Sha256);
+    }
+}

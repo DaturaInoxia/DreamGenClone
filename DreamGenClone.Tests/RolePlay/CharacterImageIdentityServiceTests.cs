@@ -358,6 +358,121 @@ public sealed class CharacterImageIdentityServiceTests
         }
     }
 
+    /// <summary>
+    /// Operator report, 2026-09-24: "Promoted the five accepted views to draft identity pack … but it did not replace
+    /// the images in the pack, it is still the older images." The promotion appended a second asset per view, so the
+    /// pack kept supplying the pre-existing (approved) one. A slot write REPLACES the slot, and the promoted Front
+    /// SEEDS the canonical face when the pack has none.
+    /// </summary>
+    [Fact]
+    public async Task ReplaceSlotAsset_ReplacesTheSlot_AndSeedsTheCanonicalFace()
+    {
+        var (service, repo, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
+            await using (var first = new MemoryStream(MinimalPng(64, 64)))
+            {
+                var seeded = await service.ReplaceSlotAssetAsync(
+                    pack.Id, SceneImageReferenceAssetKind.Face, "front.png", first, SceneImageReferenceFaceView.Front);
+                Assert.Equal(0, seeded.ReplacedAssets);
+                Assert.Equal(seeded.Asset.Id, (await repo.GetPackAsync(pack.Id))!.CanonicalFaceAssetId);
+            }
+
+            await using var second = new MemoryStream(MinimalPng(128, 128));
+            var replaced = await service.ReplaceSlotAssetAsync(
+                pack.Id, SceneImageReferenceAssetKind.Face, "front.png", second, SceneImageReferenceFaceView.Front);
+
+            Assert.Equal(1, replaced.ReplacedAssets);
+            var faces = (await repo.ListAssetsAsync(pack.Id))
+                .Where(asset => asset.FaceView == SceneImageReferenceFaceView.Front)
+                .ToList();
+            var only = Assert.Single(faces);
+            Assert.Equal(replaced.Asset.Id, only.Id);
+            Assert.Equal(128, only.Width);
+
+            // The pointer followed the replacement instead of dangling on a deleted asset, and the replaced asset's
+            // file is gone because nothing references it any more.
+            Assert.Equal(replaced.Asset.Id, (await repo.GetPackAsync(pack.Id))!.CanonicalFaceAssetId);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    /// <summary>Pressing promote again must not churn the store when the slot already holds exactly these bytes.</summary>
+    [Fact]
+    public async Task ReplaceSlotAsset_IsANoOpWhenTheSlotAlreadyHoldsTheseBytes()
+    {
+        var (service, repo, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
+            var png = MinimalPng(64, 64);
+            await using (var first = new MemoryStream(png))
+            {
+                await service.ReplaceSlotAssetAsync(
+                    pack.Id, SceneImageReferenceAssetKind.Face, "front.png", first, SceneImageReferenceFaceView.Front);
+            }
+
+            await using var same = new MemoryStream(png);
+            var write = await service.ReplaceSlotAssetAsync(
+                pack.Id, SceneImageReferenceAssetKind.Face, "front.png", same, SceneImageReferenceFaceView.Front);
+
+            Assert.Equal(0, write.ReplacedAssets);
+            Assert.Single(await repo.ListAssetsAsync(pack.Id));
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task ReplaceSlotAsset_RefusesAnApprovedPack_AndASlotItCannotName()
+    {
+        var (service, repo, root, dbPath) = CreateFixture();
+        try
+        {
+            var pack = await service.CreateDraftPackAsync("char-1", CharacterImageIdentityPackScope.FaceOnly);
+            await using var input = new MemoryStream(MinimalPng(64, 64));
+            var unnamed = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.ReplaceSlotAssetAsync(pack.Id, SceneImageReferenceAssetKind.Face, "front.png", input));
+            Assert.Contains("requires the face view it occupies", unnamed.Message, StringComparison.Ordinal);
+
+            var front = await service.ReplaceSlotAssetAsync(
+                pack.Id, SceneImageReferenceAssetKind.Face, "front.png", new MemoryStream(MinimalPng(64, 64)),
+                SceneImageReferenceFaceView.Front);
+            await service.SetAssetProvenanceAsync(front.Asset.Id, "test", SceneImageReferenceConsentState.NotApplicable);
+            await service.SetAssetApprovalAsync(front.Asset.Id, true);
+            foreach (var view in new[]
+                     {
+                         SceneImageReferenceFaceView.ThreeQuarterLeft, SceneImageReferenceFaceView.ThreeQuarterRight,
+                         SceneImageReferenceFaceView.ProfileLeft, SceneImageReferenceFaceView.ProfileRight
+                     })
+            {
+                var uploaded = await service.ReplaceSlotAssetAsync(
+                    pack.Id, SceneImageReferenceAssetKind.Face, "view.png", new MemoryStream(MinimalPng(64, 64)), view);
+                await service.SetAssetProvenanceAsync(uploaded.Asset.Id, "test", SceneImageReferenceConsentState.NotApplicable);
+                await service.SetAssetApprovalAsync(uploaded.Asset.Id, true);
+            }
+
+            await service.ApprovePackAsync(pack.Id, "{\"descriptor\":\"frozen\"}", front.Asset.Id);
+
+            var approvedError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.ReplaceSlotAssetAsync(
+                    pack.Id, SceneImageReferenceAssetKind.Face, "front.png", new MemoryStream(MinimalPng(64, 64)),
+                    SceneImageReferenceFaceView.Front));
+            Assert.Contains("only a draft pack can be written", approvedError.Message, StringComparison.Ordinal);
+            Assert.Equal(CharacterImageIdentityPackStatus.Approved, (await repo.GetPackAsync(pack.Id))!.Status);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
     private static async Task<SceneImageReferenceAsset> UploadBodyAsync(
         CharacterImageIdentityService service,
         string packId,

@@ -20,7 +20,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-PACK = Path("helpers/runpod/openposeNSFWPosePackage_final")
+PACK = Path("pose-packs/openpose-nsfw")
 CANVAS = 1024
 GROUND = CANVAS - 24          # 1000
 MAN_X = 620                   # man's neck target x (canvas)
