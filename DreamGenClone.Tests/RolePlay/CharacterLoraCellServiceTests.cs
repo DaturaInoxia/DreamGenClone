@@ -15,6 +15,12 @@ public sealed class CharacterLoraCellServiceTests
     private const string CellKey = "core.front.cu.1";
     private const string PackId = "pack-1";
 
+    /// <summary>
+    /// The character key the CALLER addresses this character by. Every binding the cell resolves must name it, because
+    /// a step's slot is matched on kind AND actor: a binding naming anything else is invisible to its own slot.
+    /// </summary>
+    private const string CharacterKey = "becky";
+
     // ------------------------------------------------------------------ the batch boundary
 
     [Fact]
@@ -313,7 +319,7 @@ public sealed class CharacterLoraCellServiceTests
 
         var service = Build(assets: assets, identity: identity, datasets: new StubLoraRepository());
 
-        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey);
+        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey, CharacterKey);
         await service.RenderCellAsync(DatasetId, CellKey, "a composed prompt", "qwen-image-2.1", "1024x1024", bindings);
 
         Assert.NotNull(assets.LastOptions);
@@ -334,7 +340,7 @@ public sealed class CharacterLoraCellServiceTests
         identity.PackAssets.Add(FaceReference("profile-ref", SceneImageReferenceFaceView.ProfileLeft));
         identity.PackAssets.Add(BodyReference("profile-clothed", SceneImageReferenceBodyView.ProfileLeft, SceneImageReferenceBodyState.Clothed));
 
-        var bindings = await Build(identity: identity).ResolveCellBindingsAsync(DatasetId, CellKey);
+        var bindings = await Build(identity: identity).ResolveCellBindingsAsync(DatasetId, CellKey, CharacterKey);
 
         var face = Assert.Single(bindings, binding => binding.Kind == nameof(ImageStepSlotKind.Face));
         Assert.Equal("profile-ref", face.ReferenceAssetId);
@@ -342,8 +348,14 @@ public sealed class CharacterLoraCellServiceTests
         Assert.Equal(ImageStepReferenceSourceKind.IdentityPackAsset.ToString(), face.Source);
         Assert.True(face.SuppliesImage);
 
+        // Every binding NAMES ITS CHARACTER. A slot is matched on kind AND actor, so a binding that names nothing (or
+        // names a different id space) is invisible to the slot it belongs to - the step then shows the reference as
+        // unbound, offers no picker for it, and never omits its prompt element.
+        Assert.Equal(CharacterKey, face.ActorKey);
+
         var body = Assert.Single(bindings, binding => binding.Kind == nameof(ImageStepSlotKind.Body));
         Assert.Equal("profile-clothed", body.ReferenceAssetId);
+        Assert.Equal(CharacterKey, body.ActorKey);
 
         // Order is request data: the face anchors the frame before the build reference follows it.
         Assert.Equal(1, face.Ordinal ?? 0);
@@ -361,7 +373,7 @@ public sealed class CharacterLoraCellServiceTests
         identity.PackAssets.Add(FaceReference("profile-ref", SceneImageReferenceFaceView.ProfileLeft));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => Build(identity: identity).ResolveCellBindingsAsync(DatasetId, CellKey));
+            () => Build(identity: identity).ResolveCellBindingsAsync(DatasetId, CellKey, CharacterKey));
     }
 
     /// <summary>
@@ -377,7 +389,7 @@ public sealed class CharacterLoraCellServiceTests
         identity.PackAssets.Add(BodyReference("profile-clothed", SceneImageReferenceBodyView.ProfileLeft, SceneImageReferenceBodyState.Clothed));
 
         var service = Build(assets: assets, identity: identity);
-        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey);
+        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey, CharacterKey);
         var withoutBody = bindings.Where(binding => binding.Kind != nameof(ImageStepSlotKind.Body)).ToList();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -402,7 +414,7 @@ public sealed class CharacterLoraCellServiceTests
 
         var datasets = new StubLoraRepository(Cell(slot: null));
         var service = Build(assets: assets, identity: identity, datasets: datasets);
-        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey);
+        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey, CharacterKey);
 
         // The rule seeds no face for this view; an operator adding one is the case under test.
         bindings = bindings.Append(new ReferenceApplicationSelection
@@ -437,7 +449,7 @@ public sealed class CharacterLoraCellServiceTests
         identity.PackAssets.Add(BodyReference("profile-clothed", SceneImageReferenceBodyView.ProfileLeft, SceneImageReferenceBodyState.Clothed));
 
         var service = Build(assets: assets, identity: identity);
-        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey);
+        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey, CharacterKey);
         bindings[0].IdentityPackId = "another-pack";
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(

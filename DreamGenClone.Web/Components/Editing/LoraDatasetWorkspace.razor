@@ -753,7 +753,10 @@ else
             // them and the operator can change them before shooting, rather than the render resolving them privately.
             _cellIdentityReference = await CellService.DescribeIdentityReferenceAsync(_selectedDatasetId, record.Key);
             _cellBodyReference = await CellService.DescribeBodyReferenceAsync(_selectedDatasetId, record.Key);
-            _cellBindings = await CellService.ResolveCellBindingsAsync(_selectedDatasetId, record.Key);
+            // The actor key is passed IN, so the binding names the SAME character the blueprint's slots address. Deriving
+            // it here from the dataset would be a second answer to "whose reference is this", free to disagree with the
+            // key the step was built with - which is exactly how the face and body references came to be invisible.
+            _cellBindings = await CellService.ResolveCellBindingsAsync(_selectedDatasetId, record.Key, _identityKey);
             // The composed prompt becomes the step's DRAFT rather than staying a read-only paragraph: the box is
             // editable, so an edit that the render ignored would be a lie about what is being shot.
             _cellPromptDraft = RenderPromptForShoot;

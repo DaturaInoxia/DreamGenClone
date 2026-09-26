@@ -54,9 +54,16 @@ public interface ICharacterLoraCellService
     /// The ordered reference bindings this cell's rule resolves to, so a host can SHOW them and seed them into a step.
     /// The same two decisions the render used to make privately, exposed as the step's starting state.
     /// </summary>
+    /// <param name="characterKey">
+    /// The character key the CALLER addresses this character by - the same key it puts in the step's blueprint
+    /// actor. It is supplied rather than derived here because a slot is matched on kind AND actor: a binding that
+    /// names a different id space is invisible to its own slot, which showed the cell's real face and body
+    /// references as unbound (reported live 2026-09-26).
+    /// </param>
     Task<IReadOnlyList<ReferenceApplicationSelection>> ResolveCellBindingsAsync(
         string datasetId,
         string cellKey,
+        string characterKey,
         CancellationToken cancellationToken = default);
 
     /// <summary>

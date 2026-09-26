@@ -103,8 +103,16 @@ public sealed class CharacterLoraCellService : ICharacterLoraCellService
     /// naming one would be a lie the render path would act on.
     /// </summary>
     public async Task<IReadOnlyList<ReferenceApplicationSelection>> ResolveCellBindingsAsync(
-        string datasetId, string cellKey, CancellationToken cancellationToken = default)
+        string datasetId, string cellKey, string characterKey, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(characterKey))
+        {
+            throw new InvalidOperationException(
+                "A cell's reference bindings must name the character they belong to. A slot is matched on kind AND "
+                + "actor, so an unnamed binding is invisible to its own slot.");
+        }
+
+        var actor = characterKey.Trim();
         var (dataset, record) = await LoadCellAsync(datasetId, cellKey, cancellationToken);
         var packAssets = await _identity.ListAssetsAsync(dataset.IdentityPackId, cancellationToken);
 
@@ -117,6 +125,12 @@ public sealed class CharacterLoraCellService : ICharacterLoraCellService
                 ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Face),
                 SemanticRole = "character identity",
                 Kind = ImageStepSlotKind.Face.ToString(),
+                // WHICH CHARACTER this reference belongs to. Load-bearing, not decorative: a slot is matched on kind
+                // AND actor, and the prompt-element scopes are addressed `character:{key}.appearance`. Leaving it
+                // unset made the cell's real face and body references unmatchable by their own slots, so the step
+                // showed them as unbound ("Text only / no asset reference"), offered no pack picker, and omitted
+                // nothing from the prompt (reported live 2026-09-26).
+                ActorKey = actor,
                 Source = ImageStepReferenceSourceKind.IdentityPackAsset.ToString(),
                 // The binding says WHICH image; the render path still resolves HOW the selected model carries it.
                 Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
@@ -135,6 +149,8 @@ public sealed class CharacterLoraCellService : ICharacterLoraCellService
             ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Body),
             SemanticRole = "character body",
             Kind = ImageStepSlotKind.Body.ToString(),
+            // Same actor key as the face binding: one character, two references.
+            ActorKey = actor,
             Source = ImageStepReferenceSourceKind.IdentityPackAsset.ToString(),
             Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
             IdentityPackId = body.PackId,
