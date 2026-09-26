@@ -35,6 +35,8 @@ public sealed class SceneImageStudioUiContractTests
         FindRepositoryRoot(), "DreamGenClone.Web", "Application", "RolePlay", "SceneImageService.cs"));
     private static readonly string SceneImageEditingJobHandlerSource = File.ReadAllText(Path.Combine(
         FindRepositoryRoot(), "DreamGenClone.Web", "Application", "RolePlay", "SceneImageEditingJobHandler.cs"));
+    private static readonly string ComposerSource = File.ReadAllText(Path.Combine(
+        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Shared", "ImageStepComposer.razor"));
 
     [Fact]
     public void ProductionStudio_HandsCompositionToTheDedicatedComposer()
@@ -54,7 +56,12 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("@page \"/roleplay/studio/{sessionId}/{interactionId}/production/{productionGroupId}/composition\"", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"GeneratePromptAsync\"", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"GenerateCompositionAsync\"", CompositionComposerSource, StringComparison.Ordinal);
-        Assert.Contains("@bind=\"_selectedModelId\"", CompositionComposerSource, StringComparison.Ordinal);
+        // B-130: the model and the reference slots are the ONE composer's, so the page no longer binds the model itself
+        // and no longer owns a per-element strategy list. What it still owns is the prompt flow and the inspector.
+        Assert.Contains("ImageStepComposer Blueprint=\"CompositionBlueprint\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("ForPackIdentityComposition", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("@bind=\"_selectedModelId\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ExecutableStrategies=", CompositionComposerSource, StringComparison.Ordinal);
         // B-111 composer rework: real-payload prompt-input inspector (edit/remove per element, remove
         // whole characters) with the approved-reference-image panel, plus per-attempt actions.
         Assert.Contains("Selected Moment &amp; production context", CompositionComposerSource, StringComparison.Ordinal);
@@ -65,7 +72,9 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("@bind=\"row.Removed\"", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("@bind=\"group.Removed\"", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("RemovedCharacterKeys", CompositionComposerSource, StringComparison.Ordinal);
-        Assert.Contains("ReferenceApplyPanel", CompositionComposerSource, StringComparison.Ordinal);
+        // B-130: the approved-reference panel is replaced by the ONE composer, which presents the step's slot list.
+        Assert.Contains("ImageStepComposer Blueprint=\"CompositionBlueprint\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReferenceApplyPanel", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("SetCompositionDispositionAsync", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("ApproveCompositionAttemptAsync", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("ConfirmDeleteCompositionAsync", CompositionComposerSource, StringComparison.Ordinal);
@@ -190,7 +199,11 @@ public sealed class SceneImageStudioUiContractTests
         var method = Source[methodStart..methodEnd];
 
         Assert.Contains("Instruction = \"Face-only identity correction.\"", method, StringComparison.Ordinal);
-        Assert.Contains("ReferenceApplications = _productionReferenceApplications", method, StringComparison.Ordinal);
+        // B-130: the identity step's identity IS IdentityReferences. It used to also hand the render the shared
+        // reference list, which gave one face two identity channels in a single request - the duplicate path the
+        // reference rules forbid. The step now says so explicitly.
+        Assert.Contains("IdentityReferences = _productionIdentityFaceSelections", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReferenceApplications =", method, StringComparison.Ordinal);
         Assert.Contains("Image 1 is the existing scene and must remain the base image.", SceneImageServiceSource, StringComparison.Ordinal);
         Assert.Contains("additional approved face images are identity references only, not replacement images or composition sources.", SceneImageServiceSource, StringComparison.Ordinal);
         Assert.Contains("Treat the existing scene's visible neck and body skin tone as authoritative", SceneImageServiceSource, StringComparison.Ordinal);
@@ -208,16 +221,23 @@ public sealed class SceneImageStudioUiContractTests
     [Fact]
     public void ReferencePanels_FollowTheSelectedModelsCapabilities()
     {
-        Assert.Contains("ExecutableStrategies=\"SelectedModelStrategies\"", CompositionComposerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("ExecutableStrategies=\"TextOnlyReferenceStrategy\"", CompositionComposerSource, StringComparison.Ordinal);
-        Assert.Contains("return choice.QualifiedStrategies;", CompositionComposerSource, StringComparison.Ordinal);
-        Assert.Contains("The selected Composition image model is not in the enabled image-model list.", CompositionComposerSource, StringComparison.Ordinal);
-        // A strategy the newly selected model cannot execute is reset with the reason stated, never left in place.
-        Assert.Contains("The selected model cannot execute: {string.Join(\", \", reset)}.", CompositionComposerSource, StringComparison.Ordinal);
+        // B-130: both composition surfaces now present their step through the ONE composer, which reads the selected
+        // model's qualified strategies itself (SelectedChoice.QualifiedStrategies) and offers each slot only what that
+        // model can execute. A per-page strategy list is therefore not merely wrong, it must not exist - the assertions
+        // below pin that absence, which is the stronger form of the guarantee this test was written for.
+        Assert.Contains("ImageStepComposer Blueprint=\"CompositionBlueprint\"", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ExecutableStrategies=", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("TextOnlyReferenceStrategy", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ExecutableStrategies=\"ProductionModelStrategies\"", Source, StringComparison.Ordinal);
+        Assert.Contains("SelectedChoice?.QualifiedStrategies", ComposerSource, StringComparison.Ordinal);
 
-        Assert.Contains("ExecutableStrategies=\"ProductionModelStrategies\"", Source, StringComparison.Ordinal);
+        // The studio's finish step now takes its references from the composer, which reads the selected model's
+        // capability itself, so the page-level list it used to pass is gone. What must remain true is that the step is
+        // declared from the cast the stage already resolves, and that a model change is answered.
+        Assert.Contains("ProductionFinishBlueprint => ImageStepBlueprintFactory.ForEditElements(ProductionCast)", Source, StringComparison.Ordinal);
+        Assert.Contains("SelectedModelIdChanged=\"OnProductionModelChanged\"", Source, StringComparison.Ordinal);
         Assert.DoesNotContain("FinishReferenceStrategies = [\"TextOnly\", \"ReferenceConditioning\"]", Source, StringComparison.Ordinal);
-        Assert.Contains("return choice.QualifiedStrategies;", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ExecutableStrategies=\"ProductionModelStrategies\"", Source, StringComparison.Ordinal);
         Assert.Contains("private IReadOnlyList<string> ProductionModelStrategies", Source, StringComparison.Ordinal);
     }
 
@@ -275,7 +295,15 @@ public sealed class SceneImageStudioUiContractTests
     {
         Assert.Contains("await _service.ReanalyzeAsync(_session.Id);", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("_descriptionPending = true;", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("EditorReferenceStrategies = [\"TextOnly\", \"NativeMultiReference\"]", SceneImageEditorSource, StringComparison.Ordinal);
+        // The editor's model and reference slots come from the ONE composer, and its own strategy menu now comes from
+        // the selected model's capability there. The pinned ["TextOnly","NativeMultiReference"] list this used to
+        // assert is gone: it hid reference conditioning on every model that qualifies for it, and would have offered
+        // native references on a model that has none. B-130 also removed the three UNADDRESSED element rows the page
+        // rendered: the slots are the step's own, addressed per character, because a body reference must name whose.
+        Assert.Contains("ImageStepComposer Blueprint=\"EditBlueprint\"", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.Contains("ShowPrompt=\"false\"", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("EditorReferenceStrategies", SceneImageEditorSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReferenceApplyPanel", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("EditorModelId = request.EditorModelId", SceneImageEditAdapterSource, StringComparison.Ordinal);
         Assert.Contains("ReferenceApplications = request.ReferenceApplications.ToList()", SceneImageEditAdapterSource, StringComparison.Ordinal);
         Assert.Contains("SourceImageId = subject.ImageId", SceneImageEditAdapterSource, StringComparison.Ordinal);

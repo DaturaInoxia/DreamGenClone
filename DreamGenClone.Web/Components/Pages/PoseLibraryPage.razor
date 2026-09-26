@@ -1,8 +1,10 @@
 @page "/pose-library"
 @rendermode InteractiveServer
 
+@using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.ImageStep
 @using Microsoft.Extensions.Options
 @inject IPoseLibraryService LibraryService
 @inject IPoseLibraryImporter LibraryImporter
@@ -175,58 +177,41 @@
                         <div class="form-text"><strong>@_testPreset.Name</strong> — this is the skeleton that will be sent.</div>
                     </div>
                     <div class="col-lg-9">
-                        <div class="row g-2 align-items-end">
-                            <div class="col-md-6">
-                                <label class="form-label small fw-semibold mb-1">Image model</label>
-                                @if (_testModels.Count == 0)
-                                {
-                                    <span class="text-muted d-block small">No image models are enabled in Model Manager.</span>
-                                }
-                                else
-                                {
-                                    <select class="form-select form-select-sm" value="@_testModelId"
-                                            @onchange="e => _testModelId = e.Value?.ToString()">
-                                        @foreach (var model in _testModels)
-                                        {
-                                            <option value="@model.ModelId" disabled="@(!model.CanCarryPose)">
-                                                @model.DisplayName - @model.ProviderName (@model.MechanismLabel)
-                                            </option>
-                                        }
-                                    </select>
-                                }
-                                <span class="form-text">@TestMechanismHint()</span>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label small fw-semibold mb-1">Seed (optional)</label>
-                                <input type="text" class="form-control form-control-sm" placeholder="random"
-                                       value="@_testSeed" @oninput="e => _testSeed = e.Value?.ToString()" />
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label small fw-semibold mb-1">Canvas</label>
-                                <input type="text" class="form-control form-control-sm"
-                                       value="@_testSize" @oninput="e => _testSize = e.Value?.ToString()" />
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label small fw-semibold mb-1">Prompt</label>
-                                <textarea class="form-control form-control-sm" rows="3"
-                                          value="@_testPrompt" @oninput="e => _testPrompt = e.Value?.ToString()"></textarea>
-                                <span class="form-text">
-                                    Square canvas keeps the skeleton's own aspect. On a reference-conditioned model the
-                                    skeleton carries the body but not which way the figure faces, so keep the view in
-                                    the wording.
-                                </span>
-                            </div>
-                            <div class="col-12">
-                                <button type="button" class="btn btn-sm btn-primary" disabled="@(_testBusy || !CanTestPose())"
-                                        @onclick="RunTestAsync">
-                                    @if (_testBusy)
-                                    {
-                                        <span class="spinner-border spinner-border-sm me-1"></span>
-                                    }
-                                    <i class="bi bi-eye me-1"></i>Test this pose
-                                </button>
-                            </div>
-                        </div>
+                        @* B-130: the step is presented by the ONE composer. This page used to lay out its own model
+                           select, its own prompt box and its own submit button - a fourth copy of the same form. What
+                           this page owns is now data: the selected preset (seeded into the pose slot), the seed, and
+                           the canvas. *@
+                        <ImageStepComposer Blueprint="TestBlueprint"
+                                           ModelChoices="TestModelChoices"
+                                           SelectedModelId="_testModelId"
+                                           SelectedModelIdChanged="OnTestModelChangedAsync"
+                                           Bindings="_testBindings"
+                                           BindingsChanged="OnTestBindingsChanged"
+                                           Prompt="@(_testPrompt ?? string.Empty)"
+                                           PromptChanged="OnTestPromptChanged"
+                                           Busy="_testBusy"
+                                           CanSubmit="CanTestPose()"
+                                           SubmitLabel="Test this pose"
+                                           SubmitBlockedReason="TestBlockedReason()"
+                                           OnSubmit="RunTestAsync">
+                            <ChildContent>
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-3">
+                                        <label class="form-label small fw-semibold mb-1">Seed (optional)</label>
+                                        <input type="text" class="form-control form-control-sm" placeholder="random"
+                                               value="@_testSeed" @oninput="e => _testSeed = e.Value?.ToString()" />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label small fw-semibold mb-1">Canvas</label>
+                                        <input type="text" class="form-control form-control-sm"
+                                               value="@_testSize" @oninput="e => _testSize = e.Value?.ToString()" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <span class="form-text">@TestMechanismHint()</span>
+                                    </div>
+                                </div>
+                            </ChildContent>
+                        </ImageStepComposer>
                         @if (!string.IsNullOrWhiteSpace(_testError))
                         {
                             <div class="alert alert-danger py-1 small mt-2 mb-0">@_testError</div>
@@ -359,6 +344,70 @@
     private string? _testNote;
     private string? _testError;
     private bool _testBusy;
+    private IReadOnlyList<ReferenceApplicationSelection> _testBindings = [];
+
+    /// <summary>The step this page presents, built by the one factory that owns host knowledge.</summary>
+    private ImageStepBlueprint TestBlueprint => ImageStepBlueprintFactory.ForPoseLibraryTest();
+
+    /// <summary>
+    /// The pose-capable models, as composer choices. Only models that can ACTUALLY carry a pose are listed: this page
+    /// used to render an option per model and grey out the ones that could not, which is a control the operator can
+    /// never satisfy pretending to be a choice (D3). The mechanism the render would take becomes the choice's
+    /// qualified strategy, so the composer's strategy menu comes from the same decision the render makes.
+    /// </summary>
+    private IReadOnlyList<SceneImageModelChoice> TestModelChoices =>
+        _testModels
+            .Where(model => model.CanCarryPose)
+            .Select(model => new SceneImageModelChoice(
+                model.ModelId, model.DisplayName, model.Mechanism, model.ProviderName, HasIdentity: false)
+            {
+                QualifiedStrategies = [model.Mechanism],
+                // One slot, one skeleton: this is the STEP's budget, and a pose test never sends more than the single
+                // artifact whose reproduction it exists to prove.
+                MaxReferences = 1
+            })
+            .ToList();
+
+    /// <summary>
+    /// The pose binding for a picked preset: the page's own rule, resolved into a binding the step holds. ASSIGNED, not
+    /// seeded, so clearing the slot in the composer sticks - a seed would keep re-adding the preset the operator had
+    /// just removed. The composer renders it as an ordinary binding, so it can be cleared or replaced.
+    /// </summary>
+    private static IReadOnlyList<ReferenceApplicationSelection> TestBindingsFor(PosePreset preset) =>
+    [
+        new ReferenceApplicationSelection
+        {
+            ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Pose),
+            SemanticRole = "stance",
+            Kind = ImageStepSlotKind.Pose.ToString(),
+            Source = ImageStepReferenceSourceKind.PoseLibrarySkeleton.ToString(),
+            Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+            SkeletonRelativePath = preset.SkeletonPngPath
+        }
+    ];
+
+    /// <summary>The binding the step will actually send as its pose.</summary>
+    private ReferenceApplicationSelection? TestSkeletonBinding =>
+        _testBindings.FirstOrDefault(binding =>
+            string.Equals(binding.Kind, ImageStepSlotKind.Pose.ToString(), StringComparison.OrdinalIgnoreCase));
+
+    private Task OnTestModelChangedAsync(string? modelId)
+    {
+        _testModelId = modelId;
+        return Task.CompletedTask;
+    }
+
+    private Task OnTestBindingsChanged(IReadOnlyList<ReferenceApplicationSelection> bindings)
+    {
+        _testBindings = bindings;
+        return Task.CompletedTask;
+    }
+
+    private Task OnTestPromptChanged(string? prompt)
+    {
+        _testPrompt = prompt;
+        return Task.CompletedTask;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -393,14 +442,35 @@
         _testError = null;
         _testNote = null;
         _testImageUrl = null;
+        // The step's bindings become the NEW preset's skeleton: the page's rule is resolved here and assigned, which is
+        // what makes the picked pose the thing under test rather than whatever was bound before.
+        _testBindings = TestBindingsFor(preset);
         // Offered, never enforced: it stays editable in the box next to the button.
         _testPrompt ??= PoseTestPrompts.Default;
         return Task.CompletedTask;
     }
 
-    /// <summary>True only when a pose is selected AND the selected model can carry a pose.</summary>
+    /// <summary>True only when a pose is selected, the selected model can carry a pose, AND the step still sends that
+    /// pose's OWN skeleton - the bytes the pose proofs used, which is what makes a test here reproducible outside the
+    /// app. A slot pointing at a different artifact is refused by name instead of silently rendering something else.</summary>
     private bool CanTestPose() =>
-        _testPreset is not null && _testModels.Any(model => model.ModelId == _testModelId && model.CanCarryPose);
+        _testPreset is not null
+        && _testModels.Any(model => model.ModelId == _testModelId && model.CanCarryPose)
+        && string.Equals(TestSkeletonBinding?.SkeletonRelativePath, _testPreset.SkeletonPngPath, StringComparison.Ordinal);
+
+    /// <summary>Why the test cannot run, named rather than left to a greyed-out button.</summary>
+    private string? TestBlockedReason()
+    {
+        if (_testPreset is null) return "Pick a pose from the library below.";
+        if (!_testModels.Any(model => model.ModelId == _testModelId && model.CanCarryPose))
+            return "Choose a model that can carry a pose.";
+        if (TestSkeletonBinding is null) return "Bind the pose slot: this step sends the pose's own skeleton.";
+        if (!string.Equals(TestSkeletonBinding.SkeletonRelativePath, _testPreset.SkeletonPngPath, StringComparison.Ordinal))
+            return $"The pose slot points at a different skeleton. This test renders '{_testPreset.Name}' - pick the "
+                + "pose from the library grid to change what is tested.";
+
+        return null;
+    }
 
     /// <summary>
     /// Names the mechanism the selected model will use, or the resolver's reason it cannot carry the pose, so the

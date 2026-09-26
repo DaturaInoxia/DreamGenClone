@@ -143,6 +143,7 @@ public sealed class IdentityControlledRequestCompilerTests
         public Task<SceneImageReferenceAsset?> GetAssetAsync(string assetId, CancellationToken cancellationToken = default)
             => Task.FromResult(Assets.GetValueOrDefault(assetId));
         public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(string characterProfileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<CharacterImageIdentityPack>> ListApprovedPacksAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack?> GetLatestApprovedPackAsync(string characterProfileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack> UpsertDraftAsync(CharacterImageIdentityPack pack, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack> ApproveAsync(string packId, string descriptorSnapshotJson, string canonicalFaceAssetId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

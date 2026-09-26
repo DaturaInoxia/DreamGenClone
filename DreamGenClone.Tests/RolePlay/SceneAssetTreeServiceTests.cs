@@ -262,6 +262,21 @@ public sealed class SceneAssetTreeServiceTests
         public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(string characterProfileId, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<CharacterImageIdentityPack>>(
                 packs.Values.Where(p => p.CharacterTemplateId == characterProfileId).OrderByDescending(p => p.Version).ToList());
+
+        /// <summary>Every seeded approved pack, which is what the roster query asks a real store for.</summary>
+        public Task<IReadOnlyList<IdentityPackOwner>> ListPackOwnersAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<IdentityPackOwner>>(packs.Values
+                .Where(p => p.Status == CharacterImageIdentityPackStatus.Approved)
+                .GroupBy(p => p.CharacterTemplateId, StringComparer.Ordinal)
+                .Select(group => group.OrderByDescending(p => p.Version).First())
+                .Select(pack => new IdentityPackOwner(
+                    pack.CharacterTemplateId,
+                    pack.CharacterTemplateId,
+                    pack.Id,
+                    pack.Version,
+                    pack.PackScope,
+                    assets.Values.Where(a => a.IdentityPackId == pack.Id && a.IsApproved).ToList()))
+                .ToList());
         public Task<IReadOnlyList<SceneImageReferenceAsset>> ListAssetsAsync(string packId, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<SceneImageReferenceAsset>>(assets.Values.Where(a => a.IdentityPackId == packId).ToList());
         public Task<CharacterImageIdentityPack?> GetPackAsync(string packId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

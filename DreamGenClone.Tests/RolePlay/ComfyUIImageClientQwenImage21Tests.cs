@@ -359,6 +359,75 @@ public sealed class ComfyUIImageClientQwenImage21Tests
         Assert.Equal(1024, QwenImage21ModelSettings.ResolveReferenceResolutionBudget(model));
     }
 
+    /// <summary>
+    /// Zero is a VALID budget, not an unset one. The live node's own tooltip for TextEncodeQwenImage21.resolution
+    /// reads "0 keeps each reference at its own size, rounded to a multiple of 32" (verified against the host's
+    /// /object_info 2026-09-25, and measured working at 6 references: 111 s versus 126 s at 1024, pose and identity
+    /// intact). Treating it as missing made the app refuse a capability the model actually has.
+    /// </summary>
+    [Fact]
+    public void ModelSettings_ResolutionZero_IsAcceptedAsKeepEachReferenceAtItsOwnSize()
+    {
+        var model = new RegisteredModel
+        {
+            Id = "m1",
+            DisplayName = "Qwen-Image-2.1 (Local ComfyUI)",
+            SceneImageModelFamily = SceneImageModelFamily.QwenImage21,
+            PromptDialect = SceneImagePromptDialect.NaturalLanguage,
+            CapabilityQualificationsJson =
+                """
+                [{"Strategy":"NativeMultiReference","EndpointId":"p1","Qualified":true,"ProofId":"proof-1",
+                  "UnetName":"u","TextEncoderName":"c","VaeName":"v","Resolution":0,"MaxReferences":10,
+                  "Steps":25,"Cfg":1.0,"SamplerName":"euler","Scheduler":"simple"}]
+                """
+        };
+
+        Assert.Equal(0, QwenImage21ModelSettings.Resolve(model).ResolutionBudget);
+        Assert.Equal(0, QwenImage21ModelSettings.ResolveReferenceResolutionBudget(model));
+    }
+
+    [Fact]
+    public void ModelSettings_NegativeResolution_FailsFast()
+    {
+        var model = new RegisteredModel
+        {
+            Id = "m1",
+            DisplayName = "Qwen-Image-2.1 (Local ComfyUI)",
+            SceneImageModelFamily = SceneImageModelFamily.QwenImage21,
+            PromptDialect = SceneImagePromptDialect.NaturalLanguage,
+            CapabilityQualificationsJson =
+                """
+                [{"Strategy":"NativeMultiReference","EndpointId":"p1","Qualified":true,"ProofId":"proof-1",
+                  "UnetName":"u","TextEncoderName":"c","VaeName":"v","Resolution":-1,"MaxReferences":10,
+                  "Steps":25,"Cfg":1.0,"SamplerName":"euler","Scheduler":"simple"}]
+                """
+        };
+
+        var exception = Assert.Throws<ModelResolutionException>(() => QwenImage21ModelSettings.Resolve(model));
+        Assert.Contains("must be 0", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ModelSettings_MissingResolution_FailsFastNamingIt()
+    {
+        var model = new RegisteredModel
+        {
+            Id = "m1",
+            DisplayName = "Qwen-Image-2.1 (Local ComfyUI)",
+            SceneImageModelFamily = SceneImageModelFamily.QwenImage21,
+            PromptDialect = SceneImagePromptDialect.NaturalLanguage,
+            CapabilityQualificationsJson =
+                """
+                [{"Strategy":"NativeMultiReference","EndpointId":"p1","Qualified":true,"ProofId":"proof-1",
+                  "UnetName":"u","TextEncoderName":"c","VaeName":"v","MaxReferences":10,
+                  "Steps":25,"Cfg":1.0,"SamplerName":"euler","Scheduler":"simple"}]
+                """
+        };
+
+        var exception = Assert.Throws<ModelResolutionException>(() => QwenImage21ModelSettings.Resolve(model));
+        Assert.Contains("Resolution", exception.Message, StringComparison.Ordinal);
+    }
+
     private static ResolvedImageEditorModel ResolveEditor(int? resolutionBudget = 1024) => new(
         ComfyUiUrl: "http://192.168.0.11:8188",
         ProviderTimeoutSeconds: 300,

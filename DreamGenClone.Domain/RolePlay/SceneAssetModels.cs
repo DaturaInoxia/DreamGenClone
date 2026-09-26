@@ -48,7 +48,18 @@ public enum SceneAssetType
     ProductionFrame = 7,
 
     /// <summary>Owner-level character group (a whole character, not one view).</summary>
-    Character = 8
+    Character = 8,
+
+    /// <summary>
+    /// One character rendered in a specific pose and wardrobe state — the reusable "character pose asset" (B-130 D8).
+    /// </summary>
+    /// <remarks>
+    /// Appended, never inserted: the <c>SceneAssets.Type</c> column persists this enum's NAME (the reconciliation
+    /// service parses it with <c>Enum.TryParse</c>), so a new member cannot disturb an existing row. A pose asset
+    /// being a SceneAsset is what lets it reuse the approval / production-version / sha256 validation and the
+    /// reference-binding channel the render already revalidates, instead of inventing a second reference mechanism.
+    /// </remarks>
+    CharacterPose = 9
 }
 
 public enum SceneAssetCandidateDecision

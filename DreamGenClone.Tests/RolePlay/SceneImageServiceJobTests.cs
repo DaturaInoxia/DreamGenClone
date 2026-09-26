@@ -261,7 +261,7 @@ public sealed class SceneImageServiceJobTests
     }
 
     private static (SceneImageService service, CapturingBackgroundJobQueue queue, SceneImageRepository repo, SceneImageStorageService storage, string dbPath, string root)
-        Build(RolePlaySession? session, string beatsJson = CurrentBeatsJson, RecordingMediaEditCompilationService? mediaEdits = null)
+        Build(RolePlaySession? session, string beatsJson = CurrentBeatsJson, RecordingMediaEditCompilationService? mediaEdits = null, ISceneImageProductionService? productionService = null)
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"scene-image-svc-{Guid.NewGuid():N}.db");
         var root = Path.Combine(Path.GetTempPath(), $"scene-image-svc-files-{Guid.NewGuid():N}");
@@ -305,7 +305,7 @@ public sealed class SceneImageServiceJobTests
             productionGroupRepository,
             momentEnrichmentRepository,
             new CompiledMediaBriefRepository(persistenceOptions),
-            null,
+            productionService,
             new TestModelResolutionService(),
             NullLogger<SceneImageService>.Instance,
             imageEditorModelResolver: new TestImageEditorModelResolver(),
@@ -313,6 +313,481 @@ public sealed class SceneImageServiceJobTests
             durableJobQueue: queue,
             mediaEdits: mediaEdits ?? new RecordingMediaEditCompilationService());
         return (service, queue, repo, storage, dbPath, root);
+    }
+
+    // ---- B130-001: a native-reference render carries its identity faces ----------------------------------
+    // Identity on the native route travels as REFERENCE IMAGES, and the render handler builds them from
+    // SceneImageRecord.IdentityReferenceBindingsJson. That column used to be written only by the identity EDIT
+    // paths, so a native-reference CREATE arrived with none: the render failed fast on an empty reference set, or
+    // rendered the location and silently dropped every face. These tests pin the fix, and pin the fail-fast
+    // paths, because "rendered without the face you asked for" is the one outcome the reference rules forbid.
+
+    [Fact]
+    public async Task EnqueueRenderAsync_NativeReference_WithoutProductionService_FailsFastNamingIt()
+    {
+        var session = MakeSession();
+        var (service, queue, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            // Identity IS requested here, which is the only reason the production service is needed at all: a
+            // native render that asks for no identity never reaches this dependency.
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "a draft",
+                RenderMode = SceneImageRenderMode.NativeReference,
+                ProductionGroupId = "group-1",
+                IdentityPacks = [new IdentityPackSelection { PackId = "pack-1", CharacterLabel = "Becky" }]
+            }));
+
+            Assert.Contains("production service", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(queue.Enqueued);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_NativeReference_RequestingIdentityWithoutProductionGroup_FailsFastNamingIt()
+    {
+        var session = MakeSession();
+        var production = new StubNativeIdentityProductionService();
+        var (service, queue, repo, _, dbPath, root) = Build(session, productionService: production);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            // Identity packs with no production group: there is no visible cast to validate them against, so the
+            // request cannot be honoured. Rendering faceless instead is the outcome the rules forbid.
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "a draft",
+                RenderMode = SceneImageRenderMode.NativeReference,
+                IdentityPacks = [new IdentityPackSelection { PackId = "pack-1", CharacterLabel = "Becky" }]
+            }));
+
+            Assert.Contains("production group", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(queue.Enqueued);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_NativeReference_NoIdentityRequestedOrGroup_BindsNothingAndStillRenders()
+    {
+        var session = MakeSession();
+        var production = new StubNativeIdentityProductionService();
+        var (service, queue, repo, _, dbPath, root) = Build(session, productionService: production);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            var record = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "a location only",
+                RenderMode = SceneImageRenderMode.NativeReference
+            });
+
+            // A native render that asks for no identity is legitimate: its references are the scene-asset bindings.
+            // Requiring a production group here would have forbidden that, which is why this is pinned.
+            Assert.Null(record.IdentityReferenceBindingsJson);
+            Assert.Empty(production.RequestedGroupIds);
+            Assert.Single(queue.Enqueued);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_NativeReference_WritesOrderedIdentityFaceBindings()
+    {
+        var session = MakeSession();
+        var production = StubNativeIdentityProductionService.WithBothCharacters();
+        var (service, queue, repo, _, dbPath, root) = Build(session, productionService: production);
+        try
+        {
+            var group = await CreateProductionGroupAsync(dbPath, "native-refs", "moment-native-refs");
+            var brief = await CreateStillBriefAsync(dbPath, group);
+            var prompt = CreateCanonicalPromptRecord(group, brief);
+            await repo.UpsertPromptAsync(prompt);
+
+            var record = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "two people in the shed",
+                ProductionGroupId = group.Id,
+                CompiledMediaBriefId = brief.Id,
+                Pov = group.Pov,
+                RenderMode = SceneImageRenderMode.NativeReference,
+                // Deliberately the REVERSE of the readiness order: the bindings must follow the request, because
+                // slot order is request data (it sets placement) and not an implementation detail.
+                IdentityPacks =
+                [
+                    new IdentityPackSelection { PackId = StubNativeIdentityProductionService.DeanPackId, CharacterLabel = "Dean" },
+                    new IdentityPackSelection { PackId = StubNativeIdentityProductionService.BeckyPackId, CharacterLabel = "Becky" }
+                ]
+            });
+
+            Assert.Single(production.RequestedGroupIds);
+            Assert.Equal(group.Id, production.RequestedGroupIds[0]);
+            Assert.NotNull(record.IdentityReferenceBindingsJson);
+
+            using var document = JsonDocument.Parse(record.IdentityReferenceBindingsJson!);
+            var bindings = document.RootElement.EnumerateArray().ToArray();
+            Assert.Equal(2, bindings.Length);
+
+            Assert.Equal(1, bindings[0].GetProperty("ordinal").GetInt32());
+            Assert.Equal(StubNativeIdentityProductionService.DeanCharacterId, bindings[0].GetProperty("characterId").GetString());
+            Assert.Equal(StubNativeIdentityProductionService.DeanFacePath, bindings[0].GetProperty("fileRelativePath").GetString());
+            Assert.Equal(StubNativeIdentityProductionService.DeanFaceSha256, bindings[0].GetProperty("sha256").GetString());
+
+            Assert.Equal(2, bindings[1].GetProperty("ordinal").GetInt32());
+            Assert.Equal(StubNativeIdentityProductionService.BeckyCharacterId, bindings[1].GetProperty("characterId").GetString());
+            Assert.Equal(StubNativeIdentityProductionService.BeckyFacePath, bindings[1].GetProperty("fileRelativePath").GetString());
+
+            // IdentityPacksJson documents itself as IdentityControlled-only; the native route carries its faces in
+            // the bindings instead, so populating both would be two sources of truth for one render.
+            Assert.Null(record.IdentityPacksJson);
+            Assert.Single(queue.Enqueued);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_NativeReference_RequestedPackNotApproved_FailsFastAndNamesIt()
+    {
+        var session = MakeSession();
+        var production = StubNativeIdentityProductionService.WithBothCharacters();
+        var (service, queue, repo, _, dbPath, root) = Build(session, productionService: production);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "two people",
+                RenderMode = SceneImageRenderMode.NativeReference,
+                ProductionGroupId = "group-1",
+                IdentityPacks = [new IdentityPackSelection { PackId = "pack-not-approved", CharacterLabel = "Ken" }]
+            }));
+
+            Assert.Contains("pack-not-approved", error.Message, StringComparison.Ordinal);
+            Assert.Empty(queue.Enqueued);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_NonNativeModes_LeaveIdentityBindingsNull()
+    {
+        var session = MakeSession();
+        var production = StubNativeIdentityProductionService.WithBothCharacters();
+        var (service, _, repo, _, dbPath, root) = Build(session, productionService: production);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            var record = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "a draft",
+                RenderMode = SceneImageRenderMode.PromptOnly
+            });
+
+            // The native resolver must not run for the other modes: a prompt-only render has no face references,
+            // and claiming it does would make the renderer look for images that were never chosen.
+            Assert.Null(record.IdentityReferenceBindingsJson);
+            Assert.Empty(production.RequestedGroupIds);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_NativeReference_NoPacksNamed_DoesNotInventTheVisibleCast()
+    {
+        var session = MakeSession();
+        var production = StubNativeIdentityProductionService.WithBothCharacters();
+        var (service, queue, repo, _, dbPath, root) = Build(session, productionService: production);
+        try
+        {
+            var group = await CreateProductionGroupAsync(dbPath, "native-nopacks", "moment-native-nopacks");
+            var brief = await CreateStillBriefAsync(dbPath, group);
+            var prompt = CreateCanonicalPromptRecord(group, brief);
+            await repo.UpsertPromptAsync(prompt);
+
+            var record = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "the shed",
+                ProductionGroupId = group.Id,
+                CompiledMediaBriefId = brief.Id,
+                Pov = group.Pov,
+                RenderMode = SceneImageRenderMode.NativeReference
+            });
+
+            // The cast HAS two approved packs and the resolver must still bind neither: identity was never
+            // requested, and inventing faces would copy people into a render the operator asked to be a location.
+            // RequestedGroupIds being empty proves the resolver never even asked.
+            Assert.Null(record.IdentityReferenceBindingsJson);
+            Assert.Empty(production.RequestedGroupIds);
+            Assert.Single(queue.Enqueued);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_NativeStrategyBinding_DerivesNativeModeFromTheBindings()
+    {
+        var session = MakeSession();
+        var (service, queue, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            var record = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "the shed",
+                // RenderMode is deliberately left at its PromptOnly default. The binding is the authoritative
+                // statement of intent, and a stale label must not cost the operator every reference they bound:
+                // taking the prompt-only branch is exactly how a reference set gets silently dropped.
+                ReferenceApplications =
+                [
+                    new ReferenceApplicationSelection
+                    {
+                        ElementKey = "Location",
+                        SemanticRole = "location continuity",
+                        AssetType = SceneAssetType.Location,
+                        Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+                        // A native binding is validated to carry an exact approved asset, so the test must supply
+                        // one: the derivation under test is about the MODE, not about skipping that validation.
+                        SceneAssetId = "asset-location",
+                        SceneAssetImageId = "image-location",
+                        SceneAssetVersion = 1,
+                        SceneAssetSha256 = "LOCATIONSHA"
+                    }
+                ]
+            });
+
+            Assert.Equal(SceneImageRenderMode.NativeReference, record.RenderMode);
+            Assert.Single(queue.Enqueued);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_TextOnlyBindings_DoNotDeriveNativeMode()
+    {
+        var session = MakeSession();
+        var (service, _, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            var record = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "the shed",
+                ReferenceApplications =
+                [
+                    new ReferenceApplicationSelection
+                    {
+                        ElementKey = "Location",
+                        SemanticRole = "location continuity",
+                        AssetType = SceneAssetType.Location,
+                        Strategy = "TextOnly"
+                    }
+                ]
+            });
+
+            // Text-only bindings describe no reference image, so nothing is derived: the render stays prompt-only
+            // and the operator's text carries the location as before.
+            Assert.Equal(SceneImageRenderMode.PromptOnly, record.RenderMode);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueRenderAsync_IdentityControlledWithANativeBinding_KeepsItsMode()
+    {
+        var session = MakeSession();
+        var (service, _, repo, _, dbPath, root) = Build(session);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+
+            var record = await service.EnqueueRenderAsync(new SceneRenderRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                Prompt = "two people",
+                RenderMode = SceneImageRenderMode.IdentityControlled,
+                IdentityPackId = "pack-1",
+                ReferenceApplications =
+                [
+                    new ReferenceApplicationSelection
+                    {
+                        ElementKey = "Location",
+                        SemanticRole = "location continuity",
+                        AssetType = SceneAssetType.Location,
+                        Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+                        SceneAssetId = "asset-location",
+                        SceneAssetImageId = "image-location",
+                        SceneAssetVersion = 1,
+                        SceneAssetSha256 = "LOCATIONSHA"
+                    }
+                ]
+            });
+
+            // Pinned deliberately: identity-controlled rendering is NOT overwritten by a native scene binding.
+            // How a model carries identity is the render handler's own per-model decision (and may itself be
+            // native references), so overriding the mode here would remove that decision rather than correct a
+            // stale label. Only a PromptOnly label is treated as stale.
+            Assert.Equal(SceneImageRenderMode.IdentityControlled, record.RenderMode);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    private sealed class StubNativeIdentityProductionService : ISceneImageProductionService
+    {
+        public const string BeckyPackId = "pack-becky";
+        public const string DeanPackId = "pack-dean";
+        public const string BeckyCharacterId = "char-becky";
+        public const string DeanCharacterId = "char-dean";
+        public const string BeckyFacePath = "identity/becky/front.png";
+        public const string DeanFacePath = "identity/dean/front.png";
+        public const string BeckyFaceSha256 = "BECKYSHA";
+        public const string DeanFaceSha256 = "DEANSHA";
+
+        public List<string> RequestedGroupIds { get; } = [];
+
+        public IReadOnlyList<SceneImageIdentityReadiness> Readiness { get; private set; } = [];
+
+        public static StubNativeIdentityProductionService WithBothCharacters() => new()
+        {
+            Readiness =
+            [
+                new SceneImageIdentityReadiness(BeckyCharacterId, "Becky", BeckyPackId, 9, "face-becky", BeckyFacePath, BeckyFaceSha256, SceneImageReferenceFaceView.Front),
+                new SceneImageIdentityReadiness(DeanCharacterId, "Dean", DeanPackId, 9, "face-dean", DeanFacePath, DeanFaceSha256, SceneImageReferenceFaceView.Front)
+            ]
+        };
+
+        public Task<IReadOnlyList<SceneImageIdentityReadiness>> ResolveIdentityReadinessAsync(
+            string productionGroupId,
+            IReadOnlyList<SceneImageIdentityReferenceSelection>? selections = null,
+            CancellationToken cancellationToken = default)
+        {
+            RequestedGroupIds.Add(productionGroupId);
+            return Task.FromResult(Readiness);
+        }
+
+        // Unreachable from a render enqueue; a call would be a real defect, so it throws rather than returning.
+        public Task<IReadOnlyList<SceneImageIdentityReadiness>> ResolveCharacterIdentitySelectionsAsync(
+            IReadOnlyList<SceneImageIdentityReferenceSelection> selections,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<CompiledMediaBrief> GetOrCreateStillBriefAsync(string productionGroupId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageProductionGroup> GetOrCreateGroupAsync(CreateSceneImageProductionGroupRequest request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageProductionGroup> SkipIdentityAsync(string groupId, string reason, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageProductionGroup> ClearIdentitySkipAsync(string groupId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageProductionGroup?> GetCurrentGroupAsync(string momentEnrichmentId, string pov, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageProductionGroup?> GetGroupAsync(string groupId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneImageRecord>> ListAttemptsAsync(string groupId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<ApprovedSceneFrameDecision>> ListApprovalDecisionsAsync(string groupId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task SetDispositionAsync(string imageId, string groupId, SceneImageAttemptDisposition expectedDisposition, SceneImageAttemptDisposition nextDisposition, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ApprovedSceneFrameDecision> ApproveAsync(string groupId, string imageId, string sha256, string decidedBy, string? note, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageAttemptRetentionPolicy?> GetRetentionPolicyAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneImageAttemptRetentionPolicy> SaveRetentionPolicyAsync(SceneImageAttemptRetentionPolicy policy, long? expectedVersion, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task PurgeRejectedBytesAsync(string imageId, string requestedBy, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneAsset> PromoteApprovedFrameAsync(string groupId, string name, SceneAssetType type, string? associationMetadataJson, string? characterProfileId, string requestedBy, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private static RolePlaySession MakeSession() => new()

@@ -1,0 +1,198 @@
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+
+@inject ICharacterImageIdentityService IdentityService
+
+@* The pack references a slot can be bound to. Two levels, because the answer is "which image of WHICH character":
+   when the step already knows its character the first level is settled and only the character's own angles are
+   offered; when it does not, the operator picks from the characters that actually have an approved pack, and the
+   option list is the angles THAT pack can serve - never the whole enum, because an option the pack cannot satisfy is a
+   control the operator can never use. *@
+<div class="border rounded p-2">
+    @if (_loadError is not null)
+    {
+        <div class="alert alert-warning py-1 small mb-0">@_loadError</div>
+    }
+    else if (_loading)
+    {
+        <span class="small text-muted">Loading characters with approved identity packs...</span>
+    }
+    else if (_owners.Count == 0)
+    {
+        <span class="small text-muted">
+            No character has an approved identity pack with references yet. Approve a pack in Character Identity first.
+        </span>
+    }
+    else if (SlotKind is not (ImageStepSlotKind.Face or ImageStepSlotKind.Body))
+    {
+        <div class="alert alert-warning py-1 small mb-0">
+            @SlotKind slots are not filled from an identity pack: a pack carries faces and bodies.
+        </div>
+    }
+    else if (Owner is null)
+    {
+        <div class="alert alert-warning py-1 small mb-0">
+            @(string.IsNullOrWhiteSpace(ActorKey)
+                ? "Choose a character whose pack this reference comes from."
+                : $"Character '{ActorKey}' has no approved identity pack, so this slot cannot be filled from one.")
+        </div>
+    }
+    else
+    {
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+            @if (string.IsNullOrWhiteSpace(ActorKey))
+            {
+                <label class="form-label small fw-semibold mb-0" for="@CharacterSelectId">Character</label>
+                <select id="@CharacterSelectId" class="form-select form-select-sm" style="min-width: 200px;"
+                        disabled="@Busy" value="@Owner.CharacterProfileId"
+                        @onchange="args => SelectOwner(args.Value?.ToString())">
+                    @foreach (var owner in _owners)
+                    {
+                        <option value="@owner.CharacterProfileId">@owner.DisplayName</option>
+                    }
+                </select>
+            }
+            else
+            {
+                <span class="small"><strong>@Owner.DisplayName</strong> · pack v@Owner.PackVersion</span>
+            }
+        </div>
+
+        @if (Options.Count == 0)
+        {
+            <div class="alert alert-warning py-1 small mb-0">
+                @Owner.DisplayName's approved pack has no
+                @(SlotKind == ImageStepSlotKind.Face ? "face" : "body") references, so this slot cannot be filled from it.
+            </div>
+        }
+        else
+        {
+            <div class="d-flex flex-wrap gap-2">
+                @foreach (var option in Options)
+                {
+                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@Busy"
+                            @onclick="() => ChooseAsync(option)">
+                        @option.Label
+                    </button>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    /// <summary>Which axis of the pack this slot is filled from. A face slot takes a face, a body slot a build.</summary>
+    [Parameter]
+    public ImageStepSlotKind SlotKind { get; set; }
+
+    /// <summary>
+    /// The character the slot belongs to, when the step already knows one. Null means "the operator chooses", which is
+    /// the case for a host with no known cast.
+    /// </summary>
+    [Parameter]
+    public string? ActorKey { get; set; }
+
+    [Parameter]
+    public EventCallback<IdentityPackSelection> OnSelected { get; set; }
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>One approved pack reference, named by the axis it is filed under.</summary>
+    public sealed record IdentityPackSelection(
+        string CharacterProfileId,
+        string CharacterDisplayName,
+        string PackId,
+        string ReferenceAssetId,
+        string Label);
+
+    private IReadOnlyList<IdentityPackOwner> _owners = [];
+    private string? _loadError;
+    private bool _loading = true;
+    private string? _chosenProfileId;
+
+    private string CharacterSelectId => $"identity-pack-character-{GetHashCode()}";
+
+    /// <summary>
+    /// The character in force: the slot's own actor when it has one, otherwise the operator's choice, otherwise the
+    /// first character that has a pack. Choosing for the operator on a step that names nobody is a starting point they
+    /// can change, not a decision taken away from them.
+    /// </summary>
+    private IdentityPackOwner? Owner
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(ActorKey))
+            {
+                return _owners.FirstOrDefault(owner =>
+                    string.Equals(owner.CharacterProfileId, ActorKey, StringComparison.Ordinal));
+            }
+
+            var key = _chosenProfileId ?? _owners.FirstOrDefault()?.CharacterProfileId;
+            return _owners.FirstOrDefault(owner =>
+                string.Equals(owner.CharacterProfileId, key, StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>
+    /// The references this slot may bind: the angles the pack can ACTUALLY serve, each resolved through the one pack
+    /// decision so the option and the render cannot disagree about which image it means.
+    /// </summary>
+    private IReadOnlyList<(string AssetId, string Label)> Options
+    {
+        get
+        {
+            if (Owner is not { } owner)
+            {
+                return [];
+            }
+
+            if (SlotKind == ImageStepSlotKind.Face)
+            {
+                return owner.FaceViews
+                    .Select(view => (
+                        AssetId: IdentityPackReferenceResolver.ResolveFace(owner.ApprovedAssets, view)!.Id,
+                        Label: IdentityPackReferenceLabels.FaceView(view)))
+                    .ToList();
+            }
+
+            return owner.Bodies
+                .Select(pair => (
+                    AssetId: IdentityPackReferenceResolver.ResolveBody(owner.ApprovedAssets, pair.View, pair.State)!.Id,
+                    Label: $"{IdentityPackReferenceLabels.BodyView(pair.View)} · "
+                        + IdentityPackReferenceLabels.BodyState(pair.State)))
+                .ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Only the axis this slot can use is asked for, so the roster is as small as the question.
+            _owners = await IdentityService.ListPackOwnersAsync();
+        }
+        catch (Exception exception)
+        {
+            // Listing must not throw into a render: the reason is put where the picker sits, in the store's own words.
+            _loadError = $"Identity packs could not be listed: {exception.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void SelectOwner(string? characterProfileId) => _chosenProfileId = characterProfileId;
+
+    private Task ChooseAsync((string AssetId, string Label) option)
+    {
+        if (Owner is not { } owner)
+        {
+            return Task.CompletedTask;
+        }
+
+        return OnSelected.InvokeAsync(new IdentityPackSelection(
+            owner.CharacterProfileId, owner.DisplayName, owner.PackId, option.AssetId, option.Label));
+    }
+}

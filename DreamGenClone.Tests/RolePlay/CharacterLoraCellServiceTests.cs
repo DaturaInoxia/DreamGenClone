@@ -298,6 +298,9 @@ public sealed class CharacterLoraCellServiceTests
     /// The render carries BOTH conditionings: the face that makes the frame this character and the state-matched
     /// body reference that makes the build hers. Dropping either would be a silent quality regression, so the
     /// options the render is queued with are asserted, not the source text.
+    ///
+    /// B-130: the conditionings now travel as the STEP's bindings (resolved from the cell's rule, shown to the
+    /// operator, and changeable before shooting) rather than being resolved privately inside the render.
     /// </summary>
     [Fact]
     public async Task RenderCellAsync_CarriesTheStateMatchedBodyReferenceBesideTheFace()
@@ -310,7 +313,8 @@ public sealed class CharacterLoraCellServiceTests
 
         var service = Build(assets: assets, identity: identity, datasets: new StubLoraRepository());
 
-        await service.RenderCellAsync(DatasetId, CellKey, "a composed prompt", "qwen-image-2.1", "1024x1024");
+        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey);
+        await service.RenderCellAsync(DatasetId, CellKey, "a composed prompt", "qwen-image-2.1", "1024x1024", bindings);
 
         Assert.NotNull(assets.LastOptions);
         Assert.Equal("profile-ref", assets.LastOptions!.Identity!.FaceAssetId);
@@ -319,21 +323,128 @@ public sealed class CharacterLoraCellServiceTests
     }
 
     /// <summary>
+    /// The bindings the cell's rule resolves to ARE what the render consumes: the image the operator can see on the
+    /// step is the image the cell is shot with, reached through an ordered binding rather than a private lookup.
+    /// </summary>
+    [Fact]
+    public async Task ResolveCellBindingsAsync_NamesTheCellAnglesFaceAndTheStateMatchedBody()
+    {
+        var identity = new StubIdentityService();
+        identity.PackAssets.Add(FaceReference("frontal", SceneImageReferenceFaceView.Front));
+        identity.PackAssets.Add(FaceReference("profile-ref", SceneImageReferenceFaceView.ProfileLeft));
+        identity.PackAssets.Add(BodyReference("profile-clothed", SceneImageReferenceBodyView.ProfileLeft, SceneImageReferenceBodyState.Clothed));
+
+        var bindings = await Build(identity: identity).ResolveCellBindingsAsync(DatasetId, CellKey);
+
+        var face = Assert.Single(bindings, binding => binding.Kind == nameof(ImageStepSlotKind.Face));
+        Assert.Equal("profile-ref", face.ReferenceAssetId);
+        Assert.Equal(PackId, face.IdentityPackId);
+        Assert.Equal(ImageStepReferenceSourceKind.IdentityPackAsset.ToString(), face.Source);
+        Assert.True(face.SuppliesImage);
+
+        var body = Assert.Single(bindings, binding => binding.Kind == nameof(ImageStepSlotKind.Body));
+        Assert.Equal("profile-clothed", body.ReferenceAssetId);
+
+        // Order is request data: the face anchors the frame before the build reference follows it.
+        Assert.Equal(1, face.Ordinal ?? 0);
+        Assert.Equal(2, body.Ordinal ?? 0);
+    }
+
+    /// <summary>
     /// A cell whose body state the pack cannot serve is refused BEFORE anything is queued. A freed render would put
     /// an unconditioned frame in the deck next to the conditioned ones and read as a successful attempt.
     /// </summary>
     [Fact]
-    public async Task RenderCellAsync_RefusesACellWithNoMatchingBodyReferenceBeforeQueueing()
+    public async Task ResolveCellBindingsAsync_RefusesACellWithNoMatchingBodyReference()
+    {
+        var identity = new StubIdentityService();
+        identity.PackAssets.Add(FaceReference("profile-ref", SceneImageReferenceFaceView.ProfileLeft));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => Build(identity: identity).ResolveCellBindingsAsync(DatasetId, CellKey));
+    }
+
+    /// <summary>
+    /// A step submitted with the build reference missing is refused, and nothing is queued. This is the case the old
+    /// code could not have: the reference lived inside the render, so a caller could not omit it.
+    /// </summary>
+    [Fact]
+    public async Task RenderCellAsync_RefusesWhenTheStepHoldsNoBodyReference()
     {
         var assets = new RecordingAssetService();
         var identity = new StubIdentityService();
         identity.PackAssets.Add(FaceReference("profile-ref", SceneImageReferenceFaceView.ProfileLeft));
+        identity.PackAssets.Add(BodyReference("profile-clothed", SceneImageReferenceBodyView.ProfileLeft, SceneImageReferenceBodyState.Clothed));
 
-        var service = Build(assets: assets, identity: identity, datasets: new StubLoraRepository());
+        var service = Build(assets: assets, identity: identity);
+        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey);
+        var withoutBody = bindings.Where(binding => binding.Kind != nameof(ImageStepSlotKind.Body)).ToList();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.RenderCellAsync(DatasetId, CellKey, "a composed prompt", "qwen-image-2.1", "1024x1024"));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.RenderCellAsync(DatasetId, CellKey, "a composed prompt", "qwen-image-2.1", "1024x1024", withoutBody));
 
+        Assert.Contains("build reference", error.Message, StringComparison.Ordinal);
+        Assert.Null(assets.LastOptions);
+    }
+
+    /// <summary>
+    /// A view from behind shows no face, so a face reference on its step is refused rather than sent: a reference
+    /// image carries its content with it, and a back view conditioned on a face trains on something the plan did not
+    /// shoot.
+    /// </summary>
+    [Fact]
+    public async Task RenderCellAsync_RefusesAFaceReferenceForACellThatShowsNoFace()
+    {
+        var assets = new RecordingAssetService();
+        var identity = new StubIdentityService();
+        identity.PackAssets.Add(FaceReference("profile-ref", SceneImageReferenceFaceView.ProfileLeft));
+        identity.PackAssets.Add(BodyReference("back-clothed", SceneImageReferenceBodyView.Back, SceneImageReferenceBodyState.Clothed));
+
+        var datasets = new StubLoraRepository(Cell(slot: null));
+        var service = Build(assets: assets, identity: identity, datasets: datasets);
+        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey);
+
+        // The rule seeds no face for this view; an operator adding one is the case under test.
+        bindings = bindings.Append(new ReferenceApplicationSelection
+        {
+            ElementKey = "Identity",
+            SemanticRole = "character identity",
+            Kind = nameof(ImageStepSlotKind.Face),
+            Source = ImageStepReferenceSourceKind.IdentityPackAsset.ToString(),
+            Strategy = "NativeMultiReference",
+            IdentityPackId = PackId,
+            ReferenceAssetId = "profile-ref",
+            Ordinal = bindings.Count + 1
+        }).ToList();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.RenderCellAsync(DatasetId, CellKey, "a composed prompt", "qwen-image-2.1", "1024x1024", bindings));
+
+        Assert.Contains("shows no face", error.Message, StringComparison.Ordinal);
+        Assert.Null(assets.LastOptions);
+    }
+
+    /// <summary>
+    /// A reference from ANOTHER pack would render a different character under this character's trigger token, so it is
+    /// refused by name rather than followed.
+    /// </summary>
+    [Fact]
+    public async Task RenderCellAsync_RefusesAReferenceFromAnotherPack()
+    {
+        var assets = new RecordingAssetService();
+        var identity = new StubIdentityService();
+        identity.PackAssets.Add(FaceReference("profile-ref", SceneImageReferenceFaceView.ProfileLeft));
+        identity.PackAssets.Add(BodyReference("profile-clothed", SceneImageReferenceBodyView.ProfileLeft, SceneImageReferenceBodyState.Clothed));
+
+        var service = Build(assets: assets, identity: identity);
+        var bindings = await service.ResolveCellBindingsAsync(DatasetId, CellKey);
+        bindings[0].IdentityPackId = "another-pack";
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.RenderCellAsync(DatasetId, CellKey, "a composed prompt", "qwen-image-2.1", "1024x1024", bindings));
+
+        Assert.Contains("another-pack", error.Message, StringComparison.Ordinal);
+        Assert.Contains(PackId, error.Message, StringComparison.Ordinal);
         Assert.Null(assets.LastOptions);
     }
 
@@ -588,20 +699,33 @@ public sealed class CharacterLoraCellServiceTests
     /// </summary>
     private sealed class StubLoraRepository : DreamGenClone.Application.RolePlay.ICharacterLoraRepository
     {
-        private readonly CharacterLoraDataset _dataset = new()
-        {
-            Id = DatasetId,
-            CharacterTemplateId = "becky",
-            IdentityPackId = PackId,
-            Version = 1,
-            Status = CharacterLoraDatasetStatus.Draft,
-            TriggerToken = "becky_token",
-            TargetModelFamily = "SDXL",
-            ContainerAssetId = "container-1",
-            CoveragePlanJson = PlanJson()
-        };
+        private readonly CharacterLoraDataset _dataset;
 
-        private static string PlanJson()
+        /// <summary>
+        /// Serves a plan holding one cell. The record is a parameter because the two directions of the face rule are
+        /// both load-bearing: an angled cell MUST be conditioned on its own angle, and a view with no face must carry
+        /// no face reference at all.
+        /// </summary>
+        public StubLoraRepository(CoverageRecord? record = null)
+        {
+            Record = record ?? Cell(SceneImageReferenceFaceView.ProfileLeft);
+            _dataset = new CharacterLoraDataset
+            {
+                Id = DatasetId,
+                CharacterTemplateId = "becky",
+                IdentityPackId = PackId,
+                Version = 1,
+                Status = CharacterLoraDatasetStatus.Draft,
+                TriggerToken = "becky_token",
+                TargetModelFamily = "SDXL",
+                ContainerAssetId = "container-1",
+                CoveragePlanJson = PlanJson(Record)
+            };
+        }
+
+        public CoverageRecord Record { get; }
+
+        private static string PlanJson(CoverageRecord record)
         {
             var plan = new CoveragePlan
             {
@@ -612,7 +736,7 @@ public sealed class CharacterLoraCellServiceTests
                 TargetModelFamily = "SDXL",
                 SeedRangeStart = 41000,
                 GeneratedUtc = new DateTime(2026, 9, 25, 0, 0, 0, DateTimeKind.Utc),
-                Records = [Cell(SceneImageReferenceFaceView.ProfileLeft)],
+                Records = [record],
                 Vocabulary = new Dictionary<string, string>(StringComparer.Ordinal) { ["any"] = "a phrase" }
             };
             return plan.ToJson();
@@ -670,6 +794,7 @@ public sealed class CharacterLoraCellServiceTests
             => Task.FromResult<IReadOnlyList<SceneImageReferenceAsset>>(PackAssets);
 
         public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(string characterProfileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<IdentityPackOwner>> ListPackOwnersAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack?> GetPackAsync(string packId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack> CreateDraftPackAsync(string characterProfileId, CharacterImageIdentityPackScope scope, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack> SetDraftPackScopeAsync(string packId, CharacterImageIdentityPackScope scope, string? reason = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();

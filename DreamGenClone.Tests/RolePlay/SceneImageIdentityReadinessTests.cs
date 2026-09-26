@@ -318,6 +318,10 @@ public sealed class SceneImageIdentityReadinessTests
             _items[characterId] = (new CharacterImageIdentityPack { Id = packId, CharacterTemplateId = characterId, Version = version, Status = CharacterImageIdentityPackStatus.Approved, CanonicalFaceAssetId = faceId }, new SceneImageReferenceAsset { Id = faceId, IdentityPackId = packId, AssetKind = SceneImageReferenceAssetKind.Face, IsApproved = true, FileRelativePath = path, Sha256 = sha });
         }
         public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(string characterProfileId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<CharacterImageIdentityPack>>(_items.TryGetValue(characterProfileId, out var value) ? [value.Pack] : []);
+
+        /// <summary>The roster query, over the same seeded items as the per-character read, so a test can ask either.</summary>
+        public Task<IReadOnlyList<CharacterImageIdentityPack>> ListApprovedPacksAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<CharacterImageIdentityPack>>(_items.Values.Select(value => value.Pack).ToList());
         public Task<SceneImageReferenceAsset?> GetAssetAsync(string assetId, CancellationToken cancellationToken = default) => Task.FromResult(_items.Values.Select(value => value.Asset).FirstOrDefault(asset => asset.Id == assetId));
         public Task<CharacterImageIdentityPack?> GetPackAsync(string packId, CancellationToken cancellationToken = default) => Task.FromResult<CharacterImageIdentityPack?>(_items.Values.Select(value => value.Pack).FirstOrDefault(pack => pack.Id == packId));
         public Task<CharacterImageIdentityPack?> GetLatestApprovedPackAsync(string characterProfileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

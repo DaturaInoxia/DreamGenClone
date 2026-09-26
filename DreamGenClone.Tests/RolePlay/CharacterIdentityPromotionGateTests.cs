@@ -533,6 +533,9 @@ public sealed class CharacterIdentityPromotionGateTests
         public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(string characterProfileId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<IReadOnlyList<IdentityPackOwner>> ListPackOwnersAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<CharacterImageIdentityPack?> GetPackAsync(string packId, CancellationToken cancellationToken = default)
             => Task.FromResult<CharacterImageIdentityPack?>(null);
 

@@ -408,6 +408,9 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             {
                 Family = model.SceneImageModelFamily,
                 Dialect = model.PromptDialect,
+                // The model's own acceptance limit on reference count, so a step that offers slots plans from the
+                // model's configured number. 0 = this model declares no reference capacity.
+                MaxReferences = QwenImage21ModelSettings.TryResolveReferenceCapacity(model) ?? 0,
                 // The strategies this model can actually execute, from the SAME decision the render makes, so a
                 // reference panel built from this choice can never offer what the render would refuse.
                 QualifiedStrategies = provider is null

@@ -1,5 +1,6 @@
 using DreamGenClone.Application.ModelManager;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Web.Application.RolePlay;
 
 namespace DreamGenClone.Web.Application.ModelManager;
 
@@ -178,8 +179,23 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
             try
             {
                 var resolved = await ResolveByIdAsync(model.Id, cancellationToken);
+                var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
                 choices.Add(new SceneImageModelChoice(
-                    model.Id, model.DisplayName, model.ModelIdentifier, resolved.ProviderName, false));
+                    model.Id, model.DisplayName, model.ModelIdentifier, resolved.ProviderName, false)
+                {
+                    Family = model.SceneImageModelFamily,
+                    Dialect = model.PromptDialect,
+                    // The model's own acceptance limit, so the composer plans from the model's number instead of one a
+                    // host might guess. 0 = declares no reference capacity.
+                    MaxReferences = QwenImage21ModelSettings.TryResolveReferenceCapacity(model) ?? 0,
+                    // The strategies this editor model can actually execute, from the SAME decision the edit render
+                    // makes. The edit surface used to hardcode ["TextOnly","NativeMultiReference"], which hid every
+                    // other strategy a model qualifies for (reference conditioning included) and would have offered
+                    // native references on a model that has none.
+                    QualifiedStrategies = provider is null
+                        ? ["TextOnly"]
+                        : ReferenceStrategyResolver.ListAvailableStrategies(model, provider)
+                });
             }
             catch (ModelResolutionException)
             {

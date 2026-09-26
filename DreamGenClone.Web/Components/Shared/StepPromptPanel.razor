@@ -1,0 +1,123 @@
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.ImageStep
+
+@* The prompt area of a step. Owns three things and nothing else:
+   1. the prompt text,
+   2. whether it still matches the bindings it was drafted from (D5 - a stale prompt is reported, never silently
+      regenerated, because an operator's edit to a draft must not be overwritten behind their back),
+   3. what the bound reference images already supply, so "why is the prompt short?" has a visible answer. *@
+<section class="border rounded p-3" aria-label="Step prompt">
+    <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
+        <strong>Prompt</strong>
+        <div class="d-flex gap-2">
+            @* A host whose prompt is written by hand has no generate/refine path, and a button that does nothing
+               is worse than no button: it claims a capability the surface does not have. *@
+            @if (OnRefine.HasDelegate)
+            {
+                <input class="form-control form-control-sm" style="min-width: 220px;" placeholder="Refine instruction, e.g. 'tighter framing'"
+                       value="@RefineInstruction" @oninput="args => RefineInstructionChanged.InvokeAsync(args.Value?.ToString())" />
+                <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap" disabled="@Busy"
+                        @onclick="() => OnRefine.InvokeAsync()">
+                    <i class="bi bi-arrow-repeat me-1"></i>Refine
+                </button>
+            }
+            @if (OnGenerate.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-primary text-nowrap" disabled="@Busy"
+                        @onclick="() => OnGenerate.InvokeAsync()">
+                    <i class="bi bi-magic me-1"></i>Generate Prompt
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (IsStale)
+    {
+        @* Named, not implied: "stale" without the reason is a dead end for the operator. *@
+        <div class="alert alert-warning py-2 small" role="status">
+            The references changed since this prompt was drafted on its own
+            @if (StaleReasons.Count > 0)
+            {
+                <span>: @string.Join(", ", StaleReasons)</span>
+            }
+            <span>. @GenerateRemedy</span>
+        </div>
+    }
+
+    <textarea class="form-control font-monospace" rows="6" value="@Prompt"
+              @oninput="args => PromptChanged.InvokeAsync(args.Value?.ToString())"
+              placeholder="The prompt for this step. Generate one, or write it by hand."></textarea>
+
+    @if (OmittedElements.Count > 0)
+    {
+        @* The other half of D4: filling a slot REMOVES the element the image supplies, so the operator can see
+           exactly which descriptions the bound images have taken over. *@
+        <div class="form-text mt-2">
+            <span class="fw-semibold">Supplied by the bound images, so left out of the prompt:</span>
+            @foreach (var element in OmittedElements)
+            {
+                <span class="badge text-bg-secondary ms-1">@element</span>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="form-text mt-2">
+            No reference supplies an element yet, so the prompt describes everything.
+        </div>
+    }
+</section>
+
+@code {
+    /// <summary>The prompt text. Two-way: the host owns the value, this panel only edits it.</summary>
+    [Parameter]
+    public string Prompt { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string?> PromptChanged { get; set; }
+
+    /// <summary>Optional iteration instruction for the Refine path.</summary>
+    [Parameter]
+    public string? RefineInstruction { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> RefineInstructionChanged { get; set; }
+
+    /// <summary>The bindings this step will render with, in order.</summary>
+    [Parameter]
+    public IReadOnlyList<ReferenceApplicationSelection> Bindings { get; set; } = [];
+
+    /// <summary>
+    /// The signature of the bindings the current prompt was drafted against, or null when no prompt has been drafted
+    /// yet. Null means "unknown" and is treated as NOT stale, so an unknown state never accuses the operator of a
+    /// change they did not make.
+    /// </summary>
+    [Parameter]
+    public string? GeneratedForSignature { get; set; }
+
+    /// <summary>What the bindings supply, as computed by <see cref="StepPromptElementPlan"/>.</summary>
+    [Parameter]
+    public IReadOnlyList<string> OmittedElements { get; set; } = [];
+
+    /// <summary>The bindings the prompt was drafted from, used only to word the change notice.</summary>
+    [Parameter]
+    public IReadOnlyList<ReferenceApplicationSelection> DraftedFromBindings { get; set; } = [];
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    [Parameter]
+    public EventCallback OnGenerate { get; set; }
+
+    [Parameter]
+    public EventCallback OnRefine { get; set; }
+
+    private bool IsStale => StepPromptStaleness.IsStale(GeneratedForSignature, Bindings);
+
+    private string GenerateRemedy => OnGenerate.HasDelegate
+        ? "Generate the prompt again to match, or keep this draft as it is."
+        : "Update the prompt to match, or keep it as it is.";
+
+    private IReadOnlyList<string> StaleReasons =>
+        IsStale ? StepPromptStaleness.DescribeChanges(DraftedFromBindings, Bindings) : [];
+}

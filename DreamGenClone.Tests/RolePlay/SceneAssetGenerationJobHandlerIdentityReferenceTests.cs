@@ -582,6 +582,10 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
             string characterProfileId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<IReadOnlyList<CharacterImageIdentityPack>> ListApprovedPacksAsync(
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<CharacterImageIdentityPack?> GetLatestApprovedPackAsync(
             string characterProfileId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();

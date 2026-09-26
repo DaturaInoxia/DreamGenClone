@@ -63,6 +63,79 @@ public sealed class CharacterImageIdentityServiceTests
         }
     }
 
+    /// <summary>
+    /// The roster a surface uses when it has NO known cast: one entry per character that has an approved pack, each
+    /// carrying the newest approved pack's approved references. A character with only a draft pack is absent, because
+    /// the pack store's approved rows are the truth about who can actually be rendered.
+    /// </summary>
+    [Fact]
+    public async Task ListPackOwnersAsync_ListsOneEntryPerCharacterWithAnApprovedPack()
+    {
+        var (service, _, root, dbPath) = CreateFixture();
+        try
+        {
+            await ApproveFaceOnlyPackAsync(service, "becky");
+            await ApproveFaceOnlyPackAsync(service, "dean");
+
+            // A draft is not a pack anyone can be rendered from.
+            await service.CreateDraftPackAsync("unfinished", CharacterImageIdentityPackScope.FaceOnly);
+
+            var owners = await service.ListPackOwnersAsync();
+
+            Assert.Equal(["becky", "dean"], owners.Select(owner => owner.DisplayName));
+            Assert.DoesNotContain(owners, owner => owner.CharacterProfileId == "unfinished");
+            Assert.All(owners, owner =>
+            {
+                Assert.Equal(CharacterImageIdentityPackScope.FaceOnly, owner.PackScope);
+                Assert.NotEmpty(owner.ApprovedAssets);
+                // The picker offers the angles the pack can really serve, in angle order, and no dead ones.
+                Assert.Equal(
+                    [
+                        SceneImageReferenceFaceView.Front,
+                        SceneImageReferenceFaceView.ThreeQuarterLeft,
+                        SceneImageReferenceFaceView.ThreeQuarterRight,
+                        SceneImageReferenceFaceView.ProfileLeft,
+                        SceneImageReferenceFaceView.ProfileRight
+                    ],
+                    owner.FaceViews);
+                Assert.Empty(owner.Bodies);
+            });
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    /// <summary>
+    /// Approves one face-only pack for a character, which is the eligibility rule the roster applies. A FaceOnly pack is
+    /// only approvable with an approved reference for EVERY canonical face view, so all five are uploaded and approved.
+    /// </summary>
+    private static async Task ApproveFaceOnlyPackAsync(CharacterImageIdentityService service, string characterProfileId)
+    {
+        var pack = await service.CreateDraftPackAsync(characterProfileId, CharacterImageIdentityPackScope.FaceOnly);
+        string? canonicalFaceId = null;
+        foreach (var view in new[]
+        {
+            SceneImageReferenceFaceView.Front,
+            SceneImageReferenceFaceView.ThreeQuarterLeft,
+            SceneImageReferenceFaceView.ThreeQuarterRight,
+            SceneImageReferenceFaceView.ProfileLeft,
+            SceneImageReferenceFaceView.ProfileRight
+        })
+        {
+            await using var input = new MemoryStream(MinimalPng(64, 64));
+            var asset = await service.UploadAssetAsync(
+                pack.Id, SceneImageReferenceAssetKind.Face, $"{view}.png", input, view);
+            await service.SetAssetProvenanceAsync(
+                asset.Id, "curated reference", SceneImageReferenceConsentState.Confirmed);
+            await service.SetAssetApprovalAsync(asset.Id, true);
+            canonicalFaceId ??= asset.Id;
+        }
+
+        await service.ApprovePackAsync(pack.Id, "{\"descriptor\":\"dark hair\"}", canonicalFaceId!);
+    }
+
     [Fact]
     public async Task SupersedeCopy_DeleteAsset_KeepsSharedFile()
     {
@@ -503,8 +576,33 @@ public sealed class CharacterImageIdentityServiceTests
 
         var repo = new CharacterImageIdentityRepository(options);
         var storage = new CharacterImageAssetStorageService(options, NullLogger<CharacterImageAssetStorageService>.Instance);
-        var service = new CharacterImageIdentityService(repo, storage, new ReferenceImageQualityAnalyzer(), NullLogger<CharacterImageIdentityService>.Instance);
+        var service = new CharacterImageIdentityService(
+            repo, storage, new ReferenceImageQualityAnalyzer(), new StubOwnerResolver(),
+            NullLogger<CharacterImageIdentityService>.Instance);
         return (service, repo, root, dbPath);
+    }
+
+    /// <summary>
+    /// Resolves every id to a template of the same id, so a roster's LABELS are deterministic in a test. The real
+    /// resolver reads the character stores; the only thing under test here is that the roster asks for a name at all
+    /// and does not hide a character when it has one.
+    /// </summary>
+    private sealed class StubOwnerResolver : ICharacterIdentityOwnerResolver
+    {
+        public Task<CharacterIdentityOwner> ResolveAsync(string ownerId, CancellationToken cancellationToken = default)
+            => Task.FromResult(new CharacterIdentityOwner(
+                CharacterIdentityOwnerKind.CharacterTemplate, ownerId, ownerId, ownerId, ownerId));
+
+        public Task<CharacterIdentityOwnerKind?> IdentifyAsync(string ownerId, CancellationToken cancellationToken = default)
+            => Task.FromResult<CharacterIdentityOwnerKind?>(CharacterIdentityOwnerKind.CharacterTemplate);
+
+        public Task<IReadOnlyList<CharacterIdentityOwner>> ListInstancesAsync(
+            string characterTemplateId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<CharacterIdentityOwner>>([]);
+
+        public Task<IReadOnlyList<CharacterIdentityCandidate>> ListUnlinkedAsync(
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<CharacterIdentityCandidate>>([]);
     }
 
     private static void Cleanup(string dbPath, string root)

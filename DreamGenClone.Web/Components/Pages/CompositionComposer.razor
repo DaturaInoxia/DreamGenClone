@@ -9,6 +9,7 @@
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.ImageStep
 @using DreamGenClone.Web.Application.RolePlay.Models
 @using DreamGenClone.Web.Application.Sessions
 @using DreamGenClone.Web.Application.Scenarios
@@ -164,34 +165,32 @@
                         </div>
 
                         <div class="mt-3">
-                            <label class="form-label small fw-semibold mb-1">Image Model</label>
+                            @* B-130: the model and the reference slots come from the ONE composer. Its prompt panel and
+                               submit button are off: this page owns the per-style prompt tabs, the generate action and the
+                               prompt-input inspector, so a second prompt box would be two controls over one value. The
+                               three UNADDRESSED element rows this replaces are gone - a body or wardrobe reference must
+                               name the character it belongs to, or its prompt element cannot be scoped at all. *@
                             @if (_modelChoices.Count == 0)
                             {
                                 <span class="text-muted d-block">No image models are enabled in Model Manager.</span>
                             }
                             else
                             {
-                                <select class="form-select form-select-sm" @bind="_selectedModelId" @bind:after="OnModelChangedAsync">
-                                    @foreach (var choice in _modelChoices)
-                                    {
-                                        <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
-                                    }
-                                </select>
+                                <ImageStepComposer Blueprint="CompositionBlueprint"
+                                                   ModelChoices="_modelChoices"
+                                                   SelectedModelId="_selectedModelId"
+                                                   SelectedModelIdChanged="OnCompositionModelSelectedAsync"
+                                                   ModelPlaceholder="Choose an image model"
+                                                   Bindings="_referenceBindings"
+                                                   BindingsChanged="OnReferenceBindingsChanged"
+                                                   Busy="_busy"
+                                                   CanSubmit="false"
+                                                   ShowPrompt="false" />
+                                <div class="mt-2">
+                                    <ResolvedRenderBadge ModelLabel="@SelectedModelLabel()" Selections="_referenceBindings" />
+                                </div>
                             }
                         </div>
-
-                        @if (!string.IsNullOrWhiteSpace(_selectedModelId))
-                        {
-                            <div class="mt-3">
-                                <ReferenceApplyPanel ModelId="@_selectedModelId"
-                                                     Selections="@_referenceApplications"
-                                                     SelectionsChanged="OnReferenceApplicationsChanged"
-                                                     ExecutableStrategies="SelectedModelStrategies" />
-                                <div class="mt-2">
-                                    <ResolvedRenderBadge ModelLabel="@SelectedModelLabel()" Selections="@_referenceApplications" />
-                                </div>
-                            </div>
-                        }
 
                         <div class="border-top mt-3 pt-3" aria-label="Prompt input inspector">
                             <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
@@ -503,6 +502,51 @@
             return choice.QualifiedStrategies;
         }
     }
+
+    /// <summary>
+    /// The Composition step's references, ordered, written by the composer's planner. It starts empty: the slots come
+    /// from the blueprint, so this holds what the operator bound rather than a pre-built element list (the panel this
+    /// replaces offered four element rows with no owner on either per-character one).
+    /// </summary>
+    private IReadOnlyList<ReferenceApplicationSelection> _referenceBindings = [];
+
+    /// <summary>
+    /// The characters this Composition addresses, from the identity packs the page already resolves. The actor key is
+    /// the character TEMPLATE id - the identity owner packs belong to - because that is the profile key the prompt plan
+    /// writes a scope for; the page's own scenario-id key would address nobody.
+    /// </summary>
+    private IReadOnlyList<ImageStepActor> CompositionCast =>
+        _identityPackOptions
+            .Where(option => !string.IsNullOrWhiteSpace(option.TemplateId)
+                && !RemovedCharacterKeys.Contains(option.CharacterKey))
+            .Select(option => new ImageStepActor(option.TemplateId, option.CharacterName))
+            .DistinctBy(actor => actor.ActorKey, StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>
+    /// The step this page presents. Identity travels as PACKS here (the page's own channel, resolved into face
+    /// references by the render), so the step declares the elements a pack cannot carry - bodies and wardrobe per
+    /// character, plus the frame-wide location - and no face slot (B-130).
+    /// </summary>
+    private ImageStepBlueprint CompositionBlueprint => ImageStepBlueprintFactory.ForPackIdentityComposition(CompositionCast);
+
+    private Task OnReferenceBindingsChanged(IReadOnlyList<ReferenceApplicationSelection> bindings)
+    {
+        _referenceBindings = bindings;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// A model change runs the page's own model logic AND drops the step's bindings: the slots a step offers depend on
+    /// the selected model's capability, so keeping them would leave the plan describing a model no longer chosen. The
+    /// composer's per-slot menu resolves strategies from that same capability, so the page no longer resets them.
+    /// </summary>
+    private async Task OnCompositionModelSelectedAsync(string? modelId)
+    {
+        _selectedModelId = modelId;
+        _referenceBindings = [];
+        await OnModelChangedAsync();
+    }
     private CancellationTokenSource? _pollingCts;
     private Task? _pollingTask;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -520,15 +564,6 @@
     private string? _castReferenceError;
     private HashSet<string> _approvedAttemptIds = [];
     private string? _deleteConfirmImageId;
-
-    // Approved reference images attached to the render (pre-existing behaviour).
-    private readonly List<ReferenceApplicationSelection> _referenceApplications =
-    [
-        new() { ElementKey = "Identity", SemanticRole = "character identity", AssetType = SceneAssetType.CharacterFace },
-        new() { ElementKey = "Body", SemanticRole = "character body", AssetType = SceneAssetType.CharacterBody },
-        new() { ElementKey = "Wardrobe", SemanticRole = "wardrobe continuity", AssetType = SceneAssetType.Wardrobe },
-        new() { ElementKey = "Location", SemanticRole = "location continuity", AssetType = SceneAssetType.Location }
-    ];
 
     private List<SceneImageModelChoice> _identityModelChoices = [];
     private string? _selectedIdentityModelId;
@@ -548,7 +583,24 @@
     {
         public string PackId { get; set; } = string.Empty;
         public string Label { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The page's own character key - the SCENARIO character id - used to join an identity selection to the
+        /// prompt-input rows, which are keyed the same way. It is deliberately NOT the identity owner: see
+        /// <see cref="TemplateId"/>.
+        /// </summary>
         public string CharacterKey { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The character TEMPLATE id, which is the identity owner the pack belongs to and the profile key a reference
+        /// slot must address. The loader already resolves it to READ the packs; storing it stops the page from
+        /// discarding the one key that can be used as an actor key.
+        /// </summary>
+        public string TemplateId { get; set; } = string.Empty;
+
+        /// <summary>The character's own name, for a slot's display label.</summary>
+        public string CharacterName { get; set; } = string.Empty;
+
         public double? Strength { get; set; }
     }
 
@@ -763,7 +815,7 @@
                 RenderMode = _applyIdentityOnCreate ? SceneImageRenderMode.IdentityControlled : SceneImageRenderMode.PromptOnly,
                 IdentityPackId = firstPackId,
                 IdentityPacks = identityPacks,
-                ReferenceApplications = _referenceApplications
+                ReferenceApplications = _referenceBindings
             });
             _statusMessage = regenerateOfId is null ? "Composition queued." : "Sibling Composition queued.";
             await LoadAsync();
@@ -894,13 +946,16 @@
             var options = new List<IdentityPackOption>();
             foreach (var character in characters)
             {
+                string templateId;
                 IReadOnlyList<CharacterImageIdentityPack> packs;
                 try
                 {
                     // B-127: packs belong to the character TEMPLATE. Reading them with the scenario character id
-                    // returned nothing, so approved packs existed and never appeared in this list.
+                    // returned nothing, so approved packs existed and never appeared in this list. The resolved owner
+                    // is kept, because it is also the actor key a reference slot has to address (B-130).
                     var owner = await OwnerResolver.ResolveAsync(character.Id);
-                    packs = await IdentityService.ListPacksAsync(owner.TemplateId);
+                    templateId = owner.TemplateId;
+                    packs = await IdentityService.ListPacksAsync(templateId);
                 }
                 catch
                 {
@@ -912,7 +967,9 @@
                     {
                         PackId = pack.Id,
                         Label = $"{character.Name ?? character.Id} — v{pack.Version}",
-                        CharacterKey = character.Id ?? character.Name ?? string.Empty
+                        CharacterKey = character.Id ?? character.Name ?? string.Empty,
+                        TemplateId = templateId,
+                        CharacterName = character.Name ?? character.Id ?? string.Empty
                     });
                 }
             }
@@ -1109,12 +1166,6 @@
         return overrides.IsEmpty ? null : overrides;
     }
 
-    private Task OnReferenceApplicationsChanged()
-    {
-        StateHasChanged();
-        return Task.CompletedTask;
-    }
-
     private string PromptTextFor(SceneImagePromptStyle style)
         => style == SceneImagePromptStyle.PonyV6Tags ? _ponyPromptText : _sdxlPromptText;
 
@@ -1213,27 +1264,9 @@
         _applyIdentityOnCreate = false;
         await RefreshIdentityResolutionAsync();
 
-        // A strategy chosen for the PREVIOUS model is not necessarily executable on this one. Keeping it would send a
-        // request whose conditioning is silently dropped, so it is reset to TextOnly with the reason stated — the
-        // same rule the render follows: never quietly ignore what the operator asked for.
-        var available = SelectedModelStrategies;
-        var reset = new List<string>();
-        foreach (var selection in _referenceApplications)
-        {
-            if (available.Contains(selection.Strategy, StringComparer.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            reset.Add($"{selection.ElementKey} ({selection.Strategy} -> TextOnly)");
-            selection.Strategy = "TextOnly";
-        }
-
-        if (reset.Count > 0)
-        {
-            _statusMessage = $"The selected model cannot execute: {string.Join(", ", reset)}. "
-                + "Those references now render as text only; pick a model that declares the strategy to condition on them.";
-        }
+        // A strategy chosen for the PREVIOUS model is not necessarily executable on this one. The composer's own
+        // per-slot menu intersects each slot's meaning with the SELECTED model's capability, so there is no page-level
+        // element list to reset here - and no "reset to TextOnly" branch that could quietly downgrade what was bound.
 
         await InvokeAsync(StateHasChanged);
     }

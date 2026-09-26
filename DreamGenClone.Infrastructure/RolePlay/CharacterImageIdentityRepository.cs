@@ -64,6 +64,24 @@ public sealed class CharacterImageIdentityRepository : ICharacterImageIdentityRe
         return await reader.ReadAsync(cancellationToken) ? ReadPack(reader) : null;
     }
 
+    public async Task<IReadOnlyList<CharacterImageIdentityPack>> ListApprovedPacksAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"{PackSelect} WHERE Status = 'Approved' ORDER BY CharacterProfileId, Version DESC;";
+
+        var results = new List<CharacterImageIdentityPack>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ReadPack(reader));
+        }
+
+        return results;
+    }
+
     public async Task<CharacterImageIdentityPack> UpsertDraftAsync(
         CharacterImageIdentityPack pack, CancellationToken cancellationToken = default)
     {

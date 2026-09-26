@@ -3,6 +3,38 @@ using DreamGenClone.Domain.RolePlay;
 namespace DreamGenClone.Web.Application.RolePlay;
 
 /// <summary>
+/// A character that has an APPROVED identity pack, with that pack's approved references.
+///
+/// This is the roster a surface uses when it has no known cast: the operator picks from the characters that can
+/// actually be rendered, rather than from every character that exists. The pack's approved assets travel with it so a
+/// picker can offer only the angles the character can really serve (see
+/// <see cref="IdentityPackReferenceResolver.AvailableFaceViews"/>) without a second round trip.
+/// </summary>
+/// <param name="CharacterProfileId">The character TEMPLATE id (B-127): packs belong to the template, not the instance.</param>
+/// <param name="DisplayName">
+/// The character's name for a label. A name that cannot be resolved falls back to the id and is logged - an
+/// unresolvable NAME is not a reason to hide a character that demonstrably has a pack.
+/// </param>
+/// <param name="PackId">The newest approved pack, which is the one a render would use.</param>
+/// <param name="ApprovedAssets">That pack's approved reference images, faces and bodies.</param>
+public sealed record IdentityPackOwner(
+    string CharacterProfileId,
+    string DisplayName,
+    string PackId,
+    int PackVersion,
+    CharacterImageIdentityPackScope PackScope,
+    IReadOnlyList<SceneImageReferenceAsset> ApprovedAssets)
+{
+    /// <summary>The approved face angles this character can serve, in angle order.</summary>
+    public IReadOnlyList<SceneImageReferenceFaceView> FaceViews =>
+        IdentityPackReferenceResolver.AvailableFaceViews(ApprovedAssets);
+
+    /// <summary>The approved (body angle, wardrobe state) pairs this character can serve.</summary>
+    public IReadOnlyList<(SceneImageReferenceBodyView View, SceneImageReferenceBodyState State)> Bodies =>
+        IdentityPackReferenceResolver.AvailableBodies(ApprovedAssets);
+}
+
+/// <summary>
 /// Orchestrates character identity pack curation: creates drafts, ingests reference assets,
 /// records provenance/consent, approves/supersedes versions, and deletes with file-reference
 /// guards. The UI talks to this service, never to the repository or storage directly.
@@ -11,6 +43,15 @@ public interface ICharacterImageIdentityService
 {
     Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(
         string characterProfileId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every character that has an approved identity pack, for a surface with no known cast.
+    ///
+    /// One entry per character, carrying the NEWEST approved pack - which is the pack a render would use
+    /// (<c>GetLatestApprovedPackAsync</c>), so the picker offers exactly what the render would take. Ordering is by
+    /// display name, because the operator reads this as a list of characters rather than as a list of packs.
+    /// </summary>
+    Task<IReadOnlyList<IdentityPackOwner>> ListPackOwnersAsync(CancellationToken cancellationToken = default);
 
     Task<CharacterImageIdentityPack?> GetPackAsync(string packId, CancellationToken cancellationToken = default);
 

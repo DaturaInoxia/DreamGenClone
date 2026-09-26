@@ -67,40 +67,28 @@
     public IReadOnlyList<string> ExecutableStrategies { get; set; } = ["TextOnly"];
 
     /// <summary>
-    /// Which strategies are MEANINGFUL for each reference element, as data.
+    /// Which strategies are MEANINGFUL for each reference element, read from the single catalogue
+    /// (<see cref="ReferenceStrategyCatalogue"/>). This panel used to own a private copy of that table, which is how
+    /// it came to list only <c>ControlNet</c> for <c>Location</c> and hide a model's own reference image
+    /// (B-128 §5.3 U1 — reported 2026-09-24/25); the step composer owned a third copy that drifted the other way.
     ///
-    /// This replaces a switch that hardcoded the same lists AND threw on an unknown element key. Two things were
-    /// wrong with that: the <c>Location</c> arm listed only <c>ControlNet</c>, so a model that carries a location as
-    /// its own reference image could never offer it (B-128 §5.3 U1 — reported 2026-09-24/25), and an element key this
-    /// panel had not been taught took out the whole panel instead of degrading.
-    ///
-    /// The lists are what each element MEANS; <see cref="ExecutableStrategies"/> is what the selected model can
+    /// The catalogue is what each element MEANS; <see cref="ExecutableStrategies"/> is what the selected model can
     /// actually run, and the two are intersected below. Meaning and capability are kept separate on purpose: a
     /// catalogue that absorbed capability would offer a strategy no model can execute.
     /// </summary>
-    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> ElementStrategies =
-        new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Identity"] = ["TextOnly", "ReferenceConditioning", "NativeMultiReference", "Lora"],
-            ["Body"] = ["TextOnly", "Lora"],
-            ["Wardrobe"] = ["TextOnly", "WardrobeTryOn"],
-            ["Location"] = ["TextOnly", "NativeMultiReference", "ControlNet"]
-        };
-
     private IReadOnlyList<string> StrategiesFor(string elementKey)
     {
-        if (!ElementStrategies.TryGetValue(elementKey, out var supportedStrategies))
+        if (!ReferenceStrategyCatalogue.TryForElementKey(elementKey, out var supportedStrategies))
         {
             // Text is the one strategy every model can execute, so an unknown element degrades to it and says so in
             // the log, rather than refusing to render. It is logged because an unreachable strategy must be a
             // visible fact, not a silent omission.
             Logger.LogWarning(
                 "No strategy catalogue entry for reference element '{Element}'; offering text only.", elementKey);
-            supportedStrategies = ["TextOnly"];
+            supportedStrategies = [ReferenceStrategyCatalogue.TextOnly];
         }
 
-        var executableStrategies = new HashSet<string>(ExecutableStrategies, StringComparer.OrdinalIgnoreCase);
-        return supportedStrategies.Where(executableStrategies.Contains).ToArray();
+        return ReferenceStrategyCatalogue.Intersect(supportedStrategies, ExecutableStrategies);
     }
 
     /// <summary>

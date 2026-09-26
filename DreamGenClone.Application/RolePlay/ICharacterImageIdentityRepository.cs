@@ -17,6 +17,16 @@ public interface ICharacterImageIdentityRepository
     Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(
         string characterProfileId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Every APPROVED pack, newest version first within each character.
+    ///
+    /// This exists so a surface with no known cast can offer the characters that actually HAVE a pack, instead of
+    /// enumerating every character that exists and asking about each one. The pack store is the truth about who can be
+    /// rendered, so it is the store that is asked.
+    /// </summary>
+    Task<IReadOnlyList<CharacterImageIdentityPack>> ListApprovedPacksAsync(
+        CancellationToken cancellationToken = default);
+
     Task<CharacterImageIdentityPack?> GetLatestApprovedPackAsync(
         string characterProfileId, CancellationToken cancellationToken = default);
 

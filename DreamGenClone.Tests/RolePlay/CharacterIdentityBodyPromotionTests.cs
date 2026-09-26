@@ -394,7 +394,8 @@ public sealed class CharacterIdentityBodyPromotionTests
         var identityRepository = new CharacterImageIdentityRepository(options);
         var storage = new CharacterImageAssetStorageService(options, NullLogger<CharacterImageAssetStorageService>.Instance);
         var identity = new CharacterImageIdentityService(
-            identityRepository, storage, new ReferenceImageQualityAnalyzer(), NullLogger<CharacterImageIdentityService>.Instance);
+            identityRepository, storage, new ReferenceImageQualityAnalyzer(), new StubOwnerResolver(),
+            NullLogger<CharacterImageIdentityService>.Instance);
 
         var bodies = new CharacterIdentityBodyService(
             buildRepository,
@@ -484,6 +485,29 @@ public sealed class CharacterIdentityBodyPromotionTests
             => throw new NotSupportedException();
 
         public Task SaveSettingsAsync(ReferenceWorkflowSettings settings, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// The identity service asks the owner resolver only for a NAME when a roster is read. These tests never read the
+    /// roster, so this returns the id as the name and refuses the paths they do not use rather than fabricating
+    /// ownership.
+    /// </summary>
+    private sealed class StubOwnerResolver : ICharacterIdentityOwnerResolver
+    {
+        public Task<CharacterIdentityOwner> ResolveAsync(string ownerId, CancellationToken cancellationToken = default)
+            => Task.FromResult(new CharacterIdentityOwner(
+                CharacterIdentityOwnerKind.CharacterTemplate, ownerId, ownerId, ownerId, ownerId));
+
+        public Task<CharacterIdentityOwnerKind?> IdentifyAsync(string ownerId, CancellationToken cancellationToken = default)
+            => Task.FromResult<CharacterIdentityOwnerKind?>(CharacterIdentityOwnerKind.CharacterTemplate);
+
+        public Task<IReadOnlyList<CharacterIdentityOwner>> ListInstancesAsync(
+            string characterTemplateId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<CharacterIdentityCandidate>> ListUnlinkedAsync(
+            CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 

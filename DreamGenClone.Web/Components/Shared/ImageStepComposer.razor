@@ -1,0 +1,550 @@
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.ImageStep
+
+@* The ONE composer. Every surface that produces an image presents a step through this component, and everything
+   that differs between surfaces arrives as data on the blueprint - so a capability added here is added everywhere
+   instead of on one page out of seven.
+
+   The surface RE-FORMS by capability (D3): a model with no native-reference strategy does not get a disabled slot
+   list, it gets no slot list at all, because a disabled control the model can never satisfy is a lie about what the
+   model does. *@
+<section class="card mb-3" aria-label="@Blueprint.Title">
+    <div class="card-header d-flex justify-content-between align-items-baseline gap-2">
+        <strong>@Blueprint.Title</strong>
+        @if (Blueprint.AllowsBatch)
+        {
+            <span class="badge text-bg-info">batch</span>
+        }
+    </div>
+    <div class="card-body">
+        @if (ModelChoices.Count > 0)
+        {
+            <div class="row g-2 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label small fw-semibold mb-1" for="step-model">Image model</label>
+                    <select id="step-model" class="form-select form-select-sm" value="@SelectedModelId"
+                            @onchange="args => SelectedModelIdChanged.InvokeAsync(args.Value?.ToString())">
+                        @if (!string.IsNullOrWhiteSpace(ModelPlaceholder))
+                        {
+                            <option value="">@ModelPlaceholder</option>
+                        }
+                        @foreach (var choice in ModelChoices)
+                        {
+                            <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
+                        }
+                    </select>
+                </div>
+                @if (SelectedChoice is not null)
+                {
+                    <div class="col-md-6">
+                        <span class="form-text">
+                            @SelectedChoice.Family · carries:
+                            @foreach (var strategy in SelectedChoice.QualifiedStrategies)
+                            {
+                                <span class="badge text-bg-secondary ms-1">@strategy</span>
+                            }
+                        </span>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (SelectedChoice is null)
+        {
+            <div class="alert alert-warning py-2 small mb-0">Choose an image model before binding references.</div>
+        }
+        else if (CarriesReferences)
+        {
+            @* Ordered, because the ordinal is request data: the first reference anchors the frame. *@
+            <div class="border rounded p-2 mt-3">
+                <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
+                    <strong class="small">References</strong>
+                    <span class="small text-muted">Order sets placement - the first reference anchors the frame.</span>
+                </div>
+                @foreach (var slot in Blueprint.Slots)
+                {
+                    var key = SlotKey(slot);
+                    var binding = BindingFor(slot);
+                    <div class="border rounded p-2 mb-2">
+                        <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
+                            <span>
+                                <strong class="small">@slot.SlotKind</strong>
+                                @if (!string.IsNullOrWhiteSpace(slot.ActorKey))
+                                {
+                                    <span class="small text-muted">· @slot.ActorKey</span>
+                                }
+                                @if (slot.Required)
+                                {
+                                    <span class="badge text-bg-warning ms-1">required</span>
+                                }
+                            </span>
+                            @if (binding is not null)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@Busy"
+                                        @onclick="() => ClearSlotAsync(slot)">
+                                    Clear
+                                </button>
+                            }
+                        </div>
+
+                        @if (binding is null)
+                        {
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                @if (OffersSkeleton(slot))
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@Busy"
+                                            @onclick="() => OpenPosePicker(slot)">
+                                        <i class="bi bi-grid-3x3-gap me-1"></i>Choose a skeleton
+                                    </button>
+                                }
+                                @if (OffersApprovedAsset(slot))
+                                {
+                                    <div style="min-width: 260px;">
+                                        <ReferencePicker AssetType="@AssetTypeFor(slot.SlotKind)"
+                                                         CharacterProfileId="@slot.ActorKey"
+                                                         SelectedAssetImageId="null"
+                                                         SelectedAssetChanged="choice => SetAssetAsync(slot, choice)" />
+                                    </div>
+                                }
+                                @if (OffersIdentityPack(slot))
+                                {
+                                    <div style="min-width: 300px;">
+                                        <IdentityPackPicker SlotKind="@slot.SlotKind"
+                                                            ActorKey="@slot.ActorKey"
+                                                            Busy="@Busy"
+                                                            OnSelected="choice => SetPackAssetAsync(slot, choice)" />
+                                    </div>
+                                }
+                                <span class="form-text">Pre-fill only - binding one is optional unless marked required.</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="row g-2 align-items-end">
+                                <div class="col-md-6">
+                                    <div class="small text-break">@DescribeBinding(binding)</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small mb-1">Strategy</label>
+                                    <StrategySelector ModelId="@SelectedModelId"
+                                                      Strategies="StrategiesFor(slot.SlotKind, binding)"
+                                                      SelectedStrategy="@binding.Strategy"
+                                                      SelectedStrategyChanged="strategy => SetStrategyAsync(slot, strategy)" />
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            @* A structurally different surface, not a disabled one: this model has no reference slots, so the prompt
+               carries every element and there is nothing to bind. *@
+            <div class="alert alert-secondary py-2 small mt-3 mb-0">
+                @SelectedChoice.DisplayName carries no reference images, so this step has no reference slots and the
+                prompt describes every element. Choose a model that qualifies
+                <span class="fw-semibold">NativeMultiReference</span> to supply elements as images.
+            </div>
+        }
+
+        @if (ShowPrompt)
+        {
+            <div class="mt-3">
+                <StepPromptPanel Prompt="@Prompt" PromptChanged="PromptChanged"
+                               RefineInstruction="@RefineInstruction" RefineInstructionChanged="RefineInstructionChanged"
+                               Bindings="@Bindings" GeneratedForSignature="@GeneratedForSignature"
+                               DraftedFromBindings="@DraftedFromBindings" OmittedElements="@OmittedElements"
+                               Busy="@Busy" OnGenerate="OnGeneratePrompt" OnRefine="OnRefinePrompt" />
+                @if (!string.IsNullOrWhiteSpace(PromptError))
+                {
+                    <div class="alert alert-danger py-2 small mt-2 mb-0">@PromptError</div>
+                }
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(BindingError))
+        {
+            <div class="alert alert-danger py-2 small mt-2 mb-0">@BindingError</div>
+        }
+
+        @if (ChildContent is not null)
+        {
+            <div class="mt-3">@ChildContent</div>
+        }
+
+        <div class="mt-3 d-flex align-items-center gap-2">
+            @if (OnSubmit.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-success" disabled="@(Busy || !CanSubmit)" @onclick="() => OnSubmit.InvokeAsync()">
+                    <i class="bi bi-image me-1"></i>@SubmitLabel
+                </button>
+            }
+            @if (!string.IsNullOrWhiteSpace(SubmitBlockedReason))
+            {
+                <span class="small text-warning">@SubmitBlockedReason</span>
+            }
+        </div>
+    </div>
+</section>
+
+@* The pose library picker sits outside the slot markup: it is a modal, and rendering it inside the loop would emit
+   one instance per slot. *@
+<PoseLibraryPicker Visible="_posePickerSlot is not null"
+                   VisibleChanged="visible => { if (!visible) { _posePickerSlot = null; } }"
+                   OnSelected="OnSkeletonPickedAsync" />
+
+@code {
+    /// <summary>Everything that differs between surfaces. The component holds no host knowledge of its own.</summary>
+    [Parameter, EditorRequired]
+    public ImageStepBlueprint Blueprint { get; set; } = null!;
+
+    [Parameter]
+    public IReadOnlyList<SceneImageModelChoice> ModelChoices { get; set; } = [];
+
+    [Parameter]
+    public string? SelectedModelId { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> SelectedModelIdChanged { get; set; }
+
+    /// <summary>
+    /// When set, the model select offers an empty first option carrying this label, so a host that requires an
+    /// explicit model choice keeps that requirement. A select with no placeholder silently pre-selects the first
+    /// model, which would submit under a model the operator never chose.
+    /// </summary>
+    [Parameter]
+    public string? ModelPlaceholder { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<ReferenceApplicationSelection> Bindings { get; set; } = [];
+
+    /// <summary>
+    /// Two-way. A host that owns a pre-fill rule resolves it into bindings and ASSIGNS them here (the same way it
+    /// assigns any other state), so "pre-filled" and "operator-set" are one value with one owner. There is deliberately
+    /// no seed parameter: a seed list would keep re-adding a binding the operator had just cleared, because clearing it
+    /// does not change what the host's rule resolves to.
+    /// </summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<ReferenceApplicationSelection>> BindingsChanged { get; set; }
+
+    [Parameter]
+    public string Prompt { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string?> PromptChanged { get; set; }
+
+    [Parameter]
+    public string? RefineInstruction { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> RefineInstructionChanged { get; set; }
+
+    /// <summary>Signature of the bindings the current prompt was drafted from; null when nothing has been drafted.</summary>
+    [Parameter]
+    public string? GeneratedForSignature { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<ReferenceApplicationSelection> DraftedFromBindings { get; set; } = [];
+
+    /// <summary>What the bound images already supply, so the omission is visible rather than a mystery.</summary>
+    [Parameter]
+    public IReadOnlyList<string> OmittedElements { get; set; } = [];
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    [Parameter]
+    public bool CanSubmit { get; set; }
+
+    [Parameter]
+    public string SubmitLabel { get; set; } = "Create";
+
+    [Parameter]
+    public string? SubmitBlockedReason { get; set; }
+
+    [Parameter]
+    public string? BindingError { get; set; }
+
+    [Parameter]
+    public string? PromptError { get; set; }
+
+    [Parameter]
+    public EventCallback OnSubmit { get; set; }
+
+    [Parameter]
+    public EventCallback OnGeneratePrompt { get; set; }
+
+    [Parameter]
+    public EventCallback OnRefinePrompt { get; set; }
+
+    /// <summary>Host-specific controls, rendered inside the composer's body so a host never re-implements the shell.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Whether this host presents the step's prompt itself. False renders the model and the reference slots only, and is
+    /// for a host whose prompt comes from its OWN flow - an intent-to-compile-to-prompt workbench, where a second prompt
+    /// box would be two controls over one value. The bindings still flow to that host, which passes them to its render.
+    /// </summary>
+    [Parameter]
+    public bool ShowPrompt { get; set; } = true;
+
+    private ImageStepSlotBlueprint? _posePickerSlot;
+
+    private SceneImageModelChoice? SelectedChoice =>
+        ModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelId, SelectedModelId, StringComparison.Ordinal));
+
+    /// <summary>
+    /// The reference budget the planner uses, taken from the SELECTED model's own configured acceptance limit. A host
+    /// does not supply this and cannot get it wrong, because the model's own number is the only defensible source;
+    /// the planner's measured pose ceiling is applied on top of it, not instead of it. A model that reports no
+    /// reference capacity while a step offers reference slots is a configuration gap, and it is named as one.
+    /// </summary>
+    private int ModelReferenceLimit
+    {
+        get
+        {
+            var choice = SelectedChoice ?? throw new InvalidOperationException(
+                "A reference plan needs a selected image model: the reference budget comes from the model's own "
+                + "configured MaxReferences, so there is nothing to plan against until one is chosen.");
+
+            if (choice.MaxReferences < 1)
+            {
+                throw new InvalidOperationException(
+                    $"Image model '{choice.DisplayName}' declares no reference capacity, but this step offers reference "
+                    + "slots. Set 'MaxReferences' (at least 1) on the model's NativeMultiReference qualification in "
+                    + "Model Manager (/model-manager).");
+            }
+
+            return choice.MaxReferences;
+        }
+    }
+
+    /// <summary>
+    /// Whether the SELECTED model can carry any reference this step's slots accept.
+    ///
+    /// The slot list exists only then, which is what makes the surface structurally different rather than merely
+    /// disabled on a model that cannot do this (D3). The test is NOT "does the model qualify NativeMultiReference":
+    /// a slot's meaning is intersected with the model's capability, and a model whose skeleton route is ControlNet
+    /// carries that slot perfectly well. Text-only is excluded from this test, because every model can fall back to
+    /// prose - counting it would claim a reference route on a model that has none.
+    /// </summary>
+    private bool CarriesReferences =>
+        SelectedChoice is not null
+        && Blueprint.Slots.Any(slot => StrategiesForSlot(slot).Any(CarriesAStrategy));
+
+    private static bool CarriesAStrategy(string strategy) =>
+        !string.Equals(strategy, ReferenceStrategyCatalogue.TextOnly, StringComparison.OrdinalIgnoreCase);
+
+    private static string SlotKey(ImageStepSlotBlueprint slot) =>
+        $"{slot.SlotKind}|{slot.ActorKey ?? string.Empty}";
+
+    private ReferenceApplicationSelection? BindingFor(ImageStepSlotBlueprint slot) =>
+        Bindings.FirstOrDefault(binding =>
+            string.Equals(binding.Kind, slot.SlotKind.ToString(), StringComparison.OrdinalIgnoreCase)
+            && string.Equals(binding.ActorKey ?? string.Empty, slot.ActorKey ?? string.Empty, StringComparison.Ordinal));
+
+    private ReferenceApplicationSelection? BindingForSlot(string? kind, string? actorKey) =>
+        Bindings.FirstOrDefault(binding =>
+            string.Equals(binding.Kind, kind, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(binding.ActorKey ?? string.Empty, actorKey ?? string.Empty, StringComparison.Ordinal));
+
+    /// <summary>
+    /// One binding as a planner assignment. Sole place the conversion lives, so the seed path and the operator path
+    /// cannot disagree about what a binding means.
+    /// </summary>
+    private static ImageStepSlotAssignment ToAssignment(ReferenceApplicationSelection binding) =>
+        new(
+            Enum.Parse<ImageStepSlotKind>(binding.Kind ?? string.Empty, ignoreCase: true),
+            binding.ActorKey,
+            new ImageStepSlotSource(
+                Enum.TryParse<ImageStepReferenceSourceKind>(binding.Source, ignoreCase: true, out var kind)
+                    ? kind
+                    : ImageStepReferenceSourceKind.ApprovedSceneAsset,
+                binding.Strategy,
+                binding.SceneAssetId,
+                binding.SceneAssetImageId,
+                binding.SceneAssetVersion,
+                binding.SceneAssetSha256,
+                binding.SkeletonRelativePath,
+                binding.IdentityPackId,
+                binding.ReferenceAssetId));
+
+    private static bool OffersSkeleton(ImageStepSlotBlueprint slot) =>
+        slot.AllowedSources.Contains(ImageStepReferenceSourceKind.PoseLibrarySkeleton);
+
+    private static bool OffersApprovedAsset(ImageStepSlotBlueprint slot) =>
+        slot.AllowedSources.Contains(ImageStepReferenceSourceKind.ApprovedSceneAsset);
+
+    /// <summary>
+    /// Whether this slot may be filled from an identity pack. A pack carries faces and bodies, so only those two slots
+    /// can be offered one - the picker says so itself rather than the composer silently hiding the control.
+    /// </summary>
+    private static bool OffersIdentityPack(ImageStepSlotBlueprint slot) =>
+        slot.AllowedSources.Contains(ImageStepReferenceSourceKind.IdentityPackAsset)
+        && slot.SlotKind is ImageStepSlotKind.Face or ImageStepSlotKind.Body;
+
+    /// <summary>
+    /// Binds one image out of a character's approved identity pack. The pack is the SOURCE and this is the mechanism,
+    /// so what the operator picked is what the render receives - the pack id travels with the asset because a pack
+    /// asset id is only meaningful inside its pack.
+    /// </summary>
+    private async Task SetPackAssetAsync(ImageStepSlotBlueprint slot, IdentityPackPicker.IdentityPackSelection choice)
+    {
+        if (choice is null)
+        {
+            return;
+        }
+
+        await ApplyAsync(slot, new ImageStepSlotSource(
+            ImageStepReferenceSourceKind.IdentityPackAsset,
+            ReferenceStrategyResolver.IdentityNativeMultiReference,
+            IdentityPackId: choice.PackId,
+            ReferenceAssetId: choice.ReferenceAssetId));
+    }
+
+    /// <summary>The asset type a slot's approved-asset picker lists. A pose asset is a SceneAsset (D8), so the same
+    /// picker serves it.</summary>
+    private static SceneAssetType AssetTypeFor(ImageStepSlotKind slotKind) => slotKind switch
+    {
+        ImageStepSlotKind.Face => SceneAssetType.CharacterFace,
+        ImageStepSlotKind.Body => SceneAssetType.CharacterBody,
+        ImageStepSlotKind.Wardrobe => SceneAssetType.Wardrobe,
+        ImageStepSlotKind.Location => SceneAssetType.Location,
+        ImageStepSlotKind.CharacterPose => SceneAssetType.CharacterPose,
+        _ => throw new InvalidOperationException(
+            $"Reference slot '{slotKind}' has no approved-asset type, so it cannot be filled from the asset picker.")
+    };
+
+    private static string DescribeBinding(ReferenceApplicationSelection binding)
+    {
+        var source = !string.IsNullOrWhiteSpace(binding.SceneAssetImageId)
+            ? binding.SceneAssetImageId
+            : binding.SkeletonRelativePath
+                ?? (string.IsNullOrWhiteSpace(binding.ReferenceAssetId)
+                    ? "no source"
+                    : $"pack asset {binding.ReferenceAssetId}");
+        return string.IsNullOrWhiteSpace(binding.ActorKey)
+            ? $"{binding.Kind ?? binding.ElementKey}: {source}"
+            : $"{binding.Kind ?? binding.ElementKey} for {binding.ActorKey}: {source}";
+    }
+
+    /// <summary>
+    /// The strategies to offer for a slot: what the slot means, intersected with what the model can execute. Both
+    /// halves now come from single owners - the meaning from <see cref="ReferenceStrategyCatalogue"/> (shared with the
+    /// apply panel, so the two cannot drift) and the capability from the selected model's QualifiedStrategies. The two
+    /// are kept apart on purpose: a catalogue that absorbed capability would offer a strategy no model can run.
+    /// </summary>
+    private IReadOnlyList<string> StrategiesForSlot(ImageStepSlotBlueprint slot) =>
+        ReferenceStrategyCatalogue.Intersect(
+            ReferenceStrategyCatalogue.ForSlotKind(slot.SlotKind),
+            SelectedChoice?.QualifiedStrategies ?? [ReferenceStrategyCatalogue.TextOnly]);
+
+    private IReadOnlyList<string> StrategiesFor(ImageStepSlotKind slotKind, ReferenceApplicationSelection binding)
+    {
+        var offered = ReferenceStrategyCatalogue
+            .Intersect(
+                ReferenceStrategyCatalogue.ForSlotKind(slotKind),
+                SelectedChoice?.QualifiedStrategies ?? [ReferenceStrategyCatalogue.TextOnly])
+            .ToList();
+
+        // The bound strategy is always offered, even if the model list changed under it: silently swapping the
+        // operator's chosen mechanism is the failure the reference rules forbid.
+        if (!offered.Contains(binding.Strategy, StringComparer.OrdinalIgnoreCase))
+        {
+            offered.Add(binding.Strategy);
+        }
+
+        return offered;
+    }
+
+    private async Task SetAssetAsync(ImageStepSlotBlueprint slot, SceneAssetReferenceChoice? choice)
+    {
+        if (choice is null)
+        {
+            await ClearSlotAsync(slot);
+            return;
+        }
+
+        await ApplyAsync(slot, new ImageStepSlotSource(
+            ImageStepReferenceSourceKind.ApprovedSceneAsset,
+            StrategyFor(slot, ImageStepReferenceSourceKind.ApprovedSceneAsset),
+            SceneAssetId: choice.Asset.Id,
+            SceneAssetImageId: choice.Image.Id,
+            SceneAssetVersion: choice.Image.ProductionVersion,
+            SceneAssetSha256: choice.Image.Sha256));
+    }
+
+    private void OpenPosePicker(ImageStepSlotBlueprint slot) => _posePickerSlot = slot;
+
+    private async Task OnSkeletonPickedAsync(PosePreset preset)
+    {
+        var slot = _posePickerSlot;
+        _posePickerSlot = null;
+        if (slot is null)
+        {
+            return;
+        }
+
+        // The reference is the pose's OWN skeleton file, so what is bound is the artifact the pose proofs used rather
+        // than a projection of it.
+        await ApplyAsync(slot, new ImageStepSlotSource(
+            ImageStepReferenceSourceKind.PoseLibrarySkeleton,
+            ReferenceStrategyResolver.IdentityNativeMultiReference,
+            SkeletonRelativePath: preset.SkeletonPngPath));
+    }
+
+    private static string StrategyFor(ImageStepSlotBlueprint slot, ImageStepReferenceSourceKind sourceKind) =>
+        sourceKind == ImageStepReferenceSourceKind.PoseLibrarySkeleton
+            ? ReferenceStrategyResolver.IdentityNativeMultiReference
+            : ReferenceStrategyResolver.IdentityNativeMultiReference;
+
+    private async Task SetStrategyAsync(ImageStepSlotBlueprint slot, string strategy)
+    {
+        var existing = BindingFor(slot);
+        if (existing is null)
+        {
+            return;
+        }
+
+        await ApplyAsync(slot, new ImageStepSlotSource(
+            Enum.TryParse<ImageStepReferenceSourceKind>(existing.Source, ignoreCase: true, out var kind)
+                ? kind
+                : ImageStepReferenceSourceKind.ApprovedSceneAsset,
+            strategy,
+            existing.SceneAssetId,
+            existing.SceneAssetImageId,
+            existing.SceneAssetVersion,
+            existing.SceneAssetSha256,
+            existing.SkeletonRelativePath));
+    }
+
+    private async Task ClearSlotAsync(ImageStepSlotBlueprint slot)
+    {
+        var remaining = Bindings
+            .Where(binding => !string.Equals(binding.Kind, slot.SlotKind.ToString(), StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(binding.ActorKey ?? string.Empty, slot.ActorKey ?? string.Empty, StringComparison.Ordinal))
+            .ToList();
+        await RebindAsync(remaining);
+    }
+
+    private async Task ApplyAsync(ImageStepSlotBlueprint slot, ImageStepSlotSource source)
+    {
+        var assignments = Bindings.Select(ToAssignment).ToList();
+
+        assignments.RemoveAll(assignment =>
+            assignment.SlotKind == slot.SlotKind
+            && string.Equals(assignment.ActorKey ?? string.Empty, slot.ActorKey ?? string.Empty, StringComparison.Ordinal));
+        assignments.Add(new ImageStepSlotAssignment(slot.SlotKind, slot.ActorKey, source));
+
+        // The PLANNER decides the final bindings, so the composer cannot construct a binding the render would refuse.
+        var planned = ReferenceSlotPlanner.Plan(Blueprint, assignments, ModelReferenceLimit);
+        await BindingsChanged.InvokeAsync(planned);
+    }
+
+    private Task RebindAsync(IReadOnlyList<ReferenceApplicationSelection> remaining) =>
+        BindingsChanged.InvokeAsync(remaining);
+}

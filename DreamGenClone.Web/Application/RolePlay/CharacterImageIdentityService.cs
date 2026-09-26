@@ -16,23 +16,79 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
     private readonly ICharacterImageIdentityRepository _repository;
     private readonly ICharacterImageAssetStorageService _storage;
     private readonly IReferenceImageQualityAnalyzer _analyzer;
+    private readonly ICharacterIdentityOwnerResolver _owners;
     private readonly ILogger<CharacterImageIdentityService> _logger;
 
     public CharacterImageIdentityService(
         ICharacterImageIdentityRepository repository,
         ICharacterImageAssetStorageService storage,
         IReferenceImageQualityAnalyzer analyzer,
+        ICharacterIdentityOwnerResolver owners,
         ILogger<CharacterImageIdentityService> logger)
     {
         _repository = repository;
         _storage = storage;
         _analyzer = analyzer;
+        _owners = owners;
         _logger = logger;
     }
 
     public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(
         string characterProfileId, CancellationToken cancellationToken = default)
         => _repository.ListPacksAsync(characterProfileId, cancellationToken);
+
+    /// <summary>
+    /// The characters that have an approved pack, one entry each, newest approved pack per character. The pack store is
+    /// asked directly rather than enumerating every character: the store is the truth about who can be rendered, so a
+    /// character who has a pack but is not in the current scenario is still offered.
+    /// </summary>
+    public async Task<IReadOnlyList<IdentityPackOwner>> ListPackOwnersAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var packs = await _repository.ListApprovedPacksAsync(cancellationToken);
+        var owners = new List<IdentityPackOwner>();
+
+        foreach (var pack in packs
+            .Where(pack => !string.IsNullOrWhiteSpace(pack.CharacterTemplateId))
+            .GroupBy(pack => pack.CharacterTemplateId.Trim(), StringComparer.Ordinal)
+            .Select(group => group.OrderByDescending(pack => pack.Version).First()))
+        {
+            var characterProfileId = pack.CharacterTemplateId.Trim();
+            var assets = await _repository.ListAssetsAsync(pack.Id, cancellationToken);
+
+            owners.Add(new IdentityPackOwner(
+                characterProfileId,
+                await ResolveDisplayNameAsync(characterProfileId, cancellationToken),
+                pack.Id,
+                pack.Version,
+                pack.PackScope,
+                assets.Where(asset => asset.IsApproved).ToList()));
+        }
+
+        return owners.OrderBy(owner => owner.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// The character's name for the picker's label, resolved through the ONE owner resolution path. A name that cannot
+    /// be resolved is NOT a reason to hide a character that has a pack: the id stands in and the reason is logged, so
+    /// the roster's own eligibility rule (has an approved pack) is the only thing that can exclude anyone.
+    /// </summary>
+    private async Task<string> ResolveDisplayNameAsync(string characterProfileId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var owner = await _owners.ResolveAsync(characterProfileId, cancellationToken);
+            return string.IsNullOrWhiteSpace(owner.TemplateName) ? characterProfileId : owner.TemplateName;
+        }
+        catch (InvalidOperationException exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Identity pack owner '{Character}' has no resolvable display name; showing its id.",
+                characterProfileId);
+            return characterProfileId;
+        }
+    }
 
     public Task<CharacterImageIdentityPack?> GetPackAsync(
         string packId, CancellationToken cancellationToken = default)

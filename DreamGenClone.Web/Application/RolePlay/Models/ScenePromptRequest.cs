@@ -29,5 +29,12 @@ public sealed class ScenePromptRequest
     /// <summary>Optional instruction for the "Refine prompt" iteration path.</summary>
     public string? RefineInstruction { get; set; }
 
+    /// <summary>
+    /// The ordered reference bindings this render will use, so the prompt can omit what they supply. The plan is
+    /// derived from the SAME slot set the render consumes, which is what keeps the prompt and the request from
+    /// disagreeing about what an image already provides.
+    /// </summary>
+    public IReadOnlyList<ReferenceApplicationSelection>? ReferenceApplications { get; set; }
+
     public string Pov { get; set; } = string.Empty;
 }

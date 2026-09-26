@@ -562,7 +562,8 @@ public sealed class SceneImageService : ISceneImageService
                 SessionId = sessionId,
                 InteractionId = interactionId,
                 PromptRecordId = record.Id,
-                RequestedImageModelId = request.RequestedImageModelId
+                RequestedImageModelId = request.RequestedImageModelId,
+                ReferenceApplications = request.ReferenceApplications
             }),
             dedupeKey: $"{BackgroundJobTypes.SceneImagePromptGeneration}:{record.Id}");
         _logger.LogInformation(
@@ -601,6 +602,29 @@ public sealed class SceneImageService : ISceneImageService
             throw new InvalidOperationException("At least one approved identity pack is required for identity-controlled rendering.");
         }
         ValidateIdentitySelections(request);
+
+        // The reference BINDINGS decide how a render is executed, so the mode is derived from them rather than
+        // trusted as a label. A binding the operator set to NativeMultiReference makes this a native-reference
+        // render; labelling that PromptOnly is merely stale, and the render handler would otherwise take the
+        // prompt-only branch and drop every reference it was handed. IdentityControlled is deliberately left
+        // alone: identity has its own mechanism decision (which may itself be native) and the render handler
+        // resolves that per model, so that combination is legitimate rather than a contradiction.
+        var renderMode = request.RenderMode == SceneImageRenderMode.PromptOnly
+            && request.ReferenceApplications is { Count: > 0 }
+            && request.ReferenceApplications.Any(application => string.Equals(
+                application.Strategy,
+                ReferenceStrategyResolver.IdentityNativeMultiReference,
+                StringComparison.OrdinalIgnoreCase))
+                ? SceneImageRenderMode.NativeReference
+                : request.RenderMode;
+
+        // Native-reference renders carry identity as REFERENCE IMAGES, and the render handler builds those
+        // faces from SceneImageRecord.IdentityReferenceBindingsJson. That column was written only by the two
+        // identity EDIT paths, so a native-reference CREATE arrived with none: the render either failed fast on
+        // an empty reference set or rendered the location and silently dropped every face - the exact thing the
+        // reference rules forbid, and why every production row in CASE-20 had IdentityPacksJson = NULL.
+        // Resolved here through the SAME production resolver the edit paths use (B-128 section 5.3 U3).
+        var identityReferenceBindingsJson = await ResolveNativeReferenceIdentityBindingsAsync(request, renderMode, cancellationToken);
 
         SceneImageProductionGroup? productionGroup = null;
         string? typedReferenceSnapshotJson = null;
@@ -646,13 +670,14 @@ public sealed class SceneImageService : ISceneImageService
             RequestedModelId = request.RequestedModelId,
             SettingsJson = settingsJson,
             RegenerateOfId = request.RegenerateOfId,
-            RenderMode = request.RenderMode,
-            IdentityPackId = request.RenderMode == SceneImageRenderMode.IdentityControlled
+            RenderMode = renderMode,
+            IdentityPackId = renderMode == SceneImageRenderMode.IdentityControlled
                 ? (firstPackId ?? request.IdentityPackId)
                 : null,
-            IdentityPacksJson = request.RenderMode == SceneImageRenderMode.IdentityControlled && request.IdentityPacks is { Count: > 0 }
+            IdentityPacksJson = renderMode == SceneImageRenderMode.IdentityControlled && request.IdentityPacks is { Count: > 0 }
                 ? JsonSerializer.Serialize(request.IdentityPacks, JsonOptions)
                 : null,
+            IdentityReferenceBindingsJson = identityReferenceBindingsJson,
             ProductionGroupId = productionGroup?.Id,
             CompiledMediaBriefId = productionGroup is null ? null : request.CompiledMediaBriefId,
             ProductionStage = productionGroup is null ? null : SceneImageProductionStage.Composition,
@@ -777,6 +802,97 @@ public sealed class SceneImageService : ISceneImageService
         }
 
         return JsonSerializer.Serialize(applications, JsonOptions);
+    }
+
+    /// <summary>
+    /// The ordered identity-face bindings a NATIVE-REFERENCE render consumes, or null for every other render
+    /// mode. Identity on the native route travels as reference images, and the render handler builds them from
+    /// <see cref="SceneImageRecord.IdentityReferenceBindingsJson"/> - a column the identity EDIT paths populate
+    /// but the create path never did, so a native create lost every face (B-128 section 5.3 U3).
+    ///
+    /// The packs are resolved from the Moment's VISIBLE CAST through the production service, so the faces sent
+    /// are that Moment's approved owned canonical assets rather than whatever ids a caller happened to send. A
+    /// requested pack that is not one of them fails fast by name: rendering without a face the operator asked
+    /// for is the one outcome the reference rules forbid, so it must never be a silent omission.
+    /// </summary>
+    private async Task<string?> ResolveNativeReferenceIdentityBindingsAsync(
+        SceneRenderRequest request,
+        SceneImageRenderMode renderMode,
+        CancellationToken cancellationToken)
+    {
+        if (renderMode != SceneImageRenderMode.NativeReference)
+        {
+            return null;
+        }
+
+        // Bind ONLY what the caller named. Identity intent on the create path is expressed by the packs the page
+        // sends, so binding the whole visible cast when the caller named none would INVENT references the operator
+        // never asked for - the mirror of dropping them, and just as wrong. A blueprint that wants the whole cast
+        // names the whole cast (B130-006).
+        if (request.IdentityPacks is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        // No production group means no visible cast, so there is nothing an identity pack could be validated
+        // against. The packs cannot be honoured, and saying so beats rendering faceless.
+        if (string.IsNullOrWhiteSpace(request.ProductionGroupId))
+        {
+            throw new InvalidOperationException(
+                "A native-reference render that requests identity packs requires a production group, because the approved faces are resolved from that Moment's visible cast.");
+        }
+
+        var productionService = _productionService
+            ?? throw new InvalidOperationException(
+                "A native-reference render requires the production service to resolve its identity faces.");
+
+        var readiness = await productionService.ResolveIdentityReadinessAsync(
+            request.ProductionGroupId, null, cancellationToken);
+
+        var requestedPackIds = request.IdentityPacks.Select(selection => (selection.PackId ?? string.Empty).Trim()).ToArray();
+        if (requestedPackIds.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new InvalidOperationException("Every identity pack selection on a native-reference render requires an exact pack id.");
+        }
+        if (requestedPackIds.Distinct(StringComparer.Ordinal).Count() != requestedPackIds.Length)
+        {
+            throw new InvalidOperationException("A native-reference render binds at most one approved identity pack per character.");
+        }
+        if (requestedPackIds.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new InvalidOperationException("Every identity pack selection on a native-reference render requires an exact pack id.");
+        }
+        if (requestedPackIds.Distinct(StringComparer.Ordinal).Count() != requestedPackIds.Length)
+        {
+            throw new InvalidOperationException("A native-reference render binds at most one approved identity pack per character.");
+        }
+
+        var readinessByPackId = readiness.ToDictionary(item => item.IdentityPackId, StringComparer.Ordinal);
+        var unapproved = requestedPackIds.Where(packId => !readinessByPackId.ContainsKey(packId)).ToArray();
+        if (unapproved.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"Identity pack(s) {string.Join(", ", unapproved)} are not approved packs of this Moment's visible cast, so their faces cannot be rendered. Approve the packs, or remove them from the render.");
+        }
+
+        var bindings = requestedPackIds.Select((packId, index) =>
+        {
+            var item = readinessByPackId[packId];
+            return new
+            {
+                ordinal = index + 1,
+                characterId = item.CharacterId,
+                characterName = item.CharacterName,
+                identityPackId = item.IdentityPackId,
+                identityPackVersion = item.IdentityPackVersion,
+                canonicalFaceAssetId = item.CanonicalFaceAssetId,
+                faceView = item.FaceView,
+                fileRelativePath = item.FileRelativePath,
+                sha256 = item.Sha256
+            };
+        }).ToArray();
+
+        return JsonSerializer.Serialize(bindings, JsonOptions);
     }
 
     private static void ValidateIdentitySelections(SceneRenderRequest request)

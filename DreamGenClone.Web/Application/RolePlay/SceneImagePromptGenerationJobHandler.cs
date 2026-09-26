@@ -6,6 +6,7 @@ using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Application.Scenarios;
 using DreamGenClone.Web.Application.Sessions;
@@ -99,7 +100,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         if (!string.IsNullOrWhiteSpace(record.ProductionGroupId)
             || !string.IsNullOrWhiteSpace(record.CompiledMediaBriefId))
         {
-            await HandleCanonicalAsync(record, payload.RequestedImageModelId, cancellationToken);
+            await HandleCanonicalAsync(record, payload.RequestedImageModelId, payload.ReferenceApplications, cancellationToken);
             return;
         }
 
@@ -239,6 +240,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
     private async Task HandleCanonicalAsync(
         SceneImagePromptRecord record,
         string? requestedImageModelId,
+        IReadOnlyList<ReferenceApplicationSelection>? referenceApplications,
         CancellationToken cancellationToken)
     {
         try
@@ -294,8 +296,11 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             }
 
             // Apply user-authored element overrides/removals (and whole-character removals) as hard
-            // substitutions so the compiler sees exactly one value per element.
-            var promptPayload = ScenePromptOverridesApplier.Apply(brief, settings.PromptOverrides);
+            // substitutions so the compiler sees exactly one value per element. The render's reference bindings
+            // are merged in BEHIND those: an image that supplies an element means the prompt need not describe it
+            // either, but a deliberate operator edit always outranks a binding-derived default.
+            var effectiveOverrides = ReferenceBindingPromptRemoval.Merge(settings.PromptOverrides, referenceApplications);
+            var promptPayload = ScenePromptOverridesApplier.Apply(brief, effectiveOverrides);
             var (systemPrompt, userPrompt) = compiler.PromptBuilder.BuildMessages(
                 promptPayload.Brief, group.Pov, settings, resolvedImageModel.ContentPolicy, record.RefineInstruction, characters, promptPayload.AppearanceOverrides);
 

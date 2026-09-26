@@ -5,6 +5,7 @@
 
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.ImageStep
 @using DreamGenClone.Web.Application.RolePlay.Models
 @using DreamGenClone.Web.Application.Sessions
 @using DreamGenClone.Web.Application.Scenarios
@@ -1199,14 +1200,26 @@
                                             }
                                             @if (!string.IsNullOrWhiteSpace(_selectedProductionModelId))
                                             {
+                                                @* B-130: the finish step's references are its OWN. They used to be one list
+                                                   shared with the composition and identity steps - and this panel, the only UI
+                                                   that could edit that list, lives in this stage - so the other two were
+                                                   submitted with whatever was bound here. The faces are deliberately absent:
+                                                   this stage applies identity through its own per-person face selections, and a
+                                                   face slot here would give each person two mechanisms in one render. *@
                                                 <div class="mt-3">
-                                                    <ReferenceApplyPanel ModelId="@_selectedProductionModelId"
-                                                                         Selections="@_productionReferenceApplications"
-                                                                         SelectionsChanged="OnProductionReferenceApplicationsChanged"
-                                                                         ExecutableStrategies="ProductionModelStrategies" />
+                                                    <ImageStepComposer Blueprint="ProductionFinishBlueprint"
+                                                                       ModelChoices="_genericModelChoices"
+                                                                       SelectedModelId="_selectedProductionModelId"
+                                                                       SelectedModelIdChanged="OnProductionModelChanged"
+                                                                       ModelPlaceholder="Choose an image model"
+                                                                       Bindings="_productionFinishBindings"
+                                                                       BindingsChanged="OnProductionFinishBindingsChanged"
+                                                                       Busy="_busy"
+                                                                       CanSubmit="false"
+                                                                       ShowPrompt="false" />
                                                     <div class="mt-2">
                                                         <ResolvedRenderBadge ModelLabel="@SelectedProductionModelLabel()"
-                                                                             Selections="@_productionReferenceApplications" />
+                                                                             Selections="_productionFinishBindings" />
                                                     </div>
                                                 </div>
                                             }
@@ -2239,13 +2252,55 @@
         }
     }
 
-    private readonly List<ReferenceApplicationSelection> _productionReferenceApplications =
-    [
-        new() { ElementKey = "Identity", SemanticRole = "character identity", AssetType = SceneAssetType.CharacterFace },
-        new() { ElementKey = "Body", SemanticRole = "character body", AssetType = SceneAssetType.CharacterBody },
-        new() { ElementKey = "Wardrobe", SemanticRole = "wardrobe continuity", AssetType = SceneAssetType.Wardrobe },
-        new() { ElementKey = "Location", SemanticRole = "location continuity", AssetType = SceneAssetType.Location }
-    ];
+    /// <summary>
+    /// The COMPOSITION step's bindings. It used to be one list shared by the composition, identity and finish steps,
+    /// which meant a render was submitted with whatever was bound while looking at another step's UI. Each step now
+    /// holds its own (B-130), and this one is edited in the composition stage.
+    /// </summary>
+    private readonly List<ReferenceApplicationSelection> _productionCompositionBindings = [];
+
+    /// <summary>
+    /// The FINISH step's bindings, ordered, edited by the composer in the finish stage. Written by the composer's
+    /// planner, so the page cannot construct a binding the render would refuse.
+    /// </summary>
+    private IReadOnlyList<ReferenceApplicationSelection> _productionFinishBindings = [];
+
+    /// <summary>
+    /// The characters this production addresses, taken from the identity readiness the stage already resolves. Each
+    /// entry's <c>CharacterId</c> is the character TEMPLATE id - the identity owner the packs belong to - which is
+    /// exactly the profile key a reference slot must address; a scenario instance id here would name a character the
+    /// prompt-element plan cannot write a scope for.
+    /// </summary>
+    private IReadOnlyList<ImageStepActor> ProductionCast =>
+        _productionIdentityReadiness
+            .Where(readiness => !string.IsNullOrWhiteSpace(readiness.CharacterId))
+            .Select(readiness => new ImageStepActor(readiness.CharacterId, readiness.CharacterName))
+            .DistinctBy(actor => actor.ActorKey, StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>
+    /// The finish step's blueprint. Its faces are not declared: this stage applies identity through its own per-person
+    /// face selections, so a face slot would give every person two mechanisms in one render (B-130).
+    /// </summary>
+    private ImageStepBlueprint ProductionFinishBlueprint => ImageStepBlueprintFactory.ForEditElements(ProductionCast);
+
+    private Task OnProductionFinishBindingsChanged(IReadOnlyList<ReferenceApplicationSelection> bindings)
+    {
+        _productionFinishBindings = bindings;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// A model change invalidates the bindings of the step it was made for: the slots a step offers depend on the
+    /// selected model's capability, so keeping them would leave the plan describing a model that is no longer chosen.
+    /// The per-slot strategy menu in the composer resolves the rest.
+    /// </summary>
+    private Task OnProductionModelChanged(string? modelId)
+    {
+        _selectedProductionModelId = modelId;
+        _productionFinishBindings = [];
+        return Task.CompletedTask;
+    }
     private List<IdentityPackOption> _productionIdentityPacks = [];
     private IReadOnlyList<SceneImageIdentityReadiness> _productionIdentityReadiness = [];
     private List<ProductionIdentityFaceSelection> _productionIdentityFaceSelections = [];
@@ -2283,12 +2338,6 @@
     private string SelectedProductionModelLabel()
         => _genericModelChoices.FirstOrDefault(choice => choice.ModelId == _selectedProductionModelId)?.DisplayName
             ?? throw new InvalidOperationException("The selected production model is no longer enabled.");
-
-    private Task OnProductionReferenceApplicationsChanged()
-    {
-        StateHasChanged();
-        return Task.CompletedTask;
-    }
 
     private ApprovedSceneFrameDecision? _currentApproval
         => _approvalDecisions.FirstOrDefault(decision => decision.Decision == ApprovedSceneFrameDecisionState.Approved);
@@ -3987,9 +4036,14 @@
         }
     }
 
-    private Task GenerateProductionCompositionAsync()
-        => EnqueueProductionCompositionAsync(null);
-
+    /// <summary>
+    /// Regenerates a sibling Composition from an existing attempt. Note what this path does and does not carry: its
+    /// references come from the COMPOSITION step's own list, which this stage has no UI for - composition prompt, model
+    /// and references are managed in the Composition Composer, and this stage says so with a link rather than a second
+    /// set of controls. Choose composition references there. (Before B-130 this path carried the FINISH step's list,
+    /// which meant a regenerated composition was conditioned on whatever had been bound while looking at a different
+    /// stage's panel.)
+    /// </summary>
     private Task RegenerateProductionCompositionAsync(SceneImageRecord source)
     {
         if (source.Status != SceneImageStatus.Complete
@@ -4032,7 +4086,7 @@
                 CompiledMediaBriefId = _activePrompt.CompiledMediaBriefId,
                 BeatId = _productionGroup.BeatId,
                 Pov = _productionGroup.Pov,
-                ReferenceApplications = _productionReferenceApplications
+                ReferenceApplications = _productionCompositionBindings
             });
             await LoadProductionGroupAsync();
             _selectedProductionAttemptId = record.Id;
@@ -4063,7 +4117,8 @@
                     .Where(selection => selection.Selected)
                     .Select(selection => new SceneImageIdentityReferenceSelection(selection.CharacterId, selection.SelectedAssetId))
                     .ToArray(),
-                ReferenceApplications = _productionReferenceApplications
+                // Deliberately NO ReferenceApplications: this step's identity IS IdentityReferences, and handing it a
+                // binding list would give the render a second identity channel for the same face (B-130).
             });
             await LoadProductionGroupAsync();
             _selectedProductionAttemptId = record.Id;
@@ -4112,7 +4167,7 @@
                 Instruction = _productionFinishInstruction.Trim(),
                 FinishChangeClass = _productionFinishChangeClass,
                 RequestAdultContent = _productionFinishAdultContent,
-                ReferenceApplications = _productionReferenceApplications
+                ReferenceApplications = _productionFinishBindings
             });
             await LoadProductionGroupAsync();
             _selectedProductionAttemptId = record.Id;
@@ -4462,7 +4517,7 @@
     {
         var available = ProductionModelStrategies;
         var reset = new List<string>();
-        foreach (var selection in _productionReferenceApplications)
+        foreach (var selection in _productionCompositionBindings)
         {
             if (available.Contains(selection.Strategy, StringComparer.OrdinalIgnoreCase))
             {

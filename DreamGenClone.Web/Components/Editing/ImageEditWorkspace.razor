@@ -4,6 +4,7 @@
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.RolePlay.Editing
+@using DreamGenClone.Web.Application.RolePlay.ImageStep
 @using DreamGenClone.Web.Application.RolePlay.Models
 @implements IAsyncDisposable
 
@@ -101,28 +102,28 @@ else
                         }
                     </div>
                     <div class="mb-3">
-                        <label class="form-label" for="@ModelSelectId">Image editor model</label>
                         @if (_editorModelChoices.Count == 0)
                         {
                             <div class="alert alert-warning py-2 mb-0">No fully configured image editor endpoints are available. Configure a Qwen editor model in Model Manager.</div>
                         }
                         else
                         {
-                            <select id="@ModelSelectId" class="form-select form-select-sm" @bind="_selectedEditorModelId" disabled="@_busy">
-                                @foreach (var choice in _editorModelChoices)
-                                {
-                                    <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
-                                }
-                            </select>
-                            @if (!string.IsNullOrWhiteSpace(_selectedEditorModelId))
-                            {
-                                <div class="mt-3">
-                                    <ReferenceApplyPanel ModelId="@_selectedEditorModelId"
-                                                         Selections="@_referenceApplications"
-                                                         SelectionsChanged="OnReferenceApplicationsChanged"
-                                                         ExecutableStrategies="EditorReferenceStrategies" />
-                                </div>
-                            }
+                            @* B-130: the model and the reference slots are presented by the ONE composer. Its prompt
+                               panel and submit button are OFF because this workspace's prompt comes from its own
+                               workbench below (an intent is compiled into a prompt that is then run) - a second prompt
+                               box would be two controls over one value. The slots that used to be three unaddressed
+                               element rows are now addressed per character, because a body or wardrobe reference must
+                               name whose it is. *@
+                            <ImageStepComposer Blueprint="EditBlueprint"
+                                               ModelChoices="_editorModelChoices"
+                                               SelectedModelId="_selectedEditorModelId"
+                                               SelectedModelIdChanged="OnEditorModelChangedAsync"
+                                               ModelPlaceholder="Choose an image editor model"
+                                               Bindings="_bindings"
+                                               BindingsChanged="OnBindingsChanged"
+                                               Busy="_busy"
+                                               CanSubmit="false"
+                                               ShowPrompt="false" />
                         }
                     </div>
                     <EditIterateWorkbench Error="@_errorMessage"
@@ -596,7 +597,6 @@ else
         "Apply the approved face identity to the visible people only. List every visible person as a target with a distinct image-relative key and locator and a normalized face region. Do not propose any content, clothing, pose, expression, or background change.";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private static readonly IReadOnlyList<string> EditorReferenceStrategies = ["TextOnly", "NativeMultiReference"];
 
     /// <summary>The image being edited. Changing it re-opens the workspace.</summary>
     [Parameter, EditorRequired]
@@ -661,12 +661,28 @@ else
     private IReadOnlyList<ImageEditLineageItem> _lineage = [];
     private IReadOnlyList<SceneImageModelChoice> _editorModelChoices = [];
     private string? _selectedEditorModelId;
-    private readonly List<ReferenceApplicationSelection> _referenceApplications =
-    [
-        new() { ElementKey = "Body", SemanticRole = "character body", AssetType = SceneAssetType.CharacterBody },
-        new() { ElementKey = "Wardrobe", SemanticRole = "wardrobe continuity", AssetType = SceneAssetType.Wardrobe },
-        new() { ElementKey = "Location", SemanticRole = "location continuity", AssetType = SceneAssetType.Location }
-    ];
+
+    /// <summary>
+    /// The references this edit will run with, in order. It starts EMPTY: the slots come from the step's blueprint, so
+    /// this list holds what the operator bound rather than a pre-built element list (the panel this page used to render
+    /// offered three element rows regardless of what the step actually had slots for).
+    /// </summary>
+    private IReadOnlyList<ReferenceApplicationSelection> _bindings = [];
+
+    /// <summary>
+    /// The characters this edit addresses, taken from the identity targets the operator has identified. That is what
+    /// makes the per-character slots addressable: a body or wardrobe reference must name the character it belongs to.
+    /// </summary>
+    private IReadOnlyList<ImageStepActor> EditCast =>
+        _identityTargetSelections
+            .Where(target => !string.IsNullOrWhiteSpace(target.CharacterId)
+                && !string.IsNullOrWhiteSpace(target.CharacterName))
+            .Select(target => new ImageStepActor(target.CharacterId, target.CharacterName))
+            .DistinctBy(actor => actor.ActorKey, StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>The step this workspace presents, built by the one factory that owns host knowledge.</summary>
+    private ImageStepBlueprint EditBlueprint => ImageStepBlueprintFactory.ForEditElements(EditCast);
     private readonly List<EditIdentityTargetSelection> _identityTargetSelections = [];
     private IReadOnlyList<ImageIdentityCharacterChoice> _identityCharacters = [];
     private string _identityRosterStatus = string.Empty;
@@ -1317,7 +1333,7 @@ else
                 _session.SourceImageSha256,
                 revision.PromptSha256,
                 _selectedEditorModelId!,
-                _referenceApplications.ToList()));
+                _bindings.ToList()));
             _statusMessage = "Image edit queued.";
             EnsurePolling();
         });
@@ -1400,9 +1416,18 @@ else
         _descriptionPending = false;
     }
 
-    private Task OnReferenceApplicationsChanged()
+    private Task OnBindingsChanged(IReadOnlyList<ReferenceApplicationSelection> bindings)
     {
-        StateHasChanged();
+        _bindings = bindings;
+        return Task.CompletedTask;
+    }
+
+    private Task OnEditorModelChangedAsync(string? modelId)
+    {
+        _selectedEditorModelId = modelId;
+        // The slots a step offers depend on the selected model's capability, so a model change invalidates what was
+        // bound under the previous one: keeping the bindings would leave the plan describing a model no longer chosen.
+        _bindings = [];
         return Task.CompletedTask;
     }
 

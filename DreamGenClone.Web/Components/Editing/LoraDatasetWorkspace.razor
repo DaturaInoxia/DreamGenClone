@@ -5,6 +5,7 @@
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.ImageStep
 
 @inject ICharacterLoraRepository LoraRepository
 @inject ICharacterLoraCoveragePlanGenerator PlanGenerator
@@ -259,39 +260,38 @@ else
                             </div>
 
                             <h6 class="text-uppercase text-muted small">Shoot this cell</h6>
-                            <div class="row g-2 align-items-end mb-3">
-                                <div class="col-md-5">
-                                    <label class="form-label small mb-1" for="lora-cell-model">Model</label>
-                                    <select id="lora-cell-model" class="form-select form-select-sm"
-                                            value="@_cellModelId" @onchange="OnCellModelChangedAsync">
-                                        <option value="">Select model…</option>
-                                        @foreach (var model in _cellModels)
-                                        {
-                                            <option value="@model.ModelId">@model.DisplayName</option>
-                                        }
-                                    </select>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label small mb-1">Size</label>
-                                    <input class="form-control form-control-sm" value="@SelectedRecord.Aspect" readonly />
-                                </div>
-                                <div class="col-md-2">
-                                    <label class="form-label small mb-1">Seed</label>
-                                    <input class="form-control form-control-sm" value="@SelectedRecord.Seed" readonly />
-                                </div>
-                                <div class="col-md-2 d-flex align-items-end">
-                                    <button type="button" class="btn btn-sm btn-primary w-100" @onclick="RenderCellAsync"
-                                            disabled="@(_cellBusy || string.IsNullOrWhiteSpace(_cellModelId) || !CanRender)">
-                                        Render image
-                                    </button>
-                                </div>
-                            </div>
-                            @if (!CanRender)
-                            {
-                                <div class="alert alert-warning py-2 small">
-                                    @RenderBlockedReason
-                                </div>
-                            }
+                            @* B-130: the step is presented by the ONE composer. The face and build references that the
+                               render used to resolve privately now arrive as THIS step's bindings, assigned from the
+                               cell's own rule - so the operator sees the two images the cell will be conditioned on,
+                               and can change them, before shooting. This page deliberately batches nothing: the flag on
+                               the blueprint is false and there is still no generate-them-all action here. *@
+                            <ImageStepComposer Blueprint="CellBlueprint"
+                                               ModelChoices="_cellModels"
+                                               SelectedModelId="_cellModelId"
+                                               SelectedModelIdChanged="OnCellModelSelectedAsync"
+                                               ModelPlaceholder="Select model…"
+                                               Bindings="_cellBindings"
+                                               BindingsChanged="OnCellBindingsChanged"
+                                               Prompt="@_cellPromptDraft"
+                                               PromptChanged="OnCellPromptChanged"
+                                               Busy="_cellBusy"
+                                               CanSubmit="CanRender"
+                                               SubmitLabel="Render image"
+                                               SubmitBlockedReason="RenderBlockedReason"
+                                               OnSubmit="RenderCellAsync">
+                                <ChildContent>
+                                    <div class="row g-2 align-items-end">
+                                        <div class="col-md-3">
+                                            <label class="form-label small mb-1">Size</label>
+                                            <input class="form-control form-control-sm" value="@SelectedRecord.Aspect" readonly />
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small mb-1">Seed</label>
+                                            <input class="form-control form-control-sm" value="@SelectedRecord.Seed" readonly />
+                                        </div>
+                                    </div>
+                                </ChildContent>
+                            </ImageStepComposer>
 
                             <div class="d-flex justify-content-between align-items-center">
                                 <h6 class="text-uppercase text-muted small mb-1">
@@ -411,7 +411,15 @@ else
     private string? _selectedAttemptId;
     private string _cellIdentityReference = string.Empty;
     private string _cellBodyReference = string.Empty;
+    private IReadOnlyList<ReferenceApplicationSelection> _cellBindings = [];
+    private string _cellPromptDraft = string.Empty;
     private bool _cellBusy;
+
+    /// <summary>The step this workspace presents, built by the one factory that owns host knowledge. A cell is shot
+    /// with the character the dataset belongs to, and the blueprint declares no batch - the training set is judged frame
+    /// by frame.</summary>
+    private ImageStepBlueprint CellBlueprint =>
+        ImageStepBlueprintFactory.ForLoraCell(new ImageStepActor(_identityKey, _characterName));
 
     protected override async Task OnParametersSetAsync()
     {
@@ -693,17 +701,24 @@ else
                 LoraCellWorkflowKeys.Caption, _identityKey)).Body;
 
             // What the render will be conditioned on, read from the pack before anything is shot, so a missing
-            // reference is visible up front instead of surfacing as a failed render. Both references are read:
-            // the face carries identity and the body carries the build, and a cell cannot be shot without the
-            // state-matched body reference its own rule names.
+            // reference is visible up front instead of surfacing as a failed render. Both references are read: the
+            // face carries identity and the body carries the build, and a cell cannot be shot without the
+            // state-matched body reference its own rule names. They are read as BINDINGS (B-130) so the step shows
+            // them and the operator can change them before shooting, rather than the render resolving them privately.
             _cellIdentityReference = await CellService.DescribeIdentityReferenceAsync(_selectedDatasetId, record.Key);
             _cellBodyReference = await CellService.DescribeBodyReferenceAsync(_selectedDatasetId, record.Key);
+            _cellBindings = await CellService.ResolveCellBindingsAsync(_selectedDatasetId, record.Key);
+            // The composed prompt becomes the step's DRAFT rather than staying a read-only paragraph: the box is
+            // editable, so an edit that the render ignored would be a lie about what is being shot.
+            _cellPromptDraft = RenderPromptForShoot;
             await RefreshAttemptsAsync();
         }
         catch (Exception exception)
         {
             _cellIdentityReference = string.Empty;
             _cellBodyReference = string.Empty;
+            _cellBindings = [];
+            _cellPromptDraft = string.Empty;
             _error = exception.Message;
         }
     }
@@ -769,9 +784,9 @@ else
 
     private void SelectCell(string key) => _ = SelectCellAsync(key);
 
-    private async Task OnCellModelChangedAsync(ChangeEventArgs args)
+    private async Task OnCellModelSelectedAsync(string? modelId)
     {
-        _cellModelId = args.Value?.ToString() ?? string.Empty;
+        _cellModelId = modelId ?? string.Empty;
         if (string.IsNullOrWhiteSpace(_cellModelId) || string.IsNullOrWhiteSpace(_identityKey))
         {
             return;
@@ -785,6 +800,18 @@ else
         {
             _error = exception.Message;
         }
+    }
+
+    private Task OnCellBindingsChanged(IReadOnlyList<ReferenceApplicationSelection> bindings)
+    {
+        _cellBindings = bindings;
+        return Task.CompletedTask;
+    }
+
+    private Task OnCellPromptChanged(string? prompt)
+    {
+        _cellPromptDraft = prompt ?? string.Empty;
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -805,7 +832,7 @@ else
         try
         {
             var image = await CellService.RenderCellAsync(
-                _selectedDatasetId, record.Key, RenderPromptForShoot, _cellModelId, record.Aspect);
+                _selectedDatasetId, record.Key, _cellPromptDraft.Trim(), _cellModelId, record.Aspect, _cellBindings);
             var reference = string.IsNullOrWhiteSpace(_cellIdentityReference)
                 ? "no face reference — this view shows none"
                 : _cellIdentityReference;

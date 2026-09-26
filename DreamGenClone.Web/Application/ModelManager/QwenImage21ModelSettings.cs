@@ -19,6 +19,36 @@ public static class QwenImage21ModelSettings
     public const string ReferenceStrategy = "NativeMultiReference";
 
     /// <summary>
+    /// The model's OWN acceptance limit on reference count, or <c>null</c> when it declares no passing
+    /// <c>NativeMultiReference</c> qualification.
+    ///
+    /// Non-throwing ON PURPOSE, and this is not a fallback: it is LISTING data for a model picker, and the listing
+    /// contract is that one malformed row must not take out every picker on the page. <c>null</c> means "this model
+    /// declares no reference capacity", which is exactly true of a model with no native-reference route; a step that
+    /// offers slots on such a model fails naming the missing configuration instead of guessing. The render path keeps
+    /// using <see cref="Resolve"/>, which still fails fast on every field it needs.
+    /// </summary>
+    public static int? TryResolveReferenceCapacity(RegisteredModel model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        Qualification? qualification;
+        try
+        {
+            qualification = ParseQualifications(model.CapabilityQualificationsJson).FirstOrDefault(entry =>
+                string.Equals(entry.Strategy, ReferenceStrategy, StringComparison.OrdinalIgnoreCase)
+                && entry.Qualified
+                && !string.IsNullOrWhiteSpace(entry.ProofId));
+        }
+        catch (ModelResolutionException)
+        {
+            return null;
+        }
+
+        return qualification?.MaxReferences is { } maxReferences && maxReferences >= 1 ? maxReferences : null;
+    }
+
+    /// <summary>
     /// Reads ONLY the reference pixel budget from a model's NativeMultiReference qualification. Used by
     /// the 2.1 EDITOR row, whose artifacts live in the editor columns while its budget lives with the
     /// capability it was qualified for.
@@ -27,13 +57,32 @@ public static class QwenImage21ModelSettings
     {
         ArgumentNullException.ThrowIfNull(model);
 
-        var qualification = FindQualification(model);
-        if (qualification.Resolution is not { } resolution || resolution <= 0)
+        return RequireResolutionBudget(FindQualification(model), model);
+    }
+
+    /// <summary>
+    /// The reference pixel budget, or a fail-fast diagnostic. <b>Zero is a VALID value</b>, not a missing one:
+    /// the live node's own tooltip for <c>TextEncodeQwenImage21.resolution</c> reads "0 keeps each reference at
+    /// its own size, rounded to a multiple of 32" (verified against the host's /object_info 2026-09-25, and
+    /// measured working at 6 references: 111 s vs 126 s at 1024, pose and identity intact). Rejecting it made
+    /// the app refuse a capability the model has. A negative value is still refused, because it is meaningless.
+    /// </summary>
+    private static int RequireResolutionBudget(Qualification qualification, RegisteredModel model)
+    {
+        if (qualification.Resolution is not { } resolution)
         {
             throw new ModelResolutionException(
-                $"Qwen-Image-2.1 'Resolution' (the reference pixel budget for TextEncodeQwenImage21) must be positive, "
-                + $"but model '{model.DisplayName}' has {qualification.Resolution?.ToString() ?? "none"} in its "
-                + $"'{ReferenceStrategy}' qualification. Set 'Resolution' in Model Manager (/model-manager).");
+                $"Qwen-Image-2.1 'Resolution' (the reference pixel budget for TextEncodeQwenImage21) is missing from "
+                + $"model '{model.DisplayName}' '{ReferenceStrategy}' qualification. Set 'Resolution' in Model Manager "
+                + "(/model-manager): 0 keeps each reference at its own size, a positive number is a pixel budget.");
+        }
+
+        if (resolution < 0)
+        {
+            throw new ModelResolutionException(
+                $"Qwen-Image-2.1 'Resolution' must be 0 (keep each reference at its own size) or a positive pixel "
+                + $"budget, but model '{model.DisplayName}' has {resolution} in its '{ReferenceStrategy}' "
+                + "qualification. Set 'Resolution' in Model Manager (/model-manager).");
         }
 
         return resolution;
@@ -45,13 +94,7 @@ public static class QwenImage21ModelSettings
 
         var qualification = FindQualification(model);
 
-        if (qualification.Resolution is not { } resolution || resolution <= 0)
-        {
-            throw new ModelResolutionException(
-                $"Qwen-Image-2.1 'Resolution' (the reference pixel budget for TextEncodeQwenImage21) must be positive, "
-                + $"but model '{model.DisplayName}' has {qualification.Resolution?.ToString() ?? "none"} in its "
-                + $"'{ReferenceStrategy}' qualification. Set 'Resolution' in Model Manager (/model-manager).");
-        }
+        var resolution = RequireResolutionBudget(qualification, model);
 
         if (qualification.MaxReferences is not { } maxReferences || maxReferences < 1)
         {

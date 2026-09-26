@@ -24,4 +24,14 @@ public sealed record SceneImageModelChoice(
     /// is not available to allow but it should be" with Qwen-Image-2.1 selected).
     /// </summary>
     public IReadOnlyList<string> QualifiedStrategies { get; init; } = [];
+
+    /// <summary>
+    /// The model's OWN configured ACCEPTANCE limit on reference image count, read from the same capability
+    /// qualification the render reads (the <c>NativeMultiReference</c> entry). A host does not invent this number:
+    /// the composer plans bindings from it, and the planner's measured pose ceiling is applied ON TOP of it rather
+    /// than instead of it. <c>0</c> means this model declares no reference capacity at all - which is the honest
+    /// answer for a model that carries identity some other way - and a step that offers reference slots on such a
+    /// model must fail naming the missing configuration rather than guess a limit.
+    /// </summary>
+    public int MaxReferences { get; init; }
 }

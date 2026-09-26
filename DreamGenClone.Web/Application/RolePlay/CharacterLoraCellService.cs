@@ -92,12 +92,74 @@ public sealed class CharacterLoraCellService : ICharacterLoraCellService
             + $"({Shorten(conditioning.BodyAssetId)})";
     }
 
+    /// <summary>
+    /// The ordered reference bindings this cell's OWN rule resolves to: the face for the angle the cell depicts, and
+    /// the build in the state it depicts, each addressed to the dataset's identity pack.
+    ///
+    /// The decisions themselves are unchanged - they are <see cref="ResolveIdentityConditioning"/> and
+    /// <see cref="ResolveBodyConditioning"/>, still pure and still static. What changed is their ROLE: they are the
+    /// SEED now rather than the render's private step, which is what lets the operator see the two references a cell
+    /// will be shot with and change them before shooting. A cell that shows no face seeds no face binding, because
+    /// naming one would be a lie the render path would act on.
+    /// </summary>
+    public async Task<IReadOnlyList<ReferenceApplicationSelection>> ResolveCellBindingsAsync(
+        string datasetId, string cellKey, CancellationToken cancellationToken = default)
+    {
+        var (dataset, record) = await LoadCellAsync(datasetId, cellKey, cancellationToken);
+        var packAssets = await _identity.ListAssetsAsync(dataset.IdentityPackId, cancellationToken);
+
+        var bindings = new List<ReferenceApplicationSelection>();
+        var identity = ResolveIdentityConditioning(record, dataset.IdentityPackId, packAssets);
+        if (identity is not null)
+        {
+            bindings.Add(new ReferenceApplicationSelection
+            {
+                ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Face),
+                SemanticRole = "character identity",
+                Kind = ImageStepSlotKind.Face.ToString(),
+                Source = ImageStepReferenceSourceKind.IdentityPackAsset.ToString(),
+                // The binding says WHICH image; the render path still resolves HOW the selected model carries it.
+                Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+                IdentityPackId = identity.PackId,
+                ReferenceAssetId = identity.FaceAssetId,
+                // The ordinal is request data, not a display detail: the first reference anchors the frame. The host
+                // resolver states it explicitly so a step the operator never touched is planned the same way as one
+                // the planner re-orders.
+                Ordinal = bindings.Count + 1
+            });
+        }
+
+        var body = ResolveBodyConditioning(record, dataset.IdentityPackId, packAssets);
+        bindings.Add(new ReferenceApplicationSelection
+        {
+            ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Body),
+            SemanticRole = "character body",
+            Kind = ImageStepSlotKind.Body.ToString(),
+            Source = ImageStepReferenceSourceKind.IdentityPackAsset.ToString(),
+            Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+            IdentityPackId = body.PackId,
+            ReferenceAssetId = body.BodyAssetId,
+            Ordinal = bindings.Count + 1
+        });
+
+        return bindings;
+    }
+
+    /// <summary>
+    /// Shoots ONE image for the selected cell from the references the STEP holds.
+    ///
+    /// The references are no longer resolved here from the dataset's rule: they arrive as the step's bindings, so what
+    /// the operator saw on screen is what conditions the image. Both required references are validated rather than
+    /// substituted — a cell rendered without its build reference, or conditioned on a face its view does not show, is a
+    /// cell the dataset cannot be trusted on.
+    /// </summary>
     public async Task<SceneAssetImage> RenderCellAsync(
         string datasetId,
         string cellKey,
         string prompt,
         string modelId,
         string aspect,
+        IReadOnlyList<ReferenceApplicationSelection> referenceApplications,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(prompt))
@@ -124,14 +186,27 @@ public sealed class CharacterLoraCellService : ICharacterLoraCellService
                 $"LoRA dataset '{dataset.Id}' is {dataset.Status}; only a draft dataset can be shot.");
         }
 
-        // The face reference comes from the cell's own rule, so an angled cell is conditioned on the angled
-        // reference rather than on whatever face happened to be canonical.
-        var packAssets = await _identity.ListAssetsAsync(dataset.IdentityPackId, cancellationToken);
-        var conditioning = ResolveIdentityConditioning(record, dataset.IdentityPackId, packAssets);
+        var faceBinding = FindBinding(referenceApplications, ImageStepSlotKind.Face);
+        var bodyBinding = FindBinding(referenceApplications, ImageStepSlotKind.Body);
 
-        // The build reference comes from the same rule and is state-matched: this cell's own state decides which
-        // approved body reference travels, so a clothed cell can never be conditioned on the unclothed one.
-        var bodyConditioning = ResolveBodyConditioning(record, dataset.IdentityPackId, packAssets);
+        // A cell that shows a face MUST carry the face reference for ITS angle; a cell that shows none must not carry
+        // one at all, because a reference image carries its content with it and a back view conditioned on a face is a
+        // training image of something the dataset did not plan to shoot. Both branches are refusals, never substitutes.
+        SceneAssetIdentityConditioning? conditioning = null;
+        if (record.FaceCanonicalSlot is not null)
+        {
+            conditioning = RequireFaceConditioning(faceBinding, dataset.IdentityPackId, record.FaceCanonicalSlot);
+        }
+        else if (faceBinding is not null)
+        {
+            throw new InvalidOperationException(
+                $"Cell '{record.Key}' shows no face (no face slot in its rule), so a face reference cannot be sent. "
+                + "Clear the step's face slot, or fix the cell's face rule in the coverage plan.");
+        }
+
+        // The build reference is state-matched by the SEED, and validated here: a clothed cell can never be conditioned
+        // on the unclothed reference.
+        var bodyConditioning = RequireBodyConditioning(bodyBinding, dataset.IdentityPackId, record);
 
         var container = await EnsureContainerAsync(dataset, cancellationToken);
 
@@ -273,20 +348,15 @@ public sealed class CharacterLoraCellService : ICharacterLoraCellService
             return null;
         }
 
-        var matches = packAssets
-            .Where(asset => asset.AssetKind == SceneImageReferenceAssetKind.Face && asset.FaceView == slot)
-            .Where(asset => asset.IsApproved)
-            .OrderByDescending(asset => asset.CreatedUtc)
-            .ToList();
-
-        if (matches.Count == 0)
-        {
-            throw new InvalidOperationException(
+        // The match itself is the ONE pack-reference decision, shared with the step pre-fill; the refusal wording is
+        // this caller's, because "shoot the Faces tab first" is advice a dataset render can give and this is where the
+        // operator will read it.
+        var match = IdentityPackReferenceResolver.ResolveFace(packAssets, slot)
+            ?? throw new InvalidOperationException(
                 $"Identity pack '{identityPackId}' has no approved {slot} face reference, so a cell at that angle "
                 + "cannot be rendered as this character. Shoot or approve that view on the Faces tab first.");
-        }
 
-        return new SceneAssetIdentityConditioning(identityPackId.Trim(), matches[0].Id);
+        return new SceneAssetIdentityConditioning(identityPackId.Trim(), match.Id);
     }
 
     /// <summary>
@@ -315,21 +385,71 @@ public sealed class CharacterLoraCellService : ICharacterLoraCellService
             throw new InvalidOperationException("A dataset without an identity pack cannot condition a render on the body.");
         }
 
-        var matches = packAssets
-            .Where(asset => asset.AssetKind == SceneImageReferenceAssetKind.FullBody && asset.IsApproved)
-            .Where(asset => asset.BodyView == record.BodyCanonicalSlot && asset.BodyState == record.BodyState)
-            .OrderByDescending(asset => asset.CreatedUtc)
-            .ToList();
-
-        if (matches.Count == 0)
-        {
-            throw new InvalidOperationException(
+        var match = IdentityPackReferenceResolver.ResolveBody(packAssets, record.BodyCanonicalSlot, record.BodyState)
+            ?? throw new InvalidOperationException(
                 $"Identity pack '{identityPackId}' has no approved {record.BodyCanonicalSlot}/{record.BodyState} body "
                 + $"reference, so this cell cannot be rendered on the character's build. Shoot or approve that body "
                 + "slot in that state on the Body tab first.");
+
+        return new SceneAssetBodyReferenceConditioning(identityPackId.Trim(), match.Id);
+    }
+
+    /// <summary>The step's binding for one slot kind, or null when the step holds none.</summary>
+    private static ReferenceApplicationSelection? FindBinding(
+        IReadOnlyList<ReferenceApplicationSelection> bindings, ImageStepSlotKind slotKind)
+    {
+        ArgumentNullException.ThrowIfNull(bindings);
+        return bindings.FirstOrDefault(binding =>
+            string.Equals(binding.Kind, slotKind.ToString(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The face conditioning a cell's angle requires, or a refusal naming what is missing. The pack the binding names
+    /// must be the DATASET's own pack: a binding pointing at another pack would condition this character on a different
+    /// character's approved images, which is exactly the silent substitution the identity rules forbid.
+    /// </summary>
+    private static SceneAssetIdentityConditioning RequireFaceConditioning(
+        ReferenceApplicationSelection? binding, string datasetPackId, SceneImageReferenceFaceView? faceSlot)
+    {
+        var packId = RequirePackAsset(binding, datasetPackId, "face reference", $"the {faceSlot} face");
+        return new SceneAssetIdentityConditioning(packId.PackId, packId.AssetId);
+    }
+
+    /// <summary>The state-matched build conditioning, or a refusal naming what is missing or mismatched.</summary>
+    private static SceneAssetBodyReferenceConditioning RequireBodyConditioning(
+        ReferenceApplicationSelection? binding, string datasetPackId, CoverageRecord record)
+    {
+        var packId = RequirePackAsset(
+            binding, datasetPackId, "build reference", $"the {record.BodyCanonicalSlot}/{record.BodyState} body");
+        return new SceneAssetBodyReferenceConditioning(packId.PackId, packId.AssetId);
+    }
+
+    private static (string PackId, string AssetId) RequirePackAsset(
+        ReferenceApplicationSelection? binding, string datasetPackId, string label, string what)
+    {
+        if (binding is null)
+        {
+            throw new InvalidOperationException(
+                $"This cell cannot be rendered without its {label}: the step holds no binding for {what}. Re-open the "
+                + "cell so its rule can seed the reference again.");
         }
 
-        return new SceneAssetBodyReferenceConditioning(identityPackId.Trim(), matches[0].Id);
+        if (string.IsNullOrWhiteSpace(binding.IdentityPackId) || string.IsNullOrWhiteSpace(binding.ReferenceAssetId))
+        {
+            throw new InvalidOperationException(
+                $"The step's {label} binding names no approved pack image, so it cannot condition a render. Rebind it "
+                + $"from the character's approved pack, or clear it and let the cell's rule seed {what} again.");
+        }
+
+        if (!string.Equals(binding.IdentityPackId.Trim(), datasetPackId.Trim(), StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"The step's {label} comes from pack '{binding.IdentityPackId}', but this dataset is built from pack "
+                + $"'{datasetPackId}'. A cell is conditioned on its OWN dataset's approved images, so this reference "
+                + "would render a different character.");
+        }
+
+        return (binding.IdentityPackId.Trim(), binding.ReferenceAssetId.Trim());
     }
 
     private async Task<(CharacterLoraDataset Dataset, CoverageRecord Record)> LoadCellAsync(

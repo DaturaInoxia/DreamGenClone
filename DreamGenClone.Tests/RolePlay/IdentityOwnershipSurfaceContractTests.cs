@@ -119,7 +119,11 @@ public sealed class IdentityOwnershipSurfaceContractTests
 
         var composer = Read("DreamGenClone.Web", "Components", "Pages", "CompositionComposer.razor");
         Assert.Contains("await OwnerResolver.ResolveAsync(character.Id)", composer, StringComparison.Ordinal);
-        Assert.Contains("ListPacksAsync(owner.TemplateId)", composer, StringComparison.Ordinal);
+        // B-130: the resolved owner's template id is now KEPT (it is the actor key a reference slot must address),
+        // so the pack read uses the stored value. The guarantee is unchanged: the owner is resolved BEFORE the pack
+        // store is touched, and the raw scenario id is never used as a pack key.
+        Assert.Contains("templateId = owner.TemplateId;", composer, StringComparison.Ordinal);
+        Assert.Contains("ListPacksAsync(templateId)", composer, StringComparison.Ordinal);
         Assert.DoesNotContain("ListPacksAsync(character.Id)", composer, StringComparison.Ordinal);
     }
 

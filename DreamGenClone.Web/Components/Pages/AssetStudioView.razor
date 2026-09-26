@@ -32,7 +32,7 @@
     {
         <div class="row g-3 mb-4">
             <div class="col-xl-7">
-                <PromptAssetCreator AssetId="@_asset.Id" ImagesChanged="LoadAsync" />
+                <PromptAssetCreator AssetId="@_asset.Id" SubjectActor="SubjectActor()" ImagesChanged="LoadAsync" />
             </div>
             <div class="col-xl-5">
                 <AssetUploadCreator AssetId="@_asset.Id" ImagesChanged="LoadAsync" />
@@ -135,6 +135,15 @@
             : (await AssetService.ListImagesAsync(_asset.Id)).ToList();
         StateHasChanged();
     }
+
+    /// <summary>
+    /// The character this asset belongs to, when it belongs to one. The asset creator declares its per-character
+    /// element slots from this, because a character slot must name its character; an asset with no character simply
+    /// has no such slots rather than rendering one that addresses nobody.
+    /// </summary>
+    private ImageStepActor? SubjectActor() => string.IsNullOrWhiteSpace(_asset?.CharacterProfileId)
+        ? null
+        : new ImageStepActor(_asset.CharacterProfileId, _asset.Name);
 
     private void EnsurePolling()
     {

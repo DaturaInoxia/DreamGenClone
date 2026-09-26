@@ -51,12 +51,16 @@ public sealed class LoraDatasetWorkspaceContractTests
     {
         var source = Workspace;
 
-        Assert.Contains("lora-cell-model", source, StringComparison.Ordinal);
+        // B-130: the model picker and the render action are the ONE composer's. What the page still owns is the step
+        // (the blueprint), the model-choice list, and the model it persists per character - so the same guarantees are
+        // asserted against the new arrangement rather than against markup that no longer exists.
+        Assert.Contains("ImageStepComposer", source, StringComparison.Ordinal);
+        Assert.Contains("ImageStepBlueprintFactory.ForLoraCell", source, StringComparison.Ordinal);
         Assert.Contains("ModelResolutionService.ListSceneImageModelsAsync", source, StringComparison.Ordinal);
         Assert.Contains("CellService.ResolveCellModelAsync", source, StringComparison.Ordinal);
         Assert.Contains("CellService.SaveCellModelAsync", source, StringComparison.Ordinal);
 
-        Assert.Contains("Render image", source, StringComparison.Ordinal);
+        Assert.Contains("SubmitLabel=\"Render image\"", source, StringComparison.Ordinal);
         Assert.Contains("CellService.RenderCellAsync", source, StringComparison.Ordinal);
         Assert.Contains("CanRender", source, StringComparison.Ordinal);
 
@@ -278,9 +282,13 @@ public sealed class LoraDatasetWorkspaceContractTests
     }
 
     /// <summary>
-    /// A cell is rendered on the character's BUILD as well as her face. The body reference must be resolved from the
-    /// cell's own rule (its canonical slot and its wardrobe state) and carried in the same options object, because a
-    /// mechanism that cannot take it refuses the render rather than dropping it silently.
+    /// A cell is rendered on the character's BUILD as well as her face. The body reference must come from the cell's own
+    /// rule (its canonical slot and its wardrobe state) and be carried in the same options object, because a mechanism
+    /// that cannot take it refuses the render rather than dropping it silently.
+    ///
+    /// B-130: the rule is resolved into the step's BINDINGS now (the prefill) and the render CONSUMES them, so the
+    /// guarantees are asserted where they now live: the state-matched match in the ONE resolver, and the render taking
+    /// the conditioning from the step rather than resolving it privately.
     /// </summary>
     [Fact]
     public void CellRender_CarriesTheBodyReference_ResolvedFromTheCellsOwnState()
@@ -289,11 +297,17 @@ public sealed class LoraDatasetWorkspaceContractTests
 
         Assert.Contains("BodyReference = bodyConditioning", source, StringComparison.Ordinal);
         Assert.Contains("SceneAssetBodyReferenceConditioning", source, StringComparison.Ordinal);
-        Assert.Contains("ResolveBodyConditioning(record, dataset.IdentityPackId, packAssets)", source, StringComparison.Ordinal);
 
-        // State and slot are BOTH matched: a clothed cell must never be handed the unclothed reference of the same
-        // slot, because a reference image carries its clothing state into the render (verified 2026-09-23).
-        Assert.Contains("asset.BodyView == record.BodyCanonicalSlot && asset.BodyState == record.BodyState", source, StringComparison.Ordinal);
+        // The state-matched decision lives in the resolver, shared with the step prefill.
+        var resolver = Read("DreamGenClone.Web", "Application", "RolePlay", "IdentityPackReferenceResolver.cs");
+        Assert.Contains(
+            "asset.BodyView == view && asset.BodyState == state", resolver, StringComparison.Ordinal);
+        Assert.Contains(
+            "ResolveBody(packAssets, record.BodyCanonicalSlot, record.BodyState)", source, StringComparison.Ordinal);
+
+        // And the render reads the conditioning from the step's bindings, not from a private lookup.
+        Assert.Contains("RequireBodyConditioning(bodyBinding, dataset.IdentityPackId, record)", source, StringComparison.Ordinal);
+        Assert.Contains("ResolveCellBindingsAsync", source, StringComparison.Ordinal);
     }
 
     /// <summary>And the workspace shows which body reference the cell will use, beside the face.</summary>

@@ -47,6 +47,16 @@ public interface ICharacterLoraCellService
         string prompt,
         string modelId,
         string aspect,
+        IReadOnlyList<ReferenceApplicationSelection> referenceApplications,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The ordered reference bindings this cell's rule resolves to, so a host can SHOW them and seed them into a step.
+    /// The same two decisions the render used to make privately, exposed as the step's starting state.
+    /// </summary>
+    Task<IReadOnlyList<ReferenceApplicationSelection>> ResolveCellBindingsAsync(
+        string datasetId,
+        string cellKey,
         CancellationToken cancellationToken = default);
 
     /// <summary>

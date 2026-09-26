@@ -1942,7 +1942,10 @@ public sealed class CharacterIdentityBodyServiceTests
             => Task.FromResult(ApprovedPack?.Id == packId ? ApprovedPack : null);
 
         public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(string characterProfileId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult<IReadOnlyList<CharacterImageIdentityPack>>(ApprovedPack is null ? [] : [ApprovedPack]);
+
+        public Task<IReadOnlyList<CharacterImageIdentityPack>> ListApprovedPacksAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<CharacterImageIdentityPack>>(ApprovedPack is null ? [] : [ApprovedPack]);
 
         public Task<CharacterImageIdentityPack> UpsertDraftAsync(CharacterImageIdentityPack pack, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
