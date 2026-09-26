@@ -178,6 +178,18 @@ public sealed record ImageStepSlotBlueprint(
             + "decides whether its prompt elements are addressed per character or scene-wide.")
     };
 
+    /// <summary>
+    /// The prose THIS element currently contributes to the step's text, as the host resolves it for this step.
+    /// </summary>
+    /// <remarks>
+    /// It exists so "what does this element actually say?" is answerable ON SCREEN, in the element's own card, rather
+    /// than only inside the composed prompt - and so the replacement is visible: once a reference image supplies the
+    /// element, that same text is shown struck through, because the image carries it now and the prompt no longer
+    /// describes it (D4). Null means the host declares no text for this element, which is a real answer for a slot
+    /// whose element the step's text never described.
+    /// </remarks>
+    public string? ElementText { get; init; }
+
     public void Validate()
     {
         if (AllowedSources is null || AllowedSources.Count == 0)

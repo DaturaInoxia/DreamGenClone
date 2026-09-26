@@ -13,6 +13,65 @@ public sealed class ImageStepBlueprintFactoryTests
     private static readonly ImageStepActor Dean = new("p-dean", "Dean");
     private static readonly ImageStepActor[] Cast = [Becky, Dean];
 
+    /// <summary>
+    /// The LoRA cell is shot for a character whose identity lives in an APPROVED PACK, and its face and body come
+    /// from that pack. Declaring only <c>ApprovedSceneAsset</c> meant the pack picker never rendered, so the operator
+    /// had no control at all to add either reference (reported live 2026-09-26: "How do I add the Face Reference?").
+    /// </summary>
+    [Theory]
+    [InlineData(ImageStepSlotKind.Face)]
+    [InlineData(ImageStepSlotKind.Body)]
+    public void LoraCell_CanBindItsFaceAndBodyFromTheCharacterPack(ImageStepSlotKind slotKind)
+    {
+        var slot = ImageStepBlueprintFactory.ForLoraCell(Becky).Slots
+            .Single(candidate => candidate.SlotKind == slotKind);
+
+        Assert.Contains(ImageStepReferenceSourceKind.IdentityPackAsset, slot.AllowedSources);
+    }
+
+    /// <summary>A pack holds faces and bodies and nothing else, so the wardrobe slot must not offer it.</summary>
+    [Fact]
+    public void LoraCell_DoesNotOfferThePackForWardrobe()
+    {
+        var slot = ImageStepBlueprintFactory.ForLoraCell(Becky).Slots
+            .Single(candidate => candidate.SlotKind == ImageStepSlotKind.Wardrobe);
+
+        Assert.DoesNotContain(ImageStepReferenceSourceKind.IdentityPackAsset, slot.AllowedSources);
+    }
+
+    /// <summary>
+    /// An element's current text travels on the blueprint, so the step can show what the element says and show it
+    /// replaced once a reference image supplies it.
+    /// </summary>
+    [Fact]
+    public void LoraCell_CarriesTheElementTextTheHostDeclares()
+    {
+        var blueprint = ImageStepBlueprintFactory.ForLoraCell(Becky, new Dictionary<ImageStepSlotKind, string>
+        {
+            [ImageStepSlotKind.Face] = "curvy, full bust, fair smooth skin",
+            [ImageStepSlotKind.Body] = "curvy, full bust, fair smooth skin"
+        });
+
+        Assert.Equal(
+            "curvy, full bust, fair smooth skin",
+            blueprint.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Face).ElementText);
+        Assert.Equal(
+            "curvy, full bust, fair smooth skin",
+            blueprint.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Body).ElementText);
+
+        // A slot the host declares no text for stays null rather than gaining an invented one.
+        Assert.Null(blueprint.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Wardrobe).ElementText);
+    }
+
+    /// <summary>Declaring no element text at all is valid: the step simply shows none.</summary>
+    [Fact]
+    public void LoraCell_WithoutElementText_DeclaresNone()
+    {
+        var blueprint = ImageStepBlueprintFactory.ForLoraCell(Becky);
+
+        Assert.All(blueprint.Slots, slot => Assert.Null(slot.ElementText));
+    }
+
     public static TheoryData<ImageStepBlueprint> AllBlueprints()
     {
         var data = new TheoryData<ImageStepBlueprint>();

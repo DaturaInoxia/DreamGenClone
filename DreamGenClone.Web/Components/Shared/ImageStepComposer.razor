@@ -81,6 +81,23 @@
                             }
                         </div>
 
+                        @* The element's own text, in the element's own card, so "what does this element actually
+                           say?" is answerable on screen instead of only inside the composed prompt - and so the
+                           replacement is visible: once a reference image supplies the element, the image carries it
+                           and the prompt no longer describes it (D4), which is what the strike-through states. *@
+                        @if (!string.IsNullOrWhiteSpace(slot.ElementText))
+                        {
+                            <div class="small mb-2 @(binding is null ? "text-muted" : "text-muted text-decoration-line-through")">
+                                @slot.ElementText
+                                @if (binding is not null)
+                                {
+                                    <span class="text-success text-decoration-none ms-1">
+                                        &mdash; supplied by the reference image, so left out of the prompt
+                                    </span>
+                                }
+                            </div>
+                        }
+
                         @if (binding is null)
                         {
                             <div class="d-flex flex-wrap align-items-center gap-2">

@@ -427,7 +427,28 @@ else
     /// with the character the dataset belongs to, and the blueprint declares no batch - the training set is judged frame
     /// by frame.</summary>
     private ImageStepBlueprint CellBlueprint =>
-        ImageStepBlueprintFactory.ForLoraCell(new ImageStepActor(_identityKey, _characterName));
+        ImageStepBlueprintFactory.ForLoraCell(new ImageStepActor(_identityKey, _characterName), CellElementText());
+
+    /// <summary>
+    /// The text each element currently contributes to this cell, read from the SAME body card line the prompt is
+    /// composed from so the text on screen and the text in the prompt cannot disagree.
+    /// <para>
+    /// There is one physical-attributes line, and it is what BOTH a face image and a body image supply: the cell has
+    /// no separate face text, and inventing one here would be a second description of the same person. So the same
+    /// line is declared for both slots, which is the honest answer to "what does the face say?" for this host.
+    /// </para>
+    /// </summary>
+    private IReadOnlyDictionary<ImageStepSlotKind, string> CellElementText()
+    {
+        var text = new Dictionary<ImageStepSlotKind, string>();
+        if (!string.IsNullOrWhiteSpace(BodyCardLine))
+        {
+            text[ImageStepSlotKind.Face] = BodyCardLine;
+            text[ImageStepSlotKind.Body] = BodyCardLine;
+        }
+
+        return text;
+    }
 
     protected override async Task OnParametersSetAsync()
     {

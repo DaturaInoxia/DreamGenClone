@@ -40,23 +40,56 @@ public static class ImageStepBlueprintFactory
     /// The LoRA coverage cell. Face and body are the cell's own rule - and they are PRE-FILLED, not fixed, which is
     /// the difference between this component and the read-only badges the surface shipped with.
     /// </summary>
-    public static ImageStepBlueprint ForLoraCell(ImageStepActor actor) => Build(new ImageStepBlueprint(
-        ImageStepKind.LoraCell,
-        "Shoot this cell",
-        ImageStepSourceMode.None,
+    /// <param name="elementText">
+    /// The prose each element currently contributes, so the step can show it and show it REPLACED once a reference
+    /// image supplies the element.
+    /// </param>
+    public static ImageStepBlueprint ForLoraCell(
+        ImageStepActor actor,
+        IReadOnlyDictionary<ImageStepSlotKind, string>? elementText = null)
+    {
+        var actorKey = RequireActor(actor).ActorKey;
+
+        // The ACCEPTED PACK IS THIS CELL'S FACE AND BODY SOURCE. A pack image is an
+        // `SceneImageReferenceAsset` addressed by its own pack id, so it is NOT an approved scene asset, and the cell
+        // pre-fills these two slots FROM the pack. Declaring only `ApprovedSceneAsset` here - as this did - meant the
+        // pack picker never rendered and the operator had NO CONTROL AT ALL to add the face or body reference
+        // (reported live 2026-09-26: "How do I add the Face Reference?").
+        ImageStepReferenceSourceKind[] faceAndBodySources =
         [
-            new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.RecordRule,
-                [ImageStepReferenceSourceKind.ApprovedSceneAsset], RequireActor(actor).ActorKey),
-            new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.RecordRule,
-                [ImageStepReferenceSourceKind.ApprovedSceneAsset], RequireActor(actor).ActorKey),
-            new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.RecordRule,
-                [ImageStepReferenceSourceKind.ApprovedSceneAsset], RequireActor(actor).ActorKey)
-        ],
-        ImageStepPersistenceKind.LoraCellAttempt,
-        // No batch, by operator rule: the training set is judged frame by frame, and a sweep is how a set of
-        // near-duplicates gets made. The flag is data because the character pose library DOES batch - the component
-        // must not impose either.
-        AllowsBatch: false));
+            ImageStepReferenceSourceKind.ApprovedSceneAsset,
+            ImageStepReferenceSourceKind.IdentityPackAsset
+        ];
+
+        return Build(new ImageStepBlueprint(
+            ImageStepKind.LoraCell,
+            "Shoot this cell",
+            ImageStepSourceMode.None,
+            [
+                WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.RecordRule,
+                    faceAndBodySources, actorKey), ImageStepSlotKind.Face, elementText),
+                WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.RecordRule,
+                    faceAndBodySources, actorKey), ImageStepSlotKind.Body, elementText),
+                WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.RecordRule,
+                    [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey), ImageStepSlotKind.Wardrobe, elementText)
+            ],
+            ImageStepPersistenceKind.LoraCellAttempt,
+            // No batch, by operator rule: the training set is judged frame by frame, and a sweep is how a set of
+            // near-duplicates gets made. The flag is data because the character pose library DOES batch - the component
+            // must not impose either.
+            AllowsBatch: false));
+    }
+
+    /// <summary>Attaches an element's current text, when the host declares one for it.</summary>
+    private static ImageStepSlotBlueprint WithElementText(
+        ImageStepSlotBlueprint slot,
+        ImageStepSlotKind slotKind,
+        IReadOnlyDictionary<ImageStepSlotKind, string>? elementText)
+        => elementText is not null
+            && elementText.TryGetValue(slotKind, out var text)
+            && !string.IsNullOrWhiteSpace(text)
+                ? slot with { ElementText = text }
+                : slot;
 
     /// <summary>The pose library's try-a-pose step. It has no persistence at all today, which is exactly why a render
     /// made here could never become a reference for anything else.</summary>
