@@ -188,10 +188,37 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
             // skeleton as one more reference image in the same call (measured 2026-09-23). A model that qualifies
             // neither fails with its reason rather than rendering an unconditioned image.
             ReferenceStrategyResolution? poseStrategy = null;
-            if (!string.IsNullOrWhiteSpace(payload.PoseStance))
+            var hasPose = !string.IsNullOrWhiteSpace(payload.PoseStance)
+                || !string.IsNullOrWhiteSpace(payload.PosePresetId);
+            if (hasPose)
                 poseStrategy = await ResolvePoseStrategyAsync(payload.ModelId, cancellationToken);
             var poseIsNative = poseStrategy is not null
                 && string.Equals(poseStrategy.Strategy, ReferenceStrategyResolver.IdentityNativeMultiReference, StringComparison.OrdinalIgnoreCase);
+
+            // A library PRESET is only carried by the native-reference route. Everything else resolves a STANCE, so a
+            // preset reaching those paths would be ignored - a render that looks successful and contains no pose. That
+            // is refused here rather than dropped, and it is refused NOW because the dispatch below would otherwise
+            // take the plain text-to-image branch on a payload whose stance is blank.
+            if (!string.IsNullOrWhiteSpace(payload.PosePresetId))
+            {
+                if (!poseIsNative)
+                {
+                    throw new InvalidOperationException(
+                        $"Pose library preset '{payload.PosePresetId}' needs a model that carries the skeleton as a "
+                        + $"REFERENCE image, but '{payload.ModelId}' carries a pose through "
+                        + $"'{poseStrategy?.Strategy ?? "no mechanism"}'. Use a native-reference model "
+                        + "(Qwen-Image-2.1), or send a stance instead of a library preset.");
+                }
+
+                if (!string.IsNullOrWhiteSpace(payload.IdentityFaceAssetId)
+                    || !string.IsNullOrWhiteSpace(payload.BodyReferenceAssetId))
+                {
+                    throw new InvalidOperationException(
+                        $"Pose library preset '{payload.PosePresetId}' cannot be combined with identity or body "
+                        + "references yet: that path resolves its pose as a stance, so the preset would be dropped. "
+                        + "Send the pose as the step's own reference, or send a stance.");
+                }
+            }
 
             var bytes = !string.IsNullOrWhiteSpace(payload.BodyAngleView)
                 ? await RenderBodyAngleAsync(image, model, payload, compiledPrompt, negativePrompt, cancellationToken)
@@ -200,7 +227,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 // Treating the face as the only trigger is what would leave those cells unconditioned.
                 : string.IsNullOrWhiteSpace(payload.IdentityFaceAssetId)
                     && string.IsNullOrWhiteSpace(payload.BodyReferenceAssetId)
-                    ? string.IsNullOrWhiteSpace(payload.PoseStance)
+                    ? string.IsNullOrWhiteSpace(payload.PoseStance) && string.IsNullOrWhiteSpace(payload.PosePresetId)
                         ? await _imageClient.GenerateAsync(model, compiledPrompt, payload.ImageSize, negativePrompt, null, cancellationToken)
                             ?? throw new InvalidOperationException("The image model returned no image bytes.")
                         : poseIsNative
