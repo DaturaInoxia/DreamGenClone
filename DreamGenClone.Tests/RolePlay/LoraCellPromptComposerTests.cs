@@ -149,6 +149,84 @@ public sealed class LoraCellPromptComposerTests
         Assert.Equal("lora.cell.render.profile.full", LoraCellPromptComposer.RenderTemplateKey(full));
     }
 
+    /// <summary>
+    /// D4, the whole point of it: a reference image that supplies an element means the prompt must NOT describe that
+    /// element as well. Writing the build in prose while also conditioning on a body image makes the reference
+    /// redundant and invites the model to average the two - which is not the character anyone asked for.
+    /// </summary>
+    [Fact]
+    public void ComposeRenderPrompt_OmitsTheElementAReferenceSupplies()
+    {
+        var plan = Plan();
+        var record = plan.Records[0];
+
+        var prompt = LoraCellPromptComposer.ComposeRenderPrompt(
+            plan, record, BodyCard, RenderTemplate, ["character:becky.appearance"]);
+
+        Assert.DoesNotContain(BodyCard, prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("curvy", prompt, StringComparison.OrdinalIgnoreCase);
+
+        // Framing is not an element a reference supplies, so it survives - and the sentence the card was welded into
+        // is not left reading "photograph of .".
+        Assert.Contains("facing the camera straight on", prompt, StringComparison.Ordinal);
+        Assert.Contains("a plain neutral wall", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("of .", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("  ", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ComposeRenderPrompt_OmittingTheClothingDropsTheWardrobeSentence()
+    {
+        var plan = Plan();
+        var record = plan.Records[0];
+
+        var prompt = LoraCellPromptComposer.ComposeRenderPrompt(
+            plan, record, BodyCard, RenderTemplate, ["character:becky.clothing"]);
+
+        Assert.DoesNotContain("wearing a plain t-shirt and jeans", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("wearing", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(BodyCard, prompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Silence would read as "this cell has no build and no clothing", which the model is then free to invent. The
+    /// omission is therefore STATED, and it names the elements so the operator can match it to the badges on screen.
+    /// </summary>
+    [Fact]
+    public void ComposeRenderPrompt_NamesWhatTheReferencesSupply()
+    {
+        var plan = Plan();
+        var record = plan.Records[0];
+
+        var prompt = LoraCellPromptComposer.ComposeRenderPrompt(
+            plan, record, BodyCard, RenderTemplate,
+            ["character:becky.appearance", "character:becky.clothing"]);
+
+        Assert.Contains("SUPPLIED BY THE REFERENCE IMAGES", prompt, StringComparison.Ordinal);
+        Assert.Contains("Appearance", prompt, StringComparison.Ordinal);
+        Assert.Contains("Clothing", prompt, StringComparison.Ordinal);
+        Assert.Contains("do NOT describe", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain(BodyCard, prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("wearing a plain t-shirt and jeans", prompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>Fully-textual is the other extreme and must be untouched: no omission, no notice.</summary>
+    [Fact]
+    public void ComposeRenderPrompt_WithNothingOmitted_IsUnchanged()
+    {
+        var plan = Plan();
+        var record = plan.Records[0];
+
+        var withEmptyList = LoraCellPromptComposer.ComposeRenderPrompt(
+            plan, record, BodyCard, RenderTemplate, []);
+        var withNoArgument = LoraCellPromptComposer.ComposeRenderPrompt(plan, record, BodyCard, RenderTemplate);
+
+        Assert.Equal(withNoArgument, withEmptyList);
+        Assert.Contains(BodyCard, withNoArgument, StringComparison.Ordinal);
+        Assert.Contains("wearing a plain t-shirt and jeans", withNoArgument, StringComparison.Ordinal);
+        Assert.DoesNotContain("REFERENCE IMAGES", withNoArgument, StringComparison.Ordinal);
+    }
+
     private const string BodyCard =
         "50-year-old woman, 5'8\", curvy, full bust, soft waist, wide hips, fair smooth skin";
 

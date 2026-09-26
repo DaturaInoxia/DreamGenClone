@@ -285,6 +285,7 @@ else
                                                CanSubmit="CanRender"
                                                SubmitLabel="Render image"
                                                SubmitBlockedReason="@RenderBlockedReason"
+                                               OnGeneratePrompt="GenerateCellPromptAsync"
                                                OnSubmit="RenderCellAsync">
                                 <ChildContent>
                                     <div class="row g-2 align-items-end">
@@ -802,9 +803,14 @@ else
             ? "Choose the image model this cell is shot with."
             : string.Empty;
 
-    /// <summary>The exact text this cell is rendered from — the same composition shown above, never a second one.</summary>
+    /// <summary>
+    /// The exact text this cell is rendered from - the same composition shown above, never a second one. The
+    /// elements the bound reference images supply are LEFT OUT (D4) through the same omission set the composer
+    /// reports to the operator, so the prompt and the "left out of the prompt" list cannot disagree.
+    /// </summary>
     private string RenderPromptForShoot => Compose(record => LoraCellPromptComposer.ComposeRenderPrompt(
-        _plan!, record, BodyCardLine, _renderTemplateBody ?? string.Empty));
+        _plan!, record, BodyCardLine, _renderTemplateBody ?? string.Empty,
+        ImageStepPromptOmission.ElementKeysFor(CellBlueprint, _cellBindings)));
 
     private void SelectCell(string key) => _ = SelectCellAsync(key);
 
@@ -835,6 +841,17 @@ else
     private Task OnCellPromptChanged(string? prompt)
     {
         _cellPromptDraft = prompt ?? string.Empty;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Re-derives this cell's prompt from its axes AND the references as they now stand. Deliberately NOT
+    /// <c>SelectCellAsync</c>: that re-resolves the bindings from the pack and would throw away a reference the
+    /// operator had just changed, which is the opposite of what regenerating a prompt is for.
+    /// </summary>
+    private Task GenerateCellPromptAsync()
+    {
+        _cellPromptDraft = RenderPromptForShoot;
         return Task.CompletedTask;
     }
 

@@ -147,9 +147,9 @@
             <div class="mt-3">
                 <StepPromptPanel Prompt="@Prompt" PromptChanged="PromptChanged"
                                RefineInstruction="@RefineInstruction" RefineInstructionChanged="RefineInstructionChanged"
-                               Bindings="@Bindings" GeneratedForSignature="@GeneratedForSignature"
-                               DraftedFromBindings="@DraftedFromBindings" OmittedElements="@OmittedElements"
-                               Busy="@Busy" OnGenerate="OnGeneratePrompt" OnRefine="OnRefinePrompt" />
+                               Bindings="@Bindings" GeneratedForSignature="@_generatedForSignature"
+                               DraftedFromBindings="@_draftedFromBindings" OmittedElements="@OmittedElementLabels"
+                               Busy="@Busy" OnGenerate="GeneratePromptAsync" OnRefine="OnRefinePrompt" />
                 @if (!string.IsNullOrWhiteSpace(PromptError))
                 {
                     <div class="alert alert-danger py-2 small mt-2 mb-0">@PromptError</div>
@@ -243,18 +243,6 @@
     [Parameter]
     public EventCallback<string?> RefineInstructionChanged { get; set; }
 
-    /// <summary>Signature of the bindings the current prompt was drafted from; null when nothing has been drafted.</summary>
-    [Parameter]
-    public string? GeneratedForSignature { get; set; }
-
-    [Parameter]
-    public IReadOnlyList<ReferenceApplicationSelection> DraftedFromBindings { get; set; } = [];
-
-    /// <summary>What the bound images already supply, so the omission is visible rather than a mystery.</summary>
-    [Parameter]
-    public IReadOnlyList<string> OmittedElements { get; set; } = [];
-
-    [Parameter]
     public bool Busy { get; set; }
 
     [Parameter]
@@ -294,6 +282,36 @@
     public bool ShowPrompt { get; set; } = true;
 
     private ImageStepSlotBlueprint? _posePickerSlot;
+
+    /// <summary>
+    /// The signature of the bindings the host was last asked to compose against, and those bindings. Held HERE rather
+    /// than accepted from the host, because D5 is a property of one prompt and one binding set and the composer is the
+    /// only thing that sees both: a host that had to remember to pass these could forget, and every host would then
+    /// have its own answer to "is this prompt stale?".
+    /// </summary>
+    private string? _generatedForSignature;
+    private IReadOnlyList<ReferenceApplicationSelection> _draftedFromBindings = [];
+
+    /// <summary>
+    /// What the bound reference images supply, so the prompt does not describe it a second time and the operator can
+    /// see WHY the prompt is short (D4). Derived here from the blueprint and the bindings, so every host shows the
+    /// same list and none can omit it.
+    /// </summary>
+    private IReadOnlyList<string> OmittedElementLabels =>
+        ImageStepPromptOmission.ElementLabelsFor(Blueprint, Bindings);
+
+    /// <summary>
+    /// Generates the step's prompt through the host's compose path. The bindings are recorded BEFORE the host is
+    /// asked, so the staleness comparison afterwards is against exactly the bindings the host composed for rather
+    /// than against whatever changed while it ran. Staleness is reported, never auto-applied: an operator's edit to
+    /// a draft must not be overwritten behind their back.
+    /// </summary>
+    private async Task GeneratePromptAsync()
+    {
+        _draftedFromBindings = Bindings.ToList();
+        _generatedForSignature = StepPromptStaleness.SignatureFor(_draftedFromBindings);
+        await OnGeneratePrompt.InvokeAsync();
+    }
 
     private SceneImageModelChoice? SelectedChoice =>
         ModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelId, SelectedModelId, StringComparison.Ordinal));
