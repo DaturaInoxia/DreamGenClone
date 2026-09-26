@@ -25,16 +25,26 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         await using var connection = new SqliteConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
 
+        // The default model is single-valued app-wide: a picker that groups by provider still has to answer
+        // "which model starts selected?", and two flagged rows would make that answer depend on read order.
+        if (model.IsDefault)
+        {
+            var clearDefault = connection.CreateCommand();
+            clearDefault.CommandText = "UPDATE RegisteredModels SET IsDefault = 0 WHERE Id <> $id AND IsDefault = 1";
+            clearDefault.Parameters.AddWithValue("$id", model.Id);
+            await clearDefault.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported, SceneImageModelFamily, PromptDialect,
+            INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, IsDefault, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported, SceneImageModelFamily, PromptDialect,
                 SupportsImageInput, MaximumInputImages, MaximumInputImageBytes, MaximumInputImagePixels, MaximumInputImageDimension, AcceptedInputMediaTypes, MaximumResponseBytes, RuntimeRevision, ArtifactRevision,
                 ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorGraphKind, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength,
                 ImageEditorLoraName, ImageEditorLoraStrength,
                 IdentityMechanism, IdentityStrength, IdentityAdapterRef, IdentityClipVisionRef, SupportedIdentityStrategiesJson,
                 SupportedVisualStrategiesJson, CapabilityQualificationsJson,
                 StructuredOutputMode, MaximumContextTokens, MaximumOutputTokens)
-            VALUES ($id, $providerId, $identifier, $displayName, $enabled, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported, $sceneImageModelFamily, $promptDialect,
+            VALUES ($id, $providerId, $identifier, $displayName, $enabled, $isDefault, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported, $sceneImageModelFamily, $promptDialect,
                 $supportsImageInput, $maximumInputImages, $maximumInputImageBytes, $maximumInputImagePixels, $maximumInputImageDimension, $acceptedInputMediaTypes, $maximumResponseBytes, $runtimeRevision, $artifactRevision,
                 $imageEditorDiffusionModel, $imageEditorTextEncoder, $imageEditorVae, $imageEditorGraphKind, $imageEditorSteps, $imageEditorCfg, $imageEditorSampler, $imageEditorScheduler, $imageEditorDenoise, $imageEditorAuraFlowShift, $imageEditorCfgNormStrength,
                 $imageEditorLoraName, $imageEditorLoraStrength,
@@ -46,6 +56,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                 ModelIdentifier = $identifier,
                 DisplayName = $displayName,
                 IsEnabled = $enabled,
+                IsDefault = $isDefault,
                 SupportsThinkingControl = $supportsThinkingControl,
                 ContextWindowSize = $ctxWindow,
                 Quantization = $quant,
@@ -94,6 +105,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.Parameters.AddWithValue("$identifier", model.ModelIdentifier);
         command.Parameters.AddWithValue("$displayName", model.DisplayName);
         command.Parameters.AddWithValue("$enabled", model.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$isDefault", model.IsDefault ? 1 : 0);
         command.Parameters.AddWithValue("$supportsThinkingControl", model.SupportsThinkingControl ? 1 : 0);
         command.Parameters.AddWithValue("$created", model.CreatedUtc);
         command.Parameters.AddWithValue("$ctxWindow", model.ContextWindowSize);
@@ -254,7 +266,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef, rm.SupportedIdentityStrategiesJson,
                rm.SupportedVisualStrategiesJson, rm.CapabilityQualificationsJson,
                rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens, rm.ImageEditorGraphKind,
-               rm.ImageEditorLoraName, rm.ImageEditorLoraStrength
+               rm.ImageEditorLoraName, rm.ImageEditorLoraStrength, rm.IsDefault
         FROM RegisteredModels rm
         """;
 
@@ -306,7 +318,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         MaximumOutputTokens = reader.IsDBNull(43) ? null : reader.GetInt32(43),
         ImageEditorGraphKind = reader.IsDBNull(44) ? null : reader.GetString(44),
         ImageEditorLoraName = reader.IsDBNull(45) ? null : reader.GetString(45),
-        ImageEditorLoraStrength = reader.IsDBNull(46) ? null : reader.GetDouble(46)
+        ImageEditorLoraStrength = reader.IsDBNull(46) ? null : reader.GetDouble(46),
+        IsDefault = reader.GetInt32(47) == 1
     };
 
     private static void ValidateImagePromptMetadata(RegisteredModel model)

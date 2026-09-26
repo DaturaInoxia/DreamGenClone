@@ -25,16 +25,27 @@ public sealed class ProviderRepository : IProviderRepository
 
         provider.UpdatedUtc = DateTime.UtcNow.ToString("o");
 
+        // A default provider is single-valued by construction: saving one clears the flag from every other row on
+        // the same connection, so the pickers can never read two "default" providers and disagree about which
+        // group belongs at the top of the list.
+        if (provider.IsDefault)
+        {
+            var clearDefault = connection.CreateCommand();
+            clearDefault.CommandText = "UPDATE Providers SET IsDefault = 0 WHERE Id <> $id AND IsDefault = 1";
+            clearDefault.Parameters.AddWithValue("$id", provider.Id);
+            await clearDefault.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO Providers (Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, ImageCapability, ImageGenerationPath, ContentPolicy, ImageProtocol, TimeoutSeconds,
                 LifecycleStrategyIdentifier, ReadinessPath, ReadinessSuccessContractJson, TransitionTimeoutSeconds, TransitionMarginSeconds, ShutdownDrainPolicyJson,
                 MaximumActiveRequests, QueueCapacity, CredentialReference, ServerIdentityPolicyJson, AllowedNetworkBoundary,
-                ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes)
+                ApiKeyEncrypted, IsEnabled, IsDefault, CreatedUtc, UpdatedUtc, Notes)
             VALUES ($id, $name, $type, $baseUrl, $path, $imageCapability, $imagePath, $contentPolicy, $imageProtocol, $timeout,
                 $lifecycleStrategy, $readinessPath, $readinessContract, $transitionTimeout, $transitionMargin, $shutdownDrainPolicy,
                 $maximumActiveRequests, $queueCapacity, $credentialReference, $serverIdentityPolicy, $allowedNetworkBoundary,
-                $apiKey, $enabled, $created, $updated, $notes)
+                $apiKey, $enabled, $isDefault, $created, $updated, $notes)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = $name,
                 ProviderType = $type,
@@ -58,6 +69,7 @@ public sealed class ProviderRepository : IProviderRepository
                 AllowedNetworkBoundary = $allowedNetworkBoundary,
                 ApiKeyEncrypted = $apiKey,
                 IsEnabled = $enabled,
+                IsDefault = $isDefault,
                 UpdatedUtc = $updated,
                 Notes = $notes
             """;
@@ -85,6 +97,7 @@ public sealed class ProviderRepository : IProviderRepository
         command.Parameters.AddWithValue("$allowedNetworkBoundary", (object?)provider.AllowedNetworkBoundary ?? DBNull.Value);
         command.Parameters.AddWithValue("$apiKey", (object?)provider.ApiKeyEncrypted ?? DBNull.Value);
         command.Parameters.AddWithValue("$enabled", provider.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$isDefault", provider.IsDefault ? 1 : 0);
         command.Parameters.AddWithValue("$created", provider.CreatedUtc);
         command.Parameters.AddWithValue("$updated", provider.UpdatedUtc);
         command.Parameters.AddWithValue("$notes", (object?)provider.Notes ?? DBNull.Value);
@@ -164,7 +177,7 @@ public sealed class ProviderRepository : IProviderRepository
         SELECT Id, Name, ProviderType, BaseUrl, ChatCompletionsPath, ImageCapability, ImageGenerationPath, ContentPolicy, ImageProtocol, TimeoutSeconds,
                LifecycleStrategyIdentifier, ReadinessPath, ReadinessSuccessContractJson, TransitionTimeoutSeconds, TransitionMarginSeconds, ShutdownDrainPolicyJson,
                MaximumActiveRequests, QueueCapacity, CredentialReference, ServerIdentityPolicyJson, AllowedNetworkBoundary,
-               ApiKeyEncrypted, IsEnabled, CreatedUtc, UpdatedUtc, Notes
+               ApiKeyEncrypted, IsEnabled, IsDefault, CreatedUtc, UpdatedUtc, Notes
         FROM Providers
         """;
 
@@ -193,8 +206,9 @@ public sealed class ProviderRepository : IProviderRepository
         AllowedNetworkBoundary = reader.IsDBNull(20) ? null : reader.GetString(20),
         ApiKeyEncrypted = reader.IsDBNull(21) ? null : reader.GetString(21),
         IsEnabled = reader.GetInt32(22) == 1,
-        CreatedUtc = reader.GetString(23),
-        UpdatedUtc = reader.GetString(24),
-        Notes = reader.IsDBNull(25) ? null : reader.GetString(25)
+        IsDefault = reader.GetInt32(23) == 1,
+        CreatedUtc = reader.GetString(24),
+        UpdatedUtc = reader.GetString(25),
+        Notes = reader.IsDBNull(26) ? null : reader.GetString(26)
     };
 }

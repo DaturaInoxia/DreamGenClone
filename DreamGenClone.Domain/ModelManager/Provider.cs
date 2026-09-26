@@ -25,6 +25,15 @@ public sealed class Provider
     public string? AllowedNetworkBoundary { get; set; }
     public string? ApiKeyEncrypted { get; set; }
     public bool IsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether this is THE default provider. At most one provider carries this flag: the repository clears
+    /// the flag from every other row when a provider is saved with it set, so the value is single-valued
+    /// rather than a convention several call sites have to agree on. The model pickers order this provider's
+    /// group first.
+    /// </summary>
+    public bool IsDefault { get; set; }
+
     public string CreatedUtc { get; set; } = DateTime.UtcNow.ToString("o");
     public string UpdatedUtc { get; set; } = DateTime.UtcNow.ToString("o");
 

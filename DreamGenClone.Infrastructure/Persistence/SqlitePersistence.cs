@@ -1441,6 +1441,28 @@ public sealed class SqlitePersistence : ISqlitePersistence
             }
         }
 
+        // B-131: the operator-designated default provider and default model. Both are plain row flags because
+        // the pickers need to ORDER by them (defaults at the top) rather than only resolve one value, and the
+        // repository keeps each flag single-valued. Existing rows default to 0 - no provider or model is
+        // promoted by this migration, so nothing changes until a default is explicitly chosen in Model Manager.
+        var defaultFlagColumns = new (string Table, string Column, string Ddl)[]
+        {
+            ("Providers", "IsDefault", "ALTER TABLE Providers ADD COLUMN IsDefault INTEGER NOT NULL DEFAULT 0"),
+            ("RegisteredModels", "IsDefault", "ALTER TABLE RegisteredModels ADD COLUMN IsDefault INTEGER NOT NULL DEFAULT 0"),
+        };
+        foreach (var (table, column, ddl) in defaultFlagColumns)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name='{column}'";
+            if (Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0)
+                continue;
+
+            var alter = connection.CreateCommand();
+            alter.CommandText = ddl;
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated {Table} table: added {Column} column", table, column);
+        }
+
                 // B-100 T142 reviewed mappings. Both the stable row ID and exact checkpoint identifier
                 // must match; renamed/replaced rows remain unconfigured for explicit Model Manager review.
                 var migrateReviewedImageFamilies = connection.CreateCommand();

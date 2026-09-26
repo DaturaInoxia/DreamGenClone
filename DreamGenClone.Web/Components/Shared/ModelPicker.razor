@@ -1,0 +1,101 @@
+@using DreamGenClone.Domain.ModelManager
+
+@* The ONE model picker. Every model dropdown in the app renders through this component, so the grouping rule
+   (group by provider, the configured default first) and the selection rule (the configured default model starts
+   selected) are written once instead of being re-derived per page.
+
+   The defaults are persisted, operator-set row flags - Providers.IsDefault and RegisteredModels.IsDefault - read
+   through SceneImageModelChoice. There is no hardcoded model name here and no index into a list: a picker that
+   cannot see a default says so by starting on the first model in display order, which is the documented
+   substitution in ModelChoiceOrdering.AutoSelect rather than a private guess at this layer. *@
+<select id="@Id" class="@CssClass" value="@SelectedModelId" disabled="@Disabled"
+        @onchange="OnChangedAsync">
+    @if (!string.IsNullOrWhiteSpace(Placeholder))
+    {
+        <option value="">@Placeholder</option>
+    }
+    @foreach (var group in _groups)
+    {
+        <optgroup label="@GroupLabel(group)">
+            @foreach (var choice in group.Choices)
+            {
+                <option value="@choice.ModelId">@OptionLabel(choice)</option>
+            }
+        </optgroup>
+    }
+</select>
+
+@code {
+    /// <summary>The models to offer, in any order. This component applies the canonical order and grouping.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<SceneImageModelChoice> Choices { get; set; } = [];
+
+    /// <summary>The selected model id. Empty means "nothing chosen yet", in which case the default is selected.</summary>
+    [Parameter]
+    public string? SelectedModelId { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> SelectedModelIdChanged { get; set; }
+
+    /// <summary>Optional leading empty option (e.g. "Select model…"). Omit it to force a real selection.</summary>
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    [Parameter]
+    public string Id { get; set; } = "model-picker";
+
+    [Parameter]
+    public string CssClass { get; set; } = "form-select form-select-sm";
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// Whether the configured default model is selected when the host has not chosen one. Defaults to true:
+    /// a picker the operator has never touched should already be pointed at the operator's default.
+    /// </summary>
+    [Parameter]
+    public bool AutoSelectDefault { get; set; } = true;
+
+    private IReadOnlyList<ModelChoiceGroup> _groups = [];
+    private string _autoSelectSignature = string.Empty;
+    private bool _autoSelectAttempted;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var ordered = ModelChoiceOrdering.Order(Choices);
+        _groups = ModelChoiceOrdering.Group(ordered);
+
+        if (!AutoSelectDefault || Disabled || ordered.Count == 0)
+            return;
+
+        // The attempt is tracked against the model set, not against time: a host that never adopts the value must
+        // not be asked again on the next render, and an operator who deliberately returns to the placeholder must
+        // not be overruled. A changed model set is a new question, so the attempt resets there.
+        var signature = string.Join('|', ordered.Select(choice => choice.ModelId));
+        if (!string.Equals(signature, _autoSelectSignature, StringComparison.Ordinal))
+        {
+            _autoSelectSignature = signature;
+            _autoSelectAttempted = false;
+        }
+
+        if (_autoSelectAttempted || !string.IsNullOrWhiteSpace(SelectedModelId))
+            return;
+
+        var defaultChoice = ModelChoiceOrdering.AutoSelect(ordered);
+        if (defaultChoice is null)
+            return;
+
+        _autoSelectAttempted = true;
+        await SelectedModelIdChanged.InvokeAsync(defaultChoice.ModelId);
+    }
+
+    private async Task OnChangedAsync(ChangeEventArgs args)
+        => await SelectedModelIdChanged.InvokeAsync(args.Value?.ToString());
+
+    private static string GroupLabel(ModelChoiceGroup group)
+        => group.IsDefaultProvider ? $"{group.ProviderName} (default)" : group.ProviderName;
+
+    private static string OptionLabel(SceneImageModelChoice choice)
+        => choice.IsDefaultModel ? $"{choice.DisplayName} (default)" : choice.DisplayName;
+}

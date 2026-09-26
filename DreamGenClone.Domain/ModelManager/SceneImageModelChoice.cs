@@ -12,6 +12,23 @@ public sealed record SceneImageModelChoice(
     string ProviderName,
     bool HasIdentity)
 {
+    /// <summary>
+    /// The provider this model belongs to, so a picker can GROUP by provider (one <c>optgroup</c> per provider)
+    /// instead of rendering one flat interleaved list the operator has to read provider-by-provider themselves.
+    /// </summary>
+    public string ProviderId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// This row is THE configured default model. The pickers list it first and preselect it.
+    /// </summary>
+    public bool IsDefaultModel { get; init; }
+
+    /// <summary>
+    /// This row's provider is THE configured default provider. The pickers list its group first, so the
+    /// default model the operator chose is at the top of the list rather than buried among the providers.
+    /// </summary>
+    public bool IsDefaultProvider { get; init; }
+
     public SceneImageModelFamily Family { get; init; } = SceneImageModelFamily.Unknown;
 
     public SceneImagePromptDialect Dialect { get; init; } = SceneImagePromptDialect.Unknown;

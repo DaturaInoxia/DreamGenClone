@@ -183,6 +183,11 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
                 choices.Add(new SceneImageModelChoice(
                     model.Id, model.DisplayName, model.ModelIdentifier, resolved.ProviderName, false)
                 {
+                    // Provider identity + the operator's default flags, so the picker can group by provider and put
+                    // the configured default at the top instead of the page deciding an order for itself.
+                    ProviderId = model.ProviderId,
+                    IsDefaultModel = model.IsDefault,
+                    IsDefaultProvider = provider?.IsDefault ?? false,
                     Family = model.SceneImageModelFamily,
                     Dialect = model.PromptDialect,
                     // The model's own acceptance limit, so the composer plans from the model's number instead of one a
@@ -202,9 +207,8 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
                 // The selector lists only fully configured, callable editor models.
             }
         }
-        return choices.OrderBy(choice => choice.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+        return ModelChoiceOrdering.Order(choices);
     }
-
     private static string RequiredText(string? value, string setting, RegisteredModel model) =>
         string.IsNullOrWhiteSpace(value)
             ? throw MissingSetting(setting, model)

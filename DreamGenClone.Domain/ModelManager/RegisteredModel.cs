@@ -80,6 +80,15 @@ public sealed class RegisteredModel
     public string CapabilityQualificationsJson { get; set; } = "[]";
 
     public bool IsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether this is THE default model. At most one model carries this flag app-wide: the repository clears
+    /// the flag from every other row when a model is saved with it set. Every model picker lists it first and
+    /// preselects it, so "the default model" is one piece of persisted, UI-backed data instead of a per-page
+    /// guess about which model to start on.
+    /// </summary>
+    public bool IsDefault { get; set; }
+
     /// <summary>Whether this model's chat template supports chat_template_kwargs.thinking.</summary>
     public bool SupportsThinkingControl { get; set; }
     public StructuredOutputMode StructuredOutputMode { get; set; }

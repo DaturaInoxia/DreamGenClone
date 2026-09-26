@@ -24,17 +24,9 @@
             <div class="row g-2 align-items-end">
                 <div class="col-md-6">
                     <label class="form-label small fw-semibold mb-1" for="step-model">Image model</label>
-                    <select id="step-model" class="form-select form-select-sm" value="@SelectedModelId"
-                            @onchange="args => SelectedModelIdChanged.InvokeAsync(args.Value?.ToString())">
-                        @if (!string.IsNullOrWhiteSpace(ModelPlaceholder))
-                        {
-                            <option value="">@ModelPlaceholder</option>
-                        }
-                        @foreach (var choice in ModelChoices)
-                        {
-                            <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
-                        }
-                    </select>
+                    <ModelPicker Choices="ModelChoices" SelectedModelId="@SelectedModelId"
+                                 SelectedModelIdChanged="SelectedModelIdChanged" Placeholder="@ModelPlaceholder"
+                                 Id="step-model" Disabled="@Busy" AutoSelectDefault="AutoSelectDefaultModel" />
                 </div>
                 @if (SelectedChoice is not null)
                 {
@@ -203,6 +195,15 @@
 
     [Parameter]
     public IReadOnlyList<SceneImageModelChoice> ModelChoices { get; set; } = [];
+
+    /// <summary>
+    /// Whether the configured default model is selected when the host has not chosen one. Defaults to true: a
+    /// step the operator has never touched should already be pointed at the operator's default model, so the
+    /// surface shows that model's real capabilities (reference slots for one that carries references) instead of
+    /// the empty-selection state. A host that must force an explicit choice sets this to false.
+    /// </summary>
+    [Parameter]
+    public bool AutoSelectDefaultModel { get; set; } = true;
 
     [Parameter]
     public string? SelectedModelId { get; set; }

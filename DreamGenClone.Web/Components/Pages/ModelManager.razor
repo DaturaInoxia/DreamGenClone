@@ -227,6 +227,16 @@
                                 <div class="form-text">Required when a credential reference is configured. The key is encrypted before persistence.</div>
                             </div>
                             <div class="col-12">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="provider-default-toggle"
+                                           @bind="_editingProvider!.IsDefault" />
+                                    <label class="form-check-label" for="provider-default-toggle">
+                                        Default provider
+                                    </label>
+                                    <div class="form-text">This provider's models are listed first in every model dropdown. Setting it clears the flag from every other provider.</div>
+                                </div>
+                            </div>
+                            <div class="col-12">
                                 <label class="form-label">Notes</label>
                                 <textarea class="form-control" rows="2" @bind="_editingProvider!.Notes" maxlength="1000"
                                           placeholder="e.g., Free tier, rate-limited to 60 RPM, pricing tier, special capabilities..."></textarea>

@@ -406,6 +406,11 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
                 provider?.Name ?? "Unknown",
                 HasIdentity: identityCapability.IsAvailable)
             {
+                // Provider identity + the operator's default flags, so the picker can group by provider and put
+                // the configured default at the top instead of each page deciding an order for itself.
+                ProviderId = model.ProviderId,
+                IsDefaultModel = model.IsDefault,
+                IsDefaultProvider = provider?.IsDefault ?? false,
                 Family = model.SceneImageModelFamily,
                 Dialect = model.PromptDialect,
                 // The model's own acceptance limit on reference count, so a step that offers slots plans from the
@@ -418,7 +423,9 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
                     : ReferenceStrategyResolver.ListAvailableStrategies(model, provider)
             });
         }
-        return result;
+
+        // Defaults first, grouped by provider: the same order every picker renders.
+        return ModelChoiceOrdering.Order(result);
     }
 
     /// <summary>
