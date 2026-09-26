@@ -99,6 +99,17 @@ public sealed class SceneAssetService : ISceneAssetService
             CandidateBatchId = string.IsNullOrWhiteSpace(candidateBatchId) ? null : candidateBatchId.Trim(),
             CandidateDecision = string.IsNullOrWhiteSpace(candidateBatchId) ? null : SceneAssetCandidateDecision.Undecided
         };
+        var hasStance = options?.Pose is not null;
+        var hasPosePreset = !string.IsNullOrWhiteSpace(options?.PosePresetId);
+        if (hasStance && hasPosePreset)
+        {
+            // Two pose channels in one request. Refused where the payload is BUILT, so the job never reaches the queue
+            // with a pose whose mechanism depends on which branch the handler happens to take.
+            throw new InvalidOperationException(
+                "An asset generation request cannot carry two poses: a stance and a pose library preset were both set. "
+                + "Send one of them.");
+        }
+
         var payload = new SceneAssetGenerationJobPayload
         {
             AssetId = asset.Id,
@@ -109,8 +120,13 @@ public sealed class SceneAssetService : ISceneAssetService
             ReferenceApplicationsJson = referenceApplicationsJson,
             // Both are stated together or not at all: the stance names the skeleton, the strength says how hard to
             // push it, and a stance with no strength is not a usable request.
-            PoseStance = options?.Pose?.Stance.ToString(),
-            PoseStrength = options?.Pose?.Strength,
+            PoseStance = hasStance ? options!.Pose!.Stance.ToString() : null,
+            PoseStrength = hasStance ? options!.Pose!.Strength : null,
+            // The pose-library route: the preset's own skeleton, read by id at render time.
+            PosePresetId = hasPosePreset ? options!.PosePresetId!.Trim() : null,
+            PoseSkeletonRelativePath = hasPosePreset && !string.IsNullOrWhiteSpace(options!.PoseSkeletonRelativePath)
+                ? options.PoseSkeletonRelativePath.Trim()
+                : null,
             IdentityPackId = options?.Identity?.PackId,
             IdentityFaceAssetId = options?.Identity?.FaceAssetId,
             // A body reference travels beside the face reference, never instead of it: a view from directly behind

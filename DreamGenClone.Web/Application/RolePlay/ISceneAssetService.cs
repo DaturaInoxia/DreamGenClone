@@ -64,6 +64,18 @@ public sealed record SceneAssetImageGenerationOptions
 
     public SceneAssetPoseConditioning? Pose { get; init; }
 
+    /// <summary>
+    /// A POSE LIBRARY preset whose own skeleton conditions this render, or null when the pose (if any) comes from a
+    /// stance. Separate from <see cref="Pose"/> on purpose: a stance is a canonical body pose the body card owns and
+    /// the provider verified; a preset is a named skeleton an operator picked, whose artifact is the file the pose
+    /// proofs used (B-130 §020). Exactly one of the two may be set - both is a duplicate pose channel and fails.
+    /// </summary>
+    public string? PosePresetId { get; init; }
+
+    /// <summary>The preset's skeleton path, recorded for provenance. The handler resolves the BYTES from
+    /// <see cref="PosePresetId"/>, so a stale path cannot make the render read a different file than the preset.</summary>
+    public string? PoseSkeletonRelativePath { get; init; }
+
     public SceneAssetIdentityConditioning? Identity { get; init; }
 
     /// <summary>
