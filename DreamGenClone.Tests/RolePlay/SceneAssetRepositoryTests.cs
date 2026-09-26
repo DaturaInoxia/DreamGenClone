@@ -356,4 +356,96 @@ public sealed class SceneAssetRepositoryTests
             try { File.Delete(dbPath + suffix); } catch { /* best effort */ }
         }
     }
+
+    // ------------------------------------------------------------------ character pose assets (B-130 §D8)
+
+    /// <summary>
+    /// A character pose asset is a SceneAsset with its own type, so it round-trips through the SAME store - no second
+    /// table, no parallel lifecycle, and no new approval rules to keep in step with the existing ones.
+    /// </summary>
+    [Fact]
+    public async Task CharacterPose_RoundTripsThroughTheAssetStore()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await repo.UpsertAsync(new SceneAsset
+            {
+                Id = "pose-1",
+                Name = "Becky - all fours",
+                Kind = SceneAssetKind.PromptGenerated,
+                Status = SceneAssetStatus.Complete,
+                Type = SceneAssetType.CharacterPose,
+                CharacterProfileId = "becky",
+                // Which pose rides the view descriptor: the picker filters on the character and the built state, both of
+                // which already have typed columns, so the pose itself is a label rather than a query axis (B-130 D8).
+                ViewDescriptorJson = "{\"poseKey\":\"allfours\"}",
+                BodyState = SceneImageReferenceBodyState.Clothed,
+                BodyView = SceneImageReferenceBodyView.Back,
+                FileRelativePath = "assets/pose-1.png",
+                UpdatedUtc = DateTime.UtcNow
+            });
+
+            var loaded = await repo.GetAsync("pose-1");
+
+            Assert.NotNull(loaded);
+            Assert.Equal(SceneAssetType.CharacterPose, loaded!.Type);
+            Assert.Equal("becky", loaded.CharacterProfileId);
+            Assert.Equal("{\"poseKey\":\"allfours\"}", loaded.ViewDescriptorJson);
+            Assert.Equal(SceneImageReferenceBodyState.Clothed, loaded.BodyState);
+            Assert.Equal(SceneImageReferenceBodyView.Back, loaded.BodyView);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// The new type is APPENDED, so no stored row may change meaning. Renumbering the enum is what would silently
+    /// reinterpret a whole table, so this asserts the persisted NAME for an existing row, not just a round trip.
+    /// </summary>
+    [Fact]
+    public async Task AppendingCharacterPose_DoesNotReinterpretExistingAssetTypes()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            var existing = new[]
+            {
+                (Id: "a-face", Type: SceneAssetType.CharacterFace),
+                (Id: "a-body", Type: SceneAssetType.CharacterBody),
+                (Id: "a-wardrobe", Type: SceneAssetType.Wardrobe),
+                (Id: "a-location", Type: SceneAssetType.Location)
+            };
+            foreach (var item in existing)
+            {
+                await repo.UpsertAsync(new SceneAsset
+                {
+                    Id = item.Id,
+                    Name = item.Id,
+                    Kind = SceneAssetKind.PromptGenerated,
+                    Status = SceneAssetStatus.Complete,
+                    Type = item.Type,
+                    UpdatedUtc = DateTime.UtcNow
+                });
+            }
+
+            foreach (var item in existing)
+            {
+                var loaded = await repo.GetAsync(item.Id);
+                Assert.Equal(item.Type, loaded!.Type);
+            }
+
+            await using var connection = new SqliteConnection($"Data Source={dbPath};Pooling=False");
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT Type FROM SceneAssets WHERE Id = 'a-location';";
+            Assert.Equal("Location", Convert.ToString(await command.ExecuteScalarAsync()));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
 }
