@@ -320,12 +320,9 @@
                                     }
                                     else
                                     {
-                                        <select class="form-select form-select-sm mb-2" @bind="_selectedIdentityModelId" @bind:after="RefreshIdentityResolutionAsync">
-                                            @foreach (var choice in _identityModelChoices)
-                                            {
-                                                <option value="@choice.ModelId">@choice.DisplayName - @choice.ProviderName</option>
-                                            }
-                                        </select>
+                                        <ModelPicker Choices="_identityModelChoices" @bind-SelectedModelId="_selectedIdentityModelId"
+                                                     @bind-SelectedModelId:after="RefreshIdentityResolutionAsync"
+                                                     Id="compose-identity-model" CssClass="form-select form-select-sm mb-2" />
                                     }
                                 </div>
                                 @if (_identityPackOptions.Count == 0)
@@ -840,13 +837,14 @@
     }
 
     /// <summary>
-    /// Keeps a picker's current selection while the model is still enabled, otherwise falls back to the first enabled
-    /// choice. A stale id would reach the capability lookups as a model the operator can no longer see.
+    /// Keeps a picker's current selection while the model is still enabled, otherwise falls back to the operator's
+    /// configured default model (B-131), then to the first enabled choice. A stale id would reach the capability
+    /// lookups as a model the operator can no longer see.
     /// </summary>
     private static string? KeepSelection(IReadOnlyList<SceneImageModelChoice> choices, string? current)
         => !string.IsNullOrWhiteSpace(current) && choices.Any(choice => choice.ModelId == current)
             ? current
-            : choices.FirstOrDefault()?.ModelId;
+            : ModelChoiceOrdering.AutoSelect(choices)?.ModelId;
 
     /// <summary>The prompt style that matches the currently selected image model's family.</summary>
     private SceneImagePromptStyle RenderStyle
@@ -1260,7 +1258,7 @@
         // switches are reflected immediately (not only on the identity-model dropdown).
         _identityModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: true)).ToList();
         if (!_identityModelChoices.Any(choice => choice.ModelId == _selectedIdentityModelId))
-            _selectedIdentityModelId = _identityModelChoices.FirstOrDefault()?.ModelId;
+            _selectedIdentityModelId = ModelChoiceOrdering.AutoSelect(_identityModelChoices)?.ModelId;
         _applyIdentityOnCreate = false;
         await RefreshIdentityResolutionAsync();
 

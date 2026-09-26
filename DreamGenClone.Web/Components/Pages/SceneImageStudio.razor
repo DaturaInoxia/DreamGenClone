@@ -1873,12 +1873,9 @@
                         }
                         else
                         {
-                            <select class="form-select form-select-sm mb-2" @bind="_selectedIdentityModelId" @bind:after="RefreshIdentityResolutionAsync">
-                                @foreach (var choice in _identityModelChoices)
-                                {
-                                    <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName</option>
-                                }
-                            </select>
+                            <ModelPicker Choices="_identityModelChoices" @bind-SelectedModelId="_selectedIdentityModelId"
+                                         @bind-SelectedModelId:after="RefreshIdentityResolutionAsync"
+                                         Id="studio-identity-model" CssClass="form-select form-select-sm mb-2" />
                         }
                         @* The mechanism the render will use, asked of the SAME capability decision the render asks, so the
                            card states which mechanism is in play instead of leaving the operator to guess (and so a model
@@ -1931,12 +1928,9 @@
                         }
                         else
                         {
-                            <select class="form-select form-select-sm mb-2" @bind="_selectedGenericModelId" @bind:after="OnGenericModelChangedAsync">
-                                @foreach (var choice in _genericModelChoices)
-                                {
-                                    <option value="@choice.ModelId">@choice.DisplayName — @choice.ProviderName</option>
-                                }
-                            </select>
+                            <ModelPicker Choices="_genericModelChoices" @bind-SelectedModelId="_selectedGenericModelId"
+                                         @bind-SelectedModelId:after="OnGenericModelChangedAsync"
+                                         Id="studio-generic-model" CssClass="form-select form-select-sm mb-2" />
                         }
                         @if (!_additionalImages.Any())
                         {
@@ -4452,6 +4446,10 @@
         }
 
         return choices.FirstOrDefault(choice => string.Equals(choice.ModelIdentifier, _resolvedDefaultImageModelId, StringComparison.Ordinal))?.ModelId
+            // Then the operator's app-wide default model (B-131), then the first enabled row. The purpose-specific
+            // default wins because this page has a job the app-wide default cannot know about; the app-wide default
+            // wins over "whoever happens to be first" because that is a real choice someone made.
+            ?? ModelChoiceOrdering.ConfiguredDefault(choices)?.ModelId
             ?? choices.FirstOrDefault()?.ModelId;
     }
 
@@ -4466,7 +4464,7 @@
         _identityModelChoices = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: true)).ToList();
         if (!_identityModelChoices.Any(choice => choice.ModelId == _selectedIdentityModelId))
         {
-            _selectedIdentityModelId = _identityModelChoices.FirstOrDefault()?.ModelId;
+            _selectedIdentityModelId = ModelChoiceOrdering.AutoSelect(_identityModelChoices)?.ModelId;
         }
 
         await RefreshIdentityResolutionAsync();

@@ -106,7 +106,8 @@ public sealed class SceneImageStudioUiContractTests
         Assert.DoesNotContain("scene-image-legacy-tools\" hidden=\"@IsCurrentProductionSession\"", Source, StringComparison.Ordinal);
         Assert.Contains("@if (!IsSelectedMomentEnriched)", Source, StringComparison.Ordinal);
         Assert.Contains("Composition Composer", Source, StringComparison.Ordinal);
-        Assert.Contains("@bind=\"_selectedGenericModelId\"", Source, StringComparison.Ordinal);
+        Assert.Contains("Choices=\"_genericModelChoices\"", Source, StringComparison.Ordinal);
+        Assert.Contains("@bind-SelectedModelId=\"_selectedGenericModelId\"", Source, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"() => OpenImageEditor(img)\"", Source, StringComparison.Ordinal);
         Assert.Contains("This session predates the current production schema. Create a new session", Source, StringComparison.Ordinal);
     }
@@ -250,7 +251,9 @@ public sealed class SceneImageStudioUiContractTests
     public void IdentityCard_ResolvesTheMechanismAndRefusesAnUncarryableRender()
     {
         Assert.Contains("@inject IReferenceStrategyResolver ReferenceStrategies", Source, StringComparison.Ordinal);
-        Assert.Contains("@bind=\"_selectedIdentityModelId\" @bind:after=\"RefreshIdentityResolutionAsync\"", Source, StringComparison.Ordinal);
+        Assert.Contains("Choices=\"_identityModelChoices\"", Source, StringComparison.Ordinal);
+        Assert.Contains("@bind-SelectedModelId=\"_selectedIdentityModelId\"", Source, StringComparison.Ordinal);
+        Assert.Contains("@bind-SelectedModelId:after=\"RefreshIdentityResolutionAsync\"", Source, StringComparison.Ordinal);
         Assert.Contains("_identityResolution = await ReferenceStrategies.ResolveIdentityAsync(_selectedIdentityModelId);", Source, StringComparison.Ordinal);
         Assert.Contains("@identityResolution.Strategy", Source, StringComparison.Ordinal);
         Assert.Contains("IdentityMechanismExplanation(identityResolution)", Source, StringComparison.Ordinal);
@@ -259,7 +262,9 @@ public sealed class SceneImageStudioUiContractTests
         // The stale "configure IP-Adapter/PuLid" guidance must name the native-reference route too.
         Assert.Contains("through its own reference images (Qwen-Image-2.1)", Source, StringComparison.Ordinal);
         // And a model change must refresh the derived capabilities, not only the picker's own value.
-        Assert.Contains("@bind=\"_selectedGenericModelId\" @bind:after=\"OnGenericModelChangedAsync\"", Source, StringComparison.Ordinal);
+        Assert.Contains("Choices=\"_genericModelChoices\"", Source, StringComparison.Ordinal);
+        Assert.Contains("@bind-SelectedModelId=\"_selectedGenericModelId\"", Source, StringComparison.Ordinal);
+        Assert.Contains("@bind-SelectedModelId:after=\"OnGenericModelChangedAsync\"", Source, StringComparison.Ordinal);
         Assert.Contains("await RefreshIdentityResolutionAsync();\r\n        await RevalidateProductionReferenceStrategiesAsync();", Source, StringComparison.Ordinal);
     }
 

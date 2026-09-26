@@ -162,13 +162,10 @@
                             <div class="row g-2 mb-2">
                                 <div class="col-md-5">
                                     <label class="form-label small mb-1">Model</label>
-                                    <select class="form-select form-select-sm" @bind="_frontModelId" @bind:after="PersistFrontModelAsync">
-                                        <option value="">Select model…</option>
-                                        @foreach (var m in _frontModels)
-                                        {
-                                            <option value="@m.ModelId">@m.DisplayName</option>
-                                        }
-                                    </select>
+                                    <ModelPicker Choices="_frontModels" @bind-SelectedModelId="_frontModelId"
+                                                 @bind-SelectedModelId:after="PersistFrontModelAsync"
+                                                 Placeholder="Select model…" Id="front-model"
+                                                 AutoSelectDefault="false" />
                                 </div>
                                 <div class="col-md-3">
                                     <label class="form-label small mb-1">Size</label>
@@ -917,13 +914,9 @@
                                     <div class="row g-2 align-items-end">
                                         <div class="col-md-5">
                                             <label class="form-label small mb-1">Body view model</label>
-                                            <select class="form-select form-select-sm" @bind="_bodyViewModelId">
-                                                <option value="">Select model…</option>
-                                                @foreach (var choice in _bodyViewModels)
-                                                {
-                                                    <option value="@choice.ModelId">@choice.DisplayName</option>
-                                                }
-                                            </select>
+                                            <ModelPicker Choices="_bodyViewModels" @bind-SelectedModelId="_bodyViewModelId"
+                                                         Placeholder="Select model…" Id="body-view-model"
+                                                         AutoSelectDefault="false" />
                                             @if (!string.IsNullOrWhiteSpace(_bodyViewModelsMessage))
                                             {
                                                 <div class="small text-warning mt-1">
@@ -1703,7 +1696,7 @@
             var savedModel = await FrontService.ResolveFrontModelAsync(IdentityKey);
             _frontModelId = !string.IsNullOrWhiteSpace(savedModel) && _frontModels.Any(m => string.Equals(m.ModelId, savedModel, StringComparison.Ordinal))
                 ? savedModel
-                : _frontModels.Count > 0 ? _frontModels[0].ModelId : null;
+                : ModelChoiceOrdering.AutoSelect(_frontModels)?.ModelId;
         }
         catch (Exception ex)
         {
