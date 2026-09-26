@@ -260,6 +260,13 @@ else
                             </div>
 
                             <h6 class="text-uppercase text-muted small">Shoot this cell</h6>
+                            @if (!string.IsNullOrWhiteSpace(_error))
+                            {
+                                @* A failure in this workspace was invisible: the load guards put their reason in _error,
+                                   and the step's own panel never showed it - so a cell whose model could not be read
+                                   just silently lost its reference controls. Name it here, where the operator is. *@
+                                <div class="alert alert-danger py-2 small" role="alert">@_error</div>
+                            }
                             @* B-130: the step is presented by the ONE composer. The face and build references that the
                                render used to resolve privately now arrive as THIS step's bindings, assigned from the
                                cell's own rule - so the operator sees the two images the cell will be conditioned on,
@@ -484,11 +491,28 @@ else
             }
 
             _cellModels = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
-            var savedCellModel = await CellService.ResolveCellModelAsync(_identityKey);
+
+            // The saved cell model is a PREFERENCE, not a prerequisite. It is read on its own so that a refusal here
+            // cannot skip the INITIAL SELECTION below - which is exactly what left the model picker empty and, because
+            // the composer needs a selected model to know what that model can carry, the whole reference UI unrendered
+            // (reported live 2026-09-25: "the ability to add image references" was missing on this page).
+            string? savedCellModel = null;
+            try
+            {
+                savedCellModel = await CellService.ResolveCellModelAsync(_identityKey);
+            }
+            catch (Exception exception)
+            {
+                Logger.LogWarning(
+                    exception,
+                    "No saved LoRA cell model could be read for character {Character}; the first enabled image model is selected instead.",
+                    _identityKey);
+            }
+
             _cellModelId = !string.IsNullOrWhiteSpace(savedCellModel)
                 && _cellModels.Any(model => string.Equals(model.ModelId, savedCellModel, StringComparison.Ordinal))
                     ? savedCellModel
-                    : _cellModels.Count > 0 ? _cellModels[0].ModelId : string.Empty;
+                    : _cellModels.FirstOrDefault()?.ModelId ?? string.Empty;
 
             if (_datasets.Count > 0)
             {
