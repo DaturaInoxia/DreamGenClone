@@ -48,6 +48,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
     /// the model.
     /// </summary>
     private readonly IdentityBodyReferenceResolver? _identityBodyReferenceResolver;
+    private readonly IPoseLibraryService? _poseLibrary;
     private readonly ILogger<SceneAssetGenerationJobHandler> _logger;
 
     public SceneAssetGenerationJobHandler(
@@ -66,7 +67,8 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         ICharacterImageAssetStorageService identityStorage,
         ILogger<SceneAssetGenerationJobHandler> logger,
         IdentityFaceReferenceResolver? identityFaceResolver = null,
-        IdentityBodyReferenceResolver? identityBodyReferenceResolver = null)
+        IdentityBodyReferenceResolver? identityBodyReferenceResolver = null,
+        IPoseLibraryService? poseLibrary = null)
     {
         _repository = repository;
         _storage = storage;
@@ -83,6 +85,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         _identityStorage = identityStorage;
         _identityFaceResolver = identityFaceResolver;
         _identityBodyReferenceResolver = identityBodyReferenceResolver;
+        _poseLibrary = poseLibrary;
         _logger = logger;
     }
 
@@ -270,6 +273,52 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         SceneAssetGenerationJobPayload payload,
         CancellationToken cancellationToken)
     {
+        var hasPreset = !string.IsNullOrWhiteSpace(payload.PosePresetId);
+        var hasStance = !string.IsNullOrWhiteSpace(payload.PoseStance);
+        if (hasPreset && hasStance)
+        {
+            throw new InvalidOperationException(
+                $"This render asks for two poses at once: stance '{payload.PoseStance}' and library preset "
+                + $"'{payload.PosePresetId}'. A step sends one pose; send one of them.");
+        }
+
+        // The pose-library route: the preset's OWN artifact, read by its id so a stale path in the payload cannot make
+        // the render read a file other than the preset it names.
+        if (hasPreset)
+        {
+            var presetId = payload.PosePresetId!.Trim();
+            var library = _poseLibrary ?? throw new InvalidOperationException(
+                $"This render asks for pose library preset '{presetId}', but the pose-library service is not configured "
+                + "for asset generation. Register IPoseLibraryService, or use a stance instead.");
+            byte[]? presetBytes;
+            try
+            {
+                presetBytes = await library.ReadSkeletonAsync(presetId, cancellationToken);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException)
+            {
+                throw new InvalidOperationException(
+                    $"Pose library preset '{presetId}' could not be read, so its skeleton cannot condition this render: "
+                    + exception.Message);
+            }
+
+            if (presetBytes is null || presetBytes.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Pose library preset '{presetId}' has no skeleton bytes, so it cannot condition this render. "
+                    + "Re-import or re-render that pose in the pose library.");
+            }
+
+            return new ReferenceConditionedImageInput
+            {
+                SemanticRole = $"pose reference ({presetId} library skeleton)",
+                FileName = string.IsNullOrWhiteSpace(payload.PoseSkeletonRelativePath)
+                    ? $"{presetId}.png"
+                    : Path.GetFileName(payload.PoseSkeletonRelativePath),
+                Content = presetBytes
+            };
+        }
+
         if (!Enum.TryParse<BodyReferenceStance>(payload.PoseStance, ignoreCase: false, out var stance))
         {
             throw new InvalidOperationException(

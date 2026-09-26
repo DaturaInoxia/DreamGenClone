@@ -426,7 +426,28 @@ done too: see the evidence above. The workspace derives its cast from the identi
 - Files: `SlotSourcePicker.razor`, `ReferenceSourceKind` handling, `StepPromptElementPlan` arm
 - Content: `CharacterPose` slot subsumes appearance + build + clothing + position
 
-### B130-020 — Library build (the batch, gated by a blueprint flag)
+### B130-020 — Library build (the batch, gated by a blueprint flag) — BLOCKED on one payload gap, found 2026-09-25
+
+`ForCharacterPoseLibrary(actor)` is written and tested: AssetCreate, face + body required from the character's pack,
+a required Pose slot from the pose library, `AllowsBatch: true` (the deliberate opposite of the LoRA cell's explicit
+`false`). What is missing is not the blueprint but the ROUTE, and reading the asset render path found exactly why:
+
+- `SceneAssetGenerationJobHandler` carries a pose as `SceneAssetJobPayload.PoseStance`, which is a
+  **`BodyReferenceStance` ENUM** parsed with `Enum.TryParse(..., ignoreCase: false)` and resolved through
+  `BodyStanceSkeletons` — a fixed set of body-stance skeletons (Standing, and the body-view set). It fails fast on
+  anything else: *"'{value}' is not a body reference stance, so its pose skeleton cannot be resolved."*
+- A pose-library build needs to send the PRESET'S OWN artifact (`PosePreset.SkeletonPngPath` — the same file the pose
+  proofs used, which is what makes a library asset reproducible outside the app). No enum can name it.
+
+So B130-020 needs one honest addition before a builder can exist: a `PoseSkeletonRelativePath` on the asset payload
+used by `RenderNativePoseAsync` in place of the stance lookup — the pose-library route, not a second stance enum. Doing
+it the other way (adding library presets to `BodyReferenceStance`) would silently fuse two different vocabularies: a
+stance is a canonical body pose the body card owns, a library preset is a named skeleton the operator picked.
+
+**Tests B130-020 must carry:** the batch produces one asset image per pose in ONE candidate batch (so the review deck
+shows the set together); each image carries the preset's own skeleton path in its provenance; a pose whose skeleton
+file is missing fails fast naming the preset rather than rendering unconditioned; and no path may sweep poses the
+operator did not select — the batch is the operator's set, never the whole library.
 - Files: new `Application/RolePlay/ImageStep/CharacterPoseLibraryService.cs`,
   `PoseLibraryPage.razor` entry point
 - Constraints: honours CASE-22's ≤6 references; state-matched wardrobe/body; `AllowsBatch` is blueprint data;

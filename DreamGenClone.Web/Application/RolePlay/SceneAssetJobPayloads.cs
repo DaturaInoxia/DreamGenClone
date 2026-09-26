@@ -22,6 +22,30 @@ public sealed class SceneAssetGenerationJobPayload
     public double? PoseStrength { get; set; }
 
     /// <summary>
+    /// A POSE LIBRARY preset whose own skeleton conditions this render, or null when the pose (if any) comes from a
+    /// stance. This is the pose-library route (B-130 §020), and it is deliberately separate from
+    /// <see cref="PoseStance"/> rather than another stance value:
+    ///
+    /// <para>
+    /// A STANCE is a canonical body pose the body card owns and the provider has verified, addressed by enum and
+    /// resolved through <c>BodyStanceSkeletons</c>. A LIBRARY PRESET is a named skeleton an operator picked, whose
+    /// artifact is the same file the pose proofs used — which is what makes an image built from it reproducible outside
+    /// the app. No enum can name that file, and fusing the two vocabularies would mean either every library pose needs
+    /// a stance added, or a stance could silently resolve to a preset nobody selected.
+    /// </para>
+    ///
+    /// <para>Exactly one of this and <see cref="PoseStance"/> may be set; both is a duplicate pose channel and fails.</para>
+    /// </summary>
+    public string? PosePresetId { get; set; }
+
+    /// <summary>
+    /// The preset's skeleton path, recorded for provenance only. The handler resolves the BYTES from
+    /// <see cref="PosePresetId"/> through the pose library, so a stale path in a payload cannot make the render read a
+    /// different file than the preset it names.
+    /// </summary>
+    public string? PoseSkeletonRelativePath { get; set; }
+
+    /// <summary>
     /// The approved identity pack this render is conditioned on, or null for an unconditioned render. The HANDLER
     /// re-reads the pack and its face asset, so an unconditional fallback is impossible: a pack that is no longer
     /// approved fails the render rather than quietly producing a different person.
