@@ -68,6 +68,47 @@ public sealed class ImageStepComposerUsageContractTests
         Assert.DoesNotMatch(UnprefixedStringArgument, "<EditIterateWorkbench @bind-EditablePrompt=\"_editablePrompt\" />");
     }
 
+    /// <summary>
+    /// Every public property of the composer is a parameter, because that is the only way a host can set it. This is
+    /// not pedantry: an edit that dropped one <c>[Parameter]</c> attribute left <c>Busy</c> a plain property, and the
+    /// whole step then threw at render time - "has a property matching the name 'Busy', but it does not have
+    /// [Parameter]" - because a host was still passing it. No test here renders a component, so nothing else in the
+    /// suite could see it.
+    /// </summary>
+    [Fact]
+    public void EveryComposerPropertyIsAParameter()
+    {
+        var lines = File.ReadAllLines(Path.Combine(
+            FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Shared", "ImageStepComposer.razor"));
+
+        var offenders = new List<string>();
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i].Trim();
+            if (!line.StartsWith("public ", StringComparison.Ordinal)
+                || !line.EndsWith("{ get; set; }", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var j = i - 1;
+            while (j >= 0 && (lines[j].TrimStart().StartsWith("///", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(lines[j])))
+            {
+                j--;
+            }
+
+            if (j < 0 || !lines[j].TrimStart().StartsWith("[", StringComparison.Ordinal))
+            {
+                offenders.Add($"line {i + 1}: {line}");
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            "These composer properties have no [Parameter] attribute, so a host that passes them makes the step throw "
+            + "at render time: " + string.Join("; ", offenders));
+    }
+
     private static string FindRepositoryRoot()
     {
         for (var current = new DirectoryInfo(AppContext.BaseDirectory); current is not null; current = current.Parent)
