@@ -197,17 +197,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         await connection.OpenAsync(cancellationToken);
 
         var command = connection.CreateCommand();
-        command.CommandText = """
-                 SELECT rm.Id, rm.ProviderId, rm.ModelIdentifier, rm.DisplayName, rm.IsEnabled, rm.SupportsThinkingControl, rm.CreatedUtc,
-                     rm.ContextWindowSize, rm.Quantization, rm.ParameterCount, rm.Notes, rm.ModelKind, rm.ImageSizeSupported, rm.SceneImageModelFamily, rm.PromptDialect,
-                     rm.SupportsImageInput, rm.MaximumInputImages, rm.MaximumInputImageBytes, rm.MaximumInputImagePixels, rm.MaximumInputImageDimension,
-                     rm.AcceptedInputMediaTypes, rm.MaximumResponseBytes, rm.RuntimeRevision, rm.ArtifactRevision,
-                     rm.ImageEditorDiffusionModel, rm.ImageEditorTextEncoder, rm.ImageEditorVae, rm.ImageEditorSteps, rm.ImageEditorCfg,
-                     rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
-                     rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef, rm.SupportedIdentityStrategiesJson,
-                     rm.SupportedVisualStrategiesJson, rm.CapabilityQualificationsJson,
-                     rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens, rm.ImageEditorGraphKind,
-                     rm.ImageEditorLoraName, rm.ImageEditorLoraStrength,
+        command.CommandText = $"""
+                 SELECT {ModelColumnList},
                    p.Name AS ProviderName
             FROM RegisteredModels rm
             INNER JOIN Providers p ON rm.ProviderId = p.Id
@@ -256,17 +247,27 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) > 0;
     }
 
-    private const string ModelSelectColumns = """
-        SELECT rm.Id, rm.ProviderId, rm.ModelIdentifier, rm.DisplayName, rm.IsEnabled, rm.SupportsThinkingControl, rm.CreatedUtc,
-               rm.ContextWindowSize, rm.Quantization, rm.ParameterCount, rm.Notes, rm.ModelKind, rm.ImageSizeSupported, rm.SceneImageModelFamily, rm.PromptDialect,
-               rm.SupportsImageInput, rm.MaximumInputImages, rm.MaximumInputImageBytes, rm.MaximumInputImagePixels, rm.MaximumInputImageDimension,
-               rm.AcceptedInputMediaTypes, rm.MaximumResponseBytes, rm.RuntimeRevision, rm.ArtifactRevision,
-               rm.ImageEditorDiffusionModel, rm.ImageEditorTextEncoder, rm.ImageEditorVae, rm.ImageEditorSteps, rm.ImageEditorCfg,
-               rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
-               rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef, rm.SupportedIdentityStrategiesJson,
-               rm.SupportedVisualStrategiesJson, rm.CapabilityQualificationsJson,
-               rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens, rm.ImageEditorGraphKind,
-               rm.ImageEditorLoraName, rm.ImageEditorLoraStrength, rm.IsDefault
+    /// <summary>
+    /// The ONE list of model columns, in the order <see cref="ReadModel"/> reads them. Both queries that return a
+    /// model select this list, so extending a column cannot shift a positional read in one of them: that is exactly
+    /// how <c>IsDefault</c> came to be read from the provider-name column of the enabled-models query, which made
+    /// every model report itself as not-default and silently disabled the configured default everywhere.
+    /// </summary>
+    private const string ModelColumnList = """
+        rm.Id, rm.ProviderId, rm.ModelIdentifier, rm.DisplayName, rm.IsEnabled, rm.SupportsThinkingControl, rm.CreatedUtc,
+        rm.ContextWindowSize, rm.Quantization, rm.ParameterCount, rm.Notes, rm.ModelKind, rm.ImageSizeSupported, rm.SceneImageModelFamily, rm.PromptDialect,
+        rm.SupportsImageInput, rm.MaximumInputImages, rm.MaximumInputImageBytes, rm.MaximumInputImagePixels, rm.MaximumInputImageDimension,
+        rm.AcceptedInputMediaTypes, rm.MaximumResponseBytes, rm.RuntimeRevision, rm.ArtifactRevision,
+        rm.ImageEditorDiffusionModel, rm.ImageEditorTextEncoder, rm.ImageEditorVae, rm.ImageEditorSteps, rm.ImageEditorCfg,
+        rm.ImageEditorSampler, rm.ImageEditorScheduler, rm.ImageEditorDenoise, rm.ImageEditorAuraFlowShift, rm.ImageEditorCfgNormStrength,
+        rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef, rm.SupportedIdentityStrategiesJson,
+        rm.SupportedVisualStrategiesJson, rm.CapabilityQualificationsJson,
+        rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens, rm.ImageEditorGraphKind,
+        rm.ImageEditorLoraName, rm.ImageEditorLoraStrength, rm.IsDefault
+        """;
+
+    private static readonly string ModelSelectColumns = $"""
+        SELECT {ModelColumnList}
         FROM RegisteredModels rm
         """;
 

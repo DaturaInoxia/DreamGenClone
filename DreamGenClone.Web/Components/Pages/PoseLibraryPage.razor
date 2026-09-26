@@ -8,10 +8,8 @@
 @using Microsoft.Extensions.Options
 @inject IPoseLibraryService LibraryService
 @inject IPoseLibraryImporter LibraryImporter
-@inject IPosePackDownloader PackDownloader
 @inject IPoseTestRenderService PoseTestRender
 @inject IOptions<PoseStudioOptions> StudioOptions
-@inject ILogger<PoseLibraryPage> Logger
 
 <PageTitle>Pose Library - DreamGenClone</PageTitle>
 
@@ -79,72 +77,6 @@
             {
                 <div class="alert alert-info py-1 small mt-2 mb-0">@_status</div>
             }
-
-            <div class="row g-2 align-items-end mt-3 pt-3 border-top">
-                <div class="col-md-4">
-                    <label class="form-label small fw-semibold mb-1">New library name</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="Handshakes"
-                           value="@_newLibraryName" @oninput="e => _newLibraryName = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-5">
-                    <label class="form-label small fw-semibold mb-1">Description</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="What belongs in this library"
-                           value="@_newLibraryDescription" @oninput="e => _newLibraryDescription = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-3 d-grid">
-                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="CreateLibraryAsync">
-                        <i class="bi bi-plus-lg me-1"></i>Create library
-                    </button>
-                </div>
-            </div>
-            <div class="mt-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ImportPackAsync">
-                    <i class="bi bi-box-arrow-in-down me-1"></i>Import pose packs
-                </button>
-                <span class="form-text ms-2">Re-running the import adds nothing and leaves edited presets alone; any missing skeleton is re-rendered.</span>
-            </div>
-
-            <div class="row g-2 align-items-end mt-2">
-                <div class="col-md-6">
-                    <label class="form-label small fw-semibold mb-1">Export projected poses for the probe</label>
-                    <input type="text" class="form-control form-control-sm"
-                           value="@_exportFolder" @oninput="e => _exportFolder = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-6">
-                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ExportProjectedAsync">
-                        <i class="bi bi-filetype-json me-1"></i>Export angle keypoints
-                    </button>
-                    <span class="form-text ms-2">
-                        Writes one JSON per named angle for <code>tools/pose-angle-probe</code>, which measures how
-                        closely the projection agrees with DWPose. The app cannot mark an angle known-good on its
-                        own — that needs this measurement.
-                    </span>
-                </div>
-            </div>
-
-            <div class="row g-2 align-items-end mt-3 pt-3 border-top">
-                <div class="col-md-4">
-                    <label class="form-label small fw-semibold mb-1">Download a pack (zip URL)</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="https://.../pack.zip"
-                           value="@_downloadUrl" @oninput="e => _downloadUrl = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small fw-semibold mb-1">Pack name</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="Anime poses"
-                           value="@_downloadName" @oninput="e => _downloadName = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small fw-semibold mb-1">Description</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="Optional"
-                           value="@_downloadDescription" @oninput="e => _downloadDescription = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-2 d-grid">
-                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="DownloadPackAsync">
-                        <i class="bi bi-cloud-arrow-down me-1"></i>Download
-                    </button>
-                </div>
-                <div class="col-12"><span class="form-text">The zip becomes its own library under <code>pose-packs/</code>. A pack that already exists, is not a zip, or tries to write outside its folder is refused and leaves nothing behind.</span></div>
-            </div>
         </div>
     </div>
 
@@ -175,6 +107,15 @@
                             }
                         </div>
                         <div class="form-text"><strong>@_testPreset.Name</strong> — this is the skeleton that will be sent.</div>
+
+                        @* The render sits under the skeleton it came from, so the pair reads as one comparison instead
+                           of the image landing beneath the whole composer on the far side of the card. *@
+                        @if (_testImageUrl is not null)
+                        {
+                            <div class="d-flex justify-content-center bg-black border rounded p-2 mt-2">
+                                <img src="@_testImageUrl" alt="Pose test render" style="max-width: 100%;" />
+                            </div>
+                        }
                     </div>
                     <div class="col-lg-9">
                         @* B-130: the step is presented by the ONE composer. This page used to lay out its own model
@@ -183,7 +124,7 @@
                            the canvas. *@
                         <ImageStepComposer Blueprint="TestBlueprint"
                                            ModelChoices="TestModelChoices"
-                                           SelectedModelId="_testModelId"
+                                           SelectedModelId="@_testModelId"
                                            SelectedModelIdChanged="OnTestModelChangedAsync"
                                            Bindings="_testBindings"
                                            BindingsChanged="OnTestBindingsChanged"
@@ -192,7 +133,7 @@
                                            Busy="_testBusy"
                                            CanSubmit="CanTestPose()"
                                            SubmitLabel="Test this pose"
-                                           SubmitBlockedReason="TestBlockedReason()"
+                                           SubmitBlockedReason="@TestBlockedReason()"
                                            OnSubmit="RunTestAsync">
                             <ChildContent>
                                 <div class="row g-2 align-items-end">
@@ -219,12 +160,6 @@
                         @if (!string.IsNullOrWhiteSpace(_testNote))
                         {
                             <div class="alert alert-info py-1 small mt-2 mb-0">@_testNote</div>
-                        }
-                        @if (_testImageUrl is not null)
-                        {
-                            <div class="mt-2 d-flex justify-content-center bg-black border rounded p-2">
-                                <img src="@_testImageUrl" alt="Pose test render" style="max-height: 420px; max-width: 100%;" />
-                            </div>
                         }
                     </div>
                 </div>
@@ -300,17 +235,6 @@
     private string? _keyword;
     private string? _category;
     private string? _libraryId;
-    private string? _newLibraryName;
-    private string? _newLibraryDescription;
-
-    /// <summary>
-    /// Where the probe candidates are written. Git-ignored and relative to the app's content root, and visible in
-    /// the UI rather than buried in code so the path the tool is told to read is the path the app wrote.
-    /// </summary>
-    private string? _exportFolder = "../artifacts/tmp/pose-probes";
-    private string? _downloadUrl;
-    private string? _downloadName;
-    private string? _downloadDescription;
     private string? _error;
     private string? _status;
     private bool _busy;
@@ -369,22 +293,24 @@
             .ToList();
 
     /// <summary>
-    /// The pose binding for a picked preset: the page's own rule, resolved into a binding the step holds. ASSIGNED, not
-    /// seeded, so clearing the slot in the composer sticks - a seed would keep re-adding the preset the operator had
-    /// just removed. The composer renders it as an ordinary binding, so it can be cleared or replaced.
+    /// The pose the step will send, seeded from the preset the operator picked in the grid. Seeded, not fixed: the
+    /// composer renders it as an ordinary binding, so it can be cleared or replaced - and <see cref="CanTestPose"/> then
+    /// refuses a slot that points somewhere else, by name, rather than rendering an artifact nobody asked to test.
     /// </summary>
-    private static IReadOnlyList<ReferenceApplicationSelection> TestBindingsFor(PosePreset preset) =>
-    [
-        new ReferenceApplicationSelection
-        {
-            ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Pose),
-            SemanticRole = "stance",
-            Kind = ImageStepSlotKind.Pose.ToString(),
-            Source = ImageStepReferenceSourceKind.PoseLibrarySkeleton.ToString(),
-            Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
-            SkeletonRelativePath = preset.SkeletonPngPath
-        }
-    ];
+    private IReadOnlyList<ReferenceApplicationSelection> TestSeedBindings =>
+        _testPreset is null
+            ? []
+            : [
+                new ReferenceApplicationSelection
+                {
+                    ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Pose),
+                    SemanticRole = "pose skeleton",
+                    Kind = ImageStepSlotKind.Pose.ToString(),
+                    Source = ImageStepReferenceSourceKind.PoseLibrarySkeleton.ToString(),
+                    Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+                    SkeletonRelativePath = _testPreset.SkeletonPngPath
+                }
+            ];
 
     /// <summary>The binding the step will actually send as its pose.</summary>
     private ReferenceApplicationSelection? TestSkeletonBinding =>
@@ -442,9 +368,11 @@
         _testError = null;
         _testNote = null;
         _testImageUrl = null;
-        // The step's bindings become the NEW preset's skeleton: the page's rule is resolved here and assigned, which is
-        // what makes the picked pose the thing under test rather than whatever was bound before.
-        _testBindings = TestBindingsFor(preset);
+        // The step's bindings are ASSIGNED here rather than seeded. The composer has no seed parameter by design:
+        // a seed list would keep re-adding a binding the operator had just cleared, because clearing it does not
+        // change what this rule resolves to. A binding left over from the previous pose would hold the old artifact,
+        // and the step would then (correctly) refuse to render it.
+        _testBindings = TestSeedBindings;
         // Offered, never enforced: it stays editable in the box next to the button.
         _testPrompt ??= PoseTestPrompts.Default;
         return Task.CompletedTask;
@@ -621,60 +549,6 @@
         await SearchAsync();
     }
 
-    private async Task CreateLibraryAsync()
-    {
-        _busy = true;
-        _error = null;
-        _status = null;
-        try
-        {
-            var library = await LibraryService.CreateLibraryAsync(_newLibraryName ?? string.Empty, _newLibraryDescription ?? string.Empty);
-            _status = $"Created library '{library.Name}'. It is searchable immediately.";
-            _newLibraryName = null;
-            _newLibraryDescription = null;
-            _libraryId = library.Id;
-            await SearchAsync();
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    private async Task DownloadPackAsync()
-    {
-        _busy = true;
-        _error = null;
-        _status = null;
-        try
-        {
-            var result = await PackDownloader.DownloadAsync(
-                _downloadUrl ?? string.Empty, _downloadName ?? string.Empty, _downloadDescription);
-
-            _status = $"Pack '{result.PackFolder}' added: {result.Import.PresetsImported} poses imported, "
-                + $"{result.FilesIgnored} non-pack file(s) ignored. It is searchable now.";
-            _downloadUrl = null;
-            _downloadName = null;
-            _downloadDescription = null;
-
-            _libraries = await LibraryService.ListLibrariesAsync();
-            _categories = await LibraryService.ListCategoriesAsync();
-            _results = await LibraryService.SearchAsync(new PoseLibraryQuery(_keyword, _category, _libraryId));
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
     /// <summary>
     /// Shows the pose that was just saved. The filters are moved to it rather than left as they were: a new pose
     /// that does not appear because a stale filter excludes it reads as a failed save.
@@ -688,27 +562,6 @@
         _libraries = await LibraryService.ListLibrariesAsync();
         _categories = await LibraryService.ListCategoriesAsync();
         _results = await LibraryService.SearchAsync(new PoseLibraryQuery(null, null, _libraryId));
-    }
-
-    private async Task ExportProjectedAsync()
-    {
-        _busy = true;
-        _error = null;
-        _status = null;
-        try
-        {
-            var written = await LibraryService.ExportProjectedPosesAsync(_exportFolder ?? string.Empty);
-            _status = $"Exported {written.Count} angle keypoint file(s) to {Path.GetDirectoryName(written[0])}. "
-                + "Run tools/pose-angle-probe against them to measure the angles.";
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
     }
 
     /// <summary>
@@ -743,35 +596,5 @@
         }
 
         return Task.CompletedTask;
-    }
-
-    private async Task ImportPackAsync()
-    {
-        _busy = true;
-        _error = null;
-        _status = null;
-        try
-        {
-            var result = await LibraryImporter.ImportAsync();
-            _status = $"Import finished: {result.Packs} pack(s), {result.PresetsImported} added, "
-                + $"{result.PresetsAlreadyPresent} already present, {result.SkeletonsRendered} skeletons rendered, "
-                + $"{result.Skipped.Count} skipped.";
-            if (result.Skipped.Count > 0)
-            {
-                Logger.LogWarning("Pose import skipped {Count} files: {Skipped}", result.Skipped.Count, string.Join(" | ", result.Skipped));
-            }
-
-            _libraries = await LibraryService.ListLibrariesAsync();
-            _categories = await LibraryService.ListCategoriesAsync();
-            _results = await LibraryService.SearchAsync(new PoseLibraryQuery(_keyword, _category, _libraryId));
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
     }
 }

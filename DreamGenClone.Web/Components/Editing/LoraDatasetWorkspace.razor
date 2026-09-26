@@ -274,7 +274,7 @@ else
                                the blueprint is false and there is still no generate-them-all action here. *@
                             <ImageStepComposer Blueprint="CellBlueprint"
                                                ModelChoices="_cellModels"
-                                               SelectedModelId="_cellModelId"
+                                               SelectedModelId="@_cellModelId"
                                                SelectedModelIdChanged="OnCellModelSelectedAsync"
                                                ModelPlaceholder="Select model…"
                                                Bindings="_cellBindings"
@@ -284,7 +284,7 @@ else
                                                Busy="_cellBusy"
                                                CanSubmit="CanRender"
                                                SubmitLabel="Render image"
-                                               SubmitBlockedReason="RenderBlockedReason"
+                                               SubmitBlockedReason="@RenderBlockedReason"
                                                OnSubmit="RenderCellAsync">
                                 <ChildContent>
                                     <div class="row g-2 align-items-end">
