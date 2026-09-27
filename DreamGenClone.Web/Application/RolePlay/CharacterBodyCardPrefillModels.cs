@@ -56,4 +56,11 @@ public sealed record CharacterBodyCardPrefill(
     /// the description states and never invents axis picks.
     /// </summary>
     public CharacterBodyAxes? Axes { get; init; }
+
+    /// <summary>
+    /// The card's face picks proposed from the character template's structured attributes (B-132), the same start
+    /// point the axes get. Null when the template states no face attributes, and null for the description draft,
+    /// which answers the gated fields the description states and never invents a face.
+    /// </summary>
+    public CharacterFaceAttributes? Face { get; init; }
 }

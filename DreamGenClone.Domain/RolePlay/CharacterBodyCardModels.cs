@@ -60,6 +60,23 @@ public sealed class CharacterBodyCard
     /// </summary>
     public CharacterBodyAxes Axes { get; set; } = new();
 
+    /// <summary>
+    /// The card's FACE descriptors (B-132). What a model reads when it has to build a face from WORDS instead of
+    /// copying one from a pack image, which is what lets a character have a face before any reference exists.
+    ///
+    /// Deliberately NOT one of the gated fields, for the same reason <see cref="Axes"/> is not: the completeness
+    /// contract remains the seven fields above, so adding a face never makes an existing card incomplete and never
+    /// blocks a render. An unset face descriptor is simply absent from <see cref="ToFaceLine"/>.
+    /// </summary>
+    public CharacterFaceAttributes Face { get; set; } = new();
+
+    /// <summary>
+    /// The FACE element's own text, as its own line so it can be omitted independently of the body line when a face
+    /// reference image supplies it. Skin is deliberately NOT here: tone and texture are body-wide and already travel
+    /// in <see cref="Skin"/> on the body line, so repeating them would describe the same fact twice.
+    /// </summary>
+    public string ToFaceLine() => Face.Compose();
+
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 
     /// <summary>
@@ -149,6 +166,58 @@ public sealed class CharacterBodyCard
             || trimmed is "none" or "n/a" or "na" or "no" or "unknown" or "not specified" or "not stated"
                 or "unspecified" or "not applicable" or "nil";
     }
+}
+
+/// <summary>
+/// The card's own FACE picks (B-132). Mirrors the character template's face attributes - the template is the
+/// starting point, the card is where the tweaks live - using the vocabulary
+/// <c>PhysicalAttributesCatalog</c> already defines, so the editor and the prompt read one source of values.
+/// Stored on the card rather than as seven more gated columns, because the face is optional detail: a card with no
+/// face stated still renders, it just does not describe the face.
+/// </summary>
+public sealed class CharacterFaceAttributes
+{
+    public string? FaceShape { get; set; }
+    public string? HairStyle { get; set; }
+    public string? HairColour { get; set; }
+    public string? EyeShape { get; set; }
+    public string? EyeColour { get; set; }
+    public string? Eyebrows { get; set; }
+    public string? NoseShape { get; set; }
+    public string? LipsShape { get; set; }
+    public string? Jawline { get; set; }
+
+    /// <summary>Gender-conditional in the editor. NOT the body-wide <see cref="CharacterBodyCard.BodyHair"/>.</summary>
+    public string? FacialHair { get; set; }
+
+    /// <summary>Jewellery worn on the face (nose, septum, tongue, eyebrow, lip).</summary>
+    public string? FacePiercings { get; set; }
+
+    /// <summary>True when no descriptor has been picked, so there is no face line to compose.</summary>
+    public bool IsEmpty =>
+        string.IsNullOrWhiteSpace(FaceShape)
+        && string.IsNullOrWhiteSpace(HairStyle)
+        && string.IsNullOrWhiteSpace(HairColour)
+        && string.IsNullOrWhiteSpace(EyeShape)
+        && string.IsNullOrWhiteSpace(EyeColour)
+        && string.IsNullOrWhiteSpace(Eyebrows)
+        && string.IsNullOrWhiteSpace(NoseShape)
+        && string.IsNullOrWhiteSpace(LipsShape)
+        && string.IsNullOrWhiteSpace(Jawline)
+        && string.IsNullOrWhiteSpace(FacialHair)
+        && string.IsNullOrWhiteSpace(FacePiercings);
+
+    /// <summary>
+    /// The face descriptor line: the stated values in the order a face is naturally described (hair, then eyes and
+    /// brows, then the bone structure, then detail). Unset values are omitted rather than defaulted, and a
+    /// decision-only value such as "none" is omitted too - "no piercings" is a fact about the data, not something
+    /// to draw.
+    /// </summary>
+    public string Compose() => string.Join(
+        ", ",
+        new[] { HairStyle, HairColour, EyeShape, EyeColour, Eyebrows, FaceShape, NoseShape, LipsShape, Jawline, FacialHair, FacePiercings }
+            .Where(value => !string.IsNullOrWhiteSpace(value) && !CharacterBodyCard.IsDecisionOnly(value))
+            .Select(value => value!.Trim()));
 }
 
 public enum CharacterBodyCardField

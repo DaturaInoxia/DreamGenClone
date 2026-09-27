@@ -91,7 +91,8 @@ public sealed class CharacterBodyCardPrefillService : ICharacterBodyCardPrefillS
             gaps,
             ModelIdentifier: null)
         {
-            Axes = BuildAxes(attributes)
+            Axes = BuildAxes(attributes),
+            Face = BuildFace(attributes)
         };
     }
 
@@ -122,6 +123,36 @@ public sealed class CharacterBodyCardPrefillService : ICharacterBodyCardPrefillS
         };
 
         return axes.IsEmpty ? null : axes;
+    }
+
+    /// <summary>
+    /// The card's face picks, taken from the template's structured attributes (B-132). Like the body axes, only what
+    /// the template actually states is carried across - an unset attribute stays unset, so the card is never handed
+    /// an invented face. Null when the template states none, so the editor does not offer an empty proposal.
+    /// </summary>
+    private static CharacterFaceAttributes? BuildFace(PhysicalAttributes? attributes)
+    {
+        if (attributes is null)
+        {
+            return null;
+        }
+
+        var face = new CharacterFaceAttributes
+        {
+            FaceShape = attributes.FaceShape,
+            HairStyle = attributes.HairStyle,
+            HairColour = attributes.HairColour,
+            EyeShape = attributes.EyeShape,
+            EyeColour = attributes.EyeColour,
+            Eyebrows = attributes.Eyebrows,
+            NoseShape = attributes.NoseShape,
+            LipsShape = attributes.LipsShape,
+            Jawline = attributes.Jawline,
+            FacialHair = attributes.FacialHair,
+            FacePiercings = attributes.FacePiercings
+        };
+
+        return face.IsEmpty ? null : face;
     }
 
     public async Task<CharacterBodyCardPrefill> DraftFromDescriptionAsync(
