@@ -1,0 +1,24 @@
+﻿{
+    "cell":  "refsSlot2",
+    "description":  "EVP-1 CONTROL: skeleton at SLOT 2 (proves the probe reads at all)",
+    "kind":  "text2image",
+    "prompt":  "Photorealistic full-body photograph of one woman standing upright and facing the camera, her arms relaxed at her sides, her feet flat on the ground, plain neutral grey studio background, even soft lighting, natural skin texture, sharp focus, shot on 85mm.",
+    "negative":  "",
+    "seed":  20260925,
+    "steps":  25,
+    "cfg":  1,
+    "sampler":  "euler",
+    "scheduler":  "simple",
+    "resolution":  1024,
+    "width":  1024,
+    "height":  1024,
+    "unet":  "qwen_image_2.1_int8_convrot.safetensors",
+    "text_encoder":  "qwen3vl_8b_int8_convrot.safetensors",
+    "vae":  "qwen_image_2.1_vae_bf16.safetensors",
+    "prompt_id":  "acf83c99-7755-4707-92a9-ae6626c947d2",
+    "wallClockSec":  35.4,
+    "comfyui":  "0.37.1",
+    "images":  [
+                   "D:\\src\\DreamGenClone\\artifacts\\tmp\\qwen-2-1\\refsSlot2\\result_0.png"
+               ]
+}

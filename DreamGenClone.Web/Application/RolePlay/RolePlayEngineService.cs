@@ -5281,14 +5281,34 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         // ---- Multi-encounter Climax lifecycle -----------------------------------------------
-        // Theme-scoped via [ClimaxMode:multi-encounter] marker. Dormant for all other themes.
-        var isMultiEncounterClimax = RolePlayAssistantPrompts.IsMultiEncounterClimax(beatCursorTheme, "Climax");
+        // SINGLE DECISION PATH: resolve through ContinuationOverrideResolver — session
+        // Continuation Settings override first, then the theme's [ClimaxMode:multi-encounter]
+        // marker. This MUST stay the same source as the minIxns guard in
+        // TryDetectEncounterBoundaryAsync and the time-skip injection gate, because the guard
+        // reads TurnsInCurrentEncounter and this is the ONLY block that increments it.
+        // Reading the marker alone here left the guard demanding TurnsInCurrentEncounter >= 4
+        // while the counter it reads was never incremented — the 4-turn minimum was inert
+        // whenever the override (rather than the marker) was what enabled multi-encounter.
+        var isMultiEncounterClimax = ContinuationOverrideResolver.ResolveMultiEncounterClimax(session, beatCursorTheme);
 
         if (isMultiEncounterClimax
             && finalPhase == DreamGenClone.Domain.RolePlay.NarrativePhase.Climax
             && priorPhase != DreamGenClone.Domain.RolePlay.NarrativePhase.Climax)
         {
-            await EnsureEncounterCompletedMappingAsync(beatCursorTheme!, session.Id, cancellationToken);
+            // The encounter-completed semantic mapping is a theme-config contract. Verify it when
+            // the theme loaded; when the theme could not be loaded this cycle (its failure is
+            // already reported by the loader), skip verification rather than passing a null theme
+            // into the guard.
+            if (beatCursorTheme is not null)
+            {
+                await EnsureEncounterCompletedMappingAsync(beatCursorTheme, session.Id, cancellationToken);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "MultiEncounterClimax init: theme '{ThemeId}' could not be loaded for session {SessionId}; encounter-completed mapping not verified this cycle.",
+                    v2State.ActiveScenarioId, session.Id);
+            }
             // B-057: Use global counter for numbering — encounters numbered globally:
             // encounter 1 (BuildUp), encounter 2 (Climax), etc.
             v2State.CurrentEncounterNumber = v2State.GlobalEncounterCount + 1;
@@ -5665,6 +5685,13 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
                 && HasExplicitSexualActivityContent(interaction.Content))
             {
                 state.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
+                // Reset the encounter-length counter at the START of the encounter, not only at the
+                // boundary that ends one. The minIxns guard in TryDetectEncounterBoundaryAsync reads
+                // this counter as "how long has THIS encounter run"; if it were only reset on a
+                // boundary it would instead measure "turns since the previous boundary", so an
+                // encounter beginning several turns after the last one would immediately satisfy
+                // the minimum and close in a single turn.
+                state.TurnsInCurrentEncounter = 0;
                 state.IsEncounterActive = true;
                 interaction.WasEncounterStart = true;
                 _logger.LogInformation(
@@ -5693,6 +5720,12 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         }
 
         state.CurrentEncounterStartInteractionIndex = session.Interactions.Count;
+        // Reset the encounter-length counter at the START of the encounter. The minIxns guard in
+        // TryDetectEncounterBoundaryAsync reads it as "how long has THIS encounter run"; resetting
+        // it only at a boundary would make it measure "turns since the previous boundary" instead,
+        // letting an encounter that begins several turns after the last one satisfy the minimum
+        // immediately and close in a single turn.
+        state.TurnsInCurrentEncounter = 0;
         state.IsEncounterActive = true;
         interaction.WasEncounterStart = true;
 
@@ -5832,6 +5865,11 @@ public sealed class RolePlayEngineService : IRolePlayEngineService
         var isAftermath = ContinuationOverrideResolver.ResolveAftermathHusbandContrast(session, theme, state.CurrentPhase.ToString());
 
         // Multi-encounter premature-advance guard.
+        // SHARED DECISION PATH: `isMulti` above resolves the session override first, then the
+        // theme marker. The multi-encounter lifecycle in RunRolePlayV2PipelinesAsync must resolve
+        // through the same resolver — it is the only code that increments TurnsInCurrentEncounter,
+        // which is the counter this guard reads. Do not read the theme marker directly here or
+        // there; doing so leaves this guard waiting on a counter nothing ever increments.
         if (isMulti)
         {
             const int minIxns = 4;

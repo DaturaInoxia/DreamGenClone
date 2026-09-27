@@ -21,9 +21,13 @@
         </div>
     </div>
 
-    <div class="row g-3 mt-1">
-        <div class="col-lg-6">
-            <svg viewBox="0 0 1024 1024" width="512" height="512"
+    @* The canvas is a fixed square, so its column is fixed too (flex-shrink-0) and the form takes what is left. A
+       fluid col-lg-6 could be narrower than the canvas: the canvas then overflowed its column and the form column,
+       which is later in the DOM, was painted on top of the skeleton. *@
+    <div class="d-flex flex-wrap gap-3 mt-1">
+        <div class="flex-shrink-0">
+            <svg viewBox="0 0 @PoseSkeletonRenderer.DefaultCanvas @PoseSkeletonRenderer.DefaultCanvas"
+                 width="@CanvasPixels" height="@CanvasPixels"
                  class="border rounded bg-black d-block"
                  @onpointermove="OnPointerMoveAsync"
                  @onpointerup="StopDrag"
@@ -46,7 +50,9 @@
                 }
             </svg>
             <div class="form-text">
-                512 px on screen for a 1024 canvas, so pointer coordinates are scaled by two.
+                @CanvasPixels px on screen for a @PoseSkeletonRenderer.DefaultCanvas canvas, so pointer coordinates are
+                scaled by two. The canvas keeps this size when the window narrows — the scale is what keeps a drag on
+                the joint.
                 @if (!string.IsNullOrWhiteSpace(_drag))
                 {
                     <span class="ms-1">Dragging <strong>@_drag</strong>. @_drags.Count drag(s) so far.</span>
@@ -62,7 +68,7 @@
             }
         </div>
 
-        <div class="col-lg-6">
+        <div class="flex-grow-1" style="flex-basis: 20rem; min-width: 18rem;">
             <div class="row g-2 align-items-end">
                 <div class="col-md-6">
                     <label class="form-label small fw-semibold mb-1">Name</label>
@@ -144,10 +150,18 @@
     private bool _busy;
 
     /// <summary>
-    /// Screen pixels to canvas pixels. The svg is fixed at 512 px for a 1024 viewBox so a pointer coordinate can be
-    /// doubled without measuring anything, which keeps the drag free of interop.
+    /// The rendered edge of the canvas, in screen pixels. Deliberately a fixed size rather than a fluid width:
+    /// <see cref="PointerScale"/> is only correct while the rendered width equals this. The svg's column is fixed to
+    /// match, so the canvas can be neither stretched nor squeezed.
     /// </summary>
-    private const double PointerScale = 1024.0 / 512.0;
+    private const int CanvasPixels = 512;
+
+    /// <summary>
+    /// Screen pixels to canvas pixels. The svg is fixed at <see cref="CanvasPixels"/> for a
+    /// <see cref="PoseSkeletonRenderer.DefaultCanvas"/> viewBox so a pointer coordinate can be doubled without
+    /// measuring anything, which keeps the drag free of interop.
+    /// </summary>
+    private const double PointerScale = PoseSkeletonRenderer.DefaultCanvas / (double)CanvasPixels;
 
     /// <summary>The view and head the current working pose was projected from, so a re-render of the same scene does
     /// not throw away the operator's drags while a genuine view change does.</summary>
@@ -163,7 +177,7 @@
         {
             _baseView = BodyView;
             _baseHead = Head;
-            _person = Start;
+            _person = ToEditorCanvas(Start);
             _history.Clear();
             _drags.Clear();
             _reachWarning = null;
@@ -206,6 +220,18 @@
     private bool Visible(int index) =>
         index < _person.Body.Count
         && _person.Body[index].Confidence > OpenPosePoseJson.VisibilityFloor;
+
+    /// <summary>
+    /// The pose as the EDITOR draws it: fitted to the same canvas the library renders its skeletons on, so the editor's
+    /// wireframe is the same picture the library card shows.
+    ///
+    /// Drawing raw keypoints was wrong for any pose whose coordinates do not happen to span the canvas. A head pose is
+    /// the clearest case — its points sit in one region of a much larger source frame — so the editor drew it as a
+    /// squashed line across the middle, which reads as a broken pose rather than as an unfitted one. The fit also gives
+    /// the drags one coordinate space, so a drag lands where the pointer is.
+    /// </summary>
+    private static PosePerson ToEditorCanvas(PosePerson person) =>
+        person.Body.Count == 0 ? person : PoseSkeletonRenderer.FitToCanvas(person);
 
     private string X(int index) => _person.Body[index].X.ToString("0.##");
 
@@ -293,7 +319,7 @@
 
     private Task ResetPoseAsync()
     {
-        _person = Start;
+        _person = ToEditorCanvas(Start);
         _history.Clear();
         _drags.Clear();
         _reachWarning = null;

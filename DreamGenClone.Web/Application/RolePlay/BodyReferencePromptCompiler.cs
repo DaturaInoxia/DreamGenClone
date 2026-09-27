@@ -523,9 +523,34 @@ public static class BodyReferencePromptCompiler
     /// </summary>
     private static string BuildSdxl(BodyReferenceBrief brief)
     {
-        // Age and gender form ONE noun phrase ("a middle-aged woman"), so they are joined by a space and the remaining
-        // descriptors are comma-separated after it. The age is a BAND, never a numeral: see AgeBands. Below the lowest
-        // band the age contributes nothing, because a bare number is not a description.
+        // The SUBJECT and BODY clauses come from the canonical body text, so a hand edit on the body card reaches this
+        // prompt — which is the whole point of there being one text. What this compiler still owns is the SHOT: the
+        // stance, the clothing, and the camera/texture tail. The researched shape is unchanged (subject first, then
+        // appearance and body, clothing in the positive, camera cues last); the tail below carries the full-body
+        // framing cue that used to be a "Full-body photograph of" prefix.
+        var sentences = new List<string>(4) { ComposeViewBodyText(brief) };
+
+        sentences.Add($"{Capitalize(SdxlStancePhrase(brief.Stance))}.");
+
+        // Clothing is always in the positive: these checkpoints are NSFW-trained and clothing is the safety anchor
+        // (§2.2 rule 6). An unclothed reference states that explicitly rather than staying silent.
+        sentences.Add(string.IsNullOrWhiteSpace(brief.Clothing)
+            ? "Nude, fully unclothed."
+            : $"Wearing {NormalizeValue(brief.Clothing).ToLowerInvariant()}.");
+
+        sentences.Add("Whole body in frame and unobstructed, head to feet, natural skin texture, soft even lighting, sharp focus, 35mm photograph.");
+
+        return string.Join(" ", sentences);
+    }
+
+    /// <summary>
+    /// The subject clause's descriptors, in order: the age/gender noun phrase, hair, eyes, the face block, then skin.
+    /// Extracted so <see cref="ComposeBodyText"/> and the SDXL prompt read ONE list: two copies of this ordering would
+    /// let the canonical text and the reference rendering drift apart, which is the defect this whole path exists to
+    /// remove.
+    /// </summary>
+    private static List<string> SubjectPhrases(BodyReferenceBrief brief)
+    {
         var subject = new List<string>(6) { SubjectNounPhrase(brief) };
         if (!string.IsNullOrWhiteSpace(brief.HairColour))
         {
@@ -549,27 +574,99 @@ public static class BodyReferencePromptCompiler
             subject.Add($"{NormalizeValue(brief.SkinTone).ToLowerInvariant()} skin");
         }
 
-        var sentences = new List<string>(4)
-        {
-            $"Full-body photograph of {string.Join(", ", subject.Select(NormalizeValue).Where(value => value.Length > 0))}, {SdxlStancePhrase(brief.Stance)}."
-        };
+        return subject;
+    }
 
-        var body = DedupeValues(BodyPhrases(brief).Concat(BodyDetailPhrases(brief)));
+    /// <summary>
+    /// The body clause's descriptors: the axis renderings followed by the card's free-text detail.
+    /// </summary>
+    /// <param name="includePubicHair">
+    /// Whether the unclothed-only detail is part of this description. False for the STORED canonical text, because one
+    /// text serves both states and the pubic region is unclothed-only; the consumers that render an unclothed view ask
+    /// for it explicitly through <see cref="ComposeStateDetail"/> instead.
+    /// </param>
+    private static List<string> BodyDescriptionPhrases(BodyReferenceBrief brief, bool includePubicHair)
+        => DedupeValues(BodyPhrases(brief).Concat(BodyDetailPhrases(brief, includePubicHair)));
+
+    /// <summary>
+    /// THE canonical body text (B-132): the invariant description of this character's build and face, and the single
+    /// text every consumer pastes.
+    ///
+    /// It deliberately carries NO height or weight, NO camera or stance clause, NO framing/lighting/lens tail and NO
+    /// clothing. Those belong to a SHOT, not to a body: the LoRA cell brings its own pose, wardrobe and lighting, and
+    /// the body reference brings its own stance and framing. Composing them in here is what made one string mean
+    /// different things in different places, and it is how "5'8\", 150 lbs" reached prompts long after it had been
+    /// dropped from the render path — the numeral is retained on the CARD, where the operator records it, but it is not
+    /// something an image model can draw.
+    ///
+    /// The unclothed-only pubic-hair detail is excluded for the same single-source reason: it lives on the card's
+    /// <c>PubicHair</c> field and a consumer appends it only when its own state is unclothed, via
+    /// <see cref="ComposeStateDetail"/>. The stored text therefore describes the body, not the state.
+    /// </summary>
+    public static string ComposeBodyText(BodyReferenceBrief brief)
+    {
+        ArgumentNullException.ThrowIfNull(brief);
+
+        var sentences = new List<string>(2);
+        var subject = DedupeValues(SubjectPhrases(brief));
+        if (subject.Count > 0)
+        {
+            sentences.Add($"{Capitalize(string.Join(", ", subject))}.");
+        }
+
+        var body = BodyDescriptionPhrases(brief, includePubicHair: false);
         if (body.Count > 0)
         {
             sentences.Add($"Body: {string.Join(", ", body)}.");
         }
 
-        // Clothing is always in the positive: these checkpoints are NSFW-trained and clothing is the safety anchor
-        // (§2.2 rule 6). An unclothed reference states that explicitly rather than staying silent.
-        sentences.Add(string.IsNullOrWhiteSpace(brief.Clothing)
-            ? "Nude, fully unclothed."
-            : $"Wearing {NormalizeValue(brief.Clothing).ToLowerInvariant()}.");
-
-        sentences.Add("Whole body in frame and unobstructed, head to feet, natural skin texture, soft even lighting, sharp focus, 35mm photograph.");
-
         return string.Join(" ", sentences);
     }
+
+    /// <summary>
+    /// The state-dependent body detail the canonical text cannot carry, or null when there is none: the pubic hair,
+    /// and only for an unclothed view.
+    ///
+    /// ONE place decides this, because it is a rule about bodies and states rather than about any one consumer's
+    /// dialect — and getting it wrong is not cosmetic: the CLOTHED base carried it unconditionally for a while, which
+    /// contradicts the state the operator picked and, with SDXL's deliberately empty negative, pulls the render toward
+    /// nudity.
+    /// </summary>
+    public static string? ComposeStateDetail(BodyReferenceBrief brief)
+    {
+        ArgumentNullException.ThrowIfNull(brief);
+        return brief.BodyState == SceneImageReferenceBodyState.Unclothed
+            && !string.IsNullOrWhiteSpace(brief.PubicHair)
+                ? NormalizeValue(brief.PubicHair).ToLowerInvariant()
+                : null;
+    }
+
+    /// <summary>
+    /// The canonical body text AS A RENDERED VIEW READS IT: the text itself, plus the unclothed-only detail appended
+    /// into its Body clause when there is one.
+    ///
+    /// ONE place appends it. The Body clause is the text's LAST clause, so the detail joins that list ("… tattoo of a
+    /// tree on left calf, neatly trimmed") rather than starting a fragment of its own — and every consumer, in either
+    /// dialect, gets the identical sentence instead of three spellings of the same rule.
+    /// </summary>
+    public static string ComposeViewBodyText(BodyReferenceBrief brief)
+    {
+        ArgumentNullException.ThrowIfNull(brief);
+
+        var bodyText = brief.BodyText;
+        if (ComposeStateDetail(brief) is not { } stateDetail)
+        {
+            return bodyText;
+        }
+
+        return bodyText.Contains("Body:", StringComparison.Ordinal)
+            ? $"{bodyText.TrimEnd('.')}, {stateDetail}."
+            : $"{bodyText} {Capitalize(stateDetail)}.";
+    }
+
+    /// <summary>Uppercases the first character only, so a composed sentence starts like one.</summary>
+    private static string Capitalize(string value)
+        => value.Length == 0 ? value : char.ToUpperInvariant(value[0]) + value[1..];
 
     /// <summary>Pony body tokens, from the one shared per-family vocabulary. Omitted values simply contribute nothing.</summary>
     private static IEnumerable<string> BodyTokens(BodyReferenceBrief brief)
@@ -622,7 +719,7 @@ public static class BodyReferencePromptCompiler
     /// calf": a generic <c>tattoo</c> token would put the design somewhere else on the body, and for a reference
     /// sheet a tattoo in the wrong place is worse than no tattoo at all. Pony therefore omits them and says so.
     /// </summary>
-    private static IEnumerable<string> BodyDetailPhrases(BodyReferenceBrief brief)
+    private static IEnumerable<string> BodyDetailPhrases(BodyReferenceBrief brief, bool includePubicHair)
     {
         // Pubic hair belongs to the UNCLOTHED state ONLY. The card stores it once and both states share the card, so
         // emitting it unconditionally put an unclothed-only detail into the CLOTHED base — which contradicts the state
@@ -630,7 +727,7 @@ public static class BodyReferencePromptCompiler
         // empty by design), so it pulls the render toward nudity. Details that are visible on a clothed person —
         // tattoos, scars and marks, body hair — stay in both.
         var details = new List<string?>(4) { brief.BodyHair, brief.Tattoos, brief.ScarsMarks };
-        if (brief.BodyState == SceneImageReferenceBodyState.Unclothed)
+        if (includePubicHair)
         {
             details.Add(brief.PubicHair);
         }
@@ -663,7 +760,13 @@ public static class BodyReferencePromptCompiler
         AddDetailOmission(omissions, brief.Tattoos, "the tattoos", "a design and its exact placement cannot be tagged");
         AddDetailOmission(omissions, brief.ScarsMarks, "the scars and marks", "a described mark cannot be tagged");
         AddDetailOmission(omissions, brief.BodyHair, "the body hair", "a described pattern cannot be tagged");
-        AddDetailOmission(omissions, brief.PubicHair, "the pubic hair", "a described state cannot be tagged");
+
+        // The pubic region is unclothed-only, so a clothed view has nothing to omit. Reporting it here would name a
+        // detail the operator never asked this view to carry.
+        if (brief.BodyState == SceneImageReferenceBodyState.Unclothed)
+        {
+            AddDetailOmission(omissions, brief.PubicHair, "the pubic hair", "a described state cannot be tagged");
+        }
 
         return omissions;
     }

@@ -1,0 +1,5 @@
+# numpy and Pillow come from the repo venv (d:/src/DreamGenClone/.venv).
+# Pins matter here: the comparison is a per-pixel arithmetic over uint8-decoded RGB, so an image
+# decoder that rounds differently would shift the numbers. Verified against numpy 2.5.3 / Pillow 12.3.0.
+numpy==2.5.3
+Pillow==12.3.0

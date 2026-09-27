@@ -85,7 +85,7 @@ For complex multi-concept changes, break into separate sequential edits:
 | "Add a table and a form and update the model binding" | 1. "Add the table only." 2. "Now add the form." 3. "Now update the model binding." |
 | "Refactor the layout and add a new section and change the sidebar" | 1. "Change the sidebar." 2. "Add the new section." 3. "Refactor the layout." |
 
-Apply **one logical concept per edit**. Wait for verification before proceeding to the next step.
+Apply **one logical concept per edit**. When the user has approved a multi-step plan, apply those Razor edits sequentially in the same run — self-validate each edit, then continue to the next one instead of stopping to wait for verification. Only pause between steps for unapproved one-off requests.
 
 ## 7. Style Conventions
 

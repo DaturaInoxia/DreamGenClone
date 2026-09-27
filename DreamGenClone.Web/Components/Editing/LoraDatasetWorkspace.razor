@@ -250,7 +250,10 @@ else
                             </dl>
 
                             <h6 class="text-uppercase text-muted small">Render prompt</h6>
-                            <p class="small font-monospace border rounded p-2">@SelectedRenderPrompt</p>
+                            @* ONE prompt on this page: the same composition the shot below is rendered from, including the
+                               elements its bound reference images supply and the face line. This box used to run a second,
+                               separate composition that passed neither, so it showed a prompt no render would ever use. *@
+                            <p class="small font-monospace border rounded p-2">@RenderPromptForShoot</p>
 
                             <h6 class="text-uppercase text-muted small">Caption</h6>
                             <p class="small font-monospace border rounded p-2">@SelectedCaption</p>
@@ -421,6 +424,12 @@ else
     private string _cellBodyReference = string.Empty;
     private IReadOnlyList<ReferenceApplicationSelection> _cellBindings = [];
     private string _cellPromptDraft = string.Empty;
+
+    /// <summary>
+    /// The canonical body text for the selected cell's state (B-132), resolved from the body service. It replaces the
+    /// card's raw line here: that line carried height and weight, and a pubic-hair detail with no state gate.
+    /// </summary>
+    private string _cellBodyText = string.Empty;
     private bool _cellBusy;
 
     /// <summary>The step this workspace presents, built by the one factory that owns host knowledge. A cell is shot
@@ -673,41 +682,22 @@ else
 
     private string SelectedBackgroundPhrase => Phrase(record => record.BackgroundKey);
 
-    private string SelectedRenderPrompt => Compose(record => LoraCellPromptComposer.ComposeRenderPrompt(
-        _plan!, record, BodyCardLine, _renderTemplateBody ?? string.Empty));
-
     private string SelectedCaption => Compose(record => LoraCellPromptComposer.ComposeCaption(
         _plan!, record, _captionTemplateBody ?? string.Empty));
 
     /// <summary>
-    /// The invariant body line, pasted verbatim into every render prompt. An incomplete card refuses to render a
-    /// line at all (by design), so the workspace says what is missing rather than composing a prompt without it.
+    /// The invariant body text, pasted verbatim into every render prompt: the canonical body text the body service
+    /// resolved for this cell's state (B-132). An incomplete card refuses to resolve one at all (by design), so the
+    /// workspace says what is missing rather than composing a prompt without it.
     /// </summary>
-    private string BodyCardLine
-    {
-        get
-        {
-            if (_bodyCard is null)
-            {
-                return string.Empty;
-            }
-
-            try
-            {
-                return _bodyCard.ToPromptLine();
-            }
-            catch (InvalidOperationException)
-            {
-                return string.Empty;
-            }
-        }
-    }
+    private string BodyCardLine => _cellBodyText;
 
     private string BodyCardNotice
         => _bodyCard is null
             ? "This character has no body card yet, so the render prompt cannot be composed. Fill it in on the Body tab."
             : string.IsNullOrWhiteSpace(BodyCardLine)
-                ? "This character's body card still has unanswered fields, so the render prompt cannot be composed. Finish it on the Body tab."
+                ? "This character's body card has unanswered fields or no body text yet, so the render prompt cannot be "
+                    + "composed. Finish it, and compose its body text, on the Body tab."
                 : string.Empty;
 
     private string Phrase(Func<CoverageRecord, string> select)
@@ -768,6 +758,10 @@ else
             // it here from the dataset would be a second answer to "whose reference is this", free to disagree with the
             // key the step was built with - which is exactly how the face and body references came to be invisible.
             _cellBindings = await CellService.ResolveCellBindingsAsync(_selectedDatasetId, record.Key, _identityKey);
+            // The canonical body text for THIS cell's state (B-132), resolved by the service that owns it rather than
+            // re-derived here from the card. One text, so the LoRA body element and the body-reference prompt describe
+            // the same body - and the unclothed-only detail is appended only when this cell is unclothed.
+            _cellBodyText = await BodyService.ResolveBodyTextAsync(_identityKey, record.BodyState);
             // The composed prompt becomes the step's DRAFT rather than staying a read-only paragraph: the box is
             // editable, so an edit that the render ignored would be a lie about what is being shot.
             _cellPromptDraft = RenderPromptForShoot;
@@ -778,6 +772,7 @@ else
             _cellIdentityReference = string.Empty;
             _cellBodyReference = string.Empty;
             _cellBindings = [];
+            _cellBodyText = string.Empty;
             _cellPromptDraft = string.Empty;
             _error = exception.Message;
         }

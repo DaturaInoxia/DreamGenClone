@@ -630,12 +630,13 @@ public sealed class CharacterIdentityBodyServiceTests
             Assert.Equal("juggernaut", view.ResolvedModelId);
 
             // The prompt is COMPILED for the model's family: "juggernaut" is an SDXL checkpoint, so it is the
-            // natural-language brief — not the stored prose body, which the old path pasted verbatim.
+            // natural-language brief — not the stored prose body, which the old path pasted verbatim. It OPENS with the
+            // canonical body text (B-132), which is what carries the brief's subject clause into the render.
             var prompt = view.ResolvedPromptText!;
-            Assert.Contains("Full-body photograph", prompt, StringComparison.Ordinal);
+            Assert.StartsWith("A middle-aged woman", prompt, StringComparison.Ordinal);
             // The age is a maturity BAND on both families, never a numeral — a bare number is not a description, and
             // the card's age of 50 falls in the middle-aged band (see BodyReferencePromptCompiler.AgeBands).
-            Assert.Contains("a middle-aged woman", prompt, StringComparison.Ordinal);
+            Assert.Contains("a middle-aged woman", prompt, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("50-year-old", prompt, StringComparison.Ordinal);
             // The person's stated facts, and the outfit from the template rather than a prompt body.
             Assert.Contains("brown hair", prompt, StringComparison.Ordinal);
@@ -825,7 +826,7 @@ public sealed class CharacterIdentityBodyServiceTests
             Assert.Equal(acceptedBase.Id, conditioning.SourceImageId);
 
             // The prompt is the compiled body prompt followed by that angle's camera clause, resolved from the store.
-            Assert.Contains("full-body photograph", generation.Prompt, StringComparison.OrdinalIgnoreCase);
+            Assert.StartsWith("A middle-aged woman", generation.Prompt, StringComparison.Ordinal);
             Assert.Contains("Camera", generation.Prompt, StringComparison.Ordinal);
 
             // No identity reference and no stance pose: the accepted body IS the identity and the skeleton IS the pose.

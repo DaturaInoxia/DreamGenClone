@@ -35,25 +35,75 @@
                 </button>
             </div>
         }
-        <div class="row g-3">
-            <div class="col-lg-4">
-                <div class="d-flex justify-content-center align-items-center bg-black border rounded" style="height: 300px;">
-                    @if (_previewUrl is not null)
+        <ul class="nav nav-tabs small mb-3" role="tablist" aria-label="Pose authoring step">
+            <li class="nav-item">
+                <button type="button" class="nav-link @(_activeTab == "body" ? "active" : "")" @onclick='() => _activeTab = "body"'>
+                    <i class="bi bi-person me-1"></i>Body
+                </button>
+            </li>
+            <li class="nav-item">
+                <button type="button" class="nav-link @(_activeTab == "head" ? "active" : "")" @onclick='() => _activeTab = "head"'>
+                    <i class="bi bi-person-bounding-box me-1"></i>Head
+                </button>
+            </li>
+            <li class="nav-item">
+                <button type="button" class="nav-link @(_activeTab == "drag" ? "active" : "")" @onclick='() => _activeTab = "drag"'>
+                    <i class="bi bi-arrows-move me-1"></i>Drag
+                </button>
+            </li>
+            <li class="nav-item">
+                <button type="button" class="nav-link @(_activeTab == "test" ? "active" : "")" @onclick='() => _activeTab = "test"'>
+                    <i class="bi bi-eye me-1"></i>Test
+                </button>
+            </li>
+        </ul>
+
+        <div class="row g-3 mt-1">
+            @* The stage holds the frame of the step on screen. Body and Test show the projection here; Head and Drag
+               bring their own canvas, so those two take the full width and their canvas lands in this same place
+               instead of beside a body preview that is no longer the thing being edited. The tab bar sits above the
+               row so it does not move sideways when the step that has no stage is selected. *@
+            @if (_activeTab == "body" || _activeTab == "test")
+            {
+                <div class="col-lg-4">
+                    <div class="d-flex justify-content-center align-items-center bg-black border rounded" style="height: 300px;">
+                        @if (_previewUrl is not null)
+                        {
+                            <img src="@_previewUrl" alt="Projected pose preview" style="max-height: 296px; max-width: 100%;" />
+                        }
+                        else
+                        {
+                            <span class="text-muted small">Rendering the rig...</span>
+                        }
+                    </div>
+                    @if (_activeTab == "body")
                     {
-                        <img src="@_previewUrl" alt="Projected pose preview" style="max-height: 296px; max-width: 100%;" />
+                        <div class="form-text">
+                            @_view.YawDegrees.ToString("0")° yaw · @_view.PitchDegrees.ToString("0")° pitch · @_view.RollDegrees.ToString("0")° roll
+                            · one press = @StepDegrees.ToString("0")°
+                        </div>
                     }
                     else
                     {
-                        <span class="text-muted small">Rendering the rig...</span>
+                        <div class="form-text">
+                            The skeleton that will be sent — the rig's projection of the view and head above, or a
+                            picked library pose's own file while it is untouched. The result says which was sent.
+                        </div>
+                        @if (_testImageUrl is not null)
+                        {
+                            <div class="d-flex justify-content-center bg-black border rounded p-2 mt-2">
+                                <img src="@_testImageUrl" alt="Pose test render" style="max-height: 300px; max-width: 100%;" />
+                            </div>
+                        }
                     }
                 </div>
-                <div class="form-text">
-                    @_view.YawDegrees.ToString("0")° yaw · @_view.PitchDegrees.ToString("0")° pitch · @_view.RollDegrees.ToString("0")° roll
-                    · one press = @StepDegrees.ToString("0")°
-                </div>
-            </div>
+            }
 
-            <div class="col-lg-8">
+            <div class="@(_activeTab == "body" || _activeTab == "test" ? "col-lg-8" : "col-12")">
+                @* The steps are shown and hidden with display rather than @if on purpose. @if disposes the step, and an
+                   unsaved drag is the operator's own work: switching to Test to look at the pose, then back to Drag,
+                   must not throw it away. *@
+                <div style="display: @(_activeTab == "body" ? "block" : "none");">
                 <label class="form-label small fw-semibold mb-1">Target view</label>
                 <div class="d-flex flex-wrap gap-1 mb-3">
                     @foreach (var target in TargetViews)
@@ -99,10 +149,15 @@
                         <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ResetAsync">Reset</button>
                     </div>
                 </div>
+                </div>
 
+                <div style="display: @(_activeTab == "head" ? "block" : "none");">
                 <PoseHeadControls BodyView="_view" Head="_head" HeadChanged="OnHeadChangedAsync" />
+                </div>
 
+                <div style="display: @(_activeTab == "drag" ? "block" : "none");">
                 <PoseJointEditor Start="_editorStart" BodyView="_view" Head="_head" OnSaved="OnNestedSavedAsync" />
+                </div>
 
                 <div class="row g-2 align-items-end">
                     <div class="col-md-4">
@@ -145,6 +200,7 @@
                     <div class="alert alert-success py-1 small mt-2 mb-0">@_status</div>
                 }
 
+                <div style="display: @(_activeTab == "test" ? "block" : "none");">
                 <div class="border-top mt-3 pt-3">
                     <div class="mb-1">
                         <span class="small fw-semibold">Test this pose</span>
@@ -198,12 +254,14 @@
                         </div>
                         <div class="col-12">
                             <label class="form-label small fw-semibold mb-1">Prompt</label>
-                            <textarea class="form-control form-control-sm" rows="2"
-                                      placeholder="Full-body photograph of one person, front view, facing the camera, arms at their sides, plain background"
+                            <textarea class="form-control form-control-sm" rows="3"
+                                      placeholder="A full-body photograph of a fully clothed person, natural skin texture, photorealistic, plain studio background, 85mm."
                                       value="@_testPrompt" @oninput="e => _testPrompt = e.Value?.ToString()"></textarea>
                             <span class="form-text">
-                                Square canvas keeps the skeleton's own aspect. On a reference-conditioned model the
-                                skeleton carries the body but not which way the figure faces, so state the view here.
+                                The same wording for every pose, so a test compares poses rather than prompts. Square
+                                canvas keeps the skeleton's own aspect. Note that a skeleton carries the body's shape but
+                                not which way the figure faces — add a view clause here if the render needs a specific
+                                facing.
                             </span>
                         </div>
                     </div>
@@ -215,12 +273,7 @@
                     {
                         <div class="alert alert-info py-1 small mt-2 mb-0">@_testNote</div>
                     }
-                    @if (_testImageUrl is not null)
-                    {
-                        <div class="mt-2 d-flex justify-content-center bg-black border rounded p-2">
-                            <img src="@_testImageUrl" alt="Pose test render" style="max-height: 420px; max-width: 100%;" />
-                        </div>
-                    }
+                </div>
                 </div>
             </div>
         </div>
@@ -249,6 +302,12 @@
 
     private PoseView _view = new();
     private PoseHeadRotation _head = new();
+
+    /// <summary>
+    /// The authoring step on screen. The four steps are one pose built in stages rather than four panels: body and
+    /// head set the projection, drag edits joints on top of that projection, and test renders whatever is current.
+    /// </summary>
+    private string _activeTab = "body";
 
     /// <summary>
     /// The rig pose being projected, or null to project the natural standing stance. Non-null exactly when a
@@ -455,6 +514,22 @@
     private Task RefreshPreviewAsync()
     {
         _error = null;
+
+        // While a library pose is UNTOUCHED, the preview AND the drag editor start from THE POSE ITSELF — the same
+        // artifact the library card renders. Projecting the fitted rig instead was wrong twice over: the fit only
+        // approximates the pose's view, and the rig has no hands at all, so a freshly opened pack pose previewed and
+        // was dragged as a smaller, handless figure that was not the pose the operator had just clicked. The pose is
+        // handed over whole, so its hands and any face channel survive until something is actually edited.
+        if (_loadedFrom is { } preset
+            && !PoseEdited()
+            && LibraryService.SkeletonUrl(preset) is { } storedUrl
+            && TryReadStoredPose(preset, out var stored))
+        {
+            _previewUrl = storedUrl;
+            _editorStart = stored;
+            return Task.CompletedTask;
+        }
+
         _previewUrl = "data:image/png;base64," + Convert.ToBase64String(
             LibraryService.RenderAuthoredPreview(_view, _head, PreviewCanvas, _rotations));
 
@@ -462,6 +537,25 @@
         // change — that is exactly what tells the editor a new starting pose exists.
         _editorStart = LibraryService.ProjectAuthoredPose(_view, _head, _rotations);
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// A library pose's own keypoints, hands and face included, or false when it has none that can be read. A pose with
+    /// no readable keypoints is not an error here: the rig projection is still a valid thing to start from, and the
+    /// pose's own text is reported by the caller that parses it.
+    /// </summary>
+    private static bool TryReadStoredPose(PosePreset preset, out PosePerson person)
+    {
+        try
+        {
+            person = OpenPosePoseJson.Parse(preset.KeypointsJson, preset.Name);
+            return true;
+        }
+        catch (Exception)
+        {
+            person = new PosePerson { Body = [] };
+            return false;
+        }
     }
 
     /// <summary>Raised by a nested tool (the drag editor) so the host refreshes exactly as a rig save does.</summary>

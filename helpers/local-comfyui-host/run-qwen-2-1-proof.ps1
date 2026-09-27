@@ -665,6 +665,122 @@ $cellDefs = @{
         Size        = @(1216, 1216)
         Prompt      = 'Photorealistic medium shot photograph inside the dim tin-walled shed shown in <image1>, the two people large in the frame and filling it edge to edge - the wooden workbench, the corrugated tin walls and the thin blue last light are visible around them. The woman is the woman from <image2> and the man is the man from <image3>; keep both faces exactly as they appear in their reference images, including hair. She lies on her back along the workbench boards, fully clothed in a t-shirt and jeans, her head at the right of frame, her knees bent and her feet resting flat on the boards well below her shoulders, her arms resting back along the boards. He stands beside the bench in the left foreground, facing her and looking down at her, fully clothed in a shirt and trousers, a light sheen of sweat on his face. Close to the subjects, natural skin texture, dim ambient light, shot on 35mm.'
     }
+    # ---- P0 REGION PROOF (2026-09-25) ----------------------------------------------------------
+    # GATING QUESTION: can a 2.1 edit be limited to a REGION? TextEncodeQwenImage21 has NO mask
+    # input (verified from /object_info: clip / prompt / negative_prompt / resolution / images /
+    # vae only), so the mechanism under test is a masked LATENT - SetLatentNoiseMask applied to the
+    # encoder's own output[2]. One mechanism unlocks BOTH region-targeted editing (circle / paint /
+    # mask) and panorama (outpaint = mask the newly exposed strip), so it gates B-129 section 5.4.
+    #
+    # p0Base is the edit target: a waist-up portrait in a LARGE PLAIN WHITE T-SHIRT, so the masked
+    # rectangle is easy to place and a colour change inside it is unmistakable AND measurable.
+    # Run p0Base first, then use -TargetImage <p0Base>/result_0.png for the two cells below.
+    p0Base = @{
+        Kind        = 'text2image'
+        Description = 'P0 base: waist-up portrait in a large plain white t-shirt (region-proof edit target)'
+        Prompt      = 'Photorealistic waist-up portrait photograph of a young woman facing the camera, centred in the frame, wearing a plain unbranded white cotton t-shirt with no logo and no pattern, arms relaxed at her sides, plain flat neutral grey studio background, even soft lighting, natural skin texture, sharp focus, shot on 85mm.'
+    }
+    # The CONTROL. Identical instruction and seed to p0RegionMasked; the ONLY difference is that no
+    # mask node is emitted. At denoise 1.0 the whole frame is free to drift, so any pixel that
+    # differs between this and the masked run INSIDE the rectangle is the mask working, and the
+    # outside-the-rectangle measurement is what proves the edit was actually contained.
+    p0RegionControl = @{
+        Kind        = 'imageedit'
+        Description = 'P0 CONTROL: shirt-colour edit WITHOUT a mask (whole frame free to change)'
+        Prompt      = 'Change the colour of the t-shirt the woman is wearing to bright red. Keep everything else in the image exactly as it is: her face, hair, pose, the background and the lighting.'
+    }
+    # The MASKED run. MaskRect is x, y, width, height, blur_radius - PERCENT of the frame, NOT
+    # pixels: MaskRectArea's own schema caps all four at 100, and the host rejects a pixel rect with
+    # value_bigger_than_max on x / y / width / height. Values chosen from the VIEWED p0Base render,
+    # where the shirt body spans roughly x 180-810, y 430-1024 at 1024x1024 - the rectangle lands on
+    # x 328-686, y 563-901, inside the garment and clear of the collar, the face, both arms and the
+    # frame edges. The measurement ignores a band around the rectangle so the blur edge cannot
+    # flatter the result.
+    p0RegionMasked = @{
+        Kind        = 'imageedit'
+        Description = 'P0 MASKED: identical edit limited to the shirt rectangle (masked latent)'
+        MaskRect    = @(32, 55, 35, 33, 8)
+        Prompt      = 'Change the colour of the t-shirt the woman is wearing to bright red. Keep everything else in the image exactly as it is: her face, hair, pose, the background and the lighting.'
+    }
+    # Same rectangle and instruction, but the latent comes from VAEEncodeForInpaint (the node ComfyUI
+    # ships for masking) instead of a bare SetLatentNoiseMask on the encoder's latent - the control
+    # that separates "wrong mechanism" from "masking is impossible here".
+    p0RegionInpaint = @{
+        Kind        = 'imageedit'
+        Description = 'P0 MASKED B: region edit via VAEEncodeForInpaint (the documented inpaint recipe)'
+        MaskRect    = @(32, 55, 35, 33, 8)
+        MaskMode    = 'inpaintenc'
+        Prompt      = 'Change the colour of the t-shirt the woman is wearing to bright red. Keep everything else in the image exactly as it is: her face, hair, pose, the background and the lighting.'
+    }
+    # Same as p0RegionMasked but the mask is inverted, which tests the polarity hypothesis: if the
+    # outside-collapse was a 0/1 convention mismatch, this run should contain the edit instead.
+    p0RegionInverted = @{
+        Kind        = 'imageedit'
+        Description = 'P0 MASKED C: masked latent with an INVERTED mask (polarity hypothesis)'
+        MaskRect    = @(32, 55, 35, 33, 8)
+        MaskMode    = 'invert'
+        Prompt      = 'Change the colour of the t-shirt the woman is wearing to bright red. Keep everything else in the image exactly as it is: her face, hair, pose, the background and the lighting.'
+    }
+    # ---- EVP-1 REFERENCE-COUNT LADDER (2026-09-25) ----------------------------------------------
+    # GATING QUESTION for B-129 section 2.1 rows C1c/C1d/C1e: only up to THREE references have ever
+    # been run on 2.1, yet group portraits (6), virtual try-on (5) and interior assembly (10) all
+    # depend on more, and the app's model row declares MaxReferences: 16 while Qwen's official limit
+    # is <= 10. Nothing above 3 has been measured.
+    #
+    # THE PROBE. The OpenPose skeleton in a reference slot drives the pose decisively: case 05 showed
+    # a KNEELING skeleton producing a kneeling figure while the prompt still said "standing", with the
+    # same seed. So the skeleton is a slot-consumption detector: keep the prompt IDENTICAL and the
+    # skeleton in position N, and the figure either kneels (slot N was consumed) or stands (it was
+    # dropped). That is an objective signal, not a semantic judgement - and it is the ONLY cheap way
+    # to tell a silently-ignored slot from a working one.
+    #
+    # Fillers are face references, deliberately NOT location references: an empty-room reference takes
+    # over the composition (measured, CASE-20), which would make "no figure" uninterpretable. Every
+    # cell below uses the SAME prompt, so the reference list is the only variable.
+    refsSlot2 = @{
+        Kind        = 'text2image'
+        Description = 'EVP-1 CONTROL: skeleton at SLOT 2 (proves the probe reads at all)'
+        Refs        = @('beckyFront', 'skeletonKneeling')
+        Size        = @(1024, 1024)
+        Prompt      = 'Photorealistic full-body photograph of one woman standing upright and facing the camera, her arms relaxed at her sides, her feet flat on the ground, plain neutral grey studio background, even soft lighting, natural skin texture, sharp focus, shot on 85mm.'
+    }
+    refsSlot4 = @{
+        Kind        = 'text2image'
+        Description = 'EVP-1: 4 references, skeleton at SLOT 4'
+        Refs        = @('beckyFront', 'becky34LeftFace', 'deanFront', 'skeletonKneeling')
+        Size        = @(1024, 1024)
+        Prompt      = 'Photorealistic full-body photograph of one woman standing upright and facing the camera, her arms relaxed at her sides, her feet flat on the ground, plain neutral grey studio background, even soft lighting, natural skin texture, sharp focus, shot on 85mm.'
+    }
+    refsSlot6 = @{
+        Kind        = 'text2image'
+        Description = 'EVP-1: 6 references, skeleton at SLOT 6'
+        Refs        = @('beckyFront', 'becky34LeftFace', 'becky', 'deanFront', 'beckyFrontBody', 'skeletonKneeling')
+        Size        = @(1024, 1024)
+        Prompt      = 'Photorealistic full-body photograph of one woman standing upright and facing the camera, her arms relaxed at her sides, her feet flat on the ground, plain neutral grey studio background, even soft lighting, natural skin texture, sharp focus, shot on 85mm.'
+    }
+    # 10 slots = the OFFICIAL Qwen cap. Nine fillers, skeleton last. 'bedroom' is repeated at slots 1
+    # and 9 on purpose: only 8 distinct benign references exist that are neither a skeleton (which
+    # would fight the probe) nor a photoreal full body (which is REPRODUCED wholesale, case 03). The
+    # question here is whether slot POSITIONS are honoured, which duplicates answer directly.
+    refsSlot10 = @{
+        Kind        = 'text2image'
+        Description = 'EVP-1: 10 references (official cap), skeleton at SLOT 10; bedroom duplicated at slots 1 and 9'
+        Refs        = @('beckyFront', 'becky34LeftFace', 'becky', 'deanFront', 'beckyFrontBody', 'shedLocation', 'outdoors', 'bedroom', 'bedroom', 'skeletonKneeling')
+        Size        = @(1024, 1024)
+        Prompt      = 'Photorealistic full-body photograph of one woman standing upright and facing the camera, her arms relaxed at her sides, her feet flat on the ground, plain neutral grey studio background, even soft lighting, natural skin texture, sharp focus, shot on 85mm.'
+    }
+    # THE DISCRIMINATOR for refsSlot10. That run came back STANDING (the skeleton in slot 10 did not
+    # take) with mangled anatomy - extra arms. Two explanations fit: (a) slot 10 itself is beyond what
+    # the host honours, or (b) 10 references dilute the pose signal regardless of position. This cell
+    # is the SAME ten references with the skeleton moved to SLOT 1. Kneeling => the count is fine and
+    # POSITION 10 is the problem; still standing => 10 references dilute the pose, whatever the order.
+    refsSlot10First = @{
+        Kind        = 'text2image'
+        Description = 'EVP-1 DISCRIMINATOR: same 10 references, skeleton moved to SLOT 1'
+        Refs        = @('skeletonKneeling', 'beckyFront', 'becky34LeftFace', 'becky', 'deanFront', 'beckyFrontBody', 'shedLocation', 'outdoors', 'bedroom', 'bedroom')
+        Size        = @(1024, 1024)
+        Prompt      = 'Photorealistic full-body photograph of one woman standing upright and facing the camera, her arms relaxed at her sides, her feet flat on the ground, plain neutral grey studio background, even soft lighting, natural skin texture, sharp focus, shot on 85mm.'
+    }
 }
 
 # --------------------------------------------------------------- host preflight
@@ -731,7 +847,9 @@ function New-QwenGraph {
         [int]$Width,
         [int]$Height,
         [int]$Steps,
-        [int]$Seed
+        [int]$Seed,
+        [int[]]$MaskRect,
+        [string]$MaskMode
     )
     $g = [ordered]@{}
     $g['1'] = @{ class_type = 'UNETLoader'; inputs = @{ unet_name = $UnetName; weight_dtype = 'default' } }
@@ -763,6 +881,52 @@ function New-QwenGraph {
         $g['5'] = @{ class_type = 'QwenImage21Cache'; inputs = @{ model = @('1', 0); device = 'auto'; dtype = 'default' } }
         $modelSource = @('5', 0)
         $latent = @('4', 2)
+
+        # ---- P0 REGION PROOF (2026-09-25) -----------------------------------------------------
+        # TextEncodeQwenImage21 has NO mask input - verified from /object_info on the host: its only
+        # inputs are clip / prompt / negative_prompt / resolution / images (autogrow) / vae. So the
+        # ONLY way to limit an edit to a region is to mask the LATENT the encoder already returns as
+        # output[2]. MaskRectArea builds the region; SetLatentNoiseMask marks it. At denoise 1.0 the
+        # sampler re-denoises only the masked pixels and blends the original latent back outside it,
+        # which is what makes the result measurable: outside the rectangle the output should sit on
+        # the SOURCE image, not merely resemble it.
+        if ($MaskRect) {
+            $g['30'] = @{ class_type = 'MaskRectArea'; inputs = @{
+                    x = [int]$MaskRect[0]; y = [int]$MaskRect[1]; width = [int]$MaskRect[2]
+                    height = [int]$MaskRect[3]; blur_radius = [int]$MaskRect[4]
+                } }
+            # MaskRectArea's x/y/width/height are PERCENT of the frame (schema max 100 on all four), so
+            # this is the mask the whole region proof is expressed in.
+            #
+            # MEASURED 2026-09-25: the default 'latentmask' route does NOT contain the edit. The
+            # masked rectangle took the change (white shirt -> red) but everything OUTSIDE it collapsed
+            # to a washed-out haze and the subject was lost entirely: outside mean|diff| vs source was
+            # 53.4, WORSE than the 19.9 of the unmasked control. A bare SetLatentNoiseMask on the
+            # encoder's latent is therefore not an inpaint. The two modes below exist to separate the
+            # two candidate explanations - wrong encoder (needs VAEEncodeForInpaint, the node ComfyUI
+            # ships for exactly this) versus inverted mask polarity (needs InvertMask).
+            switch ($MaskMode) {
+                'inpaintenc' {
+                    # The documented inpaint recipe: encode the SOURCE with the mask, which grows the
+                    # mask and sets noise_mask in ComfyUI's own convention, then sample at denoise 1.0.
+                    # The encoder's own latent is then unused for the sampler (its conditioning still
+                    # carries the reference latents).
+                    $g['41'] = @{ class_type = 'VAEEncodeForInpaint'; inputs = @{
+                            pixels = @('10', 0); vae = @('3', 0); mask = @('30', 0); grow_mask_by = 6
+                        } }
+                    $latent = @('41', 0)
+                }
+                'invert' {
+                    $g['32'] = @{ class_type = 'InvertMask'; inputs = @{ mask = @('30', 0) } }
+                    $g['31'] = @{ class_type = 'SetLatentNoiseMask'; inputs = @{ samples = @('4', 2); mask = @('32', 0) } }
+                    $latent = @('31', 0)
+                }
+                default {
+                    $g['31'] = @{ class_type = 'SetLatentNoiseMask'; inputs = @{ samples = @('4', 2); mask = @('30', 0) } }
+                    $latent = @('31', 0)
+                }
+            }
+        }
     }
     else {
         $g['4'] = @{ class_type = 'TextEncodeQwenImage21'; inputs = $encodeInputs }
@@ -827,8 +991,12 @@ function Invoke-Cell {
     $graphWidth = $Resolution
     $graphHeight = $Resolution
     if ($Cell.ContainsKey('Size')) { $graphWidth = [int]$Cell.Size[0]; $graphHeight = [int]$Cell.Size[1] }
+    $maskRect = $null
+    $maskMode = 'latentmask'
+    if ($Cell.ContainsKey('MaskRect')) { $maskRect = [int[]]$Cell.MaskRect }
+    if ($Cell.ContainsKey('MaskMode')) { $maskMode = [string]$Cell.MaskMode }
     $graph = New-QwenGraph -Kind $Cell.Kind -Prompt $Cell.Prompt -UploadedTarget $uploadedTarget -UploadedRefs $uploadedRefs `
-        -Resolution $Resolution -Width $graphWidth -Height $graphHeight -Steps $Cells_Steps -Seed $Cells_Seed
+        -Resolution $Resolution -Width $graphWidth -Height $graphHeight -Steps $Cells_Steps -Seed $Cells_Seed -MaskRect $maskRect -MaskMode $maskMode
 
     $graph | ConvertTo-Json -Depth 30 | Set-Content -Path (Join-Path $outDir 'request.json') -Encoding UTF8
 
@@ -905,7 +1073,22 @@ function Invoke-Cell {
     }
     if ($Cell.Kind -eq 'imageedit') {
         $meta['target_image'] = $TargetImage
-        $meta['references'] = @($Cell.Refs | ForEach-Object { $references[$_].CharacterName + ' (' + $references[$_].View + ')' })
+        # A cell with no references is a legitimate cell (the P0 region runs are edit cells with an
+        # instruction but no reference image), so this must NOT assume Refs exists: piping $null into
+        # ForEach-Object iterates once with $_ = $null and aborts the meta write, losing the record of
+        # a render that already succeeded on disk.
+        if ($Cell.ContainsKey('Refs') -and @($Cell.Refs).Count -gt 0) {
+            $meta['references'] = @($Cell.Refs | ForEach-Object { $references[$_].CharacterName + ' (' + $references[$_].View + ')' })
+        }
+        else {
+            $meta['references'] = @()
+        }
+        if ($Cell.ContainsKey('MaskRect')) {
+            # MaskRectArea takes PERCENT of the frame (0-100), not pixels - found by the host rejecting
+            # a pixel rect with value_bigger_than_max on all four of x / y / width / height.
+            $meta['mask_rect_pct'] = @($Cell.MaskRect)
+            $meta['mask_mode'] = if ($Cell.ContainsKey('MaskMode')) { [string]$Cell.MaskMode } else { 'latentmask' }
+        }
     }
     ($meta | ConvertTo-Json -Depth 6) | Set-Content -Path (Join-Path $outDir 'meta.json') -Encoding UTF8
     foreach ($p in $saved) { Write-Host "SAVED:$p" }

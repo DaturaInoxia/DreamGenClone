@@ -1,0 +1,24 @@
+﻿{
+    "cell":  "refsSlot10First",
+    "description":  "EVP-1 DISCRIMINATOR: same 10 references, skeleton moved to SLOT 1",
+    "kind":  "text2image",
+    "prompt":  "Photorealistic full-body photograph of one woman standing upright and facing the camera, her arms relaxed at her sides, her feet flat on the ground, plain neutral grey studio background, even soft lighting, natural skin texture, sharp focus, shot on 85mm.",
+    "negative":  "",
+    "seed":  20260925,
+    "steps":  25,
+    "cfg":  1,
+    "sampler":  "euler",
+    "scheduler":  "simple",
+    "resolution":  1024,
+    "width":  1024,
+    "height":  1024,
+    "unet":  "qwen_image_2.1_int8_convrot.safetensors",
+    "text_encoder":  "qwen3vl_8b_int8_convrot.safetensors",
+    "vae":  "qwen_image_2.1_vae_bf16.safetensors",
+    "prompt_id":  "2c5888e5-1f8e-480c-a0e3-70e3b2411415",
+    "wallClockSec":  256.6,
+    "comfyui":  "0.37.1",
+    "images":  [
+                   "D:\\src\\DreamGenClone\\artifacts\\tmp\\qwen-2-1\\refsSlot10First\\result_0.png"
+               ]
+}

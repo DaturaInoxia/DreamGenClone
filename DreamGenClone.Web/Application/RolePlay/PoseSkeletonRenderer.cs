@@ -88,20 +88,36 @@ public static class PoseSkeletonRenderer
             .Select(entry => entry.point)
             .ToArray();
 
-        if (visible.Length == 0)
+        // A pose that carries a face channel is a HEAD pose, and a head pose is framed on its FACE.
+        //
+        // The body is the wrong box for one, and measurably so: a face crop makes the estimator report body joints
+        // that are not in the picture at all — the reference plate this feature was measured against came back with a
+        // HIP for a picture of a face (11 "visible" body joints, including a hip well below the crop). A box drawn
+        // around those shrinks the head into the top of an otherwise empty canvas, which reads as a broken pose rather
+        // than as a framing choice. Framing on the face puts the head the size the pose is about.
+        var facePoints = person.Face
+            .Where(point => point.Confidence > OpenPosePoseJson.VisibilityFloor)
+            .ToArray();
+
+        var framing = frameIndices is null && facePoints.Length > 0 ? facePoints : visible;
+
+        if (framing.Length == 0)
         {
             throw new InvalidOperationException(
-                frameIndices is null
-                    ? "A pose with no visible body keypoint cannot be fitted to the canvas, so no skeleton can "
-                        + "be rendered from it."
-                    : $"None of the {frameIndices.Count} requested framing joints are visible, so there is nothing "
-                        + "to frame the render on.");
+                frameIndices is not null
+                    ? $"None of the {frameIndices.Count} requested framing joints are visible, so there is nothing "
+                        + "to frame the render on."
+                    : person.Face.Count > 0
+                        ? "This pose carries a face channel but none of its face points are visible, so a head pose "
+                            + "has nothing to frame on."
+                        : "A pose with no visible body keypoint cannot be fitted to the canvas, so no skeleton can "
+                            + "be rendered from it.");
         }
 
-        var minX = visible.Min(p => p.X);
-        var maxX = visible.Max(p => p.X);
-        var minY = visible.Min(p => p.Y);
-        var maxY = visible.Max(p => p.Y);
+        var minX = framing.Min(p => p.X);
+        var maxX = framing.Max(p => p.X);
+        var minY = framing.Min(p => p.Y);
+        var maxY = framing.Max(p => p.Y);
 
         var width = Math.Max(maxX - minX, 1.0);
         var height = Math.Max(maxY - minY, 1.0);
@@ -119,7 +135,10 @@ public static class PoseSkeletonRenderer
         {
             Body = Transform(person.Body),
             LeftHand = Transform(person.LeftHand),
-            RightHand = Transform(person.RightHand)
+            RightHand = Transform(person.RightHand),
+            // The face travels through the SAME transform as the body: a face that was scaled differently from the
+            // head it belongs to would be a face drawn beside its own skull.
+            Face = Transform(person.Face)
         };
     }
 
@@ -167,6 +186,40 @@ public static class PoseSkeletonRenderer
 
         DrawHand(image, person.LeftHand);
         DrawHand(image, person.RightHand);
+        DrawFace(image, person.Face);
+    }
+
+    /// <summary>
+    /// The face channel: points only, with no bones, matching the OpenPose face output. Absent on a full-body pose,
+    /// which is deliberate — at full-body scale 70 points around a small head are a smear rather than information,
+    /// whereas a head-only pose frames the head and the points are the detail the render needs.
+    /// </summary>
+    private static void DrawFace(Image<Rgb24> image, IReadOnlyList<PoseKeypoint> face)
+    {
+        if (face.Count == 0) return;
+
+        var color = new Rgb24(255, 255, 255);
+
+        // The dot radius follows the face's OWN size. A fixed radius is tuned for a full-body canvas where a head is
+        // small; on a head pose the face fills the frame, and 70 fixed 1.5 px dots across a 660 px face read as a
+        // starfield rather than as a face. Measured on a real head-only extraction: the face spanned 609x663 px.
+        var visible = face.Where(point => point.Confidence > OpenPosePoseJson.VisibilityFloor).ToArray();
+        if (visible.Length == 0) return;
+
+        var extent = Math.Max(
+            visible.Max(point => point.X) - visible.Min(point => point.X),
+            visible.Max(point => point.Y) - visible.Min(point => point.Y));
+
+        // Divided rather than multiplied by a configured fraction: this is a drawing proportion, and the clamp keeps a
+        // tiny face legible and a huge one from blotting itself out.
+        const double divisor = 120.0;
+        var radius = Math.Clamp(extent / divisor, 1.5, 6.0);
+
+        for (var i = 0; i < face.Count; i++)
+        {
+            if (face[i].Confidence <= OpenPosePoseJson.VisibilityFloor) continue;
+            FillDisc(image, color, face[i].X, face[i].Y, radius);
+        }
     }
 
     private static void DrawHand(Image<Rgb24> image, IReadOnlyList<PoseKeypoint> hand)

@@ -162,6 +162,28 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
     public Task<CharacterBodyCard?> GetBodyCardAsync(string characterId, CancellationToken cancellationToken = default)
         => _bodyCards.GetAsync(characterId, cancellationToken);
 
+    /// <inheritdoc />
+    public async Task<string> ResolveBodyTextAsync(
+        string characterId, SceneImageReferenceBodyState state, CancellationToken cancellationToken = default)
+    {
+        var card = await RequireCompleteBodyCardAsync(characterId, cancellationToken);
+
+        // The text describes the BODY, so the stance is irrelevant to it — Standing is passed because the brief factory
+        // requires one, not because the text reads it. Identity is off for the same reason: conditioning changes what a
+        // render is GIVEN, not what the body IS, and resolving it here could refuse the text over a pack this caller is
+        // not using.
+        var brief = await _briefs.CreateAsync(
+            card.CharacterTemplateId,
+            card,
+            state,
+            BodyReferenceStance.Standing,
+            requestIdentity: false,
+            faceAssetId: null,
+            cancellationToken);
+
+        return BodyReferencePromptCompiler.ComposeViewBodyText(brief);
+    }
+
     public async Task<CharacterBodyCard> SaveBodyCardAsync(
         CharacterBodyCard card, int expectedVersion, CancellationToken cancellationToken = default)
     {
@@ -223,7 +245,10 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
         var angle = await _templates.ResolveAsync(
             CharacterBodyViewPrompts.KeyFor(key), build.CharacterTemplateId, cancellationToken);
 
-        return Fill(angle.Body, characterName, card.ToPromptLine());
+        // The canonical body text, not the card's raw line: the instruction has to describe the SAME body every other
+        // prompt describes, and the raw line carried height and weight plus a pubic-hair detail with no state gate.
+        var bodyText = await ResolveBodyTextAsync(build.CharacterTemplateId, key.State, cancellationToken);
+        return Fill(angle.Body, characterName, bodyText);
     }
 
     /// <summary>
@@ -587,7 +612,8 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
     {
         var clause = await _templates.ResolveAsync(
             CharacterBodyViewPrompts.RenderKeyFor(key), build.CharacterTemplateId, cancellationToken);
-        return Fill(clause.Body, characterName, card.ToPromptLine());
+        var bodyText = await ResolveBodyTextAsync(build.CharacterTemplateId, key.State, cancellationToken);
+        return Fill(clause.Body, characterName, bodyText);
     }
 
     public async Task<CharacterIdentityBodyView> EditFromAcceptedSourceAsync(

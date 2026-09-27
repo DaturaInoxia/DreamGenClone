@@ -313,6 +313,10 @@ builder.Services.AddSingleton<IIdentityConditionedImageClient, IdentityCondition
 // Pose-conditioned (ControlNet OpenPose) image path: local ComfyUI only (B-117).
 builder.Services.AddSingleton<ComfyUIPoseConditionedImageClient>();
 builder.Services.AddSingleton<IPoseConditionedImageClient, PoseConditionedImageClientDispatcher>();
+
+// Reading a pose out of an image. Registered with every other ComfyUI workflow client because it is the same
+// conversation: it uploads the image, submits the estimator graph and reads the keypoints back.
+builder.Services.AddSingleton<IPoseKeypointExtractor, ComfyUIPoseKeypointExtractor>();
 builder.Services.AddSingleton<IPoseImageModelResolver, PoseImageModelResolver>();
 builder.Services.AddSingleton<ISceneImageRepository, SceneImageRepository>();
 builder.Services.AddSingleton<ISceneImageEditRepository, SceneImageEditRepository>();
@@ -429,6 +433,7 @@ builder.Services.AddSingleton<IPosePresetRepository, PosePresetRepository>();
 builder.Services.Configure<PoseLibraryOptions>(builder.Configuration.GetSection(PoseLibraryOptions.SectionName));
 builder.Services.Configure<PoseStudioOptions>(builder.Configuration.GetSection(PoseStudioOptions.SectionName));
 builder.Services.AddSingleton<IPoseLibraryService, PoseLibraryService>();
+builder.Services.AddScoped<IPoseExtractionService, PoseExtractionService>();
 builder.Services.AddSingleton<IPoseLibraryImporter, PoseLibraryImporter>();
 builder.Services.AddSingleton<IPosePackDownloader, PosePackDownloader>();
 // B-128: a throwaway pose test render. It picks its mechanism through the same resolver and calls the same clients

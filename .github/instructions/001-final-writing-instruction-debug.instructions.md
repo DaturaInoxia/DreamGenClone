@@ -1,6 +1,6 @@
 ---
 applyTo: 'DreamGenClone.Domain/StoryAnalysis/SteeringProfile.cs,DreamGenClone.Web/Domain/Scenarios/NarrativeSettings.cs,DreamGenClone.Infrastructure/StoryAnalysis/**/*.cs,DreamGenClone.Infrastructure/Persistence/SqlitePersistence.cs,DreamGenClone.Web/Application/RolePlay/**/*.cs,DreamGenClone.Web/Application/StoryAnalysis/StoryAnalysisFacade.cs,DreamGenClone.Web/Domain/RolePlay/**/*.cs,DreamGenClone.Tests/RolePlay/**/*.cs,DreamGenClone.Tests/StoryAnalysis/**/*.cs,DreamGenClone.Web/Components/Pages/ThemeProfiles.razor,DreamGenClone.Web/Components/Pages/ScenarioEditor.razor,DreamGenClone.Web/Components/Pages/RolePlayWorkspace.razor,specs/001-final-writing-instruction/**'
-description: 'Debug session rules: analyze→plan→confirm→execute, debug record creation, spec artifact references, build+test protocol.'
+description: 'Debug session rules: analyze→plan→confirm-once→execute-plan-to-completion, debug record creation, spec artifact references, build+test protocol.'
 ---
 # 001-final-writing-instruction — Debug Session Rules
 
@@ -9,12 +9,12 @@ description: 'Debug session rules: analyze→plan→confirm→execute, debug rec
 
 ## Non-Negotiable Rules
 
-### 1. Never Change Code Without Plan + Confirmation
+### 1. Plan Once, Then Execute The Whole Plan
 For every request:
 1. **Analyze** — Identify the root cause. Read relevant code, check DB state, review spec/plan/tasks.
 2. **Draft a plan** — Write out what will change, in which files, and why. Estimate blast radius.
-3. **Get confirmation** — Present the plan. Wait for explicit "yes" or "go ahead." Never proceed without confirmation.
-4. **Execute** — Only after approval.
+3. **Get confirmation once** — Present the plan and wait for explicit "yes" or "go ahead." This is ONE gate per plan, never a gate per step.
+4. **Execute the full plan** — After approval, complete every step of the plan in a single run. Do not stop between steps for re-confirmation, and do not hand back after a partial step. Stop only for: a scope change beyond the approved plan, a destructive/DB/pod mutation, or a blocker you cannot resolve. Report the whole outcome (all steps + build/test evidence) at the end.
 
 ### 2. Never Use Git Restore
 - Do not revert files via `git checkout`, `git restore`, or equivalent.

@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay;
 using Xunit;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -15,8 +16,10 @@ namespace DreamGenClone.Tests.RolePlay;
 /// </summary>
 public sealed class BodyReferenceBriefTests
 {
-    private static BodyReferenceBrief CompleteBrief() => new()
+    private static BodyReferenceBrief CompleteBrief()
     {
+        var brief = new BodyReferenceBrief
+        {
         CharacterTemplateId = "becky-template",
         BodyCardVersion = 4,
         Gender = "Female",
@@ -39,6 +42,12 @@ public sealed class BodyReferenceBriefTests
         Stance = BodyReferenceStance.Standing,
         Clothing = "plain everyday clothing"
     };
+
+        // Composed the way the factory composes it, so a brief under test is shaped exactly like a real one and the
+        // canonical text (B-132) is never the difference in what these tests assert.
+        brief.BodyText = BodyReferencePromptCompiler.ComposeBodyText(brief);
+        return brief;
+    }
 
     [Fact]
     public void ACompleteBrief_Validates()

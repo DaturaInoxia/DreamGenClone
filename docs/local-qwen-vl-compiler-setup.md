@@ -412,16 +412,21 @@ as the previous row works on this host (verified decryptable). No app code chang
 - 8 GB is **tight** (≈250 MiB spare). Heavy desktop GPU use on the app host can evict/spill the model;
   if that becomes a problem, reload with `-c 4096` and set the model row's `ContextWindowSize` to 4096.
 
-### Rollback (back to the ComfyUI host)
+### Rollback (back to the ComfyUI host) — RETIRED 2026-09-26
 
-Point both function defaults back at `db602892-d604-40b1-8f7d-7d6073f7fe1d` (provider `Local`,
-`https://qwen.kenacwood.net/`, still enabled and untouched). Nothing else changed:
+**This rollback is no longer available.** On 2026-09-26 the 5080's LM Studio was decommissioned and
+the `Local` provider (`e3f20d83-a563-424c-b111-592adfa36e93`, `https://qwen.kenacwood.net/`) plus its
+three models were disabled in the dev DB. Reason: the app's periodic **health checks** kept hitting
+that public front, and the 5080's LM Studio had `justInTimeModelLoading` on, so the checks
+JIT-loaded the 7B VL compiler (plus a 7B mistral and a 14B) back onto the 5080 — silently
+re-creating exactly the VRAM pressure this move removed.
 
-```sql
-UPDATE FunctionModelDefaults
-SET ModelId = 'db602892-d604-40b1-8f7d-7d6073f7fe1d', UpdatedUtc = '<utc now ISO8601>'
-WHERE FunctionName IN ('RolePlaySceneImageEditPromptCompiler', 'RolePlaySceneImageValidator');
-```
-
-Full pre-change dev DB backup taken at
-`artifacts/tmp/dbquery/backups/dreamgenclone.dev.pre-lmstudio-local-move.db`.
+- Host fix: `helpers/lmstudio-local/decommission-5080-lmstudio.ps1` (idempotent; stops the app,
+  removes the `--run-as-service` login hook, sets `autoStartOnLaunch=false`,
+  `justInTimeModelLoading=false`, `networkInterface=127.0.0.1`, and archives the duplicate VL GGUF
+  to `D:\LMStudio\_superseded\`). **Never call `lms <anything>` on that host** — the CLI wakes the
+  app ("Waking up LM Studio service...").
+- DB: re-enable only with `artifacts/tmp/dbquery/queries/rollback_legacy_local_provider.sql`, and
+  only if you deliberately intend the compiler to run on the 5080 again.
+- If the compiler must move again, use the RunPod serverless provider (`DEPRECATED - RunPod Qwen VL
+  compiler`, row kept, disabled) or another host — **not** the 5080.

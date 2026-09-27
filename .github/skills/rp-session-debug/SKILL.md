@@ -374,6 +374,7 @@ See [references/query-library.md](./references/query-library.md) for the complet
 2. Wait for explicit user confirmation before touching any file
 3. User may: approve the fix, defer to backlog, or break out to a separate planning session
 4. Only proceed after explicit "go ahead"
+5. **After that "go ahead", the approved fix IS the approval unit** — implement the whole approved change set (all files/steps) in one run. Do not stop between steps to re-confirm; stop only for a scope change, a destructive/DB/pod mutation, or a blocker you cannot resolve. Report once at the end with build/test evidence.
 
 ## Output Guidance
 

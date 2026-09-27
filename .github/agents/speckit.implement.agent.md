@@ -109,6 +109,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - **Follow TDD approach**: Execute test tasks before their corresponding implementation tasks
    - **File-based coordination**: Tasks affecting the same files must run sequentially
    - **Validation checkpoints**: Verify each phase completion before proceeding
+   - **Run to completion**: After the plan/checklists are approved, execute ALL phases and tasks in one run. Do not stop for confirmation between tasks or phases — the only stop conditions are a scope change, a destructive/DB/pod mutation, or an unrecoverable failure.
 
 7. Implementation execution rules:
    - **Setup first**: Initialize project structure, dependencies, configuration
@@ -118,8 +119,9 @@ You **MUST** consider the user input before proceeding (if not empty).
    - **Polish and validation**: Unit tests, performance optimization, documentation
 
 8. Progress tracking and error handling:
-   - Report progress after each completed task
-   - Halt execution if any non-parallel task fails
+   - Track progress internally and mark each task off in tasks.md as it completes
+   - Report progress in a consolidated summary at the END of the run (or when a stop condition is hit) — do not end the turn to report a single completed task
+   - Halt execution only if a non-parallel task fails and you cannot fix it forward
    - For parallel tasks [P], continue with successful tasks, report failed ones
    - Provide clear error messages with context for debugging
    - Suggest next steps if implementation cannot proceed

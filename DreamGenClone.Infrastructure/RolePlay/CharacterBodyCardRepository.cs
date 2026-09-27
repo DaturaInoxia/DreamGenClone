@@ -17,8 +17,11 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
 {
     private const int CreateExpectedVersion = 0;
 
-    /// <summary>Matches how the rest of the app serializes structured payloads (TemplateService, the identity stores).</summary>
-    private static readonly JsonSerializerOptions AxesJsonOptions = new(JsonSerializerDefaults.Web);
+    /// <summary>
+    /// Matches how the rest of the app serializes structured payloads (TemplateService, the identity stores). Used for
+    /// every structured column on this table - the axis picks and the face block - not for the axis picks alone.
+    /// </summary>
+    private static readonly JsonSerializerOptions StructuredJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly string _connectionString;
 
@@ -69,7 +72,7 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
             command.CommandText = $"""
                 INSERT INTO CharacterBodyCards ({FieldColumns}, Version, UpdatedUtc)
                 VALUES ($characterProfileId, $bodyShape, $heightBuild, $skin, $bodyHair, $tattoos, $scarsMarks,
-                        $pubicHair, $bodyAxes, 1, $updatedUtc);
+                        $pubicHair, $bodyAxes, $bodyText, $bodyFace, 1, $updatedUtc);
                 """;
         }
         else
@@ -85,6 +88,8 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
                     ScarsMarks = $scarsMarks,
                     PubicHair = $pubicHair,
                     BodyAxesJson = $bodyAxes,
+                    BodyText = $bodyText,
+                    BodyFaceJson = $bodyFace,
                     Version = Version + 1,
                     UpdatedUtc = $updatedUtc
                 WHERE CharacterProfileId = $characterProfileId AND Version = $expectedVersion;
@@ -101,6 +106,8 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
         command.Parameters.AddWithValue("$scarsMarks", card.ScarsMarks?.Trim() ?? string.Empty);
         command.Parameters.AddWithValue("$pubicHair", card.PubicHair?.Trim() ?? string.Empty);
         command.Parameters.AddWithValue("$bodyAxes", SerializeAxes(card.Axes));
+        command.Parameters.AddWithValue("$bodyText", card.BodyText?.Trim() ?? string.Empty);
+        command.Parameters.AddWithValue("$bodyFace", SerializeFace(card.Face));
         command.Parameters.AddWithValue("$updatedUtc", now.ToString("O", CultureInfo.InvariantCulture));
 
         int affected;
@@ -133,11 +140,11 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
 
     /// <summary>SELECT column list (and the order <see cref="ReadCard"/> reads).</summary>
     private const string Columns =
-        "CharacterProfileId, BodyShape, HeightBuild, Skin, BodyHair, Tattoos, ScarsMarks, PubicHair, Version, UpdatedUtc, BodyAxesJson";
+        "CharacterProfileId, BodyShape, HeightBuild, Skin, BodyHair, Tattoos, ScarsMarks, PubicHair, Version, UpdatedUtc, BodyAxesJson, BodyText, BodyFaceJson";
 
     /// <summary>The card's own fields, without the version/updated pair the store owns.</summary>
     private const string FieldColumns =
-        "CharacterProfileId, BodyShape, HeightBuild, Skin, BodyHair, Tattoos, ScarsMarks, PubicHair, BodyAxesJson";
+        "CharacterProfileId, BodyShape, HeightBuild, Skin, BodyHair, Tattoos, ScarsMarks, PubicHair, BodyAxesJson, BodyText, BodyFaceJson";
 
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
     {
@@ -161,6 +168,8 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
                 ScarsMarks TEXT NOT NULL DEFAULT '',
                 PubicHair TEXT NOT NULL DEFAULT '',
                 BodyAxesJson TEXT NOT NULL DEFAULT '{}',
+                BodyText TEXT NOT NULL DEFAULT '',
+                BodyFaceJson TEXT NOT NULL DEFAULT '{}',
                 Version INTEGER NOT NULL DEFAULT 1,
                 UpdatedUtc TEXT NOT NULL
             );
@@ -176,6 +185,23 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
             await using var addAxes = connection.CreateCommand();
             addAxes.CommandText = "ALTER TABLE CharacterBodyCards ADD COLUMN BodyAxesJson TEXT NOT NULL DEFAULT '{}';";
             await addAxes.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // The canonical body text (B-132).
+        if (!columns.Contains("BodyText"))
+        {
+            await using var addText = connection.CreateCommand();
+            addText.CommandText = "ALTER TABLE CharacterBodyCards ADD COLUMN BodyText TEXT NOT NULL DEFAULT '';";
+            await addText.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // The face block (B-132). Its absence was the reason a face the operator could see on screen never reached a
+        // render: the card held it, the table had nowhere to put it, and every reload read back an empty face.
+        if (!columns.Contains("BodyFaceJson"))
+        {
+            await using var addFace = connection.CreateCommand();
+            addFace.CommandText = "ALTER TABLE CharacterBodyCards ADD COLUMN BodyFaceJson TEXT NOT NULL DEFAULT '{}';";
+            await addFace.ExecuteNonQueryAsync(cancellationToken);
         }
 
         // A card written before the body/pubic split kept its pubic-hair value in `Grooming`. Move it across once,
@@ -226,12 +252,14 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
         PubicHair = reader.GetString(7),
         Version = reader.GetInt32(8),
         UpdatedUtc = ParseUtc(reader.GetString(9)),
-        Axes = ParseAxes(reader.IsDBNull(10) ? null : reader.GetString(10))
+        Axes = ParseAxes(reader.IsDBNull(10) ? null : reader.GetString(10)),
+        BodyText = reader.IsDBNull(11) ? string.Empty : reader.GetString(11),
+        Face = ParseFace(reader.IsDBNull(12) ? null : reader.GetString(12))
     };
 
     /// <summary>Serializes the picks. The axes are never null on a card, so this always writes a document.</summary>
     private static string SerializeAxes(CharacterBodyAxes? axes)
-        => JsonSerializer.Serialize(axes ?? new CharacterBodyAxes(), AxesJsonOptions);
+        => JsonSerializer.Serialize(axes ?? new CharacterBodyAxes(), StructuredJsonOptions);
 
     /// <summary>
     /// Reads the picks back. Malformed or unreadable JSON fails fast rather than silently becoming "no axes picked":
@@ -246,13 +274,37 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
 
         try
         {
-            return JsonSerializer.Deserialize<CharacterBodyAxes>(json, AxesJsonOptions)
+            return JsonSerializer.Deserialize<CharacterBodyAxes>(json, StructuredJsonOptions)
                 ?? new CharacterBodyAxes();
         }
         catch (JsonException ex)
         {
             throw new InvalidOperationException(
                 $"The stored body-axis picks are not valid JSON, so the card cannot be read: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>Serializes the face block. Never null on a card, so this always writes a document.</summary>
+    private static string SerializeFace(CharacterFaceAttributes? face)
+        => JsonSerializer.Serialize(face ?? new CharacterFaceAttributes(), StructuredJsonOptions);
+
+    /// <summary>Reads the face block back, on the same fail-fast terms as the axis picks.</summary>
+    private static CharacterFaceAttributes ParseFace(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new CharacterFaceAttributes();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<CharacterFaceAttributes>(json, StructuredJsonOptions)
+                ?? new CharacterFaceAttributes();
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"The stored face descriptors are not valid JSON, so the card cannot be read: {ex.Message}", ex);
         }
     }
 

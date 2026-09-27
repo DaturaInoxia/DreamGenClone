@@ -33,8 +33,9 @@ These rules are mandatory for all coding tasks in this repository.
 
 ## Hard Rule: No RP Engine Code Changes Without Plan + Confirmation
 - Before ANY code change to RP engine files (`RolePlayEngineService.cs`, `RolePlayContinuationService.cs`, prompt slots, etc.), present: root cause, proposed fix with file list, and blast radius.
-- Wait for explicit "go ahead" or "yes" before touching any code.
-- This applies even when the fix seems obvious.
+- Wait for explicit "go ahead" or "yes" before touching any code. This applies even when the fix seems obvious.
+- **The approved plan IS the approval unit.** Once the user approves a plan ("go ahead", "yes", "run the plan"), execute every step of that plan in one run and finish it. Do NOT stop between steps to ask again.
+- **Stop only for:** (a) a scope change beyond the approved plan, (b) a destructive/DB/pod mutation not covered by the plan, (c) a blocker you cannot resolve. Otherwise keep going and report the complete result once at the end.
 - If the root cause is a config/data issue (not a code bug), state that and do not change code.
 
 ## Required Verification Before Declaring A Fix

@@ -227,6 +227,14 @@ public sealed class BodyReferenceBriefFactory : IBodyReferenceBriefFactory
             IdentityPackId = identity?.PackId
         };
 
+        // The canonical body text (B-132). The card's AUTHORED line wins when it has one, because a hand edit is the
+        // operator's decision and nothing may overwrite it; otherwise the text is DERIVED from the very picks it is
+        // composed from — a derivation, not a default and not a guess. Either way every consumer reads this one text,
+        // so the reference render and the LoRA cell cannot describe the same body differently.
+        brief.BodyText = string.IsNullOrWhiteSpace(card.BodyText)
+            ? BodyReferencePromptCompiler.ComposeBodyText(brief)
+            : card.BodyText.Trim();
+
         brief.Validate();
 
         _logger.LogInformation(

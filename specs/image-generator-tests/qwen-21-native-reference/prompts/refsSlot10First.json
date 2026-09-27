@@ -1,0 +1,207 @@
+﻿{
+    "1":  {
+              "inputs":  {
+                             "weight_dtype":  "default",
+                             "unet_name":  "qwen_image_2.1_int8_convrot.safetensors"
+                         },
+              "class_type":  "UNETLoader"
+          },
+    "2":  {
+              "inputs":  {
+                             "device":  "default",
+                             "clip_name":  "qwen3vl_8b_int8_convrot.safetensors",
+                             "type":  "qwen_image"
+                         },
+              "class_type":  "CLIPLoader"
+          },
+    "3":  {
+              "inputs":  {
+                             "vae_name":  "qwen_image_2.1_vae_bf16.safetensors"
+                         },
+              "class_type":  "VAELoader"
+          },
+    "4":  {
+              "inputs":  {
+                             "images.image_9":  [
+                                                    "28",
+                                                    0
+                                                ],
+                             "vae":  [
+                                         "3",
+                                         0
+                                     ],
+                             "images.image_4":  [
+                                                    "23",
+                                                    0
+                                                ],
+                             "resolution":  1024,
+                             "images.image_1":  [
+                                                    "20",
+                                                    0
+                                                ],
+                             "images.image_7":  [
+                                                    "26",
+                                                    0
+                                                ],
+                             "negative_prompt":  "",
+                             "prompt":  "Photorealistic full-body photograph of one woman standing upright and facing the camera, her arms relaxed at her sides, her feet flat on the ground, plain neutral grey studio background, even soft lighting, natural skin texture, sharp focus, shot on 85mm.",
+                             "images.image_10":  [
+                                                     "29",
+                                                     0
+                                                 ],
+                             "images.image_2":  [
+                                                    "21",
+                                                    0
+                                                ],
+                             "images.image_6":  [
+                                                    "25",
+                                                    0
+                                                ],
+                             "images.image_8":  [
+                                                    "27",
+                                                    0
+                                                ],
+                             "images.image_5":  [
+                                                    "24",
+                                                    0
+                                                ],
+                             "images.image_3":  [
+                                                    "22",
+                                                    0
+                                                ],
+                             "clip":  [
+                                          "2",
+                                          0
+                                      ]
+                         },
+              "class_type":  "TextEncodeQwenImage21"
+          },
+    "20":  {
+               "inputs":  {
+                              "image":  "qwen21-skeletonKneeling.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "21":  {
+               "inputs":  {
+                              "image":  "qwen21-beckyFront.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "22":  {
+               "inputs":  {
+                              "image":  "qwen21-becky34LeftFace.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "23":  {
+               "inputs":  {
+                              "image":  "qwen21-becky.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "24":  {
+               "inputs":  {
+                              "image":  "qwen21-deanFront.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "25":  {
+               "inputs":  {
+                              "image":  "qwen21-beckyFrontBody.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "26":  {
+               "inputs":  {
+                              "image":  "qwen21-shedLocation.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "27":  {
+               "inputs":  {
+                              "image":  "qwen21-outdoors.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "28":  {
+               "inputs":  {
+                              "image":  "qwen21-bedroom.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "29":  {
+               "inputs":  {
+                              "image":  "qwen21-bedroom.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "5":  {
+              "inputs":  {
+                             "batch_size":  1,
+                             "width":  1024,
+                             "height":  1024
+                         },
+              "class_type":  "EmptyLatentImage"
+          },
+    "6":  {
+              "inputs":  {
+                             "denoise":  1,
+                             "seed":  20260925,
+                             "negative":  [
+                                              "4",
+                                              1
+                                          ],
+                             "cfg":  1,
+                             "sampler_name":  "euler",
+                             "latent_image":  [
+                                                  "5",
+                                                  0
+                                              ],
+                             "scheduler":  "simple",
+                             "model":  [
+                                           "1",
+                                           0
+                                       ],
+                             "steps":  25,
+                             "positive":  [
+                                              "4",
+                                              0
+                                          ]
+                         },
+              "class_type":  "KSampler"
+          },
+    "7":  {
+              "inputs":  {
+                             "samples":  [
+                                             "6",
+                                             0
+                                         ],
+                             "vae":  [
+                                         "3",
+                                         0
+                                     ]
+                         },
+              "class_type":  "VAEDecode"
+          },
+    "8":  {
+              "inputs":  {
+                             "images":  [
+                                            "7",
+                                            0
+                                        ],
+                             "filename_prefix":  "qwen21"
+                         },
+              "class_type":  "SaveImage"
+          }
+}

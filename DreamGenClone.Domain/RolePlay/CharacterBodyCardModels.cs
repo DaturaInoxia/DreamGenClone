@@ -71,11 +71,36 @@ public sealed class CharacterBodyCard
     public CharacterFaceAttributes Face { get; set; } = new();
 
     /// <summary>
+    /// THE canonical body text (B-132): one authored description of this character's build and face, and the single
+    /// text every consumer pastes — the body-reference renders, the LoRA cell's body element, and the scene prompt's
+    /// appearance block. Composed from the picks on demand by
+    /// <c>BodyReferencePromptCompiler.ComposeBodyText</c>, then hand-editable, and the edit is what travels.
+    ///
+    /// Why it is STORED rather than re-derived per consumer: three consumers used to derive their own description from
+    /// the same card (`ToPromptLine()` for the LoRA cell, the body compiler for the reference renders, the attribute
+    /// formatter for the scene prompts) and they disagreed — the LoRA path still carried height and weight months after
+    /// those were dropped everywhere else. One stored text cannot disagree with itself.
+    ///
+    /// It carries NO height or weight, NO camera or stance clause, NO framing/lighting/lens tail and NO clothing:
+    /// those belong to a shot, not to a body, and each consumer supplies its own. The unclothed-only pubic-hair detail
+    /// is deliberately absent too — it stays on <see cref="PubicHair"/>, its one source, and a consumer appends it when
+    /// its own state is unclothed.
+    /// </summary>
+    public string BodyText { get; set; } = string.Empty;
+
+    /// <summary>
     /// The FACE element's own text, as its own line so it can be omitted independently of the body line when a face
     /// reference image supplies it. Skin is deliberately NOT here: tone and texture are body-wide and already travel
     /// in <see cref="Skin"/> on the body line, so repeating them would describe the same fact twice.
     /// </summary>
     public string ToFaceLine() => Face.Compose();
+
+    /// <summary>
+    /// True when the card carries the canonical body text, which is what the consumers that compose a prompt read.
+    /// Kept OUT of <see cref="UnresolvedFields"/> on purpose: the seven gated fields are the card's completeness
+    /// contract, and the text is composed FROM them, so folding it into the same gate would report the same gap twice.
+    /// </summary>
+    public bool HasBodyText => !string.IsNullOrWhiteSpace(BodyText);
 
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 

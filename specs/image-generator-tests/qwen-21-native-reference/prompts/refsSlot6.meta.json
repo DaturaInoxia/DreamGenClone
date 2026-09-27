@@ -1,0 +1,24 @@
+﻿{
+    "cell":  "refsSlot6",
+    "description":  "EVP-1: 6 references, skeleton at SLOT 6",
+    "kind":  "text2image",
+    "prompt":  "Photorealistic full-body photograph of one woman standing upright and facing the camera, her arms relaxed at her sides, her feet flat on the ground, plain neutral grey studio background, even soft lighting, natural skin texture, sharp focus, shot on 85mm.",
+    "negative":  "",
+    "seed":  20260925,
+    "steps":  25,
+    "cfg":  1,
+    "sampler":  "euler",
+    "scheduler":  "simple",
+    "resolution":  1024,
+    "width":  1024,
+    "height":  1024,
+    "unet":  "qwen_image_2.1_int8_convrot.safetensors",
+    "text_encoder":  "qwen3vl_8b_int8_convrot.safetensors",
+    "vae":  "qwen_image_2.1_vae_bf16.safetensors",
+    "prompt_id":  "8914dd5f-3cd4-4616-aed2-9775b1c8d2ed",
+    "wallClockSec":  126,
+    "comfyui":  "0.37.1",
+    "images":  [
+                   "D:\\src\\DreamGenClone\\artifacts\\tmp\\qwen-2-1\\refsSlot6\\result_0.png"
+               ]
+}

@@ -77,15 +77,6 @@
                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => SetAsync(new PoseHeadRotation())">Reset head</button>
                 </div>
             </div>
-
-            <div class="alert alert-secondary py-1 small mb-0">
-                A COCO body carries only five head points — nose, both eyes, both ears — so this is head
-                <em>angle</em>, not a face. Pitch stops at
-                @PoseHeadRotation.PitchLimitDegrees.ToString("0")° because at a right angle the head has no stable
-                orientation to project. OpenPose ControlNet does not reliably honour face keypoints at all, so a
-                turned head pays off on a model that reads a skeleton as a reference (Qwen-2.1) or on a framed head
-                shot like this one.
-            </div>
         </div>
     </div>
 </div>

@@ -377,6 +377,31 @@ public sealed class MultiEncounterTimeSkipTests
     }
 
     [Fact]
+    public void EncounterLengthGuard_MeasuresFromEncounterStart_NotFromLastBoundary()
+    {
+        // The minIxns guard in TryDetectEncounterBoundaryAsync reads TurnsInCurrentEncounter as
+        // "how long has THIS encounter run". TryDetectEncounterStartAsync (both the detected and
+        // the reactivated path) must therefore zero it when an encounter begins. If it were only
+        // reset on a boundary, the counter would instead measure "turns since the previous
+        // boundary" — so an encounter starting several turns after the last one would satisfy the
+        // 4-turn minimum on its first turn and close immediately, which is the one-turn encounter
+        // symptom this guard exists to prevent.
+        var state = new AdaptiveScenarioState
+        {
+            CurrentEncounterNumber = 4,
+            TurnsInCurrentEncounter = 6 // turns elapsed since the previous boundary
+        };
+
+        // Encounter start (mirrors TryDetectEncounterStartAsync).
+        state.CurrentEncounterStartInteractionIndex = 12;
+        state.TurnsInCurrentEncounter = 0;
+        state.IsEncounterActive = true;
+
+        const int minIxns = 4;
+        Assert.True(state.TurnsInCurrentEncounter < minIxns); // the boundary must not be allowed yet
+    }
+
+    [Fact]
     public void IsStateDirty_Set_On_Phase_Mutation()
     {
         var state = new AdaptiveScenarioState

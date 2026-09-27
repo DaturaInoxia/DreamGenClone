@@ -27,7 +27,31 @@ public sealed record AuthoredPoseRequest(
     string LibraryId,
     PoseHeadRotation? Head = null,
     PosePerson? Keypoints = null,
-    IReadOnlyList<string>? Drags = null);
+    IReadOnlyList<string>? Drags = null,
+    string? Origin = null,
+    ExtractedPoseProvenance? Extraction = null);
+
+/// <summary>
+/// Where an EXTRACTED pose came from: the image that was read, the host that read it, and the graph it ran. Recorded
+/// because an extracted pose is a measurement of a picture rather than a pose anyone authored, and a stored pose whose
+/// origin is anonymous cannot be judged or reproduced.
+/// </summary>
+/// <param name="SourceImageSha256">The bytes the pose was read from, so the same picture is traceable.</param>
+/// <param name="SourceImageLabel">What the operator was looking at, for a readable provenance record.</param>
+/// <param name="HeadOnly">
+/// True when the pose carries a face channel and is a head pose rather than a body pose. Recorded because the two are
+/// different things that a render treats differently, and a stored pose must say which it is rather than leaving it to
+/// be worked out from how many points happen to be in it.
+/// </param>
+public sealed record ExtractedPoseProvenance(
+    string SourceImageSha256,
+    string SourceImageLabel,
+    string ProviderName,
+    string Endpoint,
+    string NodeName,
+    string NodeSignature,
+    string WorkflowVersion,
+    bool HeadOnly);
 
 public interface IPoseLibraryService
 {
@@ -244,12 +268,33 @@ public sealed class PoseLibraryService : IPoseLibraryService
     /// Records how the pose was made, so it can be re-opened and turned again rather than being a one-way result.
     /// Deliberately does NOT set known-good: that flag is a measurement, and a fresh pose has not been measured.
     /// </summary>
-    /// <summary>What the pose is, for its keywords: a projected rig pose or a hand-dragged one.</summary>
+    /// <summary>What the pose is, for its keywords: a projected rig pose, a hand-dragged one, or one read off an image.</summary>
     private static string Kind(AuthoredPoseRequest request) =>
-        request.Keypoints is null ? "mannequin" : "dragged";
+        request.Origin ?? (request.Keypoints is null ? "mannequin" : "dragged");
 
     private string BuildAuthoringProvenance(AuthoredPoseRequest request)
     {
+        // An extracted pose carries keypoints and NOTHING else: it did not come from the rig, so recording a view, a
+        // focal length or a camera distance would be recording values that took no part in producing it. The rig's
+        // own record is written for the two sources that really are projections.
+        if (request.Extraction is { } extracted)
+        {
+            return new System.Text.Json.Nodes.JsonObject
+            {
+                ["source"] = "extracted",
+                ["kind"] = Kind(request),
+                ["sourceImageSha256"] = extracted.SourceImageSha256,
+                ["sourceImage"] = extracted.SourceImageLabel,
+                ["provider"] = extracted.ProviderName,
+                ["endpoint"] = extracted.Endpoint,
+                ["node"] = extracted.NodeName,
+                ["nodeSignature"] = extracted.NodeSignature,
+                ["workflowVersion"] = extracted.WorkflowVersion,
+                // Which KIND of pose this is, stated rather than inferred from its point count.
+                ["headOnly"] = extracted.HeadOnly
+            }.ToJsonString();
+        }
+
         var view = request.View;
         var provenance = new System.Text.Json.Nodes.JsonObject
         {

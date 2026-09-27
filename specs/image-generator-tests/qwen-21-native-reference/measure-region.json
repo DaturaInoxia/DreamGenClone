@@ -1,0 +1,70 @@
+{
+  "source": "artifacts\\tmp\\qwen-2-1\\p0Base\\result_0.png",
+  "masked": "artifacts\\tmp\\qwen-2-1\\p0RegionInpaint\\result_0.png",
+  "control": "artifacts\\tmp\\qwen-2-1\\p0RegionControl\\result_0.png",
+  "imageSize": [
+    1024,
+    1024
+  ],
+  "rectPct": [
+    32.0,
+    55.0,
+    35.0,
+    33.0
+  ],
+  "maskBlurPct": 8,
+  "rectPixels": [
+    327,
+    563,
+    685,
+    900
+  ],
+  "marginPixels": 105,
+  "changedThreshold": 16,
+  "inside": {
+    "sourceVsMasked": {
+      "pixels": 18796,
+      "meanAbsDiff": 125.252,
+      "meanMaxChannelDiff": 178.348,
+      "pctPixelsChanged": 100.0
+    },
+    "maskedVsControl": {
+      "pixels": 18796,
+      "meanAbsDiff": 11.358,
+      "meanMaxChannelDiff": 15.66,
+      "pctPixelsChanged": 44.6
+    },
+    "sourceVsControl": {
+      "pixels": 18796,
+      "meanAbsDiff": 135.607,
+      "meanMaxChannelDiff": 188.269,
+      "pctPixelsChanged": 100.0
+    }
+  },
+  "outside": {
+    "sourceVsMasked": {
+      "pixels": 737880,
+      "meanAbsDiff": 0.319,
+      "meanMaxChannelDiff": 0.622,
+      "pctPixelsChanged": 0.001
+    },
+    "maskedVsControl": {
+      "pixels": 737880,
+      "meanAbsDiff": 19.812,
+      "meanMaxChannelDiff": 23.532,
+      "pctPixelsChanged": 52.506
+    },
+    "sourceVsControl": {
+      "pixels": 737880,
+      "meanAbsDiff": 19.86,
+      "meanMaxChannelDiff": 23.597,
+      "pctPixelsChanged": 52.681
+    }
+  },
+  "verdict": {
+    "outsidePreservedByMask": true,
+    "insideChanged": true,
+    "contained": true,
+    "outsideRatioControlOverMasked": 62.26
+  }
+}

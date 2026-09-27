@@ -580,10 +580,35 @@
         try
         {
             var observed = OpenPosePoseJson.Parse(preset.KeypointsJson, preset.Name);
-            _loaded = PoseRigFit.Fit(observed, StudioOptions.Value);
+
+            // A pose carrying a face channel is a HEAD pose, and there is no body in it to fit. A body rig fitted onto
+            // five head joints is not an approximation of this pose, it is a different thing — and because the 5°
+            // arrows re-project through the FIT's rotations, every nudge afterwards would be built on that.
+            if (observed.Face.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "this is a head pose: it carries a 70-point face and no body, so the body rig cannot be fitted onto "
+                    + "it. A head pose is picked and rendered as it is; head angles are authored from the Head step.");
+            }
+
+            var fitted = PoseRigFit.Fit(observed, StudioOptions.Value);
+
+            // The residual travels with the fit, and now decides whether the pose may be edited at all. The arrows
+            // project the rig through the FIT's rotations, so a fit that did not converge does not merely look
+            // approximate — it turns the next nudge into a pose that is not the one that was opened.
+            if (fitted.MeanErrorPercentOfHeight > PoseRigFit.UsableMeanErrorPercentOfHeight)
+            {
+                throw new InvalidOperationException(
+                    $"the rig fitted onto it only to {fitted.MeanErrorPercentOfHeight:0.0}% mean joint error across "
+                    + $"{fitted.JointsMatched} joints, past the {PoseRigFit.UsableMeanErrorPercentOfHeight:0.0}% a fit "
+                    + "has to reach before its rotations can be edited: the 5° arrows would project a pose that is not "
+                    + "this one. It can still be picked and rendered as it is.");
+            }
+
+            _loaded = fitted;
             _loadedFrom = preset;
 
-            _status = $"Fitted the rig onto '{preset.Name}': {_loaded.MeanErrorPercentOfHeight:0.0}% mean joint error. "
+            _status = $"Fitted the rig onto '{preset.Name}': {fitted.MeanErrorPercentOfHeight:0.0}% mean joint error. "
                 + "Edit it in the panel above — saving adds a new pose and leaves this one alone.";
         }
         catch (Exception ex)

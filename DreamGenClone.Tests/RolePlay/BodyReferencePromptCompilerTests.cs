@@ -14,8 +14,10 @@ namespace DreamGenClone.Tests.RolePlay;
 /// </summary>
 public sealed class BodyReferencePromptCompilerTests
 {
-    private static BodyReferenceBrief Brief() => new()
+    private static BodyReferenceBrief Brief()
     {
+        var brief = new BodyReferenceBrief
+        {
         CharacterTemplateId = "becky-template",
         BodyCardVersion = 4,
         Gender = "Female",
@@ -40,6 +42,12 @@ public sealed class BodyReferencePromptCompilerTests
         Stance = BodyReferenceStance.Standing,
         Clothing = "plain everyday clothing"
     };
+
+        // Composed the way the factory composes it, so the brief under test carries the canonical text a real one
+        // carries (B-132) and the compiler's output is the compiler's doing rather than a missing-input accident.
+        brief.BodyText = BodyReferencePromptCompiler.ComposeBodyText(brief);
+        return brief;
+    }
 
     /// <summary>
     /// B-132: the face block reaches BOTH dialects, so a face can be built from words instead of from a reference
@@ -121,13 +129,24 @@ public sealed class BodyReferencePromptCompilerTests
         Assert.Contains("with a bridge piercing", Sdxl(brief).Positive, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Re-derives the canonical body text after a test has changed a pick — exactly what the brief factory does when it
+    /// builds one. The text is frozen once composed (an AUTHORED text must not be recomposed behind the operator's
+    /// back), so a test that edits a pick and compiles would otherwise be asserting against the pre-edit body.
+    /// </summary>
+    private static BodyReferenceBrief Recomposed(BodyReferenceBrief brief)
+    {
+        brief.BodyText = BodyReferencePromptCompiler.ComposeBodyText(brief);
+        return brief;
+    }
+
     private static CompiledBodyPrompt Pony(BodyReferenceBrief? brief = null)
         => BodyReferencePromptCompiler.Compile(
-            brief ?? Brief(), BodyPromptFamily.Pony, "rating_safe", "1girl", ["Becky", "Dean"]);
+            Recomposed(brief ?? Brief()), BodyPromptFamily.Pony, "rating_safe", "1girl", ["Becky", "Dean"]);
 
     private static CompiledBodyPrompt Sdxl(BodyReferenceBrief? brief = null)
         => BodyReferencePromptCompiler.Compile(
-            brief ?? Brief(), BodyPromptFamily.Sdxl, forbiddenTokens: ["Becky", "Dean"]);
+            Recomposed(brief ?? Brief()), BodyPromptFamily.Sdxl, forbiddenTokens: ["Becky", "Dean"]);
 
     // ── Pony: the validated ordering and required components (rules 1, 2, 4, 5, 12) ────────────────────────
 
@@ -213,11 +232,15 @@ public sealed class BodyReferencePromptCompilerTests
     [Fact]
     public void Sdxl_IsANaturalLanguageBrief_WithNoTagVocabulary()
     {
-        var prompt = Sdxl().Positive;
+        var brief = Brief();
+        var prompt = Sdxl(brief).Positive;
 
-        Assert.Contains("Full-body photograph", prompt, StringComparison.Ordinal);
+        // B-132: the prompt OPENS with the canonical body text, so one edit on the body card reaches this render. The
+        // medium cue this used to open with ("Full-body photograph of ...") was the sentence that could not host an
+        // authored text; the tail below still carries the framing, texture and lens cues.
+        Assert.StartsWith(brief.BodyText, prompt, StringComparison.Ordinal);
         // The age is a BAND in natural language too, never a numeral (see TheAgeIsABand_BothFamilies).
-        Assert.Contains("a middle-aged woman", prompt, StringComparison.Ordinal);
+        Assert.Contains("a middle-aged woman", prompt, StringComparison.OrdinalIgnoreCase);
         // §2.1: styling and camera cues belong at the tail.
         Assert.Contains("natural skin texture", prompt, StringComparison.Ordinal);
         Assert.Contains("35mm photograph", prompt, StringComparison.Ordinal);
@@ -345,7 +368,7 @@ public sealed class BodyReferencePromptCompilerTests
         Assert.Equal(BodyPromptFamily.Pony, pony.Family);
         Assert.Equal(BodyPromptFamily.Sdxl, sdxl.Family);
         Assert.StartsWith(PonySceneImagePromptBuilder.PonyQualityTags, pony.Positive, StringComparison.Ordinal);
-        Assert.Contains("Full-body photograph", sdxl.Positive, StringComparison.Ordinal);
+        Assert.StartsWith(Brief().BodyText, sdxl.Positive, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -363,7 +386,7 @@ public sealed class BodyReferencePromptCompilerTests
         var compiled = BodyReferencePromptCompiler.Compile(Brief(), Model(family));
 
         Assert.Equal(BodyPromptFamily.Sdxl, compiled.Family);
-        Assert.Contains("Full-body photograph", compiled.Positive, StringComparison.Ordinal);
+        Assert.StartsWith(Brief().BodyText, compiled.Positive, StringComparison.Ordinal);
         Assert.DoesNotContain("score_9", compiled.Positive, StringComparison.Ordinal);
         // Those families carry no negative (BFL: most FLUX models do not support one), which is not a defect.
         Assert.Equal(string.Empty, compiled.Negative);
@@ -526,7 +549,7 @@ public sealed class BodyReferencePromptCompilerTests
         var sdxl = Sdxl(brief).Positive;
         var pony = Pony(brief).Positive;
 
-        Assert.Contains(sdxlPhrase, sdxl, StringComparison.Ordinal);
+        Assert.Contains(sdxlPhrase, sdxl, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(ponyToken, pony, StringComparison.Ordinal);
 
         // The numeral is nowhere in either prompt.
@@ -547,7 +570,9 @@ public sealed class BodyReferencePromptCompilerTests
 
         var sdxl = Sdxl(brief).Positive;
 
-        Assert.Contains("Full-body photograph of a woman,", sdxl, StringComparison.Ordinal);
+        // The article is the canonical text's own (".A woman" opens the sentence), so the noun phrase is matched
+        // without regard to case: what matters is that the band is ABSENT and "a woman" still reads grammatically.
+        Assert.Contains("a woman,", sdxl, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("29", sdxl, StringComparison.Ordinal);
         Assert.DoesNotContain("year-old", sdxl, StringComparison.Ordinal);
     }

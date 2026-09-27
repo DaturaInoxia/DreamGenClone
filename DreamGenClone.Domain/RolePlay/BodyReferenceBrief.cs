@@ -95,6 +95,17 @@ public sealed class BodyReferenceBrief
     /// <summary>The body card's authored line — the single source of the invariant body facts.</summary>
     public string BodyShape { get; set; } = string.Empty;
 
+    /// <summary>
+    /// THE canonical body text (B-132): the operator's authored description of this character's build and face when
+    /// the card carries one, otherwise the text derived from the picks below. Every consumer pastes THIS — the body
+    /// reference adds its stance and framing, the LoRA cell adds its own pose and wardrobe — so one edit on the card
+    /// reaches every prompt instead of three derivations that can disagree.
+    ///
+    /// It carries no height or weight, no camera/stance clause, no framing tail and no clothing; see
+    /// <c>BodyReferencePromptCompiler.ComposeBodyText</c> for why each is excluded.
+    /// </summary>
+    public string BodyText { get; set; } = string.Empty;
+
     /// <summary>The card's own axis picks, carried across so both families can render them in their own dialect.</summary>
     public CharacterBodyAxes Axes { get; set; } = new();
 
@@ -142,6 +153,12 @@ public sealed class BodyReferenceBrief
         if (string.IsNullOrWhiteSpace(BodyShape))
         {
             missing.Add("the body shape line (the body card must be complete before a reference is generated)");
+        }
+
+        if (string.IsNullOrWhiteSpace(BodyText))
+        {
+            missing.Add(
+                "the canonical body text (compose it from the card's picks, or author it, on the Body tab)");
         }
 
         if (string.IsNullOrWhiteSpace(Age))

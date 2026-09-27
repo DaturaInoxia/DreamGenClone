@@ -155,4 +155,69 @@ public sealed class ContinuationOverrideResolverTests
         Assert.False(ContinuationOverrideResolver.ResolveAftermathHusbandContrast(
             SessionWith(new ContinuationOverride { ForceAftermathHusbandContrast = false }), MultiEncounterTheme(), "Committed"));
     }
+
+    // ── Multi-encounter lifecycle: guard and counter must share one decision path ──────
+    //
+    // The boundary minIxns guard reads TurnsInCurrentEncounter, and the multi-encounter
+    // lifecycle block in RunRolePlayV2PipelinesAsync is the only code that increments it.
+    // Resolving the marker at one site and the override at the other left the 4-turn minimum
+    // inert: the guard demanded >= 4 turns while the counter stayed at 0 forever. These tests
+    // pin the shared decision path (the resolver) rather than the marker helper.
+
+    [Fact]
+    public void MultiEncounterDecision_IsTheResolver_NotTheMarkerAlone()
+    {
+        // A marker-less theme (e.g. exhibitionism-v3) with the override on: the marker helper
+        // says NO, the resolver the guard and the lifecycle both use says YES. If these ever
+        // diverge again, the guard and the counter would be reading different decisions.
+        var markerlessTheme = new RPTheme { Id = "markerless" };
+        var session = SessionWith(new ContinuationOverride { ForceMultiEncounterClimax = true });
+
+        Assert.False(RolePlayAssistantPrompts.IsMultiEncounterClimax(markerlessTheme, "Climax"));
+        Assert.True(ContinuationOverrideResolver.ResolveMultiEncounterClimax(session, markerlessTheme));
+    }
+
+    [Fact]
+    public void MultiEncounterCounter_Accumulates_WhenOnlyTheOverrideEnablesIt()
+    {
+        // Mirrors the lifecycle increment gate in RunRolePlayV2PipelinesAsync: resolves through
+        // the override-aware decision, not the marker.
+        var markerlessTheme = new RPTheme { Id = "markerless" };
+        var session = SessionWith(new ContinuationOverride { ForceMultiEncounterClimax = true });
+        var state = new AdaptiveScenarioState { CurrentTimeSkipPhase = TimeSkipPhase.None };
+
+        var isMulti = ContinuationOverrideResolver.ResolveMultiEncounterClimax(session, markerlessTheme);
+        var generatedSinceLastEval = 1;
+        if (isMulti && state.CurrentTimeSkipPhase == TimeSkipPhase.None)
+            state.TurnsInCurrentEncounter += generatedSinceLastEval;
+
+        Assert.Equal(1, state.TurnsInCurrentEncounter);
+        // The guard can now actually be satisfied: the counter it reads is no longer frozen at 0.
+        Assert.True(state.TurnsInCurrentEncounter < 4); // still below the minimum on turn 1
+    }
+
+    [Fact]
+    public void MultiEncounterCounter_StaysZero_WhenNeitherOverrideNorMarkerEnableIt()
+    {
+        var markerlessTheme = new RPTheme { Id = "markerless" };
+        var state = new AdaptiveScenarioState { CurrentTimeSkipPhase = TimeSkipPhase.None };
+
+        var isMulti = ContinuationOverrideResolver.ResolveMultiEncounterClimax(SessionWith(null), markerlessTheme);
+        if (isMulti && state.CurrentTimeSkipPhase == TimeSkipPhase.None)
+            state.TurnsInCurrentEncounter += 1;
+
+        Assert.False(isMulti);
+        Assert.Equal(0, state.TurnsInCurrentEncounter);
+    }
+
+    [Fact]
+    public void ResolveMultiEncounterClimax_OverrideApplies_WhenThemeCouldNotBeLoaded()
+    {
+        // The lifecycle resolves before the theme is necessarily readable, so a forced-on
+        // override must still win over a null theme (and a forced-off must still force off).
+        Assert.True(ContinuationOverrideResolver.ResolveMultiEncounterClimax(
+            SessionWith(new ContinuationOverride { ForceMultiEncounterClimax = true }), null));
+        Assert.False(ContinuationOverrideResolver.ResolveMultiEncounterClimax(
+            SessionWith(new ContinuationOverride { ForceMultiEncounterClimax = false }), null));
+    }
 }

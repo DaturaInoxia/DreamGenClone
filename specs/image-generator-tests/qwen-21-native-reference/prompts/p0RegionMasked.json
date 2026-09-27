@@ -1,0 +1,134 @@
+﻿{
+    "1":  {
+              "inputs":  {
+                             "weight_dtype":  "default",
+                             "unet_name":  "qwen_image_2.1_int8_convrot.safetensors"
+                         },
+              "class_type":  "UNETLoader"
+          },
+    "2":  {
+              "inputs":  {
+                             "device":  "default",
+                             "clip_name":  "qwen3vl_8b_int8_convrot.safetensors",
+                             "type":  "qwen_image"
+                         },
+              "class_type":  "CLIPLoader"
+          },
+    "3":  {
+              "inputs":  {
+                             "vae_name":  "qwen_image_2.1_vae_bf16.safetensors"
+                         },
+              "class_type":  "VAELoader"
+          },
+    "10":  {
+               "inputs":  {
+                              "image":  "qwen21-target.png",
+                              "upload":  "image"
+                          },
+               "class_type":  "LoadImage"
+           },
+    "4":  {
+              "inputs":  {
+                             "vae":  [
+                                         "3",
+                                         0
+                                     ],
+                             "resolution":  1024,
+                             "negative_prompt":  "",
+                             "clip":  [
+                                          "2",
+                                          0
+                                      ],
+                             "images.image_1":  [
+                                                    "10",
+                                                    0
+                                                ],
+                             "prompt":  "Change the colour of the t-shirt the woman is wearing to bright red. Keep everything else in the image exactly as it is: her face, hair, pose, the background and the lighting."
+                         },
+              "class_type":  "TextEncodeQwenImage21"
+          },
+    "5":  {
+              "inputs":  {
+                             "dtype":  "default",
+                             "model":  [
+                                           "1",
+                                           0
+                                       ],
+                             "device":  "auto"
+                         },
+              "class_type":  "QwenImage21Cache"
+          },
+    "30":  {
+               "inputs":  {
+                              "y":  55,
+                              "width":  35,
+                              "blur_radius":  8,
+                              "height":  33,
+                              "x":  32
+                          },
+               "class_type":  "MaskRectArea"
+           },
+    "31":  {
+               "inputs":  {
+                              "mask":  [
+                                           "30",
+                                           0
+                                       ],
+                              "samples":  [
+                                              "4",
+                                              2
+                                          ]
+                          },
+               "class_type":  "SetLatentNoiseMask"
+           },
+    "6":  {
+              "inputs":  {
+                             "denoise":  1,
+                             "seed":  20260925,
+                             "negative":  [
+                                              "4",
+                                              1
+                                          ],
+                             "cfg":  1,
+                             "sampler_name":  "euler",
+                             "latent_image":  [
+                                                  "31",
+                                                  0
+                                              ],
+                             "scheduler":  "simple",
+                             "model":  [
+                                           "5",
+                                           0
+                                       ],
+                             "steps":  25,
+                             "positive":  [
+                                              "4",
+                                              0
+                                          ]
+                         },
+              "class_type":  "KSampler"
+          },
+    "7":  {
+              "inputs":  {
+                             "samples":  [
+                                             "6",
+                                             0
+                                         ],
+                             "vae":  [
+                                         "3",
+                                         0
+                                     ]
+                         },
+              "class_type":  "VAEDecode"
+          },
+    "8":  {
+              "inputs":  {
+                             "images":  [
+                                            "7",
+                                            0
+                                        ],
+                             "filename_prefix":  "qwen21"
+                         },
+              "class_type":  "SaveImage"
+          }
+}

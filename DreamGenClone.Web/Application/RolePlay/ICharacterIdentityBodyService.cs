@@ -47,6 +47,20 @@ public interface ICharacterIdentityBodyService
         CharacterBodyCard card, int expectedVersion, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// THE canonical body text for a rendered view (B-132): the card's authored text when it has one, otherwise the
+    /// text derived from its picks, plus the unclothed-only detail when <paramref name="state"/> is unclothed.
+    ///
+    /// Every consumer of "what this character's body is" reads this — the body-reference renders, the LoRA cell's body
+    /// element, the scene prompt's appearance block. Reading the raw card line somewhere instead is what let the LoRA
+    /// path keep carrying height and weight long after the render path had dropped them.
+    ///
+    /// Refuses when the card is incomplete, exactly as a render would: a body text assembled from a partially
+    /// described body is not a smaller answer, it is a wrong one.
+    /// </summary>
+    Task<string> ResolveBodyTextAsync(
+        string characterId, SceneImageReferenceBodyState state, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The prompt a GENERATION of this slot would use, compiled for the family of <paramref name="modelId"/>.
     ///
     /// Only a BASE view (the front in either state) can be generated from nothing, so only a base has one. Every

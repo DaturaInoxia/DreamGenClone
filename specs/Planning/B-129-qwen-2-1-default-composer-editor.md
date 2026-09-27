@@ -69,6 +69,77 @@ Source: Qwen blog (2026-09-20) + this repo's measured host runs (`helpers/local-
 
 ---
 
+## 2.1 Feature evidence status — every catalogued feature, measured (living matrix)
+
+**Added 2026-09-25.** §2 catalogues the model's features; this section says, for each one, whether this
+repo has actually measured it. It exists because the rollout must be driven by the **whole catalogue**, not
+by whichever feature was last discussed — an unproven line here is a research task, not a build task, and
+selling one as the other is how a surface ends up promising a mechanism that does not exist.
+
+Statuses: **PROVEN** (measured on the host, evidence committed) · **PARTLY** (works in some shapes, with a
+measured boundary) · **UNPROVEN** (no measurement exists — do not build UI on it yet) · **N/A**.
+
+| § | Feature | Status | Evidence |
+|---|---|---|---|
+| A1 | 7B DiT `int8_convrot` fits the 16 GB 5080 | PROVEN | host runs; bf16 pair (29 GB) is not installable |
+| A2 | Qwen3-VL 8B text encoder follows edit instructions | PARTLY | every edit cell; but instruction *wording* sensitivity is only measured for 2511 (see `qwen-image-edit-2511`), not 2.1 |
+| A3 | KV-cache reuse makes added references cheaper | PROVEN | edit1 106 s → edit2 80.5 s |
+| A4 | 64-ch RGBA VAE produces genuine alpha | PROVEN | `rgba` cell — 15.1 s, 35.4 % of pixels alpha = 0 |
+| B1 | Generate transparent assets from text | PROVEN | `rgba` cell. **No app path exists** |
+| B2 | Edit a transparent layer in place, keeping alpha | **UNPROVEN** | — |
+| B3 | Cut a subject out of an RGB photo as an RGBA layer | **UNPROVEN** | mask tooling exists (`SAM3_TrackToMask`, `MediaPipeFaceMask`, `ImageCompositeMasked`); nothing Qwen-specific |
+| C1a | 2 references in one call (two identities) | PROVEN | `gen2`, `gen2b` — both identities in a new scene, one pass |
+| C1b | 3 references (location + pose + identity) | PROVEN | cases 8, 9, 10 — all three land, in wide and tall frames |
+| C1c | 6 references (group portrait from 6 singles) | PARTLY | **CASE-22**: all 6 slots consumed — a skeleton at slot 6 drove the pose. A genuine 6-person group portrait is still unmeasured |
+| C1d | 5 references (virtual try-on) | PARTLY | **CASE-22**: a mid-list reference (slot 5) DID transfer its garment (white tee, rolled jeans, left-calf tattoo). A 5-input try-on is still unmeasured |
+| C1e | 10 references (interior assembly) | **REFUTED** | **CASE-22**: at 10 references the pose reference is ignored **whichever slot it sits in** (skeleton at slot 10 → standing; at slot 1 → standing), and the anatomy breaks when the skeleton is last (extra arms). Both graphs were verified to really carry 10 slots. The declared `MaxReferences: 16` is unsupported; **6 is the validated budget** for a pose-carrying composition |
+| C2a | **Separate mask + original as two inputs ("the production form")** | **PROVEN** | **CASE-21** — `VAEEncodeForInpaint` contains the edit: 0.319 mean diff outside the mask vs 19.86 for the unmasked control (62×), 0.001 % of outside pixels changed |
+| C2b | Colored circles named in the instruction | **UNPROVEN** | needs only a prompt test — no graph change |
+| C2c | Painted / brushed region annotations | **UNPROVEN** | — |
+| C3a | Portrait identity preserved across edits | PARTLY | proven for generation-with-references (cases 6–10); **measured limit** on wide-frame *edits*: fails by scale, needs crop→edit→composite or `resolution` 2048 |
+| C3b | Product text/texture/shape preserved | N/A | no product use case in this app |
+| C4a | **Panorama from a photo** | **UNPROVEN** | unblocked in principle by CASE-21 (outpaint = mask the exposed strip); not measured |
+| C4b | Infographic from a model photo | N/A | out of scope |
+| C4c | Storyboard from a three-view character reference | **UNPROVEN** | B-129 §5.2 wants character sheets; the three-view step is untested |
+| D1 | Improved in-image typography | **UNPROVEN** | — |
+| D2 | Improved portrait lighting / fine detail | **UNPROVEN** | aesthetic; no agreed metric. Do not claim it |
+| §4 | Skeleton in a reference slot acts as pose guidance | PROVEN | cases 4, 5 (decisive), 6, 7, 11; plus `pose-library-all-fours` on the real library |
+| §4 | A photoreal full-body person in a slot is REPRODUCED, not a pose donor | PROVEN | case 3 (the rule the whole pose design rests on) |
+| §4 | Angle-matched face transfers identity; a profile view does not | PROVEN | cases 6–9 vs 2–5 |
+| §4 | Body angles generated from `[accepted front, angle skeleton]` | PROVEN | cases 12–18 |
+| §4 | The reference carries the BUILD; without it the body is invented | PROVEN | case 17 vs case 12 |
+| §3 | `resolution` is a pixel budget, with a hard cost cliff | PROVEN | CASE-20: 2048 on a ~1 Mpx frame → >9 min and no output vs 35–56 s at 1024. **CASE-22: `resolution: 0` ("keep each reference at its own size") is accepted and works** — 111 s vs 126 s at 1024 with pose and identity intact. The app REQUIRES a positive budget, so it blocks a working node capability |
+| §3 | Reference cost scales superlinearly | PROVEN | CASE-22: 2 refs → 35.4 s, 6 → 126 s, 10 → 262 s. The 10-reference run costs ~7.4× the 2-reference run, so latency may bind before capability does |
+| §3 | Reference **clothing state is copied** into the render | PROVEN | 2.1 2-ref cell (`CASE-20-body-build-reference`): a clothed body ref changed the garment; a bare-shouldered ref made a clothed render nude |
+| §3 | Slot order sets placement, not capability | PROVEN | case 10 + `loc3`/`loc3r` |
+| §3 | Location reproduction is semantic, not pixel-faithful | PROVEN | room differs by ~7.7 mean abs diff vs ~2.4 on the composite-from-base path |
+
+**Score: 17 PROVEN · 4 PARTLY · 8 UNPROVEN · 1 REFUTED · 2 N/A** (32 rows). Every UNPROVEN row is a
+*research* task that must close before the matching UI is promised, and each is cheap (one host run)
+except D2. A REFUTED row is worse than unproven: do not build on it.
+
+### The "not yet measured" list this section defines (the evidence program)
+
+Ordered by how much UI it gates, not by how interesting it is:
+
+1. **Region masks beyond a rectangle** — painted/feathered region, and whether the CASE-21 seam can be
+   removed (`GrowMask`, `FeatherMask`). Gates shipping §5.4 at all.
+2. **Panorama / outpaint** — the CASE-21 recipe with the mask at the frame edge.
+3. **RGBA edit preserving alpha (B2) and cut-out extraction (B3)** — gates the transparency catalogue.
+4. **Colored circles as instruction-only annotation (C2b/C2c)** — may be unnecessary now that CASE-21
+   proved the mask route; measure to decide whether to build it at all.
+5. **Three-view → storyboard (C4c)** — gates the character-sheet feature in §5.2.
+6. **The exact pose ceiling (7 / 8 / 9) and a genuine N-subject composition** — CASE-22 measured slot
+   *consumption* (and a mid-list garment transfer), not a real 6-person group portrait or a 5-input try-on.
+   Also the discriminator for the 10-reference anatomy corruption: it is order-dependent (skeleton last →
+   extra arms, skeleton first → clean), so high-count ordering rules need their own measurement.
+
+**Closed by the evidence program:** region masking (CASE-21 — `VAEEncodeForInpaint`, not a latent mask);
+references up to 6, including mid-list (CASE-22); the `MaxReferences: 16` claim (CASE-22 — **unsupported**);
+`resolution: 0` (CASE-22 — works, and the app wrongly requires a positive budget).
+
+---
+
 ## 3. Measured grounding (load-bearing; every suggestion assumes these)
 
 1. **Pose = skeleton-as-reference.** 2.1 reads an OpenPose skeleton in a reference slot as pose guidance — no ControlNet needed. A *photoreal* person in slot 1 is treated as the base image to copy, not a pose donor. The 472-pose pack + `pose-library/*.png` are directly usable. *(qwen-image-2-1-pose-skeleton-finding.md)*
@@ -128,6 +199,25 @@ Owned by the shared workspace (`/asset-studio/{assetId}`) so B-124's one-edit-pa
 - **Instruction compilation** names each region's change + preserved properties (mirrors the `qwen-image-edit-2511.instructions.md` contract).
 - **Multi-region = one call**, not N calls.
 
+> **STATUS 2026-09-25 — the mechanism is now PROVEN, and it is not the one this section assumed.**
+> `TextEncodeQwenImage21` has **no mask input** (verified from the host's `/object_info`), so a mask cannot
+> be fed to the encoder at all. Masking the latent it returns does **not** work either: the frame outside
+> the mask collapses to a washed-out haze and the subject is lost, because that latent is not an encoding
+> of the source image. What works is **`VAEEncodeForInpaint(pixels=source, vae, mask, grow_mask_by)` as the
+> sampler's latent**, with the instruction still coming from `TextEncodeQwenImage21`: contained to
+> **0.319 mean pixel diff outside the mask versus 19.86 for an unmasked control (62×)**, with 0.001 % of
+> outside pixels changed. Full evidence: `specs/image-generator-tests/qwen-21-native-reference/CASE-21-region-masked-edit.md`;
+> measurement tool: `tools/qwen-region-proof/`.
+>
+> Two consequences. (a) **Tool 3 (mask mode) is the production form and is the one to build first** — the
+> circle and brush tools are instruction-only *conveniences* over a region the operator selects, and C2b/C2c
+> are still unmeasured (§2.1). (b) A bare rectangle leaves a **visible seam** (only an 8 % blur); shipping
+> this needs a soft/feathered region, so "mask mode" must not be presented as a rectangle tool.
+>
+> Also measured: an **unmasked** 2.1 edit regenerates the whole frame (the studio backdrop came back as a
+> different wall texture). Region masking is not only region targeting — it is what pins everything outside
+> the edit.
+
 ### 5.5 Asset Manager
 
 - **RGBA assets** become a first-class usage on existing asset types (a transparency flag, not a new schema — flag in B-124).
@@ -168,13 +258,16 @@ Every entry is a capability-gated route selected by the resolver — never a sil
 
 ## 8. Recommended phasing
 
-1. **Finish B-128 U1–U5** — ordered reference list, data-driven strategies, Compose `NativeReference`, capability surfacing. Unlocks everything below.
+1. **Finish B-128 U1–U5** — ordered reference list, data-driven strategies, Compose `NativeReference`, capability surfacing. Unlocks everything below. **The UI half of U2–U5 is now specified and task-ordered in `B-130-unified-image-step-composer/` (tasks.md B130-001..B130-017)** rather than here — that item owns the composer surfaces.
 2. **Promote U4 (pose-as-reference)** deferred → planned (skeleton-as-reference is proven).
-3. **Circle/mask editing UI** in the shared workspace (B-124/B-110).
+3. **Circle/mask editing UI** in the shared workspace (B-124/B-110). The mechanism is now proven: `VAEEncodeForInpaint`, not a latent mask — `CASE-21`.
 4. **Location + identity one-call composition** (B-126 primary).
 5. **Transparency catalog + panorama action** (B-124/B-120).
 6. **Per-POV re-render** with POV-face exclusion.
 7. **Re-scope B-117/B-119** to the awkward-layout niche; record 2.1 as default composer/editor in the compiler-standards family quick-reference.
+
+The evidence program this section briefly listed first is **not a gate on the phasing above** — it is the
+"not yet measured" list in §2.1, a parallel research track.
 
 ---
 

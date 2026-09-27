@@ -3,13 +3,18 @@
 @rendermode InteractiveServer
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Application.Abstractions
 @using DreamGenClone.Web.Application.RolePlay
 @inject IProducedImageRepository ProducedImages
 @inject IReferenceBootstrapService ReferenceBootstrapService
 @inject ISceneImageProductionService ProductionService
 @inject ISceneImageService ImageService
 @inject ISceneAssetService AssetService
+@inject ISceneImageStorageService SceneImages
 @inject ICharacterIdentityBuildService BuildService
+@inject IPoseExtractionService PoseExtraction
+@inject IPoseTestRenderService PoseTestRender
+@inject IPoseLibraryService PoseLibrary
 @inject IJSRuntime JS
 
 <PageTitle>Review Deck - DreamGenClone</PageTitle>
@@ -83,7 +88,104 @@
                 <button class="btn btn-danger" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Rejected)" disabled="@_busy">Reject</button>
                 <button class="btn btn-outline-danger" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Revoked)" disabled="@_busy">Revoke</button>
             }
+
+            @* Offered on EVERY route, not just the asset one: the deck shows three kinds of candidate and a pose can be
+               read from any of them, because what gets measured is the image's own stored bytes whatever put them
+               there. A candidate whose file does not exist yet is refused by name rather than measured as something
+               else. *@
+            <button class="btn btn-outline-primary" type="button" @onclick="OpenExtractAsync" disabled="@(_busy || _extractBusy)" title="Store the pose in this image as a library pose"><i class="bi bi-person-bounding-box me-1"></i>Extract pose</button>
         </div>
+
+        @if (_extractOpen)
+        {
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div>
+                            <strong class="small">Extract the pose from this image</strong>
+                            <span class="d-block small text-muted">
+                                The image's own bytes go to the ComfyUI host's pose estimator and come back as keypoints,
+                                which are stored as a library pose. An image whose head was not resolved is refused rather
+                                than stored, and nothing about the render is changed.
+                            </span>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CloseExtract">Close</button>
+                    </div>
+
+                    <div class="row g-2 align-items-end mt-2">
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold mb-1">ComfyUI model</label>
+                            @if (_extractModels.Count == 0)
+                            {
+                                <span class="text-muted d-block small">No pose-capable image models are enabled.</span>
+                            }
+                            else
+                            {
+                                <select class="form-select form-select-sm" value="@_extractModelId" @onchange="e => _extractModelId = e.Value?.ToString()">
+                                    @foreach (var model in _extractModels)
+                                    {
+                                        <option value="@model.ModelId">@model.DisplayName - @model.ProviderName</option>
+                                    }
+                                </select>
+                                <span class="form-text">The estimator is a node on the ComfyUI host, so a model that is not served by ComfyUI is refused by name.</span>
+                            }
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold mb-1">Name</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="Extracted pose"
+                                   value="@_extractName" @oninput="e => _extractName = e.Value?.ToString()" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-semibold mb-1">Category</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   value="@_extractCategory" @oninput="e => _extractCategory = e.Value?.ToString()" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-semibold mb-1">Library</label>
+                            <select class="form-select form-select-sm" value="@_extractLibraryId" @onchange="e => _extractLibraryId = e.Value?.ToString()">
+                                @foreach (var library in _extractLibraries)
+                                {
+                                    <option value="@library.Id">@library.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2 d-grid">
+                            <button type="button" class="btn btn-sm btn-primary"
+                                    disabled="@(_extractBusy || string.IsNullOrWhiteSpace(_extractModelId) || string.IsNullOrWhiteSpace(_extractName))"
+                                    @onclick="ExtractPoseAsync">
+                                @if (_extractBusy)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                }
+                                Extract
+                            </button>
+                        </div>
+                    </div>
+
+                    @* Unticked by default, and deliberately a declaration rather than something worked out from the image:
+                       a body pose keeps the COCO-18 five-point head, a head pose carries the estimator's 70-point face and
+                       is judged by that instead of by the neck and shoulders. *@
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="extract-head-only"
+                               checked="@_extractHeadOnly" @onchange="e => _extractHeadOnly = e.Value is bool value && value" />
+                        <label class="form-check-label small" for="extract-head-only">
+                            <strong>Head only</strong> — store the estimator's 70-point face and judge the head by that
+                            instead of by the neck and shoulders. Leave unticked for a body pose, where fine face detail
+                            at full-body scale is a smear rather than information.
+                        </label>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_extractError))
+                    {
+                        <div class="alert alert-danger py-1 small mt-2 mb-0">@_extractError</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_extractStatus))
+                    {
+                        <div class="alert alert-success py-1 small mt-2 mb-0">@_extractStatus</div>
+                    }
+                </div>
+            </div>
+        }
 
         <div class="row g-4">
             <div class="col-lg-7">
@@ -298,6 +400,18 @@
     private string? _frontBackUrl;
     private List<ReviewDeckItem> _lineageChildren = [];
 
+    private bool _extractOpen;
+    private bool _extractBusy;
+    private IReadOnlyList<PoseTestModelChoice> _extractModels = [];
+    private IReadOnlyList<PoseLibrary> _extractLibraries = [];
+    private string? _extractModelId;
+    private string? _extractName;
+    private string? _extractCategory = "extracted";
+    private string? _extractLibraryId;
+    private string? _extractError;
+    private string? _extractStatus;
+    private bool _extractHeadOnly;
+
     private bool IsStudioRoute => string.Equals(RouteKind, "studio", StringComparison.OrdinalIgnoreCase);
     private bool IsAssetRoute => string.Equals(RouteKind, "asset", StringComparison.OrdinalIgnoreCase);
 
@@ -337,6 +451,94 @@
 
     private ReviewDeckItem? Current => _items.Count > 0 ? _items[_index] : null;
 
+    /// <summary>
+    /// Opens the extraction form and loads its lists once. The models offered are the pose-capable ones from the one
+    /// resolution service; extraction then refuses a model that is not served by ComfyUI by name, because the estimator
+    /// is a node on that host and no other provider has an equivalent.
+    /// </summary>
+    private async Task OpenExtractAsync()
+    {
+        _extractOpen = true;
+        _extractError = null;
+        _extractStatus = null;
+        _extractName ??= Current is null ? null : $"Extracted {Current.Id}";
+
+        try
+        {
+            if (_extractModels.Count == 0)
+            {
+                _extractModels = (await PoseTestRender.ListModelsAsync())
+                    .Where(model => model.CanCarryPose)
+                    .ToArray();
+                _extractModelId ??= _extractModels.FirstOrDefault()?.ModelId;
+            }
+
+            if (_extractLibraries.Count == 0)
+            {
+                var authored = await PoseLibrary.EnsureAuthoredLibraryAsync();
+                _extractLibraries = (await PoseLibrary.ListLibrariesAsync())
+                    .Where(library => !library.IsSystem)
+                    .ToArray();
+                _extractLibraryId ??= _extractLibraries.Any(library => library.Id == authored.Id)
+                    ? authored.Id
+                    : _extractLibraries.FirstOrDefault()?.Id;
+            }
+        }
+        catch (Exception exception)
+        {
+            _extractError = $"The extraction form could not load its lists: {exception.Message}";
+        }
+    }
+
+    private void CloseExtract()
+    {
+        _extractOpen = false;
+        _extractError = null;
+        _extractStatus = null;
+    }
+
+    /// <summary>
+    /// Reads the current image's own stored bytes and stores the pose found in them. The bytes come from the asset
+    /// service's own download path rather than from the URL the page renders, so what gets measured is the artifact
+    /// that is actually stored.
+    /// </summary>
+    private async Task ExtractPoseAsync()
+    {
+        if (Current is null)
+        {
+            return;
+        }
+
+        _extractBusy = true;
+        _extractError = null;
+        _extractStatus = null;
+
+        try
+        {
+            var image = await ReadCurrentImageAsync(Current);
+
+            var preset = await PoseExtraction.ExtractAsync(new PoseExtractionRequest(
+                image,
+                _extractModelId ?? string.Empty,
+                _extractName ?? string.Empty,
+                _extractCategory ?? string.Empty,
+                null,
+                _extractLibraryId ?? string.Empty,
+                $"review-deck {Current.Id}",
+                _extractHeadOnly));
+
+            _extractStatus = $"Stored '{preset.Name}' as pose {preset.Id}; it is searchable in the pose library now.";
+        }
+        catch (Exception exception)
+        {
+            _extractError = exception.Message;
+        }
+        finally
+        {
+            _extractBusy = false;
+        }
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         try
@@ -360,6 +562,40 @@
         {
             _error = exception.Message;
         }
+    }
+
+    /// <summary>
+    /// The current image's own stored bytes. Which reader to use is the only thing the route kinds differ in: an asset
+    /// candidate is opened through the asset service, and a production attempt or a produced image lives under the
+    /// scene-image root the deck already renders from. A candidate whose file does not exist yet is refused by name
+    /// rather than measured as something else.
+    /// </summary>
+    private async Task<byte[]> ReadCurrentImageAsync(ReviewDeckItem item)
+    {
+        if (IsAssetRoute)
+        {
+            var (_, _, stream) = await AssetService.OpenImageForDownloadAsync(item.Id);
+            await using (stream)
+            {
+                return await ReadAllAsync(stream);
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(item.StoragePath))
+        {
+            throw new InvalidOperationException(
+                $"'{item.Id}' has no stored image file yet, so there is nothing to read a pose from.");
+        }
+
+        await using var stored = await SceneImages.OpenReadAsync(item.StoragePath);
+        return await ReadAllAsync(stored);
+    }
+
+    private static async Task<byte[]> ReadAllAsync(Stream stream)
+    {
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer);
+        return buffer.ToArray();
     }
 
     private async Task PreviousAsync()

@@ -216,6 +216,29 @@ plate into the output.
   the fix is camera-position wording in the plate prompt.
 - Adherence is approximate; ambiguous stances and adult content are untested here, as in the pose cases.
 
+---
+
+## Region-masked editing (CASE-21, 2026-09-25)
+
+`CASE-21-region-masked-edit.md` answers whether a 2.1 edit can be limited to a **region** — the question
+behind the app's "select or draw a shape and change only that" surface, and behind panorama (outpaint is the
+same mechanism with the mask at the frame edge).
+
+Headline: **it works, but only through `VAEEncodeForInpaint`.** `TextEncodeQwenImage21` has **no mask
+input** at all, and masking the latent it returns does not contain anything — everything outside the mask
+collapses to a washed-out haze and the subject is lost, because that latent does not encode the source
+image. Feeding `VAEEncodeForInpaint(pixels=source, vae, mask, grow_mask_by)` to the sampler instead
+contains the edit to **0.319 mean pixel diff outside the mask, versus 19.86 for an unmasked control (62×)**,
+with 0.001 % of outside pixels changed.
+
+- Proof cells (in `run-qwen-2-1-proof.ps1`): `p0Base`, `p0RegionControl`, `p0RegionMasked`,
+  `p0RegionInpaint`, `p0RegionInverted`.
+- Measurement: `tools/qwen-region-proof/measure_region.py` — exit 0 = contained.
+- `MaskRectArea` takes **percent** of the frame (0–100), not pixels; a pixel rectangle is rejected by the
+  host.
+- Known defect for production: a hard rectangle leaves a **visible seam**. A soft/feathered region is
+  required before this ships as a UI feature.
+
 ## The BACK view (case 19, 2026-09-24)
 
 Operator request: *"the body view needs another angle, which is the back view, no face, full back side view"*. The back

@@ -24,11 +24,23 @@ public sealed class PosePerson
     /// <summary>OpenPose hand model: wrist plus four joints on each of five fingers.</summary>
     public const int HandJointCount = 21;
 
+    /// <summary>OpenPose face model: 70 points around the jaw, brows, eyes, nose and lips.</summary>
+    public const int FaceJointCount = 70;
+
     public required IReadOnlyList<PoseKeypoint> Body { get; init; }
 
     public IReadOnlyList<PoseKeypoint> LeftHand { get; init; } = [];
 
     public IReadOnlyList<PoseKeypoint> RightHand { get; init; } = [];
+
+    /// <summary>
+    /// The face keypoints, or EMPTY for a pose that carries none. Optional on purpose, and the distinction is the
+    /// whole point of the channel: a full-body skeleton's head is the COCO-18 five points, and 70 face points at
+    /// full-body scale are a smear rather than information, while a head-only pose is exactly the case where the face
+    /// IS the pose. The format allows both — <c>face_keypoints_2d</c> is its own array that OpenPose emits or omits —
+    /// so a stored pose says which kind it is instead of every pose being forced into one shape.
+    /// </summary>
+    public IReadOnlyList<PoseKeypoint> Face { get; init; } = [];
 }
 
 /// <summary>
@@ -89,8 +101,9 @@ public static class OpenPosePoseJson
         var body = ReadKeypoints(person, "pose_keypoints_2d", PosePerson.BodyJointCount, what);
         var left = ReadOptionalKeypoints(person, "hand_left_keypoints_2d", what);
         var right = ReadOptionalKeypoints(person, "hand_right_keypoints_2d", what);
+        var face = ReadOptionalFaceKeypoints(person, what);
 
-        return new PosePerson { Body = body, LeftHand = left, RightHand = right };
+        return new PosePerson { Body = body, LeftHand = left, RightHand = right, Face = face };
     }
 
     /// <summary>
@@ -110,7 +123,10 @@ public static class OpenPosePoseJson
         {
             ["pose_keypoints_2d"] = Flatten(person.Body),
             ["hand_left_keypoints_2d"] = Flatten(person.LeftHand),
-            ["hand_right_keypoints_2d"] = Flatten(person.RightHand)
+            ["hand_right_keypoints_2d"] = Flatten(person.RightHand),
+            // Written even when empty, like the hands: a stored file then says "no face channel" explicitly rather
+            // than leaving a reader to infer it from an absent key.
+            ["face_keypoints_2d"] = Flatten(person.Face)
         };
 
         return JsonSerializer.Serialize(payload, WriteOptions);
@@ -122,9 +138,47 @@ public static class OpenPosePoseJson
     /// reference then drags that free head wherever it likes — the failure is silent and looks like a
     /// perfectly good render. Rejecting names the joints that are missing rather than saying "invalid".
     /// </summary>
+    /// <summary>
+    /// The body-only form, for a pose that carries NO face channel.
+    ///
+    /// It refuses a face-carrying pose rather than falling back to the body test: such a pose's head has to be judged
+    /// by the configured face minimum, and a caller that does not state one would otherwise inherit "the five body
+    /// points are enough" for a head pose — which is the silent acceptance this rule exists to prevent.
+    /// </summary>
     public static void RequireHeadKeypoints(PosePerson person, string what)
     {
         ArgumentNullException.ThrowIfNull(person);
+
+        if (person.Face.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"{what}: this pose carries a face channel, so its head has to be judged by the configured face "
+                + "minimum, and the caller did not state one.");
+        }
+
+        // No face channel, so the face branch cannot be reached; the body's own joints are the whole test.
+        RequireHeadKeypoints(person, what, minimumFacePoints: 0);
+    }
+
+    public static void RequireHeadKeypoints(PosePerson person, string what, int minimumFacePoints)
+    {
+        ArgumentNullException.ThrowIfNull(person);
+
+        // A pose that CARRIES a face channel is not the case this rule was written for. The rule exists because a
+        // skeleton whose head is five dots leaves the head free for the model to pose, and an identity reference then
+        // drags that free head. A head-only pose carries 70 face points, which constrains the head harder than the
+        // neck and shoulders do, so it is judged on its own terms rather than by the body's joint count.
+        if (person.Face.Count > 0)
+        {
+            var visibleFace = person.Face.Count(point => point.Confidence > VisibilityFloor);
+            if (visibleFace >= minimumFacePoints) return;
+
+            throw new InvalidOperationException(
+                $"{what}: only {visibleFace} of {person.Face.Count} face keypoints clear the visibility floor "
+                + $"({VisibilityFloor.ToString(CultureInfo.InvariantCulture)}), but a pose that carries a face needs "
+                + $"{minimumFacePoints}. A head whose face is mostly unread is a head the render would have to invent.");
+        }
+
         var required = new (int Index, string Name)[]
         {
             (NoseIndex, "nose"),
@@ -180,6 +234,32 @@ public static class OpenPosePoseJson
 
         var result = new List<PoseKeypoint>(PosePerson.HandJointCount);
         for (var i = 0; i < PosePerson.HandJointCount; i++)
+        {
+            result.Add(new PoseKeypoint(values[i * 3], values[i * 3 + 1], values[i * 3 + 2]));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// The face channel, or empty when the pose carries none. Its length is checked exactly as the hands' is: a
+    /// partial face is a head the render would partly invent, and the count is named so a mismatched source is
+    /// obvious rather than silently half-read.
+    /// </summary>
+    private static List<PoseKeypoint> ReadOptionalFaceKeypoints(JsonObject person, string what)
+    {
+        var values = ReadArray(person, "face_keypoints_2d", what, required: false);
+        if (values is null || values.Count == 0) return [];
+
+        if (values.Count != PosePerson.FaceJointCount * 3)
+        {
+            throw new InvalidOperationException(
+                $"{what}: 'face_keypoints_2d' must hold {PosePerson.FaceJointCount} keypoints or be absent, but holds "
+                + $"{values.Count} values ({values.Count / 3} keypoints and {values.Count % 3} left over).");
+        }
+
+        var result = new List<PoseKeypoint>(PosePerson.FaceJointCount);
+        for (var i = 0; i < PosePerson.FaceJointCount; i++)
         {
             result.Add(new PoseKeypoint(values[i * 3], values[i * 3 + 1], values[i * 3 + 2]));
         }
