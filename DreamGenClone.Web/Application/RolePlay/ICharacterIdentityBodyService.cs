@@ -3,6 +3,21 @@ using DreamGenClone.Domain.RolePlay;
 namespace DreamGenClone.Web.Application.RolePlay;
 
 /// <summary>
+/// The canonical texts for a character's body (B-132), in the four forms its consumers need.
+///
+/// <paramref name="FaceText"/> and <paramref name="BodyText"/> are the two clauses exactly as the step's elements show
+/// them, so what the operator reads is what the prompt carries. <paramref name="SubjectWithFace"/> and
+/// <paramref name="SubjectWithoutFace"/> are the whole-person description a prompt's subject slot takes: a cell with no
+/// face reference takes the first, and a cell whose face reference image is BOUND takes the second, because a model
+/// shown a face must not also be told in words what that face looks like.
+/// </summary>
+public sealed record CharacterBodyTexts(
+    string FaceText,
+    string BodyText,
+    string SubjectWithFace,
+    string SubjectWithoutFace);
+
+/// <summary>
 /// The body target's acquisition surface (B-122 Phase 0). One request produces exactly one image: a base in a
 /// state, or one view of the body. There is deliberately no "generate all" and no sweep — the same one-at-a-time
 /// contract the face pipeline uses (FR21-022), on the same build, the same step records and the same container.
@@ -61,6 +76,19 @@ public interface ICharacterIdentityBodyService
         string characterId, SceneImageReferenceBodyState state, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The canonical texts for a character's body, in the four forms its consumers need (B-132):
+    /// <paramref name="FaceText"/> and <paramref name="BodyText"/> are the two clauses as the elements show them, and
+    /// <paramref name="SubjectWithFace"/>/<paramref name="SubjectWithoutFace"/> are the whole-person description a
+    /// prompt's subject slot takes, with and without the face.
+    ///
+    /// Both subject variants come back from ONE call so a host cannot assemble them from different reads and describe
+    /// two different people: a cell whose face reference image is BOUND asks for the variant without the face, which is
+    /// what stops the words contradicting the reference the model is being shown.
+    /// </summary>
+    Task<CharacterBodyTexts> ResolveBodyTextsAsync(
+        string characterId, SceneImageReferenceBodyState state, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Composes the canonical body text from the card's CURRENT picks, without saving it — what the Body tab's
     /// "Compose from the picks" action offers, so the operator can see what their picks say before accepting it as the
     /// authored text.
@@ -73,7 +101,7 @@ public interface ICharacterIdentityBodyService
     /// the same message a render would give: a text composed from a half-answered card would read plausibly and be
     /// wrong, which is worse than being told what is missing.
     /// </summary>
-    Task<string> ComposeBodyTextAsync(
+    Task<CharacterBodyTexts> ComposeBodyTextsAsync(
         CharacterBodyCard card, CancellationToken cancellationToken = default);
 
     /// <summary>

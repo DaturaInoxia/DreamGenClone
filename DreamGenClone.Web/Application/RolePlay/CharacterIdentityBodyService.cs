@@ -167,12 +167,34 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
         string characterId, SceneImageReferenceBodyState state, CancellationToken cancellationToken = default)
     {
         var card = await RequireCompleteBodyCardAsync(characterId, cancellationToken);
+        var brief = await BuildTextBriefAsync(card, state, cancellationToken);
+        return BodyReferencePromptCompiler.ComposeViewBodyText(brief);
+    }
 
-        // The text describes the BODY, so the stance is irrelevant to it — Standing is passed because the brief factory
-        // requires one, not because the text reads it. Identity is off for the same reason: conditioning changes what a
-        // render is GIVEN, not what the body IS, and resolving it here could refuse the text over a pack this caller is
-        // not using.
-        var brief = await _briefs.CreateAsync(
+    /// <inheritdoc />
+    public async Task<CharacterBodyTexts> ResolveBodyTextsAsync(
+        string characterId, SceneImageReferenceBodyState state, CancellationToken cancellationToken = default)
+    {
+        var card = await RequireCompleteBodyCardAsync(characterId, cancellationToken);
+        var brief = await BuildTextBriefAsync(card, state, cancellationToken);
+
+        // Both subject variants are composed from the SAME brief, so they cannot describe two different people.
+        return new CharacterBodyTexts(
+            brief.FaceText.Trim(),
+            brief.BodyText.Trim(),
+            BodyReferencePromptCompiler.ComposeViewBodyText(brief),
+            BodyReferencePromptCompiler.ComposeViewBodyText(brief, includeFace: false));
+    }
+
+    /// <summary>
+    /// The brief the canonical texts are composed from, for a caller that only needs text rather than a render. The
+    /// stance is irrelevant to every text (Standing is passed because the factory requires one) and identity is off
+    /// because conditioning changes what a render is GIVEN, not what the body IS — resolving it here could refuse a
+    /// text over a pack the caller is not using.
+    /// </summary>
+    private Task<BodyReferenceBrief> BuildTextBriefAsync(
+        CharacterBodyCard card, SceneImageReferenceBodyState state, CancellationToken cancellationToken)
+        => _briefs.CreateAsync(
             card.CharacterTemplateId,
             card,
             state,
@@ -181,11 +203,8 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
             faceAssetId: null,
             cancellationToken);
 
-        return BodyReferencePromptCompiler.ComposeViewBodyText(brief);
-    }
-
     /// <inheritdoc />
-    public async Task<string> ComposeBodyTextAsync(
+    public async Task<CharacterBodyTexts> ComposeBodyTextsAsync(
         CharacterBodyCard card, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(card);
@@ -196,16 +215,13 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
 
         // Clothed because the text describes the BODY, not a state, and the brief factory requires a state it can
         // check its clothing against. Standing for the same reason: the text carries no stance.
-        var brief = await _briefs.CreateAsync(
-            card.CharacterTemplateId,
-            card,
-            SceneImageReferenceBodyState.Clothed,
-            BodyReferenceStance.Standing,
-            requestIdentity: false,
-            faceAssetId: null,
-            cancellationToken);
+        var brief = await BuildTextBriefAsync(card, SceneImageReferenceBodyState.Clothed, cancellationToken);
 
-        return BodyReferencePromptCompiler.ComposeBodyText(brief);
+        return new CharacterBodyTexts(
+            BodyReferencePromptCompiler.ComposeFaceText(brief),
+            BodyReferencePromptCompiler.ComposeBodyText(brief),
+            BodyReferencePromptCompiler.ComposeFullDescription(brief),
+            BodyReferencePromptCompiler.ComposeFullDescription(brief, includeFace: false));
     }
 
     public async Task<CharacterBodyCard> SaveBodyCardAsync(

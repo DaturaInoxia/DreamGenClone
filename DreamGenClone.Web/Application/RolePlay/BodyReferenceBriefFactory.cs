@@ -227,13 +227,15 @@ public sealed class BodyReferenceBriefFactory : IBodyReferenceBriefFactory
             IdentityPackId = identity?.PackId
         };
 
-        // The canonical body text (B-132). The card's AUTHORED line wins when it has one, because a hand edit is the
-        // operator's decision and nothing may overwrite it; otherwise the text is DERIVED from the very picks it is
-        // composed from — a derivation, not a default and not a guess. Either way every consumer reads this one text,
-        // so the reference render and the LoRA cell cannot describe the same body differently.
+        // The canonical face and body texts (B-132). Authored wins; otherwise DERIVED from the picks each is composed
+        // from. Set here, once the face fields and axes above are populated, because that is what they are derived
+        // from.
         brief.BodyText = string.IsNullOrWhiteSpace(card.BodyText)
             ? BodyReferencePromptCompiler.ComposeBodyText(brief)
             : card.BodyText.Trim();
+        brief.FaceText = string.IsNullOrWhiteSpace(card.FaceText)
+            ? BodyReferencePromptCompiler.ComposeFaceText(brief)
+            : card.FaceText.Trim();
 
         brief.Validate();
 

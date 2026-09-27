@@ -72,7 +72,7 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
             command.CommandText = $"""
                 INSERT INTO CharacterBodyCards ({FieldColumns}, Version, UpdatedUtc)
                 VALUES ($characterProfileId, $bodyShape, $heightBuild, $skin, $bodyHair, $tattoos, $scarsMarks,
-                        $pubicHair, $bodyAxes, $bodyText, $bodyFace, 1, $updatedUtc);
+                        $pubicHair, $bodyAxes, $bodyText, $faceText, $bodyFace, 1, $updatedUtc);
                 """;
         }
         else
@@ -89,6 +89,7 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
                     PubicHair = $pubicHair,
                     BodyAxesJson = $bodyAxes,
                     BodyText = $bodyText,
+                    FaceText = $faceText,
                     BodyFaceJson = $bodyFace,
                     Version = Version + 1,
                     UpdatedUtc = $updatedUtc
@@ -107,6 +108,7 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
         command.Parameters.AddWithValue("$pubicHair", card.PubicHair?.Trim() ?? string.Empty);
         command.Parameters.AddWithValue("$bodyAxes", SerializeAxes(card.Axes));
         command.Parameters.AddWithValue("$bodyText", card.BodyText?.Trim() ?? string.Empty);
+        command.Parameters.AddWithValue("$faceText", card.FaceText?.Trim() ?? string.Empty);
         command.Parameters.AddWithValue("$bodyFace", SerializeFace(card.Face));
         command.Parameters.AddWithValue("$updatedUtc", now.ToString("O", CultureInfo.InvariantCulture));
 
@@ -140,11 +142,11 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
 
     /// <summary>SELECT column list (and the order <see cref="ReadCard"/> reads).</summary>
     private const string Columns =
-        "CharacterProfileId, BodyShape, HeightBuild, Skin, BodyHair, Tattoos, ScarsMarks, PubicHair, Version, UpdatedUtc, BodyAxesJson, BodyText, BodyFaceJson";
+        "CharacterProfileId, BodyShape, HeightBuild, Skin, BodyHair, Tattoos, ScarsMarks, PubicHair, Version, UpdatedUtc, BodyAxesJson, BodyText, BodyFaceJson, FaceText";
 
     /// <summary>The card's own fields, without the version/updated pair the store owns.</summary>
     private const string FieldColumns =
-        "CharacterProfileId, BodyShape, HeightBuild, Skin, BodyHair, Tattoos, ScarsMarks, PubicHair, BodyAxesJson, BodyText, BodyFaceJson";
+        "CharacterProfileId, BodyShape, HeightBuild, Skin, BodyHair, Tattoos, ScarsMarks, PubicHair, BodyAxesJson, BodyText, FaceText, BodyFaceJson";
 
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
     {
@@ -169,6 +171,7 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
                 PubicHair TEXT NOT NULL DEFAULT '',
                 BodyAxesJson TEXT NOT NULL DEFAULT '{}',
                 BodyText TEXT NOT NULL DEFAULT '',
+                FaceText TEXT NOT NULL DEFAULT '',
                 BodyFaceJson TEXT NOT NULL DEFAULT '{}',
                 Version INTEGER NOT NULL DEFAULT 1,
                 UpdatedUtc TEXT NOT NULL
@@ -193,6 +196,15 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
             await using var addText = connection.CreateCommand();
             addText.CommandText = "ALTER TABLE CharacterBodyCards ADD COLUMN BodyText TEXT NOT NULL DEFAULT '';";
             await addText.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // The canonical FACE text (B-132): separate from the body text so a bound face reference can suppress the face
+        // without suppressing the build.
+        if (!columns.Contains("FaceText"))
+        {
+            await using var addFaceText = connection.CreateCommand();
+            addFaceText.CommandText = "ALTER TABLE CharacterBodyCards ADD COLUMN FaceText TEXT NOT NULL DEFAULT '';";
+            await addFaceText.ExecuteNonQueryAsync(cancellationToken);
         }
 
         // The face block (B-132). Its absence was the reason a face the operator could see on screen never reached a
@@ -254,7 +266,8 @@ public sealed class CharacterBodyCardRepository : ICharacterBodyCardRepository
         UpdatedUtc = ParseUtc(reader.GetString(9)),
         Axes = ParseAxes(reader.IsDBNull(10) ? null : reader.GetString(10)),
         BodyText = reader.IsDBNull(11) ? string.Empty : reader.GetString(11),
-        Face = ParseFace(reader.IsDBNull(12) ? null : reader.GetString(12))
+        Face = ParseFace(reader.IsDBNull(12) ? null : reader.GetString(12)),
+        FaceText = reader.IsDBNull(13) ? string.Empty : reader.GetString(13)
     };
 
     /// <summary>Serializes the picks. The axes are never null on a card, so this always writes a document.</summary>

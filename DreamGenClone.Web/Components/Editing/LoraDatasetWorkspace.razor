@@ -249,12 +249,9 @@ else
                                 <dd class="col-sm-9">@SelectedRecord.Split</dd>
                             </dl>
 
-                            <h6 class="text-uppercase text-muted small">Render prompt</h6>
-                            @* ONE prompt on this page: the same composition the shot below is rendered from, including the
-                               elements its bound reference images supply and the face line. This box used to run a second,
-                               separate composition that passed neither, so it showed a prompt no render would ever use. *@
-                            <p class="small font-monospace border rounded p-2">@RenderPromptForShoot</p>
-
+                            @* There is deliberately NO render prompt here. One used to be shown, composed separately from the
+                               prompt below and passing neither the face line nor the supplied elements, so it could disagree
+                               with what was actually shot. The prompt that IS sent is the editable one in the step below. *@
                             <h6 class="text-uppercase text-muted small">Caption</h6>
                             <p class="small font-monospace border rounded p-2">@SelectedCaption</p>
                             <div class="form-text mb-3">
@@ -429,7 +426,23 @@ else
     /// The canonical body text for the selected cell's state (B-132), resolved from the body service. It replaces the
     /// card's raw line here: that line carried height and weight, and a pubic-hair detail with no state gate.
     /// </summary>
-    private string _cellBodyText = string.Empty;
+    /// <summary>
+    /// The canonical face and body clauses for this cell (B-132), resolved from the body service. The two elements below
+    /// show these verbatim, so what the operator reads is what the prompt carries - and neither element repeats the
+    /// other's facts.
+    /// </summary>
+    private CharacterBodyTexts? _cellBodyTexts;
+
+    /// <summary>
+    /// The slots this cell's BOUND reference images supply (D4). Read from the same bindings the composer is given, so
+    /// the text below and the prompt cannot disagree about what is supplied.
+    /// </summary>
+    private IReadOnlyList<ImageStepSlotKind> CellSuppliedSlots
+        => CellBlueprint is null || _cellBindings.Count == 0
+            ? []
+            : ImageStepPromptOmission.BoundSlotsFor(CellBlueprint, _cellBindings)
+                .Select(slot => slot.SlotKind)
+                .ToList();
     private bool _cellBusy;
 
     /// <summary>The step this workspace presents, built by the one factory that owns host knowledge. A cell is shot
@@ -456,15 +469,14 @@ else
     private IReadOnlyDictionary<ImageStepSlotKind, string> CellElementText()
     {
         var text = new Dictionary<ImageStepSlotKind, string>();
-        if (!string.IsNullOrWhiteSpace(BodyCardLine))
+        if (!string.IsNullOrWhiteSpace(_cellBodyTexts?.BodyText))
         {
-            text[ImageStepSlotKind.Body] = BodyCardLine;
+            text[ImageStepSlotKind.Body] = _cellBodyTexts!.BodyText;
         }
 
-        var faceLine = _bodyCard?.ToFaceLine();
-        if (!string.IsNullOrWhiteSpace(faceLine))
+        if (!string.IsNullOrWhiteSpace(_cellBodyTexts?.FaceText))
         {
-            text[ImageStepSlotKind.Face] = faceLine;
+            text[ImageStepSlotKind.Face] = _cellBodyTexts!.FaceText;
         }
 
         return text;
@@ -686,11 +698,16 @@ else
         _plan!, record, _captionTemplateBody ?? string.Empty));
 
     /// <summary>
-    /// The invariant body text, pasted verbatim into every render prompt: the canonical body text the body service
-    /// resolved for this cell's state (B-132). An incomplete card refuses to resolve one at all (by design), so the
-    /// workspace says what is missing rather than composing a prompt without it.
+    /// The text the prompt's SUBJECT slot takes (B-132). The cell templates declare one subject slot and no face
+    /// element, so this is the whole-person description — WITHOUT the face clause when a bound reference image supplies
+    /// the face, because a model being shown a face must not also be told in words what that face looks like.
     /// </summary>
-    private string BodyCardLine => _cellBodyText;
+    private string BodyCardLine
+        => _cellBodyTexts is null
+            ? string.Empty
+            : CellSuppliedSlots.Contains(ImageStepSlotKind.Face)
+                ? _cellBodyTexts.SubjectWithoutFace
+                : _cellBodyTexts.SubjectWithFace;
 
     private string BodyCardNotice
         => _bodyCard is null
@@ -758,10 +775,9 @@ else
             // it here from the dataset would be a second answer to "whose reference is this", free to disagree with the
             // key the step was built with - which is exactly how the face and body references came to be invisible.
             _cellBindings = await CellService.ResolveCellBindingsAsync(_selectedDatasetId, record.Key, _identityKey);
-            // The canonical body text for THIS cell's state (B-132), resolved by the service that owns it rather than
-            // re-derived here from the card. One text, so the LoRA body element and the body-reference prompt describe
-            // the same body - and the unclothed-only detail is appended only when this cell is unclothed.
-            _cellBodyText = await BodyService.ResolveBodyTextAsync(_identityKey, record.BodyState);
+            // Both canonical clauses for THIS cell's state (B-132), resolved by the service that owns them rather than
+            // re-derived here from the card. One call, so the two elements and the prompt cannot describe two people.
+            _cellBodyTexts = await BodyService.ResolveBodyTextsAsync(_identityKey, record.BodyState);
             // The composed prompt becomes the step's DRAFT rather than staying a read-only paragraph: the box is
             // editable, so an edit that the render ignored would be a lie about what is being shot.
             _cellPromptDraft = RenderPromptForShoot;
@@ -772,7 +788,7 @@ else
             _cellIdentityReference = string.Empty;
             _cellBodyReference = string.Empty;
             _cellBindings = [];
-            _cellBodyText = string.Empty;
+            _cellBodyTexts = null;
             _cellPromptDraft = string.Empty;
             _error = exception.Message;
         }
@@ -840,7 +856,7 @@ else
     /// </summary>
     private string RenderPromptForShoot => Compose(record => LoraCellPromptComposer.ComposeRenderPrompt(
         _plan!, record, BodyCardLine, _renderTemplateBody ?? string.Empty,
-        _bodyCard?.ToFaceLine(),
+        _cellBodyTexts?.FaceText,
         ImageStepPromptOmission.BoundSlotsFor(CellBlueprint, _cellBindings).Select(slot => slot.SlotKind).ToList()));
 
     private void SelectCell(string key) => _ = SelectCellAsync(key);

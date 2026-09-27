@@ -43,9 +43,10 @@ public sealed class BodyReferenceBriefTests
         Clothing = "plain everyday clothing"
     };
 
-        // Composed the way the factory composes it, so a brief under test is shaped exactly like a real one and the
-        // canonical text (B-132) is never the difference in what these tests assert.
+        // Composed the way the factory composes them, so a brief under test is shaped exactly like a real one and the
+        // canonical texts (B-132) are never the difference in what these tests assert.
         brief.BodyText = BodyReferencePromptCompiler.ComposeBodyText(brief);
+        brief.FaceText = BodyReferencePromptCompiler.ComposeFaceText(brief);
         return brief;
     }
 

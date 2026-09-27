@@ -544,37 +544,30 @@ public static class BodyReferencePromptCompiler
     }
 
     /// <summary>
-    /// The subject clause's descriptors, in order: the age/gender noun phrase, hair, eyes, the face block, then skin.
-    /// Extracted so <see cref="ComposeBodyText"/> and the SDXL prompt read ONE list: two copies of this ordering would
-    /// let the canonical text and the reference rendering drift apart, which is the defect this whole path exists to
-    /// remove.
+    /// The face clause's phrases, in the order a face is naturally described: hair colour and style, then eyes, then the
+    /// face block. ONE list feeds both the composed face text and the Pony face tags, so the two dialects describe one
+    /// face.
     /// </summary>
-    private static List<string> SubjectPhrases(BodyReferenceBrief brief)
+    private static List<string> FaceClausePhrases(BodyReferenceBrief brief)
     {
-        var subject = new List<string>(6) { SubjectNounPhrase(brief) };
+        var phrases = new List<string>(6);
         if (!string.IsNullOrWhiteSpace(brief.HairColour))
         {
-            subject.Add($"with {NormalizeValue(brief.HairColour).ToLowerInvariant()} hair");
+            phrases.Add($"with {NormalizeValue(brief.HairColour).ToLowerInvariant()} hair");
         }
 
         if (!string.IsNullOrWhiteSpace(brief.HairStyle))
         {
-            subject.Add($"{NormalizeValue(brief.HairStyle).ToLowerInvariant()} hairstyle");
+            phrases.Add($"{NormalizeValue(brief.HairStyle).ToLowerInvariant()} hairstyle");
         }
 
         if (!string.IsNullOrWhiteSpace(brief.EyeColour))
         {
-            subject.Add($"{NormalizeValue(brief.EyeColour).ToLowerInvariant()} eyes");
+            phrases.Add($"{NormalizeValue(brief.EyeColour).ToLowerInvariant()} eyes");
         }
 
-        subject.AddRange(FacePhrases(brief));
-
-        if (!string.IsNullOrWhiteSpace(brief.SkinTone))
-        {
-            subject.Add($"{NormalizeValue(brief.SkinTone).ToLowerInvariant()} skin");
-        }
-
-        return subject;
+        phrases.AddRange(FacePhrases(brief));
+        return phrases;
     }
 
     /// <summary>
@@ -606,21 +599,75 @@ public static class BodyReferencePromptCompiler
     public static string ComposeBodyText(BodyReferenceBrief brief)
     {
         ArgumentNullException.ThrowIfNull(brief);
+        return string.Join(", ", BodyDescriptionPhrases(brief, includePubicHair: false));
+    }
 
-        var sentences = new List<string>(2);
-        var subject = DedupeValues(SubjectPhrases(brief));
-        if (subject.Count > 0)
+    /// <summary>
+    /// THE canonical FACE text (B-132): the face's own descriptors as prose, and the companion to
+    /// <see cref="ComposeBodyText"/>. It reads as a clause ("with brown hair, bun hairstyle, blue eyes, round face, …")
+    /// because that is how it is used: it is spliced into the person clause of a whole-person description, and it is
+    /// what the Face ELEMENT shows when it is a slot of its own.
+    ///
+    /// Why it is separate from the body text at all: one cell template declares NO face element, so the two texts are
+    /// assembled into its single subject slot by the composer — and a bound FACE reference image can then drop the
+    /// face text while keeping the build. With one combined text that was impossible: the words kept describing a face
+    /// the model was simultaneously being shown, so the text contradicted the reference.
+    ///
+    /// Skin is deliberately absent: tone and texture are body-wide and already travel on the body text.
+    /// </summary>
+    public static string ComposeFaceText(BodyReferenceBrief brief)
+    {
+        ArgumentNullException.ThrowIfNull(brief);
+        return string.Join(", ", DedupeValues(FaceClausePhrases(brief)));
+    }
+
+    /// <summary>
+    /// The WHOLE PERSON, as one description: the person clause (age/gender noun phrase, the face clause, skin), then the
+    /// body clause. This is what a body-reference render and an angle instruction read, because both describe a whole
+    /// person — as opposed to the LoRA cell, whose template has one subject slot and must be told what that slot is for.
+    ///
+    /// Assembled from the AUTHORED face and body texts, so an edit to either reaches this, and the two clauses cannot
+    /// disagree with the elements that show them.
+    /// </summary>
+    public static string ComposeFullDescription(BodyReferenceBrief brief)
+        => ComposeFullDescription(brief, includeFace: true);
+
+    /// <summary>
+    /// The whole person, with the face clause optionally left out.
+    ///
+    /// <paramref name="includeFace"/> false is what a cell whose face reference image is BOUND needs: the model is being
+    /// shown a face, so the text must describe only the build. It is a parameter rather than string surgery on the
+    /// composed description, because splicing a clause out of a sentence is exactly the kind of thing that silently
+    /// leaves a comma or a dangling adjective behind.
+    /// </summary>
+    public static string ComposeFullDescription(BodyReferenceBrief brief, bool includeFace)
+    {
+        ArgumentNullException.ThrowIfNull(brief);
+
+        var subject = new List<string>(3) { SubjectNounPhrase(brief) };
+        if (includeFace && !string.IsNullOrWhiteSpace(brief.FaceText))
         {
-            sentences.Add($"{Capitalize(string.Join(", ", subject))}.");
+            subject.Add(brief.FaceText.Trim());
         }
 
-        var body = BodyDescriptionPhrases(brief, includePubicHair: false);
-        if (body.Count > 0)
+        if (!string.IsNullOrWhiteSpace(brief.SkinTone))
         {
-            sentences.Add($"Body: {string.Join(", ", body)}.");
+            subject.Add($"{NormalizeValue(brief.SkinTone).ToLowerInvariant()} skin");
         }
 
-        return string.Join(" ", sentences);
+        var clauses = new List<string>(2);
+        var subjectText = DedupeValues(subject);
+        if (subjectText.Count > 0)
+        {
+            clauses.Add($"{Capitalize(string.Join(", ", subjectText))}.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(brief.BodyText))
+        {
+            clauses.Add($"Body: {brief.BodyText.Trim().TrimEnd('.')}.");
+        }
+
+        return string.Join(" ", clauses);
     }
 
     /// <summary>
@@ -650,18 +697,25 @@ public static class BodyReferencePromptCompiler
     /// dialect, gets the identical sentence instead of three spellings of the same rule.
     /// </summary>
     public static string ComposeViewBodyText(BodyReferenceBrief brief)
+        => ComposeViewBodyText(brief, includeFace: true);
+
+    /// <summary>
+    /// The canonical description for a rendered view, with the face clause optionally left out — the variant a cell
+    /// takes when its face reference image is BOUND, so the text stops describing a face the model is being shown.
+    /// </summary>
+    public static string ComposeViewBodyText(BodyReferenceBrief brief, bool includeFace)
     {
         ArgumentNullException.ThrowIfNull(brief);
 
-        var bodyText = brief.BodyText;
+        var description = ComposeFullDescription(brief, includeFace);
         if (ComposeStateDetail(brief) is not { } stateDetail)
         {
-            return bodyText;
+            return description;
         }
 
-        return bodyText.Contains("Body:", StringComparison.Ordinal)
-            ? $"{bodyText.TrimEnd('.')}, {stateDetail}."
-            : $"{bodyText} {Capitalize(stateDetail)}.";
+        return description.Contains("Body:", StringComparison.Ordinal)
+            ? $"{description.TrimEnd('.')}, {stateDetail}."
+            : $"{description} {Capitalize(stateDetail)}.";
     }
 
     /// <summary>Uppercases the first character only, so a composed sentence starts like one.</summary>

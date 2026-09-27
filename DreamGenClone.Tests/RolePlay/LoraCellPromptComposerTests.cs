@@ -189,11 +189,16 @@ public sealed class LoraCellPromptComposerTests
     }
 
     /// <summary>
-    /// Silence would read as "this cell has no build and no clothing", which the model is then free to invent. The
-    /// omission is therefore STATED, and it names the elements so the operator can match it to the badges on screen.
+    /// A bound reference is expressed by the ABSENCE of the text it supplies — never by an instruction in the prompt.
+    ///
+    /// This is a correction (2026-09-27): the prompt used to end with "SUPPLIED BY THE REFERENCE IMAGES — AUTHORITATIVE
+    /// (…): do NOT describe, restate or re-derive them". The cell's prompt reaches the image model VERBATIM —
+    /// <c>SceneAssetPromptCompiler</c> is a deterministic transform, not a model — so nothing obeys that sentence. It
+    /// spent budget against the qualified 800-character Pony limit and on Pony was comma-shredded into fake tags.
+    /// The operator already sees which elements a bound reference supplies, from the step's own badges.
     /// </summary>
     [Fact]
-    public void ComposeRenderPrompt_NamesWhatTheReferencesSupply()
+    public void ComposeRenderPrompt_StatesAnOmissionByLeavingTheTextOut_NotByAnInstruction()
     {
         var plan = Plan();
         var record = plan.Records[0];
@@ -202,12 +207,14 @@ public sealed class LoraCellPromptComposerTests
             plan, record, BodyCard, RenderTemplate, null,
             [ImageStepSlotKind.Body, ImageStepSlotKind.Wardrobe]);
 
-        Assert.Contains("SUPPLIED BY THE REFERENCE IMAGES", prompt, StringComparison.Ordinal);
-        Assert.Contains("Body", prompt, StringComparison.Ordinal);
-        Assert.Contains("Clothing", prompt, StringComparison.Ordinal);
-        Assert.Contains("do NOT describe", prompt, StringComparison.Ordinal);
+        // No instruction text of any kind reaches the model.
+        Assert.DoesNotContain("SUPPLIED BY THE REFERENCE IMAGES", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("do NOT describe", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("AUTHORITATIVE", prompt, StringComparison.Ordinal);
+        // The supplied text is simply gone, and what was not supplied survives.
         Assert.DoesNotContain(BodyCard, prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("wearing a plain t-shirt and jeans", prompt, StringComparison.Ordinal);
+        Assert.Contains("Photorealistic", prompt, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -226,7 +233,6 @@ public sealed class LoraCellPromptComposerTests
 
         Assert.DoesNotContain(FaceLine, prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("Bun", prompt, StringComparison.Ordinal);
-        Assert.Contains("Face", prompt, StringComparison.Ordinal);
         // The build is NOT supplied by the face reference, so it survives.
         Assert.Contains(BodyCard, prompt, StringComparison.Ordinal);
     }
@@ -260,7 +266,6 @@ public sealed class LoraCellPromptComposerTests
 
         Assert.DoesNotContain("{", prompt, StringComparison.Ordinal);
         Assert.Contains(BodyCard, prompt, StringComparison.Ordinal);
-        Assert.Contains("Face", prompt, StringComparison.Ordinal);
     }
 
     /// <summary>Fully-textual is the other extreme and must be untouched: no omission, no notice.</summary>

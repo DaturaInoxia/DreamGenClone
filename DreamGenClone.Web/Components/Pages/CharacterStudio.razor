@@ -981,8 +981,16 @@
                             @(_bodyCardVersion == 0 ? "Record body card" : "Save body card")
                         </button>
                         <div class="border-top mt-3 pt-3">
-                            <label class="form-label small fw-semibold" for="body-card-text">Canonical body text</label>
-                            <textarea id="body-card-text" class="form-control form-control-sm font-monospace" rows="4"
+                            <label class="form-label small fw-semibold" for="body-card-face-text">Canonical face text</label>
+                            <textarea id="body-card-face-text" class="form-control form-control-sm font-monospace" rows="2"
+                                      @bind="_bodyCard.FaceText" @bind:event="oninput"></textarea>
+                            <div class="form-text">
+                                The face clause alone — hair, eyes, bone structure, detail. Skin is not here: tone and texture
+                                are body-wide and travel on the body text below.
+                            </div>
+
+                            <label class="form-label small fw-semibold mt-2" for="body-card-text">Canonical body text</label>
+                            <textarea id="body-card-text" class="form-control form-control-sm font-monospace" rows="3"
                                       @bind="_bodyCard.BodyText" @bind:event="oninput"></textarea>
                             <div class="d-flex gap-2 flex-wrap align-items-center mt-2">
                                 <button type="button" class="btn btn-outline-primary btn-sm"
@@ -995,11 +1003,11 @@
                                 }
                             </div>
                             <div class="form-text">
-                                The ONE body text every prompt pastes — the body-reference renders, the LoRA cells and the
+                                The two texts every prompt is built from — the body-reference renders, the LoRA cells and the
                                 scene prompts alike — so a hand edit here reaches all of them.
-                                <strong>Compose from the picks</strong> rebuilds it from the axes and the face above, and
-                                you can then edit the wording. It carries no height or weight, no camera, stance or
-                                clothing, and no unclothed-only detail: each prompt adds its own.
+                                <strong>Compose from the picks</strong> rebuilds both from the axes and the face above, and you
+                                can then edit the wording. Neither carries height or weight, camera, stance or clothing, and
+                                the unclothed-only detail is added at render time.
                             </div>
                             @if (!string.IsNullOrWhiteSpace(_bodyTextMessage))
                             {
@@ -1496,8 +1504,10 @@
         _bodyTextMessageIsError = false;
         try
         {
-            _bodyCard.BodyText = await BodyService.ComposeBodyTextAsync(_bodyCard);
-            _bodyTextMessage = "Composed from the current picks. Edit the wording if you want, then save the card.";
+            var texts = await BodyService.ComposeBodyTextsAsync(_bodyCard);
+            _bodyCard.BodyText = texts.BodyText;
+            _bodyCard.FaceText = texts.FaceText;
+            _bodyTextMessage = "Composed both texts from the current picks. Edit the wording if you want, then save the card.";
         }
         catch (Exception error)
         {

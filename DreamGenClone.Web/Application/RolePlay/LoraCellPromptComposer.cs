@@ -51,8 +51,7 @@ public static partial class LoraCellPromptComposer
         var face = (faceLine ?? string.Empty).Trim();
         var omitted = SlotNamesFor(omittedSlots);
         // The template decides whether this cell has a face element at all. Without the placeholder there is nothing
-        // to describe and nothing to leave out, so the notice must stay silent rather than claim a reference supplies
-        // a face this prompt never mentioned.
+        // to describe and nothing to leave out.
         var hasFacePlaceholder = renderTemplateBody.Contains($"{{{FaceSlot}}}", StringComparison.Ordinal);
         if (face.Length == 0 && hasFacePlaceholder)
         {
@@ -61,6 +60,11 @@ public static partial class LoraCellPromptComposer
             omitted.Add(FaceSlot);
         }
 
+        // NOTE: nothing is appended to this text to say what the reference images supply. The prompt reaches the image
+        // model VERBATIM - the asset prompt compiler is a deterministic transform, not a model - so an instruction
+        // like "do NOT describe these" is not obeyed, it is drawn: it spends budget against the qualified 800-character
+        // Pony limit, and on Pony it is comma-shredded into fake tags. The operator already sees which elements a bound
+        // reference supplies, in the step's own badges.
         return Fill(
             renderTemplateBody,
             omitted,
@@ -71,8 +75,7 @@ public static partial class LoraCellPromptComposer
             ("Pose", plan.PhraseFor(LoraCellWorkflowKeys.PoseKey(record.PoseClass))),
             ("Expression", plan.PhraseFor(record.ExpressionKey)),
             ("Lighting", plan.PhraseFor(record.LightingKey)),
-            ("Background", plan.PhraseFor(record.BackgroundKey)))
-            + RemovalNotice(omittedSlots, faceUnknown: face.Length == 0 && hasFacePlaceholder);
+            ("Background", plan.PhraseFor(record.BackgroundKey)));
     }
 
     /// <summary>The face element's placeholder in a cell's render template.</summary>
@@ -121,32 +124,6 @@ public static partial class LoraCellPromptComposer
         }
 
         return slots;
-    }
-
-    /// <summary>
-    /// The authoritative notice naming what the bound images supply. Silence would be read as "this cell has no
-    /// build and no clothing", which the model may then fill in from whatever it likes.
-    /// </summary>
-    private static string RemovalNotice(IReadOnlyList<ImageStepSlotKind>? omittedSlots, bool faceUnknown)
-    {
-        var labels = (omittedSlots ?? [])
-            .Select(ImageStepPromptOmission.SlotLabel)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (faceUnknown && !labels.Contains("Face", StringComparer.OrdinalIgnoreCase))
-        {
-            labels.Add("Face");
-        }
-
-        if (labels.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        return "\n\nSUPPLIED BY THE REFERENCE IMAGES — AUTHORITATIVE (" + string.Join(", ", labels)
-            + " come from the attached reference images, not from this text): do NOT describe, restate or re-derive "
-            + "them, and do NOT substitute an equivalent of your own.";
     }
 
     /// <summary>

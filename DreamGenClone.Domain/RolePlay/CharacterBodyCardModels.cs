@@ -89,11 +89,20 @@ public sealed class CharacterBodyCard
     public string BodyText { get; set; } = string.Empty;
 
     /// <summary>
-    /// The FACE element's own text, as its own line so it can be omitted independently of the body line when a face
-    /// reference image supplies it. Skin is deliberately NOT here: tone and texture are body-wide and already travel
-    /// in <see cref="Skin"/> on the body line, so repeating them would describe the same fact twice.
+    /// THE canonical FACE text (B-132): the face's own descriptors as prose - hair, eyes, the bone structure and the
+    /// detail - and the companion to <see cref="BodyText"/>, which carries no face facts at all.
+    ///
+    /// Why the two are SEPARATE rather than one description: a cell's prompt has one slot for the subject and its
+    /// templates declare no face element, so the two have to be assembled into that one slot by whoever composes it -
+    /// and the whole point of the split is that a bound FACE reference image can then drop the face text WITHOUT
+    /// dropping the build. A single text made that impossible: the face kept being described in words while the model
+    /// was also being shown a face, so the words contradicted the reference.
+    ///
+    /// Composed from the picks on demand by <c>BodyReferencePromptCompiler.ComposeFaceText</c> and then hand-editable,
+    /// on exactly the same terms as <see cref="BodyText"/>. Skin is deliberately NOT here: tone and texture are
+    /// body-wide and already travel on the body text, so repeating them would describe one fact twice.
     /// </summary>
-    public string ToFaceLine() => Face.Compose();
+    public string FaceText { get; set; } = string.Empty;
 
     /// <summary>
     /// True when the card carries the canonical body text, which is what the consumers that compose a prompt read.
@@ -101,7 +110,6 @@ public sealed class CharacterBodyCard
     /// contract, and the text is composed FROM them, so folding it into the same gate would report the same gap twice.
     /// </summary>
     public bool HasBodyText => !string.IsNullOrWhiteSpace(BodyText);
-
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 
     /// <summary>
@@ -231,18 +239,6 @@ public sealed class CharacterFaceAttributes
         && string.IsNullOrWhiteSpace(Jawline)
         && string.IsNullOrWhiteSpace(FacialHair)
         && string.IsNullOrWhiteSpace(FacePiercings);
-
-    /// <summary>
-    /// The face descriptor line: the stated values in the order a face is naturally described (hair, then eyes and
-    /// brows, then the bone structure, then detail). Unset values are omitted rather than defaulted, and a
-    /// decision-only value such as "none" is omitted too - "no piercings" is a fact about the data, not something
-    /// to draw.
-    /// </summary>
-    public string Compose() => string.Join(
-        ", ",
-        new[] { HairStyle, HairColour, EyeShape, EyeColour, Eyebrows, FaceShape, NoseShape, LipsShape, Jawline, FacialHair, FacePiercings }
-            .Where(value => !string.IsNullOrWhiteSpace(value) && !CharacterBodyCard.IsDecisionOnly(value))
-            .Select(value => value!.Trim()));
 }
 
 public enum CharacterBodyCardField

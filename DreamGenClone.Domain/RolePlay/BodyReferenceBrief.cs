@@ -106,6 +106,15 @@ public sealed class BodyReferenceBrief
     /// </summary>
     public string BodyText { get; set; } = string.Empty;
 
+    /// <summary>
+    /// THE canonical FACE text (B-132): the face clause only (hair, eyes, bone structure, detail), with no body and no
+    /// skin — the companion to <see cref="BodyText"/>, whose content is the opposite side of the same line.
+    ///
+    /// Separate so that a bound face reference image can suppress the WORDS without suppressing the build. It may be
+    /// empty (a character whose face has never been described still renders), which is why it is not a required value.
+    /// </summary>
+    public string FaceText { get; set; } = string.Empty;
+
     /// <summary>The card's own axis picks, carried across so both families can render them in their own dialect.</summary>
     public CharacterBodyAxes Axes { get; set; } = new();
 

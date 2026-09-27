@@ -45,9 +45,10 @@ public sealed class BodyReferenceGoldenPromptTests
         Clothing = "plain everyday clothing"
     };
 
-        // The canonical body text, composed the way the brief factory composes it. WITHOUT this the briefs these
-        // goldens compile would not be shaped like a real one, and the goldens would be pinning an accident.
+        // The canonical face and body texts, composed the way the brief factory composes them. WITHOUT these the briefs
+        // these goldens compile would not be shaped like a real one, and the goldens would be pinning an accident.
         brief.BodyText = BodyReferencePromptCompiler.ComposeBodyText(brief);
+        brief.FaceText = BodyReferencePromptCompiler.ComposeFaceText(brief);
         return brief;
     }
 

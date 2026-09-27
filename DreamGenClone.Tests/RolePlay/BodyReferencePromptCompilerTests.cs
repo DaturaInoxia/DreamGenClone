@@ -43,9 +43,10 @@ public sealed class BodyReferencePromptCompilerTests
         Clothing = "plain everyday clothing"
     };
 
-        // Composed the way the factory composes it, so the brief under test carries the canonical text a real one
+        // Composed the way the factory composes them, so the brief under test carries the canonical texts a real one
         // carries (B-132) and the compiler's output is the compiler's doing rather than a missing-input accident.
         brief.BodyText = BodyReferencePromptCompiler.ComposeBodyText(brief);
+        brief.FaceText = BodyReferencePromptCompiler.ComposeFaceText(brief);
         return brief;
     }
 
@@ -137,6 +138,7 @@ public sealed class BodyReferencePromptCompilerTests
     private static BodyReferenceBrief Recomposed(BodyReferenceBrief brief)
     {
         brief.BodyText = BodyReferencePromptCompiler.ComposeBodyText(brief);
+        brief.FaceText = BodyReferencePromptCompiler.ComposeFaceText(brief);
         return brief;
     }
 
@@ -235,10 +237,11 @@ public sealed class BodyReferencePromptCompilerTests
         var brief = Brief();
         var prompt = Sdxl(brief).Positive;
 
-        // B-132: the prompt OPENS with the canonical body text, so one edit on the body card reaches this render. The
-        // medium cue this used to open with ("Full-body photograph of ...") was the sentence that could not host an
-        // authored text; the tail below still carries the framing, texture and lens cues.
-        Assert.StartsWith(brief.BodyText, prompt, StringComparison.Ordinal);
+        // B-132: the prompt OPENS with the whole-person description (the canonical face and body texts assembled), so
+        // one edit on the body card reaches this render. The medium cue it used to open with ("Full-body photograph of
+        // …") was the sentence that could not host an authored text; the tail below still carries the framing, texture
+        // and lens cues.
+        Assert.StartsWith(BodyReferencePromptCompiler.ComposeFullDescription(brief), prompt, StringComparison.Ordinal);
         // The age is a BAND in natural language too, never a numeral (see TheAgeIsABand_BothFamilies).
         Assert.Contains("a middle-aged woman", prompt, StringComparison.OrdinalIgnoreCase);
         // §2.1: styling and camera cues belong at the tail.
@@ -368,7 +371,8 @@ public sealed class BodyReferencePromptCompilerTests
         Assert.Equal(BodyPromptFamily.Pony, pony.Family);
         Assert.Equal(BodyPromptFamily.Sdxl, sdxl.Family);
         Assert.StartsWith(PonySceneImagePromptBuilder.PonyQualityTags, pony.Positive, StringComparison.Ordinal);
-        Assert.StartsWith(Brief().BodyText, sdxl.Positive, StringComparison.Ordinal);
+        Assert.StartsWith(
+            BodyReferencePromptCompiler.ComposeFullDescription(Brief()), sdxl.Positive, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -386,7 +390,8 @@ public sealed class BodyReferencePromptCompilerTests
         var compiled = BodyReferencePromptCompiler.Compile(Brief(), Model(family));
 
         Assert.Equal(BodyPromptFamily.Sdxl, compiled.Family);
-        Assert.StartsWith(Brief().BodyText, compiled.Positive, StringComparison.Ordinal);
+        Assert.StartsWith(
+            BodyReferencePromptCompiler.ComposeFullDescription(Brief()), compiled.Positive, StringComparison.Ordinal);
         Assert.DoesNotContain("score_9", compiled.Positive, StringComparison.Ordinal);
         // Those families carry no negative (BFL: most FLUX models do not support one), which is not a defect.
         Assert.Equal(string.Empty, compiled.Negative);
