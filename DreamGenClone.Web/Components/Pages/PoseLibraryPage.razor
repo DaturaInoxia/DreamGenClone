@@ -9,6 +9,7 @@
 @inject IPoseLibraryService LibraryService
 @inject IPoseLibraryImporter LibraryImporter
 @inject IPoseTestRenderService PoseTestRender
+@inject ICharacterImageIdentityService IdentityService
 @inject IOptions<PoseStudioOptions> StudioOptions
 
 <PageTitle>Pose Library - DreamGenClone</PageTitle>
@@ -137,20 +138,47 @@
                                            OnSubmit="RunTestAsync">
                             <ChildContent>
                                 <div class="row g-2 align-items-end">
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-semibold mb-1">Character</label>
+                                        @* The test is run ON a character when one is picked: their approved face and build
+                                           travel beside the skeleton, so the result is what the app would render. *@
+                                        <select class="form-select form-select-sm" value="@_characterProfileId"
+                                                disabled="@_testBusy"
+                                                @onchange="e => OnCharacterChangedAsync(e.Value?.ToString())">
+                                            <option value="">— nobody (pose only) —</option>
+                                            @foreach (var character in _characters)
+                                            {
+                                                <option value="@character.CharacterProfileId">
+                                                    @character.DisplayName (pack v@character.PackVersion)
+                                                </option>
+                                            }
+                                        </select>
+                                    </div>
                                     <div class="col-md-3">
                                         <label class="form-label small fw-semibold mb-1">Seed (optional)</label>
                                         <input type="text" class="form-control form-control-sm" placeholder="random"
                                                value="@_testSeed" @oninput="e => _testSeed = e.Value?.ToString()" />
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-2">
                                         <label class="form-label small fw-semibold mb-1">Canvas</label>
                                         <input type="text" class="form-control form-control-sm"
                                                value="@_testSize" @oninput="e => _testSize = e.Value?.ToString()" />
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-3">
                                         <span class="form-text">@TestMechanismHint()</span>
                                     </div>
                                 </div>
+                                @if (!string.IsNullOrWhiteSpace(_characterError))
+                                {
+                                    <div class="alert alert-warning py-1 small mt-2 mb-0">@_characterError</div>
+                                }
+                                else if (_characterReference is not null)
+                                {
+                                    <div class="form-text">
+                                        Conditioning on <strong>@_characterReference.Label</strong>: approved face + approved
+                                        @_characterReference.BodyLabel, sent beside the skeleton.
+                                    </div>
+                                }
                             </ChildContent>
                         </ImageStepComposer>
                         @if (!string.IsNullOrWhiteSpace(_testError))
@@ -270,6 +298,87 @@
     private bool _testBusy;
     private IReadOnlyList<ReferenceApplicationSelection> _testBindings = [];
 
+    /// <summary>
+    /// Every character with an APPROVED identity pack, so the test can be run on someone rather than on nobody. A
+    /// character is a first-class choice here now: the same approved references the identity renders use are what the
+    /// pose is tested against, which is what makes a test result transferable to a real render.
+    /// </summary>
+    private IReadOnlyList<IdentityPackOwner> _characters = [];
+    private string? _characterProfileId;
+
+    /// <summary>The picked character's conditioned references, resolved once per pick.</summary>
+    private PoseTestCharacterReference? _characterReference;
+
+    private string? _characterError;
+
+    /// <summary>A character's approved face and build, with the labels a note reads back.</summary>
+    private sealed record PoseTestCharacterReference(
+        string Label, byte[] FaceBytes, byte[]? BodyBytes, string? BodyLabel);
+
+    /// <summary>
+    /// Resolves the picked character's APPROVED references for the test.
+    ///
+    /// The face is the pack's first available face view (the resolver orders them in angle order, so that is the
+    /// canonical front), and the build is the approved CLOTHED FRONT - matched by state, because a clothed test
+    /// conditioned on an unclothed reference is how a clothed render comes back unclothed.
+    ///
+    /// A character with no approved face, or no approved clothed front build, is REFUSED by name rather than tested
+    /// unconditioned: a test that silently drops the character measures something the app would never render.
+    /// </summary>
+    private async Task OnCharacterChangedAsync(string? characterProfileId)
+    {
+        _characterProfileId = characterProfileId;
+        _characterReference = null;
+        _characterError = null;
+
+        if (string.IsNullOrWhiteSpace(characterProfileId))
+        {
+            return;
+        }
+
+        var owner = _characters.FirstOrDefault(candidate =>
+            string.Equals(candidate.CharacterProfileId, characterProfileId, StringComparison.Ordinal));
+        if (owner is null)
+        {
+            _characterError = "That character is no longer listed. Pick another.";
+            return;
+        }
+
+        var faceView = owner.FaceViews.FirstOrDefault();
+        var faceAsset = faceView == default ? null : IdentityPackReferenceResolver.ResolveFace(owner.ApprovedAssets, faceView);
+        if (faceAsset is null)
+        {
+            _characterError =
+                $"'{owner.DisplayName}' has no APPROVED face in its newest approved pack, so the pose cannot be tested "
+                + "on them. Approve a face reference in Character Studio, or clear the character.";
+            return;
+        }
+
+        var bodyAsset = IdentityPackReferenceResolver.ResolveBody(
+            owner.ApprovedAssets, SceneImageReferenceBodyView.Front, SceneImageReferenceBodyState.Clothed);
+        if (bodyAsset is null)
+        {
+            _characterError =
+                $"'{owner.DisplayName}' has no APPROVED clothed front build, so the pose cannot be tested on their "
+                + "build. Approve one in Character Studio, or clear the character.";
+            return;
+        }
+
+        try
+        {
+            _characterReference = new PoseTestCharacterReference(
+                owner.DisplayName,
+                await IdentityService.ReadAssetBytesAsync(faceAsset),
+                await IdentityService.ReadAssetBytesAsync(bodyAsset),
+                $"clothed front build");
+            _testNote = null;
+        }
+        catch (Exception exception)
+        {
+            _characterError = exception.Message;
+        }
+    }
+
     /// <summary>The step this page presents, built by the one factory that owns host knowledge.</summary>
     private ImageStepBlueprint TestBlueprint => ImageStepBlueprintFactory.ForPoseLibraryTest();
 
@@ -354,6 +463,17 @@
             // The first model that CAN carry a pose, from a list the service already ordered reference-route first,
             // so the default is the mechanism this work is built on rather than whatever sorts first by name.
             _testModelId = _testModels.FirstOrDefault(model => model.CanCarryPose)?.ModelId;
+
+            // The characters a pose can be tested ON. A failure here must not take out the model list, so it is
+            // reported in its own place rather than thrown into the page-level error.
+            try
+            {
+                _characters = await IdentityService.ListPackOwnersAsync();
+            }
+            catch (Exception characters)
+            {
+                _characterError = $"The character roster could not be listed: {characters.Message}";
+            }
         }
         catch (Exception ex)
         {
@@ -384,7 +504,16 @@
     private bool CanTestPose() =>
         _testPreset is not null
         && _testModels.Any(model => model.ModelId == _testModelId && model.CanCarryPose)
+        && CharacterIsReady
         && string.Equals(TestSkeletonBinding?.SkeletonRelativePath, _testPreset.SkeletonPngPath, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether the character choice is usable: no character picked is fine (a pose on nobody), but a picked character
+    /// whose references could not be resolved is not - the test would otherwise run unconditioned and look like it
+    /// tested the character.
+    /// </summary>
+    private bool CharacterIsReady =>
+        string.IsNullOrWhiteSpace(_characterProfileId) || _characterReference is not null;
 
     /// <summary>Why the test cannot run, named rather than left to a greyed-out button.</summary>
     private string? TestBlockedReason()
@@ -392,6 +521,8 @@
         if (_testPreset is null) return "Pick a pose from the library below.";
         if (!_testModels.Any(model => model.ModelId == _testModelId && model.CanCarryPose))
             return "Choose a model that can carry a pose.";
+        if (!CharacterIsReady)
+            return _characterError ?? "The picked character's references could not be resolved.";
         if (TestSkeletonBinding is null) return "Bind the pose slot: this step sends the pose's own skeleton.";
         if (!string.Equals(TestSkeletonBinding.SkeletonRelativePath, _testPreset.SkeletonPngPath, StringComparison.Ordinal))
             return $"The pose slot points at a different skeleton. This test renders '{_testPreset.Name}' - pick the "
@@ -448,14 +579,20 @@
 
             var skeleton = await LibraryService.ReadSkeletonAsync(_testPreset.Id);
 
+            // Character conditioning: the pose is tested ON a character when one is picked, so the skeleton goes in
+            // beside that character's approved face and build - the same three references the render path sends, in
+            // the same order. Named arguments, so a new request field cannot shift them.
             var result = await PoseTestRender.RenderAsync(new PoseTestRenderRequest(
-                skeleton,
-                _testPreset.Name,
-                _testModelId ?? string.Empty,
-                _testPrompt ?? string.Empty,
-                null,
-                _testSize,
-                seed));
+                Skeleton: skeleton,
+                PoseLabel: _testPreset.Name,
+                ModelId: _testModelId ?? string.Empty,
+                Prompt: _testPrompt ?? string.Empty,
+                NegativePrompt: null,
+                Size: _testSize,
+                Seed: seed,
+                FaceReference: _characterReference?.FaceBytes,
+                BodyReference: _characterReference?.BodyBytes,
+                CharacterLabel: _characterReference?.Label));
 
             _testImageUrl = "data:image/png;base64," + Convert.ToBase64String(result.Image);
             _testNote = $"Sent the library skeleton for '{_testPreset.Name}' ({skeleton.Length:N0} bytes). "

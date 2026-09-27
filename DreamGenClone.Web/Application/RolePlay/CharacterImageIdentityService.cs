@@ -456,6 +456,31 @@ public sealed class CharacterImageIdentityService : ICharacterImageIdentityServi
         return asset;
     }
 
+    /// <summary>Reads one asset's bytes. A missing or empty file fails loudly: a reference that reads as empty would
+    /// render an unconditioned image that looks like a conditioned one.</summary>
+    public async Task<byte[]> ReadAssetBytesAsync(
+        SceneImageReferenceAsset asset, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(asset);
+        if (string.IsNullOrWhiteSpace(asset.FileRelativePath))
+        {
+            throw new InvalidOperationException(
+                $"Reference asset '{asset.Id}' records no file, so its bytes cannot be read.");
+        }
+
+        await using var stream = await _storage.OpenReadAsync(asset.FileRelativePath, cancellationToken);
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer, cancellationToken);
+        var bytes = buffer.ToArray();
+        if (bytes.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"Reference asset '{asset.Id}' has no image bytes at '{asset.FileRelativePath}'.");
+        }
+
+        return bytes;
+    }
+
     public async Task DeleteAssetAsync(string assetId, CancellationToken cancellationToken = default)
     {
         var asset = await _repository.GetAssetAsync(assetId, cancellationToken)

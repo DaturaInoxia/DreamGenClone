@@ -807,6 +807,9 @@ public sealed class CharacterLoraCellServiceTests
 
         public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(string characterProfileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<IdentityPackOwner>> ListPackOwnersAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<byte[]> ReadAssetBytesAsync(SceneImageReferenceAsset asset, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack?> GetPackAsync(string packId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack> CreateDraftPackAsync(string characterProfileId, CharacterImageIdentityPackScope scope, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack> SetDraftPackScopeAsync(string packId, CharacterImageIdentityPackScope scope, string? reason = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();

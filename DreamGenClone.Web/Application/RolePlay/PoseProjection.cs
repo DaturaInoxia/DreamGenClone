@@ -118,6 +118,35 @@ public static class PoseProjection
         return towardsCamera > limit ? 1.0 : 0.0;
     }
 
+    /// <summary>
+    /// The rig's joints in 3D at a view, before projection. This is the only place a joint's DEPTH exists, so it is what
+    /// a caller needs to turn something rigidly rather than approximating the motion as a displacement.
+    /// </summary>
+    public static Vector3[] WorldPositions(
+        PoseMannequin mannequin, IReadOnlyList<Quaternion> localRotations, PoseView view)
+    {
+        ArgumentNullException.ThrowIfNull(mannequin);
+        ArgumentNullException.ThrowIfNull(localRotations);
+        ArgumentNullException.ThrowIfNull(view);
+
+        var rest = mannequin.ForwardFrames(localRotations);
+
+        return ApplyView(mannequin, rest.Positions, BuildRotation(view));
+    }
+
+    /// <summary>
+    /// The rotation taking a 3D point in one view's frame to the other's, so a caller holding positions at
+    /// <paramref name="from"/> can turn them EXACTLY into <paramref name="to"/> instead of moving each joint by an
+    /// approximate displacement.
+    /// </summary>
+    public static Quaternion RotationBetween(PoseView from, PoseView to)
+    {
+        ArgumentNullException.ThrowIfNull(from);
+        ArgumentNullException.ThrowIfNull(to);
+
+        return Quaternion.Normalize(BuildRotation(to) * Quaternion.Inverse(BuildRotation(from)));
+    }
+
     /// <summary>Rotates the whole figure about its own root, so it turns on the spot rather than orbiting away.</summary>
     private static Vector3[] ApplyView(
         PoseMannequin mannequin, Vector3[] positions, Quaternion viewRotation)

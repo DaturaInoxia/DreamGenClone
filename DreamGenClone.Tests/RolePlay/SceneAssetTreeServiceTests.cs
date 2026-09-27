@@ -279,6 +279,8 @@ public sealed class SceneAssetTreeServiceTests
                 .ToList());
         public Task<IReadOnlyList<SceneImageReferenceAsset>> ListAssetsAsync(string packId, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<SceneImageReferenceAsset>>(assets.Values.Where(a => a.IdentityPackId == packId).ToList());
+        public Task<byte[]> ReadAssetBytesAsync(SceneImageReferenceAsset asset, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack?> GetPackAsync(string packId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack> CreateDraftPackAsync(string characterProfileId, CharacterImageIdentityPackScope scope, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterImageIdentityPack> SetDraftPackScopeAsync(string packId, CharacterImageIdentityPackScope scope, string? canonicalFullBodyAssetId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

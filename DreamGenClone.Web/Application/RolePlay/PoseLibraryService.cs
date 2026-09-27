@@ -204,16 +204,18 @@ public sealed class PoseLibraryService : IPoseLibraryService
     /// Measured 2026-09-27: the loaded figure was REPLACED, not turned (a 5° press moved joints 1.2–1.7% of height
     /// against 0.4–0.7% for the same press on the rig's own pose).
     ///
-    /// This splits the two jobs instead. The library pose keeps its own keypoints, hands, face and proportions; the rig
-    /// supplies only the MOTION — the difference between its projection at the view it was fitted to and its projection
-    /// at the view now asked for. That difference is a displacement per joint, so it carries the rig's real
-    /// foreshortening (a yaw collapses the shoulder line rather than tilting it) while the fit's residual and its
-    /// undetermined yaw decide nothing about what the pose IS. At the fitted view the difference is zero, so an
-    /// unturned pose projects to exactly itself.
+    /// The library pose then keeps its own keypoints, hands, face and proportions, and is turned by a RIGID ROTATION in
+    /// 3D rather than by moving each joint along the rig's own displacement. That distinction was measured, and it is the
+    /// whole of this method: a displacement field is only valid for the figure that produced it, so adding the rig's
+    /// per-joint deltas to a pose with different proportions at different depths bent the skeleton instead of turning it.
+    /// Measured 2026-09-27 over four 5° presses: the worst bone came to **0.634 of its length** — a bone crushed to 63%,
+    /// reported as "it skews and slants things and make abnormal body positions". A single affine fitted to the same
+    /// motion halved that (0.873) and a rigid rotation removes the cause outright: a rotation cannot shear a bone.
     ///
-    /// This is not "rotating the keypoints in the image plane", the approach this repository measured and rejected: the
-    /// motion comes from the rig's own projection, so a joint aimed at the camera still collapses toward the body
-    /// exactly as the rig says it does.
+    /// How a joint is turned without depth of its own: its depth is BORROWED from the rig's corresponding joint at the
+    /// view the rig was fitted at — the only place a depth exists — and its position on the canvas is unprojected at that
+    /// depth, rotated, and projected back. At the fitted view the rotation is the identity, so an unturned pose maps to
+    /// exactly itself.
     /// </summary>
     public PosePerson ProjectLoadedPose(
         PosePerson stored,
@@ -234,198 +236,107 @@ public sealed class PoseLibraryService : IPoseLibraryService
                 + $"to, but this one has {stored.Body.Count}.");
         }
 
-        var atFit = ProjectAuthoredPose(fittedView, head, rotations);
-        var atView = ProjectAuthoredPose(view, head, rotations);
+        var mannequin = PoseMannequin.Standing();
+        var pose = rotations;
 
-        // The motion is measured on the rig's canvas and applied to the stored pose's pixels, so it is scaled by the
-        // ratio of the two figures' heights. MEASURED from the two figures rather than assumed: a fixed factor would
-        // turn a 512-pixel pose and a 1024-pixel one by visibly different angles.
-        var scale = BodyHeight(stored.Body, "the loaded pose")
-            / BodyHeight(atFit.Body, "the rig's projection of the loaded pose");
+        // The head turn is applied to the rig BEFORE its depths are read, so the head's own motion is part of the one
+        // rigid rotation instead of a second, separate displacement.
+        if (head is not null && !head.IsNeutral)
+        {
+            pose = rotations.ToArray();
+            pose[mannequin.HeadIndex] = head.ToLocalRotation();
+        }
+
+        // A joint's DEPTH exists in exactly one place: the rig fitted onto this pose, at the view it was fitted at. The
+        // loaded pose supplies its own positions and borrows those depths, which is what makes the turn a rigid rotation
+        // of ONE figure rather than a displacement field applied to a different one.
+        var world = PoseProjection.WorldPositions(mannequin, pose, fittedView);
+        var turn = PoseProjection.RotationBetween(fittedView, view);
+
+        var focal = _studio.RequireFocalLengthPx();
+        var cameraDistance = _studio.RequireCameraDistance();
+        var canvas = _studio.RequireCanvas();
+        var centre = canvas / 2.0;
+
+        // The stored pose is in its own source pixels while the projection works on the canvas, so it is mapped on and
+        // the result mapped back. The mapping is a uniform scale and a translation, so it cannot distort anything — and
+        // it is what makes the result independent of the resolution the pose happens to be stored at.
+        var framing = PoseSkeletonRenderer.ComputeFraming(stored, canvas);
+        var inverse = framing.Inverse();
+
+        PoseKeypoint Turn(PoseKeypoint point, int jointIndex)
+        {
+            var onCanvas = framing.Apply(point);
+            var depth = world[jointIndex].Z;
+            var distance = cameraDistance - depth;
+
+            if (distance <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"The rig's joint {jointIndex} sits at depth {depth:0.###}, at or behind a camera at distance "
+                    + $"{cameraDistance:0.###}, so a point riding it cannot be turned.");
+            }
+
+            // Undo the projection, placing the point in the rig's 3D frame at the depth it borrows...
+            var x = (onCanvas.X - centre) * distance / focal;
+            var y = -(onCanvas.Y - centre) * distance / focal;
+
+            // ...turn the whole figure rigidly, which cannot shear, stretch a bone or move two joints inconsistently...
+            var turned = Vector3.Transform(new Vector3((float)x, (float)y, (float)depth), turn);
+            var turnedDistance = cameraDistance - turned.Z;
+
+            if (turnedDistance <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"Turning to this view puts a joint at depth {turned.Z:0.###}, at or behind a camera at distance "
+                    + $"{cameraDistance:0.###}. Bring the view back towards the fitted one.");
+            }
+
+            // ...and project it back, so the pose stays in the pixels it was stored in.
+            return inverse.Apply(new PoseKeypoint(
+                centre + (focal * turned.X / turnedDistance),
+                centre - (focal * turned.Y / turnedDistance),
+                point.Confidence));
+        }
+
+        // An absent joint stays absent, with its placeholder coordinate untouched: it is below the visibility floor either
+        // way, and turning it would invent a position the pose never contained.
+        //
+        // The stored confidence is CARRIED, not re-derived. It is the pose's own data, and the fit's visibility is a
+        // guess about a figure with no hands; replacing it would make joints vanish from a pose the operator only asked
+        // to turn. The cost, stated rather than hidden: a pose turned as far as profile keeps whichever head joints its
+        // source photograph showed.
+        IReadOnlyList<PoseKeypoint> TurnCluster(IReadOnlyList<PoseKeypoint> cluster, int jointIndex) =>
+            cluster
+                .Select(point => point.Confidence <= OpenPosePoseJson.VisibilityFloor
+                    ? point
+                    : Turn(point, jointIndex))
+                .ToArray();
 
         var body = new PoseKeypoint[PosePerson.BodyJointCount];
         for (var index = 0; index < body.Length; index++)
         {
             var source = stored.Body[index];
 
-            // An absent joint stays absent. Its coordinate is a placeholder rather than a position, so moving it would
-            // invent a joint the pose never contained — and an absent joint is below the floor either way.
-            if (source.Confidence <= OpenPosePoseJson.VisibilityFloor)
-            {
-                body[index] = source;
-                continue;
-            }
-
-            var (deltaX, deltaY) = Delta(atFit.Body[index], atView.Body[index]);
-
-            // The stored confidence is CARRIED, not re-derived. It is the pose's own data, and the fit's visibility is
-            // a guess about a figure with no hands; replacing it would make joints vanish from a pose the operator only
-            // asked to turn. The cost, stated rather than hidden: a loaded pose turned as far as profile keeps
-            // whichever head joints its source photograph showed.
-            body[index] = new PoseKeypoint(
-                source.X + (deltaX * scale), source.Y + (deltaY * scale), source.Confidence);
+            body[index] = source.Confidence <= OpenPosePoseJson.VisibilityFloor
+                ? source
+                : Turn(source, mannequin.CocoIndices[index]);
         }
 
         return new PosePerson
         {
             Body = body,
 
-            // Each hand rides the wrist it hangs from, moved rigidly: the rig has no hand model, so a hand's own shape
-            // is the library's data and rotating it would be invented.
-            RightHand = CarryHand(
-                stored.RightHand, atFit.Body[OpenPosePoseJson.RightWristIndex],
-                atView.Body[OpenPosePoseJson.RightWristIndex], scale),
-            LeftHand = CarryHand(
-                stored.LeftHand, atFit.Body[OpenPosePoseJson.LeftWristIndex],
-                atView.Body[OpenPosePoseJson.LeftWristIndex], scale),
-
-            // The head is the one part of the figure whose motion is a rotation rather than a displacement, so the face
-            // is moved rigidly instead of shifted.
-            Face = CarryFace(stored.Face, atFit.Body, atView.Body, scale)
+            // The hands ride the wrist they hang from and the face rides the head, each at ITS joint's depth, so a cluster
+            // turns as part of the same rigid figure instead of being left behind or reshaped. The rig has no hand model,
+            // so a hand's own shape is the library's data and is not touched.
+            RightHand = TurnCluster(
+                stored.RightHand, mannequin.CocoIndices[OpenPosePoseJson.RightWristIndex]),
+            LeftHand = TurnCluster(
+                stored.LeftHand, mannequin.CocoIndices[OpenPosePoseJson.LeftWristIndex]),
+            Face = TurnCluster(stored.Face, mannequin.HeadIndex)
         };
     }
-
-    /// <summary>
-    /// The vertical extent of a pose's VISIBLE body joints. Joints at or below the visibility floor are skipped on
-    /// purpose: OpenPose writes an absent joint at the origin, so including them would measure a figure spanning from
-    /// the origin to the head and scale the turn by a number that describes nothing.
-    /// </summary>
-    private static double BodyHeight(IReadOnlyList<PoseKeypoint> body, string what)
-    {
-        var heights = body
-            .Where(point => point.Confidence > OpenPosePoseJson.VisibilityFloor)
-            .Select(point => point.Y)
-            .ToArray();
-
-        if (heights.Length < 2)
-        {
-            throw new InvalidOperationException(
-                $"{what} has only {heights.Length} visible body joints, so a rig turn cannot be scaled onto it.");
-        }
-
-        var extent = heights.Max() - heights.Min();
-        if (extent <= 0)
-        {
-            throw new InvalidOperationException(
-                $"{what} has no vertical extent, so a rig turn cannot be scaled onto it.");
-        }
-
-        return extent;
-    }
-
-    private static (double X, double Y) Delta(PoseKeypoint from, PoseKeypoint to) =>
-        (to.X - from.X, to.Y - from.Y);
-
-    /// <summary>Moves a hand with the wrist it hangs from.</summary>
-    private static IReadOnlyList<PoseKeypoint> CarryHand(
-        IReadOnlyList<PoseKeypoint> hand, PoseKeypoint wristAtFit, PoseKeypoint wristAtView, double scale)
-    {
-        if (hand.Count == 0) return hand;
-
-        var (deltaX, deltaY) = Delta(wristAtFit, wristAtView);
-
-        return Shift(hand, deltaX * scale, deltaY * scale);
-    }
-
-    /// <summary>
-    /// Shifts a cluster, leaving any point the pose did not have exactly where it was — the same rule the body joints
-    /// follow, so an absent hand joint is never given an invented position.
-    /// </summary>
-    private static IReadOnlyList<PoseKeypoint> Shift(
-        IReadOnlyList<PoseKeypoint> cluster, double deltaX, double deltaY)
-    {
-        var moved = new PoseKeypoint[cluster.Count];
-        for (var index = 0; index < cluster.Count; index++)
-        {
-            moved[index] = cluster[index].Confidence <= OpenPosePoseJson.VisibilityFloor
-                ? cluster[index]
-                : new PoseKeypoint(
-                    cluster[index].X + deltaX, cluster[index].Y + deltaY, cluster[index].Confidence);
-        }
-
-        return moved;
-    }
-
-    /// <summary>
-    /// Moves a face rigidly with the head: rotated by the rotation the rig's own head joints underwent, then translated
-    /// by how far they travelled. The rotation is read from the rig because the head is the one part of the figure whose
-    /// motion is a rotation — a roll turns the face within the image, while a yaw carries it across the image without
-    /// turning it, which is why a pure yaw comes out of here as a translation.
-    /// </summary>
-    private static IReadOnlyList<PoseKeypoint> CarryFace(
-        IReadOnlyList<PoseKeypoint> face,
-        IReadOnlyList<PoseKeypoint> headAtFit,
-        IReadOnlyList<PoseKeypoint> headAtView,
-        double scale)
-    {
-        if (face.Count == 0) return face;
-
-        var visible = face.Where(point => point.Confidence > OpenPosePoseJson.VisibilityFloor).ToArray();
-        if (visible.Length == 0) return face;
-
-        var pairs = PoseMannequin.HeadCocoIndices
-            .Where(index => headAtFit[index].Confidence > OpenPosePoseJson.VisibilityFloor
-                && headAtView[index].Confidence > OpenPosePoseJson.VisibilityFloor)
-            .ToArray();
-
-        if (pairs.Length == 0)
-        {
-            // No head joint is visible on both sides, so the rig says nothing about how the head moved and the face is
-            // left exactly where the library put it rather than moved on a guess.
-            return face;
-        }
-
-        var fitCentre = Centre(pairs.Select(index => headAtFit[index]).ToArray());
-        var viewCentre = Centre(pairs.Select(index => headAtView[index]).ToArray());
-
-        var dot = 0.0;
-        var cross = 0.0;
-        foreach (var index in pairs)
-        {
-            var ax = headAtFit[index].X - fitCentre.X;
-            var ay = headAtFit[index].Y - fitCentre.Y;
-            var bx = headAtView[index].X - viewCentre.X;
-            var by = headAtView[index].Y - viewCentre.Y;
-
-            dot += (ax * bx) + (ay * by);
-            cross += (ax * by) - (ay * bx);
-        }
-
-        // Atan2(0, 0) is zero, which is the right answer for a head that only moved: with nothing to rotate about, the
-        // face keeps its own orientation.
-        var angle = Math.Atan2(cross, dot);
-        var cosine = Math.Cos(angle);
-        var sine = Math.Sin(angle);
-        var centre = Centre(visible);
-
-        var carriedX = (viewCentre.X - fitCentre.X) * scale;
-        var carriedY = (viewCentre.Y - fitCentre.Y) * scale;
-
-        var moved = new PoseKeypoint[face.Count];
-        for (var index = 0; index < face.Count; index++)
-        {
-            if (face[index].Confidence <= OpenPosePoseJson.VisibilityFloor)
-            {
-                moved[index] = face[index];
-                continue;
-            }
-
-            // Rotated about the face's own centre and then carried by the head, so the face spins where it sits and
-            // travels with the head: it keeps both its shape and its place on the head.
-            var x = face[index].X - centre.X;
-            var y = face[index].Y - centre.Y;
-
-            moved[index] = new PoseKeypoint(
-                centre.X + (x * cosine) - (y * sine) + carriedX,
-                centre.Y + (x * sine) + (y * cosine) + carriedY,
-                face[index].Confidence);
-        }
-
-        return moved;
-    }
-
-    private static (double X, double Y) Centre(IReadOnlyList<PoseKeypoint> points) =>
-        (points.Average(point => point.X), points.Average(point => point.Y));
 
     public byte[] RenderAuthoredPreview(
         PoseView view, PoseHeadRotation? head, int canvas, Quaternion[]? rotations = null) =>

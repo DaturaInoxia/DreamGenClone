@@ -11,6 +11,11 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// always the pose on screen — including one that has been nudged and never saved. Every other value comes from the
 /// operator; none is defaulted here, because a default prompt or canvas would be a hidden claim about what was tested.
 /// </summary>
+/// <param name="FaceReference">
+/// The character's approved face, when the operator asked the test to condition on a character. Null means the pose
+/// is tested on nobody in particular, which is what this page did before it had a character at all.
+/// </param>
+/// <param name="BodyReference">The character's approved build, state-matched to the wardrobe the test is shot in.</param>
 public sealed record PoseTestRenderRequest(
     byte[] Skeleton,
     string PoseLabel,
@@ -18,7 +23,10 @@ public sealed record PoseTestRenderRequest(
     string Prompt,
     string? NegativePrompt,
     string? Size,
-    long? Seed);
+    long? Seed,
+    byte[]? FaceReference = null,
+    byte[]? BodyReference = null,
+    string? CharacterLabel = null);
 
 /// <summary>
 /// The result of a test render: the image, which mechanism actually carried the pose, and a note saying what that
@@ -211,15 +219,10 @@ public sealed class PoseTestRenderService : IPoseTestRenderService
                     NegativePrompt = request.NegativePrompt ?? string.Empty,
                     Size = request.Size,
                     Seed = request.Seed,
-                    References =
-                    [
-                        new ReferenceConditionedImageInput
-                        {
-                            SemanticRole = "pose reference (OpenPose skeleton)",
-                            FileName = "pose-skeleton.png",
-                            Content = skeleton
-                        }
-                    ],
+                    // Order is face, body, skeleton — the same order the render path documents: the face anchors the
+                    // person, the body the build, and the skeleton goes LAST. A character reference is sent only when
+                    // the operator picked one, so a pose test with no character is byte-for-byte what it was.
+                    References = BuildReferences(request, skeleton),
                     CorrelationId = $"pose-test:{request.PoseLabel}"
                 },
                 cancellationToken);
@@ -235,6 +238,18 @@ public sealed class PoseTestRenderService : IPoseTestRenderService
 
         if (string.Equals(strategy.Strategy, ReferenceStrategyResolver.PoseControlNet, StringComparison.OrdinalIgnoreCase))
         {
+            // A ControlNet graph conditions the SAMPLER, so it has no second slot for a reference image: a face or a
+            // build sent here would be dropped. Refused rather than dropped - a render that looks conditioned and is
+            // not is the failure this whole page exists to make impossible.
+            if (request.FaceReference is not null || request.BodyReference is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Character conditioning cannot be combined with the ControlNet pose route: '{request.ModelId}' "
+                    + "applies the skeleton through a ControlNet graph, which has no reference-image slot, so the face "
+                    + "and build would be dropped. Select a model that carries the pose as a REFERENCE image (this is "
+                    + "the route the pose work is built on), or clear the character.");
+            }
+
             var poseModel = await _poseModels.ResolveAsync(request.ModelId, cancellationToken);
 
             var bytes = await _poseClient.GenerateAsync(
@@ -265,5 +280,42 @@ public sealed class PoseTestRenderService : IPoseTestRenderService
             $"The selected model reports pose mechanism '{strategy.Strategy}', which this test does not know how to "
             + "render. Teach it here and in the render path together — a test that runs through a mechanism the "
             + "render does not use is worse than no test.");
+    }
+
+    /// <summary>
+    /// The reference images this test sends, in the order the render path uses: face, body, skeleton.
+    /// </summary>
+    private static List<ReferenceConditionedImageInput> BuildReferences(PoseTestRenderRequest request, byte[] skeleton)
+    {
+        List<ReferenceConditionedImageInput> references = [];
+
+        if (request.FaceReference is { Length: > 0 } face)
+        {
+            references.Add(new ReferenceConditionedImageInput
+            {
+                SemanticRole = $"approved identity face for {request.CharacterLabel ?? "the character"}",
+                FileName = "identity-face.png",
+                Content = face
+            });
+        }
+
+        if (request.BodyReference is { Length: > 0 } body)
+        {
+            references.Add(new ReferenceConditionedImageInput
+            {
+                SemanticRole = $"approved body build reference for {request.CharacterLabel ?? "the character"}",
+                FileName = "identity-body.png",
+                Content = body
+            });
+        }
+
+        references.Add(new ReferenceConditionedImageInput
+        {
+            SemanticRole = "pose reference (OpenPose skeleton)",
+            FileName = "pose-skeleton.png",
+            Content = skeleton
+        });
+
+        return references;
     }
 }

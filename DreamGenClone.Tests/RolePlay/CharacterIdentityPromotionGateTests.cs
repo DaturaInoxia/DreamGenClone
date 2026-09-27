@@ -554,6 +554,9 @@ public sealed class CharacterIdentityPromotionGateTests
         public Task<IReadOnlyList<SceneImageReferenceAsset>> ListAssetsAsync(string packId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<byte[]> ReadAssetBytesAsync(SceneImageReferenceAsset asset, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<CharacterImageIdentityPack> CreateDraftPackAsync(string characterProfileId, CharacterImageIdentityPackScope scope, CancellationToken cancellationToken = default)
         {
             CreatedScope = scope;

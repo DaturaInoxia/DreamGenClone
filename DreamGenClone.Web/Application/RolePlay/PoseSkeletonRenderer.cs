@@ -81,6 +81,23 @@ public static class PoseSkeletonRenderer
         /// <summary>Maps one point from its source pixels onto the canvas.</summary>
         public PoseKeypoint Apply(PoseKeypoint point) =>
             new((point.X * Scale) + OffsetX, (point.Y * Scale) + OffsetY, point.Confidence);
+
+        /// <summary>
+        /// The transform that undoes this one. Needed by a caller that has to move a point onto the canvas, transform it
+        /// there, and bring it back — the only way to apply a canvas-space transform to a pose that is stored in its own
+        /// source pixels.
+        /// </summary>
+        public Framing Inverse()
+        {
+            if (Scale <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"A framing with a scale of {Scale} cannot be inverted, so a pose cannot be mapped back to its own "
+                    + "source pixels.");
+            }
+
+            return new Framing(1.0 / Scale, -OffsetX / Scale, -OffsetY / Scale);
+        }
     }
 
     /// <summary>

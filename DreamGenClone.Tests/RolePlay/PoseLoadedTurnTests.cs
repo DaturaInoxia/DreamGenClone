@@ -31,9 +31,12 @@ public sealed class PoseLoadedTurnTests
         Assert.Equal(stored.Body.Count, turned.Body.Count);
         for (var index = 0; index < stored.Body.Count; index++)
         {
-            // Exact, because a zero displacement is added to the source coordinate: the body path is a pure shift.
-            Assert.Equal(stored.Body[index].X, turned.Body[index].X);
-            Assert.Equal(stored.Body[index].Y, turned.Body[index].Y);
+            // Identity to the precision the maths has: the rotation IS the identity here, but the point still goes
+            // through unproject -> rotate -> project, and that runs in single precision (System.Numerics.Vector3), so a
+            // 500-pixel coordinate resolves to about 1e-4. Measured 2026-09-27: the round trip returns the coordinate
+            // within 1.1e-5, which is four orders of magnitude below anything a skeleton can express.
+            Assert.Equal(stored.Body[index].X, turned.Body[index].X, 3);
+            Assert.Equal(stored.Body[index].Y, turned.Body[index].Y, 3);
             Assert.Equal(stored.Body[index].Confidence, turned.Body[index].Confidence);
         }
     }
@@ -60,14 +63,26 @@ public sealed class PoseLoadedTurnTests
         Assert.Equal(stored.LeftHand.Count, turned.LeftHand.Count);
         Assert.Equal(stored.RightHand.Count, turned.RightHand.Count);
 
-        // Rigid: the hand keeps its shape rather than being reshaped into the rig's idea of one.
-        Assert.Equal(Spread(stored.LeftHand), Spread(turned.LeftHand), 6);
-        Assert.Equal(Spread(stored.RightHand), Spread(turned.RightHand), 6);
+        // Carried rather than reshaped. A hand sits at ONE depth, so turning the figure foreshortens it slightly — the
+        // bound is what separates that from the per-joint displacement this replaced, which crushed a bone to 0.634 of
+        // its length over four presses.
+        var leftRatio = Spread(turned.LeftHand) / Spread(stored.LeftHand);
+        var rightRatio = Spread(turned.RightHand) / Spread(stored.RightHand);
 
-        // And it moved with its wrist rather than being left behind.
+        Assert.True(
+            Math.Abs(leftRatio - 1.0) < 0.15,
+            $"the left hand changed shape by {(leftRatio - 1.0) * 100:0.0}%, so it was reshaped rather than carried");
+
+        Assert.True(
+            Math.Abs(rightRatio - 1.0) < 0.15,
+            $"the right hand changed shape by {(rightRatio - 1.0) * 100:0.0}%, so it was reshaped rather than carried");
+
         Assert.True(
             Displacement(stored.LeftHand, turned.LeftHand) > 0,
             "the left hand did not move with its wrist, so the turn left a hand behind in the image");
+        Assert.True(
+            Displacement(stored.RightHand, turned.RightHand) > 0,
+            "the right hand did not move with its wrist, so the turn left a hand behind in the image");
     }
 
     /// <summary>
@@ -97,12 +112,12 @@ public sealed class PoseLoadedTurnTests
     }
 
     /// <summary>
-    /// The turn is the rig's motion in the rig's pixels, so it has to be scaled onto the loaded pose's own pixels.
-    /// A pose stored at twice the size must move twice as far, or the same press would turn two identical poses by
-    /// different angles.
+    /// A pose stored at twice the size must be turned by the same amount, in the same place. The stored pose is mapped
+    /// onto the studio canvas before it is turned and mapped back, so the turn is expressed in canvas terms and the
+    /// resolution the pose happens to be stored at cannot change the angle.
     /// </summary>
     [Fact]
-    public void TheTurnScalesToTheLoadedPosesOwnPixels()
+    public void TheTurnIsIndependentOfTheStoredPosesResolution()
     {
         var settings = Settings();
         var stored = Pack("NSFW_standing/512768/NSFW_standing028.json");
@@ -118,11 +133,20 @@ public sealed class PoseLoadedTurnTests
         var once = fixture.Service.ProjectLoadedPose(stored, fit.View, view, fit.Rotations);
         var twice = fixture.Service.ProjectLoadedPose(doubled, fit.View, view, fit.Rotations);
 
-        var small = MeanDisplacement(stored, once);
-        var large = MeanDisplacement(doubled, twice);
+        // Compared on the canvas, because that is the space the turn is defined in. In their own pixels the two results
+        // differ by the 2x they were stored at, which is exactly right.
+        var canvas = settings.RequireCanvas();
+        var framingOnce = PoseSkeletonRenderer.ComputeFraming(stored, canvas);
+        var framingTwice = PoseSkeletonRenderer.ComputeFraming(doubled, canvas);
 
-        Assert.True(small > 0, "the turn did not move the figure at all");
-        Assert.Equal(2.0, large / small, 6);
+        for (var index = 0; index < PoseMannequin.CocoJointCount; index++)
+        {
+            var a = framingOnce.Apply(once.Body[index]);
+            var b = framingTwice.Apply(twice.Body[index]);
+
+            Assert.Equal(a.X, b.X, 4);
+            Assert.Equal(a.Y, b.Y, 4);
+        }
     }
 
     /// <summary>
@@ -149,8 +173,12 @@ public sealed class PoseLoadedTurnTests
 
         Assert.Equal(face.Length, turned.Face.Count);
 
-        // Rigid: every internal distance survives the turn.
-        Assert.Equal(Spread(face), Spread(turned.Face), 6);
+        // Carried rather than reshaped: one rigid body, foreshortened by the turn but not deformed by it.
+        var ratio = Spread(turned.Face) / Spread(face);
+
+        Assert.True(
+            Math.Abs(ratio - 1.0) < 0.15,
+            $"the face changed shape by {(ratio - 1.0) * 100:0.0}%, so it was reshaped rather than carried");
 
         // And it travelled with the head rather than staying where the source image had it.
         Assert.True(
@@ -181,29 +209,6 @@ public sealed class PoseLoadedTurnTests
 
         Assert.Contains("12", error.Message, StringComparison.Ordinal);
         Assert.Contains("18 body keypoints", error.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// A pose with no vertical extent has no scale to convert the rig's motion with, so it is refused rather than
-    /// turned by a number that describes nothing.
-    /// </summary>
-    [Fact]
-    public void ALoadedPoseWithNoHeight_IsRefusedByName()
-    {
-        var flat = new PosePerson
-        {
-            Body = Enumerable.Range(0, PosePerson.BodyJointCount)
-                .Select(index => new PoseKeypoint(index * 10, 100, 1.0))
-                .ToArray()
-        };
-
-        using var fixture = new PoseLibraryTestFixture();
-        var rotations = PoseMannequin.Standing().StandingStance();
-
-        var error = Assert.Throws<InvalidOperationException>(() => fixture.Service.ProjectLoadedPose(
-            flat, new PoseView(), new PoseView(YawDegrees: 5), rotations));
-
-        Assert.Contains("no vertical extent", error.Message, StringComparison.Ordinal);
     }
 
     private static PoseView Stepped(PoseView view, PoseStudioOptions settings) =>

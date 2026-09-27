@@ -59,6 +59,18 @@ public interface ICharacterImageIdentityService
         string packId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// An approved pack asset's own bytes, for a consumer that must SEND the image rather than link to it.
+    /// </summary>
+    /// <remarks>
+    /// Added 2026-09-27 for the pose library's character conditioning. Every reader until then could work from the
+    /// asset's <c>FileRelativePath</c> because it lived inside the asset store; a consumer outside it (the pose test
+    /// render keeps no session and writes no rows) has no such path and must not read the filesystem itself. The
+    /// storage layer stays behind this service, which is what owns the asset.
+    /// </remarks>
+    Task<byte[]> ReadAssetBytesAsync(
+        SceneImageReferenceAsset asset, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Return the existing draft, create v1 with this scope when no packs exist, or throw if the character has
     /// only frozen versions. The scope is required persisted data (never a code default): a draft is neither
     /// narrowed nor raised by creating it again, and raising a <c>FaceOnly</c> draft to <c>BodyComplete</c> is the
