@@ -187,11 +187,21 @@
         <div class="mt-3 d-flex align-items-center gap-2">
             @if (OnSubmit.HasDelegate)
             {
-                <button type="button" class="btn btn-sm btn-success" disabled="@(Busy || !CanSubmit)" @onclick="() => OnSubmit.InvokeAsync()">
+                <button type="button" class="btn btn-sm btn-success" disabled="@(Busy || !CanSubmit || MissingRequiredSlots.Count > 0)" @onclick="() => OnSubmit.InvokeAsync()">
                     <i class="bi bi-image me-1"></i>@SubmitLabel
                 </button>
             }
-            @if (!string.IsNullOrWhiteSpace(SubmitBlockedReason))
+            @* A required slot is the HOST's decision, expressed once as data on the blueprint, and enforced here for
+               every surface. Whether a face may come from text alone is exactly the kind of thing that differs per
+               host - mandatory for a LoRA training cell, optional elsewhere - and a component that left it to each
+               host would drift the moment one of them forgot. *@
+            @if (MissingRequiredSlots.Count > 0)
+            {
+                <span class="small text-warning">
+                    This step needs a reference for: @string.Join(", ", MissingRequiredSlots).
+                </span>
+            }
+            else if (!string.IsNullOrWhiteSpace(SubmitBlockedReason))
             {
                 <span class="small text-warning">@SubmitBlockedReason</span>
             }
@@ -330,6 +340,17 @@
         _generatedForSignature = StepPromptStaleness.SignatureFor(_draftedFromBindings);
         await OnGeneratePrompt.InvokeAsync();
     }
+
+    /// <summary>
+    /// The required slots that hold no binding. Requiredness is DECLARED by the blueprint, so whether an element may
+    /// come from text alone is a host's answer given once as data - mandatory for a LoRA training cell's face and
+    /// build, optional for a host where prose is enough - and the component enforces it the same way everywhere.
+    /// </summary>
+    private IReadOnlyList<string> MissingRequiredSlots =>
+        Blueprint.Slots
+            .Where(slot => slot.Required && BindingFor(slot) is null)
+            .Select(slot => slot.SlotKind.ToString())
+            .ToList();
 
     private SceneImageModelChoice? SelectedChoice =>
         ModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelId, SelectedModelId, StringComparison.Ordinal));

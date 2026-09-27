@@ -109,6 +109,22 @@ public sealed class ImageStepComposerUsageContractTests
             + "at render time: " + string.Join("; ", offenders));
     }
 
+    /// <summary>
+    /// The COMPONENT enforces required slots, not each host. Whether an element may come from text alone differs per
+    /// host, so the answer arrives as blueprint data and is applied in one place; a host that had to remember to
+    /// re-check would eventually forget, and the surface would offer a button the render refuses.
+    /// </summary>
+    [Fact]
+    public void TheComposerEnforcesRequiredSlotsItself()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Shared", "ImageStepComposer.razor"));
+
+        Assert.Contains("slot.Required && BindingFor(slot) is null", source, StringComparison.Ordinal);
+        Assert.Contains("|| MissingRequiredSlots.Count > 0", source, StringComparison.Ordinal);
+        Assert.Contains("This step needs a reference for:", source, StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         for (var current = new DirectoryInfo(AppContext.BaseDirectory); current is not null; current = current.Parent)

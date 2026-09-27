@@ -44,9 +44,17 @@ public static class ImageStepBlueprintFactory
     /// The prose each element currently contributes, so the step can show it and show it REPLACED once a reference
     /// image supplies the element.
     /// </param>
+    /// <param name="faceIsRequired">
+    /// Whether this cell shows a face. The render REFUSES a cell that shows a face but carries no face reference, and
+    /// refuses a face reference on a cell that shows none, so the step declares the same fact: the control said
+    /// "binding one is optional unless marked required" while the render demanded it, which is the mismatch this
+    /// parameter removes. A text-only face is deliberately NOT available here - this is a training set - though it is
+    /// for other hosts, which is why requiredness is data on the blueprint rather than behaviour in the component.
+    /// </param>
     public static ImageStepBlueprint ForLoraCell(
         ImageStepActor actor,
-        IReadOnlyDictionary<ImageStepSlotKind, string>? elementText = null)
+        IReadOnlyDictionary<ImageStepSlotKind, string>? elementText = null,
+        bool faceIsRequired = true)
     {
         var actorKey = RequireActor(actor).ActorKey;
 
@@ -67,9 +75,11 @@ public static class ImageStepBlueprintFactory
             ImageStepSourceMode.None,
             [
                 WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.RecordRule,
-                    faceAndBodySources, actorKey), ImageStepSlotKind.Face, elementText),
+                    faceAndBodySources, actorKey, Required: faceIsRequired), ImageStepSlotKind.Face, elementText),
+                // The build is always required: a cell rendered without it is a training image of an unverified body.
                 WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.RecordRule,
-                    faceAndBodySources, actorKey), ImageStepSlotKind.Body, elementText),
+                    faceAndBodySources, actorKey, Required: true), ImageStepSlotKind.Body, elementText),
+                // Wardrobe is NOT required: the render does not demand it, so the step must not either.
                 WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.RecordRule,
                     [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey), ImageStepSlotKind.Wardrobe, elementText)
             ],

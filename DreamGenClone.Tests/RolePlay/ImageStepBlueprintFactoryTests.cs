@@ -43,6 +43,26 @@ public sealed class ImageStepBlueprintFactoryTests
     /// An element's current text travels on the blueprint, so the step can show what the element says and show it
     /// replaced once a reference image supplies it.
     /// </summary>
+    /// <summary>
+    /// Requiredness is the HOST's answer, expressed once as data: mandatory for a LoRA training cell (neither the face
+    /// nor the build may come from text alone) and optional wherever prose is enough. It is data rather than component
+    /// behaviour precisely because that answer differs per host.
+    /// </summary>
+    [Fact]
+    public void LoraCell_RequiresItsBuildAndItsFaceOnlyWhenTheCellShowsOne()
+    {
+        var showsFace = ImageStepBlueprintFactory.ForLoraCell(Becky);
+        Assert.True(showsFace.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Face).Required);
+        Assert.True(showsFace.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Body).Required);
+        // The render does not demand wardrobe, so the step must not either.
+        Assert.False(showsFace.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Wardrobe).Required);
+
+        // A back view shows no face, so it is not asked for one - the same rule the render applies.
+        var backView = ImageStepBlueprintFactory.ForLoraCell(Becky, faceIsRequired: false);
+        Assert.False(backView.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Face).Required);
+        Assert.True(backView.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Body).Required);
+    }
+
     [Fact]
     public void LoraCell_CarriesTheElementTextTheHostDeclares()
     {

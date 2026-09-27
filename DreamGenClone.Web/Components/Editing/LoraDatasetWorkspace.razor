@@ -427,7 +427,13 @@ else
     /// with the character the dataset belongs to, and the blueprint declares no batch - the training set is judged frame
     /// by frame.</summary>
     private ImageStepBlueprint CellBlueprint =>
-        ImageStepBlueprintFactory.ForLoraCell(new ImageStepActor(_identityKey, _characterName), CellElementText());
+        ImageStepBlueprintFactory.ForLoraCell(
+            new ImageStepActor(_identityKey, _characterName),
+            CellElementText(),
+            // The step declares the SAME requirement the render enforces: a cell that shows a face cannot be shot
+            // without its face reference. Derived from the selected cell's own rule, so a back view is not asked for a
+            // face it does not show.
+            faceIsRequired: SelectedRecord?.FaceCanonicalSlot is not null);
 
     /// <summary>
     /// The text each element currently contributes to this cell, read from the SAME card the prompt is composed from
