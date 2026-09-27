@@ -72,6 +72,24 @@ public sealed class BodyReferenceBrief
     public string? SkinTexture { get; set; }
     public string? Ethnicity { get; set; }
 
+    // ── Face (B-132) ─────────────────────────────────────────────────────────────────────────────────────────
+    // The bone structure and detail a model needs to build a face from WORDS rather than from a reference image.
+    // Optional throughout: unset fields contribute no token, because a face that was never described must not be
+    // invented, and "not stated" is not "average".
+
+    public string? FaceShape { get; set; }
+    public string? EyeShape { get; set; }
+    public string? Eyebrows { get; set; }
+    public string? NoseShape { get; set; }
+    public string? LipsShape { get; set; }
+    public string? Jawline { get; set; }
+
+    /// <summary>Facial hair. Separate from <see cref="BodyHair"/>, which is body-wide and never a beard.</summary>
+    public string? FacialHair { get; set; }
+
+    /// <summary>Jewellery worn on the face: nose, septum, tongue, eyebrow, lip.</summary>
+    public string? FacePiercings { get; set; }
+
     // ── Body: the invariant line plus the axis picks ────────────────────────────────────────────────────────
 
     /// <summary>The body card's authored line — the single source of the invariant body facts.</summary>

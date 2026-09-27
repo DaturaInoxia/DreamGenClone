@@ -194,6 +194,18 @@ public sealed class BodyReferenceBriefFactory : IBodyReferenceBriefFactory
             BodyShape = card.BodyShape.Trim(),
             Axes = card.Axes,
 
+            // The face block, read the same way as hair and eyes above: the CARD is where a character's own face lives,
+            // the template is the starting point. This is what lets a face be built from text for a character that has
+            // no pack face yet.
+            FaceShape = Clean(card.Face.FaceShape) ?? Clean(attributes?.FaceShape),
+            EyeShape = Clean(card.Face.EyeShape) ?? Clean(attributes?.EyeShape),
+            Eyebrows = Clean(card.Face.Eyebrows) ?? Clean(attributes?.Eyebrows),
+            NoseShape = Clean(card.Face.NoseShape) ?? Clean(attributes?.NoseShape),
+            LipsShape = Clean(card.Face.LipsShape) ?? Clean(attributes?.LipsShape),
+            Jawline = Clean(card.Face.Jawline) ?? Clean(attributes?.Jawline),
+            FacialHair = Clean(card.Face.FacialHair) ?? Clean(attributes?.FacialHair),
+            FacePiercings = Clean(card.Face.FacePiercings) ?? Clean(attributes?.FacePiercings),
+
             // The four descriptive body fields go through the card's ONE decision-record rule: "none" is a record
             // that a decision was made, not a descriptor, so it is carried as absent rather than as a token the model
             // would try to draw. Re-implementing that check here would let the two drift apart.

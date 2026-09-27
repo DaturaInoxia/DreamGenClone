@@ -41,6 +41,86 @@ public sealed class BodyReferencePromptCompilerTests
         Clothing = "plain everyday clothing"
     };
 
+    /// <summary>
+    /// B-132: the face block reaches BOTH dialects, so a face can be built from words instead of from a reference
+    /// image. The phrasing is asserted exactly, because these strings go straight into an image request and a
+    /// plausible-looking phrase that renders the wrong face is worse than a missing one.
+    /// </summary>
+    [Fact]
+    public void BothDialectsCarryTheFaceBlock()
+    {
+        var brief = Brief();
+        brief.FaceShape = "Oval";
+        brief.EyeShape = "Almond";
+        brief.Eyebrows = "Thick";
+        brief.NoseShape = "Small and Straight";
+        brief.LipsShape = "Full";
+        brief.Jawline = "Defined";
+        brief.FacialHair = "Stubble";
+        brief.FacePiercings = "Tongue Ring";
+
+        var pony = Pony(brief).Positive;
+        Assert.Contains("oval face", pony, StringComparison.Ordinal);
+        Assert.Contains("almond eyes", pony, StringComparison.Ordinal);
+        Assert.Contains("thick eyebrows", pony, StringComparison.Ordinal);
+        Assert.Contains("small and straight nose", pony, StringComparison.Ordinal);
+        Assert.Contains("full lips", pony, StringComparison.Ordinal);
+        Assert.Contains("defined jawline", pony, StringComparison.Ordinal);
+        Assert.Contains("stubble", pony, StringComparison.Ordinal);
+        Assert.Contains("tongue ring", pony, StringComparison.Ordinal);
+
+        var sdxl = Sdxl(brief).Positive;
+        Assert.Contains("oval face", sdxl, StringComparison.Ordinal);
+        Assert.Contains("almond eyes", sdxl, StringComparison.Ordinal);
+        Assert.Contains("thick eyebrows", sdxl, StringComparison.Ordinal);
+        Assert.Contains("small and straight nose", sdxl, StringComparison.Ordinal);
+        Assert.Contains("full lips", sdxl, StringComparison.Ordinal);
+        Assert.Contains("defined jawline", sdxl, StringComparison.Ordinal);
+        // SDXL needs the preposition that Pony does not: the same fact, in each dialect's grammar.
+        Assert.Contains("with stubble", sdxl, StringComparison.Ordinal);
+        Assert.Contains("with a tongue ring", sdxl, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An unstated face contributes NOTHING. "Not stated" is not "average": inventing a face would render someone the
+    /// operator never described, and a prompt word spent on nothing is how a positive token becomes noise.
+    /// </summary>
+    [Fact]
+    public void AnUnstatedFaceContributesNoTokens()
+    {
+        var brief = Brief();
+
+        foreach (var compiled in new[] { Pony(brief).Positive, Sdxl(brief).Positive })
+        {
+            Assert.DoesNotContain("face", compiled, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("jawline", compiled, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("eyebrows", compiled, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("piercing", compiled, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>Clean-shaven states an ABSENCE, so it must not become a positive token.</summary>
+    [Fact]
+    public void CleanShavenContributesNoFacialHairToken()
+    {
+        var brief = Brief();
+        brief.FacialHair = "Clean-Shaven";
+
+        Assert.DoesNotContain("shaven", Pony(brief).Positive, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("shaven", Sdxl(brief).Positive, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A custom piercing still renders rather than being dropped for not being a preset.</summary>
+    [Fact]
+    public void ACustomFacePiercingStillRenders()
+    {
+        var brief = Brief();
+        brief.FacePiercings = "Bridge Piercing";
+
+        Assert.Contains("bridge piercing", Pony(brief).Positive, StringComparison.Ordinal);
+        Assert.Contains("with a bridge piercing", Sdxl(brief).Positive, StringComparison.Ordinal);
+    }
+
     private static CompiledBodyPrompt Pony(BodyReferenceBrief? brief = null)
         => BodyReferencePromptCompiler.Compile(
             brief ?? Brief(), BodyPromptFamily.Pony, "rating_safe", "1girl", ["Becky", "Dean"]);

@@ -111,6 +111,91 @@ public static class BodyReferencePromptCompiler
     /// because the band decides it: "a middle-aged woman" but "an older woman". Hardcoding "a" in the template made
     /// every vowel-initial band ungrammatical, which is the kind of prose an image model reads as noise.
     /// </summary>
+    /// <summary>
+    /// The face's STRUCTURAL descriptors as (value, noun) pairs. One list, so a new face field is rendered in both
+    /// dialects by being named once - the same reason the brief carries clothing as one resolved value rather than a
+    /// per-compiler opinion.
+    /// </summary>
+    private static IEnumerable<(string Value, string Noun)> FaceParts(BodyReferenceBrief brief)
+    {
+        if (!string.IsNullOrWhiteSpace(brief.FaceShape)) yield return (brief.FaceShape.Trim().ToLowerInvariant(), "face");
+        if (!string.IsNullOrWhiteSpace(brief.EyeShape)) yield return (brief.EyeShape.Trim().ToLowerInvariant(), "eyes");
+        if (!string.IsNullOrWhiteSpace(brief.Eyebrows)) yield return (brief.Eyebrows.Trim().ToLowerInvariant(), "eyebrows");
+        if (!string.IsNullOrWhiteSpace(brief.NoseShape)) yield return (brief.NoseShape.Trim().ToLowerInvariant(), "nose");
+        if (!string.IsNullOrWhiteSpace(brief.LipsShape)) yield return (brief.LipsShape.Trim().ToLowerInvariant(), "lips");
+        if (!string.IsNullOrWhiteSpace(brief.Jawline)) yield return (brief.Jawline.Trim().ToLowerInvariant(), "jawline");
+    }
+
+    /// <summary>
+    /// Facial hair, as the phrase each value reads best as. "Clean-Shaven" is deliberately ABSENT: it states an
+    /// absence, so it contributes no token - a model asked for a clean-shaven face draws the same thing as one not
+    /// told about facial hair, and spending a prompt word on nothing is how a positive token becomes noise.
+    /// </summary>
+    private static readonly Dictionary<string, string> FacialHairPhrases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Five O'Clock Shadow"] = "with a five o'clock shadow",
+        ["Stubble"] = "with stubble",
+        ["Moustache"] = "with a moustache",
+        ["Goatee"] = "with a goatee",
+        ["Short Trimmed Beard"] = "with a short trimmed beard",
+        ["Full Beard"] = "with a full beard"
+    };
+
+    /// <summary>
+    /// A face piercing as a phrase. An unlisted value (the editor allows a custom one) still renders, so a custom
+    /// entry is described rather than dropped.
+    /// </summary>
+    private static string FacePiercingPhrase(string value)
+        => string.Equals(value.Trim(), "Multiple Face Piercings", StringComparison.OrdinalIgnoreCase)
+            ? "with multiple face piercings"
+            : $"with a {value.Trim().ToLowerInvariant()}";
+
+    /// <summary>
+    /// Pony reads the same phrases as BARE tags: the "with" that SDXL needs to attach an attribute to its subject is a
+    /// grammar artifact of that dialect, not a different fact about the face, so it is stripped rather than duplicated
+    /// into a second table that could disagree.
+    /// </summary>
+    private static string AsTag(string phrase)
+        => phrase.StartsWith("with ", StringComparison.Ordinal) ? phrase["with ".Length..] : phrase;
+
+    private static IEnumerable<string> FaceTags(BodyReferenceBrief brief)
+    {
+        foreach (var (value, noun) in FaceParts(brief))
+        {
+            yield return $"{value} {noun}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(brief.FacialHair)
+            && FacialHairPhrases.TryGetValue(brief.FacialHair.Trim(), out var facialHair))
+        {
+            yield return AsTag(facialHair);
+        }
+
+        if (!string.IsNullOrWhiteSpace(brief.FacePiercings))
+        {
+            yield return AsTag(FacePiercingPhrase(brief.FacePiercings));
+        }
+    }
+
+    private static IEnumerable<string> FacePhrases(BodyReferenceBrief brief)
+    {
+        foreach (var (value, noun) in FaceParts(brief))
+        {
+            yield return $"{value} {noun}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(brief.FacialHair)
+            && FacialHairPhrases.TryGetValue(brief.FacialHair.Trim(), out var facialHair))
+        {
+            yield return facialHair;
+        }
+
+        if (!string.IsNullOrWhiteSpace(brief.FacePiercings))
+        {
+            yield return FacePiercingPhrase(brief.FacePiercings);
+        }
+    }
+
     private static string SubjectNounPhrase(BodyReferenceBrief brief)
     {
         var noun = GenderNoun(brief);
@@ -346,6 +431,8 @@ public static class BodyReferencePromptCompiler
             tags.Add($"{brief.EyeColour.Trim().ToLowerInvariant()} eyes");
         }
 
+        tags.AddRange(FaceTags(brief));
+
         if (!string.IsNullOrWhiteSpace(brief.SkinTone)
             && SkinTokens.TryGetValue(brief.SkinTone.Trim(), out var skin))
         {
@@ -454,6 +541,8 @@ public static class BodyReferencePromptCompiler
         {
             subject.Add($"{NormalizeValue(brief.EyeColour).ToLowerInvariant()} eyes");
         }
+
+        subject.AddRange(FacePhrases(brief));
 
         if (!string.IsNullOrWhiteSpace(brief.SkinTone))
         {
