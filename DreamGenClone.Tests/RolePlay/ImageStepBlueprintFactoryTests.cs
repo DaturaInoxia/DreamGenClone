@@ -48,12 +48,14 @@ public sealed class ImageStepBlueprintFactoryTests
     {
         var blueprint = ImageStepBlueprintFactory.ForLoraCell(Becky, new Dictionary<ImageStepSlotKind, string>
         {
-            [ImageStepSlotKind.Face] = "curvy, full bust, fair smooth skin",
+            [ImageStepSlotKind.Face] = "dark hair in a Bun, Blue eyes, oval face",
             [ImageStepSlotKind.Body] = "curvy, full bust, fair smooth skin"
         });
 
+        // Face and Body state DIFFERENT text. Showing the build line under the face is what made a face reference
+        // look like it had replaced the body, so the two elements must not share one line.
         Assert.Equal(
-            "curvy, full bust, fair smooth skin",
+            "dark hair in a Bun, Blue eyes, oval face",
             blueprint.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Face).ElementText);
         Assert.Equal(
             "curvy, full bust, fair smooth skin",

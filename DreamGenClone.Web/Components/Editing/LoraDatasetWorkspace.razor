@@ -430,12 +430,12 @@ else
         ImageStepBlueprintFactory.ForLoraCell(new ImageStepActor(_identityKey, _characterName), CellElementText());
 
     /// <summary>
-    /// The text each element currently contributes to this cell, read from the SAME body card line the prompt is
-    /// composed from so the text on screen and the text in the prompt cannot disagree.
+    /// The text each element currently contributes to this cell, read from the SAME card the prompt is composed from
+    /// so the text on screen and the text in the prompt cannot disagree.
     /// <para>
-    /// There is one physical-attributes line, and it is what BOTH a face image and a body image supply: the cell has
-    /// no separate face text, and inventing one here would be a second description of the same person. So the same
-    /// line is declared for both slots, which is the honest answer to "what does the face say?" for this host.
+    /// The FACE element shows the card's face text and the BODY element shows the card's build line (B-132). They used
+    /// to show the same line, because the card had no face of its own - which read as the face being "fixed" by
+    /// copying the body, and made it impossible to tell which of the two a reference image had replaced.
     /// </para>
     /// </summary>
     private IReadOnlyDictionary<ImageStepSlotKind, string> CellElementText()
@@ -443,8 +443,13 @@ else
         var text = new Dictionary<ImageStepSlotKind, string>();
         if (!string.IsNullOrWhiteSpace(BodyCardLine))
         {
-            text[ImageStepSlotKind.Face] = BodyCardLine;
             text[ImageStepSlotKind.Body] = BodyCardLine;
+        }
+
+        var faceLine = _bodyCard?.ToFaceLine();
+        if (!string.IsNullOrWhiteSpace(faceLine))
+        {
+            text[ImageStepSlotKind.Face] = faceLine;
         }
 
         return text;
