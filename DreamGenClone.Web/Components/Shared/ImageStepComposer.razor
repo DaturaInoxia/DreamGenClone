@@ -490,18 +490,24 @@
         new(
             Enum.Parse<ImageStepSlotKind>(binding.Kind ?? string.Empty, ignoreCase: true),
             binding.ActorKey,
+            // NAMED arguments, deliberately. Built positionally, inserting a parameter into ImageStepSlotSource
+            // silently shifted every value after it: a pack binding's pack id landed in "pose preset id" and its asset
+            // id in "pack id", so binding ANY slot re-planned the others into a state with no asset id at all - the
+            // face and body fell out, both are required, and the step became uncreatable (reported live 2026-09-27).
+            // Name every field so the next parameter added here cannot do that again.
             new ImageStepSlotSource(
-                Enum.TryParse<ImageStepReferenceSourceKind>(binding.Source, ignoreCase: true, out var kind)
+                SourceKind: Enum.TryParse<ImageStepReferenceSourceKind>(binding.Source, ignoreCase: true, out var kind)
                     ? kind
                     : ImageStepReferenceSourceKind.ApprovedSceneAsset,
-                binding.Strategy,
-                binding.SceneAssetId,
-                binding.SceneAssetImageId,
-                binding.SceneAssetVersion,
-                binding.SceneAssetSha256,
-                binding.SkeletonRelativePath,
-                binding.IdentityPackId,
-                binding.ReferenceAssetId));
+                Strategy: binding.Strategy,
+                SceneAssetId: binding.SceneAssetId,
+                SceneAssetImageId: binding.SceneAssetImageId,
+                SceneAssetVersion: binding.SceneAssetVersion,
+                SceneAssetSha256: binding.SceneAssetSha256,
+                SkeletonRelativePath: binding.SkeletonRelativePath,
+                PosePresetId: binding.PosePresetId,
+                IdentityPackId: binding.IdentityPackId,
+                ReferenceAssetId: binding.ReferenceAssetId));
 
     private static bool OffersSkeleton(ImageStepSlotBlueprint slot) =>
         slot.AllowedSources.Contains(ImageStepReferenceSourceKind.PoseLibrarySkeleton);
@@ -530,8 +536,8 @@
         }
 
         await ApplyAsync(slot, new ImageStepSlotSource(
-            ImageStepReferenceSourceKind.IdentityPackAsset,
-            ReferenceStrategyResolver.IdentityNativeMultiReference,
+            SourceKind: ImageStepReferenceSourceKind.IdentityPackAsset,
+            Strategy: ReferenceStrategyResolver.IdentityNativeMultiReference,
             IdentityPackId: choice.PackId,
             ReferenceAssetId: choice.ReferenceAssetId));
     }
@@ -600,8 +606,8 @@
         }
 
         await ApplyAsync(slot, new ImageStepSlotSource(
-            ImageStepReferenceSourceKind.ApprovedSceneAsset,
-            StrategyFor(slot, ImageStepReferenceSourceKind.ApprovedSceneAsset),
+            SourceKind: ImageStepReferenceSourceKind.ApprovedSceneAsset,
+            Strategy: StrategyFor(slot, ImageStepReferenceSourceKind.ApprovedSceneAsset),
             SceneAssetId: choice.Asset.Id,
             SceneAssetImageId: choice.Image.Id,
             SceneAssetVersion: choice.Image.ProductionVersion,
@@ -623,8 +629,8 @@
         // than a projection of it. The preset ID travels too: the render reads a preset's skeleton BY ID, so a stale
         // path can never make it read a different pose, and without the id the binding cannot become a pose at all.
         await ApplyAsync(slot, new ImageStepSlotSource(
-            ImageStepReferenceSourceKind.PoseLibrarySkeleton,
-            ReferenceStrategyResolver.IdentityNativeMultiReference,
+            SourceKind: ImageStepReferenceSourceKind.PoseLibrarySkeleton,
+            Strategy: ReferenceStrategyResolver.IdentityNativeMultiReference,
             SkeletonRelativePath: preset.SkeletonPngPath,
             PosePresetId: preset.Id));
     }
@@ -642,16 +648,22 @@
             return;
         }
 
+        // Every source field is carried, named. This used to pass only the scene-asset and skeleton fields, so
+        // changing the strategy on a pack binding DROPPED the pack and its asset - the binding stayed on screen and
+        // supplied nothing.
         await ApplyAsync(slot, new ImageStepSlotSource(
-            Enum.TryParse<ImageStepReferenceSourceKind>(existing.Source, ignoreCase: true, out var kind)
+            SourceKind: Enum.TryParse<ImageStepReferenceSourceKind>(existing.Source, ignoreCase: true, out var kind)
                 ? kind
                 : ImageStepReferenceSourceKind.ApprovedSceneAsset,
-            strategy,
-            existing.SceneAssetId,
-            existing.SceneAssetImageId,
-            existing.SceneAssetVersion,
-            existing.SceneAssetSha256,
-            existing.SkeletonRelativePath));
+            Strategy: strategy,
+            SceneAssetId: existing.SceneAssetId,
+            SceneAssetImageId: existing.SceneAssetImageId,
+            SceneAssetVersion: existing.SceneAssetVersion,
+            SceneAssetSha256: existing.SceneAssetSha256,
+            SkeletonRelativePath: existing.SkeletonRelativePath,
+            PosePresetId: existing.PosePresetId,
+            IdentityPackId: existing.IdentityPackId,
+            ReferenceAssetId: existing.ReferenceAssetId));
     }
 
     private async Task ClearSlotAsync(ImageStepSlotBlueprint slot)
