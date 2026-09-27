@@ -61,6 +61,22 @@ public interface ICharacterIdentityBodyService
         string characterId, SceneImageReferenceBodyState state, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Composes the canonical body text from the card's CURRENT picks, without saving it — what the Body tab's
+    /// "Compose from the picks" action offers, so the operator can see what their picks say before accepting it as the
+    /// authored text.
+    ///
+    /// State-independent on purpose: this is the text that gets STORED, and the stored text describes the body rather
+    /// than a state. The unclothed-only detail is added at render time by
+    /// <see cref="ResolveBodyTextAsync"/>, from its one source.
+    ///
+    /// Refuses on a card the brief cannot be built from (an unanswered body shape or a template with no gender), with
+    /// the same message a render would give: a text composed from a half-answered card would read plausibly and be
+    /// wrong, which is worse than being told what is missing.
+    /// </summary>
+    Task<string> ComposeBodyTextAsync(
+        CharacterBodyCard card, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The prompt a GENERATION of this slot would use, compiled for the family of <paramref name="modelId"/>.
     ///
     /// Only a BASE view (the front in either state) can be generated from nothing, so only a base has one. Every

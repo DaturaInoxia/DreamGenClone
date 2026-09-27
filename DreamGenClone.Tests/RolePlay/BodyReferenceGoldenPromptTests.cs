@@ -18,8 +18,10 @@ namespace DreamGenClone.Tests.RolePlay;
 public sealed class BodyReferenceGoldenPromptTests
 {
     /// <summary>Becky: 50, curvy with a soft middle, a dress as her default outfit, clothed.</summary>
-    private static BodyReferenceBrief Becky() => new()
+    private static BodyReferenceBrief Becky()
     {
+        var brief = new BodyReferenceBrief
+        {
         CharacterTemplateId = "8f2a1c34-0000-4000-8000-00000000be01",
         BodyCardVersion = 4,
         Gender = "Female",
@@ -42,6 +44,12 @@ public sealed class BodyReferenceGoldenPromptTests
         Stance = BodyReferenceStance.Standing,
         Clothing = "plain everyday clothing"
     };
+
+        // The canonical body text, composed the way the brief factory composes it. WITHOUT this the briefs these
+        // goldens compile would not be shaped like a real one, and the goldens would be pinning an accident.
+        brief.BodyText = BodyReferencePromptCompiler.ComposeBodyText(brief);
+        return brief;
+    }
 
     private static ResolvedImageModel Model(SceneImageModelFamily family) => new(
         "http://localhost",
@@ -78,8 +86,13 @@ public sealed class BodyReferenceGoldenPromptTests
     }
 
     /// <summary>
-    /// SDXL: a photographic brief — subject and appearance first, the body as phrases, clothing stated in the positive
-    /// as the safety anchor, camera and texture cues at the tail — and an EMPTY negative, which is not a defect.
+    /// SDXL: the CANONICAL BODY TEXT first (B-132), then this shot's stance and clothing, then the camera and texture
+    /// cues — and an EMPTY negative, which is not a defect.
+    ///
+    /// The medium cue the prompt used to open with ("Full-body photograph of …") is gone: it was the sentence that
+    /// could not host an authored text, and the tail below carries the framing cue ("Whole body in frame and
+    /// unobstructed, head to feet") and the lens ("35mm photograph"). What the operator now reads first is the same
+    /// sentence the LoRA cells and the angle renders paste.
     /// </summary>
     [Fact]
     public void Sdxl_Golden()
@@ -87,10 +100,10 @@ public sealed class BodyReferenceGoldenPromptTests
         var compiled = BodyReferencePromptCompiler.Compile(Becky(), Model(SceneImageModelFamily.Sdxl), ["Becky"]);
 
         Assert.Equal(
-            "Full-body photograph of a middle-aged woman, with brown hair, bun hairstyle, blue eyes, fair skin, "
-            + "standing upright and facing the camera. "
+            "A middle-aged woman, with brown hair, bun hairstyle, blue eyes, fair skin. "
             + "Body: an average frame, slightly soft with a little roundness, a fuller rear with a soft belly, "
             + "a full bust, wide hips, a full rear. "
+            + "Standing upright and facing the camera. "
             + "Wearing plain everyday clothing. "
             + "Whole body in frame and unobstructed, head to feet, natural skin texture, soft even lighting, sharp "
             + "focus, 35mm photograph.",

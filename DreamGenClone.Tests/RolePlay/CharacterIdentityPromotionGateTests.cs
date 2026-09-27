@@ -392,6 +392,10 @@ public sealed class CharacterIdentityPromotionGateTests
             string characterId, SceneImageReferenceBodyState state, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<string> ComposeBodyTextAsync(
+            CharacterBodyCard card, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<string> ResolvePromptAsync(string buildId, CharacterIdentityBodyViewKey key, string modelId, string characterName, string? promptOverride = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

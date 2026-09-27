@@ -184,6 +184,30 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
         return BodyReferencePromptCompiler.ComposeViewBodyText(brief);
     }
 
+    /// <inheritdoc />
+    public async Task<string> ComposeBodyTextAsync(
+        CharacterBodyCard card, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (string.IsNullOrWhiteSpace(card.CharacterTemplateId))
+        {
+            throw new InvalidOperationException("A body card must name the character it belongs to.");
+        }
+
+        // Clothed because the text describes the BODY, not a state, and the brief factory requires a state it can
+        // check its clothing against. Standing for the same reason: the text carries no stance.
+        var brief = await _briefs.CreateAsync(
+            card.CharacterTemplateId,
+            card,
+            SceneImageReferenceBodyState.Clothed,
+            BodyReferenceStance.Standing,
+            requestIdentity: false,
+            faceAssetId: null,
+            cancellationToken);
+
+        return BodyReferencePromptCompiler.ComposeBodyText(brief);
+    }
+
     public async Task<CharacterBodyCard> SaveBodyCardAsync(
         CharacterBodyCard card, int expectedVersion, CancellationToken cancellationToken = default)
     {

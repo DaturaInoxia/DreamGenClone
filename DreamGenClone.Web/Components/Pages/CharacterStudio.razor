@@ -980,7 +980,32 @@
                         <button type="button" class="btn btn-primary btn-sm mt-3" @onclick="SaveBodyCardAsync" disabled="@_bodyCardBusy">
                             @(_bodyCardVersion == 0 ? "Record body card" : "Save body card")
                         </button>
-                        @if (_bodyCardVersion > 0)
+                        <div class="border-top mt-3 pt-3">
+                            <label class="form-label small fw-semibold" for="body-card-text">Canonical body text</label>
+                            <textarea id="body-card-text" class="form-control form-control-sm font-monospace" rows="4"
+                                      @bind="_bodyCard.BodyText" @bind:event="oninput"></textarea>
+                            <div class="d-flex gap-2 flex-wrap align-items-center mt-2">
+                                <button type="button" class="btn btn-outline-primary btn-sm"
+                                        @onclick="ComposeBodyTextAsync" disabled="@_bodyTextBusy">
+                                    Compose from the picks
+                                </button>
+                                @if (_bodyTextBusy)
+                                {
+                                    <span class="small text-muted">Working…</span>
+                                }
+                            </div>
+                            <div class="form-text">
+                                The ONE body text every prompt pastes — the body-reference renders, the LoRA cells and the
+                                scene prompts alike — so a hand edit here reaches all of them.
+                                <strong>Compose from the picks</strong> rebuilds it from the axes and the face above, and
+                                you can then edit the wording. It carries no height or weight, no camera, stance or
+                                clothing, and no unclothed-only detail: each prompt adds its own.
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_bodyTextMessage))
+                            {
+                                <div class="alert @(_bodyTextMessageIsError ? "alert-danger" : "alert-info") small py-1 px-2 mt-2 mb-0">@_bodyTextMessage</div>
+                            }
+                        </div>                        @if (_bodyCardVersion > 0)
                         {
                             <span class="small text-muted ms-2">v@_bodyCardVersion</span>
                         }
@@ -1445,6 +1470,45 @@
     /// </summary>
     private CharacterBodyCardPrefill? _prefill;
     private bool _prefillBusy;
+
+    /// <summary>
+    /// The canonical body text editor's own state (B-132). Kept apart from the prefill's, because composing the text and
+    /// proposing a field are different actions with different failure modes, and one must not clear the other's message.
+    /// </summary>
+    private bool _bodyTextBusy;
+    private string? _bodyTextMessage;
+    private bool _bodyTextMessageIsError;
+
+    /// <summary>
+    /// Rebuilds the canonical body text from the card's current picks, writing it into the EDITOR only: nothing is
+    /// saved until the operator presses Save, exactly like every other field on this card. That ordering is what makes
+    /// "compose, then edit the wording" safe — the composed text is a proposal, and the hand edit is the decision.
+    /// </summary>
+    private async Task ComposeBodyTextAsync()
+    {
+        if (_bodyCard is null)
+        {
+            return;
+        }
+
+        _bodyTextBusy = true;
+        _bodyTextMessage = null;
+        _bodyTextMessageIsError = false;
+        try
+        {
+            _bodyCard.BodyText = await BodyService.ComposeBodyTextAsync(_bodyCard);
+            _bodyTextMessage = "Composed from the current picks. Edit the wording if you want, then save the card.";
+        }
+        catch (Exception error)
+        {
+            _bodyTextMessage = error.Message;
+            _bodyTextMessageIsError = true;
+        }
+        finally
+        {
+            _bodyTextBusy = false;
+        }
+    }
     private string? _prefillMessage;
     private bool _prefillMessageIsError;
 
