@@ -87,11 +87,12 @@ public static class ImageStepBlueprintFactory
                     [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey)
                     { SuppliedBySlotKind = ImageStepSlotKind.Body },
                     ImageStepSlotKind.Wardrobe, elementText),
-                // NO POSE SLOT, deliberately (2026-09-27). A pose here would be a library skeleton, and the render path
-                // REFUSES that combination: SceneAssetGenerationJobHandler throws when a PosePresetId arrives with an
-                // identity or body reference ("that path resolves its pose as a stance, so the preset would be
-                // dropped"). A cell ALWAYS sends a body reference, so a Pose tab on a cell is a control whose use
-                // fails the render. It comes back when the preset route can be combined with a body reference.
+                // The POSE is bindable, and it COMPOSES with the face and body references (restored 2026-09-27).
+                // RenderIdentityConditionedAsync adds the skeleton as one more native reference beside them, and a host
+                // proof landed identity, build and pose together on 2026-09-23. NOT required: the cell's pose phrase
+                // already describes the pose, so a skeleton pins it rather than being the only statement of it.
+                // CallerSupplied because the operator picks it; no actor key, mirroring ForProductionStudio - a pose is
+                // not a person's property, and an actor key would re-scope the element's prompt address.
                 WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Pose, ImageStepSlotPrefill.CallerSupplied,
                     [ImageStepReferenceSourceKind.PoseLibrarySkeleton]), ImageStepSlotKind.Pose, elementText)
             ],

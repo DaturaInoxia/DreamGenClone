@@ -47,6 +47,17 @@ public sealed class ReferenceApplicationSelection
     public string? SkeletonRelativePath { get; set; }
 
     /// <summary>
+    /// The pose LIBRARY PRESET a Pose slot bound, when it bound one.
+    /// </summary>
+    /// <remarks>
+    /// The id rather than only the path, because the render reads a preset's skeleton BY ID so that a stale path can
+    /// never make it read a file other than the preset it named. The path still travels beside it as the recorded
+    /// artifact. Without this the pose-binding route had no caller at all: the option existed on the generation request
+    /// and nothing in the app ever set it, so a bound pose was dropped silently (found 2026-09-27).
+    /// </remarks>
+    public string? PosePresetId { get; set; }
+
+    /// <summary>
     /// The identity pack an <c>IdentityPackAsset</c> binding came from, with <see cref="ReferenceAssetId"/> naming the
     /// pack's own <c>SceneImageReferenceAsset</c> row. Two fields rather than one because a pack asset id is only
     /// meaningful inside its pack, and the pack is what the consumer has to look the image up in.

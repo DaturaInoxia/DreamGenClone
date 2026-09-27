@@ -11,6 +11,7 @@ public sealed record ImageStepSlotSource(
     int? SceneAssetVersion = null,
     string? SceneAssetSha256 = null,
     string? SkeletonRelativePath = null,
+    string? PosePresetId = null,
     string? IdentityPackId = null,
     string? ReferenceAssetId = null);
 
@@ -184,6 +185,7 @@ public static class ReferenceSlotPlanner
                 SceneAssetVersion = assignment.Source.SceneAssetVersion,
                 SceneAssetSha256 = assignment.Source.SceneAssetSha256,
                 SkeletonRelativePath = assignment.Source.SkeletonRelativePath,
+                PosePresetId = assignment.Source.PosePresetId,
                 IdentityPackId = assignment.Source.IdentityPackId,
                 ReferenceAssetId = assignment.Source.ReferenceAssetId,
                 Ordinal = bindings.Count + 1

@@ -1,5 +1,6 @@
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -224,6 +225,11 @@ public sealed class CharacterLoraCellService : ICharacterLoraCellService
         // on the unclothed reference.
         var bodyConditioning = RequireBodyConditioning(bodyBinding, dataset.IdentityPackId, record);
 
+        // The pose travels BESIDE the face and build, not instead of them: the render adds the skeleton as one more
+        // native reference. Resolved through the shared translation, so a cell carries a bound pose the same way every
+        // other host does.
+        var pose = ImageStepPoseBinding.Resolve(referenceApplications);
+
         var container = await EnsureContainerAsync(dataset, cancellationToken);
 
         return await _assets.AddGeneratedImageAsync(
@@ -241,7 +247,9 @@ public sealed class CharacterLoraCellService : ICharacterLoraCellService
                 // also be setting a dead field — the render path compiles a cell prompt (no compiler id is set)
                 // and authors no negative, so a value here would never reach the model.
                 Identity = conditioning,
-                BodyReference = bodyConditioning
+                BodyReference = bodyConditioning,
+                PosePresetId = pose?.PresetId,
+                PoseSkeletonRelativePath = pose?.SkeletonRelativePath
             });
     }
 

@@ -199,26 +199,20 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
             // preset reaching those paths would be ignored - a render that looks successful and contains no pose. That
             // is refused here rather than dropped, and it is refused NOW because the dispatch below would otherwise
             // take the plain text-to-image branch on a payload whose stance is blank.
-            if (!string.IsNullOrWhiteSpace(payload.PosePresetId))
+            if (!string.IsNullOrWhiteSpace(payload.PosePresetId) && !poseIsNative)
             {
-                if (!poseIsNative)
-                {
-                    throw new InvalidOperationException(
-                        $"Pose library preset '{payload.PosePresetId}' needs a model that carries the skeleton as a "
-                        + $"REFERENCE image, but '{payload.ModelId}' carries a pose through "
-                        + $"'{poseStrategy?.Strategy ?? "no mechanism"}'. Use a native-reference model "
-                        + "(Qwen-Image-2.1), or send a stance instead of a library preset.");
-                }
-
-                if (!string.IsNullOrWhiteSpace(payload.IdentityFaceAssetId)
-                    || !string.IsNullOrWhiteSpace(payload.BodyReferenceAssetId))
-                {
-                    throw new InvalidOperationException(
-                        $"Pose library preset '{payload.PosePresetId}' cannot be combined with identity or body "
-                        + "references yet: that path resolves its pose as a stance, so the preset would be dropped. "
-                        + "Send the pose as the step's own reference, or send a stance.");
-                }
+                throw new InvalidOperationException(
+                    $"Pose library preset '{payload.PosePresetId}' needs a model that carries the skeleton as a "
+                    + $"REFERENCE image, but '{payload.ModelId}' carries a pose through "
+                    + $"'{poseStrategy?.Strategy ?? "no mechanism"}'. Use a native-reference model "
+                    + "(Qwen-Image-2.1), or send a stance instead of a library preset.");
             }
+
+            // NO "preset cannot be combined with identity or body references" refusal. There was one, and it was WRONG
+            // (removed 2026-09-27): RenderIdentityConditionedAsync adds the skeleton as one more native reference
+            // beside the face and the body, and a host proof landed all three together on 2026-09-23. The guard
+            // described an older dispatch that resolved the pose as a stance, and it made a proven combination
+            // unreachable from the app.
 
             var bytes = !string.IsNullOrWhiteSpace(payload.BodyAngleView)
                 ? await RenderBodyAngleAsync(image, model, payload, compiledPrompt, negativePrompt, cancellationToken)

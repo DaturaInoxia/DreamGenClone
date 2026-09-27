@@ -488,6 +488,13 @@ else
             text[ImageStepSlotKind.Wardrobe] = _cellBodyTexts!.WardrobeText;
         }
 
+        // The POSE element's text is this cell's own pose phrase, so the operator can see what the render asks for and
+        // what a bound skeleton pins.
+        if (!string.IsNullOrWhiteSpace(SelectedPosePhrase))
+        {
+            text[ImageStepSlotKind.Pose] = SelectedPosePhrase;
+        }
+
         return text;
     }
 

@@ -620,11 +620,13 @@
         }
 
         // The reference is the pose's OWN skeleton file, so what is bound is the artifact the pose proofs used rather
-        // than a projection of it.
+        // than a projection of it. The preset ID travels too: the render reads a preset's skeleton BY ID, so a stale
+        // path can never make it read a different pose, and without the id the binding cannot become a pose at all.
         await ApplyAsync(slot, new ImageStepSlotSource(
             ImageStepReferenceSourceKind.PoseLibrarySkeleton,
             ReferenceStrategyResolver.IdentityNativeMultiReference,
-            SkeletonRelativePath: preset.SkeletonPngPath));
+            SkeletonRelativePath: preset.SkeletonPngPath,
+            PosePresetId: preset.Id));
     }
 
     private static string StrategyFor(ImageStepSlotBlueprint slot, ImageStepReferenceSourceKind sourceKind) =>
