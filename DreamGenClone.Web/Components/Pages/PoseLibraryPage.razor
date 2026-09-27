@@ -311,9 +311,15 @@
 
     private string? _characterError;
 
-    /// <summary>A character's approved face and build, with the labels a note reads back.</summary>
+    /// <summary>A character's approved face and build, with the pack and asset ids the step's bindings need.</summary>
     private sealed record PoseTestCharacterReference(
-        string Label, byte[] FaceBytes, byte[]? BodyBytes, string? BodyLabel);
+        string Label,
+        string PackId,
+        string FaceAssetId,
+        string BodyAssetId,
+        byte[] FaceBytes,
+        byte[]? BodyBytes,
+        string? BodyLabel);
 
     /// <summary>
     /// Resolves the picked character's APPROVED references for the test.
@@ -367,20 +373,27 @@
         try
         {
             _characterReference = new PoseTestCharacterReference(
-                owner.DisplayName,
-                await IdentityService.ReadAssetBytesAsync(faceAsset),
-                await IdentityService.ReadAssetBytesAsync(bodyAsset),
-                $"clothed front build");
+                Label: owner.DisplayName,
+                PackId: owner.PackId,
+                FaceAssetId: faceAsset.Id,
+                BodyAssetId: bodyAsset.Id,
+                FaceBytes: await IdentityService.ReadAssetBytesAsync(faceAsset),
+                BodyBytes: await IdentityService.ReadAssetBytesAsync(bodyAsset),
+                BodyLabel: "approved clothed front build");
             _testNote = null;
         }
         catch (Exception exception)
         {
             _characterError = exception.Message;
         }
+
+        // The step's bindings follow the character, so its face and build elements show as SUPPLIED rather than as
+        // empty slots the operator is left to fill in one by one.
+        _testBindings = StepBindings();
     }
 
     /// <summary>The step this page presents, built by the one factory that owns host knowledge.</summary>
-    private ImageStepBlueprint TestBlueprint => ImageStepBlueprintFactory.ForPoseLibraryTest();
+    private ImageStepBlueprint TestBlueprint => ImageStepBlueprintFactory.ForPoseLibraryTest(TestCharacterActor);
 
     /// <summary>
     /// The pose-capable models, as composer choices. Only models that can ACTUALLY carry a pose are listed: this page
@@ -395,17 +408,63 @@
                 model.ModelId, model.DisplayName, model.Mechanism, model.ProviderName, HasIdentity: false)
             {
                 QualifiedStrategies = [model.Mechanism],
-                // One slot, one skeleton: this is the STEP's budget, and a pose test never sends more than the single
-                // artifact whose reproduction it exists to prove.
-                MaxReferences = 1
+                // The MODEL's own reference capacity. This used to be a hard-coded 1 - "one slot, one skeleton" - which
+                // was true only while the pose was the sole element: the moment a character's face and build are bound
+                // alongside it, a budget of one refuses the step outright.
+                MaxReferences = model.MaxReferences
             })
             .ToList();
 
     /// <summary>
-    /// The pose the step will send, seeded from the preset the operator picked in the grid. Seeded, not fixed: the
-    /// composer renders it as an ordinary binding, so it can be cleared or replaced - and <see cref="CanTestPose"/> then
-    /// refuses a slot that points somewhere else, by name, rather than rendering an artifact nobody asked to test.
+    /// <summary>The character the pose is tested on, as the blueprint's actor, or null when none is picked.</summary>
+    private ImageStepActor? TestCharacterActor => _characterProfileId is { Length: > 0 } profileId
+        ? new ImageStepActor(profileId, _characterReference?.Label ?? profileId)
+        : null;
+
+    /// <summary>The bindings for the character's own elements, from its APPROVED pack assets.</summary>
+    private IReadOnlyList<ReferenceApplicationSelection> CharacterBindings()
+    {
+        if (_characterProfileId is not { Length: > 0 } profileId || _characterReference is not { } reference)
+        {
+            return [];
+        }
+
+        // Face and body are ADDRESSED to the character, because both are per-character slots. The strategy is the
+        // reference-image route, which is the only route that carries them beside a pose.
+        return
+        [
+            new ReferenceApplicationSelection
+            {
+                ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Face),
+                SemanticRole = "approved identity face",
+                Kind = ImageStepSlotKind.Face.ToString(),
+                ActorKey = profileId,
+                Source = ImageStepReferenceSourceKind.IdentityPackAsset.ToString(),
+                Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+                IdentityPackId = reference.PackId,
+                ReferenceAssetId = reference.FaceAssetId
+            },
+            new ReferenceApplicationSelection
+            {
+                ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Body),
+                SemanticRole = "approved body build reference",
+                Kind = ImageStepSlotKind.Body.ToString(),
+                ActorKey = profileId,
+                Source = ImageStepReferenceSourceKind.IdentityPackAsset.ToString(),
+                Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+                IdentityPackId = reference.PackId,
+                ReferenceAssetId = reference.BodyAssetId
+            }
+        ];
+    }
+
+    /// <summary>
+    /// The step's bindings: the pose's own skeleton, then the character's face and build when one is picked. ASSIGNED
+    /// rather than seeded - the composer has no seed parameter on purpose, because a seed list keeps re-adding a
+    /// binding the operator just cleared.
     /// </summary>
+    private IReadOnlyList<ReferenceApplicationSelection> StepBindings()
+        => [.. TestSeedBindings, .. CharacterBindings()];
     private IReadOnlyList<ReferenceApplicationSelection> TestSeedBindings =>
         _testPreset is null
             ? []
@@ -492,7 +551,7 @@
         // a seed list would keep re-adding a binding the operator had just cleared, because clearing it does not
         // change what this rule resolves to. A binding left over from the previous pose would hold the old artifact,
         // and the step would then (correctly) refuse to render it.
-        _testBindings = TestSeedBindings;
+        _testBindings = StepBindings();
         // Offered, never enforced: it stays editable in the box next to the button.
         _testPrompt ??= PoseTestPrompts.Default;
         return Task.CompletedTask;

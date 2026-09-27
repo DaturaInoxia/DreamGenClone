@@ -86,6 +86,39 @@ public sealed class ImageStepBlueprintFactoryTests
         Assert.Null(blueprint.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Wardrobe).ElementText);
     }
 
+    /// <summary>
+    /// The pose-library step RE-FORMS by whether a character is picked (2026-09-27): with one it declares the
+    /// character's own elements as well as the pose, because a character HAS a face and a build and the test now
+    /// conditions on them; with none it declares only the pose, because a face slot with no character behind it is a
+    /// control the operator cannot satisfy.
+    /// </summary>
+    [Fact]
+    public void PoseLibraryTest_DeclaresTheCharactersElementsOnlyWhenACharacterIsPicked()
+    {
+        var poseOnly = ImageStepBlueprintFactory.ForPoseLibraryTest();
+        Assert.Equal([ImageStepSlotKind.Pose], poseOnly.Slots.Select(slot => slot.SlotKind));
+        Assert.True(poseOnly.Slots.Single().Required);
+
+        var withCharacter = ImageStepBlueprintFactory.ForPoseLibraryTest(Becky);
+        Assert.Equal(
+            [ImageStepSlotKind.Face, ImageStepSlotKind.Body, ImageStepSlotKind.Wardrobe, ImageStepSlotKind.Pose],
+            withCharacter.Slots.Select(slot => slot.SlotKind));
+
+        // The face and build come from the character's APPROVED PACK - the same source the identity renders use - and
+        // are addressed to that character, because both are per-character slots.
+        foreach (var slotKind in new[] { ImageStepSlotKind.Face, ImageStepSlotKind.Body })
+        {
+            var slot = withCharacter.Slots.Single(candidate => candidate.SlotKind == slotKind);
+            Assert.Contains(ImageStepReferenceSourceKind.IdentityPackAsset, slot.AllowedSources);
+            Assert.Equal(Becky.ActorKey, slot.ActorKey);
+        }
+
+        // Only the pose is required: a character's face and build are the test's context, not its subject.
+        Assert.All(
+            withCharacter.Slots.Where(slot => slot.SlotKind != ImageStepSlotKind.Pose),
+            slot => Assert.False(slot.Required));
+    }
+
     /// <summary>Declaring no element text at all is valid: the step simply shows none.</summary>
     [Fact]
     public void LoraCell_WithoutElementText_DeclaresNone()

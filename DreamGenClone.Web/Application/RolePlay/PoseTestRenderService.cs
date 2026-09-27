@@ -50,7 +50,8 @@ public sealed record PoseTestModelChoice(
     string Mechanism,
     string MechanismLabel,
     bool CanCarryPose,
-    string Reason);
+    string Reason,
+    int MaxReferences = 0);
 
 public interface IPoseTestRenderService
 {
@@ -124,13 +125,17 @@ public sealed class PoseTestRenderService : IPoseTestRenderService
             // model is missing from the list" is not an explanation, and the reason is the actionable part.
             var resolution = await _referenceStrategies.ResolvePoseAsync(model.ModelId, cancellationToken);
             choices.Add(new PoseTestModelChoice(
-                model.ModelId,
-                model.DisplayName,
-                model.ProviderName,
-                resolution.Strategy,
-                MechanismLabelFor(resolution.Strategy),
-                resolution.IsAvailable,
-                resolution.Reason));
+                ModelId: model.ModelId,
+                DisplayName: model.DisplayName,
+                ProviderName: model.ProviderName,
+                Mechanism: resolution.Strategy,
+                MechanismLabel: MechanismLabelFor(resolution.Strategy),
+                CanCarryPose: resolution.IsAvailable,
+                Reason: resolution.Reason,
+                // The MODEL's own reference capacity, carried through so a step that offers face and build elements
+                // plans against the real budget instead of a number this page invented. It used to be 1 here, which
+                // is why adding a character broke the step the moment its face and build were bound.
+                MaxReferences: model.MaxReferences));
         }
 
         return choices

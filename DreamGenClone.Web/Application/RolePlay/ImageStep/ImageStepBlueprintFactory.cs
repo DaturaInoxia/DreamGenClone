@@ -114,17 +114,55 @@ public static class ImageStepBlueprintFactory
                 ? slot with { ElementText = text }
                 : slot;
 
-    /// <summary>The pose library's try-a-pose step. It has no persistence at all today, which is exactly why a render
-    /// made here could never become a reference for anything else.</summary>
-    public static ImageStepBlueprint ForPoseLibraryTest() => Build(new ImageStepBlueprint(
-        ImageStepKind.PoseRender,
-        "Test a library pose",
-        ImageStepSourceMode.None,
-        [
-            new ImageStepSlotBlueprint(ImageStepSlotKind.Pose, ImageStepSlotPrefill.CallerSupplied,
-                [ImageStepReferenceSourceKind.PoseLibrarySkeleton], Required: true)
-        ],
-        ImageStepPersistenceKind.Throwaway));
+    /// <summary>
+    /// The pose library's try-a-pose step. It has no persistence at all today, which is exactly why a render
+    /// made here could never become a reference for anything else.
+    /// </summary>
+    /// <param name="character">
+    /// The character the pose is tested ON, or null when the operator has picked none. This is what makes the step
+    /// re-form: with a character, the step declares its face and build elements too, because a character HAS them; with
+    /// none, it declares only the pose, because there is nothing else to say. A face or build slot on a step with no
+    /// character would be a control with nothing behind it.
+    /// </param>
+    /// <param name="elementText">The prose each element currently contributes, when the host declares one.</param>
+    public static ImageStepBlueprint ForPoseLibraryTest(
+        ImageStepActor? character = null,
+        IReadOnlyDictionary<ImageStepSlotKind, string>? elementText = null)
+    {
+        var slots = new List<ImageStepSlotBlueprint>();
+
+        // Face and build come from the character's APPROVED PACK, the same source the identity renders use, so what the
+        // test conditions on is what a real render would condition on.
+        ImageStepReferenceSourceKind[] packSources =
+            [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.IdentityPackAsset];
+
+        var actorKey = character is null ? null : RequireActor(character).ActorKey;
+        if (actorKey is not null)
+        {
+            slots.Add(WithElementText(new ImageStepSlotBlueprint(
+                ImageStepSlotKind.Face, ImageStepSlotPrefill.None, packSources, actorKey),
+                ImageStepSlotKind.Face, elementText));
+            slots.Add(WithElementText(new ImageStepSlotBlueprint(
+                ImageStepSlotKind.Body, ImageStepSlotPrefill.None, packSources, actorKey),
+                ImageStepSlotKind.Body, elementText));
+            slots.Add(WithElementText(new ImageStepSlotBlueprint(
+                ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None,
+                [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey),
+                ImageStepSlotKind.Wardrobe, elementText));
+        }
+
+        slots.Add(WithElementText(new ImageStepSlotBlueprint(
+            ImageStepSlotKind.Pose, ImageStepSlotPrefill.CallerSupplied,
+            [ImageStepReferenceSourceKind.PoseLibrarySkeleton], Required: true),
+            ImageStepSlotKind.Pose, elementText));
+
+        return Build(new ImageStepBlueprint(
+            ImageStepKind.PoseRender,
+            "Test a library pose",
+            ImageStepSourceMode.None,
+            slots,
+            ImageStepPersistenceKind.Throwaway));
+    }
 
     /// <summary>
     /// The asset creator: a standalone reference image, saved as an asset.
