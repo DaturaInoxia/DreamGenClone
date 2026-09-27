@@ -176,9 +176,17 @@ public sealed class BodyReferenceBriefFactory : IBodyReferenceBriefFactory
             // Required. Both target families need an explicit age token or they fall back to their own prior, and
             // that prior is consistently younger than the character.
             Age = Clean(attributes?.Age),
-            HairStyle = Clean(attributes?.HairStyle),
-            HairColour = Clean(attributes?.HairColour),
-            EyeColour = Clean(attributes?.EyeColour),
+
+            // The face descriptors come from the CARD first and the template second. The template is the starting
+            // point and the card is where the tweaks live, which is the same precedence the body already has
+            // (BodyShape and Axes are read off the card) - so reading the template alone silently ignored every face
+            // edit an operator made on the card. This is also the seam a face-from-text build reads (B-132).
+            HairStyle = Clean(card.Face.HairStyle) ?? Clean(attributes?.HairStyle),
+            HairColour = Clean(card.Face.HairColour) ?? Clean(attributes?.HairColour),
+            EyeColour = Clean(card.Face.EyeColour) ?? Clean(attributes?.EyeColour),
+
+            // Skin tone and texture stay template-owned: they are body-wide rather than face-specific, and the card
+            // keeps them on its single Skin line.
             SkinTone = Clean(attributes?.SkinTone),
             SkinTexture = Clean(attributes?.SkinTexture),
             Ethnicity = Clean(attributes?.Ethnicity),
