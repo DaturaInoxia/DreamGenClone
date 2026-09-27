@@ -73,7 +73,7 @@
                                 {
                                     <span class="badge text-bg-warning ms-1">required</span>
                                 }
-                                else if (tabBinding is not null)
+                                else if (IsSlotSupplied(slot))
                                 {
                                     <span class="badge text-bg-success ms-1">supplied</span>
                                 }
@@ -120,12 +120,19 @@
                                and the prompt no longer describes it (D4), which is what the strike-through states. *@
                             @if (!string.IsNullOrWhiteSpace(slot.ElementText))
                             {
-                                <div class="small mb-2 @(binding is null ? "text-muted" : "text-muted text-decoration-line-through")">
+                                <div class="small mb-2 @(IsSlotSupplied(slot) ? "text-muted text-decoration-line-through" : "text-muted")">
                                     @slot.ElementText
-                                    @if (binding is not null)
+                                    @if (IsSlotSupplied(slot))
                                     {
                                         <span class="text-success text-decoration-none ms-1">
-                                            &mdash; supplied by the reference image, so left out of the prompt
+                                            @if (binding is not null)
+                                            {
+                                                <text>&mdash; supplied by the reference image, so left out of the prompt</text>
+                                            }
+                                            else
+                                            {
+                                                <text>&mdash; supplied by the @slot.SuppliedBySlotKind reference image, so left out of the prompt</text>
+                                            }
                                         </span>
                                     }
                                 </div>
@@ -356,13 +363,25 @@
     /// one of the current slots, so the panel can never sit on a tab that no longer exists - and the first slot is the
     /// face on every host that has one, which is where an unanswered element is most often waiting.
     /// </summary>
-    private bool IsActiveSlot(string slotKey)
-        => string.Equals(
+    private bool IsActiveSlot(string slotKey)        => string.Equals(
             string.IsNullOrWhiteSpace(_activeSlotKey) || !Blueprint.Slots.Any(slot => SlotKey(slot) == _activeSlotKey)
                 ? (Blueprint.Slots.Count > 0 ? SlotKey(Blueprint.Slots[0]) : string.Empty)
                 : _activeSlotKey,
             slotKey,
             StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether this element's content arrives as a reference IMAGE rather than as text: either its own binding, or
+    /// another element's binding that carries it (<see cref="ImageStepSlotBlueprint.SuppliedBySlotKind"/> — the cell's
+    /// wardrobe, which the state-matched body reference already shows).
+    ///
+    /// Asked of the ONE omission source rather than re-derived, so the tab badge, the strike-through and the prompt's
+    /// own slot removal cannot disagree about what a reference supplies.
+    /// </summary>
+    private bool IsSlotSupplied(ImageStepSlotBlueprint slot)
+        => ImageStepPromptOmission.BoundSlotsFor(Blueprint, Bindings)
+            .Any(entry => entry.SlotKind == slot.SlotKind
+                && string.Equals(entry.ActorKey ?? string.Empty, slot.ActorKey ?? string.Empty, StringComparison.Ordinal));
 
     /// <summary>
     /// The signature of the bindings the host was last asked to compose against, and those bindings. Held HERE rather

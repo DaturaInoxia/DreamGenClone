@@ -479,19 +479,13 @@ else
             text[ImageStepSlotKind.Face] = _cellBodyTexts!.FaceText;
         }
 
-        // The WARDROBE element's text is the outfit the body REFERENCE carries, not a phrase composed here: the clothed
-        // body reference image is where the cell's garment actually comes from, so the step must show what that
-        // reference supplies. Resolved with the rest of the texts, so the two cannot disagree.
+        // The WARDROBE element's text is the outfit the body REFERENCE carries. The reference is state-matched, so a
+        // clothed cell's reference image IS the garment — which is why the cell's Wardrobe slot declares itself supplied
+        // by the Body slot and the prompt no longer describes an outfit at all. The text stays, struck through, so the
+        // operator can see what that reference supplies.
         if (!string.IsNullOrWhiteSpace(_cellBodyTexts?.WardrobeText))
         {
             text[ImageStepSlotKind.Wardrobe] = _cellBodyTexts!.WardrobeText;
-        }
-
-        // The POSE element's text is this cell's own pose phrase, so the operator can see what the render will ask for
-        // and what a bound skeleton replaces.
-        if (!string.IsNullOrWhiteSpace(SelectedPosePhrase))
-        {
-            text[ImageStepSlotKind.Pose] = SelectedPosePhrase;
         }
 
         return text;

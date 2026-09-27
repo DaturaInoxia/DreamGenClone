@@ -57,7 +57,21 @@ public static class ImageStepPromptOmission
         foreach (var slot in blueprint.Slots)
         {
             var binding = FindBinding(bindings, slot.SlotKind, slot.ActorKey);
-            if (binding is null || !binding.SuppliesImage)
+            if (binding is not null && binding.SuppliesImage)
+            {
+                bound.Add(new ImageStepSlotBinding(slot.SlotKind, slot.ActorKey));
+            }
+        }
+
+        // An element another element's reference carries (SuppliedBySlotKind) is reported here too, so that ONE source
+        // answers "what does a reference supply?" for the prompt's slot removal, the composer's strike-through and
+        // labels, and every host's own reasoning. Derived from the set already computed above, because the supplying
+        // slot's own binding is what makes it true - and read from the BLUEPRINT, so a host cannot forget it.
+        foreach (var slot in blueprint.Slots)
+        {
+            if (slot.SuppliedBySlotKind is not { } suppliedBy
+                || bound.Any(entry => entry.SlotKind == slot.SlotKind && entry.ActorKey == slot.ActorKey)
+                || !bound.Any(entry => entry.SlotKind == suppliedBy))
             {
                 continue;
             }

@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.ImageStep;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -92,6 +93,53 @@ public sealed class ImageStepBlueprintFactoryTests
         var blueprint = ImageStepBlueprintFactory.ForLoraCell(Becky);
 
         Assert.All(blueprint.Slots, slot => Assert.Null(slot.ElementText));
+    }
+
+    /// <summary>
+    /// The cell's wardrobe is SUPPLIED BY ITS BODY REFERENCE (2026-09-27). The reference is state-matched, so a clothed
+    /// cell's is a clothed full-body image and the garment is in it: describing an outfit as well made the prompt
+    /// contradict the image it was conditioned on. Declared as blueprint DATA, and reported through the one omission
+    /// source, so the composer's badge, the strike-through and the prompt's slot removal all agree.
+    /// </summary>
+    [Fact]
+    public void LoraCell_DeclaresItsWardrobeSuppliedByTheBodyReference()
+    {
+        var blueprint = ImageStepBlueprintFactory.ForLoraCell(Becky);
+
+        var wardrobe = blueprint.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Wardrobe);
+        Assert.Equal(ImageStepSlotKind.Body, wardrobe.SuppliedBySlotKind);
+
+        // Nothing else claims to be carried by another element's reference.
+        Assert.All(
+            blueprint.Slots.Where(slot => slot.SlotKind != ImageStepSlotKind.Wardrobe),
+            slot => Assert.Null(slot.SuppliedBySlotKind));
+    }
+
+    /// <summary>
+    /// A bound body reference reports the wardrobe as supplied as well, and NOT before: an unbound body supplies
+    /// nothing, so the outfit must still be described.
+    /// </summary>
+    [Fact]
+    public void LoraCell_WardrobeIsSuppliedOnlyOnceTheBodyReferenceIsBound()
+    {
+        var blueprint = ImageStepBlueprintFactory.ForLoraCell(Becky);
+
+        Assert.DoesNotContain(
+            ImageStepPromptOmission.BoundSlotsFor(blueprint, []),
+            entry => entry.SlotKind == ImageStepSlotKind.Wardrobe);
+
+        var bodyBound = new ReferenceApplicationSelection
+        {
+            Kind = ImageStepSlotKind.Body.ToString(),
+            ActorKey = Becky.ActorKey,
+            Source = ImageStepReferenceSourceKind.IdentityPackAsset.ToString(),
+            ReferenceAssetId = "pack-body-front",
+            IdentityPackId = "pack-1"
+        };
+
+        var supplied = ImageStepPromptOmission.BoundSlotsFor(blueprint, [bodyBound]);
+        Assert.Contains(supplied, entry => entry.SlotKind == ImageStepSlotKind.Body);
+        Assert.Contains(supplied, entry => entry.SlotKind == ImageStepSlotKind.Wardrobe);
     }
 
     public static TheoryData<ImageStepBlueprint> AllBlueprints()

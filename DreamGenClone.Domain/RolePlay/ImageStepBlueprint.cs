@@ -190,6 +190,22 @@ public sealed record ImageStepSlotBlueprint(
     /// </remarks>
     public string? ElementText { get; init; }
 
+    /// <summary>
+    /// When this slot holds a binding, the element is supplied by THAT slot's reference image rather than by any text
+    /// of its own — so it is left out of the prompt and shown as supplied, exactly as if this slot were bound.
+    /// </summary>
+    /// <remarks>
+    /// The LoRA cell is why this exists (2026-09-27). A cell's body reference is always STATE-MATCHED, so a clothed
+    /// cell's reference is a clothed full-body image: the garment is IN that image. The prompt was nonetheless also
+    /// told to wear the coverage plan's outfit phrase ("wearing a plain t-shirt and jeans"), which the reference then
+    /// contradicted — and the wardrobe had no reference of its own, so nothing could express the overlap.
+    ///
+    /// Declared as DATA rather than decided in the composer, the same way requiredness is: whether one reference image
+    /// carries another element is a fact about the host's pipeline, and a component that guessed it would be wrong on
+    /// the next host. Null means the ordinary rule — the slot is supplied only by its own binding.
+    /// </remarks>
+    public ImageStepSlotKind? SuppliedBySlotKind { get; init; }
+
     public void Validate()
     {
         if (AllowedSources is null || AllowedSources.Count == 0)
