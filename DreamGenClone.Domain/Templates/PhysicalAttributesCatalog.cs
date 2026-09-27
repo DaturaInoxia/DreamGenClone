@@ -53,6 +53,98 @@ public static class PhysicalAttributesCatalog
         "Amber",
     ];
 
+    // ── Face ────────────────────────────────────────────────────────────────
+    // Presets for the face block. These are what a model reads when it has to build a face from WORDS, so the
+    // phrasing is the contract: each value has to be a descriptor the model can draw, not a category label.
+
+    public static readonly string[] FaceShapes =
+    [
+        "Oval",
+        "Round",
+        "Square",
+        "Heart-Shaped",
+        "Long",
+        "Diamond",
+        "Rectangular",
+    ];
+
+    public static readonly string[] EyeShapes =
+    [
+        "Almond",
+        "Round",
+        "Hooded",
+        "Upturned",
+        "Downturned",
+        "Wide-Set",
+        "Close-Set",
+        "Monolid",
+    ];
+
+    public static readonly string[] EyebrowShapes =
+    [
+        "Soft Arch",
+        "Straight",
+        "High Arch",
+        "Thick",
+        "Thin",
+        "Bushy",
+        "Groomed",
+    ];
+
+    public static readonly string[] NoseShapes =
+    [
+        "Small and Straight",
+        "Button",
+        "Aquiline",
+        "Wide-Nostrilled",
+        "Upturned",
+        "Roman",
+        "Broad",
+    ];
+
+    public static readonly string[] LipsShapes =
+    [
+        "Thin",
+        "Full",
+        "Bow-Shaped",
+        "Wide",
+        "Small",
+        "Pouty",
+        "Cupid's Bow",
+    ];
+
+    public static readonly string[] Jawlines =
+    [
+        "Soft and Rounded",
+        "Defined",
+        "Square",
+        "Narrow",
+        "Strong Jaw with a Cleft Chin",
+    ];
+
+    public static readonly string[] FacialHairOptions =
+    [
+        "Clean-Shaven",
+        "Five O'Clock Shadow",
+        "Stubble",
+        "Moustache",
+        "Goatee",
+        "Short Trimmed Beard",
+        "Full Beard",
+    ];
+
+    public static readonly string[] FacePiercingOptions =
+    [
+        "None",
+        "Nose Stud",
+        "Nose Ring",
+        "Septum Ring",
+        "Tongue Ring",
+        "Eyebrow Ring",
+        "Lip Ring",
+        "Multiple Face Piercings",
+    ];
+
     public static readonly string[] SkinTones =
     [
         "Fair",

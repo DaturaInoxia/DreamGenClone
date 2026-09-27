@@ -20,6 +20,43 @@ public sealed class PhysicalAttributes
     public string? SkinTone { get; set; }
     public string? SkinTexture { get; set; }
 
+    // ── Face ────────────────────────────────────────────────────────────────
+    // What a text-to-image model actually reads when it has to build a face from WORDS instead of from a reference
+    // photograph. Without these a face could only be copied from a pack image, never described; with them a new
+    // character can be given a face before any reference exists. Every field is optional and renders only when set -
+    // no defaulting, and blank is not "average", it is "not decided".
+
+    /// <summary>Skeletal face outline ("oval", "heart-shaped", "square-jawed").</summary>
+    public string? FaceShape { get; set; }
+
+    /// <summary>Eye aperture and set, independent of <see cref="EyeColour"/> ("almond", "hooded", "wide-set").</summary>
+    public string? EyeShape { get; set; }
+
+    /// <summary>Brow shape and weight ("soft arch", "straight and thick"). High signal on a face, low token cost.</summary>
+    public string? Eyebrows { get; set; }
+
+    /// <summary>Nose form ("small and straight", "aquiline", "wide-nostrilled").</summary>
+    public string? NoseShape { get; set; }
+
+    /// <summary>Lip volume and shape ("full", "thin", "bow-shaped upper lip").</summary>
+    public string? LipsShape { get; set; }
+
+    /// <summary>Jaw and chin definition ("soft and rounded", "defined", "square jaw with a cleft chin").</summary>
+    public string? Jawline { get; set; }
+
+    /// <summary>
+    /// Facial hair, gender-conditional in the editor like the male intimate block. Distinct from the card's body-wide
+    /// <see cref="BodyHair"/>, which is chest/stomach/arms/legs and must never be used for a beard.
+    /// </summary>
+    public string? FacialHair { get; set; }
+
+    /// <summary>
+    /// Piercings worn ON THE FACE (nose stud, septum, tongue, eyebrow, lip). Distinct from the generic
+    /// <see cref="Piercings"/>, which covers body jewellery: a tongue ring is a face feature and has to be able to
+    /// travel with the face element when the face is described or replaced on its own.
+    /// </summary>
+    public string? FacePiercings { get; set; }
+
     // ── Body axes ───────────────────────────────────────────────────────────
     // One value per axis, each independent of the others. These replace the single `BodyType` field, which mixed
     // frame, fat and muscle into one list, so selecting two of its values was a contradiction rather than more
@@ -128,6 +165,14 @@ public sealed class PhysicalAttributes
         EyeColour = EyeColour,
         SkinTone = SkinTone,
         SkinTexture = SkinTexture,
+        FaceShape = FaceShape,
+        EyeShape = EyeShape,
+        Eyebrows = Eyebrows,
+        NoseShape = NoseShape,
+        LipsShape = LipsShape,
+        Jawline = Jawline,
+        FacialHair = FacialHair,
+        FacePiercings = FacePiercings,
         BodyBuild = BodyBuild,
         Silhouette = Silhouette,
         Adiposity = Adiposity,

@@ -139,6 +139,168 @@
             }
         </div>
     </div>
+    @* The face block. This is what a model reads when it has to build a face from WORDS instead of from a reference
+       photograph, which is what lets a character have a face before any pack image exists. Only filled fields are
+       sent; blank is "not decided", never "average". *@
+    <div class="pa-group-header">Face &mdash; read when a face is built from text rather than from a reference image</div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <label class="form-label small">Face Shape</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.FaceShape, PhysicalAttributesCatalog.FaceShapes)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.FaceShapes, a => a.FaceShape = e.Value?.ToString(), v => _faceShapeCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.FaceShapes)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.FaceShape, PhysicalAttributesCatalog.FaceShapes))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.FaceShape"
+                       @onchange="@(e => SetField(a => a.FaceShape = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Eye Shape</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.EyeShape, PhysicalAttributesCatalog.EyeShapes)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.EyeShapes, a => a.EyeShape = e.Value?.ToString(), v => _eyeShapeCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.EyeShapes)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.EyeShape, PhysicalAttributesCatalog.EyeShapes))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.EyeShape"
+                       @onchange="@(e => SetField(a => a.EyeShape = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Eyebrows</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.Eyebrows, PhysicalAttributesCatalog.EyebrowShapes)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.EyebrowShapes, a => a.Eyebrows = e.Value?.ToString(), v => _eyebrowsCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.EyebrowShapes)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.Eyebrows, PhysicalAttributesCatalog.EyebrowShapes))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.Eyebrows"
+                       @onchange="@(e => SetField(a => a.Eyebrows = e.Value?.ToString()))" />
+            }
+        </div>
+    </div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <label class="form-label small">Nose</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.NoseShape, PhysicalAttributesCatalog.NoseShapes)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.NoseShapes, a => a.NoseShape = e.Value?.ToString(), v => _noseShapeCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.NoseShapes)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.NoseShape, PhysicalAttributesCatalog.NoseShapes))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.NoseShape"
+                       @onchange="@(e => SetField(a => a.NoseShape = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Lips</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.LipsShape, PhysicalAttributesCatalog.LipsShapes)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.LipsShapes, a => a.LipsShape = e.Value?.ToString(), v => _lipsShapeCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.LipsShapes)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.LipsShape, PhysicalAttributesCatalog.LipsShapes))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.LipsShape"
+                       @onchange="@(e => SetField(a => a.LipsShape = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Jawline</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.Jawline, PhysicalAttributesCatalog.Jawlines)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.Jawlines, a => a.Jawline = e.Value?.ToString(), v => _jawlineCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.Jawlines)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.Jawline, PhysicalAttributesCatalog.Jawlines))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.Jawline"
+                       @onchange="@(e => SetField(a => a.Jawline = e.Value?.ToString()))" />
+            }
+        </div>
+    </div>
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <label class="form-label small">Facial Hair</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.FacialHair, PhysicalAttributesCatalog.FacialHairOptions)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.FacialHairOptions, a => a.FacialHair = e.Value?.ToString(), v => _facialHairCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.FacialHairOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.FacialHair, PhysicalAttributesCatalog.FacialHairOptions))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.FacialHair"
+                       @onchange="@(e => SetField(a => a.FacialHair = e.Value?.ToString()))" />
+            }
+        </div>
+        <div class="col-md-4">
+            <label class="form-label small">Face Piercings</label>
+            <select class="form-select form-select-sm"
+                    value="@GetSelectValue(Attributes?.FacePiercings, PhysicalAttributesCatalog.FacePiercingOptions)"
+                    @onchange="@(e => OnPresetChanged(e, PhysicalAttributesCatalog.FacePiercingOptions, a => a.FacePiercings = e.Value?.ToString(), v => _facePiercingsCustom = v))">
+                <option value="">(none)</option>
+                @foreach (var opt in PhysicalAttributesCatalog.FacePiercingOptions)
+                {
+                    <option value="@opt">@opt</option>
+                }
+                <option value="__custom__">(Custom...)</option>
+            </select>
+            @if (IsCustom(Attributes?.FacePiercings, PhysicalAttributesCatalog.FacePiercingOptions))
+            {
+                <input type="text" class="form-control form-control-sm mt-1"
+                       value="@Attributes?.FacePiercings"
+                       @onchange="@(e => SetField(a => a.FacePiercings = e.Value?.ToString()))" />
+            }
+        </div>
+    </div>
 
     @* ── Group: Body (the axes) ── *@
     @* One value per axis. These replace the old single "Body Type" list, which mixed frame, fat and muscle so two
@@ -687,6 +849,14 @@
     private string? _eyeColourCustom;
     private string? _skinToneCustom;
     private string? _skinTextureCustom;
+    private string? _faceShapeCustom;
+    private string? _eyeShapeCustom;
+    private string? _eyebrowsCustom;
+    private string? _noseShapeCustom;
+    private string? _lipsShapeCustom;
+    private string? _jawlineCustom;
+    private string? _facialHairCustom;
+    private string? _facePiercingsCustom;
     private string? _ethnicityCustom;
     private string? _bustCustom;
     private string? _waistCustom;
