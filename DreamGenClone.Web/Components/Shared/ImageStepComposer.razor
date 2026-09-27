@@ -55,97 +55,131 @@
                     <strong class="small">References</strong>
                     <span class="small text-muted">Order sets placement - the first reference anchors the frame.</span>
                 </div>
-                @foreach (var slot in Blueprint.Slots)
-                {
-                    var key = SlotKey(slot);
-                    var binding = BindingFor(slot);
-                    <div class="border rounded p-2 mb-2">
-                        <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
-                            <span>
-                                <strong class="small">@slot.SlotKind</strong>
-                                @if (!string.IsNullOrWhiteSpace(slot.ActorKey))
-                                {
-                                    <span class="small text-muted">· @slot.ActorKey</span>
-                                }
-                                @if (slot.Required)
+
+                @* One TAB per element. The elements are independent decisions - a face, a build, an outfit, a pose - and
+                   stacking them made the operator scroll past three answered ones to reach the one they came for. The
+                   tab labels carry the state (required and unbound, or bound) so the work still shows without opening
+                   each tab. *@
+                <ul class="nav nav-tabs">
+                    @foreach (var slot in Blueprint.Slots)
+                    {
+                        var tabKey = SlotKey(slot);
+                        var tabBinding = BindingFor(slot);
+                        <li class="nav-item">
+                            <button type="button" class="nav-link @(IsActiveSlot(tabKey) ? "active" : null)"
+                                    @onclick="() => _activeSlotKey = tabKey">
+                                @slot.SlotKind
+                                @if (slot.Required && tabBinding is null)
                                 {
                                     <span class="badge text-bg-warning ms-1">required</span>
                                 }
-                            </span>
-                            @if (binding is not null)
-                            {
-                                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@Busy"
-                                        @onclick="() => ClearSlotAsync(slot)">
-                                    Clear
-                                </button>
-                            }
-                        </div>
+                                else if (tabBinding is not null)
+                                {
+                                    <span class="badge text-bg-success ms-1">supplied</span>
+                                }
+                            </button>
+                        </li>
+                    }
+                </ul>
 
-                        @* The element's own text, in the element's own card, so "what does this element actually
-                           say?" is answerable on screen instead of only inside the composed prompt - and so the
-                           replacement is visible: once a reference image supplies the element, the image carries it
-                           and the prompt no longer describes it (D4), which is what the strike-through states. *@
-                        @if (!string.IsNullOrWhiteSpace(slot.ElementText))
+                <div class="border border-top-0 rounded-bottom p-2">
+                    @foreach (var slot in Blueprint.Slots)
+                    {
+                        var key = SlotKey(slot);
+                        var binding = BindingFor(slot);
+                        if (!IsActiveSlot(key))
                         {
-                            <div class="small mb-2 @(binding is null ? "text-muted" : "text-muted text-decoration-line-through")">
-                                @slot.ElementText
+                            continue;
+                        }
+
+                        <div>
+                            <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
+                                <span>
+                                    <strong class="small">@slot.SlotKind</strong>
+                                    @if (!string.IsNullOrWhiteSpace(slot.ActorKey))
+                                    {
+                                        <span class="small text-muted">· @slot.ActorKey</span>
+                                    }
+                                    @if (slot.Required)
+                                    {
+                                        <span class="badge text-bg-warning ms-1">required</span>
+                                    }
+                                </span>
                                 @if (binding is not null)
                                 {
-                                    <span class="text-success text-decoration-none ms-1">
-                                        &mdash; supplied by the reference image, so left out of the prompt
-                                    </span>
-                                }
-                            </div>
-                        }
-
-                        @if (binding is null)
-                        {
-                            <div class="d-flex flex-wrap align-items-center gap-2">
-                                @if (OffersSkeleton(slot))
-                                {
-                                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@Busy"
-                                            @onclick="() => OpenPosePicker(slot)">
-                                        <i class="bi bi-grid-3x3-gap me-1"></i>Choose a skeleton
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@Busy"
+                                            @onclick="() => ClearSlotAsync(slot)">
+                                        Clear
                                     </button>
                                 }
-                                @if (OffersApprovedAsset(slot))
-                                {
-                                    <div style="min-width: 260px;">
-                                        <ReferencePicker AssetType="@AssetTypeFor(slot.SlotKind)"
-                                                         CharacterProfileId="@slot.ActorKey"
-                                                         SelectedAssetImageId="null"
-                                                         SelectedAssetChanged="choice => SetAssetAsync(slot, choice)" />
-                                    </div>
-                                }
-                                @if (OffersIdentityPack(slot))
-                                {
-                                    <div style="min-width: 300px;">
-                                        <IdentityPackPicker SlotKind="@slot.SlotKind"
-                                                            ActorKey="@slot.ActorKey"
-                                                            Busy="@Busy"
-                                                            OnSelected="choice => SetPackAssetAsync(slot, choice)" />
-                                    </div>
-                                }
-                                <span class="form-text">Pre-fill only - binding one is optional unless marked required.</span>
                             </div>
-                        }
-                        else
-                        {
-                            <div class="row g-2 align-items-end">
-                                <div class="col-md-6">
-                                    <div class="small text-break">@DescribeBinding(binding)</div>
+
+                            @* The element's own text, in the element's own tab, so "what does this element actually
+                               say?" is answerable on screen instead of only inside the composed prompt - and so the
+                               replacement is visible: once a reference image supplies the element, the image carries it
+                               and the prompt no longer describes it (D4), which is what the strike-through states. *@
+                            @if (!string.IsNullOrWhiteSpace(slot.ElementText))
+                            {
+                                <div class="small mb-2 @(binding is null ? "text-muted" : "text-muted text-decoration-line-through")">
+                                    @slot.ElementText
+                                    @if (binding is not null)
+                                    {
+                                        <span class="text-success text-decoration-none ms-1">
+                                            &mdash; supplied by the reference image, so left out of the prompt
+                                        </span>
+                                    }
                                 </div>
-                                <div class="col-md-6">
-                                    <label class="form-label small mb-1">Strategy</label>
-                                    <StrategySelector ModelId="@SelectedModelId"
-                                                      Strategies="StrategiesFor(slot.SlotKind, binding)"
-                                                      SelectedStrategy="@binding.Strategy"
-                                                      SelectedStrategyChanged="strategy => SetStrategyAsync(slot, strategy)" />
+                            }
+
+                            @if (binding is null)
+                            {
+                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                    @if (OffersSkeleton(slot))
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@Busy"
+                                                @onclick="() => OpenPosePicker(slot)">
+                                            <i class="bi bi-grid-3x3-gap me-1"></i>Choose a skeleton
+                                        </button>
+                                    }
+                                    @if (OffersApprovedAsset(slot))
+                                    {
+                                        <div style="min-width: 260px;">
+                                            <ReferencePicker AssetType="@AssetTypeFor(slot.SlotKind)"
+                                                             CharacterProfileId="@slot.ActorKey"
+                                                             SelectedAssetImageId="null"
+                                                             SelectedAssetChanged="choice => SetAssetAsync(slot, choice)" />
+                                        </div>
+                                    }
+                                    @if (OffersIdentityPack(slot))
+                                    {
+                                        <div style="min-width: 300px;">
+                                            <IdentityPackPicker SlotKind="@slot.SlotKind"
+                                                                ActorKey="@slot.ActorKey"
+                                                                Busy="@Busy"
+                                                                OnSelected="choice => SetPackAssetAsync(slot, choice)" />
+                                        </div>
+                                    }
+                                    <span class="form-text">Pre-fill only - binding one is optional unless marked required.</span>
                                 </div>
-                            </div>
-                        }
-                    </div>
-                }
+                            }
+                            else
+                            {
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-6">
+                                        <div class="small text-break">@DescribeBinding(binding)</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small mb-1">Strategy</label>
+                                        <StrategySelector ModelId="@SelectedModelId"
+                                                          Strategies="StrategiesFor(slot.SlotKind, binding)"
+                                                          SelectedStrategy="@binding.Strategy"
+                                                          SelectedStrategyChanged="strategy => SetStrategyAsync(slot, strategy)" />
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
             </div>
         }
         else
@@ -310,6 +344,25 @@
     public bool ShowPrompt { get; set; } = true;
 
     private ImageStepSlotBlueprint? _posePickerSlot;
+
+    /// <summary>
+    /// Which element's tab is showing, by slot key. Held as the KEY rather than an index, because a model change or a
+    /// blueprint change rebuilds the slot list and an index would then point at a different element.
+    /// </summary>
+    private string? _activeSlotKey;
+
+    /// <summary>
+    /// Whether <paramref name="slotKey"/> is the tab to show. Falls back to the FIRST slot whenever the held key is not
+    /// one of the current slots, so the panel can never sit on a tab that no longer exists - and the first slot is the
+    /// face on every host that has one, which is where an unanswered element is most often waiting.
+    /// </summary>
+    private bool IsActiveSlot(string slotKey)
+        => string.Equals(
+            string.IsNullOrWhiteSpace(_activeSlotKey) || !Blueprint.Slots.Any(slot => SlotKey(slot) == _activeSlotKey)
+                ? (Blueprint.Slots.Count > 0 ? SlotKey(Blueprint.Slots[0]) : string.Empty)
+                : _activeSlotKey,
+            slotKey,
+            StringComparison.Ordinal);
 
     /// <summary>
     /// The signature of the bindings the host was last asked to compose against, and those bindings. Held HERE rather

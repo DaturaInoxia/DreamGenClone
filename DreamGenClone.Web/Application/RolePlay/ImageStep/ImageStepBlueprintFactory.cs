@@ -81,7 +81,17 @@ public static class ImageStepBlueprintFactory
                     faceAndBodySources, actorKey, Required: true), ImageStepSlotKind.Body, elementText),
                 // Wardrobe is NOT required: the render does not demand it, so the step must not either.
                 WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.RecordRule,
-                    [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey), ImageStepSlotKind.Wardrobe, elementText)
+                    [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey), ImageStepSlotKind.Wardrobe, elementText),
+                // The POSE is bindable here for the same reason the production studio offers it (2026-09-27): a library
+                // skeleton pins the stance the render is conditioned on, so the pose stops being words the model is free
+                // to reinterpret. NOT required — the cell's pose phrase already describes it, and a skeleton is an option
+                // rather than an obligation. CallerSupplied, because the operator picks the pose; the cell's coverage
+                // rule fixes the CLASS, not the skeleton, and no pre-fill rule can name one.
+                //
+                // Deliberately NO actor key, mirroring ForProductionStudio: a pose is not a person's property, and an
+                // actor key here would re-scope the element's prompt address to a named character.
+                WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Pose, ImageStepSlotPrefill.CallerSupplied,
+                    [ImageStepReferenceSourceKind.PoseLibrarySkeleton]), ImageStepSlotKind.Pose, elementText)
             ],
             ImageStepPersistenceKind.LoraCellAttempt,
             // No batch, by operator rule: the training set is judged frame by frame, and a sweep is how a set of

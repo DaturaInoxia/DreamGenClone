@@ -183,7 +183,8 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
             brief.FaceText.Trim(),
             brief.BodyText.Trim(),
             BodyReferencePromptCompiler.ComposeViewBodyText(brief),
-            BodyReferencePromptCompiler.ComposeViewBodyText(brief, includeFace: false));
+            BodyReferencePromptCompiler.ComposeViewBodyText(brief, includeFace: false),
+            brief.Clothing?.Trim() ?? string.Empty);
     }
 
     /// <summary>
@@ -221,7 +222,8 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
             BodyReferencePromptCompiler.ComposeFaceText(brief),
             BodyReferencePromptCompiler.ComposeBodyText(brief),
             BodyReferencePromptCompiler.ComposeFullDescription(brief),
-            BodyReferencePromptCompiler.ComposeFullDescription(brief, includeFace: false));
+            BodyReferencePromptCompiler.ComposeFullDescription(brief, includeFace: false),
+            brief.Clothing?.Trim() ?? string.Empty);
     }
 
     public async Task<CharacterBodyCard> SaveBodyCardAsync(

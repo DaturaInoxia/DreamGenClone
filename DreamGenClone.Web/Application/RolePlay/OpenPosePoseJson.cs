@@ -71,6 +71,12 @@ public static class OpenPosePoseJson
     /// <summary>Index of the left shoulder.</summary>
     public const int LeftShoulderIndex = 5;
 
+    /// <summary>Index of the right wrist — the joint the right hand hangs from.</summary>
+    public const int RightWristIndex = 4;
+
+    /// <summary>Index of the left wrist — the joint the left hand hangs from.</summary>
+    public const int LeftWristIndex = 7;
+
     public static PosePerson Parse(string json, string what)
     {
         if (string.IsNullOrWhiteSpace(json))

@@ -10,12 +10,17 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// <paramref name="SubjectWithoutFace"/> are the whole-person description a prompt's subject slot takes: a cell with no
 /// face reference takes the first, and a cell whose face reference image is BOUND takes the second, because a model
 /// shown a face must not also be told in words what that face looks like.
+///
+/// <paramref name="WardrobeText"/> is the outfit the body REFERENCE image carries. It is the wardrobe element's text
+/// because the clothed body reference is where the cell's garment actually comes from — so the step shows what the
+/// reference supplies rather than a phrase composed separately from it.
 /// </summary>
 public sealed record CharacterBodyTexts(
     string FaceText,
     string BodyText,
     string SubjectWithFace,
-    string SubjectWithoutFace);
+    string SubjectWithoutFace,
+    string WardrobeText);
 
 /// <summary>
 /// The body target's acquisition surface (B-122 Phase 0). One request produces exactly one image: a base in a

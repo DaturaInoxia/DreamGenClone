@@ -334,6 +334,13 @@
     private PosePreset? _loadedFrom;
     private string? _fitSummary;
 
+    /// <summary>
+    /// The loaded library pose's OWN keypoints, read once when the host hands it over. Held so the rig can supply the
+    /// turn while this stays the pose: the hands, the face and the proportions are here and nowhere else, because the
+    /// rig is body-only.
+    /// </summary>
+    private PosePerson? _storedPose;
+
     /// <summary>The projected pose the drag editor starts from. Rebuilt whenever the view or head changes, which is
     /// what the editor treats as "a new starting pose".</summary>
     private PosePerson _editorStart = new() { Body = [] };
@@ -443,6 +450,11 @@
         _adoptedPresetId = LoadedFrom.Id;
         _loadedFrom = LoadedFrom;
         _rotations = Loaded.Rotations;
+
+        // Read here and NOT in a try/catch: a pose whose keypoints cannot be read cannot be turned, and the host page
+        // parses the same JSON before handing it over, so this failing means something is genuinely wrong. Failing
+        // loudly beats silently falling back to the rig's approximation of a pose nobody can read.
+        _storedPose = OpenPosePoseJson.Parse(LoadedFrom.KeypointsJson, LoadedFrom.Name);
         _view = Loaded.View;
         _head = new PoseHeadRotation();
         _adoptedView = _view;
@@ -471,6 +483,7 @@
     {
         _rotations = null;
         _loadedFrom = null;
+        _storedPose = null;
         _fitSummary = null;
         _adoptedPresetId = null;
         _adoptedView = null;
@@ -511,51 +524,46 @@
         await RefreshPreviewAsync();
     }
 
+    /// <summary>
+    /// The pose ON SCREEN, from ONE place, because three consumers must never disagree about it: the preview, the pose
+    /// the drag editor starts from, and the skeleton a test render sends. They used to be three separate calls, and the
+    /// consequence was a test render that could send something the operator had not been shown.
+    ///
+    /// A loaded library pose goes through the rig's TURN rather than the rig's shape, so it keeps its hands, its face
+    /// and its proportions while gaining the turn.
+    /// </summary>
+    private PosePerson CurrentPose()
+    {
+        if (_storedPose is { } stored && _adoptedView is { } fittedView && _rotations is { } rotations)
+        {
+            return LibraryService.ProjectLoadedPose(stored, fittedView, _view, rotations, _head);
+        }
+
+        return LibraryService.ProjectAuthoredPose(_view, _head, _rotations);
+    }
+
     private Task RefreshPreviewAsync()
     {
         _error = null;
 
-        // While a library pose is UNTOUCHED, the preview AND the drag editor start from THE POSE ITSELF — the same
-        // artifact the library card renders. Projecting the fitted rig instead was wrong twice over: the fit only
-        // approximates the pose's view, and the rig has no hands at all, so a freshly opened pack pose previewed and
-        // was dragged as a smaller, handless figure that was not the pose the operator had just clicked. The pose is
-        // handed over whole, so its hands and any face channel survive until something is actually edited.
-        if (_loadedFrom is { } preset
-            && !PoseEdited()
-            && LibraryService.SkeletonUrl(preset) is { } storedUrl
-            && TryReadStoredPose(preset, out var stored))
+        // Rebuilt whenever the view or head changes, which is what tells the drag editor that a new starting pose
+        // exists. At the fitted view this IS the loaded pose — the rig's motion is zero there by construction — so an
+        // untouched library pose is handed to the editor as the pose the operator picked, hands and all.
+        _editorStart = CurrentPose();
+
+        // While the pose is untouched the preview is THE POSE ITSELF: the same artifact the library card renders, so
+        // "Open in editor" shows what the operator clicked. It becomes the drawn pose on the first edit, and by then
+        // the two agree about the figure — the same keypoints, the same hands — so a 5° press reads as a 5° turn.
+        if (_loadedFrom is { } preset && !PoseEdited() && LibraryService.SkeletonUrl(preset) is { } storedUrl)
         {
             _previewUrl = storedUrl;
-            _editorStart = stored;
             return Task.CompletedTask;
         }
 
         _previewUrl = "data:image/png;base64," + Convert.ToBase64String(
-            LibraryService.RenderAuthoredPreview(_view, _head, PreviewCanvas, _rotations));
+            PoseSkeletonRenderer.RenderPng(_editorStart, PreviewCanvas));
 
-        // The drag editor starts from the pose the view and head describe, so it has to be rebuilt whenever they
-        // change — that is exactly what tells the editor a new starting pose exists.
-        _editorStart = LibraryService.ProjectAuthoredPose(_view, _head, _rotations);
         return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// A library pose's own keypoints, hands and face included, or false when it has none that can be read. A pose with
-    /// no readable keypoints is not an error here: the rig projection is still a valid thing to start from, and the
-    /// pose's own text is reported by the caller that parses it.
-    /// </summary>
-    private static bool TryReadStoredPose(PosePreset preset, out PosePerson person)
-    {
-        try
-        {
-            person = OpenPosePoseJson.Parse(preset.KeypointsJson, preset.Name);
-            return true;
-        }
-        catch (Exception)
-        {
-            person = new PosePerson { Body = [] };
-            return false;
-        }
     }
 
     /// <summary>Raised by a nested tool (the drag editor) so the host refreshes exactly as a rig save does.</summary>
@@ -669,11 +677,11 @@
             }
             else
             {
-                skeleton = LibraryService.RenderAuthoredPreview(
-                    _view, _head, StudioOptions.Value.RequireCanvas(), _rotations);
+                skeleton = PoseSkeletonRenderer.RenderPng(
+                    CurrentPose(), StudioOptions.Value.RequireCanvas());
                 sent = _loadedFrom is null
                     ? "the rig projection of the pose on screen"
-                    : $"the rig projection of '{_loadedFrom.Name}' as edited here, NOT the library's own skeleton";
+                    : $"'{_loadedFrom.Name}' with the rig's turn applied to its own keypoints, so its hands are kept";
             }
 
             var result = await PoseTestRender.RenderAsync(new PoseTestRenderRequest(
