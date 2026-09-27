@@ -2011,6 +2011,25 @@
     }
 
     /// <summary>
+    /// Offers the template's FACE picks as the card's start point, on the same terms as the axes: only when the card
+    /// states no face of its own, because the operator's decision always wins (B-132).
+    /// <para>
+    /// This is the step that made the face text appear at all. The template already carries hair, eyes and skin for an
+    /// existing character, but the card's face block is new and therefore empty on every card that existed before it -
+    /// so without seeding, a character whose template describes her face perfectly still rendered with no face text.
+    /// </para>
+    /// </summary>
+    private void TrySeedFaceFromPrefill()
+    {
+        if (_bodyCard is null || _prefill?.Face is null || !_bodyCard.Face.IsEmpty)
+        {
+            return;
+        }
+
+        _bodyCard.Face = _prefill.Face;
+    }
+
+    /// <summary>
     /// One body-part picker: its label, its layout width, the catalog it picks from, and how to read and write the
     /// axis on the card. Declared once so the pickers are generated from a list rather than hand-copied — ten copied
     /// blocks is how a picker gets left behind when an axis is added.
@@ -2200,6 +2219,7 @@
         {
             _prefill = await produce();
             TrySeedAxesFromPrefill();
+            TrySeedFaceFromPrefill();
             _prefillMessage = _prefill.IsEmpty
                 ? $"Nothing could be proposed from {source}."
                 : $"Proposed {_prefill.Proposals.Count} field(s) from {source}. Apply the ones you want — nothing is saved yet.";
