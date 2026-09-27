@@ -766,6 +766,129 @@
                                 </datalist>
                             </div>
                         </div>
+                        @* Face (B-132). Optional detail, so it carries no [DECIDE] badge and never gates the card: a card
+                           with no face stated still renders, it just does not describe the face. Prefilled from the
+                           character template, and editable here because a character tweaks what the template states.
+                           Pick-or-type, like the body fields, so a preset cannot be mistyped. *@
+                        <div class="border-top mt-3 pt-2">
+                            <span class="fw-semibold small">Face</span>
+                            <span class="text-muted small ms-2">
+                                Read when a face is built from text instead of from a reference image. Optional &mdash;
+                                an unstated face is left out, not invented.
+                            </span>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Face shape</label>
+                                <input class="form-control form-control-sm" list="body-card-face-shape-options" @bind="_bodyCard.Face.FaceShape" />
+                                <datalist id="body-card-face-shape-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.FaceShapes)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Hair style</label>
+                                <input class="form-control form-control-sm" list="body-card-hair-style-options" @bind="_bodyCard.Face.HairStyle" />
+                                <datalist id="body-card-hair-style-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.HairStyles)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Hair colour</label>
+                                <input class="form-control form-control-sm" list="body-card-hair-colour-options" @bind="_bodyCard.Face.HairColour" />
+                                <datalist id="body-card-hair-colour-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.HairColours)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Eye shape</label>
+                                <input class="form-control form-control-sm" list="body-card-eye-shape-options" @bind="_bodyCard.Face.EyeShape" />
+                                <datalist id="body-card-eye-shape-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.EyeShapes)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Eye colour</label>
+                                <input class="form-control form-control-sm" list="body-card-eye-colour-options" @bind="_bodyCard.Face.EyeColour" />
+                                <datalist id="body-card-eye-colour-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.EyeColours)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Eyebrows</label>
+                                <input class="form-control form-control-sm" list="body-card-eyebrows-options" @bind="_bodyCard.Face.Eyebrows" />
+                                <datalist id="body-card-eyebrows-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.EyebrowShapes)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Nose</label>
+                                <input class="form-control form-control-sm" list="body-card-nose-options" @bind="_bodyCard.Face.NoseShape" />
+                                <datalist id="body-card-nose-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.NoseShapes)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Lips</label>
+                                <input class="form-control form-control-sm" list="body-card-lips-options" @bind="_bodyCard.Face.LipsShape" />
+                                <datalist id="body-card-lips-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.LipsShapes)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Jawline</label>
+                                <input class="form-control form-control-sm" list="body-card-jawline-options" @bind="_bodyCard.Face.Jawline" />
+                                <datalist id="body-card-jawline-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.Jawlines)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Facial hair</label>
+                                <input class="form-control form-control-sm" list="body-card-facial-hair-options" @bind="_bodyCard.Face.FacialHair" />
+                                <datalist id="body-card-facial-hair-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.FacialHairOptions)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Face piercings</label>
+                                <input class="form-control form-control-sm" list="body-card-face-piercings-options" @bind="_bodyCard.Face.FacePiercings" />
+                                <datalist id="body-card-face-piercings-options">
+                                    @foreach (var option in PhysicalAttributesCatalog.FacePiercingOptions)
+                                    {
+                                        <option value="@option"></option>
+                                    }
+                                </datalist>
+                            </div>
+                        </div>
                         <div class="border-top mt-3 pt-2">
                             <div class="d-flex gap-2 flex-wrap align-items-center">
                                 <button type="button" class="btn btn-outline-primary btn-sm"
