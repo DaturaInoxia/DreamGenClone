@@ -133,9 +133,13 @@ public static class PhysicalAttributesCatalog
         "Full Beard",
     ];
 
+    /// <summary>
+    /// Face jewellery. Deliberately has NO "None" value: the select already offers a single blank <c>(none)</c>, and a
+    /// second way to record the same decision is how "no piercings" and "not decided yet" come to mean the same thing
+    /// in the data while looking different on screen.
+    /// </summary>
     public static readonly string[] FacePiercingOptions =
     [
-        "None",
         "Nose Stud",
         "Nose Ring",
         "Septum Ring",
