@@ -85,6 +85,20 @@ public interface ICharacterLoraCellService
     /// <summary>Discard one attempt. Its image goes with it, so a rejected frame leaves nothing behind.</summary>
     Task DiscardAttemptAsync(string imageId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Records a review DECISION against one attempt (B-130 follow-up): the same
+    /// <see cref="DreamGenClone.Domain.RolePlay.SceneAssetCandidateDecision"/> the review deck writes, so a verdict taken
+    /// on the cell's list and one taken in the deck are one fact rather than two.
+    ///
+    /// It lives here rather than on the page because the page must not reach into the asset store: the cell service
+    /// owns what a cell's attempts are, and a host that wrote decisions directly could write one for an image that is
+    /// not this cell's.
+    /// </summary>
+    Task SetAttemptDecisionAsync(
+        string imageId,
+        DreamGenClone.Domain.RolePlay.SceneAssetCandidateDecision decision,
+        CancellationToken cancellationToken = default);
+
     /// <summary>The persisted cell model for this character, or null when no model has been chosen yet.</summary>
     Task<string?> ResolveCellModelAsync(string characterId, CancellationToken cancellationToken = default);
 

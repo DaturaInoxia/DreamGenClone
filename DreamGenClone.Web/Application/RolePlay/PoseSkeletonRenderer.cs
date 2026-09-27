@@ -67,15 +67,32 @@ public static class PoseSkeletonRenderer
     ];
 
     /// <summary>
-    /// Scales and centres the person so it fills the canvas, using the visible body keypoints as the bounding
-    /// box. The same transform is applied to the hands, so a wrist and its hand stay attached.
+    /// The transform that puts a pose on the canvas: one scale and one translation.
+    ///
+    /// Held as a VALUE and reused, rather than recomputed from whatever pose is on screen. Recomputing it re-scales the
+    /// whole figure whenever the pose's bounding box changes, so a turn that widens the box shrank the figure to fit
+    /// instead of turning it — which the operator reported, measured 2026-09-27, as "after doing any pose edit the image
+    /// changes size" and "rotating it not rotating the full skeleton". Compute the framing from the pose being EDITED
+    /// and apply it to every later version of that pose: then the figure keeps its size and its place, and a press reads
+    /// as a rotation.
+    /// </summary>
+    public readonly record struct Framing(double Scale, double OffsetX, double OffsetY)
+    {
+        /// <summary>Maps one point from its source pixels onto the canvas.</summary>
+        public PoseKeypoint Apply(PoseKeypoint point) =>
+            new((point.X * Scale) + OffsetX, (point.Y * Scale) + OffsetY, point.Confidence);
+    }
+
+    /// <summary>
+    /// The transform that scales and centres <paramref name="person"/> so it fills the canvas, using the visible body
+    /// keypoints as the bounding box.
     /// </summary>
     /// <param name="frameIndices">
     /// COCO indices to frame on, or null to frame the whole body. A head close-up passes the head joints, because
     /// a body-scale render gives the head a handful of pixels. If none of the named joints are visible the call is
     /// refused — falling back to the whole body would silently produce a body shot labelled as a head shot.
     /// </param>
-    public static PosePerson FitToCanvas(
+    public static Framing ComputeFraming(
         PosePerson person, int canvas = DefaultCanvas, IReadOnlyCollection<int>? frameIndices = null)
     {
         ArgumentNullException.ThrowIfNull(person);
@@ -125,11 +142,19 @@ public static class PoseSkeletonRenderer
         var offsetX = ((canvas - (width * scale)) / 2.0) - (minX * scale);
         var offsetY = ((canvas - (height * scale)) / 2.0) - (minY * scale);
 
+        return new Framing(scale, offsetX, offsetY);
+    }
+
+    /// <summary>
+    /// Applies a framing to every channel. The same transform reaches the hands and the face, so a wrist and its hand
+    /// stay attached and a face stays on its own head.
+    /// </summary>
+    public static PosePerson Apply(PosePerson person, Framing framing)
+    {
+        ArgumentNullException.ThrowIfNull(person);
+
         IReadOnlyList<PoseKeypoint> Transform(IReadOnlyList<PoseKeypoint> source) =>
-            source.Select(point => new PoseKeypoint(
-                (point.X * scale) + offsetX,
-                (point.Y * scale) + offsetY,
-                point.Confidence)).ToArray();
+            source.Select(framing.Apply).ToArray();
 
         return new PosePerson
         {
@@ -140,6 +165,16 @@ public static class PoseSkeletonRenderer
             // head it belongs to would be a face drawn beside its own skull.
             Face = Transform(person.Face)
         };
+    }
+
+    /// <summary>Fits the person to the canvas using a framing derived from the person itself.</summary>
+    public static PosePerson FitToCanvas(
+        PosePerson person, int canvas = DefaultCanvas, IReadOnlyCollection<int>? frameIndices = null)
+    {
+        ArgumentNullException.ThrowIfNull(person);
+        RequireCanvas(canvas);
+
+        return Apply(person, ComputeFraming(person, canvas, frameIndices));
     }
 
     /// <summary>Fits the person to the canvas and returns the PNG bytes of the rendered skeleton.</summary>

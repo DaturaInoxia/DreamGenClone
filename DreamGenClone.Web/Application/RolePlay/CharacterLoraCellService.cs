@@ -253,14 +253,33 @@ public sealed class CharacterLoraCellService : ICharacterLoraCellService
             });
     }
 
-    public async Task DiscardAttemptAsync(string imageId, CancellationToken cancellationToken = default)
-    {
+    public async Task DiscardAttemptAsync(string imageId, CancellationToken cancellationToken = default)    {
         if (string.IsNullOrWhiteSpace(imageId))
         {
             throw new InvalidOperationException("An attempt image id is required.");
         }
 
         await _assets.DeleteImageAsync(imageId.Trim(), cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task SetAttemptDecisionAsync(
+        string imageId,
+        SceneAssetCandidateDecision decision,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(imageId))
+        {
+            throw new InvalidOperationException("An attempt image id is required to record a decision.");
+        }
+
+        if (!Enum.IsDefined(decision))
+        {
+            throw new InvalidOperationException(
+                $"'{decision}' is not a review decision, so it cannot be recorded against an attempt.");
+        }
+
+        await _assets.SetImageCandidateDecisionAsync(imageId.Trim(), decision, notes: null, cancellationToken);
     }
 
     public async Task<string?> ResolveCellModelAsync(string characterId, CancellationToken cancellationToken = default)

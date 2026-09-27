@@ -8,26 +8,67 @@ else
         @foreach (var item in Items)
         {
             <div class="col-6 col-md-4 col-xl-3">
-                <button class="btn w-100 h-100 p-0 text-start border @(item.Id == SelectedId ? "border-primary border-3" : "border-secondary")" type="button" @onclick="() => SelectedIdChanged.InvokeAsync(item.Id)">
-                    <div class="ratio ratio-1x1 bg-dark">
-                        @if (!string.IsNullOrWhiteSpace(item.ImagePath))
+                @* The tile is a DIV wrapping a button, not one big button. The review actions are real buttons, and a
+                   button inside a button is invalid markup that swallows the inner click - so the clickable area and
+                   the actions are siblings. *@
+                <div class="h-100 border rounded @(item.Id == SelectedId ? "border-primary border-3" : "border-secondary")">
+                    <button class="btn w-100 p-0 text-start" type="button" @onclick="() => SelectedIdChanged.InvokeAsync(item.Id)">
+                        <div class="ratio ratio-1x1 bg-dark">
+                            @if (!string.IsNullOrWhiteSpace(item.ImagePath))
+                            {
+                                <img src="/scene-images/@item.ImagePath" class="w-100 h-100" style="object-fit:contain;" alt="Candidate @item.Id" />
+                            }
+                            else
+                            {
+                                <span class="d-flex align-items-center justify-content-center text-light small">Pending</span>
+                            }
+                        </div>
+                        <span class="d-flex justify-content-between gap-1 p-2 small">
+                            <span class="text-truncate font-monospace">@item.Id</span>
+                            <span class="badge @StatusBadge(item.Status)">@item.Status</span>
+                        </span>
+                        @if (!string.IsNullOrWhiteSpace(item.Subtitle))
                         {
-                            <img src="/scene-images/@item.ImagePath" class="w-100 h-100" style="object-fit:contain;" alt="Candidate @item.Id" />
+                            <span class="d-block px-2 pb-2 small text-muted text-truncate">@item.Subtitle</span>
                         }
-                        else
+                        @if (!string.IsNullOrWhiteSpace(item.Decision))
                         {
-                            <span class="d-flex align-items-center justify-content-center text-light small">Pending</span>
+                            <span class="d-block px-2 pb-2 small">
+                                <span class="badge @DecisionBadge(item.Decision)">@item.Decision</span>
+                            </span>
                         }
-                    </div>
-                    <span class="d-flex justify-content-between gap-1 p-2 small">
-                        <span class="text-truncate font-monospace">@item.Id</span>
-                        <span class="badge @StatusBadge(item.Status)">@item.Status</span>
-                    </span>
-                    @if (!string.IsNullOrWhiteSpace(item.Subtitle))
+                    </button>
+                    @* The standard review actions, offered only when the host asked for them: a read-only grid passes no
+                       callbacks and renders exactly as it did. The verdicts are the review deck's own set, so a decision
+                       taken here and one taken in the deck are the same fact. *@
+                    @if (DecisionChanged.HasDelegate || DeleteRequested.HasDelegate)
                     {
-                        <span class="d-block px-2 pb-2 small text-muted text-truncate">@item.Subtitle</span>
+                        <div class="d-flex flex-wrap gap-1 px-2 pb-2">
+                            @if (DecisionChanged.HasDelegate)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-success py-0 px-1" title="Accept"
+                                        disabled="@Busy" @onclick='() => DecideAsync(item.Id, "Accepted")'>
+                                    <i class="bi bi-check2-circle"></i>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-info py-0 px-1" title="Shortlist"
+                                        disabled="@Busy" @onclick='() => DecideAsync(item.Id, "Shortlisted")'>
+                                    <i class="bi bi-star"></i>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Reject"
+                                        disabled="@Busy" @onclick='() => DecideAsync(item.Id, "Rejected")'>
+                                    <i class="bi bi-x-circle"></i>
+                                </button>
+                            }
+                            @if (DeleteRequested.HasDelegate)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 ms-auto" title="Delete"
+                                        disabled="@Busy" @onclick="() => DeleteRequested.InvokeAsync(item.Id)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            }
+                        </div>
                     }
-                </button>
+                </div>
             </div>
         }
     </div>
@@ -38,9 +79,40 @@ else
     [Parameter] public string? SelectedId { get; set; }
     [Parameter] public EventCallback<string> SelectedIdChanged { get; set; }
 
+    /// <summary>True while the host is working, so the actions cannot be fired twice.</summary>
+    [Parameter] public bool Busy { get; set; }
+
+    /// <summary>
+    /// Records a review decision against one candidate. The host decides WHICH verdicts it offers; the grid offers the
+    /// review deck's standard three whenever this callback is supplied, and none when it is not.
+    /// </summary>
+    [Parameter] public EventCallback<CandidateGridDecision> DecisionChanged { get; set; }
+
+    /// <summary>Deletes one candidate outright. Supplied only by a host whose attempts are discardable.</summary>
+    [Parameter] public EventCallback<string> DeleteRequested { get; set; }
+
+    private async Task DecideAsync(string id, string decision)
+    {
+        if (!Enum.TryParse<SceneAssetCandidateDecision>(decision, out var parsed))
+        {
+            throw new InvalidOperationException(
+                $"'{decision}' is not a review decision. Supported: {string.Join(", ", Enum.GetNames<SceneAssetCandidateDecision>())}.");
+        }
+
+        await DecisionChanged.InvokeAsync(new CandidateGridDecision(id, parsed));
+    }
+
     private static string StatusBadge(string status) => status switch
     {
         "Accepted" or "Approved" => "text-bg-success",
+        "Shortlisted" => "text-bg-info",
+        "Rejected" or "Revoked" => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+
+    private static string DecisionBadge(string? decision) => decision switch
+    {
+        "Accepted" => "text-bg-success",
         "Shortlisted" => "text-bg-info",
         "Rejected" or "Revoked" => "text-bg-danger",
         _ => "text-bg-secondary"

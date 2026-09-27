@@ -156,7 +156,8 @@
                 </div>
 
                 <div style="display: @(_activeTab == "drag" ? "block" : "none");">
-                <PoseJointEditor Start="_editorStart" BodyView="_view" Head="_head" OnSaved="OnNestedSavedAsync" />
+                <PoseJointEditor Start="_editorStart" BodyView="_view" Head="_head" Canvas="@PoseCanvas"
+                                 PoseChanged="OnDragChangedAsync" OnSaved="OnNestedSavedAsync" />
                 </div>
 
                 <div class="row g-2 align-items-end">
@@ -341,6 +342,28 @@
     /// </summary>
     private PosePerson? _storedPose;
 
+    /// <summary>
+    /// The operator's drags, as the drag editor reports them, or null while nothing has been dragged. Held HERE rather
+    /// than inside the editor because three consumers need it — the preview, the skeleton a test render sends, and the
+    /// pose a save writes — and the editor used to keep it private, which is why a drag appeared in its own canvas and
+    /// nowhere else.
+    /// </summary>
+    private PosePerson? _draggedPose;
+
+    /// <summary>
+    /// The one transform every picture of this pose shares, computed ONCE from the pose being edited and then reused.
+    /// Recomputing it per render re-scaled the figure whenever the pose's bounding box changed, so a turn that widened
+    /// the box changed the SIZE of the figure instead of turning it.
+    /// </summary>
+    private PoseSkeletonRenderer.Framing? _framing;
+
+    /// <summary>
+    /// The canvas the pose lives on: the configured studio canvas, because that is what the rig projects onto. The
+    /// framing, the drag editor's viewBox, the preview and the skeleton a test render sends all use this one number, so
+    /// no picture has to be rescaled into another coordinate space.
+    /// </summary>
+    private int PoseCanvas => StudioOptions.Value.RequireCanvas();
+
     /// <summary>The projected pose the drag editor starts from. Rebuilt whenever the view or head changes, which is
     /// what the editor treats as "a new starting pose".</summary>
     private PosePerson _editorStart = new() { Body = [] };
@@ -455,6 +478,11 @@
         // parses the same JSON before handing it over, so this failing means something is genuinely wrong. Failing
         // loudly beats silently falling back to the rig's approximation of a pose nobody can read.
         _storedPose = OpenPosePoseJson.Parse(LoadedFrom.KeypointsJson, LoadedFrom.Name);
+
+        // A new pose is a new frame and a new set of drags. The framing is recomputed from THIS pose, so every picture
+        // of it shares one frame for as long as it is open.
+        _draggedPose = null;
+        _framing = null;
         _view = Loaded.View;
         _head = new PoseHeadRotation();
         _adoptedView = _view;
@@ -484,6 +512,8 @@
         _rotations = null;
         _loadedFrom = null;
         _storedPose = null;
+        _draggedPose = null;
+        _framing = null;
         _fitSummary = null;
         _adoptedPresetId = null;
         _adoptedView = null;
@@ -502,12 +532,16 @@
 
     private async Task SetViewAsync(PoseView view)
     {
+        // A drag belongs to the pose it was made on. Changing the view re-projects that pose, so keeping the old drags
+        // would apply them to a different figure — the drag editor resets for the same reason.
+        DiscardDrags();
         _view = view;
         await RefreshPreviewAsync();
     }
 
     private async Task RotateAsync(PoseRotationAxis axis, int steps)
     {
+        DiscardDrags();
         _view = PoseProjection.Step(_view, axis, steps, StudioOptions.Value);
         await RefreshPreviewAsync();
     }
@@ -515,11 +549,18 @@
     private Task ResetAsync() => SetViewAsync(new PoseView());
 
     /// <summary>
+    /// Drops the operator's drags. The FRAMING is deliberately kept: it belongs to the pose being edited rather than
+    /// to the view, so the figure keeps its size and its place across a turn.
+    /// </summary>
+    private void DiscardDrags() => _draggedPose = null;
+
+    /// <summary>
     /// The head is part of the same pose, so changing it re-renders the body preview too — the figure the operator
     /// sees must be the figure that gets saved.
     /// </summary>
     private async Task OnHeadChangedAsync(PoseHeadRotation head)
     {
+        DiscardDrags();
         _head = head;
         await RefreshPreviewAsync();
     }
@@ -534,36 +575,47 @@
     /// </summary>
     private PosePerson CurrentPose()
     {
-        if (_storedPose is { } stored && _adoptedView is { } fittedView && _rotations is { } rotations)
-        {
-            return LibraryService.ProjectLoadedPose(stored, fittedView, _view, rotations, _head);
-        }
+        var raw = _storedPose is { } stored && _adoptedView is { } fittedView && _rotations is { } rotations
+            ? LibraryService.ProjectLoadedPose(stored, fittedView, _view, rotations, _head)
+            : LibraryService.ProjectAuthoredPose(_view, _head, _rotations);
 
-        return LibraryService.ProjectAuthoredPose(_view, _head, _rotations);
+        // Framed HERE, once for the life of the pose being edited: every later version of that pose goes through the
+        // same transform, so the figure keeps its size and its place and a press reads as a rotation. The first call is
+        // made at the view the rig was fitted to, where a loaded pose IS the library pose, so the frame is the one that
+        // pose should have.
+        return PoseSkeletonRenderer.Apply(raw, _framing ??= PoseSkeletonRenderer.ComputeFraming(raw, PoseCanvas));
     }
 
+    /// <summary>The pose the operator is actually looking at: their drags when there are any, otherwise the base.</summary>
+    private PosePerson PoseOnScreen() => _draggedPose ?? _editorStart;
     private Task RefreshPreviewAsync()
     {
         _error = null;
 
-        // Rebuilt whenever the view or head changes, which is what tells the drag editor that a new starting pose
-        // exists. At the fitted view this IS the loaded pose — the rig's motion is zero there by construction — so an
-        // untouched library pose is handed to the editor as the pose the operator picked, hands and all.
+        // Base first, then the pose on screen: the drag editor starts from the BASE, while everything drawn or sent
+        // comes from the pose on screen, which is the base until the operator drags something.
         _editorStart = CurrentPose();
 
-        // While the pose is untouched the preview is THE POSE ITSELF: the same artifact the library card renders, so
-        // "Open in editor" shows what the operator clicked. It becomes the drawn pose on the first edit, and by then
-        // the two agree about the figure — the same keypoints, the same hands — so a 5° press reads as a 5° turn.
-        if (_loadedFrom is { } preset && !PoseEdited() && LibraryService.SkeletonUrl(preset) is { } storedUrl)
-        {
-            _previewUrl = storedUrl;
-            return Task.CompletedTask;
-        }
-
+        // The preview is ALWAYS our own drawing of this pose, never the library's file swapped for ours on the first
+        // edit. That swap was not a subtle change of appearance: the pack's skeleton is 768x1152 and ours is drawn on a
+        // 1024x1024 canvas (measured 2026-09-27), so the picture changed SHAPE as well as size the moment anything was
+        // edited. Drawing the pose from the start means the frame never moves, and at the fitted view the keypoints ARE
+        // the library pose's own, so the operator is still looking at the pose they picked.
         _previewUrl = "data:image/png;base64," + Convert.ToBase64String(
-            PoseSkeletonRenderer.RenderPng(_editorStart, PreviewCanvas));
+            PoseSkeletonRenderer.RenderPngWithoutFitting(PoseOnScreen(), PoseCanvas));
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The drag editor's report, and the only way its edits reach the preview and the render — which is what makes a
+    /// drag visible in the body skeleton AND present in what a test render sends. A null pose means the drags were
+    /// undone back to the base.
+    /// </summary>
+    private async Task OnDragChangedAsync(PosePerson? pose)
+    {
+        _draggedPose = pose;
+        await RefreshPreviewAsync();
     }
 
     /// <summary>Raised by a nested tool (the drag editor) so the host refreshes exactly as a rig save does.</summary>
@@ -584,6 +636,7 @@
     private bool PoseEdited()
     {
         if (_loadedFrom is null) return true;
+        if (_draggedPose is not null) return true;
         if (_nestedSaveSinceAdoption) return true;
         if (_adoptedView is not null && !IsCurrent(_adoptedView)) return true;
         return _adoptedHead is not null && !_head.Equals(_adoptedHead);
@@ -616,10 +669,10 @@
                 _view,
                 _libraryId ?? string.Empty,
                 _head,
-                // A fitted pose is saved as the KEYPOINTS it projects to. Saving it as a view would re-derive the
-                // figure from the standing stance and silently discard the fit — the operator would get a different
-                // pose from the one on screen, described by a recipe that says otherwise.
-                Keypoints: _rotations is null ? null : _editorStart));
+                // A fitted pose is saved as the KEYPOINTS on screen, drags included. Saving it as a view would
+                // re-derive the figure from the standing stance and silently discard the fit — the operator would get a
+                // different pose from the one on screen, described by a recipe that says otherwise.
+                Keypoints: _rotations is null && _draggedPose is null ? null : PoseOnScreen()));
 
             _status = $"Saved '{preset.Name}' to the library. It is searchable now.";
             _name = null;
@@ -677,8 +730,9 @@
             }
             else
             {
-                skeleton = PoseSkeletonRenderer.RenderPng(
-                    CurrentPose(), StudioOptions.Value.RequireCanvas());
+                // RenderPngWithoutFitting: the pose on screen is ALREADY framed, and re-fitting it here would send a
+                // skeleton the operator was never shown — which is how a dragged pose came to be left out of a test.
+                skeleton = PoseSkeletonRenderer.RenderPngWithoutFitting(PoseOnScreen(), PoseCanvas);
                 sent = _loadedFrom is null
                     ? "the rig projection of the pose on screen"
                     : $"'{_loadedFrom.Name}' with the rig's turn applied to its own keypoints, so its hands are kept";
@@ -707,5 +761,9 @@
     }
 
     /// <summary>Preview render size. Smaller than the saved skeleton, which is rendered at the full canvas.</summary>
-    private const int PreviewCanvas = 512;
+    /// <remarks>
+    /// Retired: the preview is now rendered on <see cref="PoseCanvas"/> itself and left to the browser to scale, so
+    /// what is on screen and what a render is sent are the same picture in the same coordinate space. Kept as a note
+    /// so the number is not reintroduced by accident.
+    /// </remarks>
 }

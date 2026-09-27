@@ -12,7 +12,7 @@
             </span>
         </div>
         <div class="d-flex gap-1">
-            <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(_history.Count == 0)" @onclick="Undo">
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(_history.Count == 0)" @onclick="UndoAsync">
                 Undo
             </button>
             <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(_history.Count == 0)" @onclick="ResetPoseAsync">
@@ -26,7 +26,7 @@
        which is later in the DOM, was painted on top of the skeleton. *@
     <div class="d-flex flex-wrap gap-3 mt-1">
         <div class="flex-shrink-0">
-            <svg viewBox="0 0 @PoseSkeletonRenderer.DefaultCanvas @PoseSkeletonRenderer.DefaultCanvas"
+            <svg viewBox="0 0 @Canvas @Canvas"
                  width="@CanvasPixels" height="@CanvasPixels"
                  class="border rounded bg-black d-block"
                  @onpointermove="OnPointerMoveAsync"
@@ -50,9 +50,9 @@
                 }
             </svg>
             <div class="form-text">
-                @CanvasPixels px on screen for a @PoseSkeletonRenderer.DefaultCanvas canvas, so pointer coordinates are
-                scaled by two. The canvas keeps this size when the window narrows — the scale is what keeps a drag on
-                the joint.
+                @CanvasPixels px on screen for a @Canvas canvas, so pointer coordinates are scaled by
+                @PointerScale.ToString("0.#"). The canvas keeps this size when the window narrows — the scale is what
+                keeps a drag on the joint.
                 @if (!string.IsNullOrWhiteSpace(_drag))
                 {
                     <span class="ms-1">Dragging <strong>@_drag</strong>. @_drags.Count drag(s) so far.</span>
@@ -122,12 +122,25 @@
 </div>
 
 @code {
-    /// <summary>The pose the drags started from, before any joint was moved.</summary>
+    /// <summary>The pose the drags start from, ALREADY framed on <see cref="Canvas"/> by the host.</summary>
     [Parameter] public PosePerson Start { get; set; } = new() { Body = [] };
 
     [Parameter] public PoseView BodyView { get; set; } = new();
 
     [Parameter] public PoseHeadRotation Head { get; set; } = new();
+
+    /// <summary>
+    /// The canvas the host framed the pose on, and the coordinate space a pointer is mapped into. Passed in rather than
+    /// assumed so the viewBox, the pointer scale and the host's own framing cannot disagree about it.
+    /// </summary>
+    [Parameter] public int Canvas { get; set; } = PoseSkeletonRenderer.DefaultCanvas;
+
+    /// <summary>
+    /// Every edit, reported to the host, which owns the pose that is drawn and sent. A null poses means the drags were
+    /// undone back to <see cref="Start"/>. Without this the drags lived only in this component: the body preview kept
+    /// showing the un-dragged pose and the test render sent it.
+    /// </summary>
+    [Parameter] public EventCallback<PosePerson?> PoseChanged { get; set; }
 
     [Parameter] public EventCallback<PosePreset> OnSaved { get; set; }
 
@@ -157,18 +170,18 @@
     private const int CanvasPixels = 512;
 
     /// <summary>
-    /// Screen pixels to canvas pixels. The svg is fixed at <see cref="CanvasPixels"/> for a
-    /// <see cref="PoseSkeletonRenderer.DefaultCanvas"/> viewBox so a pointer coordinate can be doubled without
-    /// measuring anything, which keeps the drag free of interop.
+    /// Screen pixels to canvas pixels, derived from the canvas the host framed the pose on. The svg is fixed at
+    /// <see cref="CanvasPixels"/> so a pointer coordinate can be scaled without measuring anything, which keeps the drag
+    /// free of interop.
     /// </summary>
-    private const double PointerScale = PoseSkeletonRenderer.DefaultCanvas / (double)CanvasPixels;
+    private double PointerScale => Canvas / (double)CanvasPixels;
 
     /// <summary>The view and head the current working pose was projected from, so a re-render of the same scene does
     /// not throw away the operator's drags while a genuine view change does.</summary>
     private PoseView? _baseView;
     private PoseHeadRotation? _baseHead;
 
-    protected override Task OnParametersSetAsync()
+    protected override async Task OnParametersSetAsync()
     {
         var baseChanged = _baseView is null || _baseHead is null
             || !Same(_baseView, BodyView) || !Same(_baseHead, Head);
@@ -177,14 +190,18 @@
         {
             _baseView = BodyView;
             _baseHead = Head;
-            _person = ToEditorCanvas(Start);
+
+            // Start arrives already framed, and every view of this pose shares that one frame, so the editor does NOT
+            // re-fit it. Re-fitting here was the defect: the frame changed with the pose, so the figure changed size
+            // instead of turning, and the editor's wireframe was a different picture from the host's own preview.
+            _person = Start;
             _history.Clear();
             _drags.Clear();
             _reachWarning = null;
             StopDrag();
         }
 
-        return LoadLibrariesAsync();
+        await LoadLibrariesAsync();
     }
 
     private async Task LoadLibrariesAsync()
@@ -221,18 +238,6 @@
         index < _person.Body.Count
         && _person.Body[index].Confidence > OpenPosePoseJson.VisibilityFloor;
 
-    /// <summary>
-    /// The pose as the EDITOR draws it: fitted to the same canvas the library renders its skeletons on, so the editor's
-    /// wireframe is the same picture the library card shows.
-    ///
-    /// Drawing raw keypoints was wrong for any pose whose coordinates do not happen to span the canvas. A head pose is
-    /// the clearest case — its points sit in one region of a much larger source frame — so the editor drew it as a
-    /// squashed line across the middle, which reads as a broken pose rather than as an unfitted one. The fit also gives
-    /// the drags one coordinate space, so a drag lands where the pointer is.
-    /// </summary>
-    private static PosePerson ToEditorCanvas(PosePerson person) =>
-        person.Body.Count == 0 ? person : PoseSkeletonRenderer.FitToCanvas(person);
-
     private string X(int index) => _person.Body[index].X.ToString("0.##");
 
     private string Y(int index) => _person.Body[index].Y.ToString("0.##");
@@ -260,19 +265,23 @@
         if (_dragging is not int index) return;
 
         var target = new PoseKeypoint(args.OffsetX * PointerScale, args.OffsetY * PointerScale, 1.0);
+        var dragged = false;
 
         try
         {
             _person = PoseIk.Drag(_person, index, target);
             _drags.Add($"{JointName(index)} → ({target.X:0},{target.Y:0})");
             _reachWarning = ReachWarning(index, target);
+            dragged = true;
         }
         catch (InvalidOperationException ex)
         {
             _error = ex.Message;
         }
 
-        await Task.CompletedTask;
+        // Reported only when the drag landed, and reported OUTSIDE the catch so a failure to notify the host is not
+        // mistaken for a failed drag.
+        if (dragged) await PoseChanged.InvokeAsync(_person);
     }
 
     /// <summary>
@@ -306,7 +315,7 @@
             : null;
     }
 
-    private void Undo()
+    private async Task UndoAsync()
     {
         if (_history.Count == 0) return;
 
@@ -315,17 +324,22 @@
         if (_drags.Count > 0) _drags.RemoveAt(_drags.Count - 1);
         _reachWarning = null;
         _status = null;
+
+        await PoseChanged.InvokeAsync(_person);
     }
 
-    private Task ResetPoseAsync()
+    private async Task ResetPoseAsync()
     {
-        _person = ToEditorCanvas(Start);
+        _person = Start;
         _history.Clear();
         _drags.Clear();
         _reachWarning = null;
         _status = null;
         StopDrag();
-        return Task.CompletedTask;
+
+        // Null means "back to the pose the host gave me", so the host drops its copy of the drags rather than keeping
+        // one that no longer matches this canvas.
+        await PoseChanged.InvokeAsync(null);
     }
 
     private static string JointName(int index) => index switch

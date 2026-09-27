@@ -318,6 +318,15 @@ else
                                             <i class="bi bi-person-arms-up me-1"></i>@_cellBodyReference
                                         </span>
                                     }
+                                    @if (CellReviewDeckUrl is { } reviewDeckUrl)
+                                    {
+                                        @* The deck the face and body workflows already link to, for THIS cell's batch: the
+                                           list above is for shooting and triage, the deck for comparing a batch side by side. *@
+                                        <a class="btn btn-sm btn-outline-info" href="@reviewDeckUrl"
+                                           title="Review every attempt for this cell in the review deck">
+                                            <i class="bi bi-images me-1"></i>Review deck
+                                        </a>
+                                    }
                                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshAttemptsAsync"
                                             disabled="@_cellBusy">
                                         Refresh
@@ -334,7 +343,10 @@ else
                             else
                             {
                                 <CandidateGrid Items="AttemptItems" SelectedId="_selectedAttemptId"
-                                               SelectedIdChanged="OnAttemptSelected" />
+                                               SelectedIdChanged="OnAttemptSelected"
+                                               Busy="_cellBusy"
+                                               DecisionChanged="OnAttemptDecisionAsync"
+                                               DeleteRequested="OnAttemptDeleteAsync" />
                                 @if (_selectedAttempt is not null)
                                 {
                                     <div class="border rounded p-2 mb-3">
@@ -840,8 +852,20 @@ else
             attempt.Id,
             attempt.FileRelativePath,
             attempt.Status.ToString(),
-            attempt.CreatedUtc.ToLocalTime().ToString("g")))
+            attempt.CreatedUtc.ToLocalTime().ToString("g"),
+            attempt.CandidateDecision?.ToString()))
         .ToList();
+
+    /// <summary>
+    /// The review-deck route for THIS cell's candidate batch. The cell renders with a batch id, so its attempts are a
+    /// candidate batch like any other and the standard deck can open them - the `/asset` kind, because these are
+    /// scene-asset images and the bare route reads the older produced-images table.
+    /// </summary>
+    private string? CellReviewDeckUrl => _cellAttempts
+        .Select(attempt => attempt.CandidateBatchId)
+        .FirstOrDefault(batchId => !string.IsNullOrWhiteSpace(batchId)) is { } batch
+            ? $"/review-deck/asset/{batch}"
+            : null;
 
     private SceneAssetImage? _selectedAttempt => _selectedAttemptId is null
         ? null
@@ -975,6 +999,54 @@ else
         {
             await CellService.DiscardAttemptAsync(attempt.Id);
             _selectedAttemptId = null;
+            await RefreshAttemptsAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _cellBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Records a review decision on one attempt straight from the list, so the cell behaves like the face and body
+    /// workflows rather than making the operator open the deck to say "this one is good".
+    /// </summary>
+    private async Task OnAttemptDecisionAsync(CandidateGridDecision decision)
+    {
+        _cellBusy = true;
+        _error = string.Empty;
+        try
+        {
+            await CellService.SetAttemptDecisionAsync(decision.CandidateId, decision.Decision);
+            await RefreshAttemptsAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _cellBusy = false;
+        }
+    }
+
+    /// <summary>Deletes one attempt straight from the list — the standard grid action, not only the selected one.</summary>
+    private async Task OnAttemptDeleteAsync(string candidateId)
+    {
+        _cellBusy = true;
+        _error = string.Empty;
+        try
+        {
+            await CellService.DiscardAttemptAsync(candidateId);
+            if (string.Equals(_selectedAttemptId, candidateId, StringComparison.Ordinal))
+            {
+                _selectedAttemptId = null;
+            }
+
             await RefreshAttemptsAsync();
         }
         catch (Exception exception)
