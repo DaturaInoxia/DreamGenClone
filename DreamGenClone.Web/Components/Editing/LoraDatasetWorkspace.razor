@@ -834,7 +834,8 @@ else
     /// </summary>
     private string RenderPromptForShoot => Compose(record => LoraCellPromptComposer.ComposeRenderPrompt(
         _plan!, record, BodyCardLine, _renderTemplateBody ?? string.Empty,
-        ImageStepPromptOmission.ElementKeysFor(CellBlueprint, _cellBindings)));
+        _bodyCard?.ToFaceLine(),
+        ImageStepPromptOmission.BoundSlotsFor(CellBlueprint, _cellBindings).Select(slot => slot.SlotKind).ToList()));
 
     private void SelectCell(string key) => _ = SelectCellAsync(key);
 

@@ -161,7 +161,7 @@ public sealed class LoraCellPromptComposerTests
         var record = plan.Records[0];
 
         var prompt = LoraCellPromptComposer.ComposeRenderPrompt(
-            plan, record, BodyCard, RenderTemplate, ["character:becky.appearance"]);
+            plan, record, BodyCard, RenderTemplate, null, [ImageStepSlotKind.Body]);
 
         Assert.DoesNotContain(BodyCard, prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("curvy", prompt, StringComparison.OrdinalIgnoreCase);
@@ -181,7 +181,7 @@ public sealed class LoraCellPromptComposerTests
         var record = plan.Records[0];
 
         var prompt = LoraCellPromptComposer.ComposeRenderPrompt(
-            plan, record, BodyCard, RenderTemplate, ["character:becky.clothing"]);
+            plan, record, BodyCard, RenderTemplate, null, [ImageStepSlotKind.Wardrobe]);
 
         Assert.DoesNotContain("wearing a plain t-shirt and jeans", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("wearing", prompt, StringComparison.OrdinalIgnoreCase);
@@ -199,15 +199,68 @@ public sealed class LoraCellPromptComposerTests
         var record = plan.Records[0];
 
         var prompt = LoraCellPromptComposer.ComposeRenderPrompt(
-            plan, record, BodyCard, RenderTemplate,
-            ["character:becky.appearance", "character:becky.clothing"]);
+            plan, record, BodyCard, RenderTemplate, null,
+            [ImageStepSlotKind.Body, ImageStepSlotKind.Wardrobe]);
 
         Assert.Contains("SUPPLIED BY THE REFERENCE IMAGES", prompt, StringComparison.Ordinal);
-        Assert.Contains("Appearance", prompt, StringComparison.Ordinal);
+        Assert.Contains("Body", prompt, StringComparison.Ordinal);
         Assert.Contains("Clothing", prompt, StringComparison.Ordinal);
         Assert.Contains("do NOT describe", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain(BodyCard, prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("wearing a plain t-shirt and jeans", prompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// B-132: the face is its own element, so a face reference removes the FACE text and leaves the build text alone.
+    /// That separation is the whole reason the face has a placeholder of its own rather than sharing the appearance
+    /// line with the build.
+    /// </summary>
+    [Fact]
+    public void ComposeRenderPrompt_AFaceReferenceRemovesOnlyTheFaceText()
+    {
+        var plan = Plan();
+        var record = plan.Records[0];
+
+        var prompt = LoraCellPromptComposer.ComposeRenderPrompt(
+            plan, record, BodyCard, FaceRenderTemplate, FaceLine, [ImageStepSlotKind.Face]);
+
+        Assert.DoesNotContain(FaceLine, prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Bun", prompt, StringComparison.Ordinal);
+        Assert.Contains("Face", prompt, StringComparison.Ordinal);
+        // The build is NOT supplied by the face reference, so it survives.
+        Assert.Contains(BodyCard, prompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>With no face reference, the face text is described in the prompt like any other element.</summary>
+    [Fact]
+    public void ComposeRenderPrompt_WithoutAFaceReference_KeepsTheFaceText()
+    {
+        var plan = Plan();
+        var record = plan.Records[0];
+
+        var prompt = LoraCellPromptComposer.ComposeRenderPrompt(
+            plan, record, BodyCard, FaceRenderTemplate, FaceLine, []);
+
+        Assert.Contains(FaceLine, prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("REFERENCE IMAGES", prompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A character whose card states no face must not leave the placeholder behind - a gap where a description
+    /// belongs reads as information the model is free to invent, and an unfilled slot would throw.
+    /// </summary>
+    [Fact]
+    public void ComposeRenderPrompt_WithNoFaceStated_RemovesThePlaceholder()
+    {
+        var plan = Plan();
+        var record = plan.Records[0];
+
+        var prompt = LoraCellPromptComposer.ComposeRenderPrompt(
+            plan, record, BodyCard, FaceRenderTemplate, faceLine: null, omittedSlots: null);
+
+        Assert.DoesNotContain("{", prompt, StringComparison.Ordinal);
+        Assert.Contains(BodyCard, prompt, StringComparison.Ordinal);
+        Assert.Contains("Face", prompt, StringComparison.Ordinal);
     }
 
     /// <summary>Fully-textual is the other extreme and must be untouched: no omission, no notice.</summary>
@@ -218,7 +271,7 @@ public sealed class LoraCellPromptComposerTests
         var record = plan.Records[0];
 
         var withEmptyList = LoraCellPromptComposer.ComposeRenderPrompt(
-            plan, record, BodyCard, RenderTemplate, []);
+            plan, record, BodyCard, RenderTemplate, null, []);
         var withNoArgument = LoraCellPromptComposer.ComposeRenderPrompt(plan, record, BodyCard, RenderTemplate);
 
         Assert.Equal(withNoArgument, withEmptyList);
@@ -226,6 +279,11 @@ public sealed class LoraCellPromptComposerTests
         Assert.Contains("wearing a plain t-shirt and jeans", withNoArgument, StringComparison.Ordinal);
         Assert.DoesNotContain("REFERENCE IMAGES", withNoArgument, StringComparison.Ordinal);
     }
+
+    private const string FaceRenderTemplate =
+        "Photorealistic photograph of {BodyCard}. {Face}. {Facing}. {Wardrobe}. Background: {Background}.";
+
+    private const string FaceLine = "dark hair in a Bun, Blue eyes, oval face, small and straight nose";
 
     private const string BodyCard =
         "50-year-old woman, 5'8\", curvy, full bust, soft waist, wide hips, fair smooth skin";

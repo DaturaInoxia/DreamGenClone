@@ -27,25 +27,44 @@ public static partial class LoraCellPromptComposer
     /// element that simply disappears reads as missing information and the model is free to invent it.
     /// </para>
     /// </summary>
-    /// <param name="omittedElementKeys">
-    /// The payload element keys the step's bound images supply, as computed once by
-    /// <c>ImageStepPromptOmission</c> - the same list the operator is shown as "left out of the prompt".
+    /// <param name="faceLine">
+    /// The card's face text (B-132). Empty when the character states no face, in which case the face placeholder is
+    /// left out of the prompt rather than filled with a blank - a gap where a description should be reads as
+    /// information the model is free to invent.
+    /// </param>
+    /// <param name="omittedSlots">
+    /// The slots the step's bound reference images supply, as computed once by
+    /// <c>ImageStepPromptOmission.BoundSlotsFor</c> - the same bound set the operator is shown as "left out of the
+    /// prompt".
     /// </param>
     public static string ComposeRenderPrompt(
         CoveragePlan plan,
         CoverageRecord record,
         string bodyCardLine,
         string renderTemplateBody,
-        IReadOnlyList<string>? omittedElementKeys = null)
+        string? faceLine = null,
+        IReadOnlyList<ImageStepSlotKind>? omittedSlots = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(record);
 
-        var omittedSlots = SlotNamesFor(omittedElementKeys);
+        var face = (faceLine ?? string.Empty).Trim();
+        var omitted = SlotNamesFor(omittedSlots);
+        // The template decides whether this cell has a face element at all. Without the placeholder there is nothing
+        // to describe and nothing to leave out, so the notice must stay silent rather than claim a reference supplies
+        // a face this prompt never mentioned.
+        var hasFacePlaceholder = renderTemplateBody.Contains($"{{{FaceSlot}}}", StringComparison.Ordinal);
+        if (face.Length == 0 && hasFacePlaceholder)
+        {
+            // Nothing is known about this character's face, so the placeholder is removed by the same path an omitted
+            // element takes. Filling it with an empty string would leave the sentence that introduced it intact.
+            omitted.Add(FaceSlot);
+        }
 
         return Fill(
             renderTemplateBody,
-            omittedSlots,
+            omitted,
+            (FaceSlot, face),
             ("BodyCard", Require(bodyCardLine, "The body card line")),
             ("Facing", plan.PhraseFor(LoraCellWorkflowKeys.FacingKey(record.FaceVisible, record.AngleYawDeg))),
             ("Wardrobe", plan.PhraseFor(record.OutfitKey)),
@@ -53,38 +72,49 @@ public static partial class LoraCellPromptComposer
             ("Expression", plan.PhraseFor(record.ExpressionKey)),
             ("Lighting", plan.PhraseFor(record.LightingKey)),
             ("Background", plan.PhraseFor(record.BackgroundKey)))
-            + RemovalNotice(omittedElementKeys);
+            + RemovalNotice(omittedSlots, faceUnknown: face.Length == 0 && hasFacePlaceholder);
     }
 
+    /// <summary>The face element's placeholder in a cell's render template.</summary>
+    public const string FaceSlot = "Face";
+
     /// <summary>
-    /// Which template slots a set of omitted payload elements removes. The mapping is the cell's own: the body card
-    /// IS the appearance line, the wardrobe slot IS the clothing, the background slot IS the location.
+    /// Which template slots a set of bound slots removes, by SLOT rather than by payload element key: the cell's
+    /// prompt has one placeholder per element (D4 on the template path). Face and Body are therefore separable here,
+    /// which they are not on the compiled-brief path where both collapse onto the one <c>appearance</c> element.
     /// </summary>
-    private static IReadOnlyCollection<string> SlotNamesFor(IReadOnlyList<string>? omittedElementKeys)
+    private static HashSet<string> SlotNamesFor(IReadOnlyList<ImageStepSlotKind>? omittedSlots)
     {
-        if (omittedElementKeys is null || omittedElementKeys.Count == 0)
+        var slots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (omittedSlots is null)
         {
-            return [];
+            return slots;
         }
 
-        var slots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var key in omittedElementKeys)
+        foreach (var slotKind in omittedSlots)
         {
-            var element = key[(key.LastIndexOf('.') + 1)..];
-            switch (element)
+            switch (slotKind)
             {
-                case "appearance":
+                case ImageStepSlotKind.Face:
+                    slots.Add(FaceSlot);
+                    break;
+                case ImageStepSlotKind.Body:
                     slots.Add("BodyCard");
                     break;
-                case "clothing":
+                case ImageStepSlotKind.Wardrobe:
                     slots.Add("Wardrobe");
                     break;
-                case "location":
-                case "environment":
+                case ImageStepSlotKind.Location:
                     slots.Add("Background");
                     break;
-                case "position":
-                case "visibleAction":
+                case ImageStepSlotKind.Pose:
+                    slots.Add("Pose");
+                    break;
+                case ImageStepSlotKind.CharacterPose:
+                    // One image carries appearance, clothing and stance, so it removes all three.
+                    slots.Add(FaceSlot);
+                    slots.Add("BodyCard");
+                    slots.Add("Wardrobe");
                     slots.Add("Pose");
                     break;
             }
@@ -97,17 +127,22 @@ public static partial class LoraCellPromptComposer
     /// The authoritative notice naming what the bound images supply. Silence would be read as "this cell has no
     /// build and no clothing", which the model may then fill in from whatever it likes.
     /// </summary>
-    private static string RemovalNotice(IReadOnlyList<string>? omittedElementKeys)
+    private static string RemovalNotice(IReadOnlyList<ImageStepSlotKind>? omittedSlots, bool faceUnknown)
     {
-        if (omittedElementKeys is null || omittedElementKeys.Count == 0)
+        var labels = (omittedSlots ?? [])
+            .Select(ImageStepPromptOmission.SlotLabel)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (faceUnknown && !labels.Contains("Face", StringComparer.OrdinalIgnoreCase))
+        {
+            labels.Add("Face");
+        }
+
+        if (labels.Count == 0)
         {
             return string.Empty;
         }
-
-        var labels = omittedElementKeys
-            .Select(ImageStepPromptOmission.Label)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
 
         return "\n\nSUPPLIED BY THE REFERENCE IMAGES — AUTHORITATIVE (" + string.Join(", ", labels)
             + " come from the attached reference images, not from this text): do NOT describe, restate or re-derive "
