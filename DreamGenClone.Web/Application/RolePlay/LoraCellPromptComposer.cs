@@ -18,13 +18,12 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public static partial class LoraCellPromptComposer
 {
     /// <summary>
-    /// The render prompt for a cell: the framing template for its angle and distance, with the invariant body
-    /// card pasted verbatim and every variable axis filled from the plan's vocabulary snapshot.
+    /// The render prompt for a cell: the framing template for its angle and distance, with the invariant subject
+    /// description pasted verbatim and every variable axis filled from the plan's vocabulary snapshot.
     /// <para>
     /// Elements the bound reference images supply are <b>omitted</b> rather than described a second time (D4): an
     /// image supplies the build or the clothing, so writing it in prose as well makes the reference redundant and
-    /// invites the model to average the two. What was left out is then NAMED in an authoritative notice, because an
-    /// element that simply disappears reads as missing information and the model is free to invent it.
+    /// invites the model to average the two.
     /// </para>
     /// </summary>
     /// <param name="faceLine">
@@ -37,19 +36,48 @@ public static partial class LoraCellPromptComposer
     /// <c>ImageStepPromptOmission.BoundSlotsFor</c> - the same bound set the operator is shown as "left out of the
     /// prompt".
     /// </param>
+    /// <param name="subjectNoun">
+    /// The subject noun the character's stated gender and age band give (B-132), e.g. <c>a woman</c>. It is the ONE
+    /// element a body reference does not supply: an image carries the build, never the fact that a person is in frame.
+    /// With the build supplied the subject slot therefore takes this noun instead of the whole description, because
+    /// dropping the slot instead leaves the prompt reading "Photorealistic close-up photograph." - a gap the model
+    /// fills with its own prior. Empty when the character states no gender, in which case the slot is left out exactly
+    /// as an unknown face is.
+    /// </param>
     public static string ComposeRenderPrompt(
         CoveragePlan plan,
         CoverageRecord record,
         string bodyCardLine,
         string renderTemplateBody,
         string? faceLine = null,
-        IReadOnlyList<ImageStepSlotKind>? omittedSlots = null)
+        IReadOnlyList<ImageStepSlotKind>? omittedSlots = null,
+        string? subjectNoun = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(record);
 
         var face = (faceLine ?? string.Empty).Trim();
+        var noun = (subjectNoun ?? string.Empty).Trim();
         var omitted = SlotNamesFor(omittedSlots);
+
+        // The build a body reference supplies is not the subject. When the reference takes the build, the slot takes
+        // the noun alone; when nothing states a noun the slot is left out by the same path an unknown face takes, so
+        // the prompt is never left with an empty genitive ("photograph of .") and no noun is ever invented.
+        var buildSupplied = omitted.Remove(SubjectSlot);
+        string subject;
+        if (buildSupplied && noun.Length > 0)
+        {
+            subject = noun;
+        }
+        else
+        {
+            subject = Require(bodyCardLine, "The body card line");
+            if (buildSupplied)
+            {
+                omitted.Add(SubjectSlot);
+            }
+        }
+
         // The template decides whether this cell has a face element at all. Without the placeholder there is nothing
         // to describe and nothing to leave out.
         var hasFacePlaceholder = renderTemplateBody.Contains($"{{{FaceSlot}}}", StringComparison.Ordinal);
@@ -68,8 +96,8 @@ public static partial class LoraCellPromptComposer
         return Fill(
             renderTemplateBody,
             omitted,
+            (SubjectSlot, subject),
             (FaceSlot, face),
-            ("BodyCard", Require(bodyCardLine, "The body card line")),
             ("Facing", plan.PhraseFor(LoraCellWorkflowKeys.FacingKey(record.FaceVisible, record.AngleYawDeg))),
             ("Wardrobe", plan.PhraseFor(record.OutfitKey)),
             ("Pose", plan.PhraseFor(LoraCellWorkflowKeys.PoseKey(record.PoseClass))),
@@ -80,6 +108,12 @@ public static partial class LoraCellPromptComposer
 
     /// <summary>The face element's placeholder in a cell's render template.</summary>
     public const string FaceSlot = "Face";
+
+    /// <summary>
+    /// The subject element's placeholder: the whole-person description, or - when a bound body reference supplies the
+    /// build - the subject noun alone.
+    /// </summary>
+    public const string SubjectSlot = "Subject";
 
     /// <summary>
     /// Which template slots a set of bound slots removes, by SLOT rather than by payload element key: the cell's
@@ -102,7 +136,7 @@ public static partial class LoraCellPromptComposer
                     slots.Add(FaceSlot);
                     break;
                 case ImageStepSlotKind.Body:
-                    slots.Add("BodyCard");
+                    slots.Add(SubjectSlot);
                     break;
                 case ImageStepSlotKind.Wardrobe:
                     slots.Add("Wardrobe");
@@ -114,9 +148,10 @@ public static partial class LoraCellPromptComposer
                     slots.Add("Pose");
                     break;
                 case ImageStepSlotKind.CharacterPose:
-                    // One image carries appearance, clothing and stance, so it removes all three.
+                    // One image carries appearance, clothing and stance, so it removes all three - and it supplies the
+                    // BUILD, not the subject, so the subject slot survives on the subject noun.
                     slots.Add(FaceSlot);
-                    slots.Add("BodyCard");
+                    slots.Add(SubjectSlot);
                     slots.Add("Wardrobe");
                     slots.Add("Pose");
                     break;

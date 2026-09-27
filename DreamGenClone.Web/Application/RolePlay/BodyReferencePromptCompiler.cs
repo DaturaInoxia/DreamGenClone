@@ -196,8 +196,16 @@ public static class BodyReferencePromptCompiler
         }
     }
 
-    private static string SubjectNounPhrase(BodyReferenceBrief brief)
+    /// <summary>
+    /// The subject noun phrase a prompt's subject slot takes - <c>a woman</c>, <c>a 40s man</c> - from the brief's
+    /// STATED gender and its age band. Public because a consumer that has to keep the subject while dropping the build
+    /// (the LoRA cell, whose body reference image supplies the build) needs the same noun rather than a second spelling
+    /// of it: a body image supplies the build, never the fact that a person is in the frame.
+    /// </summary>
+    public static string SubjectNounPhrase(BodyReferenceBrief brief)
     {
+        ArgumentNullException.ThrowIfNull(brief);
+
         var noun = GenderNoun(brief);
         if (AgeDescriptor(brief.Age) is not { } band)
         {

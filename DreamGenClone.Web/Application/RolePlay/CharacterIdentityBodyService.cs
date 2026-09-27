@@ -184,7 +184,8 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
             brief.BodyText.Trim(),
             BodyReferencePromptCompiler.ComposeViewBodyText(brief),
             BodyReferencePromptCompiler.ComposeViewBodyText(brief, includeFace: false),
-            brief.Clothing?.Trim() ?? string.Empty);
+            brief.Clothing?.Trim() ?? string.Empty,
+            BodyReferencePromptCompiler.SubjectNounPhrase(brief));
     }
 
     /// <summary>
@@ -223,7 +224,8 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
             BodyReferencePromptCompiler.ComposeBodyText(brief),
             BodyReferencePromptCompiler.ComposeFullDescription(brief),
             BodyReferencePromptCompiler.ComposeFullDescription(brief, includeFace: false),
-            brief.Clothing?.Trim() ?? string.Empty);
+            brief.Clothing?.Trim() ?? string.Empty,
+            BodyReferencePromptCompiler.SubjectNounPhrase(brief));
     }
 
     public async Task<CharacterBodyCard> SaveBodyCardAsync(

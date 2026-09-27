@@ -14,13 +14,20 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// <paramref name="WardrobeText"/> is the outfit the body REFERENCE image carries. It is the wardrobe element's text
 /// because the clothed body reference is where the cell's garment actually comes from — so the step shows what the
 /// reference supplies rather than a phrase composed separately from it.
+///
+/// <paramref name="SubjectNoun"/> is the subject noun alone — <c>a woman</c>, <c>a 40s man</c> — from the character's
+/// STATED gender and age band. It exists because a bound body reference supplies the BUILD and not the subject: a cell
+/// whose build comes from an image still has to say a person is in the frame, and dropping the whole subject slot
+/// leaves "Photorealistic close-up photograph." instead. Never inferred: an unstated gender throws in the compiler
+/// that composes it, and a template that states no gender cannot build a body reference pack at all.
 /// </summary>
 public sealed record CharacterBodyTexts(
     string FaceText,
     string BodyText,
     string SubjectWithFace,
     string SubjectWithoutFace,
-    string WardrobeText);
+    string WardrobeText,
+    string SubjectNoun);
 
 /// <summary>
 /// The body target's acquisition surface (B-122 Phase 0). One request produces exactly one image: a base in a

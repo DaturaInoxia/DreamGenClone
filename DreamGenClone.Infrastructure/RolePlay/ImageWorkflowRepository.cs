@@ -436,9 +436,16 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
 
             // B-123 Phase 1 — the LoRA coverage cell's prompts. A training image is a photograph of a person
             // under stated conditions, so each template states the framing, the angle family, the wardrobe and
-            // the four context axes, and nothing else. Slots only: the invariant body description arrives as
-            // {BodyCard} and the variable axes arrive as phrases resolved from the vocabulary rows below, so no
+            // the four context axes, and nothing else. Slots only: the subject description arrives as
+            // {Subject} and the variable axes arrive as phrases resolved from the vocabulary rows below, so no
             // wording lives in code and every word is editable here.
+            //
+            // The tail is written WITHOUT negations. The SDXL-family research is explicit that "no X" belongs in
+            // the negative and never in the positive (prompt-compiler standards 3.2), and this pipeline authors no
+            // negative at all for any of the families it renders - so "no retouching" was not a mild instruction,
+            // it was text the model had nothing to do with. "Nothing cropped" said the same thing the framing
+            // clause already says, and the behind views now use the same "the face not visible" clause the
+            // measured back view uses.
             //
             // There is deliberately no {CharacterName}: in a training image identity comes from the trigger
             // token and the references, and a name in the text would bind the look to a word the caption is
@@ -447,73 +454,73 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
             {
                 Key = LoraCellWorkflowKeys.RenderFrontClose,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic close-up photograph of {BodyCard}. {Facing}, the whole head and both shoulders in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic close-up photograph of {Subject}. {Facing}, the whole head and both shoulders in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.RenderFrontHalf,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic photograph of {BodyCard} from the waist up. {Facing}, the whole upper body and both hands in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic photograph of {Subject} from the waist up. {Facing}, the whole upper body and both hands in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.RenderFrontFull,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic full-body photograph of {BodyCard}, head to feet. {Facing}, the whole body in frame and unobstructed, nothing cropped. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic full-body photograph of {Subject}, head to feet. {Facing}, the whole body in frame and unobstructed. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.RenderThreeQuarterClose,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic close-up photograph of {BodyCard}. The head and shoulders are turned three-quarters away from the camera, {Facing}, one cheek nearer the camera than the other, the whole head and both shoulders in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic close-up photograph of {Subject}. The head and shoulders are turned three-quarters away from the camera, {Facing}, one cheek nearer the camera than the other, the whole head and both shoulders in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.RenderThreeQuarterHalf,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic photograph of {BodyCard} from the waist up, the head and upper body turned three-quarters away from the camera, {Facing}, one side of the body nearer the camera, the whole upper body and both hands in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic photograph of {Subject} from the waist up, the head and upper body turned three-quarters away from the camera, {Facing}, one side of the body nearer the camera, the whole upper body and both hands in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.RenderThreeQuarterFull,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic full-body photograph of {BodyCard}, head to feet, the body turned three-quarters away from the camera, {Facing}, one side of the body nearer the camera, the whole body in frame and unobstructed. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic full-body photograph of {Subject}, head to feet, the body turned three-quarters away from the camera, {Facing}, one side of the body nearer the camera, the whole body in frame and unobstructed. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.RenderProfileClose,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic close-up photograph of {BodyCard} in full profile, seen from the side, {Facing}, a true edge-on profile of the head and shoulders rather than a turned head. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic close-up photograph of {Subject} in full profile, seen from the side, {Facing}, a true edge-on profile of the head and shoulders rather than a turned head. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.RenderProfileHalf,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic photograph of {BodyCard} from the waist up in full profile, seen from the side, {Facing}, a true edge-on profile of the head and upper body. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic photograph of {Subject} from the waist up in full profile, seen from the side, {Facing}, a true edge-on profile of the head and upper body. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.RenderProfileFull,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic full-body photograph of {BodyCard}, head to feet, in full profile seen from the side, {Facing}, a true edge-on profile of the whole body, nothing cropped. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic full-body photograph of {Subject}, head to feet, in full profile seen from the side, {Facing}, a true edge-on profile of the whole body. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.RenderBehindClose,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic close-up photograph of {BodyCard} from behind, {Facing}, the back of the head and both shoulders in frame, no part of the face visible. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic close-up photograph of {Subject} from behind, {Facing}, the back of the head and both shoulders in frame, the face not visible. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.RenderBehindHalf,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic photograph of {BodyCard} from behind, from the waist up, {Facing}, the back of the head, the shoulders and the back in frame, no part of the face visible. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic photograph of {Subject} from behind, from the waist up, {Facing}, the back of the head, the shoulders and the back in frame, the face not visible. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.RenderBehindFull,
                 WorkflowStep = "LoraCellRender",
-                Body = "Photorealistic full-body photograph of {BodyCard}, head to feet, from behind, {Facing}, the back of the head, the back, the backside and the backs of the legs in frame, no part of the face visible, nothing cropped. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, no retouching."
+                Body = "Photorealistic full-body photograph of {Subject}, head to feet, from behind, {Facing}, the back of the head, the back, the backside and the backs of the legs in frame, the face not visible, the whole body in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
 
             // The caption. Comma-separated tags with the trigger token FIRST: the token is what the whole
@@ -547,6 +554,15 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
 
             // The variant wording. Every phrase here is data: the generator reads it and the operator can edit
             // it. A phrase that is missing fails fast by key rather than falling back to a guess.
+            //
+            // The LIGHTING phrases name the LIGHT and never the setting. The environment belongs to the Background
+            // row, so a lighting phrase that also named it ("... indoor lighting", "... outdoors", "against a dark
+            // surround") put the same fact in two places and the two were free to disagree: measured on the live
+            // plan, 14 of 36 cells paired an indoor phrase with an outdoor setting or the reverse, and the model
+            // resolved the contradiction toward the bright studio look its reference images already have. Each
+            // phrase now states only intensity, direction and what the light does to the subject, so no pairing can
+            // contradict it - and the dim values say explicitly what stays dark, which is what lets them win against
+            // a bright reference image.
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.VocabularyWardrobeClothed,
@@ -635,37 +651,37 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
             {
                 Key = LoraCellWorkflowKeys.VocabularyLightingIndoorBright,
                 WorkflowStep = "LoraCellVocabulary",
-                Body = "even bright indoor lighting"
+                Body = "bright, even lighting with soft shadows"
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.VocabularyLightingIndoorDim,
                 WorkflowStep = "LoraCellVocabulary",
-                Body = "dim indoor lighting with soft shadows"
+                Body = "dim, low-key lighting with soft shadows"
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.VocabularyLightingOutdoorDay,
                 WorkflowStep = "LoraCellVocabulary",
-                Body = "flat daylight outdoors"
+                Body = "flat overcast daylight, soft and even"
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.VocabularyLightingOutdoorGolden,
                 WorkflowStep = "LoraCellVocabulary",
-                Body = "warm golden-hour sunlight from the side"
+                Body = "warm golden-hour sunlight from the side, long shadows"
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.VocabularyLightingOutdoorNight,
                 WorkflowStep = "LoraCellVocabulary",
-                Body = "low ambient light at night with a single practical light source"
+                Body = "low ambient light at night, one practical light source, deep shadows"
             },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.VocabularyLightingHardRim,
                 WorkflowStep = "LoraCellVocabulary",
-                Body = "a hard rim light along the edge of the body against a dark surround"
+                Body = "a hard rim light along the edge of the body, the far side in deep shadow"
             },
             new ImageWorkflowPromptTemplate
             {

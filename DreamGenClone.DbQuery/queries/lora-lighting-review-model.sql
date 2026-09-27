@@ -1,0 +1,1 @@
+SELECT Id, DisplayName, ProviderId, SceneImageModelFamily, PromptDialect, IdentityMechanism, IdentityStrength, ModelKind, IsEnabled FROM RegisteredModels WHERE Id = '3f1c9a52-7d4e-4c8b-9a21-6b0e5d2c8f41';

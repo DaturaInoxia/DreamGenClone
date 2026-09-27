@@ -745,6 +745,13 @@ else
                     + "composed. Finish it, and compose its body text, on the Body tab."
                 : string.Empty;
 
+    /// <summary>
+    /// The subject noun the prompt keeps when a bound body reference supplies the build (B-132): the reference carries
+    /// the build, never the fact that a person is in the frame. Read from the same body-text resolution as
+    /// <see cref="BodyCardLine"/>, so the noun and the description cannot describe two different people.
+    /// </summary>
+    private string SubjectNoun => _cellBodyTexts?.SubjectNoun ?? string.Empty;
+
     private string Phrase(Func<CoverageRecord, string> select)
         => _plan is null || SelectedRecord is null ? string.Empty : _plan.PhraseFor(select(SelectedRecord));
 
@@ -892,12 +899,14 @@ else
     /// <summary>
     /// The exact text this cell is rendered from - the same composition shown above, never a second one. The
     /// elements the bound reference images supply are LEFT OUT (D4) through the same omission set the composer
-    /// reports to the operator, so the prompt and the "left out of the prompt" list cannot disagree.
+    /// reports to the operator, so the prompt and the "left out of the prompt" list cannot disagree. The subject is
+    /// the ONE element a body reference does not supply, so the composer keeps its noun.
     /// </summary>
     private string RenderPromptForShoot => Compose(record => LoraCellPromptComposer.ComposeRenderPrompt(
         _plan!, record, BodyCardLine, _renderTemplateBody ?? string.Empty,
         _cellBodyTexts?.FaceText,
-        ImageStepPromptOmission.BoundSlotsFor(CellBlueprint, _cellBindings).Select(slot => slot.SlotKind).ToList()));
+        ImageStepPromptOmission.BoundSlotsFor(CellBlueprint, _cellBindings).Select(slot => slot.SlotKind).ToList(),
+        SubjectNoun));
 
     private void SelectCell(string key) => _ = SelectCellAsync(key);
 

@@ -528,6 +528,21 @@
             try
             {
                 _characters = await IdentityService.ListPackOwnersAsync();
+
+                // The step opens ON a character that can actually serve the references, so its face, build and wardrobe
+                // elements are present from the first render. Making the operator discover that they must pick someone
+                // before the tabs exist is not a design - the tabs ARE the feature. A character is skipped rather than
+                // chosen when it cannot serve them, so the default never lands on a roster entry the page would then
+                // refuse.
+                var defaultCharacter = _characters.FirstOrDefault(owner =>
+                    owner.FaceViews.Count > 0
+                    && IdentityPackReferenceResolver.ResolveBody(
+                        owner.ApprovedAssets, SceneImageReferenceBodyView.Front, SceneImageReferenceBodyState.Clothed)
+                        is not null);
+                if (defaultCharacter is not null && string.IsNullOrWhiteSpace(_characterProfileId))
+                {
+                    await OnCharacterChangedAsync(defaultCharacter.CharacterProfileId);
+                }
             }
             catch (Exception characters)
             {
