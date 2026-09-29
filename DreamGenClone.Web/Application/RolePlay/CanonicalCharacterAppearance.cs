@@ -29,12 +29,20 @@ internal static class CanonicalCharacterAppearance
     /// characters, no frozen characters in the brief, every depicted character has no appearance
     /// data, or no depicted characters remain after POV exclusion). The POV character is excluded
     /// for a named observer POV (never in frame); an Omniscient POV includes every frozen character.
+    ///
+    /// <paramref name="canonicalAppearance"/> is each character's AUTHORED appearance text (B-132), keyed by character
+    /// id or name exactly as an override is, or null when the caller resolved none. It WINS over the attribute-derived
+    /// block, because it is the text the operator edits in the Character Studio and every other consumer already reads
+    /// it - composing a second description here is how the prompt and the operator's own text came to disagree.
+    /// <paramref name="appearanceOverrides"/> still outranks both: a deliberate per-render edit is the operator
+    /// speaking about THIS image.
     /// </summary>
     internal static string BuildBlock(
         CompiledMediaBrief brief,
         string pov,
         IReadOnlyList<Character>? characters,
-        IReadOnlyDictionary<string, string>? appearanceOverrides = null)
+        IReadOnlyDictionary<string, string>? appearanceOverrides = null,
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
     {
         if (characters is null || characters.Count == 0)
             return string.Empty;
@@ -70,9 +78,14 @@ internal static class CanonicalCharacterAppearance
         foreach (var frozenCharacter in depicted)
         {
             var character = ResolveCharacter(frozenCharacter, charactersById, charactersByName);
-            var appearance = character is null
-                ? string.Empty
-                : PhysicalAttributesFormatter.FormatVisualBlock(character.PhysicalAttributes);
+
+            // The AUTHORED text first (B-132), then the attribute-derived block. The second is not a fallback in the
+            // forbidden sense: a scenario character with no identity pack has no authored text at all, and it still
+            // has to be described - this path described it from its attributes before B-132 existed.
+            var appearance = ResolveCanonicalAppearance(frozenCharacter, canonicalAppearance) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(appearance) && character is not null)
+                appearance = PhysicalAttributesFormatter.FormatVisualBlock(character.PhysicalAttributes);
+
             if (string.IsNullOrWhiteSpace(appearance) && character is not null && !string.IsNullOrWhiteSpace(character.Description))
                 appearance = "Description — " + Truncate(character.Description, AppearanceDescriptionMaxChars);
 
@@ -89,6 +102,24 @@ internal static class CanonicalCharacterAppearance
         }
 
         return emittedAny ? sb.ToString() : string.Empty;
+    }
+
+    /// <summary>
+    /// The character's authored canonical appearance, keyed the same way an override is (character id, then name), or
+    /// null when the caller resolved none for this character.
+    /// </summary>
+    private static string? ResolveCanonicalAppearance(
+        FrozenCharacterRef frozen,
+        IReadOnlyDictionary<string, string>? canonicalAppearance)
+    {
+        if (canonicalAppearance is null || canonicalAppearance.Count == 0) return null;
+        foreach (var key in new[] { frozen.CharacterId, frozen.Name })
+        {
+            if (string.IsNullOrWhiteSpace(key)) continue;
+            if (canonicalAppearance.TryGetValue(key.Trim(), out var value) && !string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+        return null;
     }
 
     /// <summary>

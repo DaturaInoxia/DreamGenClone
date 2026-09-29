@@ -24,6 +24,11 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>No character contributed an authored appearance text, so every depicted character keeps the block
+    /// derived from its physical attributes.</summary>
+    private static readonly IReadOnlyDictionary<string, string> NoCanonicalAppearance =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
     private readonly ISessionService _sessionService;
     private readonly ISceneImageRepository _repository;
     private readonly ISceneImagePromptCompilerRegistry _compilerRegistry;
@@ -31,6 +36,8 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly StoryAnalysisFacade _storyAnalysis;
     private readonly IScenarioService _scenarioService;
+    private readonly ICharacterIdentityBodyService _identityBodies;
+    private readonly ICharacterIdentityOwnerResolver _identityOwners;
     private readonly IModelResolutionService _modelResolutionService;
     private readonly ICompletionClient _completionClient;
     private readonly SceneImageTurnResolver _turnResolver;
@@ -47,6 +54,8 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         IRolePlayDebugEventSink debugEventSink,
         StoryAnalysisFacade storyAnalysis,
         IScenarioService scenarioService,
+        ICharacterIdentityBodyService identityBodies,
+        ICharacterIdentityOwnerResolver identityOwners,
         IModelResolutionService modelResolutionService,
         ICompletionClient completionClient,
         SceneImageTurnResolver turnResolver,
@@ -62,6 +71,8 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         _debugEventSink = debugEventSink;
         _storyAnalysis = storyAnalysis;
         _scenarioService = scenarioService;
+        _identityBodies = identityBodies;
+        _identityOwners = identityOwners;
         _modelResolutionService = modelResolutionService;
         _completionClient = completionClient;
         _turnResolver = turnResolver;
@@ -301,8 +312,14 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             // either, but a deliberate operator edit always outranks a binding-derived default.
             var effectiveOverrides = ReferenceBindingPromptRemoval.Merge(settings.PromptOverrides, referenceApplications);
             var promptPayload = ScenePromptOverridesApplier.Apply(brief, effectiveOverrides);
+
+            // B-132: each depicted character's AUTHORED appearance text, so the pre-processor describes them the way
+            // the operator edited them instead of from a second, attribute-derived composition. Resolved HERE because
+            // this is the async, DI-backed point that owns the characters; the prompt builders stay synchronous and
+            // receive the texts as data.
+            var canonicalAppearance = await ResolveCanonicalAppearanceAsync(characters, cancellationToken);
             var (systemPrompt, userPrompt) = compiler.PromptBuilder.BuildMessages(
-                promptPayload.Brief, group.Pov, settings, resolvedImageModel.ContentPolicy, record.RefineInstruction, characters, promptPayload.AppearanceOverrides);
+                promptPayload.Brief, group.Pov, settings, resolvedImageModel.ContentPolicy, record.RefineInstruction, characters, promptPayload.AppearanceOverrides, canonicalAppearance);
 
             await WriteDebugEventAsync("SceneImagePromptProjected", record.SessionId, record.InteractionId, new
             {
@@ -452,6 +469,69 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             // not fail prompt generation. The preprocessor already falls back to "unknown".
             _logger.LogDebug(ex, "Failed to resolve intensity label for scene image prompt; SessionId={SessionId}", session.Id);
         }
+    }
+
+    /// <summary>
+    /// Each depicted character's AUTHORED appearance text (B-132), keyed by BOTH its id and its name so the appearance
+    /// block finds it exactly the way it finds an operator override.
+    ///
+    /// The text is the character's <c>SubjectWithFace</c>: the whole person as the operator wrote them, which is what
+    /// the block asks the pre-processor to describe. The body STATE is Clothed regardless of the scene, because the
+    /// block describes the person and not the outfit - the wardrobe travels in the brief's own element, and only the
+    /// unclothed body detail is state-dependent.
+    ///
+    /// A character whose identity owns no body card contributes nothing and keeps its attribute-derived block: most
+    /// scenario characters have no identity pack at all, and this path described them from attributes before B-132
+    /// existed. A card that cannot produce its texts is skipped WITH A LOG for the same reason the intensity label
+    /// above is - one cast member's half-answered card must not fail a production the operator cannot fix from here.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>> ResolveCanonicalAppearanceAsync(
+        IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character>? characters,
+        CancellationToken cancellationToken)
+    {
+        if (characters is null || characters.Count == 0)
+        {
+            return NoCanonicalAppearance;
+        }
+
+        var resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var character in characters)
+        {
+            if (string.IsNullOrWhiteSpace(character.Id))
+            {
+                continue;
+            }
+
+            try
+            {
+                var owner = await _identityOwners.ResolveAsync(character.Id, cancellationToken);
+                var card = await _identityBodies.GetBodyCardAsync(owner.TemplateId, cancellationToken);
+                if (card?.HasBodyText is not true)
+                {
+                    continue;
+                }
+
+                var texts = await _identityBodies.ResolveBodyTextsAsync(
+                    owner.TemplateId, SceneImageReferenceBodyState.Clothed, cancellationToken);
+                if (string.IsNullOrWhiteSpace(texts.SubjectWithFace))
+                {
+                    continue;
+                }
+
+                resolved[character.Id] = texts.SubjectWithFace;
+                if (!string.IsNullOrWhiteSpace(character.Name))
+                {
+                    resolved[character.Name.Trim()] = texts.SubjectWithFace;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(
+                    ex, "No authored appearance for character {CharacterId}; its attribute block is used instead.", character.Id);
+            }
+        }
+
+        return resolved.Count == 0 ? NoCanonicalAppearance : resolved;
     }
 
     private async Task WriteDebugEventAsync<T>(string kind, string sessionId, string interactionId, T metadata, CancellationToken cancellationToken)

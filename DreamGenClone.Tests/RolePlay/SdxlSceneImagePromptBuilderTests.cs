@@ -337,6 +337,68 @@ public sealed class SdxlSceneImagePromptBuilderTests
         Assert.DoesNotContain("jet black", user, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// B-132: the block carries the character's AUTHORED canonical text - the text the operator edits and every other
+    /// consumer already reads - instead of a second description composed from the same attributes.
+    /// </summary>
+    [Fact]
+    public void BuildCanonicalMessages_PrefersTheAuthoredAppearanceOverTheAttributeBlock()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        const string Authored = "a woman in her thirties with copper hair and hazel eyes";
+        var canonical = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["char-becky"] = Authored,
+            ["Becky"] = Authored
+        };
+
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeCanonicalBriefWithFrozenCharacters(), "Dean", settings, ImageContentPolicy.AdultAllowed, null,
+            new List<Character> { MakeBecky() }, appearanceOverrides: null, canonicalAppearance: canonical);
+
+        Assert.Contains(Authored, user, StringComparison.Ordinal);
+        // Becky's ATTRIBUTES say auburn/green; neither may reach the prompt once an authored text exists.
+        Assert.DoesNotContain("auburn", user, StringComparison.Ordinal);
+        Assert.DoesNotContain("green", user, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The other half of the same contract, so the test above cannot pass vacuously: a character with NO authored text
+    /// is still described, from the attributes, exactly as this path did before B-132.
+    /// </summary>
+    [Fact]
+    public void BuildCanonicalMessages_KeepsTheAttributeBlockForACharacterWithNoAuthoredText()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeCanonicalBriefWithFrozenCharacters(), "Dean", settings, ImageContentPolicy.AdultAllowed, null,
+            new List<Character> { MakeBecky() }, appearanceOverrides: null, canonicalAppearance: null);
+
+        Assert.Contains("DEPICTED CHARACTER APPEARANCE", user, StringComparison.Ordinal);
+        Assert.Contains("auburn", user, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An operator's per-render edit outranks even the authored text: it is the operator speaking about THIS image,
+    /// which is the precedence the override parameter already had.
+    /// </summary>
+    [Fact]
+    public void BuildCanonicalMessages_AnOperatorOverrideOutranksTheAuthoredText()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        const string Authored = "a woman in her thirties with copper hair and hazel eyes";
+        var canonical = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Becky"] = Authored };
+        var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Becky"] = "a hooded figure" };
+
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeCanonicalBriefWithFrozenCharacters(), "Dean", settings, ImageContentPolicy.AdultAllowed, null,
+            new List<Character> { MakeBecky() }, overrides, canonical);
+
+        Assert.Contains("a hooded figure", user, StringComparison.Ordinal);
+        Assert.DoesNotContain("copper", user, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void BuildCanonicalMessages_OmniscientPov_IncludesAllCharacters()
     {

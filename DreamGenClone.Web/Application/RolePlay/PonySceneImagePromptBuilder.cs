@@ -51,11 +51,12 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         ImageContentPolicy resolvedPolicy,
         string? refineInstruction,
         IReadOnlyList<Character>? characters,
-        IReadOnlyDictionary<string, string>? appearanceOverrides = null)
+        IReadOnlyDictionary<string, string>? appearanceOverrides = null,
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
     {
         ValidateCanonicalBrief(brief, pov);
         var systemPrompt = BuildCanonicalSystemPrompt();
-        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides);
+        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides, canonicalAppearance);
         return (systemPrompt, userPrompt);
     }
 
@@ -619,14 +620,15 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         ImageContentPolicy policy,
         string? refineInstruction,
         IReadOnlyList<Character>? characters,
-        IReadOnlyDictionary<string, string>? appearanceOverrides)
+        IReadOnlyDictionary<string, string>? appearanceOverrides,
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("CANONICAL STILL BRIEF (immutable; this is the complete semantic source):");
         sb.AppendLine(brief.SemanticInputSnapshotJson);
         sb.AppendLine("CANONICAL PROVIDER REQUEST SNAPSHOT (immutable):");
         sb.AppendLine(brief.ProviderRequestSnapshotJson);
-        var appearanceBlock = CanonicalCharacterAppearance.BuildBlock(brief, pov, characters, appearanceOverrides);
+        var appearanceBlock = CanonicalCharacterAppearance.BuildBlock(brief, pov, characters, appearanceOverrides, canonicalAppearance);
         if (!string.IsNullOrWhiteSpace(appearanceBlock))
         {
             sb.AppendLine(appearanceBlock);

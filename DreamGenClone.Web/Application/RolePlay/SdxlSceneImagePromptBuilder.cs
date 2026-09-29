@@ -49,7 +49,8 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         ImageContentPolicy resolvedPolicy,
         string? refineInstruction,
         IReadOnlyList<Character>? characters,
-        IReadOnlyDictionary<string, string>? appearanceOverrides = null)
+        IReadOnlyDictionary<string, string>? appearanceOverrides = null,
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
     {
         CompiledMediaContractValidator.ValidateBrief(brief);
         if (brief.MediaKind != MediaProductionKind.StillImage || brief.Status != MediaCompilerStatus.Complete)
@@ -58,7 +59,7 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
             throw new InvalidOperationException("Canonical scene-image prompt generation requires the production group POV.");
 
         var systemPrompt = BuildCanonicalSystemPrompt();
-        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides);
+        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides, canonicalAppearance);
         return (systemPrompt, userPrompt);
     }
 
@@ -243,14 +244,15 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         ImageContentPolicy policy,
         string? refineInstruction,
         IReadOnlyList<Character>? characters,
-        IReadOnlyDictionary<string, string>? appearanceOverrides)
+        IReadOnlyDictionary<string, string>? appearanceOverrides,
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("CANONICAL STILL BRIEF (immutable; this is the complete semantic source):");
         sb.AppendLine(brief.SemanticInputSnapshotJson);
         sb.AppendLine("CANONICAL PROVIDER REQUEST SNAPSHOT (immutable):");
         sb.AppendLine(brief.ProviderRequestSnapshotJson);
-        var appearanceBlock = BuildCanonicalCharacterAppearanceBlock(brief, pov, characters, appearanceOverrides);
+        var appearanceBlock = BuildCanonicalCharacterAppearanceBlock(brief, pov, characters, appearanceOverrides, canonicalAppearance);
         if (!string.IsNullOrWhiteSpace(appearanceBlock))
         {
             sb.AppendLine(appearanceBlock);
@@ -274,8 +276,9 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         CompiledMediaBrief brief,
         string pov,
         IReadOnlyList<Character>? characters,
-        IReadOnlyDictionary<string, string>? appearanceOverrides)
-        => CanonicalCharacterAppearance.BuildBlock(brief, pov, characters, appearanceOverrides);
+        IReadOnlyDictionary<string, string>? appearanceOverrides,
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
+        => CanonicalCharacterAppearance.BuildBlock(brief, pov, characters, appearanceOverrides, canonicalAppearance);
 
     private static string BuildUserPrompt(
         RolePlaySession session,

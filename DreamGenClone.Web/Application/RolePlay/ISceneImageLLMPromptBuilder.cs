@@ -28,6 +28,11 @@ public interface ISceneImageLLMPromptBuilder
     /// appearance line). The default implementation delegates to the character-less overload
     /// (Pony/API builders ignore characters); the SDXL builder overrides this to append the
     /// authoritative appearance block.
+    ///
+    /// <paramref name="canonicalAppearance"/> is each character's AUTHORED appearance text (B-132), keyed the same way
+    /// as an override, or null when the caller resolved none. It OUTRANKS the attribute-derived block, because it is
+    /// the text the operator edits and every other consumer already reads it. The CALLER resolves it: the identity
+    /// services are async and these builders are deliberately not, so the texts arrive here as data.
     /// </summary>
     (string SystemPrompt, string UserPrompt) BuildMessages(
         CompiledMediaBrief brief,
@@ -36,7 +41,8 @@ public interface ISceneImageLLMPromptBuilder
         ImageContentPolicy resolvedPolicy,
         string? refineInstruction,
         IReadOnlyList<Character>? characters,
-        IReadOnlyDictionary<string, string>? appearanceOverrides = null)
+        IReadOnlyDictionary<string, string>? appearanceOverrides = null,
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
         => BuildMessages(brief, pov, settings, resolvedPolicy, refineInstruction);
 
     /// <summary>Compose the system + user messages for the pre-processor model.</summary>
