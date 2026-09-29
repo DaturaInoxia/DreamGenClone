@@ -786,7 +786,36 @@
                         + "references (Qwen-Image-2.1), or clear one of them.");
                 }
             }
-            var firstPackId = identityPacks?.FirstOrDefault()?.PackId;
+            // A NATIVE reference render is decided by the step's BINDINGS, not by a second checkbox: a face bound from
+            // an identity pack IS the request, and the packs it names are what the render path builds the faces from
+            // (SceneImageService.ResolveNativeReferenceIdentityBindingsAsync binds only the packs the caller names, so
+            // without this a native create arrives with no face at all).
+            //
+            // 'Identity on create' stays the GRAPH route (IP-Adapter/PuLID) and keeps its own control. The two are
+            // different mechanisms on different models, and the page asks for whichever the operator actually set up.
+            var nativePacks = _referenceBindings
+                .Where(binding => string.Equals(binding.Kind, nameof(ImageStepSlotKind.Face), StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(binding.IdentityPackId)
+                    && !string.IsNullOrWhiteSpace(binding.ReferenceAssetId))
+                .GroupBy(binding => binding.IdentityPackId!, StringComparer.Ordinal)
+                .Select(group => new IdentityPackSelection
+                {
+                    PackId = group.Key,
+                    // The character the face belongs to, which is the label the operator recognises; the pack id is only
+                    // a fallback for a binding that somehow names no actor.
+                    CharacterLabel = group.Select(binding => binding.ActorKey)
+                        .FirstOrDefault(actor => !string.IsNullOrWhiteSpace(actor)) ?? group.Key,
+                    Strength = 1.0
+                })
+                .ToList();
+
+            var renderMode = _applyIdentityOnCreate
+                ? SceneImageRenderMode.IdentityControlled
+                : nativePacks.Count > 0
+                    ? SceneImageRenderMode.NativeReference
+                    : SceneImageRenderMode.PromptOnly;
+
+            var firstPackId = identityPacks?.FirstOrDefault()?.PackId ?? nativePacks.FirstOrDefault()?.PackId;
             var renderSettings = new SceneImageStudioSettings();
             if (!string.IsNullOrWhiteSpace(_poseStoragePath))
             {
@@ -809,9 +838,9 @@
                 CompiledMediaBriefId = _compiledMediaBrief!.Id,
                 BeatId = _productionGroup.BeatId,
                 Pov = _productionGroup.Pov,
-                RenderMode = _applyIdentityOnCreate ? SceneImageRenderMode.IdentityControlled : SceneImageRenderMode.PromptOnly,
+                RenderMode = renderMode,
                 IdentityPackId = firstPackId,
-                IdentityPacks = identityPacks,
+                IdentityPacks = identityPacks ?? nativePacks,
                 ReferenceApplications = _referenceBindings
             });
             _statusMessage = regenerateOfId is null ? "Composition queued." : "Sibling Composition queued.";
