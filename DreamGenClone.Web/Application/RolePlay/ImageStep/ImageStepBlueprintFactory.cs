@@ -237,6 +237,16 @@ public static class ImageStepBlueprintFactory
 
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sources));
 
+        // The pose is FRAME-WIDE and comes from the pose library's own skeletons, never from an asset: what the render
+        // conditions on is an OpenPose skeleton, and a library preset is the artifact the pose proofs used. NOT
+        // required - a Composition renders unposed until the operator binds one.
+        //
+        // Declared here (2026-09-28) because the composition page was the last host that had to offer its own pose
+        // picker: the slot is what makes the shared step show a Pose tab, so the page stopped duplicating it.
+        slots.Add(new ImageStepSlotBlueprint(
+            ImageStepSlotKind.Pose, ImageStepSlotPrefill.CallerSupplied,
+            [ImageStepReferenceSourceKind.PoseLibrarySkeleton]));
+
         return Build(new ImageStepBlueprint(
             ImageStepKind.Compose, "Composition", ImageStepSourceMode.None, slots, ImageStepPersistenceKind.SceneImage));
     }

@@ -242,7 +242,7 @@
                             <div class="d-flex justify-content-between align-items-start gap-2">
                                 <div>
                                     <strong>Pose reference</strong>
-                                    <span class="d-block small text-muted">Bind the blocking/pose with an OpenPose skeleton PNG (from the pose library or a DWPose extract of a reference photo). The selected model's family decides how the skeleton travels: a model that qualifies an OpenPose ControlNet (SDXL/FLUX on the local ComfyUI) conditions the sampler with it, while a model that carries references natively (Qwen-Image-2.1) takes the skeleton as one more reference image in the same call — which is also what lets a pose combine with identity on create. A model that supports neither fails fast rather than rendering without the pose.</span>
+                                    <span class="d-block small text-muted">A library pose is bound in the step's <strong>Pose</strong> tab above, and that binding is what the render reads — the picker no longer lives here, because two ways to choose one pose is how the two drift apart. A skeleton the library does not hold (a DWPose extract, say) can be uploaded here instead. The selected model's family decides how the skeleton travels: a model that qualifies an OpenPose ControlNet (SDXL/FLUX on the local ComfyUI) conditions the sampler with it, while a model that carries references natively (Qwen-Image-2.1) takes the skeleton as one more reference image in the same call — which is also what lets a pose combine with identity on create. A model that supports neither fails fast rather than rendering without the pose.</span>
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(_poseStoragePath))
                                 {
@@ -262,11 +262,8 @@
                                 {
                                     <div class="d-flex flex-wrap align-items-center gap-2">
                                         <InputFile accept=".png,.jpg,.jpeg,.webp" OnChange="OnPoseFileSelectedAsync" />
-                                        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_poseBusy" @onclick="OpenPosePicker">
-                                            <i class="bi bi-grid-3x3-gap me-1"></i>Choose from library
-                                        </button>
                                     </div>
-                                    <div class="form-text">OpenPose skeleton PNG — upload one, pick one from the pose library, or use a DWPose extract. When attached, the render uses the OpenPose ControlNet graph instead of plain text.</div>
+                                    <div class="form-text">OpenPose skeleton PNG — upload a DWPose extract, or bind a library pose in the <strong>Pose</strong> tab above. When attached, the render uses the OpenPose ControlNet graph instead of plain text.</div>
                                 }
                                 else
                                 {
@@ -285,10 +282,6 @@
                                 }
                             </div>
                         </div>
-
-                        <PoseLibraryPicker Visible="_posePickerOpen"
-                                           VisibleChanged="value => _posePickerOpen = value"
-                                           OnSelected="OnPosePickedAsync" />
 
                         <div class="border-top mt-4 pt-3" aria-label="Identity on create">
                             <div class="d-flex justify-content-between align-items-start gap-2">
@@ -523,14 +516,15 @@
     /// <summary>
     /// The step this page presents. Identity travels as PACKS here (the page's own channel, resolved into face
     /// references by the render), so the step declares the elements a pack cannot carry - bodies and wardrobe per
-    /// character, plus the frame-wide location - and no face slot (B-130).
+    /// character, plus the frame-wide location and pose - and no face slot (B-130).
     /// </summary>
     private ImageStepBlueprint CompositionBlueprint => ImageStepBlueprintFactory.ForPackIdentityComposition(CompositionCast);
 
-    private Task OnReferenceBindingsChanged(IReadOnlyList<ReferenceApplicationSelection> bindings)
+    private async Task OnReferenceBindingsChanged(IReadOnlyList<ReferenceApplicationSelection> bindings)
     {
         _referenceBindings = bindings;
-        return Task.CompletedTask;
+        await SyncBoundPoseAsync(bindings);
+        StateHasChanged();
     }
 
     /// <summary>
@@ -575,6 +569,12 @@
     private string? _poseStoragePath;
     private double _poseStrength = 0.8;
     private string? _poseUploadError;
+
+    /// <summary>
+    /// The library preset the attached skeleton came from, or null when the operator uploaded one. It is what tells
+    /// the two apart, so binding a pose can release an upload and an upload can release a binding.
+    /// </summary>
+    private string? _posePresetId;
 
     private sealed class IdentityPackOption
     {
@@ -1202,26 +1202,43 @@
         else _sdxlPromptText = value;
     }
 
-    private bool _posePickerOpen;
-
-    private void OpenPosePicker() => _posePickerOpen = true;
-
     /// <summary>
-    /// Attaches a pose chosen from the library by copying its skeleton into this session's pose input. The render
-    /// path is untouched: it still receives a stored skeleton, exactly as an upload does, so there is one
-    /// conditioning path rather than two.
+    /// Attaches the pose the step's Pose tab names, by copying that preset's skeleton into this session's pose input.
+    ///
+    /// The render path is untouched: it still receives a stored skeleton, exactly as an upload does, so there is ONE
+    /// conditioning path rather than two. The skeleton is read BY PRESET ID, never from a path on the binding, so a
+    /// stale path cannot make the render read a different file than the pose the operator picked.
+    ///
+    /// Unbinding the slot detaches it again, which is how the composer's own "clear" reaches this page.
     /// </summary>
-    private async Task OnPosePickedAsync(PosePreset preset)
+    private async Task SyncBoundPoseAsync(IReadOnlyList<ReferenceApplicationSelection> bindings)
     {
+        var selected = ImageStepPoseBinding.Resolve(bindings);
+        if (selected is null)
+        {
+            if (_posePresetId is not null)
+            {
+                DetachPose();
+            }
+
+            return;
+        }
+
+        if (string.Equals(selected.PresetId, _posePresetId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
         _poseUploadError = string.Empty;
         _poseBusy = true;
         try
         {
-            var bytes = await PoseCatalog.ReadSkeletonAsync(preset.Id);
-            var name = $"pose_{preset.Id}_{Guid.NewGuid():N}.png";
+            var bytes = await PoseCatalog.ReadSkeletonAsync(selected.PresetId);
+            var name = $"pose_{selected.PresetId}_{Guid.NewGuid():N}.png";
             await using var stream = new MemoryStream(bytes);
             _poseStoragePath = await SceneImageStorage.SaveAsync(sessionId, name, stream);
-            _poseImageName = $"{preset.Name} (pose library)";
+            _poseImageName = $"{selected.PresetId} (pose library)";
+            _posePresetId = selected.PresetId;
             _poseStrength = 0.8;
         }
         catch (Exception ex)
@@ -1231,8 +1248,16 @@
         finally
         {
             _poseBusy = false;
-            StateHasChanged();
         }
+    }
+
+    /// <summary>Releases the attached pose without deciding what replaces it.</summary>
+    private void DetachPose()
+    {
+        _poseStoragePath = null;
+        _poseImageName = string.Empty;
+        _posePresetId = null;
+        _poseStrength = 0.8;
     }
 
     private async Task OnPoseFileSelectedAsync(InputFileChangeEventArgs e)
@@ -1260,6 +1285,14 @@
             _poseStoragePath = await SceneImageStorage.SaveAsync(sessionId, name, stream);
             _poseImageName = file.Name;
             _poseStrength = 0.8;
+
+            // The upload takes the place of a bound library pose rather than sitting beside it: a render takes one
+            // pose, and the step's Pose tab is where the other one lives. Clearing the BINDING (not just this field)
+            // is what stops the composer's Pose tab from showing a pose this page has just released.
+            _posePresetId = null;
+            _referenceBindings = _referenceBindings
+                .Where(binding => !string.Equals(binding.Kind, nameof(ImageStepSlotKind.Pose), StringComparison.OrdinalIgnoreCase))
+                .ToList();
         }
         catch (Exception ex)
         {
@@ -1274,9 +1307,13 @@
 
     private void ClearPose()
     {
-        _poseStoragePath = null;
-        _poseImageName = string.Empty;
-        _poseStrength = 0.8;
+        DetachPose();
+
+        // The step's Pose slot is released with it, for the same reason an upload releases it: a binding left behind
+        // would show a pose in the composer that this page has just removed from the render.
+        _referenceBindings = _referenceBindings
+            .Where(binding => !string.Equals(binding.Kind, nameof(ImageStepSlotKind.Pose), StringComparison.OrdinalIgnoreCase))
+            .ToList();
         StateHasChanged();
     }
 
