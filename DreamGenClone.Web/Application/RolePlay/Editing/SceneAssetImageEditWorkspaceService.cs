@@ -42,6 +42,28 @@ public sealed class SceneAssetImageEditWorkspaceService : IImageEditWorkspaceSer
 
     public bool SupportsIdentity => true;
 
+    public bool SupportsPresetEdits => true;
+
+    /// <inheritdoc />
+    public async Task<string> RunPresetAsync(
+        ImageEditSubject subject,
+        string presetKey,
+        string editorModelId,
+        CancellationToken cancellationToken = default)
+    {
+        var image = await _compilations.EnqueuePresetEditAsync(
+            new EnqueueSceneAssetImagePresetEditRequest
+            {
+                AssetId = Require(subject.AssetId, "AssetId"),
+                SourceImageId = subject.ImageId,
+                PresetKey = presetKey,
+                EditorModelId = editorModelId,
+                CandidateBatchId = subject.CandidateBatchId
+            },
+            cancellationToken);
+        return image.Id;
+    }
+
     public async Task<ImageEditSource?> GetSourceAsync(
         ImageEditSubject subject, CancellationToken cancellationToken = default)
     {

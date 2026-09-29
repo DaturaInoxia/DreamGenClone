@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Editing;
@@ -583,7 +584,8 @@ public sealed class CharacterLoraCellServiceTests
         BodyState = SceneImageReferenceBodyState.Clothed,
         Distance = LoraCoverageDistance.CloseUp,
         WardrobeState = LoraCoverageWardrobeState.Clothed,
-        PoseClass = LoraCoveragePoseClass.Standing,
+        // A close-up frames the head and both shoulders, so it claims no stance - the plan refuses one.
+        PoseClass = null,
         ExpressionKey = "lora.vocabulary.expression.neutral",
         LightingKey = "lora.vocabulary.lighting.indoor-dim",
         BackgroundKey = "lora.vocabulary.background.plain-wall",
@@ -729,7 +731,7 @@ public sealed class CharacterLoraCellServiceTests
                 Version = 1,
                 Status = CharacterLoraDatasetStatus.Draft,
                 TriggerToken = "becky_token",
-                TargetModelFamily = "SDXL",
+                TargetModelFamily = nameof(SceneImageModelFamily.Sdxl),
                 ContainerAssetId = "container-1",
                 CoveragePlanJson = PlanJson(Record)
             };
@@ -745,7 +747,7 @@ public sealed class CharacterLoraCellServiceTests
                 IdentityPackId = PackId,
                 IdentityPackVersion = 1,
                 TriggerToken = "becky_token",
-                TargetModelFamily = "SDXL",
+                TargetModelFamily = nameof(SceneImageModelFamily.Sdxl),
                 SeedRangeStart = 41000,
                 GeneratedUtc = new DateTime(2026, 9, 25, 0, 0, 0, DateTimeKind.Utc),
                 Records = [record],
@@ -761,6 +763,12 @@ public sealed class CharacterLoraCellServiceTests
         public Task<CharacterLoraDataset> SetDatasetContainerAsync(string datasetId, string containerAssetId, CancellationToken cancellationToken = default)
         {
             _dataset.ContainerAssetId = containerAssetId;
+            return Task.FromResult(_dataset);
+        }
+
+        public Task<CharacterLoraDataset> SetDatasetTargetFamilyAsync(string datasetId, string targetModelFamily, CancellationToken cancellationToken = default)
+        {
+            _dataset.TargetModelFamily = targetModelFamily;
             return Task.FromResult(_dataset);
         }
 
@@ -792,6 +800,8 @@ public sealed class CharacterLoraCellServiceTests
         public Task<CharacterLoraArtifact> CreateArtifactAsync(CharacterLoraArtifact artifact, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterLoraArtifact?> GetArtifactAsync(string artifactId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<CharacterLoraArtifact>> ListArtifactsAsync(string characterProfileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<CharacterLoraArtifact>> ListQualifiedArtifactsForBaseModelAsync(string baseModelId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterLoraArtifact> SetArtifactStatusAsync(string artifactId, CharacterLoraArtifactStatus status, string decisionEvidenceJson, DateTime decidedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task CreateIdentityStrategyBindingAsync(IdentityStrategyBinding binding, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<IdentityStrategyBinding>> ListIdentityStrategyBindingsAsync(string compiledRequestId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

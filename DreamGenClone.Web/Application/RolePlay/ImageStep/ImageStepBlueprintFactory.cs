@@ -84,7 +84,7 @@ public static class ImageStepBlueprintFactory
                 // full-body image and the garment is in it. Describing an outfit as well made the prompt contradict the
                 // image it was conditioned on, so the element is now left out of the prompt and shown as supplied.
                 WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.RecordRule,
-                    [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey)
+                    [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey, AllowsMultiple: true)
                     { SuppliedBySlotKind = ImageStepSlotKind.Body },
                     ImageStepSlotKind.Wardrobe, elementText),
                 // The POSE is bindable, and it COMPOSES with the face and body references (restored 2026-09-27).
@@ -147,7 +147,7 @@ public static class ImageStepBlueprintFactory
                 ImageStepSlotKind.Body, elementText));
             slots.Add(WithElementText(new ImageStepSlotBlueprint(
                 ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None,
-                [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey),
+                [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey, AllowsMultiple: true),
                 ImageStepSlotKind.Wardrobe, elementText));
         }
 
@@ -184,7 +184,7 @@ public static class ImageStepBlueprintFactory
             var resolved = RequireActor(actor);
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.None, sources, resolved.ActorKey));
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, sources, resolved.ActorKey));
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, resolved.ActorKey));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, resolved.ActorKey, AllowsMultiple: true));
         }
 
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sources));
@@ -232,7 +232,7 @@ public static class ImageStepBlueprintFactory
             }
 
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, sources, actor.ActorKey));
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, actor.ActorKey));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, actor.ActorKey, AllowsMultiple: true));
         }
 
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sources));
@@ -278,7 +278,7 @@ public static class ImageStepBlueprintFactory
             }
 
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, sources, actor.ActorKey));
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, actor.ActorKey));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, actor.ActorKey, AllowsMultiple: true));
         }
 
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sources));

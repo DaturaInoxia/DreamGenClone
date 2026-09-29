@@ -1689,6 +1689,20 @@
                                 <div class="col-12">
                                     <div class="form-text">Sampler/CLIP options default to the suggested Juggernaut values and apply to the ComfyUI SDXL/Juggernaut and FLUX workflows only.</div>
                                 </div>
+                                @* Character LoRA identity for this render. It is part of the settings object, so every
+                                   render path in this studio (generic, production, identity, regenerate) carries it,
+                                   and it round-trips when a render's settings are restored. It appears only for a model
+                                   that declares and qualifies the Lora strategy, so a model carrying identity another
+                                   way shows nothing here and keeps that mechanism untouched. *@
+                                @if (SelectedRenderModelCarriesLora)
+                                {
+                                    <div class="col-12">
+                                        <CharacterLoraPicker ModelIdentifier="@SelectedRenderModelIdentifier"
+                                                             Selections="_settings.CharacterLoras"
+                                                             SelectionsChanged="OnCharacterLorasChanged"
+                                                             Scope="studio-lora" />
+                                    </div>
+                                }
                             }
                         </div>
                     </div>
@@ -2211,6 +2225,33 @@
     // identity-conditioned render, all enabled image models for the generic render.
     private List<SceneImageModelChoice> _identityModelChoices = [];
     private List<SceneImageModelChoice> _genericModelChoices = [];
+
+    /// <summary>
+    /// The checkpoint file name of the model this studio will render with, so the LoRA picker can offer exactly the
+    /// artifacts trained against it. A model that is not in the list yet (nothing selected) yields null, and the
+    /// picker then says so rather than listing every LoRA in the database.
+    /// </summary>
+    private string? SelectedRenderModelIdentifier => _genericModelChoices
+        .FirstOrDefault(choice => string.Equals(choice.ModelId, _selectedGenericModelId, StringComparison.Ordinal))
+        ?.ModelIdentifier;
+
+    /// <summary>
+    /// Whether the studio's selected model declares AND qualifies LoRA identity, asked of the model's own qualified
+    /// strategies so this surface offers the picker under exactly the same condition the step composer does.
+    /// </summary>
+    private bool SelectedRenderModelCarriesLora => SelectedRenderModelChoice?.QualifiedStrategies.Any(strategy =>
+        string.Equals(strategy, ReferenceStrategyCatalogue.Lora, StringComparison.OrdinalIgnoreCase)) == true;
+
+    private SceneImageModelChoice? SelectedRenderModelChoice => _genericModelChoices
+        .FirstOrDefault(choice => string.Equals(choice.ModelId, _selectedGenericModelId, StringComparison.Ordinal));
+
+    private Task OnCharacterLorasChanged(IReadOnlyList<SceneImageCharacterLoraSelection> selections)
+    {
+        // Empty is the configured "no LoRA" state, not a null to be repaired: the render then emits no LoraLoader
+        // node and behaves exactly as it did before LoRA identity existed.
+        _settings.CharacterLoras = selections.Count == 0 ? null : selections.ToList();
+        return Task.CompletedTask;
+    }
     private string? _selectedIdentityModelId;
     private string? _selectedGenericModelId;
     private string? _resolvedDefaultImageModelId;

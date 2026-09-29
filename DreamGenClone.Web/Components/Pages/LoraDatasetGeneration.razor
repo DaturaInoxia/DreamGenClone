@@ -74,7 +74,13 @@
                         </div>
                         <div class="col-md-6">
                             <label class="form-label small" for="dataset-family">Target model family</label>
-                            <input id="dataset-family" class="form-control form-control-sm" @bind="_targetModelFamily" />
+                            <select id="dataset-family" class="form-select form-select-sm" @bind="_targetModelFamily">
+                                <option value="">Select a family</option>
+                                @foreach (var family in CharacterLoraModelFamilies.All)
+                                {
+                                    <option value="@family">@family</option>
+                                }
+                            </select>
                         </div>
                     </div>
                     @if (SelectedPack is not null)

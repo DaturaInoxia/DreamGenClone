@@ -27,8 +27,9 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
     private readonly TimeProvider _timeProvider;
     private readonly IMediaEditCompilationService _mediaEdits;
     private readonly ISceneImageProductionService _productionService;
+    private readonly IImagePresetService? _presets;
 
-    public SceneAssetImageEditCompilationService(ISceneAssetRepository assetRepository, ISceneAssetImageEditRepository editRepository, ISceneAssetStorageService storage, IMultimodalModelResolutionService modelResolver, ISceneImageEditPromptCompiler compiler, IDurableBackgroundJobQueue queue, ISceneBeatAnalyzerResolver durableSettingsResolver, TimeProvider timeProvider, IMediaEditCompilationService mediaEdits, ISceneImageProductionService productionService)
+    public SceneAssetImageEditCompilationService(ISceneAssetRepository assetRepository, ISceneAssetImageEditRepository editRepository, ISceneAssetStorageService storage, IMultimodalModelResolutionService modelResolver, ISceneImageEditPromptCompiler compiler, IDurableBackgroundJobQueue queue, ISceneBeatAnalyzerResolver durableSettingsResolver, TimeProvider timeProvider, IMediaEditCompilationService mediaEdits, ISceneImageProductionService productionService, IImagePresetService? presets = null)
     {
         _assetRepository = assetRepository;
         _editRepository = editRepository;
@@ -40,6 +41,7 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
         _timeProvider = timeProvider;
         _mediaEdits = mediaEdits;
         _productionService = productionService;
+        _presets = presets;
     }
 
     public async Task<SceneAssetImageEditSession> CreateSessionAsync(CreateSceneAssetImageEditSessionRequest request, CancellationToken cancellationToken = default)
@@ -256,6 +258,85 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
     /// the bound characters (never compiled — there is no compiler artifact), and the approved identity-pack
     /// faces are persisted on the row as its references, read back by the subject writer.
     /// </summary>
+    /// <summary>
+    /// Queues a preset edit pass (B-133). The instruction is assembled HERE and recorded with the preset that
+    /// produced it, so the writer can re-derive and prove it at run time. Nothing is compiled: a preset is already
+    /// model-ready, and sending it through the vision compiler would paraphrase away the detail the operator picked.
+    /// </summary>
+    public async Task<SceneAssetImage> EnqueuePresetEditAsync(
+        EnqueueSceneAssetImagePresetEditRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (_presets is null)
+        {
+            throw new InvalidOperationException(
+                "Preset edits require the preset resolver, which is not registered in this host.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.PresetKey))
+        {
+            throw new InvalidOperationException("A preset edit requires the preset it was assembled from.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.EditorModelId))
+        {
+            throw new InvalidOperationException("A preset edit requires the editor model chosen in the editor form.");
+        }
+
+        var source = await RequireSourceAsync(request.AssetId, request.SourceImageId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(source.Sha256))
+        {
+            throw new InvalidOperationException("The source asset image has no stored checksum.");
+        }
+
+        var characterId = string.IsNullOrWhiteSpace(request.CharacterId) ? null : request.CharacterId.Trim();
+        var instruction = await _presets.ResolveInstructionAsync(
+            request.PresetKey.Trim(), ImagePresetMode.Change, characterId, cancellationToken);
+
+        var preset = new MediaEditPresetInstruction(
+            request.PresetKey.Trim(),
+            MediaEditPresetProvenance.InstructionSha256(instruction),
+            characterId);
+        MediaEditPresetProvenance.Validate(preset);
+
+        var provenance = JsonSerializer.Serialize(new
+        {
+            operation = MediaEditProvenance.EditValue,
+            sourceImageSha256 = source.Sha256,
+            presetInstruction = preset
+        }, JsonOptions);
+
+        // The source's own batch by default: a relight of an attempt belongs beside that attempt, which is where the
+        // operator is looking when they ask for it.
+        var candidateBatchId = string.IsNullOrWhiteSpace(request.CandidateBatchId)
+            ? (string.IsNullOrWhiteSpace(source.CandidateBatchId) ? null : source.CandidateBatchId.Trim())
+            : request.CandidateBatchId.Trim();
+
+        var image = new SceneAssetImage
+        {
+            AssetId = source.AssetId,
+            Kind = SceneAssetKind.Edited,
+            Status = SceneAssetStatus.Pending,
+            Prompt = instruction,
+            SourceImageId = source.Id,
+            SourceProvenanceJson = provenance,
+            CandidateBatchId = candidateBatchId,
+            CandidateDecision = candidateBatchId is null ? null : SceneAssetCandidateDecision.Undecided
+        };
+        await _assetRepository.UpsertImageAsync(image, cancellationToken);
+
+        var editAttempts = (await _durableSettingsResolver.ResolveAsync(cancellationToken)).RetryDelaysSeconds.Count + 1;
+        await _mediaEdits.EnqueueRunAsync(
+            new MediaEditRunRequest(
+                MediaEditSubjectKind.AssetImage,
+                image.Id,
+                request.EditorModelId.Trim(),
+                editAttempts),
+            cancellationToken);
+        return image;
+    }
+
     public async Task<SceneAssetImage> EnqueueIdentityEditAsync(
         EnqueueSceneAssetImageIdentityEditRequest request, CancellationToken cancellationToken = default)
     {
@@ -350,7 +431,6 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
     }
 
     public Task<SceneAssetImageEditSession?> GetSessionAsync(string editSessionId, CancellationToken cancellationToken = default) => _editRepository.GetSessionAsync(editSessionId, cancellationToken);
-
     public Task<SceneAssetImageEditCompilationAttempt?> GetLatestAttemptAsync(string editSessionId, CancellationToken cancellationToken = default) => _editRepository.GetLatestAttemptAsync(editSessionId, cancellationToken);
     public Task<IReadOnlyList<SceneAssetImageEditPromptRevision>> ListRevisionsAsync(string attemptId, CancellationToken cancellationToken = default) => _editRepository.ListRevisionsAsync(attemptId, cancellationToken);
 

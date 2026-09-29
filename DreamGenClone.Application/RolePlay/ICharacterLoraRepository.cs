@@ -54,6 +54,15 @@ public interface ICharacterLoraRepository
     Task<CharacterLoraDataset> SetDatasetContainerAsync(
         string datasetId, string containerAssetId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Aim a draft dataset at a different trainable family. This changes DECLARATION only: the family names what
+    /// the set is trained for, it is not an input to a cell prompt, so every attempt stays where it is and only the
+    /// set of qualified profiles that may train it changes. Refused once frozen, because the frozen manifest
+    /// already records the family it was frozen for.
+    /// </summary>
+    Task<CharacterLoraDataset> SetDatasetTargetFamilyAsync(
+        string datasetId, string targetModelFamily, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<CharacterLoraDatasetMember>> ListDatasetMembersAsync(
         string datasetId, CancellationToken cancellationToken = default);
 
@@ -135,6 +144,17 @@ public interface ICharacterLoraRepository
 
     Task<IReadOnlyList<CharacterLoraArtifact>> ListArtifactsAsync(
         string characterProfileId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every QUALIFIED artifact trained against one base model (the checkpoint filename ComfyUI knows), across all
+    /// characters and versions, newest version first.
+    ///
+    /// This is what a render's LoRA picker offers. The MODEL decides which artifacts are selectable at all, because
+    /// a LoRA only binds to the checkpoint it was trained against — so one dataset trained for several models
+    /// simply yields one artifact per model here, and a candidate/rejected/superseded artifact is never offered.
+    /// </summary>
+    Task<IReadOnlyList<CharacterLoraArtifact>> ListQualifiedArtifactsForBaseModelAsync(
+        string baseModelId, CancellationToken cancellationToken = default);
 
     Task<CharacterLoraArtifact> SetArtifactStatusAsync(
         string artifactId,

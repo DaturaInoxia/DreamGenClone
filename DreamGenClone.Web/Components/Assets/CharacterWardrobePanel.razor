@@ -1,0 +1,704 @@
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@inject IWardrobeItemService Wardrobe
+@implements IAsyncDisposable
+
+@* The character Wardrobe tab. Wardrobe ITEMS are shared library entries, not character-owned assets: the same dress is
+   worn by whoever the scene calls for, so an item created here is reachable from every character's wardrobe row. The
+   tab exists on a character because that is where an operator looks for "what does she wear", and it says out loud
+   that the library is shared so nobody expects their garment to be private to one character. *@
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>
+            <strong>Wardrobe</strong>
+            <span class="text-muted small ms-2">Shared library — an item you add here can be worn by any character.</span>
+        </span>
+        @if (_loading)
+        {
+            <span class="text-muted small">loading…</span>
+        }
+    </div>
+    <div class="card-body">
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert alert-danger py-2">@_error</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(_message))
+        {
+            <div class="alert alert-secondary py-2 small mb-2">@_message</div>
+        }
+
+        <div class="border rounded p-3 mb-3">
+            <strong class="small d-block mb-2">Add a garment</strong>
+            <div class="row g-2">
+                <div class="col-md-4">
+                    <label class="form-label small mb-1" for="wardrobe-item">Item</label>
+                    <select id="wardrobe-item" class="form-select form-select-sm" value="@_itemId" @onchange="OnItemChanged">
+                        <option value="">(new item)</option>
+                        @foreach (var item in _items)
+                        {
+                            <option value="@item.Asset.Id">@item.Asset.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small mb-1" for="wardrobe-new-name">New item name</label>
+                    <input id="wardrobe-new-name" class="form-control form-control-sm" value="@_newItemName"
+                           @onchange="e => _newItemName = e.Value?.ToString() ?? string.Empty"
+                           placeholder="Yellow sundress" disabled="@(!string.IsNullOrWhiteSpace(_itemId))" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small mb-1" for="wardrobe-model">Image model</label>
+                    <select id="wardrobe-model" class="form-select form-select-sm" value="@_modelId" @onchange="OnModelChanged">
+                        <option value="">Select a model</option>
+                        @foreach (var model in _models)
+                        {
+                            <option value="@model.ModelId">@model.DisplayName</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-8">
+                    <label class="form-label small mb-1" for="wardrobe-description">Garment, in a few words</label>
+                    <input id="wardrobe-description" class="form-control form-control-sm" value="@_description"
+                           @oninput="e => _description = e.Value?.ToString() ?? string.Empty"
+                           placeholder="a blue one piece swimsuit" />
+                    <div class="form-text">
+                        The prompt is compiled from this text for the chosen model — a full garment description with its
+                        framing, backdrop and lighting — so a few words is the whole input.
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-1" for="wardrobe-size">Size</label>
+                    <select id="wardrobe-size" class="form-select form-select-sm" value="@_imageSize" @onchange="e => _imageSize = e.Value?.ToString() ?? _imageSize">
+                        <option value="896x1152">896 x 1152 (portrait)</option>
+                        <option value="1024x1024">1024 x 1024 (square)</option>
+                        <option value="1152x896">1152 x 896 (landscape)</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-1" for="wardrobe-count">Images</label>
+                    <input id="wardrobe-count" type="number" class="form-control form-control-sm" min="1" max="8"
+                           value="@_outputCount" @onchange="e => _outputCount = ParseCount(e.Value)" />
+                </div>
+            </div>
+            <div class="mt-2">
+                <label class="form-label small mb-1" for="wardrobe-prompt">Prompt</label>
+                <textarea id="wardrobe-prompt" class="form-control form-control-sm font-monospace" rows="6"
+                          aria-label="Prompt used for the render"
+                          placeholder="Press Generate prompt to draft this from the description above, or type one yourself."
+                          value="@_prompt"
+                          @oninput="e => OnPromptChanged(e.Value?.ToString())"></textarea>
+                <div class="form-text">
+                    The prompt is what the model is actually sent. "Generate prompt" drafts it and stops; edit it here and
+                    press "Render image" when it reads right. "Compile prompt and generate" does both in one go.
+                </div>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                <button type="button" class="btn btn-sm btn-outline-primary" disabled="@(_busy || !CanDraftPrompt)"
+                        title="Draft the prompt for the chosen model and show it, without rendering"
+                        @onclick="GeneratePromptAsync">
+                    <i class="bi bi-file-text me-1"></i>Generate prompt
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-success" disabled="@(_busy || !CanRenderPrompt)"
+                        title="Render the prompt above, exactly as it reads"
+                        @onclick="RenderFromFormAsync">
+                    <i class="bi bi-image me-1"></i>Render image
+                </button>
+                <button type="button" class="btn btn-sm btn-primary" disabled="@(_busy || !CanGenerate)"
+                        @onclick="GenerateAsync">
+                    <i class="bi bi-magic me-1"></i>Compile prompt and generate
+                </button>
+                @if (!CanDraftPrompt && !_busy && string.IsNullOrWhiteSpace(_prompt))
+                {
+                    <span class="form-text">@BlockedReason</span>
+                }
+            </div>
+        </div>
+
+        @if (_items.Count == 0)
+        {
+            <div class="text-muted small">No wardrobe items yet.</div>
+        }
+        else
+        {
+            @foreach (var item in _items)
+            {
+                <div class="border rounded p-3 mb-3">
+                    <div class="d-flex justify-content-between align-items-baseline">
+                        <strong>@item.Asset.Name</strong>
+                        <span class="small text-muted">
+                            @(item.IsUsable ? $"{item.InUseImages.Count} image(s) usable as a reference" : "not usable yet")
+                        </span>
+                    </div>
+                    @if (item.Images.Count == 0)
+                    {
+                        <div class="text-muted small mt-2">No images yet — describe the garment above and generate.</div>
+                    }
+                    else
+                    {
+                        <div class="row g-2 mt-1">
+                            @foreach (var entry in item.Images)
+                            {
+                                <div class="col-sm-6 col-xl-4 col-xxl-3">
+                                    <div class="card h-100">
+                                        <div class="ratio ratio-1x1 bg-dark">
+                                            @if (entry.Image.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(entry.Image.FileRelativePath))
+                                            {
+                                                <img src="/scene-images/@entry.Image.FileRelativePath" class="w-100 h-100" style="object-fit:contain;" alt="@item.Asset.Name image" />
+                                            }
+                                            else
+                                            {
+                                                <div class="d-flex align-items-center justify-content-center text-light small">@entry.Image.Status</div>
+                                            }
+                                        </div>
+                                        <div class="card-body py-2 small">
+                                            <div class="d-flex justify-content-between align-items-center gap-2">
+                                                <span class="badge @(entry.InUse ? "text-bg-success" : "text-bg-secondary")">
+                                                    @(entry.InUse ? "in use" : "not used")
+                                                </span>
+                                                @if (entry.InUse)
+                                                {
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary py-0" disabled="@_busy"
+                                                            @onclick="() => SetInUseAsync(entry, false)">Stop using</button>
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="btn btn-sm btn-outline-success py-0" disabled="@(_busy || entry.Image.Status != SceneAssetStatus.Complete)"
+                                                            title="Make this image available as a reference image"
+                                                            @onclick="() => SetInUseAsync(entry, true)">Use as reference</button>
+                                                }
+                                            </div>
+                                            @* What the row is DOING. A queued image used to show only "Pending", which is
+                                               indistinguishable from a button that did nothing. *@
+                                            @if (StateFor(entry) is { Length: > 0 } state)
+                                            {
+                                                <div class="text-muted mt-1">@state</div>
+                                            }
+                                            <label class="form-label small mb-1 mt-2" for="label-@entry.Image.Id">Label</label>
+                                            <input id="label-@entry.Image.Id" class="form-control form-control-sm" value="@entry.Label"
+                                                   placeholder="front" @onchange="e => SaveLabelAsync(entry, e.Value?.ToString())" />
+                                            @if (!string.IsNullOrWhiteSpace(entry.Image.ErrorMessage))
+                                            {
+                                                <div class="text-danger mt-1">@entry.Image.ErrorMessage</div>
+                                            }
+                                            @* The compiled prompt, in full. It is the operator's to read and to correct: the
+                                               text below the read-only copy is what a re-render will send, so a wording the
+                                               model got wrong can be fixed without regenerating from the short description. *@
+                                            <details class="mt-2">
+                                                <summary class="small">Prompt</summary>
+                                                <textarea class="form-control form-control-sm font-monospace mt-1" rows="7"
+                                                          readonly value="@entry.Image.Prompt"></textarea>
+                                                <textarea class="form-control form-control-sm font-monospace mt-1" rows="5"
+                                                          aria-label="Edited prompt to render"
+                                                          placeholder="Edit the prompt, then render it as a new image"
+                                                          value="@PromptDraft(entry)"
+                                                          @onchange="e => SetPromptDraft(entry, e.Value?.ToString())"></textarea>
+                                                <button type="button" class="btn btn-sm btn-outline-primary mt-1 w-100"
+                                                        disabled="@(_busy || string.IsNullOrWhiteSpace(_modelId))"
+                                                        title="Render the prompt above as a new image, with the selected model and size"
+                                                        @onclick="() => ReRenderAsync(item, entry)">
+                                                    <i class="bi bi-arrow-repeat me-1"></i>Render this prompt
+                                                </button>
+                                            </details>
+                                        </div>
+                                        <div class="card-footer d-flex gap-1 justify-content-end">
+                                            @* The STANDARD edit and review flows, linked with a return path back to this tab.
+                                               An edit (change the colour, rotate the garment) produces a child image of the
+                                               same asset, so it appears here as another card - which is why the panel needs
+                                               no edit UI of its own. *@
+                                            <a class="btn btn-sm btn-outline-primary"
+                                               href="/assets/@item.Asset.Id/images/@entry.Image.Id/edit?return=@ReturnUrlEncoded"
+                                               title="Edit this image (recolour, rotate, adjust) — the result appears here">
+                                                <i class="bi bi-magic"></i>
+                                            </a>
+                                            <a class="btn btn-sm btn-outline-secondary"
+                                               href="/assets/@item.Asset.Id/images/@entry.Image.Id/review"
+                                               title="Review this image">
+                                                <i class="bi bi-check2-circle"></i>
+                                            </a>
+                                            <a class="btn btn-sm btn-outline-secondary" href="/asset-studio/images/@entry.Image.Id/download" title="Download image"><i class="bi bi-download"></i></a>
+                                            <button type="button" class="btn btn-sm btn-outline-danger" disabled="@_busy"
+                                                    title="Delete this image" @onclick="() => DeleteImageAsync(entry)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<WardrobeItem> _items = [];
+    private IReadOnlyList<SceneImageModelChoice> _models = [];
+    private string _itemId = string.Empty;
+    private string _newItemName = string.Empty;
+    private string _description = string.Empty;
+    private string _prompt = string.Empty;
+    private string _modelId = string.Empty;
+    private string _imageSize = "896x1152";
+    private int _outputCount = 3;
+    private bool _busy;
+    private bool _loading;
+    private string? _message;
+    private string? _error;
+
+    /// <summary>
+    /// True once the operator has typed in the prompt box, which stops a later compile from overwriting their words.
+    /// </summary>
+    private bool _promptEdited;
+
+    /// <summary>The last row this tab drafted a prompt for, so it can be rendered as-is rather than drafted twice.</summary>
+    private string? _draftedImageId;
+
+    /// <summary>The draft this tab is waiting to see completed, so its prompt can be shown in the form when it arrives.</summary>
+    private string? _awaitingDraftImageId;
+
+    /// <summary>Per-image prompt edits, keyed by image id. Kept here rather than on the row so a compiled prompt is
+    /// shown as compiled until the operator actually changes it.</summary>
+    private readonly Dictionary<string, string> _promptDrafts = new(StringComparer.Ordinal);
+
+    private System.Threading.Timer? _timer;
+    private readonly object _timerLock = new();
+
+    /// <summary>
+    /// The character whose studio is showing this tab, used ONLY to build the return path for the standard edit flow, so
+    /// "Back to where I came from" lands back on this tab. The wardrobe itself is shared, so nothing is scoped by it.
+    /// </summary>
+    [Parameter]
+    public string? CharacterId { get; set; }
+
+    private string ReturnUrlEncoded => Uri.EscapeDataString(
+        string.IsNullOrWhiteSpace(CharacterId) ? "/asset-studio" : $"/characters/{CharacterId}?section=Wardrobe");
+
+    private bool CanDraftPrompt => !string.IsNullOrWhiteSpace(_modelId)
+        && !string.IsNullOrWhiteSpace(_description)
+        && (!string.IsNullOrWhiteSpace(_itemId) || !string.IsNullOrWhiteSpace(_newItemName));
+
+    private bool CanRenderPrompt => !string.IsNullOrWhiteSpace(_modelId)
+        && !string.IsNullOrWhiteSpace(_prompt)
+        && (!string.IsNullOrWhiteSpace(_itemId) || !string.IsNullOrWhiteSpace(_newItemName));
+
+    private bool CanGenerate => CanDraftPrompt;
+
+    private string BlockedReason
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_modelId)) return "Choose an image model.";
+            if (string.IsNullOrWhiteSpace(_description)) return "Describe the garment in a few words.";
+            if (string.IsNullOrWhiteSpace(_itemId) && string.IsNullOrWhiteSpace(_newItemName)) return "Pick an item or name a new one.";
+            return string.Empty;
+        }
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _items = await Wardrobe.ListItemsAsync();
+            _models = await Wardrobe.ListModelsAsync();
+            if (string.IsNullOrWhiteSpace(_modelId))
+            {
+                var configured = await Wardrobe.DefaultModelIdAsync();
+                _modelId = _models.Any(model => string.Equals(model.ModelId, configured, StringComparison.Ordinal))
+                    ? configured!
+                    : _models[0].ModelId;
+            }
+
+            AdoptDraftedPrompt();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+
+        EnsurePolling();
+    }
+
+    private void OnItemChanged(ChangeEventArgs args)
+    {
+        _itemId = args.Value?.ToString() ?? string.Empty;
+        _draftedImageId = null;
+        _awaitingDraftImageId = null;
+        if (!_promptEdited)
+        {
+            _prompt = string.Empty;
+        }
+    }
+
+    private void OnModelChanged(ChangeEventArgs args) => _modelId = args.Value?.ToString() ?? string.Empty;
+
+    private void OnPromptChanged(string? text)
+    {
+        _prompt = text ?? string.Empty;
+        _promptEdited = true;
+    }
+
+    /// <summary>
+    /// Shows a freshly drafted prompt IN THE BOX, so "Generate prompt" ends with the text where the operator can edit it
+    /// rather than only on the card. Adopted only while they have not typed one themselves: their words outrank a
+    /// compiler's.
+    /// </summary>
+    private void AdoptDraftedPrompt()
+    {
+        if (string.IsNullOrWhiteSpace(_awaitingDraftImageId))
+        {
+            return;
+        }
+
+        var drafted = _items
+            .SelectMany(item => item.Images)
+            .FirstOrDefault(entry => string.Equals(entry.Image.Id, _awaitingDraftImageId, StringComparison.Ordinal));
+        if (drafted is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(drafted.Image.PromptCompilerId))
+        {
+            // Still being drafted; a failure is shown on the card, so stop expecting one.
+            if (drafted.Image.Status != SceneAssetStatus.Failed)
+            {
+                return;
+            }
+
+            _awaitingDraftImageId = null;
+            return;
+        }
+
+        _draftedImageId = drafted.Image.Id;
+        _awaitingDraftImageId = null;
+        if (!_promptEdited)
+        {
+            _prompt = drafted.Image.Prompt;
+        }
+    }
+
+    /// <summary>
+    /// Drafts the prompt and stops. The row appears at once and says it is drafting; when the text arrives it is shown
+    /// in the box above (and on the card), and nothing is rendered until the operator asks for it.
+    /// </summary>
+    private async Task GeneratePromptAsync()
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            var itemId = await ResolveItemIdAsync();
+            var row = await Wardrobe.EnqueuePromptDraftAsync(itemId, _description, _modelId, _imageSize);
+            _itemId = itemId;
+            _awaitingDraftImageId = row.Id;
+            _message = "Drafting the prompt. It appears in the box above for you to edit before rendering; your description "
+                + "and the prompt are both kept.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Renders the prompt in the box, exactly as it reads. An untouched drafted prompt reuses the row it was drafted onto
+    /// (no duplicate render); an edited one becomes a NEW row, named for what authored it, because the prompt a previous
+    /// image was made from must not be rewritten.
+    /// </summary>
+    private async Task RenderFromFormAsync()
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            var itemId = await ResolveItemIdAsync();
+            _itemId = itemId;
+
+            if (!_promptEdited && !string.IsNullOrWhiteSpace(_draftedImageId))
+            {
+                await Wardrobe.RenderExistingImageAsync(_draftedImageId);
+                _message = "Rendering the drafted prompt.";
+            }
+            else
+            {
+                await Wardrobe.RenderPromptAsync(
+                    itemId,
+                    _prompt,
+                    _modelId,
+                    _imageSize,
+                    WardrobeItemService.HandEditedPromptCompilerId,
+                    semanticDescription: _description,
+                    handEditedFromImageId: _draftedImageId);
+                _message = "Rendering your edited prompt as a new image of this item.";
+                _draftedImageId = null;
+            }
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>The item the form is working on: the one selected, or the one the new name creates.</summary>
+    private async Task<string> ResolveItemIdAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(_itemId))
+        {
+            return _itemId;
+        }
+
+        var created = await Wardrobe.CreateItemAsync(_newItemName);
+        _newItemName = string.Empty;
+        return created.Id;
+    }
+
+    private static int ParseCount(object? value) =>
+        int.TryParse(value?.ToString(), out var parsed) ? Math.Clamp(parsed, 1, 8) : 1;
+
+    private async Task GenerateAsync()
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            var itemId = await ResolveItemIdAsync();
+            await Wardrobe.EnqueueItemImagesAsync(itemId, _description, _modelId, _imageSize, _outputCount);
+            _itemId = itemId;
+            _message = $"{_outputCount} image(s) queued: each one drafts a full garment prompt for the chosen model and then"
+                + " renders it. They appear below straight away and say what they are doing. Your description is kept.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SetInUseAsync(WardrobeItemImage entry, bool inUse)
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            await Wardrobe.SetImageInUseAsync(entry.Image.Id, inUse);
+            _message = inUse
+                ? "This image is now available in every wardrobe reference picker."
+                : "This image is no longer offered as a reference.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveLabelAsync(WardrobeItemImage entry, string? label)
+    {
+        try
+        {
+            await Wardrobe.SetImageLabelAsync(entry.Image.Id, label);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    /// <summary>The prompt as the operator has edited it, or the compiled one until they change it.</summary>
+    private string PromptDraft(WardrobeItemImage entry) =>
+        _promptDrafts.TryGetValue(entry.Image.Id, out var draft) ? draft : entry.Image.Prompt;
+
+    /// <summary>
+    /// What this row is currently doing, in the operator's words, read from the STAGE the service recorded. Without the
+    /// stage a row whose prompt is written and deliberately not rendered looks exactly like one still being drafted.
+    /// </summary>
+    private static string StateFor(WardrobeItemImage entry)
+    {
+        if (entry.Image.Status == SceneAssetStatus.Failed)
+        {
+            return "failed — see the message below";
+        }
+
+        if (entry.Image.Status != SceneAssetStatus.Pending)
+        {
+            return string.Empty;
+        }
+
+        return StageOf(entry.Image) switch
+        {
+            "prompt-ready" => "prompt ready — press Render image to use it",
+            "rendering" => "queued to render…",
+            _ => "drafting the prompt…"
+        };
+    }
+
+    /// <summary>The stage the service recorded on this row, or empty when it recorded none.</summary>
+    private static string StageOf(SceneAssetImage image)
+    {
+        if (string.IsNullOrWhiteSpace(image.AssociationMetadataJson) || image.AssociationMetadataJson.Trim().Length <= 2)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(image.AssociationMetadataJson);
+            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && document.RootElement.TryGetProperty("stage", out var stage)
+                && stage.ValueKind == System.Text.Json.JsonValueKind.String
+                    ? stage.GetString() ?? string.Empty
+                    : string.Empty;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private void SetPromptDraft(WardrobeItemImage entry, string? text) =>
+        _promptDrafts[entry.Image.Id] = text ?? string.Empty;
+
+    /// <summary>
+    /// Renders the edited prompt as a NEW image of the item. A new row rather than an overwrite, because the stored
+    /// prompt is what an existing image WAS made from: rewriting it would make the record of the render a lie.
+    /// </summary>
+    private async Task ReRenderAsync(WardrobeItem item, WardrobeItemImage entry)
+    {
+        var prompt = PromptDraft(entry);
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            _error = "The prompt is empty, so there is nothing to render.";
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            await Wardrobe.RenderPromptAsync(
+                item.Asset.Id,
+                prompt,
+                _modelId,
+                _imageSize,
+                WardrobeItemService.HandEditedPromptCompilerId,
+                handEditedFromImageId: entry.Image.Id);
+            _message = "Prompt queued as a new image of this item.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteImageAsync(WardrobeItemImage entry)
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            await Wardrobe.DeleteImageAsync(entry.Image.Id);
+            _message = "Image deleted.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // The refusal ("stop using it first") is the operator's instruction, so it is shown as-is.
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Polls while a render is outstanding. The timer body is marshalled onto the Blazor dispatcher: a
+    /// System.Threading.Timer callback runs on a thread-pool thread, and touching component state from there throws
+    /// "current thread is not associated with the Dispatcher" and can take the whole app down.
+    /// </summary>
+    private void EnsurePolling()
+    {
+        lock (_timerLock)
+        {
+            if (_timer is not null)
+            {
+                return;
+            }
+
+            if (!_items.SelectMany(item => item.Images).Any(image => image.Image.Status == SceneAssetStatus.Pending))
+            {
+                return;
+            }
+
+            _timer = new System.Threading.Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadAsync();
+                    if (!_items.SelectMany(item => item.Images).Any(image => image.Image.Status == SceneAssetStatus.Pending))
+                    {
+                        StopPolling();
+                    }
+                });
+            }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+        }
+    }
+
+    private void StopPolling()
+    {
+        lock (_timerLock)
+        {
+            _timer?.Dispose();
+            _timer = null;
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        StopPolling();
+        return ValueTask.CompletedTask;
+    }
+}

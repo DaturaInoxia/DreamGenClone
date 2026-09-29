@@ -21,7 +21,11 @@ public sealed class LoraDatasetWorkspaceContractTests
     {
         var source = Read("DreamGenClone.Web", "Components", "Pages", "CharacterStudio.razor");
 
-        Assert.Contains("<LoraDatasetWorkspace CharacterId=\"@CharacterId\" />", source, StringComparison.Ordinal);
+        // The host passes the CELL too, so a link back from the review deck reopens the cell the operator left. The
+        // assertion is on the component and its character id - the thing this test is about - not on the exact
+        // attribute list, which changes whenever the host gains a parameter.
+        Assert.Contains("<LoraDatasetWorkspace CharacterId=\"@CharacterId\"", source, StringComparison.Ordinal);
+        Assert.Contains("Cell=\"@Cell\"", source, StringComparison.Ordinal);
         Assert.DoesNotContain("LoRA dataset coverage cells, created one at a time with pose + identity", source, StringComparison.Ordinal);
     }
 
@@ -210,7 +214,11 @@ public sealed class LoraDatasetWorkspaceContractTests
         var source = Workspace;
 
         Assert.Contains("PlanGenerator.GenerateAsync", source, StringComparison.Ordinal);
-        Assert.Contains("CoveragePlan.FromJson(dataset.CoveragePlanJson)", source, StringComparison.Ordinal);
+        // Read through the domain reader, never by hand. FromStoredJson rather than FromJson because a plan that was
+        // PERSISTED predates the rules of the day it was generated, and validating it as if it were fresh made every
+        // dataset that already existed refuse to open (2026-09-27).
+        Assert.Contains("CoveragePlan.FromStoredJson(dataset.CoveragePlanJson", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("JsonSerializer.Deserialize<CoveragePlan>", source, StringComparison.Ordinal);
         Assert.Contains("CurationPolicy.FromJson(dataset.CurationPolicyJson)", source, StringComparison.Ordinal);
         Assert.Contains("plan.ToJson()", source, StringComparison.Ordinal);
 

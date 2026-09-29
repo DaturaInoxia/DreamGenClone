@@ -41,7 +41,7 @@ else
                     @* The standard review actions, offered only when the host asked for them: a read-only grid passes no
                        callbacks and renders exactly as it did. The verdicts are the review deck's own set, so a decision
                        taken here and one taken in the deck are the same fact. *@
-                    @if (DecisionChanged.HasDelegate || DeleteRequested.HasDelegate)
+                    @if (DecisionChanged.HasDelegate || DeleteRequested.HasDelegate || EditUrlFactory is not null)
                     {
                         <div class="d-flex flex-wrap gap-1 px-2 pb-2">
                             @if (DecisionChanged.HasDelegate)
@@ -65,6 +65,14 @@ else
                                         disabled="@Busy" @onclick="() => DeleteRequested.InvokeAsync(item.Id)">
                                     <i class="bi bi-trash"></i>
                                 </button>
+                            }
+                            @* The edit route for THIS image, when the host can build one. It sits with the review verdicts
+                               because that is where the operator is already looking and clicking, and a host that supplies
+                               no factory renders exactly as before. *@
+                            @if (EditUrlFactory?.Invoke(item.Id) is { Length: > 0 } editUrl)
+                            {
+                                <a class="btn btn-sm btn-outline-primary py-0 px-1" href="@editUrl"
+                                   title="Edit this image"><i class="bi bi-magic"></i></a>
                             }
                         </div>
                     }
@@ -90,6 +98,13 @@ else
 
     /// <summary>Deletes one candidate outright. Supplied only by a host whose attempts are discardable.</summary>
     [Parameter] public EventCallback<string> DeleteRequested { get; set; }
+
+    /// <summary>
+    /// Builds the edit route for one candidate, or null when that candidate has nothing to edit. Optional: a host that
+    /// supplies no factory gets no Edit action, which is why this is a factory rather than a flag - only the host knows
+    /// whether a given attempt has an asset behind it, and a dead button is worse than no button.
+    /// </summary>
+    [Parameter] public Func<string, string?>? EditUrlFactory { get; set; }
 
     private async Task DecideAsync(string id, string decision)
     {

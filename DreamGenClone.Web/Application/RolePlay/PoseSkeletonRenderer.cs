@@ -153,9 +153,14 @@ public static class PoseSkeletonRenderer
         var minY = framing.Min(p => p.Y);
         var maxY = framing.Max(p => p.Y);
 
+        // The gap is a FRACTION of the canvas, not a fixed pixel count. 128 is the margin on the reference 1024 canvas;
+        // using it literally on a smaller one wastes most of the frame. Measured 2026-09-27: the head close-up renders at
+        // 320 px, where 2 x 128 leaves a 64 px usable square, which is why its joints came out ~20 px apart.
+        var margin = canvas * ((double)Margin / DefaultCanvas);
+
         var width = Math.Max(maxX - minX, 1.0);
         var height = Math.Max(maxY - minY, 1.0);
-        var scale = Math.Min((canvas - (2.0 * Margin)) / width, (canvas - (2.0 * Margin)) / height);
+        var scale = Math.Min((canvas - (2.0 * margin)) / width, (canvas - (2.0 * margin)) / height);
         var offsetX = ((canvas - (width * scale)) / 2.0) - (minX * scale);
         var offsetY = ((canvas - (height * scale)) / 2.0) - (minY * scale);
 

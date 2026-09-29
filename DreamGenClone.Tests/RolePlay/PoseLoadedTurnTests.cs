@@ -211,6 +211,58 @@ public sealed class PoseLoadedTurnTests
         Assert.Contains("18 body keypoints", error.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A head turn ADDS to the pose's own head angle instead of replacing it.
+    ///
+    /// This is the defect reported 2026-09-27 — "the Head does not, it mangled the whole pose". Writing the requested
+    /// angle straight over the head joint snapped the head from whatever the source photograph had to the requested
+    /// value, so the first press was a jump rather than a step (a 40° jump on a pose whose head sat at −35°).
+    ///
+    /// The property that separates the two is LINEARITY: two steps must travel twice as far as one. A replacement
+    /// instead produces |requested − the pose's own head angle|, whose ratio is decided by that angle and is not 2
+    /// whenever the angle is not zero — so this test fails on the old behaviour for any pose not already facing front.
+    /// </summary>
+    [Fact]
+    public void AHeadTurn_AddsToThePosesOwnHeadAngle_RatherThanReplacingIt()
+    {
+        var settings = Settings();
+        var stored = Pack("NSFW_standing/512768/NSFW_standing028.json");
+        var fit = PoseRigFit.Fit(stored, settings);
+
+        using var fixture = new PoseLibraryTestFixture();
+
+        var none = fixture.Service.ProjectAuthoredPose(fit.View, null, fit.Rotations);
+        var neutral = fixture.Service.ProjectAuthoredPose(fit.View, new PoseHeadRotation(), fit.Rotations);
+        var five = fixture.Service.ProjectAuthoredPose(fit.View, new PoseHeadRotation(YawDegrees: 5), fit.Rotations);
+        var ten = fixture.Service.ProjectAuthoredPose(fit.View, new PoseHeadRotation(YawDegrees: 10), fit.Rotations);
+
+        // A neutral head changes nothing at all: it means "leave the head as the pose has it".
+        for (var index = 0; index < PoseMannequin.CocoJointCount; index++)
+        {
+            Assert.Equal(none.Body[index].X, neutral.Body[index].X);
+            Assert.Equal(none.Body[index].Y, neutral.Body[index].Y);
+        }
+
+        var oneStep = HeadTravel(neutral, five);
+        var twoSteps = HeadTravel(neutral, ten);
+
+        Assert.True(oneStep > 0, "a 5° head turn did not move the head at all");
+
+        var ratio = twoSteps / oneStep;
+
+        Assert.True(
+            ratio is > 1.85 and < 2.15,
+            $"two 5° steps travelled {ratio:0.000}x one step (expected ~2), so the head angle is being REPLACED rather "
+            + "than added to — the pose's own head angle is leaking into the result");
+    }
+
+    /// <summary>
+    /// Mean movement of the joints the head joint actually drives — the nose, both eyes and both ears. The neck is
+    /// excluded: it is the head's parent, so it does not move when the head turns and would only dilute the measure.
+    /// </summary>
+    private static double HeadTravel(PosePerson before, PosePerson after) =>
+        new[] { 0, 14, 15, 16, 17 }.Average(index => Distance(before.Body[index], after.Body[index]));
+
     private static PoseView Stepped(PoseView view, PoseStudioOptions settings) =>
         PoseProjection.Step(view, PoseRotationAxis.Yaw, 1, settings);
 

@@ -19,19 +19,22 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
     private readonly ISceneAssetStorageService _storage;
     private readonly MediaEditReferenceResolver _references;
     private readonly ICharacterImageAssetStorageService? _identityStorage;
+    private readonly IImagePresetService? _presets;
 
     public SceneAssetMediaEditSubjectWriter(
         ISceneAssetRepository assets,
         ISceneAssetImageEditRepository edits,
         ISceneAssetStorageService storage,
         MediaEditReferenceResolver references,
-        ICharacterImageAssetStorageService? identityStorage = null)
+        ICharacterImageAssetStorageService? identityStorage = null,
+        IImagePresetService? presets = null)
     {
         _assets = assets;
         _edits = edits;
         _storage = storage;
         _references = references;
         _identityStorage = identityStorage;
+        _presets = presets;
     }
 
     public MediaEditSubjectKind Kind => MediaEditSubjectKind.AssetImage;
@@ -67,6 +70,13 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
         var identityBindings = MediaEditIdentityProvenance.TryRead(image.SourceProvenanceJson);
         if (identityBindings is not null)
             return await PrepareIdentityAsync(image, context, identityBindings, cancellationToken);
+
+        // A preset run is the second authored-instruction kind (B-133): the row carries the preset it was assembled
+        // from, so there is no compiler artifact either - and the instruction is re-derived and checksummed rather
+        // than trusted.
+        var preset = MediaEditPresetProvenance.TryRead(image.SourceProvenanceJson);
+        if (preset is not null)
+            return await PreparePresetAsync(image, context, preset, cancellationToken);
 
         using var provenance = JsonDocument.Parse(image.SourceProvenanceJson);
         var root = provenance.RootElement;
@@ -125,6 +135,75 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
             References: references,
             Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),
             LogScope: $"AssetId={image.AssetId}");
+    }
+
+    /// <summary>
+    /// The preset-authored twin of the identity stage: the row's prompt is the instruction a picked preset assembled
+    /// (B-133), and this re-derives it from the store to prove it is the same text. Without that check a preset run
+    /// would execute whatever string the row happened to hold - and the one thing a queued instruction must never do
+    /// is run after the wording it was assembled from has changed underneath it.
+    /// </summary>
+    private async Task<MediaEditRunPlan> PreparePresetAsync(
+        SceneAssetImage image,
+        MediaEditRunContext context,
+        MediaEditPresetInstruction preset,
+        CancellationToken cancellationToken)
+    {
+        if (_presets is null)
+        {
+            throw new InvalidOperationException(
+                "A preset edit requires the preset resolver, which is not registered in this host.");
+        }
+
+        var instruction = await _presets.ResolveInstructionAsync(
+            preset.PresetKey, ImagePresetMode.Change, preset.CharacterId, cancellationToken);
+
+        var expected = MediaEditPresetProvenance.InstructionSha256(instruction);
+        if (!string.Equals(expected, preset.InstructionSha256.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Preset '{preset.PresetKey}' assembles a different instruction than the one this edit was queued "
+                + "with, so the preset's wording changed after the edit was queued. Queue the edit again.");
+        }
+
+        if (!string.Equals(instruction, image.Prompt, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The queued preset edit's prompt is not the instruction its preset assembles.");
+        }
+
+        using var provenance = JsonDocument.Parse(image.SourceProvenanceJson!);
+        var sourceSha256 = provenance.RootElement.GetProperty("sourceImageSha256").GetString()
+            ?? throw new InvalidOperationException("Preset edit provenance is missing the source checksum.");
+
+        var source = await _assets.GetImageAsync(image.SourceImageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene asset image '{image.SourceImageId}' was not found.");
+        if (!string.Equals(source.AssetId, image.AssetId, StringComparison.Ordinal)
+            || source.Status != SceneAssetStatus.Complete
+            || string.IsNullOrWhiteSpace(source.FileRelativePath))
+        {
+            throw new InvalidOperationException("The source asset image is not complete, stored, and owned by the queued asset.");
+        }
+
+        var applications = string.IsNullOrWhiteSpace(context.ReferenceApplicationsJson)
+            ? []
+            : JsonSerializer.Deserialize<IReadOnlyList<ReferenceApplicationSelection>>(
+                context.ReferenceApplicationsJson, JsonOptions)
+                ?? throw new InvalidOperationException("Preset edit reference applications are invalid.");
+        var references = await _references.ResolveAsync(
+            context.ExplicitEditorModelId, applications, qualifiedStrategy: "ReferenceConditioning", cancellationToken);
+
+        var sourceFileRelativePath = source.FileRelativePath;
+        return new MediaEditRunPlan(
+            image.Id,
+            source.Id,
+            token => _storage.OpenReadAsync(sourceFileRelativePath, token),
+            sourceSha256,
+            MediaEditOperation.ForEdit,
+            Prompt: instruction,
+            References: references,
+            Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),
+            LogScope: $"AssetId={image.AssetId}, Preset={preset.PresetKey}");
     }
 
     /// <summary>

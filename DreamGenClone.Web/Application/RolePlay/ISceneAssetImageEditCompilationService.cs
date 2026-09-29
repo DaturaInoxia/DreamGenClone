@@ -21,6 +21,15 @@ public interface ISceneAssetImageEditCompilationService
         EnqueueSceneAssetImageIdentityEditRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Queues a PRESET edit pass of an existing asset image into a new derived image (B-133): relight it, or change
+    /// its facial expression, from a picked preset. Like an identity edit there is no prompt compilation - the
+    /// instruction is assembled deterministically from the preset's store rows - and the preset plus its instruction
+    /// checksum are recorded on the row so the run re-derives and proves the same text.
+    /// </summary>
+    Task<SceneAssetImage> EnqueuePresetEditAsync(
+        EnqueueSceneAssetImagePresetEditRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Queues a deterministic crop of an existing asset image into a new derived image. No editor model,
     /// prompt or compilation revision is involved.
     /// </summary>

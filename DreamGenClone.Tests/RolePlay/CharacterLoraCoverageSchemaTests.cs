@@ -30,11 +30,50 @@ public sealed class CharacterLoraCoverageSchemaTests
         Assert.Equal(SceneImageReferenceBodyView.Front, first.BodyCanonicalSlot);
         Assert.Equal(SceneImageReferenceBodyState.Clothed, first.BodyState);
         Assert.Equal(LoraCoverageDistance.CloseUp, first.Distance);
-        Assert.Equal(LoraCoveragePoseClass.Standing, first.PoseClass);
+        // A close-up claims no stance, and the round trip has to preserve that as faithfully as it preserves a
+        // stance: null here means "this framing shows none", not "the field was dropped on the way through".
+        Assert.Null(first.PoseClass);
+        // Whatever stances the plan carried, the round trip preserves exactly the same set: the rule is that a framing
+        // claims a stance only where it can show one, and JSON has to carry both halves of that faithfully.
+        Assert.Equal(
+            plan.Records.Count(record => record.PoseClass is not null),
+            reread.Records.Count(record => record.PoseClass is not null));
         Assert.Equal("1024x1024", first.Aspect);
         Assert.Equal(41000, first.Seed);
         Assert.Equal(CharacterLoraDatasetSplit.Train, first.Split);
         Assert.Equal("a front-facing portrait", reread.PhraseFor(first.ExpressionKey));
+    }
+
+    /// <summary>
+    /// A plan that was PERSISTED under older rules has to still load.
+    ///
+    /// <para>
+    /// The framing rule changed on 2026-09-27 and enforcing it on the READ path made Becky's stored v1 plan refuse to
+    /// open the workspace ("a CloseUp frame cannot show the stance 'Standing'"). The guard was right; loading it
+    /// strictly was wrong. A stored plan is data written under the rules of its day: it comes back with the reason it
+    /// is stale so the page can say so, and the operator regenerates. This is the third time a hard guard has been
+    /// applied to data that predates it, so the behaviour is pinned here rather than left to review.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void FromStoredJson_ReadsAnOlderSchemaAndSaysWhyItIsStale()
+    {
+        var json = BuildPlan()
+            .ToJson()
+            .Replace($"\"schemaVersion\":{CoveragePlan.CurrentSchemaVersion}", "\"schemaVersion\":1", StringComparison.Ordinal);
+        Assert.Contains("\"schemaVersion\":1", json, StringComparison.Ordinal);
+
+        var plan = CoveragePlan.FromStoredJson(json, out var staleReason);
+
+        Assert.NotNull(staleReason);
+        Assert.Contains("schema version 1", staleReason, StringComparison.Ordinal);
+        Assert.NotEmpty(plan.Records);
+
+        // A current plan is validated strictly and carries no stale reason, so the tolerant path cannot hide a real
+        // contradiction in a plan this build generated.
+        var current = CoveragePlan.FromStoredJson(BuildPlan().ToJson(), out var currentReason);
+        Assert.Null(currentReason);
+        Assert.NotEmpty(current.Records);
     }
 
     /// <summary>A plan's vocabulary is a snapshot, so the caption it produces cannot change under it later.</summary>
@@ -394,13 +433,16 @@ public sealed class CharacterLoraCoverageSchemaTests
                 record.WardrobeState = index % 2 == 0
                     ? LoraCoverageWardrobeState.Clothed
                     : LoraCoverageWardrobeState.Unclothed;
-                record.PoseClass = (LoraCoveragePoseClass)(index + 1);
                 record.ExpressionKey = index % 2 == 0
                     ? "lora.vocabulary.expression.neutral"
                     : "lora.vocabulary.expression.smiling";
                 record.BackgroundKey = "lora.vocabulary.background.plain-wall";
                 record.OutfitKey = index % 2 == 0 ? "lora.vocabulary.outfit.casual" : "lora.vocabulary.outfit.unclothed";
-                record.Distance = (LoraCoverageDistance)(index % 3 + 1);
+                // Body framings only: these cells exist to cover the AXES, and a stance can only be claimed where the
+                // framing shows one - which is the rule the plan now enforces on itself.
+                record.Distance = index % 2 == 0 ? LoraCoverageDistance.HalfBody : LoraCoverageDistance.FullBody;
+                var stances = LoraCellWorkflowKeys.StancesFor(record.Distance);
+                record.PoseClass = stances[index % stances.Count];
                 record.Aspect = "1024x1024";
             }
 
@@ -423,7 +465,8 @@ public sealed class CharacterLoraCoverageSchemaTests
         BodyState = SceneImageReferenceBodyState.Clothed,
         Distance = LoraCoverageDistance.CloseUp,
         WardrobeState = LoraCoverageWardrobeState.Clothed,
-        PoseClass = LoraCoveragePoseClass.Standing,
+        // A close-up claims no stance: its frame cannot tell one apart, so the plan refuses to let it name one.
+        PoseClass = null,
         ExpressionKey = "lora.vocabulary.expression.neutral",
         LightingKey = "lora.vocabulary.lighting.indoor-dim",
         BackgroundKey = "lora.vocabulary.background.plain-wall",

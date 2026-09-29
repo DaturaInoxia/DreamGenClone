@@ -1,11 +1,17 @@
 @page "/asset-studio/lora-training-profiles"
 @rendermode InteractiveServer
 
+@using System.IO
 @using System.Text.Json
+@using DreamGenClone.Application.ModelManager
 @using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
 
 @inject ICharacterLoraRepository LoraRepository
+@inject IProviderRepository ProviderRepository
+@inject ILocalLoraTrainerInventoryService TrainerInventory
 @inject ILogger<LoraTrainingProfiles> Logger
 
 <PageTitle>LoRA Training Profiles - DreamGenClone</PageTitle>
@@ -31,116 +37,79 @@
                 <div class="card-header"><strong>New Versioned Profile</strong></div>
                 <div class="card-body">
                     <div class="row g-2">
-                        <div class="col-md-8">
-                            <label class="form-label small" for="lora-profile-name">Name</label>
-                            <input id="lora-profile-name" class="form-control form-control-sm" @bind="_name" />
+                        <div class="col-md-6">
+                            <label class="form-label small" for="lora-provider">Training host</label>
+                            <select id="lora-provider" class="form-select form-select-sm" disabled="@_busy" @onchange="OnProviderChangedAsync">
+                                <option value="">Select a training host</option>
+                                @foreach (var provider in _providers)
+                                {
+                                    <option value="@provider.Id">@provider.Name — @provider.BaseUrl</option>
+                                }
+                            </select>
+                            <div class="form-text">The GPU host that runs the trainer. Its checkpoints and its stack are read from it, never typed.</div>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label small" for="lora-profile-version">Version</label>
-                            <input id="lora-profile-version" type="number" min="1" class="form-control form-control-sm" @bind="_version" />
-                        </div>
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <label class="form-label small" for="lora-model-family">Model family</label>
-                            <input id="lora-model-family" class="form-control form-control-sm" @bind="_targetModelFamily" />
+                            <select id="lora-model-family" class="form-select form-select-sm" @bind="_targetModelFamily" @bind:after="DeriveNameAsync">
+                                <option value="">Select a family</option>
+                                @foreach (var family in CharacterLoraModelFamilies.All)
+                                {
+                                    <option value="@family">@family</option>
+                                }
+                            </select>
+                            <div class="form-text">A dataset may only be trained by a profile qualified for the same family.</div>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label small" for="lora-base-model">Base model ID</label>
-                            <input id="lora-base-model" class="form-control form-control-sm" @bind="_baseModelId" />
+                        <div class="col-md-7">
+                            <label class="form-label small" for="lora-base-model">Base model checkpoint</label>
+                            <select id="lora-base-model" class="form-select form-select-sm" disabled="@(_busy || !InventoryReady)" value="@_checkpointName" @onchange="OnCheckpointChangedAsync">
+                                <option value="">@CheckpointPlaceholder</option>
+                                @foreach (var checkpoint in _inventory.Checkpoints)
+                                {
+                                    <option value="@checkpoint.Name">@checkpoint.Display</option>
+                                }
+                            </select>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label small" for="lora-base-version">Base version</label>
-                            <input id="lora-base-version" class="form-control form-control-sm" @bind="_baseModelVersion" />
+                        <div class="col-md-5">
+                            <label class="form-label small" for="lora-recipe">Training recipe</label>
+                            <select id="lora-recipe" class="form-select form-select-sm" @bind="_presetName">
+                                @foreach (var preset in LoraTrainingRecipePresets.All)
+                                {
+                                    <option value="@preset.Name">@preset.Name</option>
+                                }
+                            </select>
                         </div>
-                        <div class="col-12">
-                            <label class="form-label small" for="lora-base-sha">Base model SHA-256</label>
-                            <input id="lora-base-sha" class="form-control form-control-sm font-monospace" maxlength="64" @bind="_baseModelSha256" />
+                        <div class="col-md-7">
+                            <label class="form-label small" for="lora-profile-name">Profile name</label>
+                            <input id="lora-profile-name" class="form-control form-control-sm" @bind="_name" />
+                            <div class="form-text">Prefilled from the checkpoint and the family; edit it only to tell two profiles apart.</div>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label small" for="lora-trainer-id">Trainer ID</label>
-                            <input id="lora-trainer-id" class="form-control form-control-sm" @bind="_trainerId" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small" for="lora-trainer-version">Trainer version</label>
-                            <input id="lora-trainer-version" class="form-control form-control-sm" @bind="_trainerVersion" />
-                        </div>
-                    </div>
-
-                    <h6 class="mt-3">Dataset And Resolution</h6>
-                    <div class="row g-2">
-                        <div class="col-md-4">
-                            <label class="form-label small" for="lora-image-count">Image count</label>
-                            <input id="lora-image-count" type="number" min="1" class="form-control form-control-sm" @bind="_imageCount" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small" for="lora-repeats">Repeats</label>
-                            <input id="lora-repeats" type="number" min="1" class="form-control form-control-sm" @bind="_repeats" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small" for="lora-buckets">Resolution buckets</label>
-                            <input id="lora-buckets" class="form-control form-control-sm" placeholder="512, 768, 1024" @bind="_resolutionBuckets" />
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label small" for="lora-coverage">Coverage JSON</label>
-                            <textarea id="lora-coverage" class="form-control form-control-sm font-monospace" rows="2" @bind="_coverageJson"></textarea>
+                        <div class="col-md-5">
+                            <label class="form-label small" for="lora-profile-version">Version</label>
+                            <input id="lora-profile-version" class="form-control form-control-sm" value="@NextVersion" readonly />
                         </div>
                     </div>
 
-                    <h6 class="mt-3">Optimization</h6>
-                    <div class="row g-2">
-                        <div class="col-md-3">
-                            <label class="form-label small" for="lora-rank">Rank</label>
-                            <input id="lora-rank" type="number" min="1" class="form-control form-control-sm" @bind="_rank" />
+                    @if (!string.IsNullOrWhiteSpace(_inventory.Error))
+                    {
+                        <div class="alert alert-warning small mt-3 mb-0">
+                            The training host could not be read: @_inventory.Error
                         </div>
-                        <div class="col-md-3">
-                            <label class="form-label small" for="lora-alpha">Alpha</label>
-                            <input id="lora-alpha" type="number" min="0" step="any" class="form-control form-control-sm" @bind="_alpha" />
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label small" for="lora-steps">Steps</label>
-                            <input id="lora-steps" type="number" min="1" class="form-control form-control-sm" @bind="_steps" />
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label small" for="lora-epochs">Epochs</label>
-                            <input id="lora-epochs" type="number" min="1" class="form-control form-control-sm" @bind="_epochs" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small" for="lora-unet-rate">UNet learning rate</label>
-                            <input id="lora-unet-rate" type="number" min="0" step="any" class="form-control form-control-sm" @bind="_unetLearningRate" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small" for="lora-text-rate">Text encoder learning rate</label>
-                            <input id="lora-text-rate" type="number" min="0" step="any" class="form-control form-control-sm" @bind="_textEncoderLearningRate" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small" for="lora-caption-dropout">Caption dropout</label>
-                            <input id="lora-caption-dropout" type="number" min="0" max="1" step="any" class="form-control form-control-sm" @bind="_captionDropout" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small" for="lora-precision">Precision</label>
-                            <input id="lora-precision" class="form-control form-control-sm" @bind="_precision" />
-                        </div>
-                        <div class="col-md-6 d-flex align-items-end pb-1">
-                            <div class="form-check">
-                                <input id="lora-prior-preservation" type="checkbox" class="form-check-input" @bind="_priorPreservation" />
-                                <label class="form-check-label small" for="lora-prior-preservation">Prior preservation</label>
-                            </div>
-                        </div>
-                    </div>
+                    }
+                    else if (SelectedCheckpoint is { } chosen)
+                    {
+                        <dl class="row small mt-3 mb-0">
+                            <dt class="col-sm-4">Base model SHA-256</dt><dd class="col-sm-8 font-monospace text-break">@chosen.Sha256</dd>
+                            <dt class="col-sm-4">Trainer</dt><dd class="col-sm-8">@TrainerSummary</dd>
+                            <dt class="col-sm-4">Recipe</dt><dd class="col-sm-8">@SelectedPreset.Detail</dd>
+                            <dt class="col-sm-4">Rank / alpha</dt><dd class="col-sm-8">@SelectedPreset.Rank / @SelectedPreset.Alpha</dd>
+                            <dt class="col-sm-4">Learning rates</dt><dd class="col-sm-8">UNet @SelectedPreset.UnetLearningRate · text encoder @SelectedPreset.TextEncoderLearningRate</dd>
+                            <dt class="col-sm-4">Repeats / epochs / steps</dt><dd class="col-sm-8">@SelectedPreset.Repeats / @SelectedPreset.Epochs / @SelectedPreset.Steps</dd>
+                            <dt class="col-sm-4">Checkpoint / sample every</dt><dd class="col-sm-8">@SelectedPreset.CheckpointEverySteps / @SelectedPreset.SampleEverySteps steps</dd>
+                            <dt class="col-sm-4">Precision / dropout</dt><dd class="col-sm-8">@SelectedPreset.Precision / @SelectedPreset.CaptionDropout</dd>
+                        </dl>
+                    }
 
-                    <h6 class="mt-3">Environment And Cadence</h6>
-                    <label class="form-label small" for="lora-environment">Environment requirements JSON</label>
-                    <textarea id="lora-environment" class="form-control form-control-sm font-monospace" rows="2" @bind="_environmentJson"></textarea>
-                    <div class="row g-2 mt-1">
-                        <div class="col-md-6">
-                            <label class="form-label small" for="lora-checkpoint-cadence">Checkpoint every steps</label>
-                            <input id="lora-checkpoint-cadence" type="number" min="1" class="form-control form-control-sm" @bind="_checkpointEverySteps" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small" for="lora-sample-cadence">Sample every steps</label>
-                            <input id="lora-sample-cadence" type="number" min="1" class="form-control form-control-sm" @bind="_sampleEverySteps" />
-                        </div>
-                    </div>
-                    <button class="btn btn-primary btn-sm mt-3" type="button" disabled="@_busy" @onclick="CreateProfileAsync">
+                    <button class="btn btn-primary btn-sm mt-3" type="button" disabled="@(_busy || !CanCreate)" @onclick="CreateProfileAsync">
                         Create Draft Profile
                     </button>
                 </div>
@@ -151,8 +120,17 @@
             <section class="card" aria-label="Persisted LoRA training profiles">
                 <div class="card-header"><strong>Persisted Profiles</strong></div>
                 <div class="card-body">
-                    <label class="form-label small" for="lora-qualification-evidence">Qualification evidence JSON</label>
-                    <textarea id="lora-qualification-evidence" class="form-control form-control-sm font-monospace mb-3" rows="2" @bind="_qualificationEvidenceJson"></textarea>
+                    <label class="form-label small" for="lora-qualification-evidence">Qualification evidence</label>
+                    <select id="lora-qualification-evidence" class="form-select form-select-sm" @bind="_qualificationEvidenceKey">
+                        @foreach (var kind in LoraTrainingQualificationEvidence.All)
+                        {
+                            <option value="@kind.Key">@kind.Label</option>
+                        }
+                    </select>
+                    @if (LoraTrainingQualificationEvidence.Find(_qualificationEvidenceKey) is { } evidence)
+                    {
+                        <div class="form-text mb-3">@evidence.Meaning</div>
+                    }
                     @if (_profiles.Count == 0)
                     {
                         <div class="text-muted small">No LoRA training profiles have been created.</div>
@@ -176,7 +154,7 @@
                                                 {
                                                     <button class="btn btn-sm btn-outline-success" type="button" title="Qualify profile"
                                                             aria-label="Qualify @profile.Name version @profile.Version"
-                                                            disabled="@(_busy || string.IsNullOrWhiteSpace(_qualificationEvidenceJson))"
+                                                            disabled="@(_busy || string.IsNullOrWhiteSpace(_qualificationEvidenceKey))"
                                                             @onclick="() => QualifyProfileAsync(profile.Id)">
                                                         <i class="bi bi-check2-circle"></i>
                                                     </button>
@@ -196,81 +174,161 @@
 
 @code {
     private List<CharacterLoraTrainingProfile> _profiles = [];
+    private List<Provider> _providers = [];
+    private LoraTrainerInventory _inventory = LoraTrainerInventory.Unreachable(string.Empty, string.Empty);
+    private string _providerId = string.Empty;
+    private string _checkpointName = string.Empty;
+    private string _presetName = LoraTrainingRecipePresets.Default.Name;
     private string _name = string.Empty;
-    private int _version;
     private string _targetModelFamily = string.Empty;
-    private string _baseModelId = string.Empty;
-    private string _baseModelVersion = string.Empty;
-    private string _baseModelSha256 = string.Empty;
-    private string _trainerId = string.Empty;
-    private string _trainerVersion = string.Empty;
-    private int _imageCount;
-    private string _coverageJson = string.Empty;
-    private string _resolutionBuckets = string.Empty;
-    private int _repeats;
-    private int _rank;
-    private double _alpha;
-    private double _unetLearningRate;
-    private double _textEncoderLearningRate;
-    private int _steps;
-    private int _epochs;
-    private double _captionDropout;
-    private bool _priorPreservation;
-    private string _precision = string.Empty;
-    private string _environmentJson = string.Empty;
-    private int _checkpointEverySteps;
-    private int _sampleEverySteps;
-    private string _qualificationEvidenceJson = string.Empty;
+    private string _qualificationEvidenceKey = LoraTrainingQualificationEvidence.Default.Key;
     private bool _busy;
     private string? _error;
     private string? _status;
 
-    protected override async Task OnInitializedAsync() => await ReloadAsync();
+    private LoraTrainerCheckpoint? SelectedCheckpoint =>
+        _inventory.Checkpoints.FirstOrDefault(
+            checkpoint => string.Equals(checkpoint.Name, _checkpointName, StringComparison.Ordinal));
+
+    private LoraTrainingRecipePreset SelectedPreset =>
+        LoraTrainingRecipePresets.All.FirstOrDefault(
+            preset => string.Equals(preset.Name, _presetName, StringComparison.Ordinal))
+        ?? LoraTrainingRecipePresets.Default;
+
+    private bool InventoryReady => _inventory.Reachable && _inventory.Checkpoints.Count > 0;
+
+    private string CheckpointPlaceholder => _inventory.Reachable
+        ? "Select a checkpoint"
+        : "Pick a training host first";
+
+    /// <summary>
+    /// The trainer's identity, taken from the host that will run it. A local sd-scripts checkout has no version of
+    /// its own to report, and the torch build is what its behaviour actually depends on, so that is what is pinned:
+    /// a profile that says "torch 2.11.0+cu128" is reproducible, one that says "v1" is not.
+    /// </summary>
+    private string TrainerSummary => _inventory.TrainerStack.Count == 0
+        ? "(the host did not report its stack)"
+        : string.Join(" · ", _inventory.TrainerStack.Select(entry => $"{entry.Key} {entry.Value}"));
+
+    /// <summary>Next free version for the current name, so creating twice adds a version rather than colliding.</summary>
+    private int NextVersion => _profiles
+        .Where(profile => string.Equals(profile.Name, _name.Trim(), StringComparison.Ordinal))
+        .Select(profile => profile.Version)
+        .DefaultIfEmpty(0)
+        .Max() + 1;
+
+    /// <summary>
+    /// Every value a profile records must come from something real: a picked checkpoint, a picked recipe, a reported
+    /// stack. Anything a pick list cannot supply blocks creation with a reason instead of being filled in blind.
+    ///
+    /// <para>
+    /// Deliberately says nothing about <c>_busy</c>. The busy flag is set by the SAME wrapper that runs this check, so
+    /// including it made the guard permanently false and every attempt failed with a message about missing picks that
+    /// were plainly on screen. Busy-ness belongs on the button, which is where it now lives.
+    /// </para>
+    /// </summary>
+    private bool CanCreate =>
+        InventoryReady
+        && SelectedCheckpoint is not null
+        && CharacterLoraModelFamilies.IsKnown(_targetModelFamily)
+        && !string.IsNullOrWhiteSpace(_name)
+        && _inventory.TrainerStack.ContainsKey("torch");
+
+    protected override async Task OnInitializedAsync()
+    {
+        _providers = await ProviderRepository.GetAllAsync();
+        await ReloadAsync();
+    }
+
+    private async Task OnProviderChangedAsync(ChangeEventArgs args)
+    {
+        _providerId = args.Value?.ToString() ?? string.Empty;
+        _checkpointName = string.Empty;
+        _error = null;
+        _status = null;
+        _inventory = LoraTrainerInventory.Unreachable(string.Empty, string.Empty);
+
+        var provider = _providers.FirstOrDefault(
+            candidate => string.Equals(candidate.Id, _providerId, StringComparison.Ordinal));
+        if (provider is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _inventory = await TrainerInventory.DescribeAsync(provider.BaseUrl);
+            if (!_inventory.Reachable)
+            {
+                _status = null;
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task OnCheckpointChangedAsync(ChangeEventArgs args)
+    {
+        _checkpointName = args.Value?.ToString() ?? string.Empty;
+        return DeriveNameAsync();
+    }
+
+    /// <summary>
+    /// The name follows the checkpoint and the family, so the usual case needs no keystrokes at all. Editing it by
+    /// hand still wins - until the checkpoint changes again, which is the point at which "which model is this"
+    /// changed too.
+    /// </summary>
+    private Task DeriveNameAsync()
+    {
+        var stem = SelectedCheckpoint is { } checkpoint
+            ? Path.GetFileNameWithoutExtension(checkpoint.Name)
+            : string.Empty;
+        _name = string.IsNullOrWhiteSpace(stem)
+            ? string.Empty
+            : string.IsNullOrEmpty(_targetModelFamily) ? stem : $"{stem} {_targetModelFamily}";
+        return Task.CompletedTask;
+    }
 
     private async Task CreateProfileAsync()
     {
         await RunAsync(async () =>
         {
-            using var coverageDocument = JsonDocument.Parse(_coverageJson);
-            using var environmentDocument = JsonDocument.Parse(_environmentJson);
-            var buckets = _resolutionBuckets.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(value => int.Parse(value, System.Globalization.CultureInfo.InvariantCulture))
-                .ToArray();
-            var recipeJson = JsonSerializer.Serialize(new
+            if (!CanCreate)
             {
-                imageCount = _imageCount,
-                coverage = coverageDocument.RootElement.Clone(),
-                resolutionBuckets = buckets,
-                repeats = _repeats,
-                rank = _rank,
-                alpha = _alpha,
-                unetLearningRate = _unetLearningRate,
-                textEncoderLearningRate = _textEncoderLearningRate,
-                steps = _steps,
-                epochs = _epochs,
-                captionDropout = _captionDropout,
-                priorPreservation = _priorPreservation,
-                precision = _precision
-            });
+                throw new InvalidOperationException(
+                    "A training host, a checkpoint, a family, a recipe and the host's reported trainer stack are all "
+                    + "required before a profile can be created.");
+            }
+
+            var checkpoint = SelectedCheckpoint!;
+            var preset = SelectedPreset;
             await LoraRepository.CreateTrainingProfileAsync(new CharacterLoraTrainingProfile
             {
-                Name = _name,
-                Version = _version,
+                Name = _name.Trim(),
+                Version = NextVersion,
                 Status = CharacterLoraTrainingProfileStatus.Draft,
                 Enabled = false,
-                TargetModelFamily = _targetModelFamily,
-                BaseModelId = _baseModelId,
-                BaseModelVersion = _baseModelVersion,
-                BaseModelSha256 = _baseModelSha256,
-                TrainerId = _trainerId,
-                TrainerVersion = _trainerVersion,
-                RecipeJson = recipeJson,
-                EnvironmentRequirementsJson = environmentDocument.RootElement.GetRawText(),
-                CheckpointCadenceJson = JsonSerializer.Serialize(new { everySteps = _checkpointEverySteps }),
-                SampleCadenceJson = JsonSerializer.Serialize(new { everySteps = _sampleEverySteps }),
+                TargetModelFamily = _targetModelFamily.Trim(),
+
+                // The checkpoint's FILE NAME is the id: the trainer joins it with its own checkpoints folder, so a
+                // name this host can render with is a name it can train with. Its "version" is its family, because
+                // the file name and the checksum already pin the exact weights.
+                BaseModelId = checkpoint.Name,
+                BaseModelVersion = _targetModelFamily.Trim(),
+                BaseModelSha256 = checkpoint.Sha256,
+
+                TrainerId = "sd-scripts",
+                TrainerVersion = $"torch {_inventory.TrainerStack["torch"]}",
+                RecipeJson = preset.ToRecipeJson(),
+                EnvironmentRequirementsJson = JsonSerializer.Serialize(_inventory.TrainerStack),
+                CheckpointCadenceJson = JsonSerializer.Serialize(new { everySteps = preset.CheckpointEverySteps }),
+                SampleCadenceJson = JsonSerializer.Serialize(new { everySteps = preset.SampleEverySteps }),
                 CreatedUtc = DateTime.UtcNow
             });
-            _status = $"Created LoRA training profile '{_name}' version {_version}.";
+            _status = $"Created LoRA training profile '{_name}' version {NextVersion - 1} for {checkpoint.Name}.";
             await ReloadAsync();
         });
     }
@@ -279,9 +337,11 @@
     {
         await RunAsync(async () =>
         {
-            await LoraRepository.QualifyTrainingProfileAsync(
-                profileId, _qualificationEvidenceJson, DateTime.UtcNow);
-            _status = "LoRA training profile qualified and enabled.";
+            var evidence = LoraTrainingQualificationEvidence.Find(_qualificationEvidenceKey)
+                ?? throw new InvalidOperationException(
+                    $"'{_qualificationEvidenceKey}' is not a kind of qualification evidence. Pick one from the list.");
+            await LoraRepository.QualifyTrainingProfileAsync(profileId, evidence.Json, DateTime.UtcNow);
+            _status = $"LoRA training profile qualified and enabled, on evidence: {evidence.Label}.";
             await ReloadAsync();
         });
     }

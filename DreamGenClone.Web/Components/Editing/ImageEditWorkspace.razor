@@ -10,7 +10,9 @@
 
 @inject ImageEditWorkspaceServiceResolver ServiceResolver
 @inject IImageEditorModelResolver ImageEditorModelResolver
+@inject DreamGenClone.Application.ModelManager.IFunctionDefaultRepository FunctionDefaults
 @inject IImageWorkflowTemplateService WorkflowTemplates
+@inject IImagePresetService ImagePresets
 @inject IMediaEditHeadMeasurementService HeadMeasurements
 @inject IJSRuntime JS
 @inject NavigationManager Nav
@@ -87,6 +89,15 @@ else
                             Enhance
                         </button>
                     </li>
+                    @if (_service?.SupportsPresetEdits == true)
+                    {
+                        <li class="nav-item" role="presentation">
+                            <button type="button" class="nav-link @(_activeTab == EditorTab.Presets ? "active" : "") @(_presetError.Length > 0 ? "text-danger" : "")" aria-selected="@(_activeTab == EditorTab.Presets)"
+                                    @onclick="() => SelectEditorTab(EditorTab.Presets)">
+                                Presets
+                            </button>
+                        </li>
+                    }
                 </ul>
 
                 @if (_activeTab == EditorTab.Edit)
@@ -345,6 +356,67 @@ else
                     @if (!CanRunEnhance && !string.IsNullOrWhiteSpace(EnhanceBlockReason))
                     {
                         <div class="form-text text-warning">@EnhanceBlockReason</div>
+                    }
+                }
+                else if (_activeTab == EditorTab.Presets && _service?.SupportsPresetEdits == true)
+                {
+                    <div class="scene-edit-panel-heading">
+                        <div>
+                            <span class="scene-edit-kicker">Preset pass</span>
+                            <strong>Relight or re-express this image</strong>
+                        </div>
+                    </div>
+                    <p class="small text-muted">
+                        A preset assembles its instruction here and sends it unchanged - it never goes through the
+                        vision compiler, because the detail that makes a light or an expression read is the wording
+                        that was picked. The result is a NEW image derived from this one, in the same batch.
+                    </p>
+                    @if (!string.IsNullOrWhiteSpace(_presetError))
+                    {
+                        <div class="alert alert-danger py-2 small">@_presetError</div>
+                    }
+                    @if (_presetChoices.Count == 0)
+                    {
+                        <div class="alert alert-warning py-2 small mb-0">
+                            No lighting or expression presets are stored. They are seeded on app start, so restart the
+                            app if this build predates them.
+                        </div>
+                    }
+                    else
+                    {
+                        <label class="form-label small mb-1" for="@PresetSelectId">Preset</label>
+                        <select id="@PresetSelectId" class="form-select form-select-sm"
+                                @bind="_selectedPresetKey" @bind:after="LoadPresetInstructionAsync"
+                                disabled="@(_presetBusy || _busy || _session?.IsCompleted == true)">
+                            @foreach (var group in _presetChoices.GroupBy(choice => choice.Axis))
+                            {
+                                <optgroup label="@(group.Key == ImagePresetAxis.Lighting ? "Lighting" : "Facial expression")">
+                                    @foreach (var choice in group)
+                                    {
+                                        <option value="@choice.PresetKey">@choice.ShortName</option>
+                                    }
+                                </optgroup>
+                            }
+                        </select>
+                        @if (!string.IsNullOrWhiteSpace(_presetInstruction))
+                        {
+                            <div class="small text-muted mt-3 mb-1">The instruction this preset sends</div>
+                            <pre class="border rounded bg-body-tertiary p-2 small text-wrap">@_presetInstruction</pre>
+                        }
+                        @if (string.IsNullOrWhiteSpace(_selectedEditorModelId))
+                        {
+                            <div class="form-text text-warning">Choose an image editor model on the Edit tab first.</div>
+                        }
+                        <div class="d-flex justify-content-end mt-2">
+                            <button class="btn btn-success" type="button" @onclick="RunPresetEditAsync"
+                                    disabled="@(_presetBusy || _busy || string.IsNullOrWhiteSpace(_selectedPresetKey) || string.IsNullOrWhiteSpace(_selectedEditorModelId) || _session?.IsCompleted == true)">
+                                @if (_presetBusy)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                }
+                                <i class="bi bi-magic me-1"></i>Run preset edit
+                            </button>
+                        </div>
                     }
                 }
                 else if (_activeTab == EditorTab.Identity && IdentityAvailable)
@@ -610,6 +682,13 @@ else
     [Parameter]
     public string? SeedIntent { get; set; }
 
+    /// <summary>
+    /// The preset the Presets tab opens on (B-133). A host that knows why this image is being edited - a LoRA cell
+    /// whose plan says which lighting it wanted - passes it, and the operator can still pick another.
+    /// </summary>
+    [Parameter]
+    public string? SeedPresetKey { get; set; }
+
     /// <summary>Preselects this editor model when it is available; otherwise the first configured editor is used.</summary>
     [Parameter]
     public string? DefaultEditorModelId { get; set; }
@@ -647,7 +726,8 @@ else
         Edit,
         Identity,
         Crop,
-        Enhance
+        Enhance,
+        Presets
     }
 
     private IImageEditWorkspaceService? _service;
@@ -703,6 +783,17 @@ else
     private CancellationTokenSource? _pollingCts;
     private Task? _pollingTask;
     private EditorTab _activeTab = EditorTab.Edit;
+
+    // Preset-pass state (B-133). The choices come from the store; the instruction is what the picked preset
+    // assembles, and it is shown before it is sent because a preset is not a black box.
+    private IReadOnlyList<ImagePresetChoice> _presetChoices = [];
+    private string _selectedPresetKey = string.Empty;
+    private string _presetInstruction = string.Empty;
+    private string _presetError = string.Empty;
+    private bool _presetBusy;
+
+    /// <summary>Stable element id, one per subject, so two workspaces on a page cannot collide.</summary>
+    private string PresetSelectId => $"preset-{SubjectKey}";
 
     // Crop state. The aspect and headroom start from persisted configuration (never from a value
     // invented here); the horizontal offset is a plain form control the user sets per run, and it is
@@ -956,11 +1047,12 @@ else
 
             _session = await _service.OpenSessionAsync(Subject);
             _editorModelChoices = await ImageEditorModelResolver.ListImageEditorModelsAsync();
-            _selectedEditorModelId = ResolveInitialEditorModelId();
+            _selectedEditorModelId = await ResolveInitialEditorModelIdAsync();
             if (!string.IsNullOrWhiteSpace(SeedIntent))
             {
                 _rawIntent = SeedIntent.Trim();
             }
+            await LoadPresetsAsync();
             if (IdentityAvailable)
             {
                 await LoadIdentityRosterAsync();
@@ -984,7 +1076,19 @@ else
         }
     }
 
-    private string? ResolveInitialEditorModelId()
+    /// <summary>
+    /// Which model the form opens on.
+    ///
+    /// <para>
+    /// Order: the host's model when it named one that is offered, then the model configured for
+    /// <c>AppFunction.RolePlaySceneImageEditor</c>, then the model the DATA flags as default, then the first offered.
+    /// The function's own model is asked for FIRST because the global default flag can sit on a model that cannot
+    /// edit at all - measured 2026-09-27: <c>Qwen-Image-2.1</c> carries the default flag but has no editor graph, so it
+    /// is absent from this very list, and the form silently opened on an unrelated editor model. That is the reported
+    /// fault: "MAKE qwen 2.1 auto selected on the Edit Asset page".
+    /// </para>
+    /// </summary>
+    private async Task<string?> ResolveInitialEditorModelIdAsync()
     {
         if (!string.IsNullOrWhiteSpace(DefaultEditorModelId)
             && _editorModelChoices.Any(choice => string.Equals(choice.ModelId, DefaultEditorModelId, StringComparison.Ordinal)))
@@ -992,10 +1096,108 @@ else
             return DefaultEditorModelId;
         }
 
-        return _editorModelChoices.FirstOrDefault()?.ModelId;
+        var configured = await FunctionDefaults.GetByFunctionAsync(
+            DreamGenClone.Domain.ModelManager.AppFunction.RolePlaySceneImageEditor);
+        if (configured is not null
+            && _editorModelChoices.Any(choice => string.Equals(choice.ModelId, configured.ModelId, StringComparison.Ordinal)))
+        {
+            return configured.ModelId;
+        }
+
+        return _editorModelChoices.FirstOrDefault(choice => choice.IsDefaultModel)?.ModelId
+            ?? _editorModelChoices.FirstOrDefault()?.ModelId;
     }
 
     private void SelectEditorTab(EditorTab tab) => _activeTab = tab;
+
+    /// <summary>
+    /// Reads the preset lists once per load and opens on the host's preset when it named one. A store that cannot run
+    /// preset edits reads nothing: the tab does not render, so there is nothing to prime.
+    /// </summary>
+    private async Task LoadPresetsAsync()
+    {
+        _presetError = string.Empty;
+        _presetInstruction = string.Empty;
+        if (_service?.SupportsPresetEdits != true)
+        {
+            _presetChoices = [];
+            _selectedPresetKey = string.Empty;
+            return;
+        }
+
+        try
+        {
+            _presetChoices = await ImagePresets.ListAsync();
+            var seeded = string.IsNullOrWhiteSpace(SeedPresetKey) ? null : SeedPresetKey.Trim();
+            _selectedPresetKey = seeded is not null
+                && _presetChoices.Any(choice => string.Equals(choice.PresetKey, seeded, StringComparison.Ordinal))
+                    ? seeded
+                    : _presetChoices.FirstOrDefault()?.PresetKey ?? string.Empty;
+            await LoadPresetInstructionAsync();
+        }
+        catch (Exception ex)
+        {
+            _presetChoices = [];
+            _presetError = $"The presets could not be read: {ex.Message}";
+            Logger.LogError(ex, "Preset list failed: Subject={Subject}", SubjectKey);
+        }
+    }
+
+    private async Task LoadPresetInstructionAsync()
+    {
+        _presetError = string.Empty;
+        _presetInstruction = string.Empty;
+        if (string.IsNullOrWhiteSpace(_selectedPresetKey))
+        {
+            return;
+        }
+
+        try
+        {
+            _presetInstruction = await ImagePresets.ResolveInstructionAsync(_selectedPresetKey);
+        }
+        catch (Exception ex)
+        {
+            _presetError = ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// Queues the preset pass and waits for the derived image, exactly as a crop or enhance run does: the result is a
+    /// new row, never a rewrite of the source.
+    /// </summary>
+    private async Task RunPresetEditAsync()
+    {
+        if (_service?.SupportsPresetEdits != true
+            || string.IsNullOrWhiteSpace(_selectedPresetKey)
+            || string.IsNullOrWhiteSpace(_selectedEditorModelId))
+        {
+            return;
+        }
+
+        _presetBusy = true;
+        _errorMessage = string.Empty;
+        _statusMessage = string.Empty;
+        try
+        {
+            var imageId = await _service.RunPresetAsync(Subject, _selectedPresetKey, _selectedEditorModelId!);
+            _statusMessage = $"Preset edit queued as a new image derived from this one (image {imageId}).";
+            Logger.LogInformation(
+                "Preset edit queued: Subject={Subject}, Preset={Preset}, Image={Image}",
+                SubjectKey, _selectedPresetKey, imageId);
+            await RefreshAsync();
+            EnsurePolling();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            Logger.LogWarning(ex, "Preset edit failed to queue: Subject={Subject}", SubjectKey);
+        }
+        finally
+        {
+            _presetBusy = false;
+        }
+    }
 
     private async Task PrepareAsync()
     {

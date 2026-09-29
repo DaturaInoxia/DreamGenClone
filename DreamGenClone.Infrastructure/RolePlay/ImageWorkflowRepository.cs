@@ -755,6 +755,59 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 WorkflowStep = "LoraCellVocabulary",
                 Body = "completely unclothed, with no clothing at all and nothing covering the body"
             },
+            // The frame-scoped wardrobe phrases. A cell may only claim what its framing can show: the full-body rows
+            // above name garments BELOW the waist ("... and jeans"), and a "waist up" or "head and both shoulders"
+            // frame cannot show them. Measured on the live plan, all ten close-up cells claimed a full outfit over a
+            // frame that shows neither - five of them claiming the subject was completely unclothed. These are the
+            // same states phrased for the frame that carries them.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyWardrobeClothedClose,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "wearing a top whose neckline and shoulder seams are visible at the throat and the shoulders"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyWardrobeUnclothedClose,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "bare at the neckline, the shoulders and the collarbone, with no garment visible anywhere in the frame"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitCasualHalf,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "wearing a plain t-shirt"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitFormalHalf,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "wearing a buttoned shirt"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitAthleticHalf,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "wearing a fitted athletic top"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitLoungewearHalf,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "wearing a loose knit sweater"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitSleepwearHalf,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "wearing a thin sleeveless top"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyOutfitUnclothedHalf,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "bare-chested with the upper body uncovered and nothing worn on the torso"
+            },
             new ImageWorkflowPromptTemplate
             {
                 Key = LoraCellWorkflowKeys.VocabularyDistanceClose,
@@ -832,6 +885,243 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 Key = LoraCellWorkflowKeys.VocabularySplitValidation,
                 WorkflowStep = "LoraCellVocabulary",
                 Body = "validation"
+            },
+
+            // B-133 — the lighting and expression PRESETS, and the clauses they are assembled with. A preset is what
+            // an EDIT pass says about a photograph that already exists, which is why these are not the LoRA vocabulary
+            // rows above: a cell row is a condition to shoot under, a preset detail is an instruction to change a
+            // finished image, and one wording cannot do both jobs. The keys align by suffix, so a cell's own lighting
+            // or expression axis selects the preset that changes its image to the same condition.
+            //
+            // The detail is written as a noun phrase and the ASSEMBLY supplies the verb, so one row serves both modes
+            // without a second copy to keep in sync: an edit says "Relight this photograph to the following lighting:
+            // <detail>", a compose step says "The scene is lit by <detail>".
+            //
+            // The detail carries the ACTUAL mechanics of the condition, not its name. That is the entire reason the
+            // feature exists: "angry" tells the model nothing it cannot guess wrongly, while "the eyebrows pulled down
+            // and drawn together with vertical creases between them, the lips pressed thin with the corners pulled
+            // down" is the expression. The same holds for light - "dim" produced bright images; a single warm lamp
+            // outside the frame with the far side falling into shadow is a light an edit model can actually build.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.PreserveLighting,
+                WorkflowStep = "ImagePresetClause",
+                Body = "Keep the person identical - the same face, body, skin, hair and marks - and keep the pose, the camera angle, the framing, the crop, the clothing and the setting itself unchanged; only the lighting changes."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.PreserveExpression,
+                WorkflowStep = "ImagePresetClause",
+                Body = "Keep the person identical - the same face, body, skin, hair and marks - and keep the pose, the camera angle, the framing, the crop, the clothing, the lighting and the setting unchanged; only the facial expression changes."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.AssemblyLightingChange,
+                WorkflowStep = "ImagePresetAssembly",
+                Body = "Relight this photograph to the following lighting: {Detail} {Preserve}"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.AssemblyLightingCondition,
+                WorkflowStep = "ImagePresetAssembly",
+                Body = "The scene is lit by {Detail}"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.AssemblyExpressionChange,
+                WorkflowStep = "ImagePresetAssembly",
+                Body = "Change the subject's facial expression only. The new expression is exactly this: {Detail} {Preserve}"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.AssemblyExpressionCondition,
+                WorkflowStep = "ImagePresetAssembly",
+                Body = "with {Detail}"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.LightingIndoorBright,
+                WorkflowStep = "ImagePresetLighting",
+                Body = "bright, even indoor light from a broad overhead key with soft mid-tones, gentle shading under the chin and a gentle falloff at the edges of the body, neutral white balance and the skin highlights held"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.LightingIndoorDim,
+                WorkflowStep = "ImagePresetLighting",
+                Body = "dim, low-key indoor light from one warm lamp just outside the frame to camera left, the near side of the face and body lit with visible detail while the far side and the background fall into deep shadow, warm white balance and clean shadow detail"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.LightingOutdoorDay,
+                WorkflowStep = "ImagePresetLighting",
+                Body = "flat, overcast daylight from a large bright sky, soft even illumination with almost no visible shadow edges, cool neutral white balance and soft catchlights in the eyes"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.LightingOutdoorGolden,
+                WorkflowStep = "ImagePresetLighting",
+                Body = "low, warm golden-hour sunlight raking in from camera right, long soft shadows across the body, warm highlights on the hair and skin and the surroundings falling a stop darker than the subject"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.LightingOutdoorNight,
+                WorkflowStep = "ImagePresetLighting",
+                Body = "night light from a single small practical source at mid-distance, the subject lit mainly by that one light with its fall-off visible across the body, the surroundings almost black and only cool ambient fill on the shadow side"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.LightingHardRim,
+                WorkflowStep = "ImagePresetLighting",
+                Body = "a single hard light raking across the edge of the body, a bright rim following the contour, the far side of the body in deep unlit shadow, high contrast and the surroundings falling away to darkness"
+            },
+            // HOW FLUSH IS WRITTEN, and why it is written this way. Reported 2026-09-27: renders "coming out looking
+            // sun burnt" on the flush presets. The cause is in the wording rather than the model's mood - a diffusion
+            // model renders VISIBLE COLOUR literally, so every part of the old phrasing made the red wash worse:
+            //   - "flush" already MEANS a red wash; "heavy", "deep" and "warm" raise its chroma without raising the
+            //     emotional read at all;
+            //   - "across the cheeks" reads as a band across the face, not a localised blush;
+            //   - naming the NOSE as red is the sunburn line itself (and the cold, and the drunk read);
+            //   - "the whole face" invites the model to extend it everywhere.
+            // So the rules are: the nose is never COLOURED (where heat belongs on it, it is sheen); colour is pinned to
+            // the apples of the cheeks rather than "the cheeks"; the rest of the face is explicitly told to keep its own
+            // skin tone, which is the guard that stops the spread; and sweat carries the heat read, which cannot
+            // sunburn because it has no colour.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionNeutral,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the face relaxed and symmetrical, the eyes open at their natural width, the brows level, the lips closed and resting together and the jaw loose"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionSmiling,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the mouth corners pulled up and slightly back, the cheeks raised so the smile lines at the outer eye corners show, the eyes slightly narrowed and warm and the lips closed or only just parted"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionLaughing,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the mouth open wide enough to show the upper teeth, the cheeks strongly raised, the eyes narrowed almost closed with creases at the outer corners and the head tipped back a little"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionSurprised,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the eyebrows raised high and arched, the eyes wide with the upper eyelids lifted so the whole iris shows, the mouth open in a rounded shape and the jaw dropped"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionSerious,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the brows level but drawn slightly down, the eyes steady and open, the lips closed and pressed evenly, the mouth corners level and the jaw set"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionSensual,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the eyes half-lidded with a heavy downward gaze, the brows relaxed and lifted at the inner ends, the lips softly parted and slightly full, the mouth corners relaxed and a soft rose on the apples of the cheeks, the rest of the face keeping its own even skin tone"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionAngry,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the eyebrows pulled down and drawn together with vertical creases between them, the upper eyelids lowered and the lower lids tense, the eyes narrowed on the camera, the lips pressed thin with the corners pulled down, the nostrils slightly flared and the jaw set with the chin pushed forward"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionSad,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the inner ends of the eyebrows raised and drawn together with creases above the nose, the upper eyelids drooping so the gaze falls downward, the mouth corners pulled down, the lower lip pushed out a little and the chin creased"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionAfraid,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the eyebrows raised and drawn together in the middle, the eyes wide with the whites showing above the iris, the lips stretched back and slightly parted and the jaw tense and pulled back"
+            },
+            // Reported 2026-09-27: "disgusted contorted the face a bit, it was close just the bottom lip and cheek look
+            // wrong". Two causes in the old phrasing, and both are asymmetry the model had to invent or over-apply:
+            //   - "the cheeks pushed up" raised BOTH cheeks, which is a snarl read from the wrong expression and is what
+            //     distorted the cheek; the crinkle belongs to the raised side only.
+            //   - the lower lip was never mentioned, so the model followed the raised upper lip with it. Naming the lower
+            //     lip as deliberately NOT following is what keeps the mouth from contorting.
+            // The sneer is also pinned to ONE stated side ("on that same side") because the old text said "one side" and
+            // "one mouth corner" separately, leaving the model to choose - and choosing differently for each distorts the
+            // mouth.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionDisgusted,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the nose wrinkled with creases across the bridge, the eyebrows lowered and drawn together, the upper lip raised on one side only enough to expose the teeth on that side, the mouth corner on that same side pulled up with it, the lower lip kept relaxed and slightly pushed down rather than following the sneer, the cheek on the raised side crinkled while the other stays smooth, the eyes narrowed and the head turned slightly away"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionCrying,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the eyes narrowed and glossy with tears pooled on the lower lids, the eyebrows pulled up at the inner ends, the lower lid reddened, the mouth open in a downturned shape with the lower lip trembling, the cheeks wet and the chin creased"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionAroused,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the eyes half-closed and heavy with the pupils dilated, the gaze dropped and steady, the brows relaxed and lifted at the inner ends, the lips parted and slightly swollen with the lower lip drawn in between the teeth, the jaw loose, the mouth corners slack and a soft rose on the apples of the cheeks, the rest of the face keeping its own even skin tone"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionOrgasm,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the eyes rolled up and fluttering behind barely open lids, the brows drawn together and lifted at the inner ends, the jaw dropped slack with the mouth held open wide, the nostrils flared, a fine sheen of sweat on the cheeks and throat and the head tipped back"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionGoofy,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "one eyebrow cocked high while the other drops, the eyes squinting unevenly, the lips pulled to one side in a lopsided grin with the teeth showing, the jaw pushed forward and the tongue tucked into the cheek"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionTongueOut,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the mouth open wide with the jaw dropped low, the tongue pushed out and hanging over the lower lip, the eyes wide and bright or narrowed with mischief, the brows raised and the nostrils slightly flared"
+            },
+            // Deliberately single-valued, and the pupils are left alone by instruction: the crossed eyes are the read
+            // here, so naming the irises as still visible is what keeps the model from answering with blank whites.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionAhegao,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the eyes crossed inward so the pupils converge toward the bridge of the nose with the irises still visible in both, the eyelids held wide, the mouth open wide and completely slack, the tongue pushed out and lolling over the lower lip, the brows raised, a fine sheen of sweat over the cheeks and the tip of the nose and the head tipped back a little"
+            },
+            // The peak read: everything the arousal preset has, thrown all the way — the gaze gone, the jaw fully
+            // open, the head back and the face slack. No breath or sound cue, because neither is visible in a still.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionOrgasmIntense,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the eyes rolled back so only the whites show beneath lids that flutter half-closed, the gaze unfocused and turned up and inward, the brows drawn together and lifted, the jaw dropped fully open with the lips slack and glistening, the head tipped back with the neck extended, a fine sheen of sweat high on the cheeks and the whole face gone slack"
+            },
+            // The flirtation set. Each one is written against the neighbour it would otherwise collapse into: pouty has
+            // to exclude the sad read (level lowered brows and the gaze UP at the camera, where sad raises the inner
+            // ends and drops the gaze), and mischievous has to exclude the goofy read (restraint - a closed-lipped
+            // smirk and a sidelong glance, where goofy shows teeth, pushes the jaw forward and clowns).
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionPouty,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the lower lip pushed out and turned down so it rolls over the upper lip, the mouth small and drawn together, the chin lifted slightly, the brows level and slightly lowered, the eyes lifted to look up at the camera through the lashes and the cheeks kept still"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionEager,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "the brows raised and lifted so the whole iris shows, the eyes wide and fixed on the camera, the cheeks lifted high, the mouth open in a quick open smile that shows the upper teeth, the head tipped forward and the chin raised"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = ImagePresetKeys.ExpressionMischievous,
+                WorkflowStep = "ImagePresetExpression",
+                Body = "one eyebrow raised in a slow arch while the other stays level, the eyes narrowed and half-lidded and looking off to the side away from the camera, one mouth corner pulled up into a closed-lip smirk, the head tilted a few degrees and the lips pressed together over a hint of teeth"
             }
         };
 

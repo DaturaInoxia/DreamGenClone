@@ -266,6 +266,67 @@ public sealed class MediaEditImageEditingJobHandlerTests
         Assert.Equal(first!.Sha256, second.Sha256);
     }
 
+    // ---- B-133 preset edit pass -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task PresetRun_SendsTheAssembledInstructionAndCompletes()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var imageId = await fixture.CreateAssetPresetImageAsync(
+            ImagePresetKeys.LightingIndoorDim, Fixture.PresetInstruction);
+        var editor = new RecordingImageEditor();
+        var handler = fixture.BuildPresetHandler(editor, new StubPresetService(Fixture.PresetInstruction));
+
+        await handler.HandleAsync(await fixture.EnqueueAssetRunAsync(imageId));
+
+        // The instruction that reached the model is the one the preset assembled - byte for byte, because a preset is
+        // never handed to the compiler to be rewritten.
+        Assert.Equal(Fixture.PresetInstruction, Assert.Single(editor.Instructions));
+        var image = await fixture.Assets.GetImageAsync(imageId);
+        Assert.Equal(SceneAssetStatus.Complete, image!.Status);
+    }
+
+    /// <summary>
+    /// The one thing a queued instruction must never do is run after the wording it was assembled from changed.
+    /// </summary>
+    [Fact]
+    public async Task PresetRun_WhenThePresetWordingChanged_RefusesInsteadOfRenderingTheStaleText()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var imageId = await fixture.CreateAssetPresetImageAsync(
+            ImagePresetKeys.LightingIndoorDim,
+            Fixture.PresetInstruction,
+            MediaEditPresetProvenance.InstructionSha256("a different lighting wording entirely"));
+        var editor = new RecordingImageEditor();
+        var handler = fixture.BuildPresetHandler(editor, new StubPresetService(Fixture.PresetInstruction));
+        var job = await fixture.EnqueueAssetRunAsync(imageId);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => handler.HandleAsync(job));
+
+        Assert.Contains(ImagePresetKeys.LightingIndoorDim, error.Message, StringComparison.Ordinal);
+        Assert.Equal(0, editor.Calls);
+    }
+
+    [Fact]
+    public async Task PresetRun_WhenTheRowIsNotWhatThePresetAssembles_IsRefused()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var instruction = Fixture.PresetInstruction;
+        // The recorded checksum matches the preset, but the row's own prompt does not: the row was written by
+        // something that does not agree with the preset, which is exactly the mismatch to refuse.
+        var imageId = await fixture.CreateAssetPresetImageAsync(
+            ImagePresetKeys.LightingIndoorDim, instruction + " And something else.",
+            MediaEditPresetProvenance.InstructionSha256(instruction));
+        var editor = new RecordingImageEditor();
+        var handler = fixture.BuildPresetHandler(editor, new StubPresetService(instruction));
+        var job = await fixture.EnqueueAssetRunAsync(imageId);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => handler.HandleAsync(job));
+
+        Assert.Contains("prompt", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, editor.Calls);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public const string EditorModelId = "22222222-2222-2222-2222-222222222222";
@@ -399,6 +460,14 @@ public sealed class MediaEditImageEditingJobHandlerTests
 
         public const string IdentityFaceRelativePath = "identity/becky/front.png";
         public const string IdentityFaceSha256 = "A1B2C3D4";
+
+        /// <summary>The exact text a preset assembles for the tests, preserve clause included.</summary>
+        public const string PresetInstruction =
+            "Relight this photograph to the following lighting: dim, low-key indoor light from one warm lamp just "
+            + "outside the frame to camera left, the near side of the face and body lit with visible detail while the "
+            + "far side and the background fall into deep shadow. Keep the person identical - the same face, body, "
+            + "skin, hair and marks - and keep the pose, the camera angle, the framing, the crop, the clothing and the "
+            + "setting itself unchanged; only the lighting changes.";
         public const string IdentityInstruction =
             "Apply the face of the person shown in Picture 2 to the man on the left at left third of the frame. "
             + "Keep that person's facial identity consistent with Picture 2 for the entire image; do not change "
@@ -451,6 +520,55 @@ public sealed class MediaEditImageEditingJobHandlerTests
             };
             await Assets.UpsertImageAsync(image);
             return image.Id;
+        }
+
+        /// <summary>
+        /// The queued PRESET row exactly as the asset preset enqueue writes it (B-133): the instruction the preset
+        /// assembled, plus the preset and its instruction checksum in the provenance and no compiler artifact.
+        /// </summary>
+        public async Task<string> CreateAssetPresetImageAsync(string presetKey, string instruction, string? instructionSha256 = null)
+        {
+            var preset = new MediaEditPresetInstruction(
+                presetKey,
+                instructionSha256 ?? MediaEditPresetProvenance.InstructionSha256(instruction));
+            var image = new SceneAssetImage
+            {
+                AssetId = "asset-1",
+                Kind = SceneAssetKind.Edited,
+                Status = SceneAssetStatus.Pending,
+                Prompt = instruction,
+                SourceImageId = SourceImageId,
+                SourceProvenanceJson = JsonSerializer.Serialize(new
+                {
+                    operation = MediaEditProvenance.EditValue,
+                    sourceImageSha256 = SourceSha256,
+                    presetInstruction = preset
+                }, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            };
+            await Assets.UpsertImageAsync(image);
+            return image.Id;
+        }
+
+        /// <summary>The handler an asset preset run needs: the writer armed with the preset resolver.</summary>
+        public MediaEditImageEditingJobHandler BuildPresetHandler(
+            IImageEditingClient editor,
+            IImagePresetService presets)
+        {
+            var options = Options.Create(new PersistenceOptions
+            {
+                ConnectionString = $"Data Source={_dbPath};Pooling=False",
+                SceneImageRoot = Path.Combine(_root, "scene-images")
+            });
+            var storage = new SceneAssetStorageService(options, NullLogger<SceneAssetStorageService>.Instance);
+            var references = new MediaEditReferenceResolver(Assets, storage, new StubReferenceStrategies());
+            var writer = new SceneAssetMediaEditSubjectWriter(
+                Assets, Edits, storage, references, identityStorage: null, presets: presets);
+            return new MediaEditImageEditingJobHandler(
+                new MediaEditSubjectWriterResolver([writer]),
+                OperationResolver(),
+                new StubImageEditorResolver(),
+                editor,
+                NullLogger<MediaEditImageEditingJobHandler>.Instance);
         }
 
         /// <summary>A run queued without the model the editor form carries.</summary>
@@ -742,11 +860,16 @@ public sealed class MediaEditImageEditingJobHandlerTests
     private sealed class RecordingImageEditor : IImageEditingClient
     {
         public int Calls { get; private set; }
+
+        /// <summary>Every instruction the run actually sent, in order.</summary>
+        public List<string> Instructions { get; } = [];
+
         public Exception? ThrowOnEdit { get; init; }
 
         public Task<byte[]> EditAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, CancellationToken cancellationToken = default)
         {
             Calls++;
+            Instructions.Add(instruction);
             if (ThrowOnEdit is not null)
                 throw ThrowOnEdit;
             return Task.FromResult(CreatePng(4, 3));
@@ -755,10 +878,34 @@ public sealed class MediaEditImageEditingJobHandlerTests
         public Task<byte[]> EditWithReferencesAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, IReadOnlyList<ImageEditingReference> references, CancellationToken cancellationToken = default)
         {
             Calls++;
+            Instructions.Add(instruction);
             if (ThrowOnEdit is not null)
                 throw ThrowOnEdit;
             return Task.FromResult(CreatePng(4, 3));
         }
+    }
+
+    /// <summary>
+    /// The preset resolver as the writer sees it (B-133). A stub rather than the store-backed service: these tests
+    /// are about the run path, and a fixed instruction is what makes "the run sent exactly the assembled text" an
+    /// assertion instead of a tautology.
+    /// </summary>
+    private sealed class StubPresetService : IImagePresetService
+    {
+        private readonly string _instruction;
+
+        public StubPresetService(string instruction) => _instruction = instruction;
+
+        public Task<string> ResolveInstructionAsync(
+            string presetKey, ImagePresetMode mode = ImagePresetMode.Change, string? characterId = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_instruction);
+
+        public Task<IReadOnlyList<ImagePresetChoice>> ListAsync(
+            ImagePresetAxis? axis = null, string? characterId = null, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ImagePresetChoice>>([]);
+
+        public string DefaultPresetFor(string loraVocabularyKey) => ImagePresetKeys.PresetKeyFor(loraVocabularyKey);
     }
 
     /// <summary>

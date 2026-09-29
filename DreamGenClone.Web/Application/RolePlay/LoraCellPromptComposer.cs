@@ -51,7 +51,8 @@ public static partial class LoraCellPromptComposer
         string renderTemplateBody,
         string? faceLine = null,
         IReadOnlyList<ImageStepSlotKind>? omittedSlots = null,
-        string? subjectNoun = null)
+        string? subjectNoun = null,
+        string? lightingPhraseOverride = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(record);
@@ -93,6 +94,18 @@ public static partial class LoraCellPromptComposer
         // like "do NOT describe these" is not obeyed, it is drawn: it spends budget against the qualified 800-character
         // Pony limit, and on Pony it is comma-shredded into fake tags. The operator already sees which elements a bound
         // reference supplies, in the step's own badges.
+        //
+        // A framing that shows no stance claims none. The placeholder is removed by the same path an omitted element
+        // takes, so a close-up prompt never states a stance the picture cannot show - and a slot left unfilled is an
+        // error here, which is why the element is OMITTED rather than passed empty.
+        var pose = record.PoseClass is { } stance
+            ? plan.PhraseFor(LoraCellWorkflowKeys.PoseKey(stance))
+            : string.Empty;
+        if (pose.Length == 0)
+        {
+            omitted.Add(PoseSlot);
+        }
+
         return Fill(
             renderTemplateBody,
             omitted,
@@ -100,14 +113,24 @@ public static partial class LoraCellPromptComposer
             (FaceSlot, face),
             ("Facing", plan.PhraseFor(LoraCellWorkflowKeys.FacingKey(record.FaceVisible, record.AngleYawDeg))),
             ("Wardrobe", plan.PhraseFor(record.OutfitKey)),
-            ("Pose", plan.PhraseFor(LoraCellWorkflowKeys.PoseKey(record.PoseClass))),
+            (PoseSlot, pose),
             ("Expression", plan.PhraseFor(record.ExpressionKey)),
-            ("Lighting", plan.PhraseFor(record.LightingKey)),
+            // B-133: the plan states the condition this cell is shot under, so it is the default; a picked preset
+            // replaces it for this shot, because relight is a deliberate operator decision and this is where it lands.
+            ("Lighting", string.IsNullOrWhiteSpace(lightingPhraseOverride)
+                ? plan.PhraseFor(record.LightingKey)
+                : lightingPhraseOverride.Trim()),
             ("Background", plan.PhraseFor(record.BackgroundKey)));
     }
 
     /// <summary>The face element's placeholder in a cell's render template.</summary>
     public const string FaceSlot = "Face";
+
+    /// <summary>
+    /// The stance element's placeholder. It is OMITTED when the cell's framing shows no stance, so this name is also
+    /// the switch that removes the element from both the prompt and the caption.
+    /// </summary>
+    public const string PoseSlot = "Pose";
 
     /// <summary>
     /// The subject element's placeholder: the whole-person description, or - when a bound body reference supplies the
@@ -169,21 +192,38 @@ public static partial class LoraCellPromptComposer
     /// model is free to vary.
     /// </para>
     /// </summary>
-    public static string ComposeCaption(CoveragePlan plan, CoverageRecord record, string captionTemplateBody)
+    public static string ComposeCaption(
+        CoveragePlan plan,
+        CoverageRecord record,
+        string captionTemplateBody,
+        string? lightingTagOverride = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(record);
 
+        // A caption is a comma-separated tag list, so an omitted tag has to take its delimiter with it: the
+        // sentence-based omit path would leave a doubled comma behind, and a malformed list is worse than a tag.
+        var captionTemplate = record.PoseClass is null
+            ? DropTag(captionTemplateBody, PoseSlot)
+            : captionTemplateBody;
+
         return Fill(
-            captionTemplateBody,
+            captionTemplate,
             [],
             ("TriggerToken", Require(plan.TriggerToken, "The coverage plan's trigger token")),
             ("Wardrobe", plan.PhraseFor(LoraCellWorkflowKeys.WardrobeKey(record.WardrobeState))),
             ("Angle", plan.PhraseFor(LoraCellWorkflowKeys.AngleKey(record.AngleFamily))),
             ("Distance", plan.PhraseFor(LoraCellWorkflowKeys.DistanceKey(record.Distance))),
-            ("Pose", plan.PhraseFor(LoraCellWorkflowKeys.PoseKey(record.PoseClass))),
+            (PoseSlot, record.PoseClass is { } captionStance
+                ? plan.PhraseFor(LoraCellWorkflowKeys.PoseKey(captionStance))
+                : string.Empty),
             ("Expression", plan.PhraseFor(record.ExpressionKey)),
-            ("Lighting", plan.PhraseFor(record.LightingKey)),
+            // B-133: an overridden condition tags the caption with the preset's own short name. The caption has to
+            // name the light the image will actually show; keeping the plan's wording here would teach the trainer a
+            // tag that disagrees with the picture.
+            ("Lighting", string.IsNullOrWhiteSpace(lightingTagOverride)
+                ? plan.PhraseFor(record.LightingKey)
+                : lightingTagOverride.Trim()),
             ("Background", plan.PhraseFor(record.BackgroundKey)));
     }
 
@@ -253,6 +293,30 @@ public static partial class LoraCellPromptComposer
         }
 
         return string.Join(" ", kept);
+    }
+
+    /// <summary>
+    /// Removes a tag placeholder from a comma-separated template together with ONE of its delimiters, so dropping a
+    /// tag leaves the list well formed rather than leaving a doubled comma where the tag used to be.
+    /// </summary>
+    private static string DropTag(string template, string slot)
+    {
+        var body = Require(template, "The template body");
+        var placeholder = $"{{{slot}}}";
+        if (!body.Contains(placeholder, StringComparison.Ordinal))
+        {
+            return body;
+        }
+
+        var escaped = Regex.Escape(placeholder);
+        var withoutLeadingComma = new Regex($@",\s*{escaped}").Replace(body, string.Empty, 1);
+        if (!withoutLeadingComma.Contains(placeholder, StringComparison.Ordinal))
+        {
+            return withoutLeadingComma;
+        }
+
+        // The tag was the first in the list, so it is the FOLLOWING comma that has to go with it.
+        return new Regex($@"{escaped}\s*,\s*").Replace(withoutLeadingComma, string.Empty, 1);
     }
 
     private static bool HasContent(string segment) => segment.Any(char.IsLetterOrDigit);

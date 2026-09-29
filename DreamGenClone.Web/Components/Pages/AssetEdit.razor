@@ -7,13 +7,24 @@
 @using DreamGenClone.Web.Application.RolePlay.Editing
 
 @inject ISceneAssetService AssetService
+@inject NavigationManager Nav
+@inject IJSRuntime JS
 
 <PageTitle>Edit Asset - DreamGenClone</PageTitle>
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0">Edit Asset</h4>
-        <a href="/asset-studio/@AssetId" class="btn btn-outline-secondary btn-sm">Back to Asset</a>
+        <div class="d-flex gap-2">
+            <a href="/asset-studio/@AssetId" class="btn btn-outline-secondary btn-sm">Back to Asset</a>
+            @* The second button, and a different destination: "Back to Asset" always goes to the asset, while this one
+               returns the operator to the page that OPENED the editor - the attempt deck, a review deck, the character
+               form - which is where they were working and where they will carry on. *@
+            <button type="button" class="btn btn-outline-primary btn-sm" @onclick="GoBackAsync"
+                    title="Return to the page that opened this editor">
+                <i class="bi bi-arrow-return-left me-1"></i>Back to where I came from
+            </button>
+        </div>
     </div>
 
     @if (_asset is null)
@@ -28,6 +39,7 @@
     {
         <ImageEditWorkspace Subject="_subject"
                             ShowIdentity="true"
+                            SeedPresetKey="@Preset"
                             ReviewDeckUrl="@_reviewDeckUrl"
                             EditImageUrlFactory="EditImageUrl" />
     }
@@ -39,6 +51,21 @@
 
     [Parameter]
     public string ImageId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// A preset for the edit pass (B-133), passed by a host that knows why this image is being edited - the LoRA cell
+    /// attempt deck sends the lighting its plan asked for. Query data, so a bookmark or a link can carry it.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "preset")]
+    public string? Preset { get; set; }
+
+    /// <summary>
+    /// Where the editor was opened FROM, when the host that linked to it said so (query data, so a link or a bookmark
+    /// carries it). The origin has to travel with the link: the editor cannot work it out afterwards, and browser
+    /// history is empty for a bookmark. Null means the host did not say, and the button falls back to history.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "return")]
+    public string? ReturnUrl { get; set; }
 
     private SceneAsset? _asset;
     private SceneAssetImage? _image;
@@ -63,5 +90,22 @@
     }
 
     private string EditImageUrl(string imageId)
-        => $"/assets/{AssetId}/images/{imageId}/edit";
+        => $"/assets/{AssetId}/images/{imageId}/edit"
+            + (string.IsNullOrWhiteSpace(ReturnUrl) ? string.Empty : $"?return={ReturnUrl}");
+
+    /// <summary>
+    /// Returns the operator to the page that opened this editor, and keeps working when the host did not name one:
+    /// history is the right answer for a link followed from inside the app, and the explicit target is the right one
+    /// for everything else.
+    /// </summary>
+    private async Task GoBackAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(ReturnUrl))
+        {
+            Nav.NavigateTo(ReturnUrl);
+            return;
+        }
+
+        await JS.InvokeVoidAsync("history.back");
+    }
 }

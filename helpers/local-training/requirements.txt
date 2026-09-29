@@ -1,0 +1,4 @@
+# The app-side trainer talks to a service on the ComfyUI host; keep these pinned.
+fastapi==0.115.6
+uvicorn==0.34.0
+python-multipart==0.0.20

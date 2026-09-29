@@ -70,6 +70,23 @@ public static class LoraCellWorkflowKeys
     public const string VocabularyOutfitSleepwear = "lora.vocabulary.outfit.sleepwear";
     public const string VocabularyOutfitUnclothed = "lora.vocabulary.outfit.unclothed";
 
+    // ---- Frame-scoped wardrobe. -------------------------------------------------------------------------
+    //
+    // A cell may only claim what its framing can show. The full-body phrases name garments BELOW the waist
+    // ("a plain t-shirt and jeans"), which a "waist up" or a "head and both shoulders" frame cannot show at
+    // all: measured on the live plan, all ten close-up cells claimed a full outfit - five of them claiming the
+    // subject was completely unclothed - over a frame that shows neither. These are the SAME states phrased for
+    // the frame that carries them, so the wardrobe axis survives at every distance instead of being dropped, and
+    // the caption tag (clothed / nude) stays one stable concept word across the whole set.
+    public const string VocabularyWardrobeClothedClose = "lora.vocabulary.wardrobe.clothed.close";
+    public const string VocabularyWardrobeUnclothedClose = "lora.vocabulary.wardrobe.unclothed.close";
+    public const string VocabularyOutfitCasualHalf = "lora.vocabulary.outfit.casual.half";
+    public const string VocabularyOutfitFormalHalf = "lora.vocabulary.outfit.formal.half";
+    public const string VocabularyOutfitAthleticHalf = "lora.vocabulary.outfit.athletic.half";
+    public const string VocabularyOutfitLoungewearHalf = "lora.vocabulary.outfit.loungewear.half";
+    public const string VocabularyOutfitSleepwearHalf = "lora.vocabulary.outfit.sleepwear.half";
+    public const string VocabularyOutfitUnclothedHalf = "lora.vocabulary.outfit.unclothed.half";
+
     public const string VocabularyDistanceClose = "lora.vocabulary.distance.close";
     public const string VocabularyDistanceHalf = "lora.vocabulary.distance.half";
     public const string VocabularyDistanceFull = "lora.vocabulary.distance.full";
@@ -99,10 +116,28 @@ public static class LoraCellWorkflowKeys
         RenderBehindClose, RenderBehindHalf, RenderBehindFull
     ];
 
+    /// <summary>The garments a FULL-BODY frame shows, in rotation order. Its index order is the waist-up order.</summary>
+    public static readonly IReadOnlyList<string> FullBodyOutfitKeys =
+    [
+        VocabularyOutfitCasual, VocabularyOutfitFormal, VocabularyOutfitAthletic,
+        VocabularyOutfitLoungewear, VocabularyOutfitSleepwear
+    ];
+
+    /// <summary>
+    /// The same garments as a "waist up" frame shows them: the top only, because the rest is not in frame.
+    /// Parallel to <see cref="FullBodyOutfitKeys" /> by index, so the rotation advances over one garment list.
+    /// </summary>
+    public static readonly IReadOnlyList<string> HalfBodyOutfitKeys =
+    [
+        VocabularyOutfitCasualHalf, VocabularyOutfitFormalHalf, VocabularyOutfitAthleticHalf,
+        VocabularyOutfitLoungewearHalf, VocabularyOutfitSleepwearHalf
+    ];
+
     /// <summary>Every vocabulary key the generator resolves. A missing one fails fast naming it.</summary>
     public static readonly IReadOnlyList<string> VocabularyKeys =
     [
         VocabularyWardrobeClothed, VocabularyWardrobeUnclothed,
+        VocabularyWardrobeClothedClose, VocabularyWardrobeUnclothedClose,
         VocabularyPoseStanding, VocabularyPoseSitting, VocabularyPoseKneeling,
         VocabularyPoseLying, VocabularyPoseAllFours, VocabularyPoseHandsRaised,
         VocabularyExpressionNeutral, VocabularyExpressionSmiling, VocabularyExpressionLaughing,
@@ -113,6 +148,8 @@ public static class LoraCellWorkflowKeys
         VocabularyBackgroundKitchen, VocabularyBackgroundOutdoors, VocabularyBackgroundStudio,
         VocabularyOutfitCasual, VocabularyOutfitFormal, VocabularyOutfitAthletic,
         VocabularyOutfitLoungewear, VocabularyOutfitSleepwear, VocabularyOutfitUnclothed,
+        VocabularyOutfitCasualHalf, VocabularyOutfitFormalHalf, VocabularyOutfitAthleticHalf,
+        VocabularyOutfitLoungewearHalf, VocabularyOutfitSleepwearHalf, VocabularyOutfitUnclothedHalf,
         VocabularyDistanceClose, VocabularyDistanceHalf, VocabularyDistanceFull,
         VocabularyAngleFront, VocabularyAngleThreeQuarter, VocabularyAngleProfile, VocabularyAngleBehind,
         VocabularyFacingCamera, VocabularyFacingLeft, VocabularyFacingRight, VocabularyFacingAway,
@@ -153,6 +190,77 @@ public static class LoraCellWorkflowKeys
         LoraCoverageDistance.FullBody => VocabularyDistanceFull,
         _ => throw new InvalidOperationException($"Unsupported distance '{distance}'.")
     };
+
+    /// <summary>The waist-up phrasing of each full-body garment, by the full-body key.</summary>
+    private static readonly IReadOnlyDictionary<string, string> HalfBodyPhraseFor =
+        FullBodyOutfitKeys.Zip(HalfBodyOutfitKeys, (full, half) => (full, half))
+            .ToDictionary(pair => pair.full, pair => pair.half, StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether a framing can show a stance AT ALL.
+    ///
+    /// <para>
+    /// A head-and-shoulders close-up cannot. Standing, sitting and kneeling are indistinguishable inside it - an
+    /// earlier pass restricted the close-up cycle to exactly those three and it fixed nothing, because the problem
+    /// was never which stances were listed but that the frame shows none of them. A stance the picture cannot show
+    /// is a claim the render contradicts and the caption teaches anyway.
+    /// </para>
+    /// </summary>
+    public static bool FramingShowsStance(LoraCoverageDistance distance) => distance switch
+    {
+        LoraCoverageDistance.CloseUp => false,
+        LoraCoverageDistance.HalfBody => true,
+        LoraCoverageDistance.FullBody => true,
+        _ => throw new InvalidOperationException($"Unsupported distance '{distance}'.")
+    };
+
+    /// <summary>
+    /// The stances a framing can actually TELL APART, in rotation order. Empty means the frame shows no stance, so
+    /// the cell claims none. Waist up, standing against sitting is readable from the thigh line and the seat; kneeling
+    /// is not, because the knees are below the frame.
+    /// </summary>
+    public static IReadOnlyList<LoraCoveragePoseClass> StancesFor(LoraCoverageDistance distance) => distance switch
+    {
+        LoraCoverageDistance.CloseUp => [],
+        LoraCoverageDistance.HalfBody => [LoraCoveragePoseClass.Standing, LoraCoveragePoseClass.Sitting],
+        LoraCoverageDistance.FullBody =>
+        [
+            LoraCoveragePoseClass.Standing, LoraCoveragePoseClass.Sitting, LoraCoveragePoseClass.Kneeling,
+            LoraCoveragePoseClass.Lying, LoraCoveragePoseClass.AllFours, LoraCoveragePoseClass.HandsRaised
+        ],
+        _ => throw new InvalidOperationException($"Unsupported distance '{distance}'.")
+    };
+
+    /// <summary>
+    /// A cell declares its outfit in the FULL-BODY vocabulary, because that is where the garment is named, and this
+    /// maps it to what the cell's own framing shows. Every distance therefore gets a phrase true of its own frame,
+    /// and a key with no frame-honest phrasing is refused by name rather than narrowed to something adjacent.
+    /// </summary>
+    public static string OutfitKeyForDistance(string declaredOutfitKey, LoraCoverageDistance distance)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(declaredOutfitKey);
+
+        var unclothed = string.Equals(declaredOutfitKey, VocabularyOutfitUnclothed, StringComparison.Ordinal);
+        if (!unclothed && !FullBodyOutfitKeys.Contains(declaredOutfitKey, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"'{declaredOutfitKey}' is neither a full-body outfit nor a wardrobe phrase, so no frame-honest "
+                + "phrasing can be derived for it. A cell names its outfit in the full-body vocabulary and this maps "
+                + "it to what the cell's own frame shows.");
+        }
+
+        return distance switch
+        {
+            LoraCoverageDistance.CloseUp => unclothed
+                ? VocabularyWardrobeUnclothedClose
+                : VocabularyWardrobeClothedClose,
+            LoraCoverageDistance.HalfBody => unclothed
+                ? VocabularyOutfitUnclothedHalf
+                : HalfBodyPhraseFor[declaredOutfitKey],
+            LoraCoverageDistance.FullBody => declaredOutfitKey,
+            _ => throw new InvalidOperationException($"Unsupported distance '{distance}'.")
+        };
+    }
 
     /// <summary>Key → the angle family it phrases.</summary>
     public static string AngleKey(LoraCoverageAngleFamily family) => family switch

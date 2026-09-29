@@ -40,6 +40,7 @@ using DreamGenClone.Web.Application.Administration;
 using DreamGenClone.Web.Application.ModelManager;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Application.StoryAnalysis.Abstractions;
 using DreamGenClone.Infrastructure.RolePlay;
 using Microsoft.Extensions.FileProviders;
@@ -272,6 +273,7 @@ builder.Services.AddScoped<IBackgroundJobHandler, EncounterSummaryJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, LocationDetectionJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SteerGenerationJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImagePromptGenerationJobHandler>();
+builder.Services.AddScoped<ISceneImageCharacterLoraResolver, SceneImageCharacterLoraResolver>();
 builder.Services.AddScoped<SceneImageRenderingJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler>(serviceProvider => serviceProvider.GetRequiredService<SceneImageRenderingJobHandler>());
 builder.Services.AddScoped<SceneImageEditingJobHandler>();
@@ -408,6 +410,7 @@ builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneBeatProductionPlan
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneBeatMomentDiscoveryJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneMomentEnrichmentJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetGenerationJobHandler>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler, WardrobeItemPromptGenerationJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler, ProducedImageGenerationJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetEditingJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetProfilePackJobHandler>();
@@ -484,7 +487,10 @@ builder.Services.AddSingleton<ICharacterAppearanceVersionRepository, CharacterAp
 builder.Services.AddSingleton<ICharacterLoraRepository, CharacterLoraRepository>();
 builder.Services.AddScoped<ICharacterLoraCoveragePlanGenerator, CharacterLoraCoveragePlanGenerator>();
 builder.Services.AddScoped<ICharacterLoraCellService, CharacterLoraCellService>();
+builder.Services.AddScoped<ICharacterLoraDatasetRegistrationService, CharacterLoraDatasetRegistrationService>();
+builder.Services.AddScoped<ILocalLoraTrainerInventoryService, LocalLoraTrainerInventoryService>();
 builder.Services.AddSingleton<ICharacterLoraTrainingDispatchAdapter, RunPodCharacterLoraTrainingDispatchAdapter>();
+builder.Services.AddSingleton<ICharacterLoraTrainingDispatchAdapter, LocalCharacterLoraTrainingDispatchAdapter>();
 builder.Services.AddSingleton<ICharacterLoraTrainingDispatchAdapterRegistry, CharacterLoraTrainingDispatchAdapterRegistry>();
 builder.Services.AddScoped<ICharacterLoraTrainingService, CharacterLoraTrainingService>();
 builder.Services.AddSingleton<IProductionMediaRepository, ProductionMediaRepository>();
@@ -505,12 +511,16 @@ builder.Services.AddScoped<IProductionWorkloadService, ProductionWorkloadService
 builder.Services.AddScoped<IProductionStudioService, ProductionStudioService>();
 builder.Services.AddSingleton<ISceneAssetStorageService, SceneAssetStorageService>();
 builder.Services.AddScoped<ISceneAssetService, SceneAssetService>();
+builder.Services.AddScoped<IWardrobeItemService, WardrobeItemService>();
 builder.Services.AddScoped<ISceneAssetTreeService, SceneAssetTreeService>();
 builder.Services.AddScoped<ICharacterAssetCatalogService, CharacterAssetCatalogService>();
 builder.Services.AddScoped<IReferenceImageQualityAnalyzer, ReferenceImageQualityAnalyzer>();
 builder.Services.AddScoped<ISceneImageService, SceneImageService>();
 builder.Services.AddScoped<ISceneImageEditCompilationService, SceneImageEditCompilationService>();
 builder.Services.AddScoped<ISceneAssetImageEditCompilationService, SceneAssetImageEditCompilationService>();
+// B-133: the preset resolver. A picked lighting/expression preset is assembled deterministically from the prompt
+// store's image.preset.* rows - never through the vision compiler - so it needs no model and no qualification.
+builder.Services.AddScoped<IImagePresetService, ImagePresetService>();
 // B-124 B124-012: the ONE edit pipeline. Subject-specific behaviour is only the source seam.
 builder.Services.AddSingleton<IMediaEditSubjectSource, SceneImageMediaEditSubjectSource>();
 builder.Services.AddSingleton<IMediaEditSubjectSource, SceneAssetMediaEditSubjectSource>();
@@ -556,6 +566,20 @@ builder.Services.AddSingleton<ISceneImagePromptCompiler, ApiSceneImagePromptComp
 builder.Services.AddSingleton<ISceneImagePromptCompiler, FluxSceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, QwenImage21SceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompilerRegistry, SceneImagePromptCompilerRegistry>();
+
+// The WARDROBE ITEM prompt compiler (2026-09-29): one compiler per natural-language family, because a garment
+// reference has its own framing/backdrop rules and is NOT a scene prompt. A family with no registration (Pony tags)
+// is refused by name when the tab is used, rather than served by a fallback that would write a garment prompt in a
+// dialect its model does not read.
+builder.Services.AddSingleton<IWardrobeItemPromptCompiler>(_ => new NaturalLanguageWardrobeItemPromptCompiler(
+    SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage));
+builder.Services.AddSingleton<IWardrobeItemPromptCompiler>(_ => new NaturalLanguageWardrobeItemPromptCompiler(
+    SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage));
+builder.Services.AddSingleton<IWardrobeItemPromptCompiler>(_ => new NaturalLanguageWardrobeItemPromptCompiler(
+    SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage));
+builder.Services.AddSingleton<IWardrobeItemPromptCompiler>(_ => new NaturalLanguageWardrobeItemPromptCompiler(
+    SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage));
+builder.Services.AddSingleton<IWardrobeItemPromptCompilerRegistry, WardrobeItemPromptCompilerRegistry>();
 
 // Prompt-queue navigation resilience (B-027)
 builder.Services.AddSingleton<RolePlaySubmissionTracker>();

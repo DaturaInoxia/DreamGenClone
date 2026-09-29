@@ -7,6 +7,7 @@
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Infrastructure.Models
+@using DreamGenClone.Web.Application.RolePlay
 
 @inject ICharacterLoraRepository LoraRepository
 @inject ICharacterLoraTrainingService TrainingService
@@ -55,14 +56,37 @@
                             <strong>Manifest</strong>
                             <div class="font-monospace text-break">@_dataset.ManifestSha256</div>
                         </div>
-                        <label class="form-label small" for="training-profile">Qualified training profile</label>
+                        <label class="form-label small" for="training-profile">Qualified training profile - this IS the base model</label>
                         <select id="training-profile" class="form-select form-select-sm" disabled="@(_busy || _job is not null)" @bind="_profileId">
                             <option value="">Select a qualified profile</option>
                             @foreach (var profile in _profiles)
                             {
-                                <option value="@profile.Id">@profile.Name v@profile.Version / @profile.BaseModelId @profile.BaseModelVersion</option>
+                                <option value="@profile.Id">@profile.BaseModelId @profile.BaseModelVersion — @profile.Name v@(profile.Version)</option>
                             }
                         </select>
+                        @if (!string.IsNullOrEmpty(SelectedProfileSummary))
+                        {
+                            <div class="small mt-2">@SelectedProfileSummary</div>
+                        }
+                        @if (_profiles.Count > 0)
+                        {
+                            <div class="form-text">
+                                The model is not a separate choice: a profile pairs a base model with the recipe
+                                qualified for it, so picking a profile picks the model. This dataset declares family
+                                @_dataset.TargetModelFamily.
+                            </div>
+                        }
+                        @if (_profiles.Count == 0)
+                        {
+                            <div class="alert alert-warning small mt-2 mb-0">
+                                <div>@ProfileGuidance</div>
+                                <div class="mt-1">
+                                    <a href="/asset-studio/lora-training-profiles">Create or qualify a profile</a>
+                                    <span class="text-muted">·</span>
+                                    <a href="/asset-studio/lora-datasets/@DatasetId">Retarget this dataset's family</a>
+                                </div>
+                            </div>
+                        }
                         <button type="button" class="btn btn-primary btn-sm mt-3" disabled="@(_busy || _job is not null)" @onclick="PrepareAsync">Prepare Durable Job</button>
                     </div>
                 </section>
@@ -78,15 +102,29 @@
                                 <option value="@provider.Id">@provider.Name / @provider.BaseUrl</option>
                             }
                         </select>
-                        <label class="form-label small mt-2" for="training-adapter">Adapter key</label>
-                        <input id="training-adapter" class="form-control form-control-sm" @bind="_adapterKey" />
-                        <div class="row g-2 mt-1">
-                            <div class="col-md-4"><label class="form-label small" for="training-submit">Submit path</label><input id="training-submit" class="form-control form-control-sm" @bind="_submitPath" /></div>
-                            <div class="col-md-4"><label class="form-label small" for="training-status">Status path</label><input id="training-status" class="form-control form-control-sm" @bind="_statusPath" /></div>
-                            <div class="col-md-4"><label class="form-label small" for="training-cancel">Cancel path</label><input id="training-cancel" class="form-control form-control-sm" @bind="_cancelPath" /></div>
-                            <div class="col-md-6"><label class="form-label small" for="training-seed">Seed</label><input id="training-seed" type="number" class="form-control form-control-sm" @bind="_seed" /></div>
-                            <div class="col-md-6"><label class="form-label small" for="training-artifact-version">Artifact version</label><input id="training-artifact-version" type="number" min="1" class="form-control form-control-sm" @bind="_artifactVersion" /></div>
-                        </div>
+
+                        <label class="form-label small mt-2" for="training-adapter">Training adapter</label>
+                        <select id="training-adapter" class="form-select form-select-sm" value="@_adapterKey" @onchange="OnAdapterChangedAsync">
+                            @foreach (var adapter in CharacterLoraTrainingAdapters.All)
+                            {
+                                <option value="@adapter.AdapterKey">@adapter.Label</option>
+                            }
+                        </select>
+                        @if (CharacterLoraTrainingAdapters.Find(_adapterKey) is { } selected)
+                        {
+                            <div class="form-text">@selected.Note</div>
+                            <dl class="row small mt-2 mb-0">
+                                <dt class="col-sm-4">Submit / status / cancel</dt>
+                                <dd class="col-sm-8 font-monospace text-break">@selected.SubmitPath · @selected.StatusPath · @selected.CancelPath</dd>
+                                <dt class="col-sm-4">Seed</dt>
+                                <dd class="col-sm-8">
+                                    <input id="training-seed" type="number" class="form-control form-control-sm" style="max-width:12rem" @bind="_seed" />
+                                    <span class="text-muted">Defaults to 1. Change it only to train a second, differently-seeded LoRA from the same job.</span>
+                                </dd>
+                                <dt class="col-sm-4">Artifact version</dt>
+                                <dd class="col-sm-8">@_artifactVersion <span class="text-muted">(next free version for this dataset; derived, not typed)</span></dd>
+                            </dl>
+                        }
                     </div>
                 </section>
             </div>
@@ -182,7 +220,7 @@
                                         @foreach (var artifact in _artifacts)
                                         {
                                             <tr>
-                                                <td>v@artifact.Version</td>
+                                                <td>v@(artifact.Version)</td>
                                                 <td>@artifact.BaseModelId @artifact.BaseModelVersion</td>
                                                 <td class="font-monospace">@artifact.TriggerToken</td>
                                                 <td class="font-monospace small text-break">@artifact.Sha256</td>
@@ -217,17 +255,15 @@
 
     private CharacterLoraDataset? _dataset;
     private List<CharacterLoraTrainingProfile> _profiles = [];
+    private List<string> _availableFamilies = [];
     private List<Provider> _providers = [];
     private CharacterLoraTrainingJob? _job;
     private List<CharacterLoraTrainingAttempt> _attempts = [];
     private List<CharacterLoraArtifact> _artifacts = [];
     private string _profileId = string.Empty;
     private string _providerId = string.Empty;
-    private string _adapterKey = string.Empty;
-    private string _submitPath = string.Empty;
-    private string _statusPath = string.Empty;
-    private string _cancelPath = string.Empty;
-    private long _seed;
+    private string _adapterKey = CharacterLoraTrainingAdapters.DefaultFor(null).AdapterKey;
+    private long _seed = 1;
     private int _artifactVersion;
     private string _artifactDecisionEvidenceJson = string.Empty;
     private bool _busy;
@@ -235,6 +271,40 @@
     private string? _error;
     private string? _status;
     private CharacterLoraTrainingAttempt? LatestAttempt => _attempts.OrderBy(value => value.AttemptNumber).LastOrDefault();
+
+    /// <summary>The profile the operator has picked, which is the pairing of a base model with its qualified recipe.</summary>
+    private CharacterLoraTrainingProfile? SelectedProfile =>
+        _profiles.SingleOrDefault(value => string.Equals(value.Id, _profileId, StringComparison.Ordinal));
+
+    private string SelectedProfileSummary => SelectedProfile is { } profile
+        ? $"{profile.BaseModelId} {profile.BaseModelVersion} · {profile.TargetModelFamily} · trainer {profile.TrainerId} {profile.TrainerVersion}"
+        : string.Empty;
+
+    /// <summary>
+    /// What to say when this dataset cannot be trained yet. The family gate is a real refusal in the repository, so
+    /// the page must not leave the operator guessing at a disabled button: it names the families that DO have a
+    /// qualified profile and the two ways to close the gap.
+    /// </summary>
+    private string ProfileGuidance
+    {
+        get
+        {
+            if (_dataset is null)
+            {
+                return string.Empty;
+            }
+
+            if (_availableFamilies.Count == 0)
+            {
+                return "No enabled qualified training profile exists. A profile pairs a base model with the recipe "
+                    + "that was qualified for it, so training needs one before a job can be prepared.";
+            }
+
+            return $"No enabled qualified profile trains family {_dataset.TargetModelFamily}. "
+                + $"Families with a qualified profile: {string.Join(", ", _availableFamilies)}. "
+                + $"Retarget this dataset to one of them, or qualify a profile for {_dataset.TargetModelFamily}.";
+        }
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -245,27 +315,71 @@
     private async Task ReloadAsync()
     {
         _dataset = await LoraRepository.GetDatasetAsync(DatasetId);
-        _profiles = _dataset is null
+        var qualified = _dataset is null
             ? []
             : (await LoraRepository.ListTrainingProfilesAsync())
-                .Where(profile => profile.Enabled
-                    && profile.Status == CharacterLoraTrainingProfileStatus.Qualified
-                    && string.Equals(profile.TargetModelFamily, _dataset.TargetModelFamily, StringComparison.Ordinal))
+                .Where(profile => profile.Enabled && profile.Status == CharacterLoraTrainingProfileStatus.Qualified)
                 .ToList();
+
+        // Every qualified family is listed, not just the matching one, so an empty dropdown can say WHICH families
+        // do have a profile instead of looking like nothing was ever built.
+        _availableFamilies = qualified
+            .Select(profile => profile.TargetModelFamily)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(family => family, StringComparer.Ordinal)
+            .ToList();
+        _profiles = qualified
+            .Where(profile => string.Equals(profile.TargetModelFamily, _dataset!.TargetModelFamily, StringComparison.Ordinal))
+            .OrderBy(profile => profile.BaseModelId, StringComparer.Ordinal)
+            .ThenBy(profile => profile.Version)
+            .ToList();
         _providers = (await ProviderRepository.GetAllAsync()).Where(provider => provider.IsEnabled).ToList();
         var jobs = await LoraRepository.ListTrainingJobsAsync(DatasetId);
         _job = jobs.LastOrDefault();
         _attempts = _job is null ? [] : (await LoraRepository.ListTrainingAttemptsAsync(_job.Id)).ToList();
+
+        // Retry must not depend on transient form state. A reload empties the pickers, and an empty picker made
+        // "Retry As New Attempt" refuse with "An enabled provider is required." even though the durable attempt already
+        // records exactly where it was sent. The job and its attempt are the source, so the pickers are restored from
+        // them. They stay changeable until the first submission.
+        if (_job is not null)
+        {
+            _profileId = _job.TrainingProfileId;
+            if (LatestAttempt is { } latest)
+            {
+                var persistedEndpoint = await TrainingService.GetPersistedEndpointAsync(latest.Id);
+                if (persistedEndpoint is not null)
+                {
+                    _providerId = persistedEndpoint.EndpointId;
+                    _adapterKey = persistedEndpoint.AdapterKey;
+                }
+            }
+        }
         _artifacts = _dataset is null
             ? []
             : (await LoraRepository.ListArtifactsAsync(_dataset.CharacterTemplateId))
                 .Where(artifact => string.Equals(artifact.DatasetId, DatasetId, StringComparison.Ordinal))
                 .ToList();
+
+        // Derived, not typed: an artifact version is an ordinal of this dataset's outputs, and picking the next free
+        // one is the only value that cannot collide with an existing artifact.
+        _artifactVersion = _artifacts.Count == 0 ? 1 : _artifacts.Max(artifact => artifact.Version) + 1;
     }
 
     private Task OnProviderChangedAsync(ChangeEventArgs args)
     {
         _providerId = args.Value?.ToString() ?? string.Empty;
+
+        // The address says which kind of trainer this is (a runpod.net host is a serverless worker, a LAN address is
+        // the local service), so the adapter is picked rather than asked for. It stays changeable.
+        var provider = _providers.FirstOrDefault(value => string.Equals(value.Id, _providerId, StringComparison.Ordinal));
+        _adapterKey = CharacterLoraTrainingAdapters.DefaultFor(provider?.BaseUrl).AdapterKey;
+        return Task.CompletedTask;
+    }
+
+    private Task OnAdapterChangedAsync(ChangeEventArgs args)
+    {
+        _adapterKey = args.Value?.ToString() ?? string.Empty;
         return Task.CompletedTask;
     }
 
@@ -341,9 +455,12 @@
     {
         var provider = _providers.SingleOrDefault(value => string.Equals(value.Id, _providerId, StringComparison.Ordinal))
             ?? throw new InvalidOperationException("An enabled provider is required.");
+        var adapter = CharacterLoraTrainingAdapters.Find(_adapterKey)
+            ?? throw new InvalidOperationException(
+                $"'{_adapterKey}' is not a training adapter this app can dispatch to. Pick one from the list.");
         return new CharacterLoraTrainingEndpoint(
-            _adapterKey, provider.Name, provider.Id, provider.BaseUrl, _submitPath,
-            _statusPath, _cancelPath, provider.TimeoutSeconds);
+            adapter.AdapterKey, provider.Name, provider.Id, provider.BaseUrl,
+            adapter.SubmitPath, adapter.StatusPath, adapter.CancelPath, provider.TimeoutSeconds);
     }
 
     private async Task RunAsync(Func<Task> action)

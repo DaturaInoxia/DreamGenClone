@@ -31,4 +31,12 @@ public sealed record ResolvedImageModel(
     /// checked against the model's own declared capabilities (reference strategies), and carried for
     /// provenance. Null when the caller resolved without a model row.
     /// </summary>
-    string? RegisteredModelId = null);
+    string? RegisteredModelId = null,
+
+    /// <summary>
+    /// The character LoRAs this render applies, one per bound actor, in chain order. Null/empty means NO LoRA:
+    /// the graph then emits no <c>LoraLoader</c> node and every wire stays exactly as it was, so a render without
+    /// a LoRA is identical to a pre-LoRA render. Populated by the render that knows the frame's cast; the
+    /// resolution service itself cannot know it.
+    /// </summary>
+    IReadOnlyList<ResolvedCharacterLora>? Loras = null);

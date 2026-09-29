@@ -1,7 +1,9 @@
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Editing
 @using DreamGenClone.Web.Application.RolePlay.ImageStep
+@using DreamGenClone.Web.Application.RolePlay.Models
 
 @* The ONE composer. Every surface that produces an image presents a step through this component, and everything
    that differs between surfaces arrives as data on the blueprint - so a capability added here is added everywhere
@@ -47,6 +49,26 @@
         {
             <div class="alert alert-warning py-2 small mb-0">Choose an image model before binding references.</div>
         }
+
+        @* Character LoRA identity — a SIBLING of the reference route, never a replacement. It appears only when the
+           selected model declares and qualifies the Lora strategy, so a model that carries identity another way
+           shows nothing here and keeps that mechanism exactly as it was.
+
+           It also requires the host to have somewhere to PUT the value (CharacterLorasChanged). A host that has not
+           adopted LoRA selection therefore shows no picker at all, rather than a control that looks usable, accepts
+           an entry, and quietly loses it — a dead control is worse than an absent one. Deliberately not shown on the
+           LoRA dataset workspace either, where rendering training cells WITH the LoRA being trained would be
+           circular. *@
+        @if (CarriesLora && CharacterLorasChanged.HasDelegate)
+        {
+            <div class="mt-3">
+                <CharacterLoraPicker ModelIdentifier="@SelectedChoice!.ModelIdentifier"
+                                     Selections="CharacterLoras"
+                                     SelectionsChanged="CharacterLorasChanged"
+                                     Disabled="@Busy"
+                                     Scope="@($"lora-{_instanceId}")" />
+            </div>
+        }
         else if (CarriesReferences)
         {
             @* Ordered, because the ordinal is request data: the first reference anchors the frame. *@
@@ -87,6 +109,7 @@
                     {
                         var key = SlotKey(slot);
                         var binding = BindingFor(slot);
+                        var slotBindings = BindingsFor(slot);
                         if (!IsActiveSlot(key))
                         {
                             continue;
@@ -138,7 +161,43 @@
                                 </div>
                             }
 
-                            @if (binding is null)
+                            @if (slot.AllowsMultiple && slotBindings.Count > 0)
+                            {
+                                @* A MULTI slot (a wardrobe): EVERY bound image is listed with its own Remove, and the
+                                   picker stays available so another garment can be added. Which images are bound is the
+                                   operator's decision, so it is shown rather than inferred from a count. *@
+                                <div class="d-flex flex-column gap-2">
+                                    @foreach (var bound in slotBindings)
+                                    {
+                                        <div class="border rounded p-2">
+                                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                                <div class="small text-break">@DescribeBinding(bound)</div>
+                                                <button type="button" class="btn btn-sm btn-outline-danger" disabled="@Busy"
+                                                        title="Remove this reference image"
+                                                        @onclick="() => RemoveBindingAsync(bound)">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </div>
+                                            <label class="form-label small mb-1 mt-2">Strategy</label>
+                                            <StrategySelector ModelId="@SelectedModelId"
+                                                              Strategies="StrategiesFor(slot.SlotKind, bound)"
+                                                              SelectedStrategy="@bound.Strategy"
+                                                              SelectedStrategyChanged="strategy => SetStrategyForAsync(bound, strategy)" />
+                                        </div>
+                                    }
+                                </div>
+                                @if (OffersApprovedAsset(slot))
+                                {
+                                    <div class="mt-2" style="min-width: 260px;">
+                                        <ReferencePicker AssetType="@AssetTypeFor(slot.SlotKind)"
+                                                         CharacterProfileId="@slot.ActorKey"
+                                                         SelectedAssetImageId="null"
+                                                         SelectedAssetChanged="choice => AddAssetAsync(slot, choice)" />
+                                    </div>
+                                }
+                                <div class="form-text mt-1">Each bound image travels as its own reference. The model's own reference budget still applies.</div>
+                            }
+                            else if (binding is null)
                             {
                                 <div class="d-flex flex-wrap align-items-center gap-2">
                                     @if (OffersSkeleton(slot))
@@ -197,6 +256,52 @@
                 @SelectedChoice.DisplayName carries no reference images, so this step has no reference slots and the
                 prompt describes every element. Choose a model that qualifies
                 <span class="fw-semibold">NativeMultiReference</span> to supply elements as images.
+            </div>
+        }
+
+        @if (HasPresets)
+        {
+            @* B-133. Lighting and expression are prompt-side conditions, not reference slots, so they sit beside the slot
+               tabs rather than among them. The HOST supplies the condition this step is planned for (a LoRA cell's plan
+               says which lighting it wanted) and the operator can override it here; the composer reports the pick and
+               never rewrites the prompt, because the prompt belongs to the host. *@
+            <div class="mt-3">
+                <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2">
+                    <strong class="small">Lighting and facial expression</strong>
+                    @if (!string.IsNullOrWhiteSpace(PresetNote))
+                    {
+                        <span class="form-text">@PresetNote</span>
+                    }
+                </div>
+                <ul class="nav nav-tabs mt-1">
+                    @foreach (var axis in new[] { ImagePresetAxis.Lighting, ImagePresetAxis.Expression })
+                    {
+                        <li class="nav-item">
+                            <button type="button" class="nav-link @(_presetAxis == axis ? "active" : null)"
+                                    @onclick="() => _presetAxis = axis">
+                                @(axis == ImagePresetAxis.Lighting ? "Lighting" : "Facial expression")
+                            </button>
+                        </li>
+                    }
+                </ul>
+                <div class="border border-top-0 rounded-bottom p-2">
+                    <select class="form-select form-select-sm" value="@PresetKey" @onchange="OnPresetPickedAsync"
+                            disabled="@Busy" aria-label="Lighting or expression preset">
+                        <option value="">(use the condition this step already carries)</option>
+                        @foreach (var choice in PresetChoices!.Where(choice => choice.Axis == _presetAxis))
+                        {
+                            <option value="@choice.PresetKey">@choice.ShortName</option>
+                        }
+                    </select>
+                    @if (SelectedPresetChoice is { } picked)
+                    {
+                        <div class="small text-muted mt-2">@picked.Detail</div>
+                    }
+                    else
+                    {
+                        <span class="form-text">The host's own condition is used unless a preset is picked above.</span>
+                    }
+                </div>
             </div>
         }
 
@@ -287,6 +392,20 @@
     [Parameter]
     public string? ModelPlaceholder { get; set; }
 
+    /// <summary>
+    /// The character LoRAs this step applies, in chain order (one per character in a multi-character frame).
+    /// Null/empty means NO LoRA, which is a configured state: the render is then exactly what it was before LoRA
+    /// identity existed. A LoRA is a sibling of the reference route, so setting this does not disable references.
+    ///
+    /// Passing <see cref="CharacterLorasChanged"/> is what OPTS a host in: the picker is only rendered for a host
+    /// that can store the selection, so this composer can be reused anywhere without ever showing a dead control.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<SceneImageCharacterLoraSelection>? CharacterLoras { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<SceneImageCharacterLoraSelection>> CharacterLorasChanged { get; set; }
+
     [Parameter]
     public IReadOnlyList<ReferenceApplicationSelection> Bindings { get; set; } = [];
 
@@ -349,6 +468,44 @@
     /// </summary>
     [Parameter]
     public bool ShowPrompt { get; set; } = true;
+
+    /// <summary>
+    /// The lighting and expression presets this step offers (B-133). Null or empty renders nothing at all: a host with
+    /// no presets to offer shows no control, rather than one that does nothing.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<ImagePresetChoice>? PresetChoices { get; set; }
+
+    /// <summary>
+    /// The preset the operator has picked, or null for "use the condition this step already carries". The composer only
+    /// REPORTS the pick - it never rewrites the prompt, because the prompt belongs to the host and the host is what knows
+    /// whether the condition is a text clause, a structured field, or already in its own plan.
+    /// </summary>
+    [Parameter]
+    public string? PresetKey { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> PresetKeyChanged { get; set; }
+
+    /// <summary>Where the host's own condition came from, shown beside the picker (e.g. "from this cell's plan").</summary>
+    [Parameter]
+    public string? PresetNote { get; set; }
+
+    /// <summary>True when this step has presets to offer at all.</summary>
+    private bool HasPresets => PresetChoices is { Count: > 0 };
+
+    /// <summary>The axis tab this step is showing; lighting first, because that is what a cell is usually relit for.</summary>
+    private ImagePresetAxis _presetAxis = ImagePresetAxis.Lighting;
+
+    /// <summary>The picked preset's row, so its detail can be shown; null when the host's own condition is in force.</summary>
+    private ImagePresetChoice? SelectedPresetChoice => PresetChoices?
+        .FirstOrDefault(choice => string.Equals(choice.PresetKey, PresetKey, StringComparison.Ordinal));
+
+    private async Task OnPresetPickedAsync(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString();
+        await PresetKeyChanged.InvokeAsync(string.IsNullOrWhiteSpace(value) ? null : value);
+    }
 
     private ImageStepSlotBlueprint? _posePickerSlot;
 
@@ -428,6 +585,18 @@
         ModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelId, SelectedModelId, StringComparison.Ordinal));
 
     /// <summary>
+    /// Whether the selected model declares AND qualifies LoRA identity. Asked of the model's own qualified
+    /// strategies rather than assumed from the family: a model that carries identity another way must show no LoRA
+    /// picker at all, and must render exactly as it did before.
+    /// </summary>
+    private bool CarriesLora =>
+        SelectedChoice?.QualifiedStrategies.Any(strategy =>
+            string.Equals(strategy, ReferenceStrategyCatalogue.Lora, StringComparison.OrdinalIgnoreCase)) == true;
+
+    /// <summary>Unique per composer instance, so two steps on one page cannot share element ids.</summary>
+    private readonly string _instanceId = Guid.NewGuid().ToString("N")[..8];
+
+    /// <summary>
     /// The reference budget the planner uses, taken from the SELECTED model's own configured acceptance limit. A host
     /// does not supply this and cannot get it wrong, because the model's own number is the only defensible source;
     /// the planner's measured pose ceiling is applied on top of it, not instead of it. A model that reports no
@@ -476,6 +645,18 @@
         Bindings.FirstOrDefault(binding =>
             string.Equals(binding.Kind, slot.SlotKind.ToString(), StringComparison.OrdinalIgnoreCase)
             && string.Equals(binding.ActorKey ?? string.Empty, slot.ActorKey ?? string.Empty, StringComparison.Ordinal));
+
+    /// <summary>
+    /// EVERY binding a slot holds, in reference order. A single-reference slot yields one at most; a multi slot
+    /// (a wardrobe) yields all of them, which is what its card lists.
+    /// </summary>
+    private IReadOnlyList<ReferenceApplicationSelection> BindingsFor(ImageStepSlotBlueprint slot) =>
+        Bindings
+            .Where(binding =>
+                string.Equals(binding.Kind, slot.SlotKind.ToString(), StringComparison.OrdinalIgnoreCase)
+                && string.Equals(binding.ActorKey ?? string.Empty, slot.ActorKey ?? string.Empty, StringComparison.Ordinal))
+            .OrderBy(binding => binding.Ordinal ?? int.MaxValue)
+            .ToList();
 
     private ReferenceApplicationSelection? BindingForSlot(string? kind, string? actorKey) =>
         Bindings.FirstOrDefault(binding =>
@@ -687,6 +868,83 @@
         // The PLANNER decides the final bindings, so the composer cannot construct a binding the render would refuse.
         var planned = ReferenceSlotPlanner.Plan(Blueprint, assignments, ModelReferenceLimit);
         await BindingsChanged.InvokeAsync(planned);
+    }
+
+    /// <summary>
+    /// Adds ONE MORE image to a slot that declares <see cref="ImageStepSlotBlueprint.AllowsMultiple"/> without
+    /// disturbing the images already bound to it. Reachable only from a multi slot's own picker, so a
+    /// single-reference slot keeps the replace semantics its card shows.
+    /// </summary>
+    private async Task AddAssetAsync(ImageStepSlotBlueprint slot, SceneAssetReferenceChoice? choice)
+    {
+        if (choice is null)
+        {
+            return;
+        }
+
+        var assignments = Bindings.Select(ToAssignment).ToList();
+        assignments.Add(new ImageStepSlotAssignment(slot.SlotKind, slot.ActorKey, new ImageStepSlotSource(
+            SourceKind: ImageStepReferenceSourceKind.ApprovedSceneAsset,
+            Strategy: StrategyFor(slot, ImageStepReferenceSourceKind.ApprovedSceneAsset),
+            SceneAssetId: choice.Asset.Id,
+            SceneAssetImageId: choice.Image.Id,
+            SceneAssetVersion: choice.Image.ProductionVersion,
+            SceneAssetSha256: choice.Image.Sha256)));
+
+        var planned = ReferenceSlotPlanner.Plan(Blueprint, assignments, ModelReferenceLimit);
+        await BindingsChanged.InvokeAsync(planned);
+    }
+
+    /// <summary>Removes exactly one bound image, by identity, and re-plans what is left.</summary>
+    private async Task RemoveBindingAsync(ReferenceApplicationSelection binding)
+    {
+        var remaining = new List<ImageStepSlotAssignment>();
+        var removed = false;
+        foreach (var candidate in Bindings)
+        {
+            if (!removed && ReferenceEquals(candidate, binding))
+            {
+                removed = true;
+                continue;
+            }
+
+            remaining.Add(ToAssignment(candidate));
+        }
+
+        if (!removed)
+        {
+            return;
+        }
+
+        await BindingsChanged.InvokeAsync(ReferenceSlotPlanner.Plan(Blueprint, remaining, ModelReferenceLimit));
+    }
+
+    /// <summary>
+    /// Changes the strategy of ONE binding. Separate from <see cref="SetStrategyAsync"/> because a multi slot holds
+    /// several, and "change the strategy" must not mean "change the first one".
+    /// </summary>
+    private async Task SetStrategyForAsync(ReferenceApplicationSelection binding, string strategy)
+    {
+        var assignments = new List<ImageStepSlotAssignment>(Bindings.Count);
+        var found = false;
+        foreach (var candidate in Bindings)
+        {
+            var assignment = ToAssignment(candidate);
+            if (ReferenceEquals(candidate, binding))
+            {
+                assignment = assignment with { Source = assignment.Source with { Strategy = strategy } };
+                found = true;
+            }
+
+            assignments.Add(assignment);
+        }
+
+        if (!found)
+        {
+            return;
+        }
+
+        await BindingsChanged.InvokeAsync(ReferenceSlotPlanner.Plan(Blueprint, assignments, ModelReferenceLimit));
     }
 
     private Task RebindAsync(IReadOnlyList<ReferenceApplicationSelection> remaining) =>

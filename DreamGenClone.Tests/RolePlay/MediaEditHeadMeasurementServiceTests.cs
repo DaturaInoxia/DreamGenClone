@@ -104,7 +104,13 @@ public sealed class MediaEditHeadMeasurementServiceTests
 
         public ImageEditSubjectKind Kind => ImageEditSubjectKind.AssetImage;
 
+        public bool SupportsPresetEdits => false;
+
         public bool SupportsIdentity => false;
+
+        public Task<string> RunPresetAsync(
+            ImageEditSubject subject, string presetKey, string editorModelId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
 
         public Task<ImageEditSource?> GetSourceAsync(ImageEditSubject subject, CancellationToken cancellationToken = default)
             => Task.FromResult(_fileRelativePath is null

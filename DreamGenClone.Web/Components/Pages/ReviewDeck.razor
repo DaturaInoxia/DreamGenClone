@@ -10,6 +10,8 @@
 @inject ISceneImageProductionService ProductionService
 @inject ISceneImageService ImageService
 @inject ISceneAssetService AssetService
+@inject ICharacterLoraRepository LoraRepository
+@inject ICharacterLoraCellService LoraCells
 @inject ISceneImageStorageService SceneImages
 @inject ICharacterIdentityBuildService BuildService
 @inject IPoseExtractionService PoseExtraction
@@ -19,11 +21,25 @@
 
 <PageTitle>Review Deck - DreamGenClone</PageTitle>
 
-<div class="container-fluid mt-4">
+@* Scoped to this page's own wrapper, so the compaction cannot leak into any other page's definition lists. The deck is
+   a one-image-at-a-time surface: every row of chrome is a row of image the operator cannot see. *@
+<style>
+    .deck-compact dl.row dt, .deck-compact dl.row dd {
+        margin-bottom: .15rem;
+        line-height: 1.25;
+    }
+
+    .deck-compact h5, .deck-compact h6 {
+        font-size: 1rem;
+        margin-bottom: .35rem;
+    }
+</style>
+
+<div class="container-fluid mt-4 deck-compact">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0">Review Deck</h4>
         <div class="d-flex align-items-center gap-2">
-            @if (Current is not null)
+            @if (Current is not null || !string.IsNullOrWhiteSpace(ReturnUrl))
             {
                 <a class="btn btn-outline-secondary btn-sm" href="@BackUrl" title="@BackLabel">
                     <i class="bi bi-arrow-left me-1"></i>@BackLabel
@@ -43,20 +59,33 @@
 
     @if (_items.Count == 0)
     {
-        <p class="text-muted">No images are available for this @(IsStudioRoute ? "production group" : IsAssetRoute ? "asset batch" : "batch").</p>
+        <p class="text-muted">No images are available for this @(IsStudioRoute ? "production group" : IsDatasetRoute ? (OnlyAccepted ? "dataset with accepted attempts" : "dataset") : IsAssetRoute ? "asset batch" : "batch").</p>
     }
     else if (Current is not null)
     {
-        <div class="d-flex flex-wrap gap-2 mb-3">
-            <button class="btn btn-outline-secondary" type="button" @onclick="PreviousAsync" disabled="@(_busy || _index == 0)">Previous</button>
-            <button class="btn btn-outline-secondary" type="button" @onclick="NextAsync" disabled="@(_busy || _index == _items.Count - 1)">Next</button>
-            @if (_items.Count >= 2)
+        <div class="d-flex flex-wrap gap-2 mb-2">
+            <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="PreviousAsync" disabled="@(_busy || _index == 0)">Previous</button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="NextAsync" disabled="@(_busy || _index == _items.Count - 1)">Next</button>
+            @if (_items.Count >= 2 && !IsDatasetRoute)
             {
                 <a class="btn btn-outline-primary" href="@CompareUrl" role="button">Compare</a>
             }
             else
             {
-                <button class="btn btn-outline-primary" type="button" disabled>Compare</button>
+                @* No compare in the dataset scope: the compare deck is scoped by batch, and a dataset is not one. *@
+                @if (!IsDatasetRoute)
+                {
+                    <button class="btn btn-outline-primary" type="button" disabled>Compare</button>
+                }
+            }
+            @if (IsDatasetRoute)
+            {
+                @* The accepted/all choice is part of the ADDRESS rather than component state, so the accepted set can be
+                   linked, and the deck's own back button carries the scope home with it. *@
+                <a class="btn btn-sm @(OnlyAccepted ? "btn-outline-secondary" : "btn-primary")"
+                   href="/review-deck/dataset/@BatchId?only=all@(string.IsNullOrWhiteSpace(ReturnUrl) ? string.Empty : $"&return={Uri.EscapeDataString(ReturnUrl)}")">All attempts</a>
+                <a class="btn btn-sm @(OnlyAccepted ? "btn-primary" : "btn-outline-secondary")"
+                   href="/review-deck/dataset/@BatchId?only=accepted@(string.IsNullOrWhiteSpace(ReturnUrl) ? string.Empty : $"&return={Uri.EscapeDataString(ReturnUrl)}")">Accepted only</a>
             }
             @if (IsStudioRoute)
             {
@@ -199,13 +228,15 @@
                     @RenderImage(Current)
                 </button>
 
-                <div class="mt-4">
+                <div class="mt-2">
                     <LineageTree ParentImageId="@Current.ParentImageId"
                                  Children="@_lineageChildren.Select(item => new LineageTreeItem(item.Id, item.Status)).ToList()" />
                 </div>
             </div>
 
-            <div class="col-lg-5">
+            @* The metadata column scrolls INSIDE its own box, so it can never become the tallest thing on the page and
+               push the image out of view. Reviewing an image is the job; reading thirteen metadata rows is not. *@
+            <div class="col-lg-5" style="max-height:calc(100vh - 15rem);overflow-y:auto;">
                 <h5>Metadata</h5>
                 @if (IsStudioRoute)
                 {
@@ -391,6 +422,15 @@
     [Parameter] public string BatchId { get; set; } = string.Empty;
     [Parameter] public string? RouteKind { get; set; }
 
+    /// <summary>
+    /// Where the deck was opened FROM, when the host that linked to it named one. The derived back URL can only reach
+    /// the character page, which loses the tab and the cell the operator was working on; this carries the exact place.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "return")] public string? ReturnUrl { get; set; }
+
+    /// <summary>Show only the accepted attempts. "accepted" is the only value that filters; absent means all.</summary>
+    [SupplyParameterFromQuery(Name = "only")] public string? Only { get; set; }
+
     private List<ReviewDeckItem> _items = [];
     private int _index;
     private string? _error;
@@ -415,12 +455,30 @@
     private bool IsStudioRoute => string.Equals(RouteKind, "studio", StringComparison.OrdinalIgnoreCase);
     private bool IsAssetRoute => string.Equals(RouteKind, "asset", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The whole-dataset scope: every attempt across every cell of a LoRA dataset, in one deck. It exists because
+    /// reviewing a training set meant opening 36 cells one at a time, and because the deck's own back button then had
+    /// nowhere useful to return to.
+    /// </summary>
+    private bool IsDatasetRoute => string.Equals(RouteKind, "dataset", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// An item that is backed by a scene-asset image, which decides editing. The dataset scope's items ARE asset images
+    /// (a cell attempt is one), so it shares that behaviour instead of re-deriving it - the same mapper builds them.
+    /// </summary>
+    private bool IsImageRoute => IsAssetRoute || IsDatasetRoute;
+
+    /// <summary>Show only attempts the operator has accepted. Query data, so the accepted set is a link.</summary>
+    private bool OnlyAccepted => string.Equals(Only, "accepted", StringComparison.OrdinalIgnoreCase);
+
     private bool CanEditCurrent => Current is not null
         && Current.Status is not (nameof(SceneImageStatus.Pending) or nameof(SceneImageStatus.Generating))
         && (!IsAssetRoute || !string.IsNullOrWhiteSpace(Current.AssetId))
         && (!IsStudioRoute || (!string.IsNullOrWhiteSpace(Current.SessionId) && !string.IsNullOrWhiteSpace(Current.InteractionId)));
 
-    private string BackUrl => _frontBackUrl
+    private string BackUrl => !string.IsNullOrWhiteSpace(ReturnUrl)
+        ? ReturnUrl
+        : _frontBackUrl
         ?? (IsStudioRoute && Current is not null
             ? string.IsNullOrWhiteSpace(Current.ProductionGroupId)
                 ? $"/roleplay/studio/{Current.SessionId}/{Current.InteractionId}"
@@ -429,15 +487,17 @@
                 ? $"/asset-studio/{Current.AssetId}"
                 : "/roleplay");
 
-    private string BackLabel => _frontBackUrl is not null
-        ? "Back to character"
-        : IsStudioRoute ? "Production POV" : IsAssetRoute ? "Back to asset" : "Back";
+    private string BackLabel => !string.IsNullOrWhiteSpace(ReturnUrl)
+        ? "Back to where I came from"
+        : _frontBackUrl is not null
+            ? "Back to character"
+            : IsStudioRoute ? "Production POV" : IsAssetRoute ? "Back to asset" : "Back";
 
     private string CompareUrl => IsStudioRoute || IsAssetRoute
         ? $"/review-compare/{RouteKind}/{BatchId}?index={_index}"
         : $"/review-compare/{BatchId}?index={_index}";
 
-    private string EditUrl => IsAssetRoute
+    private string EditUrl => IsImageRoute
         ? $"/assets/{Current!.AssetId}/images/{Current.Id}/edit"
         : $"/roleplay/image-editor/{Current!.SessionId}/{Current.InteractionId}/{Current.Id}";
 
@@ -445,7 +505,7 @@
         && (!IsAssetRoute || !string.IsNullOrWhiteSpace(item.AssetId))
         && (!IsStudioRoute || (!string.IsNullOrWhiteSpace(item.SessionId) && !string.IsNullOrWhiteSpace(item.InteractionId)));
 
-    private string GetEditUrl(ReviewDeckItem item) => IsAssetRoute
+    private string GetEditUrl(ReviewDeckItem item) => IsImageRoute
         ? $"/assets/{item.AssetId}/images/{item.Id}/edit"
         : $"/roleplay/image-editor/{item.SessionId}/{item.InteractionId}/{item.Id}";
 
@@ -544,7 +604,7 @@
         try
         {
             _error = null;
-            if (RouteKind is not null && !IsStudioRoute && !IsAssetRoute)
+            if (RouteKind is not null && !IsStudioRoute && !IsAssetRoute && !IsDatasetRoute)
             {
                 throw new InvalidOperationException($"Unsupported review deck route kind '{RouteKind}'.");
             }
@@ -553,7 +613,9 @@
                 ? await LoadStudioItemsAsync()
                 : IsAssetRoute
                     ? await LoadAssetItemsAsync()
-                : (await ProducedImages.ListByBatchAsync(BatchId)).Select(MapLegacyItem).ToList();
+                    : IsDatasetRoute
+                        ? await LoadDatasetItemsAsync()
+                        : (await ProducedImages.ListByBatchAsync(BatchId)).Select(MapLegacyItem).ToList();
             _index = Math.Clamp(_index, 0, Math.Max(0, _items.Count - 1));
             await LoadCurrentAsync();
             await ResolveFrontBackUrlAsync();
@@ -936,7 +998,9 @@
             ? await LoadStudioItemsAsync()
             : IsAssetRoute
                 ? await LoadAssetItemsAsync()
-            : (await ProducedImages.ListByBatchAsync(BatchId)).Select(MapLegacyItem).ToList();
+                : IsDatasetRoute
+                    ? await LoadDatasetItemsAsync()
+                    : (await ProducedImages.ListByBatchAsync(BatchId)).Select(MapLegacyItem).ToList();
         _index = Math.Clamp(_index, 0, Math.Max(0, _items.Count - 1));
         await LoadCurrentAsync();
     }
@@ -954,6 +1018,39 @@
 
     private async Task<List<ReviewDeckItem>> LoadAssetItemsAsync()
         => (await AssetService.ListImagesByCandidateBatchAsync(BatchId)).Select(MapAssetItem).ToList();
+
+    /// <summary>
+    /// Every attempt across the whole dataset, newest cell order preserved.
+    ///
+    /// <para>
+    /// It reads the SAME attempts the cell list reads, through the same service, and maps them with the same mapper as
+    /// an asset batch - so a picture carries the same id, status, decision and edit route here as it does in the cell
+    /// workspace. "Accepted" means the attempt's own decision, which is what the cell list shows; dataset members are
+    /// not used because accepting an attempt does not create one yet (B-123 P1-05).
+    /// </para>
+    /// </summary>
+    private async Task<List<ReviewDeckItem>> LoadDatasetItemsAsync()
+    {
+        var dataset = await LoraRepository.GetDatasetAsync(BatchId)
+            ?? throw new InvalidOperationException($"LoRA dataset '{BatchId}' was not found.");
+        var plan = CoveragePlan.FromStoredJson(dataset.CoveragePlanJson, out _);
+
+        var items = new List<ReviewDeckItem>();
+        foreach (var record in plan.Records)
+        {
+            foreach (var attempt in await LoraCells.ListCellAttemptsAsync(BatchId, record.Key))
+            {
+                if (OnlyAccepted && attempt.CandidateDecision != SceneAssetCandidateDecision.Accepted)
+                {
+                    continue;
+                }
+
+                items.Add(MapAssetItem(attempt));
+            }
+        }
+
+        return items;
+    }
 
     private static ReviewDeckItem MapLegacyItem(ProducedImage image) => ReviewDeckMapper.MapLegacy(image);
 
@@ -980,7 +1077,7 @@
             builder.OpenElement(0, "img");
             builder.AddAttribute(1, "src", $"/scene-images/{image.StoragePath}");
             builder.AddAttribute(2, "class", "img-fluid w-100");
-            builder.AddAttribute(3, "style", "max-height:480px;object-fit:contain;");
+            builder.AddAttribute(3, "style", "max-height:min(56vh,560px);object-fit:contain;");
             builder.AddAttribute(4, "alt", $"Review image {image.Id}");
             builder.CloseElement();
         }

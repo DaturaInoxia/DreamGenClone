@@ -44,9 +44,28 @@ per cell, never reused):
 |---|---|
 | `Angle` | from the matrix |
 | `Distance` | CU / HB / FB |
-| `WardrobeState` | `Clothed` / `Unclothed`, alternated so each angle group lands ~50/50 overall |
-| `PoseClass` | assigned per cell from the matrix (standing / sitting / kneeling / lying / hands-raised), so the set is not 30 standing frames. A concrete pose **frame** is chosen in the workspace from the library inside that class |
+| `WardrobeState` | `Clothed` / `Unclothed`, alternated so each angle group lands ~50/50 overall at **every** distance |
+| `PoseClass` | assigned per cell from the matrix (standing / sitting / kneeling / lying / hands-raised), so the set is not 30 standing frames. A concrete pose **frame** is chosen in the workspace from the library inside that class. **NULL where the framing shows no stance** — see the framing invariant below |
 | `Expression`, `Lighting`, `Background`, `Outfit` | rotated from a fixed cycle so no two adjacent cells repeat and the minimums below hold |
+
+### 3.1 The framing invariant (the rule every cell obeys)
+
+**A cell may only claim what its framing can show.** The prompt phrase is the frame's own; the caption tag is a
+stable concept word. A claim the picture cannot support is worse than no claim at all: the render contradicts it,
+and the caption teaches the trainer a condition the image does not contain.
+
+| Framing | Wardrobe phrase | Stance |
+|---|---|---|
+| Close-up ("the whole head and both shoulders in frame") | neckline and shoulders only — `lora.vocabulary.wardrobe.clothed.close` / `.unclothed.close` | **none claimed** (null). Standing, sitting and kneeling are indistinguishable inside this frame, so naming one is a contradiction |
+| Half body ("from the waist up") | the top only — `lora.vocabulary.outfit.*.half` | standing, sitting (readable from the thigh line and the seat); NOT kneeling, lying, all-fours or hands-raised, whose evidence is below the frame |
+| Full body ("head to feet") | the whole outfit | all six |
+
+The caption's `clothed` / `nude` tag stays one word across the whole set (a concept must not fragment), and the
+stance tag is **absent** wherever no stance is claimed. This rule is enforced three times: the plan generator only
+assigns showable values, `CoverageRecord.Validate()` refuses a cell that breaks it by name, and a test asserts it
+over every cell of a generated plan. It exists because three separate defects were found one at a time — light paired
+with an impossible setting, a stance the frame could not contain, then a wardrobe phrase naming garments that were not
+in frame — and each was patched individually until the principle itself was written down here.
 | `Aspect` | CU → 1024×1024; HB/FB → 832×1216 |
 | `Seed` | one per cell |
 | `ReferenceRule` | derived from Angle + WardrobeState (exact-angle face ref; clothed or unclothed body ref) |

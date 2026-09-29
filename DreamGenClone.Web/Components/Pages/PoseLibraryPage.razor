@@ -8,11 +8,9 @@
 @using Microsoft.Extensions.Options
 @inject IPoseLibraryService LibraryService
 @inject IPoseLibraryImporter LibraryImporter
-@inject IPosePackDownloader PackDownloader
 @inject IPoseTestRenderService PoseTestRender
 @inject ICharacterImageIdentityService IdentityService
 @inject IOptions<PoseStudioOptions> StudioOptions
-@inject ILogger<PoseLibraryPage> Logger
 
 <PageTitle>Pose Library - DreamGenClone</PageTitle>
 
@@ -80,72 +78,6 @@
             {
                 <div class="alert alert-info py-1 small mt-2 mb-0">@_status</div>
             }
-
-            <div class="row g-2 align-items-end mt-3 pt-3 border-top">
-                <div class="col-md-4">
-                    <label class="form-label small fw-semibold mb-1">New library name</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="Handshakes"
-                           value="@_newLibraryName" @oninput="e => _newLibraryName = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-5">
-                    <label class="form-label small fw-semibold mb-1">Description</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="What belongs in this library"
-                           value="@_newLibraryDescription" @oninput="e => _newLibraryDescription = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-3 d-grid">
-                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="CreateLibraryAsync">
-                        <i class="bi bi-plus-lg me-1"></i>Create library
-                    </button>
-                </div>
-            </div>
-            <div class="mt-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ImportPackAsync">
-                    <i class="bi bi-box-arrow-in-down me-1"></i>Import pose packs
-                </button>
-                <span class="form-text ms-2">Re-running the import adds nothing and leaves edited presets alone; any missing skeleton is re-rendered.</span>
-            </div>
-
-            <div class="row g-2 align-items-end mt-2">
-                <div class="col-md-6">
-                    <label class="form-label small fw-semibold mb-1">Export projected poses for the probe</label>
-                    <input type="text" class="form-control form-control-sm"
-                           value="@_exportFolder" @oninput="e => _exportFolder = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-6">
-                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="ExportProjectedAsync">
-                        <i class="bi bi-filetype-json me-1"></i>Export angle keypoints
-                    </button>
-                    <span class="form-text ms-2">
-                        Writes one JSON per named angle for <code>tools/pose-angle-probe</code>, which measures how
-                        closely the projection agrees with DWPose. The app cannot mark an angle known-good on its
-                        own — that needs this measurement.
-                    </span>
-                </div>
-            </div>
-
-            <div class="row g-2 align-items-end mt-3 pt-3 border-top">
-                <div class="col-md-4">
-                    <label class="form-label small fw-semibold mb-1">Download a pack (zip URL)</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="https://.../pack.zip"
-                           value="@_downloadUrl" @oninput="e => _downloadUrl = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small fw-semibold mb-1">Pack name</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="Anime poses"
-                           value="@_downloadName" @oninput="e => _downloadName = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small fw-semibold mb-1">Description</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="Optional"
-                           value="@_downloadDescription" @oninput="e => _downloadDescription = e.Value?.ToString()" />
-                </div>
-                <div class="col-md-2 d-grid">
-                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="DownloadPackAsync">
-                        <i class="bi bi-cloud-arrow-down me-1"></i>Download
-                    </button>
-                </div>
-                <div class="col-12"><span class="form-text">The zip becomes its own library under <code>pose-packs/</code>. A pack that already exists, is not a zip, or tries to write outside its folder is refused and leaves nothing behind.</span></div>
-            </div>
         </div>
     </div>
 
@@ -269,8 +201,8 @@
             @if (_totalPoses == 0)
             {
                 <strong>This library is empty.</strong>
-                <span> No pose has been imported into this database yet, so every search returns nothing —
-                <strong>Import pose packs</strong> above is a one-time step.</span>
+                <span> No pose is in this database yet. The bundled pack is imported automatically when this page
+                searches, so an empty result every time means that import is failing — its reason is shown above.</span>
             }
             else
             {
@@ -331,17 +263,6 @@
     private string? _keyword;
     private string? _category;
     private string? _libraryId;
-    private string? _newLibraryName;
-    private string? _newLibraryDescription;
-
-    /// <summary>
-    /// Where the probe candidates are written. Git-ignored and relative to the app's content root, and visible in
-    /// the UI rather than buried in code so the path the tool is told to read is the path the app wrote.
-    /// </summary>
-    private string? _exportFolder = "../artifacts/tmp/pose-probes";
-    private string? _downloadUrl;
-    private string? _downloadName;
-    private string? _downloadDescription;
     private string? _error;
     private string? _status;
     private bool _busy;
@@ -839,111 +760,6 @@
         await SearchAsync();
     }
 
-    private async Task CreateLibraryAsync()
-    {
-        _busy = true;
-        _error = null;
-        _status = null;
-        try
-        {
-            var library = await LibraryService.CreateLibraryAsync(_newLibraryName ?? string.Empty, _newLibraryDescription ?? string.Empty);
-            _status = $"Created library '{library.Name}'. It is searchable immediately.";
-            _newLibraryName = null;
-            _newLibraryDescription = null;
-            _libraryId = library.Id;
-            await SearchAsync();
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    private async Task DownloadPackAsync()
-    {
-        _busy = true;
-        _error = null;
-        _status = null;
-        try
-        {
-            var result = await PackDownloader.DownloadAsync(
-                _downloadUrl ?? string.Empty, _downloadName ?? string.Empty, _downloadDescription);
-
-            _status = $"Pack '{result.PackFolder}' added: {result.Import.PresetsImported} poses imported, "
-                + $"{result.FilesIgnored} non-pack file(s) ignored. It is searchable now.";
-            _downloadUrl = null;
-            _downloadName = null;
-            _downloadDescription = null;
-
-            _libraries = await LibraryService.ListLibrariesAsync();
-            _categories = await LibraryService.ListCategoriesAsync();
-            _results = await LibraryService.SearchAsync(new PoseLibraryQuery(_keyword, _category, _libraryId));
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    private async Task ExportProjectedAsync()
-    {
-        _busy = true;
-        _error = null;
-        _status = null;
-        try
-        {
-            var written = await LibraryService.ExportProjectedPosesAsync(_exportFolder ?? string.Empty);
-            _status = $"Exported {written.Count} angle keypoint file(s) to {System.IO.Path.GetDirectoryName(written[0])}. "
-                + "Run tools/pose-angle-probe against them to measure the angles.";
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    private async Task ImportPackAsync()
-    {
-        _busy = true;
-        _error = null;
-        _status = null;
-        try
-        {
-            var result = await LibraryImporter.ImportAsync();
-            _status = $"Import finished: {result.Packs} pack(s), {result.PresetsImported} added, "
-                + $"{result.PresetsAlreadyPresent} already present, {result.SkeletonsRendered} skeletons rendered, "
-                + $"{result.Skipped.Count} skipped.";
-            if (result.Skipped.Count > 0)
-            {
-                Logger.LogWarning("Pose import skipped {Count} files: {Skipped}", result.Skipped.Count, string.Join(" | ", result.Skipped));
-            }
-
-            _libraries = await LibraryService.ListLibrariesAsync();
-            _categories = await LibraryService.ListCategoriesAsync();
-            _results = await LibraryService.SearchAsync(new PoseLibraryQuery(_keyword, _category, _libraryId));
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
     /// <summary>
     /// Shows the pose that was just saved. The filters are moved to it rather than left as they were: a new pose
     /// that does not appear because a stale filter excludes it reads as a failed save.
@@ -976,14 +792,23 @@
         {
             var observed = OpenPosePoseJson.Parse(preset.KeypointsJson, preset.Name);
 
-            // A pose carrying a face channel is a HEAD pose, and there is no body in it to fit. A body rig fitted onto
+            // A HEAD pose is opened as one, rather than refused. A body rig fitted onto
             // five head joints is not an approximation of this pose, it is a different thing — and because the 5°
             // arrows re-project through the FIT's rotations, every nudge afterwards would be built on that.
-            if (observed.Face.Count > 0)
+            if (PoseFaceProxy.IsHeadPose(observed))
             {
-                throw new InvalidOperationException(
-                    "this is a head pose: it carries a 70-point face and no body, so the body rig cannot be fitted onto "
-                    + "it. A head pose is picked and rendered as it is; head angles are authored from the Head step.");
+                // The test is the JOINT COUNT, not the presence of a face channel. A face-framed crop makes DWPose
+                // report a handful of body joints that are not in the picture, but a full-body pose that also carries a
+                // face is still a body pose — and the guard this replaces refused those too, rejecting poses the rig
+                // fits perfectly well.
+                //
+                // Handed over with NO fit, because the panel's Head step turns the FACE itself: its arrows work on the
+                // pose without a rig being fitted onto joints that are not there.
+                _loaded = null;
+                _loadedFrom = preset;
+                _status = $"Opened '{preset.Name}' as a head pose: it carries a face and no body, so the Head step turns "
+                    + "the head itself. Saving adds a new pose and leaves this one alone.";
+                return Task.CompletedTask;
             }
 
             var fitted = PoseRigFit.Fit(observed, StudioOptions.Value);

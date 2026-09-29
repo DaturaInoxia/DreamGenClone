@@ -486,6 +486,9 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
         public Task UpsertImageAsync(SceneAssetImage value, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
+        public Task SetImagePromptAsync(string imageId, string prompt, string promptCompilerId, string? negativePrompt, string? associationMetadataJson, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task UpdateCandidateFieldsAsync(
             string assetId, string? candidateBatchId, SceneAssetCandidateDecision? candidateDecision,
             string? candidateNotes, string? candidateSourceAssetId, CancellationToken cancellationToken = default)

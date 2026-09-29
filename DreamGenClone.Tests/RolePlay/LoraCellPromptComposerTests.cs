@@ -11,7 +11,7 @@ namespace DreamGenClone.Tests.RolePlay;
 public sealed class LoraCellPromptComposerTests
 {
     private const string RenderTemplate =
-        "Photorealistic photograph of {BodyCard}. {Facing}. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}.";
+        "Photorealistic photograph of {Subject}. {Facing}. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}.";
 
     private const string CaptionTemplate =
         "{TriggerToken}, {Wardrobe}, {Angle}, {Distance}, {Pose}, {Expression}, {Lighting}, {Background}";
@@ -28,8 +28,13 @@ public sealed class LoraCellPromptComposerTests
         Assert.Contains(BodyCard, prompt, StringComparison.Ordinal);
         Assert.Contains("facing the camera straight on", prompt, StringComparison.Ordinal);
         Assert.Contains("wearing a plain t-shirt and jeans", prompt, StringComparison.Ordinal);
-        Assert.Contains("standing", prompt, StringComparison.Ordinal);
         Assert.Contains("a plain neutral wall", prompt, StringComparison.Ordinal);
+        // The stance belongs to a framing that can show one, so it is asserted on the BODY record - and the close-up
+        // record above must not carry one at all.
+        var bodyRecord = plan.Records.First(record => record.Distance != LoraCoverageDistance.CloseUp);
+        var bodyPrompt = LoraCellPromptComposer.ComposeRenderPrompt(plan, bodyRecord, BodyCard, RenderTemplate);
+        Assert.Contains("sitting", bodyPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("sitting", prompt, StringComparison.Ordinal);
     }
 
     /// <summary>The invariant card is pasted verbatim — never paraphrased, never reworded by the app.</summary>
@@ -79,11 +84,14 @@ public sealed class LoraCellPromptComposerTests
 
         var caption = LoraCellPromptComposer.ComposeCaption(plan, plan.Records[0], CaptionTemplate);
 
+        // No stance tag on a close-up: the frame cannot show one, so teaching the tag would teach the trainer a
+        // condition the image contradicts. The list stays well formed - the tag takes its comma with it.
         Assert.Equal(
-            "ohwx-becky, clothed, front view, close-up, standing, a neutral relaxed expression, "
+            "ohwx-becky, clothed, front view, close-up, a neutral relaxed expression, "
             + "dim indoor lighting with soft shadows, a plain neutral wall",
             caption);
         Assert.DoesNotContain("{", caption, StringComparison.Ordinal);
+        Assert.DoesNotContain(", ,", caption, StringComparison.Ordinal);
     }
 
     /// <summary>Every tag is comma-separated, because a trainer can only shuffle a caption that is tagged.</summary>
@@ -94,7 +102,13 @@ public sealed class LoraCellPromptComposerTests
 
         var caption = LoraCellPromptComposer.ComposeCaption(plan, plan.Records[0], CaptionTemplate);
 
-        Assert.Equal(8, caption.Split(", ", StringSplitOptions.None).Length);
+        // Seven tags on the close-up, because the stance tag is absent there; eight on the body cell, which carries
+        // the full tag set. Both prove the same thing: every tag is comma-separated.
+        Assert.Equal(7, caption.Split(", ", StringSplitOptions.None).Length);
+
+        var bodyRecord = plan.Records.First(record => record.Distance != LoraCoverageDistance.CloseUp);
+        var bodyCaption = LoraCellPromptComposer.ComposeCaption(plan, bodyRecord, CaptionTemplate);
+        Assert.Equal(8, bodyCaption.Split(", ", StringSplitOptions.None).Length);
     }
 
     /// <summary>
@@ -161,10 +175,16 @@ public sealed class LoraCellPromptComposerTests
         var record = plan.Records[0];
 
         var prompt = LoraCellPromptComposer.ComposeRenderPrompt(
-            plan, record, BodyCard, RenderTemplate, null, [ImageStepSlotKind.Body]);
+            plan, record, BodyCard, RenderTemplate, null, [ImageStepSlotKind.Body], SubjectNoun);
 
+        // The build is in the body reference image, so it is not described as well...
         Assert.DoesNotContain(BodyCard, prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("curvy", prompt, StringComparison.OrdinalIgnoreCase);
+
+        // ...but the SUBJECT is not something an image of a body supplies: a prompt whose subject slot goes with the
+        // build stops saying a person is in the frame at all, and reads "Photorealistic photograph." - a gap the
+        // model fills with its own prior. The noun is what survives.
+        Assert.Contains(SubjectNoun, prompt, StringComparison.Ordinal);
 
         // Framing is not an element a reference supplies, so it survives - and the sentence the card was welded into
         // is not left reading "photograph of .".
@@ -172,6 +192,26 @@ public sealed class LoraCellPromptComposerTests
         Assert.Contains("a plain neutral wall", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("of .", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("  ", prompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// With a body reference bound but no stated subject noun, the slot is left out rather than filled with a guess -
+    /// the same path an unknown face takes, and never a made-up noun.
+    /// </summary>
+    [Fact]
+    public void ComposeRenderPrompt_WithNoSubjectNounStated_RemovesTheSubjectSlot()
+    {
+        var plan = Plan();
+        var record = plan.Records[0];
+
+        var prompt = LoraCellPromptComposer.ComposeRenderPrompt(
+            plan, record, BodyCard, RenderTemplate, null, [ImageStepSlotKind.Body]);
+
+        Assert.DoesNotContain("{", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("of .", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("woman", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("man", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Photorealistic", prompt, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -286,7 +326,9 @@ public sealed class LoraCellPromptComposerTests
     }
 
     private const string FaceRenderTemplate =
-        "Photorealistic photograph of {BodyCard}. {Face}. {Facing}. {Wardrobe}. Background: {Background}.";
+        "Photorealistic photograph of {Subject}. {Face}. {Facing}. {Wardrobe}. Background: {Background}.";
+
+    private const string SubjectNoun = "a 50s woman";
 
     private const string FaceLine = "dark hair in a Bun, Blue eyes, oval face, small and straight nose";
 
@@ -338,7 +380,8 @@ public sealed class LoraCellPromptComposerTests
             BodyState = SceneImageReferenceBodyState.Clothed,
             Distance = LoraCoverageDistance.CloseUp,
             WardrobeState = LoraCoverageWardrobeState.Clothed,
-            PoseClass = LoraCoveragePoseClass.Standing,
+            // A close-up claims no stance: the frame cannot show one, so neither the prompt nor the caption states it.
+            PoseClass = null,
             ExpressionKey = LoraCellWorkflowKeys.VocabularyExpressionNeutral,
             LightingKey = LoraCellWorkflowKeys.VocabularyLightingIndoorDim,
             BackgroundKey = LoraCellWorkflowKeys.VocabularyBackgroundPlainWall,

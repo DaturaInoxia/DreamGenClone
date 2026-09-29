@@ -183,6 +183,8 @@
                                                    ModelPlaceholder="Choose an image model"
                                                    Bindings="_referenceBindings"
                                                    BindingsChanged="OnReferenceBindingsChanged"
+                                                   CharacterLoras="_characterLoras"
+                                                   CharacterLorasChanged="OnCharacterLorasChanged"
                                                    Busy="_busy"
                                                    CanSubmit="false"
                                                    ShowPrompt="false" />
@@ -528,6 +530,17 @@
     }
 
     /// <summary>
+    /// Keeps the page's LoRA selection in step with the composer, which is the operator's single control over what
+    /// this composition render applies. Empty clears it back to the configured "no LoRA" state.
+    /// </summary>
+    private Task OnCharacterLorasChanged(IReadOnlyList<SceneImageCharacterLoraSelection> selections)
+    {
+        _characterLoras = selections;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// A model change runs the page's own model logic AND drops the step's bindings: the slots a step offers depend on
     /// the selected model's capability, so keeping them would leave the plan describing a model no longer chosen. The
     /// composer's per-slot menu resolves strategies from that same capability, so the page no longer resets them.
@@ -569,6 +582,14 @@
     private string? _poseStoragePath;
     private double _poseStrength = 0.8;
     private string? _poseUploadError;
+
+    /// <summary>
+    /// The character LoRAs this composition render applies, in chain order (one per character in the frame).
+    /// Empty is the configured "no LoRA" state: the render then emits no LoraLoader node and is exactly what it
+    /// was before LoRA identity existed. LoRA is a sibling of the reference route, so setting this does not
+    /// disable the references this page binds.
+    /// </summary>
+    private IReadOnlyList<SceneImageCharacterLoraSelection> _characterLoras = [];
 
     /// <summary>
     /// The library preset the attached skeleton came from, or null when the operator uploaded one. It is what tells
@@ -817,6 +838,12 @@
 
             var firstPackId = identityPacks?.FirstOrDefault()?.PackId ?? nativePacks.FirstOrDefault()?.PackId;
             var renderSettings = new SceneImageStudioSettings();
+            // The LoRA chain travels with the render, so the attempt records which artifact, strength and checksum
+            // produced the image. Empty stays null: no LoRA means the graph is left untouched.
+            if (_characterLoras.Count > 0)
+            {
+                renderSettings.CharacterLoras = _characterLoras.ToList();
+            }
             if (!string.IsNullOrWhiteSpace(_poseStoragePath))
             {
                 renderSettings.PoseReference = new SceneImagePoseReference

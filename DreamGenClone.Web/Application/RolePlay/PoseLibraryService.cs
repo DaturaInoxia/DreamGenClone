@@ -182,13 +182,19 @@ public sealed class PoseLibraryService : IPoseLibraryService
 
         // The head hangs from its own pivot above the neck, so turning the head leaves the body — and the arms,
         // which hang from the neck — exactly where they were.
+        // A HEAD TURN IS A DELTA ON THE POSE'S OWN HEAD, not a replacement of it. Reported 2026-09-27: "the Head does
+        // not, it mangled the whole pose". The cause was writing `head.ToLocalRotation()` straight over the head joint:
+        // for a fitted pose that joint already holds the head angle the source photograph had, so the first press did
+        // not turn the head by 5°, it SNAPPED it from the pose's own angle to the requested one — a 40° jump on a pose
+        // whose head sat at -35°. Composing onto the existing rotation makes 0° mean "leave it as the pose has it" and
+        // makes every press a genuine step, which is the whole point of a 5° control.
         if (head is not null && !head.IsNeutral)
         {
             // Copied before writing: the caller keeps this array — the panel re-projects on every 5° press, and the
             // fit result it came from is still shown to the operator. Mutating it in place would drift the pose the
             // panel believes it loaded.
             pose = pose.ToArray();
-            pose[mannequin.HeadIndex] = head.ToLocalRotation();
+            pose[mannequin.HeadIndex] = Quaternion.Normalize(head.ToLocalRotation() * pose[mannequin.HeadIndex]);
         }
 
         return PoseProjection.Project(mannequin, pose, view, _studio);
@@ -240,11 +246,12 @@ public sealed class PoseLibraryService : IPoseLibraryService
         var pose = rotations;
 
         // The head turn is applied to the rig BEFORE its depths are read, so the head's own motion is part of the one
-        // rigid rotation instead of a second, separate displacement.
+        // rigid rotation instead of a second, separate displacement. Composed onto the FIT's head rather than written
+        // over it, for the reason spelled out in ProjectAuthoredPose: replacing it turns the first press into a jump.
         if (head is not null && !head.IsNeutral)
         {
             pose = rotations.ToArray();
-            pose[mannequin.HeadIndex] = head.ToLocalRotation();
+            pose[mannequin.HeadIndex] = Quaternion.Normalize(head.ToLocalRotation() * pose[mannequin.HeadIndex]);
         }
 
         // A joint's DEPTH exists in exactly one place: the rig fitted onto this pose, at the view it was fitted at. The

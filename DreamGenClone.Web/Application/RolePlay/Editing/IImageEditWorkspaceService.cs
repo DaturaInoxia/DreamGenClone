@@ -15,6 +15,25 @@ public interface IImageEditWorkspaceService
     /// <summary>True when this store can bind scenario-character identity packs to edited images.</summary>
     bool SupportsIdentity { get; }
 
+    /// <summary>
+    /// True when this store can run a PRESET edit pass (B-133): relight an existing image, or change its facial
+    /// expression, from a picked preset whose instruction is assembled deterministically with no compilation step.
+    ///
+    /// A store that cannot says so HERE so the surface renders no control it would have to refuse. It is a
+    /// capability, not a fallback: the control is absent rather than present-and-broken.
+    /// </summary>
+    bool SupportsPresetEdits { get; }
+
+    /// <summary>
+    /// Queues a preset edit pass of the subject's stored image and returns the derived image's id. The instruction is
+    /// assembled from the preset's store rows and recorded with it, so the run re-derives and proves the same text.
+    /// </summary>
+    Task<string> RunPresetAsync(
+        ImageEditSubject subject,
+        string presetKey,
+        string editorModelId,
+        CancellationToken cancellationToken = default);
+
     Task<ImageEditSource?> GetSourceAsync(ImageEditSubject subject, CancellationToken cancellationToken = default);
 
     Task<ImageEditSessionView> OpenSessionAsync(ImageEditSubject subject, CancellationToken cancellationToken = default);

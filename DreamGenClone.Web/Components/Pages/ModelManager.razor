@@ -600,6 +600,13 @@
                     No image model configured for scene-image rendering. Assign an image-kind model to <strong>RP Scene Image (Render)</strong> to enable image generation.
                 </div>
             }
+            @if (_functionStates.TryGetValue(AppFunction.RolePlayWardrobeItem, out var _wardrobeFnState) && string.IsNullOrEmpty(_wardrobeFnState.ModelId))
+            {
+                <div class="alert alert-info">
+                    <i class="bi bi-bag me-1"></i>
+                    No default model for wardrobe items. Assign one to <strong>RP Wardrobe Item (Render)</strong> so the character Wardrobe tab opens on the model you render garments with.
+                </div>
+            }
             @if (_enabledModelsDropdown.Count == 0)
             {
                 <div class="alert alert-info">Register and enable a model first to assign function defaults.</div>
@@ -631,6 +638,7 @@
                                             || func == AppFunction.RolePlaySceneBeatAnalyzer
                                             || func == AppFunction.RolePlayCharacterBodyCardDraft
                                             || func == AppFunction.RolePlaySceneImage
+                                            || func == AppFunction.RolePlayWardrobeItem
                                             || func == AppFunction.RolePlaySceneImagePreprocessor
                                             || func == AppFunction.RolePlaySceneImageEditor
                                             || func == AppFunction.RolePlaySceneImageEditPromptCompiler
@@ -1318,7 +1326,7 @@
             return;
         }
 
-        if (func == AppFunction.RolePlaySceneImage)
+        if (func == AppFunction.RolePlaySceneImage || func == AppFunction.RolePlayWardrobeItem)
         {
             var selectedModel = _modelsGrouped.Values.SelectMany(models => models)
                 .SingleOrDefault(model => model.Id == state.ModelId);
@@ -1424,12 +1432,13 @@
         AppFunction.RolePlaySceneImageValidator => "RP Scene Image Validator",
         AppFunction.RolePlaySceneBeatAnalyzer => "RP Scene Beat Analyzer",
         AppFunction.RolePlayCharacterBodyCardDraft => "Character Body Card Draft (studio)",
+        AppFunction.RolePlayWardrobeItem => "RP Wardrobe Item (Render)",
         _ => func.ToString()
     };
 
     private List<(Provider Provider, List<RegisteredModel> Models)> GetFunctionModelDropdown(AppFunction func)
     {
-        if (func == AppFunction.RolePlaySceneImage || func == AppFunction.RolePlaySceneImageEditor)
+        if (func == AppFunction.RolePlaySceneImage || func == AppFunction.RolePlaySceneImageEditor || func == AppFunction.RolePlayWardrobeItem)
         {
             // Image render function: only image-kind models are valid. Fail-fast at the UI by
             // not offering text models (resolution also enforces this).

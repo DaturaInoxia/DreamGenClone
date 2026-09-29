@@ -154,12 +154,19 @@ public sealed record ImageStepActor(string ActorKey, string DisplayName);
 /// </param>
 /// <param name="ActorKey">Which character the slot belongs to, where <see cref="ActorKeyRequirementFor"/> allows one.</param>
 /// <param name="Required">Whether the step cannot be created without it.</param>
+/// <param name="AllowsMultiple">
+/// Whether this slot may carry MORE THAN ONE reference image. Defaults to false, and that default is load-bearing:
+/// for every other slot a second binding is refused loudly, because a render that used the first and dropped the
+/// rest would be invisible in the UI. A wardrobe opts in, because a look genuinely can be two garments (a dress and
+/// the shoes that go with it) and each is its own reference image.
+/// </param>
 public sealed record ImageStepSlotBlueprint(
     ImageStepSlotKind SlotKind,
     ImageStepSlotPrefill Prefill,
     IReadOnlyList<ImageStepReferenceSourceKind> AllowedSources,
     string? ActorKey = null,
-    bool Required = false)
+    bool Required = false,
+    bool AllowsMultiple = false)
 {
     /// <summary>
     /// Whether this slot names a character, names the scene, or may name either. This is also what decides the

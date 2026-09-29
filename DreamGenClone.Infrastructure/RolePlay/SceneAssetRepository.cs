@@ -282,6 +282,50 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             throw new InvalidOperationException($"Scene asset image '{imageId}' is not a candidate in a review batch.");
     }
 
+    /// <summary>
+    /// Writes a compiled prompt onto an image row that already exists, with the compiler that authored it.
+    /// </summary>
+    /// <remarks>
+    /// A narrow UPDATE rather than an upsert, because <see cref="UpsertImageAsync"/> deliberately never touches
+    /// <c>Prompt</c>: a stored prompt is what an image WAS made from, so an ordinary save must not rewrite it. The
+    /// wardrobe tab needs the other direction - the row is created when the operator asks for an image, and the prompt
+    /// is drafted onto it afterwards - and this is the one place that writes that text after the row exists.
+    /// </remarks>
+    public async Task SetImagePromptAsync(
+        string imageId,
+        string prompt,
+        string promptCompilerId,
+        string? negativePrompt,
+        string? associationMetadataJson,
+        CancellationToken cancellationToken = default)
+    {
+        Require(imageId, "Image id");
+        Require(prompt, "Prompt");
+        Require(promptCompilerId, "Prompt compiler id");
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneAssetImages
+            SET Prompt = $prompt,
+                PromptCompilerId = $promptCompilerId,
+                NegativePrompt = $negativePrompt,
+                AssociationMetadataJson = $associationMetadataJson,
+                UpdatedUtc = $updatedUtc
+            WHERE Id = $id;
+            """;
+        command.Parameters.AddWithValue("$prompt", prompt.Trim());
+        command.Parameters.AddWithValue("$promptCompilerId", promptCompilerId.Trim());
+        command.Parameters.AddWithValue("$negativePrompt", (object?)negativePrompt ?? DBNull.Value);
+        command.Parameters.AddWithValue("$associationMetadataJson", (object?)associationMetadataJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$id", imageId.Trim());
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException($"Scene asset image '{imageId}' was not found.");
+    }
+
     public async Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default)
     {
         Require(imageId, "Image id");

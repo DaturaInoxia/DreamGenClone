@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -482,6 +483,15 @@ public sealed class ComfyUIImageClient : IImageGenerationClient, IReferenceCondi
                         reasonCode: "unsupported_image_family")
             };
 
+            // Character LoRA identity. Siblings of the reference strategies, never a replacement: a render whose
+            // characters have no qualified LoRA arrives here with an empty list and its graph is left EXACTLY as
+            // the family builder above produced it. A family with no LoRA wiring fails fast inside the call rather
+            // than dropping the LoRA quietly.
+            if (model.Loras is { Count: > 0 } characterLoras)
+            {
+                ApplyCharacterLoras(workflow, model.SceneImageModelFamily, model.ProviderName, characterLoras);
+            }
+
             var payload = new JsonObject
             {
                 ["prompt"] = workflow,
@@ -500,6 +510,70 @@ public sealed class ComfyUIImageClient : IImageGenerationClient, IReferenceCondi
             _logger.LogError(ex, "ComfyUI image generation failed for provider {ProviderName} after {DurationMs}ms",
                 model.ProviderName, stopwatch.ElapsedMilliseconds);
             throw new ImageGenerationException($"ComfyUI image generation failed: {ex.Message}", model.ProviderName, reasonCode: "client_error", inner: ex);
+        }
+    }
+
+    /// <summary>
+    /// Insert the character LoRA chain after the checkpoint and re-wire EVERY consumer of model and clip.
+    ///
+    /// A LoRA alters both the diffusion model and the CLIP, so the sampler's model branch AND both text encodes
+    /// must be re-wired. Wiring only the model branch silently applies the LoRA to the image path alone — the trap
+    /// already documented for the Qwen source-image edit path.
+    ///
+    /// The consumer nodes are graph facts of the family builders: Pony (node 10 <c>CLIPSetLastLayer</c> feeds both
+    /// text encodes; node 3 samples) and SDXL (node 13 when CLIP skip is set, otherwise nodes 6 and 7; node 3
+    /// samples). A family whose graph has not been wired for LoRAs FAILS FAST rather than dropping the LoRA
+    /// quietly: a render that ignored an identity LoRA would look exactly like one that applied it.
+    /// </summary>
+    private static void ApplyCharacterLoras(
+        JsonObject workflow,
+        SceneImageModelFamily family,
+        string providerName,
+        IReadOnlyList<ResolvedCharacterLora> loras)
+    {
+        var clipConsumerNode = family switch
+        {
+            SceneImageModelFamily.Pony => "10",
+            SceneImageModelFamily.Sdxl => workflow.ContainsKey("13") ? "13" : string.Empty,
+            _ => throw new ImageGenerationException(
+                    $"This render selected {loras.Count} character LoRA(s), but the {family} graph builder has no LoRA "
+                    + "wiring. LoRA identity is implemented for the Pony and SDXL families; select a model of those "
+                    + "families, or carry this character with the reference-conditioning identity strategy instead.",
+                    providerName,
+                    reasonCode: "unsupported_lora_family")
+        };
+
+        // One LoraLoader per bound actor, chained: each node takes model+clip from the previous one. Node ids start
+        // clear of every builder's own ids (3/4/5/6/7/8/9/10/13/16/17).
+        var previous = "4";
+        var nextNodeNumber = 20;
+        foreach (var lora in loras)
+        {
+            var nodeId = nextNodeNumber++.ToString(CultureInfo.InvariantCulture);
+            workflow[nodeId] = new JsonObject
+            {
+                ["class_type"] = "LoraLoader",
+                ["inputs"] = new JsonObject
+                {
+                    ["lora_name"] = lora.FileName,
+                    ["strength_model"] = lora.Strength,
+                    ["strength_clip"] = lora.Strength,
+                    ["model"] = new JsonArray(previous, 0),
+                    ["clip"] = new JsonArray(previous, 1)
+                }
+            };
+            previous = nodeId;
+        }
+
+        workflow["3"]!["inputs"]!["model"] = new JsonArray(previous, 0);
+        if (clipConsumerNode.Length > 0)
+        {
+            workflow[clipConsumerNode]!["inputs"]!["clip"] = new JsonArray(previous, 1);
+        }
+        else
+        {
+            workflow["6"]!["inputs"]!["clip"] = new JsonArray(previous, 1);
+            workflow["7"]!["inputs"]!["clip"] = new JsonArray(previous, 1);
         }
     }
 

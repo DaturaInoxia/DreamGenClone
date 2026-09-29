@@ -123,6 +123,60 @@ public sealed class PoseFramingTests
         }
     }
 
+    /// <summary>
+    /// The head close-up must share ONE frame across head angles, computed from the head at rest. Re-fitting it per
+    /// angle was reported as "Turn left / right and Tilt are doing the same things", because the frame is measured on
+    /// the six head points and the refit then scales whatever box a turn leaves behind back up to fill the canvas — so
+    /// the RESIZE dominated and two different axes read as the same gesture.
+    ///
+    /// What is asserted here is exactly the part that was fixed and can be measured: with a shared frame, a point that
+    /// the head rotation does not move stays on the same pixel. The neck is that point — the head hangs from it, so a
+    /// head angle never moves it, and any movement of it on screen can only be the FRAME moving.
+    ///
+    /// What is deliberately NOT asserted: that re-fitting stretches a pitch back. Measured 2026-09-27, it does not —
+    /// re-fitting gave a head height of 20.4 against the shared frame's 20.7, essentially the same. So re-fitting does
+    /// not explain the reported "smoosh", and a test claiming it would would be pinning a fiction.
+    /// </summary>
+    [Fact]
+    public void OneHeadFraming_KeepsTheHeadStill_WhereRefittingMovesItBetweenAngles()
+    {
+        using var fixture = new PoseLibraryTestFixture();
+
+        var rest = fixture.Service.ProjectAuthoredPose(new PoseView(), new PoseHeadRotation());
+        var framing = PoseSkeletonRenderer.ComputeFraming(rest, 320, PoseMannequin.HeadCocoIndices);
+
+        var neckAtRest = PoseSkeletonRenderer.Apply(rest, framing).Body[OpenPosePoseJson.NeckIndex];
+
+        foreach (var head in new[]
+        {
+            new PoseHeadRotation(YawDegrees: 45),
+            new PoseHeadRotation(RollDegrees: 45),
+            new PoseHeadRotation(PitchDegrees: -45)
+        })
+        {
+            var projected = fixture.Service.ProjectAuthoredPose(new PoseView(), head);
+
+            // One frame: the head turns about a neck that does not move, so the neck lands on the same pixel.
+            var shared = PoseSkeletonRenderer.Apply(projected, framing).Body[OpenPosePoseJson.NeckIndex];
+
+            Assert.Equal(neckAtRest.X, shared.X, 6);
+            Assert.Equal(neckAtRest.Y, shared.Y, 6);
+
+            // Re-fitting instead re-centres and re-scales around each angle's own box, so the same unmoved joint lands
+            // somewhere else on the canvas. That movement is the frame, not the head.
+            var refitted = PoseSkeletonRenderer
+                .FitToCanvas(projected, 320, PoseMannequin.HeadCocoIndices).Body[OpenPosePoseJson.NeckIndex];
+
+            var drift = Math.Sqrt(
+                Math.Pow(refitted.X - shared.X, 2) + Math.Pow(refitted.Y - shared.Y, 2));
+
+            Assert.True(
+                drift > 1.0,
+                $"re-fitting put the unmoved neck {drift:0.###} px from where one shared frame puts it, so this test "
+                + "cannot tell the two paths apart");
+        }
+    }
+
     /// <summary>A figure whose joints span <paramref name="span"/> horizontally and 200 pixels vertically.</summary>
     private static PosePerson Synthetic(double span)
     {

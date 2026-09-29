@@ -259,6 +259,9 @@
                                             </div>
                                             <button type="button" class="btn btn-sm @(IsChosenFront(attempt) ? "btn-success" : "btn-outline-success") w-100 mt-1" @onclick="() => SelectFrontAsync(attempt.Id)" disabled="@(attempt.Status != SceneAssetStatus.Complete)" title="@(IsChosenFront(attempt) && _build?.CurrentStep == CharacterIdentityBuildStep.Validate ? "Continue past validation with this front" : "Make this candidate the input to Panel B")">@(IsChosenFront(attempt) && _build?.CurrentStep == CharacterIdentityBuildStep.Validate ? "Continue" : IsChosenFront(attempt) ? "Chosen" : "Use this")</button>
                                             <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1" @onclick="() => DeleteImageAsync(attempt)" disabled="@(_frontBusy || IsChosenFront(attempt))" title="@(IsChosenFront(attempt) ? "The build's recorded front cannot be deleted. Choose another candidate with Use this first." : "Delete this image")"><i class="bi bi-trash me-1"></i>Delete</button>
+                                            @* The edit route for this exact image, carrying THIS page as the origin so the editor can hand the
+                                               operator back to the attempt list they were working in. *@
+                                            <a class="btn btn-sm btn-outline-primary w-100 mt-1" href="/assets/@attempt.AssetId/images/@attempt.Id/edit?return=/characters/@CharacterId" title="Open the editor on this image"><i class="bi bi-magic me-1"></i>Edit</a>
                                         </div>
                                     }
                                 </div>
@@ -376,6 +379,7 @@
                                                 <button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-1" @onclick="() => RevalidateAsync(edited)" disabled="@(_validationBusy || edited.Status != SceneAssetStatus.Complete)">@(editedValidation is null ? "Run validation" : "Re-validate")</button>
                                                 <button type="button" class="btn btn-sm @(IsCanonicalFront(edited) ? "btn-success" : "btn-outline-success") w-100 mt-1" @onclick="() => ApproveCanonicalFrontAsync(edited)" disabled="@(_frontBusy || edited.Status != SceneAssetStatus.Complete || !_frontStepComplete)" title="@(_frontStepComplete ? "Make this the canonical front for the next steps" : "Choose a front candidate in Panel A first — the canonical front is recorded as the result of that candidate's edit chain")">@(IsCanonicalFront(edited) ? "Canonical front" : "Use this")</button>
                                                 <button type="button" class="btn btn-sm btn-outline-danger w-100 mt-1" @onclick="() => DeleteImageAsync(edited)" disabled="@(_frontBusy || IsCanonicalFront(edited))" title="@(IsCanonicalFront(edited) ? "The canonical front cannot be deleted" : "Delete this image")"><i class="bi bi-trash me-1"></i>Delete</button>
+                                                <a class="btn btn-sm btn-outline-primary w-100 mt-1" href="/assets/@edited.AssetId/images/@edited.Id/edit?return=/characters/@CharacterId" title="Open the editor on this image"><i class="bi bi-magic me-1"></i>Edit</a>
                                             </div>
                                         }
                                     </div>
@@ -1192,7 +1196,14 @@
         case "LoRA images":
             @* B-123 Phase 1: the coverage plan and the cell workspace, side by side. The tab plans and shows the
                render prompt and caption per cell; it renders nothing and offers no batch action. *@
-            <LoraDatasetWorkspace CharacterId="@CharacterId" />
+            <LoraDatasetWorkspace CharacterId="@CharacterId" Cell="@Cell" />
+            break;
+        case "Wardrobe":
+            @* The wardrobe LIBRARY, reached from this character because this is where an operator looks for "what does
+               she wear". The items are shared, not owned by this character, which is what makes the same dress usable
+               by anybody - the panel says so on screen rather than leaving it to be discovered. The character id is
+               passed only so the standard edit flow can return to this tab. *@
+            <CharacterWardrobePanel CharacterId="@CharacterId" />
             break;
         case "LoRAs":
             <div class="card">
@@ -1241,7 +1252,72 @@
 }
 
 @code {
-    private static readonly string[] _sections = ["Faces", "Body", "LoRA images", "LoRAs", "Packs"];
+    private static readonly string[] _sections = ["Faces", "Body", "Wardrobe", "LoRA images", "LoRAs", "Packs"];
+
+    /// <summary>
+    /// The section to open on, and the LoRA cell to open inside it, as query data. A host that sent the operator away
+    /// links back with these, so the return lands on the tab and the cell they left - the character page had no query
+    /// handling at all, so every return dumped the operator on the default tab.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "section")] public string? Section { get; set; }
+
+    /// <summary>
+    /// The LoRA cell to open. A QUERY parameter, not a plain parameter: a plain one is only bound from the parent
+    /// component, so the value never arrived from the URL and the return trip always lost the cell.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "cell")] public string? Cell { get; set; }
+
+    /// <summary>
+    /// Opens on the section a link asked for.
+    ///
+    /// <para>
+    /// Applied here AND once after the first render, because OnInitializedAsync finishes AFTER OnParametersSet: it ran
+    /// afterwards and put the tab back to its default, which is the "it selects the Packs Tab" the operator saw coming
+    /// back from the review deck. Clearing the requested section after applying it also stops it fighting a later
+    /// click on another tab.
+    /// </para>
+    /// </summary>
+    protected override void OnParametersSet() => ApplyRequestedSection();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && ApplyRequestedSection())
+        {
+            StateHasChanged();
+        }
+
+        await Task.CompletedTask;
+    }
+
+    /// <summary>Applies the requested tab, returning true when it changed. A cell implies the LoRA tab.</summary>
+    private bool ApplyRequestedSection()
+    {
+        if (!string.IsNullOrWhiteSpace(Cell))
+        {
+            if (string.Equals(_activeSection, "LoRA images", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _activeSection = "LoRA images";
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(Section))
+        {
+            return false;
+        }
+
+        var match = _sections.FirstOrDefault(
+            candidate => string.Equals(candidate, Section, StringComparison.OrdinalIgnoreCase));
+        if (match is null || string.Equals(_activeSection, match, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        _activeSection = match;
+        return true;
+    }
 
     /// <summary>Matches the options the validation service writes with, so camelCase keys read back.</summary>
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);

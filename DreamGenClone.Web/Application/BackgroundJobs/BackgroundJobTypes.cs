@@ -19,6 +19,12 @@ public static class BackgroundJobTypes
     public const string MediaEditDescription = "media-edit-description";
     public const string MediaEditImageEditing = "media-edit-image-editing";
     public const string SceneAssetGeneration = "scene-asset-generation";
+
+    /// <summary>
+    /// Compiles a wardrobe item's short description into a full reference prompt geared to the chosen model, then
+    /// renders it. One job for both stages so the compiled prompt IS the image's prompt.
+    /// </summary>
+    public const string WardrobeItemPromptGeneration = "wardrobe-item-prompt-generation";
     public const string ProducedImageGeneration = "produced-image-generation";
     public const string SceneAssetEditing = "scene-asset-editing";
     public const string SceneAssetProfilePackGeneration = "scene-asset-profile-pack-generation";

@@ -21,6 +21,7 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
     private readonly ISceneImageStorageService _storage;
     private readonly ICharacterImageAssetStorageService? _identityStorage;
     private readonly MediaEditReferenceResolver? _references;
+    private readonly IImagePresetService? _presets;
     private readonly ILogger<SceneImageMediaEditSubjectWriter> _logger;
 
     public SceneImageMediaEditSubjectWriter(
@@ -29,7 +30,8 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
         ISceneImageStorageService storage,
         ILogger<SceneImageMediaEditSubjectWriter> logger,
         MediaEditReferenceResolver? references = null,
-        ICharacterImageAssetStorageService? identityStorage = null)
+        ICharacterImageAssetStorageService? identityStorage = null,
+        IImagePresetService? presets = null)
     {
         _images = images;
         _edits = edits;
@@ -37,6 +39,7 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
         _logger = logger;
         _references = references;
         _identityStorage = identityStorage;
+        _presets = presets;
     }
 
     public MediaEditSubjectKind Kind => MediaEditSubjectKind.SceneImage;
@@ -60,6 +63,9 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
         {
             SceneImageProductionStage.Identity => await PrepareIdentityAsync(image, context, cancellationToken),
             SceneImageProductionStage.Finish => await PrepareFinishAsync(image, cancellationToken),
+            // B-133: a preset pass is the third authored-instruction stage (see PreparePresetAsync), beside Identity and
+            // Finish. Every other stage keeps the compiled path's session/attempt/revision validation.
+            SceneImageProductionStage.Preset => await PreparePresetAsync(image, context, cancellationToken),
             _ => await PrepareCompiledEditAsync(image, context, cancellationToken)
         };
     }
@@ -198,6 +204,56 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
             References: references,
             Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),
             LogScope: $"SessionId={image.SessionId}, InteractionId={image.InteractionId}, Stage=Identity");
+    }
+
+    /// <summary>
+    /// A preset edit pass (B-133): the row's prompt is the instruction a picked preset assembled, and this re-derives it
+    /// from the store to prove it is the same text. There is no compiler artifact to validate - only the instruction's
+    /// own checksum, the source's completeness and its stored checksum.
+    /// </summary>
+    private async Task<MediaEditRunPlan> PreparePresetAsync(
+        SceneImageRecord image, MediaEditRunContext context, CancellationToken cancellationToken)
+    {
+        if (_presets is null)
+        {
+            throw new InvalidOperationException(
+                "A preset edit requires the preset resolver, which is not registered in this host.");
+        }
+
+        var preset = MediaEditPresetProvenance.TryRead(image.EditCompilerProvenanceJson)
+            ?? throw new InvalidOperationException(
+                $"Scene image '{image.Id}' is queued as a preset pass but carries no preset provenance.");
+
+        var instruction = await _presets.ResolveInstructionAsync(
+            preset.PresetKey, ImagePresetMode.Change, preset.CharacterId, cancellationToken);
+
+        var expected = MediaEditPresetProvenance.InstructionSha256(instruction);
+        if (!string.Equals(expected, preset.InstructionSha256.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Preset '{preset.PresetKey}' assembles a different instruction than the one this edit was queued "
+                + "with, so the preset's wording changed after the edit was queued. Queue the edit again.");
+        }
+
+        if (!string.Equals(instruction, image.PromptSnapshot, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The queued preset edit's prompt is not the instruction its preset assembles.");
+        }
+
+        var source = await RequireSourceAsync(image, cancellationToken);
+        var (references, prompt) = await BuildAssetReferencesAsync(image, cancellationToken);
+
+        return new MediaEditRunPlan(
+            image.Id,
+            source.Id,
+            token => _storage.OpenReadAsync(SourcePath(source), token),
+            source.Sha256 ?? throw new InvalidOperationException("The source scene image has no stored checksum."),
+            MediaEditOperation.ForEdit,
+            Prompt: prompt,
+            References: references,
+            Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),
+            LogScope: $"SessionId={image.SessionId}, InteractionId={image.InteractionId}, Stage=Preset, Preset={preset.PresetKey}");
     }
 
     private async Task<MediaEditRunPlan> PrepareFinishAsync(

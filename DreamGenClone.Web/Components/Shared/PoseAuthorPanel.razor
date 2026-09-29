@@ -26,8 +26,21 @@
                     <span>@_fitSummary</span>
                 }
                 <div class="mt-1">
-                    The rig was fitted onto this pose, so the 5&deg; arrows, the head tool and the drag editor all
-                    work on it. Saving writes a new pose; the original is not modified.
+                    @if (TurningTheHead)
+                    {
+                        <span>
+                            There is no body here to fit, so the 5&deg; arrows turn the FACE itself, in 5&deg; steps from
+                            wherever it already sits, and up / down tips the head back or forward.
+                        </span>
+                    }
+                    else
+                    {
+                        <span>
+                            The rig was fitted onto this pose, so the 5&deg; arrows, the head tool and the drag editor
+                            all work on it.
+                        </span>
+                    }
+                    Saving writes a new pose; the original is not modified.
                 </div>
                 <button type="button" class="btn btn-sm btn-outline-secondary mt-2" disabled="@_busy"
                         @onclick="ClearLoadedAsync">
@@ -79,8 +92,14 @@
                     @if (_activeTab == "body")
                     {
                         <div class="form-text">
-                            @_view.YawDegrees.ToString("0")° yaw · @_view.PitchDegrees.ToString("0")° pitch · @_view.RollDegrees.ToString("0")° roll
+                            @TurnYaw.ToString("0")° yaw · @TurnPitch.ToString("0")° pitch · @TurnRoll.ToString("0")° roll
                             · one press = @StepDegrees.ToString("0")°
+                            @if (TurningTheHead)
+                            {
+                                <span class="d-block">
+                                    This is a face pose: it carries a face and no body, so these arrows turn the HEAD.
+                                </span>
+                            }
                         </div>
                     }
                     else
@@ -152,7 +171,11 @@
                 </div>
 
                 <div style="display: @(_activeTab == "head" ? "block" : "none");">
-                <PoseHeadControls BodyView="_view" Head="_head" HeadChanged="OnHeadChangedAsync" />
+                @* The FACE is handed over when there is one, so the close-up shows the pose being edited rather than the
+                   rig's mannequin head — which is what the operator would otherwise see turning while the Body step
+                   turned their face. *@
+                <PoseHeadControls BodyView="_view" Head="_head" HeadChanged="OnHeadChangedAsync"
+                                  Face="@(TurningTheHead ? _storedPose : null)" />
                 </div>
 
                 <div style="display: @(_activeTab == "drag" ? "block" : "none");">
@@ -467,12 +490,14 @@
     /// </summary>
     protected override async Task OnParametersSetAsync()
     {
-        if (Loaded is null || LoadedFrom is null) return;
+        // Adopted on LoadedFrom alone: Loaded is null for a HEAD pose, because there is no body to fit, and requiring it
+        // here would silently ignore the very poses the head path exists for.
+        if (LoadedFrom is null) return;
         if (string.Equals(_adoptedPresetId, LoadedFrom.Id, StringComparison.Ordinal)) return;
 
         _adoptedPresetId = LoadedFrom.Id;
         _loadedFrom = LoadedFrom;
-        _rotations = Loaded.Rotations;
+        _rotations = Loaded?.Rotations;
 
         // Read here and NOT in a try/catch: a pose whose keypoints cannot be read cannot be turned, and the host page
         // parses the same JSON before handing it over, so this failing means something is genuinely wrong. Failing
@@ -483,7 +508,7 @@
         // of it shares one frame for as long as it is open.
         _draggedPose = null;
         _framing = null;
-        _view = Loaded.View;
+        _view = Loaded?.View ?? new PoseView();
         _head = new PoseHeadRotation();
         _adoptedView = _view;
         _adoptedHead = _head;
@@ -498,10 +523,12 @@
         // The residual is reported, never rounded away: a fitted pose is an approximation and the operator is the
         // one who decides whether it is close enough to edit from. The ambiguity flag matters more than the number,
         // because it says the TURN was not determined by the source pose at all.
-        _fitSummary = $"Rig fit: {Loaded.MeanErrorPercentOfHeight:0.0}% mean joint error"
-            + (Loaded.OrientationAmbiguous
-                ? ", and the source pose did not determine the turn — check the facing before saving."
-                : ".");
+        _fitSummary = Loaded is { } fit
+            ? $"Rig fit: {fit.MeanErrorPercentOfHeight:0.0}% mean joint error"
+                + (fit.OrientationAmbiguous
+                    ? ", and the source pose did not determine the turn — check the facing before saving."
+                    : ".")
+            : "Head pose: there is no body to fit, so the Head step turns the FACE itself rather than a rig.";
 
         await RefreshPreviewAsync();
     }
@@ -525,24 +552,71 @@
         await RefreshPreviewAsync();
     }
 
+    /// <summary>
+    /// True when the loaded pose is a FACE pose: a face channel with no body worth fitting. The Body step's controls
+    /// then drive the HEAD, because the rig's view cannot turn a face — <see cref="PoseFaceProxy.Project"/> reads the
+    /// head and takes no view at all. Leaving the arrows on the view made every control in the step that opens by
+    /// default do NOTHING on exactly the poses the head path exists for.
+    /// </summary>
+    private bool TurningTheHead =>
+        _storedPose is { } pose && PoseFaceProxy.IsHeadPose(pose);
+
+    /// <summary>
+    /// The angle the readout names, read from whichever thing the Body step is actually turning. Reported rather than
+    /// assumed: printing the view on a face pose showed a permanent 0° while the head turned underneath it.
+    /// </summary>
+    private double TurnYaw => TurningTheHead ? _head.YawDegrees : _view.YawDegrees;
+
+    private double TurnPitch => TurningTheHead ? _head.PitchDegrees : _view.PitchDegrees;
+
+    private double TurnRoll => TurningTheHead ? _head.RollDegrees : _view.RollDegrees;
+
+    /// <summary>
+    /// Whether <paramref name="view"/> is the turn currently applied — the highlight on the named views. Asked of the
+    /// thing that is actually turning, so on a face pose it tracks the head and the highlight cannot sit on a named
+    /// view that took no part. <see cref="PoseEdited"/> reads the same answer, which is what keeps "has this been
+    /// edited?" honest for both kinds of pose.
+    /// </summary>
     private bool IsCurrent(PoseView view) =>
-        Math.Abs(view.YawDegrees - _view.YawDegrees) < 0.001
-        && Math.Abs(view.PitchDegrees - _view.PitchDegrees) < 0.001
-        && Math.Abs(view.RollDegrees - _view.RollDegrees) < 0.001;
+        Math.Abs(view.YawDegrees - TurnYaw) < 0.001
+        && Math.Abs(view.PitchDegrees - TurnPitch) < 0.001
+        && Math.Abs(view.RollDegrees - TurnRoll) < 0.001;
 
     private async Task SetViewAsync(PoseView view)
     {
         // A drag belongs to the pose it was made on. Changing the view re-projects that pose, so keeping the old drags
         // would apply them to a different figure — the drag editor resets for the same reason.
         DiscardDrags();
-        _view = view;
+
+        if (TurningTheHead)
+        {
+            // One set of named views, two things it can mean. A face pose has no body to turn, so the SAME names land
+            // on the head: Front is straight ahead and a profile is 90° off it, exactly as they mean for the body.
+            _head = PoseFaceProxy.AsHeadRotation(view);
+        }
+        else
+        {
+            _view = view;
+        }
+
         await RefreshPreviewAsync();
     }
 
     private async Task RotateAsync(PoseRotationAxis axis, int steps)
     {
         DiscardDrags();
-        _view = PoseProjection.Step(_view, axis, steps, StudioOptions.Value);
+
+        if (TurningTheHead)
+        {
+            // The SAME axis, the SAME configured step and the same rotation core — aimed at the head, because the head
+            // is the only part of a face pose there is to turn.
+            _head = PoseHeadRotation.Step(_head, axis, steps, StudioOptions.Value);
+        }
+        else
+        {
+            _view = PoseProjection.Step(_view, axis, steps, StudioOptions.Value);
+        }
+
         await RefreshPreviewAsync();
     }
 
@@ -575,9 +649,22 @@
     /// </summary>
     private PosePerson CurrentPose()
     {
-        var raw = _storedPose is { } stored && _adoptedView is { } fittedView && _rotations is { } rotations
-            ? LibraryService.ProjectLoadedPose(stored, fittedView, _view, rotations, _head)
-            : LibraryService.ProjectAuthoredPose(_view, _head, _rotations);
+        PosePerson raw;
+
+        if (_storedPose is { } headPose && PoseFaceProxy.IsHeadPose(headPose))
+        {
+            // A head pose has no body to fit, so the rig cannot turn it. The SAME rigid rotation is applied to the FACE
+            // instead — PoseFaceProxy borrows a head shape from the rig to supply the depths a flat face lacks.
+            raw = PoseFaceProxy.Project(headPose, _head, StudioOptions.Value);
+        }
+        else if (_storedPose is { } stored && _adoptedView is { } fittedView && _rotations is { } rotations)
+        {
+            raw = LibraryService.ProjectLoadedPose(stored, fittedView, _view, rotations, _head);
+        }
+        else
+        {
+            raw = LibraryService.ProjectAuthoredPose(_view, _head, _rotations);
+        }
 
         // Framed HERE, once for the life of the pose being edited: every later version of that pose goes through the
         // same transform, so the figure keeps its size and its place and a press reads as a rotation. The first call is
@@ -672,7 +759,14 @@
                 // A fitted pose is saved as the KEYPOINTS on screen, drags included. Saving it as a view would
                 // re-derive the figure from the standing stance and silently discard the fit — the operator would get a
                 // different pose from the one on screen, described by a recipe that says otherwise.
-                Keypoints: _rotations is null && _draggedPose is null ? null : PoseOnScreen()));
+                //
+                // The test is "is a pose loaded" rather than "does it have rig rotations": a FACE pose is loaded and has
+                // NO rotations, so gating on rotations alone re-projected the rig and saved a standing MANNEQUIN with the
+                // turned head on it — a full body in place of the face the operator had just turned.
+                Keypoints: _storedPose is null && _draggedPose is null ? null : PoseOnScreen(),
+                // Named so the keywords and the provenance say what made it. With the default, a turned face would have
+                // been recorded as "dragged", which is a different act by a different tool.
+                Origin: TurningTheHead ? "head-turned" : null));
 
             _status = $"Saved '{preset.Name}' to the library. It is searchable now.";
             _name = null;

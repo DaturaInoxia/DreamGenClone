@@ -5,9 +5,9 @@
 
 <select class="form-select form-select-sm" value="@SelectedAssetImageId" @onchange="ChangeAsset" disabled="@_loading">
     <option value="">Text only / no asset reference</option>
-    @foreach (var choice in _choices)
+    @foreach (var option in _options)
     {
-        <option value="@choice.Image.Id">@choice.Asset.Name · v@choice.Image.ProductionVersion</option>
+        <option value="@option.Choice.Image.Id">@option.Label</option>
     }
 </select>
 
@@ -16,9 +16,11 @@
     public SceneAssetType AssetType { get; set; }
 
     /// <summary>
-    /// Optional character profile id. When set, only approved assets owned by that character are
-    /// offered (identity/body/wardrobe rows are character-scoped); null = all approved assets of
-    /// the <see cref="AssetType"/> (e.g. Location).
+    /// Optional character profile id. When set, only approved assets owned by that character are offered — but ONLY
+    /// for the asset types that are character-owned. A character element (a face, a build, a pose asset) belongs to
+    /// one character; a WARDROBE item and a LOCATION do not. A wardrobe is a shared library: the same dress has to be
+    /// usable by whoever the scene calls for, and scoping it to one character is what made one dress unreachable for
+    /// every other character (found 2026-09-29).
     /// </summary>
     [Parameter]
     public string? CharacterProfileId { get; set; }
@@ -30,7 +32,17 @@
     public EventCallback<SceneAssetReferenceChoice?> SelectedAssetChanged { get; set; }
 
     private IReadOnlyList<SceneAssetReferenceChoice> _choices = [];
+    private IReadOnlyList<(SceneAssetReferenceChoice Choice, string Label)> _options = [];
     private bool _loading;
+
+    /// <summary>
+    /// Whether this asset type is OWNED by a character. A face, a build and a character pose asset are (the model
+    /// refuses a character slot that addresses nobody); a wardrobe item and a location are shared, so filtering them
+    /// by character would hide every item the operator created from another character's studio.
+    /// </summary>
+    private bool IsCharacterScoped => AssetType is SceneAssetType.CharacterFace
+        or SceneAssetType.CharacterBody
+        or SceneAssetType.CharacterPose;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -39,7 +51,8 @@
         {
             var assets = (await AssetService.ListAssetsAsync())
                 .Where(asset => asset.Type == AssetType)
-                .Where(asset => string.IsNullOrWhiteSpace(CharacterProfileId)
+                .Where(asset => !IsCharacterScoped
+                    || string.IsNullOrWhiteSpace(CharacterProfileId)
                     || string.Equals(asset.CharacterProfileId, CharacterProfileId, StringComparison.Ordinal))
                 .ToList();
             var choices = new List<SceneAssetReferenceChoice>();
@@ -57,6 +70,22 @@
                 .OrderByDescending(choice => choice.Image.ProductionVersion)
                 .ThenBy(choice => choice.Asset.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            // One option PER IMAGE, named. An item with several usable images (a dress photographed front and back) is
+            // otherwise a list of identical labels differing only by an internal version number, and the operator has
+            // no way to tell which image they are binding. The image's own label wins; a single-image item stays plain.
+            var byAsset = _choices.GroupBy(choice => choice.Asset.Id).ToDictionary(group => group.Key, group => group.Count());
+            var index = new Dictionary<string, int>(StringComparer.Ordinal);
+            _options = _choices.Select(choice =>
+            {
+                index.TryGetValue(choice.Asset.Id, out var seen);
+                seen++;
+                index[choice.Asset.Id] = seen;
+                var label = string.IsNullOrWhiteSpace(choice.Image.CandidateNotes)
+                    ? byAsset[choice.Asset.Id] > 1 ? $"image {seen}" : null
+                    : choice.Image.CandidateNotes!.Trim();
+                return (choice, label is null ? choice.Asset.Name : $"{choice.Asset.Name} — {label}");
+            }).ToList();
         }
         finally
         {

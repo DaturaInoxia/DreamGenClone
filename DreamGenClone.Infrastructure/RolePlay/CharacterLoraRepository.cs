@@ -313,6 +313,36 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         return await ListMembersAsync(connection, null, datasetId.Trim(), cancellationToken);
     }
 
+    public async Task<CharacterLoraDataset> SetDatasetTargetFamilyAsync(
+        string datasetId, string targetModelFamily, CancellationToken cancellationToken = default)
+    {
+        Require(datasetId, "LoRA dataset id");
+        if (!CharacterLoraModelFamilies.IsKnown(targetModelFamily))
+            throw new InvalidOperationException(
+                CharacterLoraModelFamilies.DescribeRefusal(targetModelFamily, "LoRA dataset target"));
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var dataset = await RequireDraftAsync(connection, transaction, datasetId.Trim(), cancellationToken);
+
+        // Retargeting is a DECLARATION, not a re-render. The family names what the set is being trained for; it is
+        // not an input to a single cell prompt, so changing it leaves every attempt in place and only changes which
+        // qualified profiles can be offered. It is refused once frozen, because the frozen manifest already
+        // records the family it was frozen for.
+        dataset.TargetModelFamily = targetModelFamily.Trim();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE CharacterLoraDatasets SET TargetModelFamily = $family, PayloadJson = $payload
+            WHERE Id = $id AND Status = 'Draft';
+            """;
+        command.Parameters.AddWithValue("$family", dataset.TargetModelFamily);
+        command.Parameters.AddWithValue("$payload", Serialize(dataset));
+        command.Parameters.AddWithValue("$id", dataset.Id);
+        EnsureChanged(await command.ExecuteNonQueryAsync(cancellationToken), "LoRA dataset", dataset.Id);
+        await transaction.CommitAsync(cancellationToken);
+        return dataset;
+    }
+
     public async Task<CharacterLoraDataset> SetDatasetContainerAsync(
         string datasetId, string containerAssetId, CancellationToken cancellationToken = default)
     {
@@ -763,6 +793,21 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         return await ReadPayloadsAsync<CharacterLoraArtifact>(command, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CharacterLoraArtifact>> ListQualifiedArtifactsForBaseModelAsync(
+        string baseModelId, CancellationToken cancellationToken = default)
+    {
+        Require(baseModelId, "Base model id");
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT PayloadJson FROM CharacterLoraArtifacts
+            WHERE BaseModelId = $model AND Status = 'Qualified'
+            ORDER BY Version DESC, CreatedUtc DESC;
+            """;
+        command.Parameters.AddWithValue("$model", baseModelId.Trim());
+        return await ReadPayloadsAsync<CharacterLoraArtifact>(command, cancellationToken);
+    }
+
     public async Task<CharacterLoraArtifact> SetArtifactStatusAsync(
         string artifactId,
         CharacterLoraArtifactStatus status,
@@ -1049,6 +1094,9 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
             throw new InvalidOperationException("A new LoRA dataset must be an unfrozen Draft without a manifest hash.");
         Require(dataset.TriggerToken, "LoRA trigger token");
         Require(dataset.TargetModelFamily, "LoRA target model family");
+        if (!CharacterLoraModelFamilies.IsKnown(dataset.TargetModelFamily))
+            throw new InvalidOperationException(
+                CharacterLoraModelFamilies.DescribeRefusal(dataset.TargetModelFamily, "LoRA dataset target"));
         RequireJson(dataset.CoveragePlanJson, "LoRA coverage plan");
         RequireJson(dataset.CurationPolicyJson, "LoRA curation policy");
         RequireUtc(dataset.CreatedUtc, "LoRA dataset creation time");
@@ -1069,6 +1117,9 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         Require(profile.Name, "LoRA training profile name");
         if (profile.Version <= 0) throw new InvalidOperationException("LoRA training profile version must be positive.");
         Require(profile.TargetModelFamily, "LoRA training target model family");
+        if (!CharacterLoraModelFamilies.IsKnown(profile.TargetModelFamily))
+            throw new InvalidOperationException(
+                CharacterLoraModelFamilies.DescribeRefusal(profile.TargetModelFamily, "LoRA training profile"));
         Require(profile.BaseModelId, "LoRA training base model id");
         Require(profile.BaseModelVersion, "LoRA training base model version");
         RequireSha256(profile.BaseModelSha256, "LoRA training base model checksum");

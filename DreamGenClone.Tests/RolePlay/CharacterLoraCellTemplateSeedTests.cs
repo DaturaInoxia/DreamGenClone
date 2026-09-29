@@ -84,7 +84,7 @@ public sealed class CharacterLoraCellTemplateSeedTests
             {
                 var body = (await service.ResolveAsync(key, null)).Body;
 
-                foreach (var slot in new[] { "{BodyCard}", "{Facing}", "{Wardrobe}", "{Pose}", "{Expression}", "{Lighting}", "{Background}" })
+                foreach (var slot in new[] { "{Subject}", "{Facing}", "{Wardrobe}", "{Pose}", "{Expression}", "{Lighting}", "{Background}" })
                 {
                     Assert.Contains(slot, body, StringComparison.Ordinal);
                 }
@@ -135,6 +135,7 @@ public sealed class CharacterLoraCellTemplateSeedTests
     [InlineData("piercing")]
     [InlineData("birthmark")]
     [InlineData("{BodyCard}")]
+    [InlineData("{Subject}")]
     public async Task CaptionTemplate_NeverNamesAnInvariant(string forbidden)
     {
         var (service, _, dbPath) = CreateService();
@@ -163,6 +164,74 @@ public sealed class CharacterLoraCellTemplateSeedTests
             Assert.Contains(", {Wardrobe}", body, StringComparison.Ordinal);
             Assert.Contains("{Angle}", body, StringComparison.Ordinal);
             Assert.Contains("{Distance}", body, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// A lighting phrase names the LIGHT, never the setting. The setting belongs to the Background row, so a lighting
+    /// phrase that names it too puts one fact in two places and lets the two disagree — which is exactly what produced
+    /// live cells reading "flat daylight outdoors. Background: a plain neutral wall." and "a hard rim light along the
+    /// edge of the body against a dark surround. Background: an outdoor setting with trees and open sky." Fourteen of
+    /// the plan's 36 cells paired a light with a setting it cannot occur in, and the model resolved the contradiction
+    /// toward the bright studio look its reference images already have.
+    /// </summary>
+    [Fact]
+    public async Task LightingPhrases_NameTheLightNotTheSetting()
+    {
+        var (service, _, dbPath) = CreateService();
+        try
+        {
+            var settingWords = new[]
+            {
+                "indoor", "outdoor", "outdoors", "outside", "room", "studio", "wall",
+                "bedroom", "kitchen", "living", "surround", "backdrop", "setting"
+            };
+
+            var lightingKeys = LoraCellWorkflowKeys.VocabularyKeys
+                .Where(key => key.StartsWith("lora.vocabulary.lighting.", StringComparison.Ordinal))
+                .ToList();
+            Assert.Equal(6, lightingKeys.Count);
+
+            foreach (var key in lightingKeys)
+            {
+                var body = (await service.ResolveAsync(key, null)).Body;
+                foreach (var word in settingWords)
+                {
+                    Assert.DoesNotContain(word, body, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// The render templates carry no negation in the positive. The SDXL-family model documentation is explicit that
+    /// "no X" belongs in the negative and never in the positive, and this pipeline authors NO negative at all for any
+    /// family it renders — so "no retouching" was not a mild instruction, it was text with nothing to act on. The one
+    /// clause that reads as a negation, "the face not visible", is the wording the measured back view proved and is
+    /// kept deliberately.
+    /// </summary>
+    [Fact]
+    public async Task RenderTemplates_CarryNoNegationInThePositive()
+    {
+        var (service, _, dbPath) = CreateService();
+        try
+        {
+            foreach (var key in LoraCellWorkflowKeys.RenderKeys)
+            {
+                var body = (await service.ResolveAsync(key, null)).Body;
+
+                Assert.DoesNotContain("no retouching", body, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("nothing cropped", body, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("no part of", body, StringComparison.OrdinalIgnoreCase);
+            }
         }
         finally
         {
@@ -239,7 +308,7 @@ public sealed class CharacterLoraCellTemplateSeedTests
             });
 
             Assert.Equal("candlelight", (await service.ResolveAsync(LoraCellWorkflowKeys.VocabularyLightingIndoorDim, "char-1")).Body);
-            Assert.Equal("dim indoor lighting with soft shadows",
+            Assert.Equal("dim, low-key lighting with soft shadows",
                 (await service.ResolveAsync(LoraCellWorkflowKeys.VocabularyLightingIndoorDim, "char-2")).Body);
 
             var reset = await service.ResetToSeedAsync(

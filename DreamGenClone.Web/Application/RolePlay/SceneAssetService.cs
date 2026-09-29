@@ -192,6 +192,17 @@ public sealed class SceneAssetService : ISceneAssetService
         var image = await _repository.GetImageAsync(imageId, cancellationToken)
             ?? throw new InvalidOperationException($"Scene asset image '{imageId}' was not found.");
 
+        // An image that is IN USE as a reference image is not deletable HERE, at the one place every asset-image
+        // delete goes through, so the asset pages and the wardrobe tab cannot answer "may I delete this?"
+        // differently. Its approval is what the reference pickers read and what the render pins, so removing the
+        // bytes behind it would leave bindings naming an image that no longer exists. Stopping it first is one click
+        // on the same card, and that is what makes the delete legal.
+        if (image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved)
+        {
+            throw new InvalidOperationException(
+                $"Scene asset image '{imageId}' is in use as a reference image. Stop using it first, then delete it.");
+        }
+
         await _repository.DeleteImageAsync(image.Id, cancellationToken);
         if (!string.IsNullOrWhiteSpace(image.FileRelativePath)
             && await _repository.CountByFilePathAsync(image.FileRelativePath, cancellationToken) == 0)

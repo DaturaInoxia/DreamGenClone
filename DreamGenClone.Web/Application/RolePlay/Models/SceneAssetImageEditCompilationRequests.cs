@@ -37,6 +37,32 @@ public sealed class EnqueueSceneAssetImageEditRequest
 }
 
 /// <summary>
+/// Queues a preset edit pass of an existing asset image into a new derived image (B-133). Like an identity edit
+/// there is no prompt compilation: the instruction is assembled deterministically from the picked preset's store
+/// rows, and the preset plus its instruction checksum travel with the queued row so the run can re-derive it.
+/// </summary>
+public sealed class EnqueueSceneAssetImagePresetEditRequest
+{
+    public string AssetId { get; set; } = string.Empty;
+    public string SourceImageId { get; set; } = string.Empty;
+
+    /// <summary>The picked preset, e.g. <c>image.preset.lighting.indoor-dim</c>. It names its own axis.</summary>
+    public string PresetKey { get; set; } = string.Empty;
+
+    /// <summary>The editor model the editor form selected, used unchanged by the run.</summary>
+    public string EditorModelId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The character whose override rows the instruction is assembled from, when the edit belongs to one. The run
+    /// re-derives with the SAME scope, so an override cannot be assembled one way and executed another.
+    /// </summary>
+    public string? CharacterId { get; set; }
+
+    /// <summary>The batch the derived image joins; defaults to the source's own batch, which is what an attempt deck shows.</summary>
+    public string? CandidateBatchId { get; set; }
+}
+
+/// <summary>
 /// Queues a face-only identity correction of an existing asset image into a new derived image. Like the
 /// scene identity run there is no prompt compilation: the instruction is authored from the bound
 /// characters, and the approved identity-pack faces travel with the queued row as its references.

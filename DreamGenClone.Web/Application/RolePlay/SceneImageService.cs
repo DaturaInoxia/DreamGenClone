@@ -42,6 +42,7 @@ public sealed class SceneImageService : ISceneImageService
     private readonly IImageEditorEndpointReadiness? _imageEditorEndpointReadiness;
     private readonly IDurableBackgroundJobQueue? _durableJobQueue;
     private readonly IMediaEditCompilationService? _mediaEdits;
+    private readonly IImagePresetService? _presets;
 
     public SceneImageService(
         ISessionService sessionService,
@@ -100,7 +101,8 @@ public sealed class SceneImageService : ISceneImageService
         IImageEditorModelResolver? imageEditorModelResolver = null,
         IImageEditorEndpointReadiness? imageEditorEndpointReadiness = null,
         IDurableBackgroundJobQueue? durableJobQueue = null,
-        IMediaEditCompilationService? mediaEdits = null)
+        IMediaEditCompilationService? mediaEdits = null,
+        IImagePresetService? presets = null)
     {
         _sessionService = sessionService;
         _repository = repository;
@@ -120,6 +122,7 @@ public sealed class SceneImageService : ISceneImageService
         _imageEditorEndpointReadiness = imageEditorEndpointReadiness;
         _durableJobQueue = durableJobQueue;
         _mediaEdits = mediaEdits;
+        _presets = presets;
     }
 
     public Task<SceneImageBeatAnalysisRecord?> GetBeatAnalysisByTurnAsync(
@@ -1036,6 +1039,107 @@ public sealed class SceneImageService : ISceneImageService
             MomentEnrichmentRevision = source.MomentEnrichmentRevision,
             TypedReferenceSnapshotJson = source.TypedReferenceSnapshotJson,
             AppliedReferenceBindingsJson = appliedReferenceBindingsJson
+        };
+        await _repository.InsertImageAsync(record, cancellationToken);
+        return await DispatchEditAsync(
+            record,
+            new SceneImageEditingJobPayload
+            {
+                SessionId = session.Id,
+                InteractionId = interaction.Id,
+                ImageRecordId = record.Id,
+                EditorModelId = request.EditorModelId.Trim()
+            },
+            resolvedEditorModel.ImageProtocol,
+            resolvedEditorModel,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Queues a PRESET edit pass on an existing scene image (B-133). The instruction is assembled here and recorded with
+    /// the preset that produced it, so the stage's writer can re-derive and prove it. Nothing is compiled.
+    /// </summary>
+    public async Task<SceneImageRecord> EnqueuePresetEditAsync(
+        SceneImagePresetEditRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (_presets is null)
+        {
+            throw new InvalidOperationException(
+                "A preset edit requires the preset resolver, which is not registered in this host.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.PresetKey))
+            throw new InvalidOperationException("A preset edit requires the preset it was assembled from.");
+        if (string.IsNullOrWhiteSpace(request.EditorModelId))
+            throw new InvalidOperationException("A preset edit requires the editor model chosen in the editor form.");
+
+        var session = await LoadSessionAsync(request.SessionId, cancellationToken);
+        var interaction = FindInteraction(session, request.InteractionId);
+        var source = await _repository.GetImageAsync(request.SourceImageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene image '{request.SourceImageId}' was not found.");
+        if (source.Status != SceneImageStatus.Complete)
+            throw new InvalidOperationException("Only completed scene images can be edited.");
+        if (source.BytesPurgedUtc is not null)
+            throw new InvalidOperationException("A purged scene image cannot be edited.");
+        if (!string.Equals(source.SessionId, session.Id, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(source.InteractionId, interaction.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The source scene image must belong to the selected session and interaction.");
+        }
+        if (string.IsNullOrWhiteSpace(source.FileRelativePath))
+            throw new InvalidOperationException("The completed source scene image has no stored image path.");
+        if (string.IsNullOrWhiteSpace(source.Sha256))
+            throw new InvalidOperationException("The source scene image has no stored checksum.");
+
+        var resolvedEditorModel = await ResolveEditorModelByIdForDispatchAsync(request.EditorModelId, cancellationToken);
+
+        var characterId = string.IsNullOrWhiteSpace(request.CharacterId) ? null : request.CharacterId.Trim();
+        var instruction = await _presets.ResolveInstructionAsync(
+            request.PresetKey.Trim(), ImagePresetMode.Change, characterId, cancellationToken);
+
+        var preset = new MediaEditPresetInstruction(
+            request.PresetKey.Trim(),
+            MediaEditPresetProvenance.InstructionSha256(instruction),
+            characterId);
+        MediaEditPresetProvenance.Validate(preset);
+
+        var record = new SceneImageRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interaction.Id,
+            PromptRecordId = source.PromptRecordId,
+            PromptSnapshot = instruction,
+            Status = SceneImageStatus.Pending,
+            Operation = SceneImageOperation.Edit,
+            RequestedModelId = request.EditorModelId.Trim(),
+            SourceImageId = source.Id,
+            EditCompilerProvenanceJson = JsonSerializer.Serialize(new
+            {
+                operation = MediaEditProvenance.EditValue,
+                sourceImageSha256 = source.Sha256,
+                presetInstruction = preset
+            }, JsonOptions),
+            ImageSize = source.ImageSize,
+            Style = source.Style,
+            SettingsJson = source.SettingsJson,
+            BeatId = source.BeatId,
+            Pov = source.Pov,
+            ProductionGroupId = source.ProductionGroupId,
+            CompiledMediaBriefId = source.CompiledMediaBriefId,
+            ProductionStage = SceneImageProductionStage.Preset,
+            Disposition = source.Disposition,
+            CatalogueId = source.CatalogueId,
+            BeatProductionPlanId = source.BeatProductionPlanId,
+            BeatProductionPlanVersion = source.BeatProductionPlanVersion,
+            MomentSetId = source.MomentSetId,
+            MomentSetVersion = source.MomentSetVersion,
+            MomentId = source.MomentId,
+            MomentEnrichmentId = source.MomentEnrichmentId,
+            MomentEnrichmentRevision = source.MomentEnrichmentRevision,
+            TypedReferenceSnapshotJson = source.TypedReferenceSnapshotJson,
+            AppliedReferenceBindingsJson = source.AppliedReferenceBindingsJson
         };
         await _repository.InsertImageAsync(record, cancellationToken);
         return await DispatchEditAsync(

@@ -1,0 +1,7 @@
+﻿{
+    "license":  "Civitai model 129435 terms: allowNoCredit true; allowCommercialUse Image, RentCivit, Rent; allowDerivatives FALSE. Do not redistribute this pack or a derivative of it without checking the terms - note that allowDerivatives false is stricter than the bundled pack\u0027s CreativeML Open RAIL-M.",
+    "description":  "High-angle (\"from above\") OpenPose stances, 18-joint COCO body keypoints, one person per file. Copied from the source zip\u0027s json/ folder; only the file layout was changed (one folder per category) so the library names each pose by its category. The source zip\u0027s PNG renders were not copied - the app renders its own skeleton PNGs from the keypoints.",
+    "name":  "OpenPose From Above - on knees",
+    "source":  "https://civitai.com/models/129435 - version \"On knees v1.0\" (versionId 143123), file OpenposeFromAbove_onKneesV10.zip, sha256 27bfb8bf43a445165be47a3296abcea6060523a41843a665299708969aab7425 (verified byte-for-byte against the creator\u0027s published digest)",
+    "attribution":  "Civitai model 129435 \"[OpenPose] From above\". The uploader name is not returned by the Civitai API for this model, so no author can be credited. ControlNet settings stated by the pack: preprocessor none, model openpose, control mode balanced, control weight 0.8-1.0."
+}

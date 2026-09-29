@@ -198,11 +198,206 @@ public sealed class CharacterLoraCoveragePlanGeneratorTests
             var used = plan.Records.Select(record => record.PoseClass).Distinct().ToList();
             Assert.True(used.Count >= 4, $"expected at least four pose classes, saw {used.Count}");
 
-            var core = plan.Records.Where(record => record.Role == LoraCoverageCellRole.Core);
+            // Only the framings that SHOW a stance take part: a close-up claims none, so its series is a single null
+            // by design and comparing it to itself would assert nothing.
+            var core = plan.Records.Where(record =>
+                record.Role == LoraCoverageCellRole.Core
+                && record.Distance != LoraCoverageDistance.CloseUp);
             foreach (var series in core.GroupBy(record => new { record.AngleYawDeg, record.Distance }))
             {
                 var stances = series.Select(record => record.PoseClass).ToList();
                 Assert.Equal(stances.Count, stances.Distinct().Count());
+            }
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The researched diversity rule, MEASURED on the plan the app actually generates rather than asserted by design.
+    ///
+    /// <para>
+    /// Two cells are compared by their CONDITION - angle, framing, light and setting - because wardrobe, stance,
+    /// expression and outfit are the small variations that are supposed to differ. If the condition repeats, the two
+    /// frames are the same shot with a small change, which is the near-duplicate a character LoRA memorises instead of
+    /// learning from. The report is in the failure message on purpose: a diversity claim that is not measured is how
+    /// this plan ended up with six cells per background.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Generate_NeverRepeatsACondition()
+    {
+        var world = await World.CreateAsync();
+        try
+        {
+            var plan = await world.GenerateAsync();
+
+            // Rule 1: no SETTING repeats inside an angle+framing group. These are the cells an operator shoots back to
+            // back, and a repeated scene inside a group is the near-duplicate that gets memorised.
+            var settingsPerGroup = plan.Records
+                .GroupBy(record => new { record.AngleYawDeg, record.Distance })
+                .Where(group => group.GroupBy(record => record.BackgroundKey).Any(bySetting => bySetting.Count() > 1))
+                .Select(group => $"{group.Key.Distance} yaw{group.Key.AngleYawDeg}: "
+                    + string.Join(",", group.GroupBy(record => record.BackgroundKey)
+                        .Where(g => g.Count() > 1)
+                        .Select(g => $"{g.Key}->{string.Join("/", g.Select(r => r.Key))}")))
+                .ToList();
+
+            // Rule 2: no two cells share angle + framing + light + setting. This is the researched rule - two frames in
+            // the same condition are the same shot with a small change, which is what a character LoRA memorises.
+            //
+            // KNOWN, MEASURED GAP (2026-09-27): four coherent pairs are still dealt three or four times, because the
+            // six variation cells DECLARE their light and hard-rim is coherent with only two settings, so its pairs
+            // must absorb more than their share. Closing it needs the dealer to RESERVE capacity for the declared
+            // lights, or more coherent pairs in the table. Recorded in debug/077; not asserted here so the suite does
+            // not carry a rule the plan cannot yet keep.
+            var sameCondition = plan.Records
+                .GroupBy(record => new { record.AngleYawDeg, record.Distance, record.LightingKey, record.BackgroundKey })
+                .Where(group => group.Count() > 1)
+                .Select(group => $"{group.Key.Distance} yaw{group.Key.AngleYawDeg} {group.Key.LightingKey} "
+                    + $"{group.Key.BackgroundKey} -> {string.Join("/", group.Select(record => record.Key))}")
+                .ToList();
+
+            var overUsedPairs = plan.Records
+                .GroupBy(record => $"{record.LightingKey}|{record.BackgroundKey}")
+                .Where(group => group.Count() > 2)
+                .Select(group => $"{group.Count()}x {group.Key}")
+                .ToList();
+
+            var perSetting = plan.Records
+                .GroupBy(record => record.BackgroundKey)
+                .OrderByDescending(group => group.Count())
+                .Select(group => $"{group.Count()}x{group.Key}");
+
+            var perLight = plan.Records
+                .GroupBy(record => record.LightingKey)
+                .OrderByDescending(group => group.Count())
+                .Select(group => $"{group.Count()}x{group.Key}");
+
+            Assert.True(
+                settingsPerGroup.Count == 0,
+                $"a setting repeats inside a group ({settingsPerGroup.Count}): {string.Join("; ", settingsPerGroup)}"
+                + " || pairs dealt more than twice: " + string.Join(", ", overUsedPairs)
+                + " || per setting: " + string.Join(", ", perSetting)
+                + " || per lighting: " + string.Join(", ", perLight));
+
+            Assert.True(
+                sameCondition.Count == 0,
+                $"cells sharing angle+framing+light+setting ({sameCondition.Count}): {string.Join("; ", sameCondition)}"
+                + " || per setting: " + string.Join(", ", perSetting)
+                + " || per lighting: " + string.Join(", ", perLight));
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A cell's light and its setting must be able to be true at the same time. They used to advance on two
+    /// independent cycles, which put an indoor phrase in an outdoor setting (and the reverse) in 14 of the plan's 36
+    /// cells; the model resolves a prompt that contradicts itself about WHERE the subject is toward its own prior,
+    /// which with bright studio reference images is the bright studio look this fix is about. These are the two
+    /// pairings where the contradiction is physical rather than a matter of taste.
+    /// </summary>
+    [Fact]
+    public async Task Generate_NeverPairsALightWithASettingItCannotOccurIn()
+    {
+        var world = await World.CreateAsync();
+        try
+        {
+            var plan = await world.GenerateAsync();
+
+            var outdoors = LoraCellWorkflowKeys.VocabularyBackgroundOutdoors;
+            var studio = LoraCellWorkflowKeys.VocabularyBackgroundStudio;
+            string[] naturalLight =
+            [
+                LoraCellWorkflowKeys.VocabularyLightingOutdoorDay,
+                LoraCellWorkflowKeys.VocabularyLightingOutdoorGolden,
+                LoraCellWorkflowKeys.VocabularyLightingOutdoorNight
+            ];
+            string[] studioLight =
+            [
+                LoraCellWorkflowKeys.VocabularyLightingIndoorBright,
+                LoraCellWorkflowKeys.VocabularyLightingIndoorDim,
+                LoraCellWorkflowKeys.VocabularyLightingHardRim
+            ];
+
+            foreach (var record in plan.Records)
+            {
+                if (record.BackgroundKey == outdoors)
+                {
+                    Assert.Contains(record.LightingKey, naturalLight);
+                }
+
+                if (record.BackgroundKey == studio)
+                {
+                    Assert.Contains(record.LightingKey, studioLight);
+                }
+            }
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The framing rule, asserted over the whole plan: a cell claims a stance if and only if its framing can show
+    /// one, and never a stance its framing cannot tell apart.
+    ///
+    /// <para>
+    /// This replaces the earlier close-up test, which asserted that a close-up's stance came from
+    /// standing/sitting/kneeling. That rule was not enough: a head-and-shoulders frame cannot tell those three apart
+    /// either, so the cell still stated a stance the picture contradicted and the caption still taught the tag. The
+    /// defect was the CLAIM, not the vocabulary it was drawn from.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Generate_ClaimsAStanceOnlyWhereTheFramingCanShowIt()
+    {
+        var world = await World.CreateAsync();
+        try
+        {
+            var plan = await world.GenerateAsync();
+
+            foreach (var record in plan.Records)
+            {
+                var showable = LoraCellWorkflowKeys.StancesFor(record.Distance);
+
+                if (showable.Count == 0)
+                {
+                    Assert.Null(record.PoseClass);
+                    continue;
+                }
+
+                Assert.NotNull(record.PoseClass);
+                Assert.Contains(record.PoseClass!.Value, showable);
+            }
+
+            // The stance axis survives where it is visible: the body framings still sweep it, so the set is still not
+            // one standing frame repeated and the policy's minimum is still met by cells that can show a stance.
+            var bodyCells = plan.Records
+                .Where(record => record.Distance != LoraCoverageDistance.CloseUp)
+                .Select(record => record.PoseClass!.Value)
+                .Distinct()
+                .ToList();
+            Assert.True(bodyCells.Count >= world.Policy.MinimumPoseClasses);
+
+            foreach (var stance in new[]
+                     {
+                         LoraCoveragePoseClass.Kneeling,
+                         LoraCoveragePoseClass.HandsRaised,
+                         LoraCoveragePoseClass.AllFours,
+                         LoraCoveragePoseClass.Lying
+                     })
+            {
+                Assert.Contains(plan.Records, record => record.PoseClass == stance);
+                Assert.DoesNotContain(
+                    plan.Records.Where(record => record.Distance == LoraCoverageDistance.HalfBody),
+                    record => record.PoseClass == stance);
             }
         }
         finally

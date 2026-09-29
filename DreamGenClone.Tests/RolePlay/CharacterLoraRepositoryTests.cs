@@ -1,4 +1,5 @@
 using DreamGenClone.Application.RolePlay;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
@@ -64,6 +65,75 @@ public sealed class CharacterLoraRepositoryTests
         duplicate.Id = "dataset-duplicate";
 
         await Assert.ThrowsAsync<SqliteException>(() => fixture.Repository.CreateDatasetAsync(duplicate));
+    }
+
+    [Fact]
+    public async Task Dataset_RejectsAFamilyNoQualifiedProfileCouldEverMatch()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var dataset = fixture.Dataset();
+        dataset.TargetModelFamily = "IDK";
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Repository.CreateDatasetAsync(dataset));
+
+        Assert.Contains("IDK", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(SceneImageModelFamily.QwenImage21), exception.Message, StringComparison.Ordinal);
+        Assert.Null(await fixture.Repository.GetDatasetAsync(dataset.Id));
+    }
+
+    [Fact]
+    public async Task TrainingProfile_RejectsAFamilyNoDatasetCouldEverDeclare()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var profile = fixture.TrainingProfile();
+        profile.TargetModelFamily = "sdxl";
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Repository.CreateTrainingProfileAsync(profile));
+
+        Assert.Contains("sdxl", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(SceneImageModelFamily.Sdxl), exception.Message, StringComparison.Ordinal);
+        Assert.Empty(await fixture.Repository.ListTrainingProfilesAsync());
+    }
+
+    [Fact]
+    public async Task DatasetTargetFamily_IsRetargetableWhileDraftAndRefusedOnceFrozen()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var frozen = await fixture.CreateFrozenDatasetAsync();
+
+        var draft = fixture.Dataset();
+        draft.Id = "dataset-draft-2";
+        draft.Version = 2;
+        await fixture.Repository.CreateDatasetAsync(draft);
+
+        var retargeted = await fixture.Repository.SetDatasetTargetFamilyAsync(
+            draft.Id, nameof(SceneImageModelFamily.QwenImage21));
+
+        Assert.Equal(nameof(SceneImageModelFamily.QwenImage21), retargeted.TargetModelFamily);
+        Assert.Equal(nameof(SceneImageModelFamily.QwenImage21),
+            (await fixture.Repository.GetDatasetAsync(draft.Id))!.TargetModelFamily);
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Repository.SetDatasetTargetFamilyAsync(frozen.Id, nameof(SceneImageModelFamily.QwenImage21)));
+
+        Assert.Contains("only drafts", refusal.Message, StringComparison.Ordinal);
+        Assert.Equal(nameof(SceneImageModelFamily.Sdxl),
+            (await fixture.Repository.GetDatasetAsync(frozen.Id))!.TargetModelFamily);
+    }
+
+    [Fact]
+    public async Task DatasetTargetFamily_RefusesAFamilyNothingCanTrain()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var dataset = await fixture.Repository.CreateDatasetAsync(fixture.Dataset());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Repository.SetDatasetTargetFamilyAsync(dataset.Id, "sdxl"));
+
+        Assert.Equal(nameof(SceneImageModelFamily.Sdxl),
+            (await fixture.Repository.GetDatasetAsync(dataset.Id))!.TargetModelFamily);
     }
 
     [Fact]
@@ -392,7 +462,7 @@ public sealed class CharacterLoraRepositoryTests
             Version = 1,
             Status = CharacterLoraDatasetStatus.Draft,
             TriggerToken = "dgc_character_one",
-            TargetModelFamily = "sdxl",
+            TargetModelFamily = nameof(SceneImageModelFamily.Sdxl),
             CoveragePlanJson = "{\"angles\":[\"front\",\"profile\"],\"expressions\":[\"neutral\",\"smile\"]}",
             CurationPolicyJson = "{\"duplicateThreshold\":0.95,\"identityReviewRequired\":true}",
             CreatedUtc = DateTime.UtcNow
@@ -480,7 +550,7 @@ public sealed class CharacterLoraRepositoryTests
             Version = 1,
             Status = CharacterLoraTrainingProfileStatus.Draft,
             Enabled = false,
-            TargetModelFamily = "sdxl",
+            TargetModelFamily = nameof(SceneImageModelFamily.Sdxl),
             BaseModelId = "sdxl-base",
             BaseModelVersion = "1.0",
             BaseModelSha256 = ModelSha256,

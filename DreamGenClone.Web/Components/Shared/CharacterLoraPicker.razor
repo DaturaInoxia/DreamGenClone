@@ -1,0 +1,283 @@
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Models
+
+@inject ICharacterLoraRepository LoraRepository
+
+@* THE character-LoRA picker. Every image surface renders through this component, so one rule is written once:
+   the MODEL decides what may be picked. A LoRA only binds to the checkpoint it was trained against, so the list
+   offered here comes from the qualified artifacts trained on the selected model's checkpoint and nothing else.
+   No text is typed anywhere: the artifact is a pick list, the strength is a pick list, and the render records
+   whichever values were visible here.
+
+   Identity strategies are siblings, not replacements. This picker never disables or downgrades the model's
+   reference/IP-Adapter route, and leaving it empty is a configured state ("no LoRA"): the render then emits no
+   LoraLoader node and is identical to a render made before LoRA identity existed. *@
+
+<div class="border rounded p-2">
+    <div class="d-flex justify-content-between align-items-center gap-2">
+        <strong class="small">Character LoRA</strong>
+        @if (_loading)
+        {
+            <span class="small text-muted">Checking trained LoRAs…</span>
+        }
+    </div>
+
+    @if (string.IsNullOrWhiteSpace(ModelIdentifier))
+    {
+        <div class="form-text mt-1">
+            Select a model first. A LoRA only binds to the checkpoint it was trained against, so the model decides
+            which trained LoRAs can be offered here.
+        </div>
+    }
+    else if (_error is not null)
+    {
+        <div class="alert alert-warning small mb-0 mt-1">@_error</div>
+    }
+    else if (!_loading && _available.Count == 0)
+    {
+        <div class="form-text mt-1">
+            No qualified character LoRA is trained against
+            <span class="font-monospace">@ModelIdentifier</span>.
+            <a href="/asset-studio/lora-datasets" target="_blank" rel="noreferrer">Train or qualify one</a>
+            — the render works without one.
+        </div>
+    }
+    else if (!_loading)
+    {
+        <div class="row g-1 align-items-end mt-1">
+            <div class="col-12 col-md-6">
+                <label class="form-label small mb-1" for="@Id("lora-artifact")">Trained LoRA</label>
+                <select id="@Id("lora-artifact")" class="form-select form-select-sm"
+                        value="@_addArtifactId" disabled="@(Disabled || Addable.Count == 0)"
+                        @onchange="args => _addArtifactId = args.Value?.ToString() ?? string.Empty">
+                    @if (Addable.Count == 0)
+                    {
+                        <option value="">Every trained LoRA for this model is already applied</option>
+                    }
+                    else
+                    {
+                        <option value="">Choose a character LoRA…</option>
+                        @foreach (var artifact in Addable)
+                        {
+                            <option value="@artifact.Id">@Describe(artifact)</option>
+                        }
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label small mb-1" for="@Id("lora-strength")">Strength</label>
+                <select id="@Id("lora-strength")" class="form-select form-select-sm"
+                        value="@Display(_addStrength)" disabled="@Disabled" @onchange="OnAddStrengthChanged">
+                    @foreach (var option in StrengthOptions)
+                    {
+                        <option value="@Display(option)">@Display(option)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <button type="button" class="btn btn-sm btn-outline-primary w-100"
+                        disabled="@(Disabled || string.IsNullOrWhiteSpace(_addArtifactId))"
+                        @onclick="AddAsync">
+                    <i class="bi bi-plus-lg me-1"></i>Apply LoRA
+                </button>
+            </div>
+        </div>
+        <div class="form-text">
+            This model may be rendered with several character LoRAs at once (one per character in the frame). Each is
+            applied in the order shown, and the render records every artifact, strength and checksum it used.
+        </div>
+    }
+
+    @if (Selected.Count > 0)
+    {
+        <div class="d-flex flex-column gap-2 mt-2">
+            @foreach (var selection in Selected)
+            {
+                var artifact = _available.FirstOrDefault(a => string.Equals(a.Id, selection.ArtifactId, StringComparison.Ordinal));
+                <div class="d-flex align-items-end gap-2 border-top pt-2">
+                    <div class="flex-grow-1 small text-break">
+                        @if (artifact is null)
+                        {
+                            <span class="text-warning">
+                                This LoRA is no longer qualified for
+                                <span class="font-monospace">@ModelIdentifier</span>.
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="font-monospace">@artifact.TriggerToken</span>
+                            <span class="text-muted"> · v@(artifact.Version) · @Describe(artifact)</span>
+                        }
+                    </div>
+                    <div style="width: 6rem;">
+                        <label class="form-label small mb-1" for="@Id("lora-strength-" + selection.ArtifactId)">Strength</label>
+                        <select id="@Id("lora-strength-" + selection.ArtifactId)" class="form-select form-select-sm"
+                                value="@Display(selection.Strength)" disabled="@Disabled"
+                                @onchange="args => ChangeStrengthAsync(selection.ArtifactId, args)">
+                            @foreach (var option in OptionsFor(selection.Strength))
+                            {
+                                <option value="@Display(option)">@Display(option)</option>
+                            }
+                        </select>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-danger" disabled="@Disabled"
+                            title="Remove this LoRA" @onclick="() => RemoveAsync(selection.ArtifactId)">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// The checkpoint file name ComfyUI knows, e.g. <c>bigLust_v16.safetensors</c>. The picker lists exactly the
+    /// qualified artifacts trained against it.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public string? ModelIdentifier { get; set; }
+
+    /// <summary>The LoRAs to apply, in chain order. Null/empty means NO LoRA — the render is then unchanged.</summary>
+    [Parameter]
+    public IReadOnlyList<SceneImageCharacterLoraSelection>? Selections { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<SceneImageCharacterLoraSelection>> SelectionsChanged { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Distinguishes two pickers on one page so their ids stay unique.</summary>
+    [Parameter]
+    public string Scope { get; set; } = "lora";
+
+    /// <summary>
+    /// The strengths a character LoRA is normally applied at, offered as a pick list so nothing is typed. These are
+    /// a menu, not a default: the value the operator leaves selected is shown here, travels with the render, and is
+    /// recorded in the audit event, so the strength in force is always one that was visible on screen.
+    /// </summary>
+    private static readonly double[] StrengthOptions = [0.6, 0.7, 0.8, 0.9, 1.0];
+
+    private readonly List<CharacterLoraArtifact> _available = [];
+    private string _loadedFor = string.Empty;
+    private string _addArtifactId = string.Empty;
+    private double _addStrength = 0.8;
+    private bool _loading;
+    private string? _error;
+
+    private IReadOnlyList<SceneImageCharacterLoraSelection> Selected => Selections ?? [];
+
+    /// <summary>Only LoRAs not already applied: applying the same one twice shifts an identity rather than
+    /// strengthening it, so the picker cannot express it and the render refuses it anyway.</summary>
+    private IReadOnlyList<CharacterLoraArtifact> Addable => _available
+        .Where(artifact => Selected.All(selection =>
+            !string.Equals(selection.ArtifactId, artifact.Id, StringComparison.Ordinal)))
+        .ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.Equals(ModelIdentifier, _loadedFor, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _loadedFor = ModelIdentifier ?? string.Empty;
+        _available.Clear();
+        _error = null;
+        _addArtifactId = string.Empty;
+        if (string.IsNullOrWhiteSpace(ModelIdentifier))
+        {
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            _available.AddRange(await LoraRepository.ListQualifiedArtifactsForBaseModelAsync(ModelIdentifier));
+        }
+        catch (Exception exception)
+        {
+            // The render will refuse an unavailable artifact anyway; saying so here means the operator finds out
+            // before queueing one, and no LoRA is silently dropped from the list.
+            _error = $"Trained LoRAs could not be read: {exception.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_addArtifactId))
+        {
+            return;
+        }
+
+        var next = Selected.ToList();
+        next.Add(new SceneImageCharacterLoraSelection
+        {
+            ArtifactId = _addArtifactId,
+            Strength = _addStrength
+        });
+        _addArtifactId = string.Empty;
+        await SelectionsChanged.InvokeAsync(next);
+    }
+
+    private async Task RemoveAsync(string artifactId)
+    {
+        var next = Selected
+            .Where(selection => !string.Equals(selection.ArtifactId, artifactId, StringComparison.Ordinal))
+            .ToList();
+        await SelectionsChanged.InvokeAsync(next);
+    }
+
+    private async Task ChangeStrengthAsync(string artifactId, ChangeEventArgs args)
+    {
+        if (!TryParseStrength(args.Value?.ToString(), out var strength))
+        {
+            return;
+        }
+
+        var next = Selected
+            .Select(selection => string.Equals(selection.ArtifactId, artifactId, StringComparison.Ordinal)
+                ? new SceneImageCharacterLoraSelection { ArtifactId = selection.ArtifactId, Strength = strength }
+                : selection)
+            .ToList();
+        await SelectionsChanged.InvokeAsync(next);
+    }
+
+    private void OnAddStrengthChanged(ChangeEventArgs args)
+    {
+        if (TryParseStrength(args.Value?.ToString(), out var strength))
+        {
+            _addStrength = strength;
+        }
+    }
+
+    private static bool TryParseStrength(string? value, out double strength) =>
+        double.TryParse(value, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out strength) && strength > 0;
+
+    /// <summary>The standard menu, plus whatever this selection already carries, so a value set elsewhere is never
+    /// silently replaced by the nearest menu entry.</summary>
+    private static IReadOnlyList<double> OptionsFor(double? current)
+    {
+        if (current is not { } value || StrengthOptions.Any(option => Math.Abs(option - value) < 0.0001))
+        {
+            return StrengthOptions;
+        }
+
+        return StrengthOptions.Append(value).OrderBy(option => option).ToArray();
+    }
+
+    private static string Display(double? strength) =>
+        strength?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+
+    private static string Describe(CharacterLoraArtifact artifact) =>
+        $"{artifact.TriggerToken} · v{artifact.Version} · trained on {artifact.BaseModelId}";
+
+    private string Id(string suffix) => $"{Scope}-{suffix}";
+}

@@ -31,6 +31,23 @@ public interface ISceneAssetRepository
     Task UpsertImageAsync(
         SceneAssetImage image, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Writes a compiled prompt onto an image row that already exists, with the compiler that authored it.
+    /// </summary>
+    /// <remarks>
+    /// Needed because <see cref="UpsertImageAsync"/> never updates <c>Prompt</c> (a prompt is what an image WAS made
+    /// from, so an ordinary upsert must not rewrite it). The wardrobe tab relies on the distinction: it creates the row
+    /// the moment the operator asks for an image — so there is something to see, and something to attach a failure to -
+    /// and the prompt-drafting job fills the text in afterwards.
+    /// </remarks>
+    Task SetImagePromptAsync(
+        string imageId,
+        string prompt,
+        string promptCompilerId,
+        string? negativePrompt,
+        string? associationMetadataJson,
+        CancellationToken cancellationToken = default);
+
     Task SetImageCandidateDecisionAsync(
         string imageId,
         SceneAssetCandidateDecision decision,

@@ -92,4 +92,14 @@ public interface ICharacterLoraTrainingService
     Task<CharacterLoraTrainingAttempt> ReconcileAsync(
         string trainingAttemptId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The endpoint a durable attempt was actually submitted with. A retry must reuse the endpoint recorded on the
+    /// attempt rather than whatever a form happens to hold: the attempt IS the record of where the work was sent, and
+    /// requiring an operator to re-pick a provider to retry a job that already has one is friction the durable job
+    /// exists to remove.
+    /// </summary>
+    Task<CharacterLoraTrainingEndpoint?> GetPersistedEndpointAsync(
+        string trainingAttemptId,
+        CancellationToken cancellationToken = default);
 }

@@ -44,6 +44,31 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
 
     public bool SupportsIdentity => true;
 
+    /// <summary>
+    /// A scene image CAN take a preset edit pass (B-133). The run is queued at its own production stage, so it never
+    /// passes through the compiled stage's session, attempt and revision validation - which is why it needed a stage
+    /// rather than a flag on the existing one.
+    /// </summary>
+    public bool SupportsPresetEdits => true;
+
+    /// <inheritdoc />
+    public async Task<string> RunPresetAsync(
+        ImageEditSubject subject,
+        string presetKey,
+        string editorModelId,
+        CancellationToken cancellationToken = default)
+    {
+        var image = await _images.EnqueuePresetEditAsync(new SceneImagePresetEditRequest
+        {
+            SessionId = Require(subject.SessionId, "SessionId"),
+            InteractionId = Require(subject.InteractionId, "InteractionId"),
+            SourceImageId = subject.ImageId,
+            PresetKey = presetKey,
+            EditorModelId = editorModelId
+        }, cancellationToken);
+        return image.Id;
+    }
+
     public async Task<ImageEditSource?> GetSourceAsync(
         ImageEditSubject subject, CancellationToken cancellationToken = default)
     {

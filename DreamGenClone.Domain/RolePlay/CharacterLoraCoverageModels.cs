@@ -104,7 +104,18 @@ public sealed class CoverageRecord
 
     public LoraCoverageWardrobeState WardrobeState { get; set; }
 
-    public LoraCoveragePoseClass PoseClass { get; set; }
+    /// <summary>
+    /// The stance this cell is shot in, or NULL when its framing shows no stance at all.
+    ///
+    /// <para>
+    /// A head-and-shoulders close-up cannot tell standing from sitting from kneeling, so a stance named on one is a
+    /// claim the picture cannot support - the render contradicts it and the caption teaches the tag anyway. Null is
+    /// therefore not "unknown": it is the cell stating that its framing carries no stance, and both the prompt and
+    /// the caption drop the element instead of inventing one. See
+    /// <see cref="LoraCellWorkflowKeys.StancesFor"/> for the stances each framing can actually tell apart.
+    /// </para>
+    /// </summary>
+    public LoraCoveragePoseClass? PoseClass { get; set; }
 
     /// <summary>Vocabulary key for the expression phrase (resolved from the plan's snapshot).</summary>
     public string ExpressionKey { get; set; } = string.Empty;
@@ -150,8 +161,26 @@ public sealed class CoverageRecord
             throw new InvalidOperationException($"Coverage cell '{Key}' has an unsupported distance.");
         if (!Enum.IsDefined(WardrobeState))
             throw new InvalidOperationException($"Coverage cell '{Key}' has an unsupported wardrobe state.");
-        if (!Enum.IsDefined(PoseClass))
-            throw new InvalidOperationException($"Coverage cell '{Key}' has an unsupported pose class.");
+        // The stance rule. A framing that shows a body must claim a stance; a framing that shows none must not
+        // claim one. Both directions are errors, and each names the cell and the frame that caused it.
+        var stances = LoraCellWorkflowKeys.StancesFor(Distance);
+        if (PoseClass is { } stance)
+        {
+            if (!Enum.IsDefined(stance))
+                throw new InvalidOperationException($"Coverage cell '{Key}' has an unsupported pose class.");
+            if (!stances.Contains(stance))
+            {
+                throw new InvalidOperationException(
+                    $"Coverage cell '{Key}': a {Distance} frame cannot show the stance '{stance}'. The stances it "
+                    + $"can tell apart are: {(stances.Count == 0 ? "none" : string.Join(", ", stances))}.");
+            }
+        }
+        else if (stances.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Coverage cell '{Key}': a {Distance} frame shows the body, so it must state the stance it is shot "
+                + $"in. The stances available to it are: {string.Join(", ", stances)}.");
+        }
         if (!Enum.IsDefined(Split))
             throw new InvalidOperationException($"Coverage cell '{Key}' has an unsupported split.");
         if (!Enum.IsDefined(BodyCanonicalSlot))
@@ -202,7 +231,7 @@ public sealed class CoverageRecord
 public sealed class CoveragePlan
 {
     /// <summary>Bumped when the shape of this document changes, so an old stored plan is never misread.</summary>
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -385,6 +414,40 @@ public sealed class CoveragePlan
 
         var plan = JsonSerializer.Deserialize<CoveragePlan>(json, JsonOptions)
             ?? throw new InvalidOperationException("The coverage plan is invalid.");
+        plan.Validate();
+        return plan;
+    }
+
+    /// <summary>
+    /// Reads a plan that was PERSISTED, which is not the same thing as reading one that was just generated.
+    ///
+    /// <para>
+    /// A stored plan is data: it was written under the rules in force the day it was generated, and those rules change
+    /// - the framing rule changed on 2026-09-27, when a close-up stopped being allowed to claim a stance. Validating a
+    /// stored plan strictly turns every such change into a page that will not open for datasets that already exist,
+    /// which is exactly what happened to Becky's v1 plan: "a CloseUp frame cannot show the stance 'Standing'". So a
+    /// plan from an older schema is RETURNED, with the reason it is stale, and the operator regenerates it. The strict
+    /// check stays where it belongs: at generation, and on the write path.
+    /// </para>
+    /// </summary>
+    public static CoveragePlan FromStoredJson(string json, out string? staleReason)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            throw new InvalidOperationException("The coverage plan is empty.");
+        }
+
+        staleReason = null;
+        var plan = JsonSerializer.Deserialize<CoveragePlan>(json, JsonOptions)
+            ?? throw new InvalidOperationException("The coverage plan is invalid.");
+
+        if (plan.SchemaVersion != CurrentSchemaVersion)
+        {
+            staleReason = $"it was generated under schema version {plan.SchemaVersion} and this build generates "
+                + $"version {CurrentSchemaVersion}";
+            return plan;
+        }
+
         plan.Validate();
         return plan;
     }

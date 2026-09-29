@@ -96,21 +96,36 @@ public static class ReferenceSlotPlanner
 
         blueprint.Validate();
 
-        var bySlot = new Dictionary<(ImageStepSlotKind, string), ImageStepSlotAssignment>();
+        var declared = blueprint.Slots
+            .Select(slot => (slot.SlotKind, Key: slot.ActorKey ?? string.Empty, Slot: slot))
+            .ToArray();
+
+        // One LIST per slot rather than one assignment: a slot that declares AllowsMultiple (a wardrobe, where the
+        // operator may name the dress AND the shoes) accepts several references, and every other slot still refuses a
+        // second one. That refusal is what stands between "the operator bound a second image" and "the render used the
+        // first and silently dropped the rest", so it is kept for every slot that does not opt in.
+        var bySlot = new Dictionary<(ImageStepSlotKind, string), List<ImageStepSlotAssignment>>();
         foreach (var assignment in assignments)
         {
-            if (!bySlot.TryAdd((assignment.SlotKind, assignment.ActorKey ?? string.Empty), assignment))
+            var key = (assignment.SlotKind, assignment.ActorKey ?? string.Empty);
+            var allowsMultiple = declared
+                .FirstOrDefault(entry => entry.SlotKind == key.Item1 && string.Equals(entry.Key, key.Item2, StringComparison.Ordinal))
+                .Slot?.AllowsMultiple ?? false;
+            if (!bySlot.TryGetValue(key, out var slotAssignments))
+            {
+                slotAssignments = [];
+                bySlot[key] = slotAssignments;
+            }
+            else if (!allowsMultiple)
             {
                 throw new InvalidOperationException(
                     $"Slot '{assignment.SlotKind}'"
                     + (string.IsNullOrWhiteSpace(assignment.ActorKey) ? string.Empty : $" for actor '{assignment.ActorKey}'")
                     + " was filled more than once for one step.");
             }
-        }
 
-        var declared = blueprint.Slots
-            .Select(slot => (slot.SlotKind, Key: slot.ActorKey ?? string.Empty, Slot: slot))
-            .ToArray();
+            slotAssignments.Add(assignment);
+        }
 
         foreach (var assignment in assignments)
         {
@@ -164,32 +179,37 @@ public static class ReferenceSlotPlanner
                     : $". Remove references, or raise the model's MaxReferences in Model Manager (/model-manager)."));
         }
 
-        var bindings = new List<ReferenceApplicationSelection>(declared.Length);
+        var bindings = new List<ReferenceApplicationSelection>(assignments.Count);
         foreach (var entry in declared)
         {
-            if (!bySlot.TryGetValue((entry.SlotKind, entry.Key), out var assignment))
+            if (!bySlot.TryGetValue((entry.SlotKind, entry.Key), out var slotAssignments))
             {
                 continue;
             }
 
-            bindings.Add(new ReferenceApplicationSelection
+            // A multi slot keeps the order the host supplied its images in, so the first one the operator bound stays
+            // the first reference the model sees (slot order decides placement).
+            foreach (var assignment in slotAssignments)
             {
-                ElementKey = ElementKeyFor(entry.SlotKind),
-                Kind = entry.SlotKind.ToString(),
-                ActorKey = entry.Key.Length == 0 ? null : entry.Key,
-                SemanticRole = SemanticRoleFor(entry.SlotKind),
-                Source = assignment.Source.SourceKind.ToString(),
-                Strategy = assignment.Source.Strategy,
-                SceneAssetId = assignment.Source.SceneAssetId,
-                SceneAssetImageId = assignment.Source.SceneAssetImageId,
-                SceneAssetVersion = assignment.Source.SceneAssetVersion,
-                SceneAssetSha256 = assignment.Source.SceneAssetSha256,
-                SkeletonRelativePath = assignment.Source.SkeletonRelativePath,
-                PosePresetId = assignment.Source.PosePresetId,
-                IdentityPackId = assignment.Source.IdentityPackId,
-                ReferenceAssetId = assignment.Source.ReferenceAssetId,
-                Ordinal = bindings.Count + 1
-            });
+                bindings.Add(new ReferenceApplicationSelection
+                {
+                    ElementKey = ElementKeyFor(entry.SlotKind),
+                    Kind = entry.SlotKind.ToString(),
+                    ActorKey = entry.Key.Length == 0 ? null : entry.Key,
+                    SemanticRole = SemanticRoleFor(entry.SlotKind),
+                    Source = assignment.Source.SourceKind.ToString(),
+                    Strategy = assignment.Source.Strategy,
+                    SceneAssetId = assignment.Source.SceneAssetId,
+                    SceneAssetImageId = assignment.Source.SceneAssetImageId,
+                    SceneAssetVersion = assignment.Source.SceneAssetVersion,
+                    SceneAssetSha256 = assignment.Source.SceneAssetSha256,
+                    SkeletonRelativePath = assignment.Source.SkeletonRelativePath,
+                    PosePresetId = assignment.Source.PosePresetId,
+                    IdentityPackId = assignment.Source.IdentityPackId,
+                    ReferenceAssetId = assignment.Source.ReferenceAssetId,
+                    Ordinal = bindings.Count + 1
+                });
+            }
         }
 
         return bindings;

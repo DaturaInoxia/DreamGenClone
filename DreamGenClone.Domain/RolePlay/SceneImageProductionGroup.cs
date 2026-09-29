@@ -13,7 +13,14 @@ public enum SceneImageProductionStage
 {
     Composition = 1,
     Identity = 2,
-    Finish = 3
+    Finish = 3,
+
+    /// <summary>
+    /// A preset edit pass (B-133): relight or re-express an existing attempt from a picked preset whose instruction was
+    /// assembled deterministically, with no compiler artifact behind it. Its own stage rather than a flag, because the
+    /// compiled stage validates a session, attempt and revision that a preset run does not have.
+    /// </summary>
+    Preset = 4
 }
 
 public enum SceneImageAttemptDisposition

@@ -50,6 +50,10 @@
                 <span class="small text-muted">Processing...</span>
             }
         </div>
+        @if (!string.IsNullOrWhiteSpace(_message))
+        {
+            <div class="alert alert-secondary py-1 small mb-2">@_message</div>
+        }
         @if (_images.Count == 0)
         {
             <div class="border rounded p-4 text-center text-muted">No images yet. Generate or upload the first one above.</div>
@@ -93,13 +97,28 @@
                             @if (image.Status == SceneAssetStatus.Complete)
                             {
                                 <div class="card-footer d-flex gap-1 justify-content-end">
-                                    <a class="btn btn-sm btn-outline-primary" href="/assets/@_asset.Id/images/@image.Id/edit" title="Edit image"><i class="bi bi-magic"></i></a>
+                                    <a class="btn btn-sm btn-outline-primary" href="/assets/@_asset.Id/images/@image.Id/edit?return=/asset-studio/@_asset.Id" title="Edit image"><i class="bi bi-magic"></i></a>
                                     <a class="btn btn-sm btn-outline-success" href="/assets/@_asset.Id/images/@image.Id/review" title="Review image"><i class="bi bi-check2-circle"></i></a>
                                     @if (!string.IsNullOrWhiteSpace(image.CandidateBatchId))
                                     {
                                         <a class="btn btn-sm btn-outline-info" href="/review-deck/asset/@image.CandidateBatchId" title="Review candidate batch"><i class="bi bi-collection-play"></i></a>
                                     }
                                     <a class="btn btn-sm btn-outline-secondary" href="/asset-studio/images/@image.Id/download" title="Download image"><i class="bi bi-download"></i></a>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" disabled="@_busy"
+                                            title="Delete this image" @onclick="() => DeleteImageAsync(image)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                @* A failed or still-running attempt is deletable too: the operator's way of cleaning up a
+                                   bad generation must not depend on it having succeeded. *@
+                                <div class="card-footer d-flex gap-1 justify-content-end">
+                                    <button type="button" class="btn btn-sm btn-outline-danger" disabled="@_busy"
+                                            title="Delete this image" @onclick="() => DeleteImageAsync(image)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
                                 </div>
                             }
                         </article>
@@ -115,6 +134,33 @@
 
     private SceneAsset? _asset;
     private List<SceneAssetImage> _images = [];
+    private bool _busy;
+    private string? _message;
+
+    /// <summary>
+    /// Deletes one image. The service refuses an image that is IN USE as a reference image, and its message is shown
+    /// verbatim: "stop using it first" is an instruction the operator can act on, and inventing a nicer sentence here
+    /// would be a second, drifting copy of the rule.
+    /// </summary>
+    private async Task DeleteImageAsync(SceneAssetImage image)
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            await AssetService.DeleteImageAsync(image.Id);
+            _message = $"Deleted image {image.Id[..Math.Min(8, image.Id.Length)]}…";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     private System.Threading.Timer? _timer;
     private readonly object _timerLock = new();

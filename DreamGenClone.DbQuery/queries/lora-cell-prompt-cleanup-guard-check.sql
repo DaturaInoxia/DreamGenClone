@@ -1,0 +1,1 @@
+SELECT COUNT(*) AS EditedLoraRows, group_concat(Key, ' | ') AS Keys FROM ImageWorkflowPromptTemplates WHERE (Key LIKE 'lora.cell.render.%' OR Key LIKE 'lora.vocabulary.lighting.%') AND Body <> SeedBody;

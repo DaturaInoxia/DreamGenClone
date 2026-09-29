@@ -125,6 +125,17 @@ public sealed class CharacterLoraTrainingService : ICharacterLoraTrainingService
         return succeeded;
     }
 
+    public async Task<CharacterLoraTrainingEndpoint?> GetPersistedEndpointAsync(
+        string trainingAttemptId,
+        CancellationToken cancellationToken = default)
+    {
+        var attempt = await _repository.GetTrainingAttemptAsync(trainingAttemptId, cancellationToken)
+            ?? throw new InvalidOperationException($"LoRA training attempt '{trainingAttemptId}' was not found.");
+        return string.IsNullOrWhiteSpace(attempt.RequestSnapshotJson)
+            ? null
+            : DeserializeRequest(attempt.RequestSnapshotJson).Endpoint;
+    }
+
     private async Task<CharacterLoraTrainingAttempt> SubmitAttemptAsync(
         string trainingJobId,
         CharacterLoraTrainingEndpoint endpoint,

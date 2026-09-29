@@ -30,6 +30,14 @@ public interface ISceneImageService
         SceneImageEditRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Enqueue a PRESET edit pass on a completed scene image (B-133): relight it, or change its facial expression, from
+    /// a picked preset. No compiler artifact is involved - the instruction is assembled deterministically from the
+    /// preset's store rows - so the row records the preset and its instruction checksum instead of a revision.
+    /// </summary>
+    Task<SceneImageRecord> EnqueuePresetEditAsync(
+        SceneImagePresetEditRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Enqueue a deterministic crop of a completed scene image into a new derived image. No editor model,
     /// prompt revision or compiler artifact is involved — the crop is an operation, so the row it creates
     /// records the operation and inherits its source's lineage.

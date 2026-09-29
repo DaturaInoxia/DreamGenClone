@@ -349,6 +349,58 @@ public sealed class SceneAssetRepositoryTests
         return repo;
     }
 
+    // ------------------------------------------------------------------ prompt compilation (wardrobe items, B-134)
+
+    /// <summary>
+    /// A compiled prompt is written onto an EXISTING row by its own narrow UPDATE, because the ordinary upsert
+    /// deliberately never touches Prompt: a stored prompt is what an image WAS made from. The wardrobe tab depends on
+    /// both halves of that split - the row exists as soon as the operator asks (so there is something to see and
+    /// something to fail into), and the prompt lands on it once it has been drafted.
+    /// </summary>
+    [Fact]
+    public async Task SetImagePromptAsync_WritesPromptAndCompilerOntoTheExistingRow_AndTheUpsertCannot()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await repo.UpsertAsync(new SceneAsset
+            {
+                Id = "a1", Name = "Dress", Kind = SceneAssetKind.PromptGenerated,
+                Status = SceneAssetStatus.Pending, Type = SceneAssetType.Wardrobe
+            });
+            var image = new SceneAssetImage
+            {
+                Id = "img-1", AssetId = "a1", Kind = SceneAssetKind.PromptGenerated,
+                Status = SceneAssetStatus.Pending, Prompt = "a yellow sundress",
+                MediaType = "image/png", AssociationMetadataJson = "{\"stage\":\"compiling\"}"
+            };
+            await repo.UpsertImageAsync(image);
+
+            // The ordinary upsert must NOT rewrite a stored prompt.
+            image.Prompt = "changed by an ordinary save";
+            await repo.UpsertImageAsync(image);
+            Assert.Equal("a yellow sundress", (await repo.GetImageAsync("img-1"))!.Prompt);
+
+            await repo.SetImagePromptAsync(
+                "img-1",
+                "A product photograph of a yellow cotton sundress laid flat on a plain light-grey surface.",
+                "wardrobe-item-qwen-image-21-natural-language",
+                negativePrompt: null,
+                associationMetadataJson: "{\"stage\":\"compiled\"}");
+
+            var loaded = (await repo.GetImageAsync("img-1"))!;
+            Assert.Equal("A product photograph of a yellow cotton sundress laid flat on a plain light-grey surface.", loaded.Prompt);
+            Assert.Equal("wardrobe-item-qwen-image-21-natural-language", loaded.PromptCompilerId);
+            Assert.Null(loaded.NegativePrompt);
+            Assert.Equal("{\"stage\":\"compiled\"}", loaded.AssociationMetadataJson);
+            Assert.Equal(SceneAssetStatus.Pending, loaded.Status);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
     private static void Cleanup(string dbPath)
     {
         foreach (var suffix in new[] { "", "-wal", "-shm" })

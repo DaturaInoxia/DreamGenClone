@@ -62,6 +62,18 @@ public sealed class SceneImageStudioSettings
     /// unchanged (default behavior).
     /// </summary>
     public ScenePromptOverrides? PromptOverrides { get; set; }
+
+    /// <summary>
+    /// The character LoRAs this render applies, in chain order (one per bound character). Null/empty means NO
+    /// LoRA: the graph then emits no <c>LoraLoader</c> node and the render is byte-for-byte the render this app
+    /// produced before LoRA identity existed.
+    ///
+    /// This is the OPERATOR's choice, recorded per render so that (a) two versions of a character's LoRA can be
+    /// compared on the same beat and seed, and (b) a multi-character frame can be reproduced exactly. Identity
+    /// strategies are siblings: choosing a LoRA here does not disable the model's reference/IP-Adapter route,
+    /// which still applies to every render that selects no LoRA.
+    /// </summary>
+    public List<SceneImageCharacterLoraSelection>? CharacterLoras { get; set; }
 }
 
 /// <summary>
@@ -78,4 +90,21 @@ public sealed class SceneImagePoseReference
 
     /// <summary>ControlNet conditioning strength (0 &lt; strength &lt;= 1).</summary>
     public double Strength { get; set; } = 0.8;
+}
+
+/// <summary>
+/// One character LoRA the operator selected for a render: which trained artifact, and at what strength.
+///
+/// The strength is deliberately nullable-with-no-default rather than a magic number: a LoRA applied at a
+/// strength nobody chose is a different identity from the one that was trained, so an unstated strength is
+/// refused at resolution time instead of being guessed (the same rule the Qwen editor LoRA already follows).
+/// </summary>
+public sealed class SceneImageCharacterLoraSelection
+{
+    /// <summary>The <c>CharacterLoraArtifact</c> row to apply. Must be Qualified and must belong to the resolved
+    /// render model; a mismatch fails the render rather than quietly rendering a different person.</summary>
+    public string ArtifactId { get; set; } = string.Empty;
+
+    /// <summary>Model and clip strength for this LoRA. Required and positive whenever an artifact is named.</summary>
+    public double? Strength { get; set; }
 }

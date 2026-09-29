@@ -58,6 +58,13 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
     /// <summary>Resolves the approved canonical face a selected identity pack contributes.</summary>
     private readonly IdentityFaceReferenceResolver? _identityFaceResolver;
 
+    /// <summary>
+    /// Optional: only a render that SELECTED a character LoRA needs it, and such a render fails fast when it is
+    /// absent rather than rendering the character without their identity (which would be indistinguishable from a
+    /// render that applied it). A render that selected none never asks for it.
+    /// </summary>
+    private readonly ISceneImageCharacterLoraResolver? _characterLoraResolver;
+
     public SceneImageRenderingJobHandler(
         ISceneImageRepository repository,
         ISceneImageStorageService storage,
@@ -75,7 +82,8 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         MediaEditReferenceResolver? referenceResolver = null,
         ICharacterImageAssetStorageService? identityStorage = null,
         IReferenceStrategyResolver? referenceStrategyResolver = null,
-        IdentityFaceReferenceResolver? identityFaceResolver = null)
+        IdentityFaceReferenceResolver? identityFaceResolver = null,
+        ISceneImageCharacterLoraResolver? characterLoraResolver = null)
     {
         _repository = repository;
         _storage = storage;
@@ -94,6 +102,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         _identityStorage = identityStorage;
         _referenceStrategyResolver = referenceStrategyResolver;
         _identityFaceResolver = identityFaceResolver;
+        _characterLoraResolver = characterLoraResolver;
     }
 
     public string JobType => BackgroundJobTypes.SceneImageRendering;
@@ -148,6 +157,17 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
             var injectedPrompt = InjectPlaceholders(prompt, image.SettingsJson);
             var seed = ResolveSeed(image.SettingsJson);
 
+            // Character LoRA identity, chosen per render. A render that selected no LoRA gets an empty list and its
+            // resolved model, prompt and graph stay EXACTLY as they were, so the reference/IP-Adapter route is
+            // untouched for every other render. The trigger token goes into the prompt here, before the audit
+            // event, because an audit that showed the prompt without the token would not be the prompt we sent.
+            var characterLoras = await ResolveCharacterLorasAsync(resolved, image.SettingsJson, cancellationToken);
+            if (characterLoras.Count > 0)
+            {
+                resolved = resolved with { Loras = characterLoras };
+                injectedPrompt = PrependCharacterLoraTokens(injectedPrompt, characterLoras);
+            }
+
             // Permanent observability: record the EXACT payload the app submits to ComfyUI so the
             // submitted positive/negative/seed/checkpoint can be audited against the script or
             // provider results, and verified unchanged from the user's pasted prompt.
@@ -167,7 +187,19 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                 steps = ResolveAuditedSteps(resolved, image.SettingsJson),
                 cfg = ResolveAuditedCfg(resolved, image.SettingsJson),
                 sampler = ResolveAuditedSampler(resolved, image.SettingsJson),
-                scheduler = ResolveAuditedScheduler(resolved, image.SettingsJson)
+                scheduler = ResolveAuditedScheduler(resolved, image.SettingsJson),
+                // The LoRA chain belongs in the audited request for the same reason the sampler recipe does: an
+                // image made with version 1 of a character's LoRA must be tellable apart from version 2, and the
+                // recorded checksum is what makes that comparison exact rather than eyeballed.
+                loras = characterLoras.Select(lora => new
+                {
+                    artifactId = lora.ArtifactId,
+                    character = lora.CharacterName,
+                    file = lora.FileName,
+                    strength = lora.Strength,
+                    sha256 = lora.Sha256,
+                    triggerToken = lora.TriggerToken
+                }).ToArray()
             }, cancellationToken);
 
             byte[] bytes;
@@ -803,6 +835,59 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
     }
 
     /// <summary>Reads the optional pose conditioning from the settings snapshot; null when absent or malformed.</summary>
+    /// <summary>
+    /// The character LoRAs this render applies. No selection returns an empty list without asking any repository,
+    /// so the common render costs nothing; a render that DID select one fails fast when the resolver is not
+    /// registered, because rendering the character without it would look exactly like success.
+    /// </summary>
+    private async Task<IReadOnlyList<ResolvedCharacterLora>> ResolveCharacterLorasAsync(
+        ResolvedImageModel resolved,
+        string settingsJson,
+        CancellationToken cancellationToken)
+    {
+        var settings = ReadStudioSettings(settingsJson);
+        if (settings?.CharacterLoras is not { Count: > 0 })
+        {
+            return [];
+        }
+
+        var resolver = _characterLoraResolver
+            ?? throw new InvalidOperationException(
+                "This render selects character LoRA(s), but the character LoRA resolver is not available, so the "
+                + "selected identity cannot be applied. Rendering without it would produce a different person.");
+        return await resolver.ResolveAsync(resolved, settings, cancellationToken);
+    }
+
+    /// <summary>
+    /// States each character's trigger token in the prompt so the LoRA actually binds to them. Without the token
+    /// the graph would happily load the LoRA and render a stranger — a failure indistinguishable from success.
+    /// Order follows the chain, so a multi-character frame names each character in the order its LoRA is applied.
+    /// </summary>
+    private static string PrependCharacterLoraTokens(
+        string prompt,
+        IReadOnlyList<ResolvedCharacterLora> loras)
+    {
+        var tokens = string.Join(", ", loras.Select(lora => lora.TriggerToken.Trim()));
+        return tokens.Length == 0 ? prompt : $"{tokens}, {prompt}";
+    }
+
+    private static SceneImageStudioSettings? ReadStudioSettings(string? settingsJson)
+    {
+        if (string.IsNullOrWhiteSpace(settingsJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<SceneImageStudioSettings>(settingsJson, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private static SceneImagePoseReference? ReadPoseReference(string? settingsJson)
     {
         if (string.IsNullOrWhiteSpace(settingsJson))

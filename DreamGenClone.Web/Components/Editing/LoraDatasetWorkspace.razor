@@ -5,6 +5,7 @@
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Editing
 @using DreamGenClone.Web.Application.RolePlay.ImageStep
 
 @inject ICharacterLoraRepository LoraRepository
@@ -15,7 +16,9 @@
 @inject ICharacterIdentityOwnerResolver OwnerResolver
 @inject IModelResolutionService ModelResolutionService
 @inject IImageWorkflowTemplateService TemplateService
+@inject IImagePresetService ImagePresets
 @inject ILogger<LoraDatasetWorkspace> Logger
+@inject IJSRuntime JS
 
 @* The LoRA images tab: the plan on the left, the cell being worked on the right.
    The plan is a checklist the operator works through one cell at a time. Nothing here renders: there is no
@@ -49,6 +52,18 @@ else
     @if (!string.IsNullOrWhiteSpace(_status))
     {
         <div class="alert alert-info py-2">@_status</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_planStaleReason))
+    {
+        @* A plan is DATA: it was written under the rules in force the day it was generated. The framing rule changed on
+           2026-09-27, and refusing to load the plans that predate it made this page unopenable for every existing
+           dataset. So the plan is shown, the reason it is stale is stated, and the fix is a new dataset version - which
+           is the same action that produces a corrected plan. *@
+        <div class="alert alert-warning py-2" role="alert">
+            <strong>This plan predates the current rules</strong> - @_planStaleReason. It can be read, but some of its
+            cells ask for things their framing cannot show. Create a new dataset version to project the corrected plan
+            onto the same matrix.
+        </div>
     }
 
     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -112,8 +127,14 @@ else
                         </div>
                         <div class="col-md-4">
                             <label class="form-label small" for="lora-family">Target model family</label>
-                            <input id="lora-family" class="form-control form-control-sm" @bind="_newTargetFamily" />
-                            <div class="form-text">The family a training profile exists for; a LoRA is trained per base model.</div>
+                            <select id="lora-family" class="form-select form-select-sm" @bind="_newTargetFamily">
+                                <option value="">Select a family</option>
+                                @foreach (var family in CharacterLoraModelFamilies.All)
+                                {
+                                    <option value="@family">@family</option>
+                                }
+                            </select>
+                            <div class="form-text">What this set is being trained for. A training profile must be qualified for the same family; a family spelled any other way matches no profile.</div>
                         </div>
                     </div>
                     <button type="button" class="btn btn-sm btn-primary mt-3" @onclick="CreateDatasetAsync" disabled="@_busy">
@@ -139,6 +160,33 @@ else
             <div class="card-body py-2">
                 <div class="d-flex flex-wrap align-items-center gap-3 small">
                     <span><strong>cells accepted</strong> @AcceptedCount/@_plan.Records.Count</span>
+                    @* Next cell, where the counter is: working through a 36-cell matrix meant going back to the list for
+                       every cell. It walks the CURRENT filter, so "Not accepted" turns this into a to-do march. *@
+                    <button type="button" class="btn btn-sm btn-outline-primary py-0" @onclick="NextCellAsync"
+                            title="Move to the next cell in the list (follows the filter above)">
+                        <i class="bi bi-arrow-right-circle me-1"></i>Next cell
+                    </button>
+                    @* The whole dataset in one deck. Reviewing a training set used to mean opening 36 cells one at a time,
+                       and the deck's back button had no scope to return to. The accepted/all choice is carried in the
+                       address, and `return` brings the operator back to this cell. *@
+                    @if (!string.IsNullOrWhiteSpace(_selectedDatasetId))
+                    {
+                        <a class="btn btn-sm btn-outline-info py-0" href="@DatasetReviewDeckUrl("all")"
+                           title="Review every attempt in this dataset">
+                            <i class="bi bi-images me-1"></i>Review deck — all images
+                        </a>
+                        <a class="btn btn-sm btn-outline-info py-0" href="@DatasetReviewDeckUrl("accepted")"
+                           title="Review only the attempts you accepted">
+                            <i class="bi bi-check2-circle me-1"></i>Accepted only (@AcceptedCount)
+                        </a>
+                        @* Where the shoot ends and the training set begins. Registering the accepted images and
+                           freezing the manifest happen on the dataset's own page, and nothing here linked to it, so
+                           the next step after the last cell was a URL nobody could guess. *@
+                        <a class="btn btn-sm btn-outline-success py-0" href="/asset-studio/lora-datasets/@_selectedDatasetId"
+                           title="Register the accepted cell images as dataset members, then freeze the manifest">
+                            <i class="bi bi-box-seam me-1"></i>Curate &amp; freeze dataset
+                        </a>
+                    }
                     <span><strong>captions</strong> @CaptionCount/@AcceptedCount</span>
                     <span><strong>clothed / nude</strong> @ClothedCount / @UnclothedCount</span>
                     <span><strong>backgrounds</strong> @BackgroundCount (min @_policy?.MinimumDistinctBackgrounds)</span>
@@ -173,8 +221,11 @@ else
                         {
                             <select class="form-select form-select-sm w-auto" value="@_filter" @onchange="OnFilterChanged" aria-label="Filter cells">
                                 <option value="all">All @_plan.Records.Count</option>
-                                <option value="remaining">Not accepted (@(_plan.Records.Count - AcceptedCount))</option>
+                                <option value="planned">Planned (@PlannedCount)</option>
+                                <option value="in review">In review (@InReviewCount)</option>
                                 <option value="accepted">Accepted (@AcceptedCount)</option>
+                                <option value="rejected">Rejected (@RejectedCount)</option>
+                                <option value="remaining">Not accepted (@(_plan.Records.Count - AcceptedCount))</option>
                             </select>
                         }
                     </div>
@@ -187,7 +238,7 @@ else
                     }
                     else
                     {
-                        <ul class="list-group list-group-flush" style="max-height:70vh;overflow-y:auto;">
+                        <ul class="list-group list-group-flush" style="max-height:78vh;overflow-y:auto;">
                             @foreach (var row in FilteredRows)
                             {
                                 <li class="list-group-item py-2 @(row.Record.Key == _selectedCellKey ? "active" : "")"
@@ -231,7 +282,7 @@ else
                                 @SelectedRecord.AngleFamily · @SelectedRecord.Distance · @SelectedRecord.Aspect · seed @SelectedRecord.Seed
                             </span>
                         </div>
-                        <div class="card-body">
+                        <div class="card-body d-flex flex-column">
                             <dl class="row small mb-3">
                                 <dt class="col-sm-3">Wardrobe</dt>
                                 <dd class="col-sm-9">@SelectedRecord.WardrobeState — @SelectedWardrobePhrase</dd>
@@ -259,6 +310,10 @@ else
                                 bind to the token instead of to a description the model could vary.
                             </div>
 
+                            @* The attempts come FIRST and the shooting step below them: the operator's next action is
+                               almost always to look at what came back, not to re-read the shot controls. The two blocks
+                               are ordered with flex `order` rather than moved, so the markup stays in reading order. *@
+                            <div class="order-1">
                             <h6 class="text-uppercase text-muted small">Shoot this cell</h6>
                             @if (!string.IsNullOrWhiteSpace(_error))
                             {
@@ -281,6 +336,10 @@ else
                                                BindingsChanged="OnCellBindingsChanged"
                                                Prompt="@_cellPromptDraft"
                                                PromptChanged="OnCellPromptChanged"
+                                               PresetChoices="@_presetChoices"
+                                               PresetKey="@_lightingPresetOverride"
+                                               PresetKeyChanged="OnLightingPresetChangedAsync"
+                                               PresetNote="@PresetNote"
                                                Busy="_cellBusy"
                                                CanSubmit="CanRender"
                                                SubmitLabel="Render image"
@@ -300,7 +359,9 @@ else
                                     </div>
                                 </ChildContent>
                             </ImageStepComposer>
+                            </div>
 
+                            <div class="order-2">
                             <div class="d-flex justify-content-between align-items-center">
                                 <h6 class="text-uppercase text-muted small mb-1">
                                     Attempts — this cell (@_cellAttempts.Count)
@@ -346,7 +407,8 @@ else
                                                SelectedIdChanged="OnAttemptSelected"
                                                Busy="_cellBusy"
                                                DecisionChanged="OnAttemptDecisionAsync"
-                                               DeleteRequested="OnAttemptDeleteAsync" />
+                                               DeleteRequested="OnAttemptDeleteAsync"
+                                               EditUrlFactory="EditAttemptUrl" />
                                 @if (_selectedAttempt is not null)
                                 {
                                     <div class="border rounded p-2 mb-3">
@@ -358,6 +420,17 @@ else
                                                 <a class="btn btn-sm btn-outline-secondary" target="_blank"
                                                    href="/scene-images/@_selectedAttempt.FileRelativePath" title="Open full size">
                                                     <i class="bi bi-arrows-fullscreen me-1"></i>Open full size
+                                                </a>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(_selectedAttempt.AssetId))
+                                            {
+                                                @* B-133: an edit PASS rather than another shot. The cell's plan says which lighting
+                                                   and expression it wanted, and the image that came back bright is relit here - which is
+                                                   the only route that can go lower, because a text-to-image pass is conditioned on the
+                                                   bright reference and an edit instruction over the finished image is not. *@
+                                                <a class="btn btn-sm btn-outline-primary" href="@EditPassUrl(_selectedAttempt)"
+                                                   title="Relight or re-express this attempt with a preset">
+                                                    <i class="bi bi-lightbulb me-1"></i>Edit pass (@ImagePresetKeys.ShortName(EditPassPresetKey))
                                                 </a>
                                             }
                                             <button type="button" class="btn btn-sm btn-outline-danger"
@@ -373,8 +446,9 @@ else
                                     </div>
                                 }
                             }
+                            </div>
 
-                            <div class="alert alert-secondary py-2 small mb-0">
+                            <div class="alert alert-secondary py-2 small mb-0 order-3">
                                 Once an attempt is good, accepting it into the dataset is the next step: the image has
                                 to be approved as a Scene Asset for LoRA training before it can become a dataset member,
                                 and that approval carries the consent, licence and content-policy facts that a training
@@ -391,6 +465,12 @@ else
 @code {
     /// <summary>The identity-resolving route input. Resolved to the character template before any identity read.</summary>
     [Parameter] public string? CharacterId { get; set; }
+
+    /// <summary>
+    /// The cell to open on, as query/parent data. A host that sent the operator away - the review deck's back
+    /// button - returns them to the cell they were working on instead of to the top of the list.
+    /// </summary>
+    [Parameter] public string? Cell { get; set; }
 
     /// <summary>Matches the options the repository writes with, so a member's coverage snapshot reads back.</summary>
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -418,6 +498,35 @@ else
     private bool _busy;
     private bool _loading = true;
     private bool _loadFailed;
+
+    /// <summary>
+    /// The state of every cell, keyed by cell, for the list on the left.
+    ///
+    /// <para>
+    /// A cell's state comes from the DECISION the operator made on one of its attempts. It used to come only from a
+    /// dataset-member row, and members are written by the accept-into-dataset path, which is not built (B-123 P1-05) -
+    /// so accepting an image left the cell reading "planned" for ever, which is exactly what the operator reported. A
+    /// member row, when one exists, is still authoritative: it is the later step.
+    /// </para>
+    /// </summary>
+    private readonly Dictionary<string, string> _cellStatuses = new(StringComparer.Ordinal);
+
+    /// <summary>The last cell written to browser storage, so the write happens only when the cell actually changes.</summary>
+    private string? _rememberedCell;
+
+    /// <summary>
+    /// Where the selected cell is remembered. Per CHARACTER, and in the browser rather than the database: which cell the
+    /// operator is working on is a place in a UI, not a fact about the dataset, and putting it in the dataset row would
+    /// mean a write on every click. It is browser storage so it survives a reload, a tab switch and a return from any
+    /// other page - including ones that carry no link back.
+    /// </summary>
+    private string CellMemoryKey => $"lora-cell:{(string.IsNullOrWhiteSpace(CharacterId) ? "none" : CharacterId)}";
+
+    /// <summary>
+    /// Why the loaded plan is not one this build would generate - null when it is current. Set from the stored plan's
+    /// own schema version, so the page can say WHY it is stale instead of throwing on the first contradictory cell.
+    /// </summary>
+    private string? _planStaleReason;
     private string _error = string.Empty;
     private string _status = string.Empty;
 
@@ -574,6 +683,10 @@ else
 
             _cellModels = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
 
+            // B-133: the presets the operator may relight a cell with. They are store data like every other prompt
+            // wording, so they are fetched rather than written into this page.
+            _presetChoices = await ImagePresets.ListAsync(characterId: _identityKey);
+
             // The saved cell model is a PREFERENCE, not a prerequisite. It is read on its own so that a refusal here
             // cannot skip the INITIAL SELECTION below - which is exactly what left the model picker empty and, because
             // the composer needs a selected model to know what that model can carry, the whole reference UI unrendered
@@ -610,6 +723,17 @@ else
                 _members = [];
                 _selectedCellKey = string.Empty;
             }
+
+            // Arriving from somewhere that named a cell: open on it. Only honoured when the plan actually carries the
+            // key, so a stale link cannot put the page into a state that no cell matches.
+            if (_plan is not null
+                && !string.Equals(_selectedCellKey, Cell, StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(Cell)
+                && _plan.Records.Any(record => string.Equals(record.Key, Cell, StringComparison.Ordinal)))
+            {
+                SelectCell(Cell);
+                await RefreshAttemptsAsync();
+            }
         }
         catch (Exception exception)
         {
@@ -627,9 +751,18 @@ else
             ?? throw new InvalidOperationException($"LoRA dataset '{datasetId}' is not in this character's list.");
 
         _selectedDatasetId = dataset.Id;
-        _plan = CoveragePlan.FromJson(dataset.CoveragePlanJson);
+        _plan = CoveragePlan.FromStoredJson(dataset.CoveragePlanJson, out var staleReason);
+        _planStaleReason = staleReason;
         _policy = CurationPolicy.FromJson(dataset.CurationPolicyJson);
         _members = (await LoraRepository.ListDatasetMembersAsync(dataset.Id)).ToList();
+
+        // Every cell's state is read once per dataset, so the list shows which cells are done without the operator
+        // having to open each one. A decision on any of a cell's attempts is what makes it done.
+        _cellStatuses.Clear();
+        foreach (var record in _plan.Records)
+        {
+            _cellStatuses[record.Key] = await ResolveCellStatusAsync(record);
+        }
 
         var rejected = _members.Count(member => member.CurationStatus == CharacterLoraCurationStatus.Rejected);
         if (rejected > 0)
@@ -650,11 +783,22 @@ else
                 return [];
             }
 
-            var rows = _plan.Records.Select(record => new CellRow(record, MemberFor(record))).ToList();
+            var rows = _plan.Records
+                .Select(record => new CellRow(
+                    record,
+                    MemberFor(record),
+                    _cellStatuses.TryGetValue(record.Key, out var status) ? status : "planned"))
+                .ToList();
             return _filter switch
             {
-                "accepted" => rows.Where(row => row.Member is { CurationStatus: CharacterLoraCurationStatus.Accepted }).ToList(),
-                "remaining" => rows.Where(row => row.Member is not { CurationStatus: CharacterLoraCurationStatus.Accepted }).ToList(),
+                "accepted" => rows.Where(row => row.Status == "accepted").ToList(),
+                "remaining" => rows.Where(row => row.Status != "accepted").ToList(),
+                // One value per state the badge can show, because the filter and the badge read the SAME field: a filter
+                // that agreed with the badge only on "accepted" left the operator unable to find the cells that were
+                // planned but never shot, which is the one list a coverage plan exists to produce.
+                "planned" => rows.Where(row => row.Status == "planned").ToList(),
+                "in review" => rows.Where(row => row.Status == "in review").ToList(),
+                "rejected" => rows.Where(row => row.Status == "rejected").ToList(),
                 _ => rows
             };
         }
@@ -694,7 +838,13 @@ else
         return null;
     }
 
-    private int AcceptedCount => _members.Count(member => member.CurationStatus == CharacterLoraCurationStatus.Accepted);
+    private int AcceptedCount => _cellStatuses.Values.Count(status => status == "accepted");
+
+    private int PlannedCount => _cellStatuses.Values.Count(status => status == "planned");
+
+    private int InReviewCount => _cellStatuses.Values.Count(status => status == "in review");
+
+    private int RejectedCount => _cellStatuses.Values.Count(status => status == "rejected");
 
     private int CaptionCount => _members.Count(member =>
         member.CurationStatus == CharacterLoraCurationStatus.Accepted && !string.IsNullOrWhiteSpace(member.Caption));
@@ -714,7 +864,13 @@ else
 
     private string SelectedWardrobePhrase => Phrase(record => record.OutfitKey);
 
-    private string SelectedPosePhrase => Phrase(record => LoraCellWorkflowKeys.PoseKey(record.PoseClass));
+    /// <summary>
+    /// The stance to show for a cell. A close-up claims no stance, because its frame cannot show one, so the page says
+    /// so rather than printing an empty gap the operator has to interpret.
+    /// </summary>
+    private string SelectedPosePhrase => SelectedRecord is { PoseClass: null }
+        ? "— (this framing shows no stance)"
+        : Phrase(record => LoraCellWorkflowKeys.PoseKey(record.PoseClass!.Value));
 
     private string SelectedExpressionPhrase => Phrase(record => record.ExpressionKey);
 
@@ -723,7 +879,11 @@ else
     private string SelectedBackgroundPhrase => Phrase(record => record.BackgroundKey);
 
     private string SelectedCaption => Compose(record => LoraCellPromptComposer.ComposeCaption(
-        _plan!, record, _captionTemplateBody ?? string.Empty));
+        _plan!, record, _captionTemplateBody ?? string.Empty,
+        // B-133: when the operator relights this cell with a picked preset, the caption tags the condition the image
+        // will actually show. A caption that still named the plan's lighting would teach the trainer the wrong tag
+        // over the image, which is worse than a plainer tag.
+        LightingTagOverride));
 
     /// <summary>
     /// The text the prompt's SUBJECT slot takes (B-132). The cell templates declare one subject slot and no face
@@ -829,6 +989,71 @@ else
         }
     }
 
+    /// <summary>
+    /// Moves to the next cell in the list currently shown, wrapping at the end. It follows the FILTER, so selecting
+    /// "Not accepted" and pressing this walks only the cells still to do.
+    /// </summary>
+    private async Task NextCellAsync()
+    {
+        var rows = FilteredRows;
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        var keys = rows.Select(row => row.Record.Key).ToList();
+        var index = keys.FindIndex(key => string.Equals(key, _selectedCellKey, StringComparison.Ordinal));
+        SelectCell(keys[(index + 1 + keys.Count) % keys.Count]);
+        await RefreshAttemptsAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// The memory of which cell was being worked on, read and written here rather than in the load path.
+    ///
+    /// <para>
+    /// JS interop is only legal once the component has rendered - the load runs during prerendering, where there is no
+    /// browser to ask - so both halves live in this method. An explicit link (the review deck's way back) is the newest
+    /// truth and is remembered first; otherwise the remembered cell is restored if the plan actually has it, so a
+    /// remembered key from an old plan cannot select nothing.
+    /// </para>
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            if (!string.IsNullOrWhiteSpace(Cell))
+            {
+                _rememberedCell = Cell;
+                await JS.InvokeVoidAsync("localStorage.setItem", CellMemoryKey, Cell);
+            }
+            else
+            {
+                var remembered = await JS.InvokeAsync<string?>("localStorage.getItem", CellMemoryKey);
+                if (!string.IsNullOrWhiteSpace(remembered)
+                    && _plan is not null
+                    && !string.Equals(_selectedCellKey, remembered, StringComparison.Ordinal)
+                    && _plan.Records.Any(record => string.Equals(record.Key, remembered, StringComparison.Ordinal)))
+                {
+                    SelectCell(remembered);
+                    await RefreshAttemptsAsync();
+                    StateHasChanged();
+                }
+
+                _rememberedCell = _selectedCellKey;
+            }
+
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_selectedCellKey)
+            && !string.Equals(_rememberedCell, _selectedCellKey, StringComparison.Ordinal))
+        {
+            _rememberedCell = _selectedCellKey;
+            await JS.InvokeVoidAsync("localStorage.setItem", CellMemoryKey, _selectedCellKey);
+        }
+    }
+
     /// <summary>Re-reads this cell's attempts. Renders are queued, so a shot in flight is Pending until it lands.</summary>
     private async Task RefreshAttemptsAsync()
     {
@@ -842,6 +1067,8 @@ else
         try
         {
             _cellAttempts = (await CellService.ListCellAttemptsAsync(_selectedDatasetId, _selectedCellKey)).ToList();
+            // The cell's state follows the decision just made on it, so the list updates without a full reload.
+            _cellStatuses[_selectedCellKey] = MemberStatus(SelectedMember) ?? AttemptStatus(_cellAttempts) ?? "planned";
             if (_selectedAttemptId is null || _cellAttempts.All(attempt => attempt.Id != _selectedAttemptId))
             {
                 _selectedAttemptId = _cellAttempts.FirstOrDefault()?.Id;
@@ -851,6 +1078,46 @@ else
         {
             _error = exception.Message;
         }
+    }
+
+    /// <summary>The member a cell has, if the dataset has one: the later, authoritative record of that cell's image.</summary>
+    private CharacterLoraDatasetMember? SelectedMember
+        => SelectedRecord is null ? null : MemberFor(SelectedRecord);
+
+    /// <summary>A member's own state, or null when there is no member yet.</summary>
+    private static string? MemberStatus(CharacterLoraDatasetMember? member) => member?.CurationStatus switch
+    {
+        CharacterLoraCurationStatus.Accepted => "accepted",
+        CharacterLoraCurationStatus.Rejected => "rejected",
+        null => null,
+        _ => "in review"
+    };
+
+    /// <summary>
+    /// The state of a cell: the member's when the dataset has one, otherwise the DECISION the operator made on one of
+    /// the cell's attempts, otherwise pending. The decision is what makes a cell "done" today, because accepting an
+    /// image records a decision on the attempt and the accept-into-dataset path that would write a member is not built
+    /// (B-123 P1-05). Reading only members made every cell say "planned" no matter how many were accepted.
+    /// </summary>
+    private async Task<string> ResolveCellStatusAsync(CoverageRecord record)
+        => MemberStatus(MemberFor(record))
+            ?? AttemptStatus(await CellService.ListCellAttemptsAsync(_selectedDatasetId, record.Key))
+            ?? "planned";
+
+    /// <summary>What a set of attempts says about the cell. A decision outranks a picture that is merely finished.</summary>
+    private static string? AttemptStatus(IReadOnlyList<SceneAssetImage> attempts)
+    {
+        if (attempts.Any(attempt => attempt.CandidateDecision == SceneAssetCandidateDecision.Accepted))
+        {
+            return "accepted";
+        }
+
+        if (attempts.Any(attempt => attempt.CandidateDecision == SceneAssetCandidateDecision.Rejected))
+        {
+            return "rejected";
+        }
+
+        return attempts.Any(attempt => attempt.Status == SceneAssetStatus.Complete) ? "in review" : null;
     }
 
     /// <summary>The shared candidate grid's view of this cell's attempts.</summary>
@@ -871,14 +1138,81 @@ else
     private string? CellReviewDeckUrl => _cellAttempts
         .Select(attempt => attempt.CandidateBatchId)
         .FirstOrDefault(batchId => !string.IsNullOrWhiteSpace(batchId)) is { } batch
-            ? $"/review-deck/asset/{batch}"
+            // The deck is told where to come back to: this tab, this cell. The deck's own "back" is derived from the
+            // batch and can only reach the character page, which left the operator to find the tab and the cell again.
+            ? $"/review-deck/asset/{batch}?return={Uri.EscapeDataString($"/characters/{CharacterId}?section=LoRA images&cell={_selectedCellKey}")}"
             : null;
+
+    /// <summary>
+    /// The review deck for the WHOLE dataset, optionally narrowed to the accepted attempts. Both the scope and the
+    /// filter are in the address, and `return` carries this cell so the deck hands the operator back to where they were.
+    /// </summary>
+    private string DatasetReviewDeckUrl(string only)
+    {
+        var back = Uri.EscapeDataString($"/characters/{CharacterId}?section=LoRA images&cell={_selectedCellKey}");
+        return $"/review-deck/dataset/{_selectedDatasetId}?only={only}&return={back}";
+    }
+
+    /// <summary>
+    /// The edit route for one attempt, built from the CARD rather than from the selected attempt, so the operator can
+    /// open the editor on any image in the cell without selecting it first. It reuses the same URL builder the detail
+    /// panel's "Edit pass" button uses, so there is one edit route and not two that could drift apart. Null when the
+    /// attempt has no asset behind it, so no dead button is rendered.
+    /// </summary>
+    private string? EditAttemptUrl(string attemptId)
+        => _cellAttempts.FirstOrDefault(attempt => string.Equals(attempt.Id, attemptId, StringComparison.Ordinal)) is { } attempt
+            && !string.IsNullOrWhiteSpace(attempt.AssetId)
+                ? EditPassUrl(attempt)
+                : null;
 
     private SceneAssetImage? _selectedAttempt => _selectedAttemptId is null
         ? null
         : _cellAttempts.FirstOrDefault(attempt => string.Equals(attempt.Id, _selectedAttemptId, StringComparison.Ordinal));
 
+    // ---- B-133 preset override for this cell -------------------------------------------------------------------
+    //
+    // Null means "the condition the HOST already carries" - the cell's own planned lighting, which is what the plan
+    // exists to state. Picking a preset replaces it for this shot, and the pick is what reaches the prompt and the
+    // caption tag. The presets themselves come from the store, so the operator's wording stays their data.
+    private IReadOnlyList<ImagePresetChoice> _presetChoices = [];
+    private string? _lightingPresetOverride;
+
+    /// <summary>The picked preset's own words, or null when the cell's plan supplies the condition.</summary>
+    private string? LightingPhraseOverride => _lightingPresetOverride is null
+        ? null
+        : _presetChoices.FirstOrDefault(choice => string.Equals(choice.PresetKey, _lightingPresetOverride, StringComparison.Ordinal))?.Detail;
+
+    /// <summary>The caption tag for an overridden condition: the preset's own short name, never the plan's wording.</summary>
+    private string? LightingTagOverride => _lightingPresetOverride is null
+        ? null
+        : ImagePresetKeys.ShortName(_lightingPresetOverride);
+
+    private string PresetNote => _lightingPresetOverride is null
+        ? "This cell's plan supplies the lighting; pick a preset to relight this shot."
+        : "Overriding this cell's planned lighting for this shot.";
+
+    private Task OnLightingPresetChangedAsync(string? presetKey)
+    {
+        _lightingPresetOverride = string.IsNullOrWhiteSpace(presetKey) ? null : presetKey;
+        // The draft is what is shot, so it is recomposed from the same source the caption is - never patched in place.
+        _cellPromptDraft = RenderPromptForShoot;
+        return Task.CompletedTask;
+    }
+
     private void OnAttemptSelected(string id) => _selectedAttemptId = id;
+
+    /// <summary>
+    /// The preset this cell's edit pass opens on (B-133): the SAME lighting its plan asked it to be shot in, mapped
+    /// by key suffix. It is a default, not a decision - the editor lists every preset and the operator can pick
+    /// another, including an expression pass on the same image.
+    /// </summary>
+    private string EditPassPresetKey => SelectedRecord is null
+        ? ImagePresetKeys.LightingIndoorBright
+        : ImagePresetKeys.PresetKeyFor(SelectedRecord.LightingKey);
+
+    /// <summary>The edit-pass route for an attempt: the shared editor, opened on the Presets tab with the cell's preset.</summary>
+    private string EditPassUrl(SceneAssetImage attempt)
+        => $"/assets/{attempt.AssetId}/images/{attempt.Id}/edit?preset={Uri.EscapeDataString(EditPassPresetKey)}";
 
     /// <summary>
     /// True when this cell can be shot at all: it needs a renderable body card, a resolved render template and a
@@ -906,7 +1240,10 @@ else
         _plan!, record, BodyCardLine, _renderTemplateBody ?? string.Empty,
         _cellBodyTexts?.FaceText,
         ImageStepPromptOmission.BoundSlotsFor(CellBlueprint, _cellBindings).Select(slot => slot.SlotKind).ToList(),
-        SubjectNoun));
+        SubjectNoun,
+        // B-133: the cell's plan supplies the condition; a picked preset replaces it, because relighting a shot is a
+        // deliberate operator decision and the prompt is where it has to land.
+        LightingPhraseOverride));
 
     private void SelectCell(string key) => _ = SelectCellAsync(key);
 
@@ -1188,15 +1525,5 @@ else
         return characters.Length == 0 ? "character" : new string(characters).ToLowerInvariant();
     }
 
-    private sealed record CellRow(CoverageRecord Record, CharacterLoraDatasetMember? Member)
-    {
-        public string Status => Member is null
-            ? "planned"
-            : Member.CurationStatus switch
-            {
-                CharacterLoraCurationStatus.Accepted => "accepted",
-                CharacterLoraCurationStatus.Rejected => "rejected",
-                _ => "in review"
-            };
-    }
+    private sealed record CellRow(CoverageRecord Record, CharacterLoraDatasetMember? Member, string Status);
 }

@@ -4,8 +4,10 @@
 @using System.Text.Json
 @using DreamGenClone.Application.RolePlay
 @using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
 
 @inject ICharacterLoraRepository LoraRepository
+@inject ICharacterLoraDatasetRegistrationService RegistrationService
 @inject ISceneAssetRepository AssetRepository
 @inject ILogger<LoraDatasetCuration> Logger
 
@@ -48,8 +50,35 @@
                         <a href="/characters/identity?characterId=@Uri.EscapeDataString(_dataset.CharacterTemplateId)&amp;packId=@Uri.EscapeDataString(_dataset.IdentityPackId)">View source pack</a>
                     </div>
                     <div class="col-md-3"><strong>Trigger token</strong><div class="font-monospace text-break">@_dataset.TriggerToken</div></div>
-                    <div class="col-md-3"><strong>Target family</strong><div class="font-monospace text-break">@_dataset.TargetModelFamily</div></div>
+                    <div class="col-md-3">
+                        <strong>Target family</strong>
+                        @if (IsFrozen)
+                        {
+                            <div class="font-monospace text-break">@_dataset.TargetModelFamily</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex gap-1">
+                                <select class="form-select form-select-sm" aria-label="Target model family" disabled="@_busy" @bind="_familyDraft">
+                                    @foreach (var family in CharacterLoraModelFamilies.All)
+                                    {
+                                        <option value="@family">@family</option>
+                                    }
+                                </select>
+                                <button type="button" class="btn btn-sm btn-outline-primary" disabled="@(_busy || string.Equals(_familyDraft, _dataset.TargetModelFamily, StringComparison.Ordinal))" @onclick="SaveFamilyAsync">Save</button>
+                            </div>
+                        }
+                        <div class="form-text">What this set is trained for. Changing it re-points which qualified profiles may train this dataset; it changes no image.</div>
+                    </div>
                 </div>
+                @if (!CharacterLoraModelFamilies.IsKnown(_dataset.TargetModelFamily))
+                {
+                    <div class="alert alert-warning small mt-3 mb-0">
+                        This dataset declares family '<strong>@_dataset.TargetModelFamily</strong>', which is not a
+                        trainable family, so no qualified training profile can ever match it. Pick one of
+                        @string.Join(", ", CharacterLoraModelFamilies.All) above and save.
+                    </div>
+                }
                 @if (!string.IsNullOrWhiteSpace(_dataset.ManifestSha256))
                 {
                     <div class="mt-2"><strong>Manifest SHA-256</strong><div class="font-monospace text-break">@_dataset.ManifestSha256</div></div>
@@ -57,6 +86,150 @@
                 }
             </div>
         </section>
+
+        @if (!IsFrozen)
+        {
+            <section class="card mb-4" aria-label="Register accepted cell images">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <strong>Register accepted cell images</strong>
+                    @if (_preview is not null)
+                    {
+                        <span class="badge text-bg-secondary">@_preview.Ready.Count ready · @_preview.Registered.Count registered · @_preview.Pending.Count pending · @_preview.Refused.Count blocked</span>
+                    }
+                </div>
+                <div class="card-body small">
+                    <p class="text-muted">
+                        An accepted cell image is not in the dataset until it is registered. Registering promotes each
+                        accepted image into its own Scene Asset that shares its bytes, approves that asset for
+                        <strong>CharacterLoraTraining</strong>, and adds it as a dataset member. Freezing then verifies
+                        every one of those facts.
+                    </p>
+
+                    @if (_preview is null)
+                    {
+                        <div class="text-muted">Reading the dataset's cells...</div>
+                    }
+                    else
+                    {
+                        @if (_preview.Ready.Count > 0)
+                        {
+                            <details class="mb-2">
+                                <summary>@_preview.Ready.Count cell(s) ready to register</summary>
+                                <ul class="mb-0">
+                                    @foreach (var item in _preview.Ready)
+                                    {
+                                        <li>
+                                            <span class="font-monospace">@item.CellKey</span>
+                                            · @item.MemberRole · @item.Split · attempt <span class="font-monospace">@item.Image.Id</span>
+                                        </li>
+                                    }
+                                </ul>
+                            </details>
+                        }
+
+                        @if (_preview.Refused.Count > 0)
+                        {
+                            <div class="alert alert-danger py-2">
+                                <strong>@_preview.Refused.Count cell(s) are ambiguous and block registration:</strong>
+                                <ul class="mb-0">
+                                    @foreach (var item in _preview.Refused)
+                                    {
+                                        <li><span class="font-monospace">@item.CellKey</span> — @item.Reason</li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+
+                        @if (_preview.Pending.Count > 0)
+                        {
+                            <details class="mb-2">
+                                <summary>@_preview.Pending.Count cell(s) have no accepted image yet (they are skipped)</summary>
+                                <ul class="mb-0">
+                                    @foreach (var item in _preview.Pending)
+                                    {
+                                        <li><span class="font-monospace">@item.CellKey</span></li>
+                                    }
+                                </ul>
+                            </details>
+                        }
+
+                        @if (_preview.Registered.Count > 0)
+                        {
+                            <details class="mb-2">
+                                <summary>@_preview.Registered.Count cell(s) are already members of this dataset</summary>
+                                <ul class="mb-0">
+                                    @foreach (var item in _preview.Registered)
+                                    {
+                                        <li><span class="font-monospace">@item.CellKey</span></li>
+                                    }
+                                </ul>
+                            </details>
+                        }
+
+                        <h6 class="mt-3">Approval facts recorded on every promoted asset</h6>
+                        <div class="row g-2">
+                            <div class="col-12">
+                                <label class="form-label small" for="reg-provenance">Source provenance JSON</label>
+                                <textarea id="reg-provenance" class="form-control form-control-sm font-monospace" rows="2" @bind="_registrationProvenance"></textarea>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small" for="reg-consent">Consent</label>
+                                <select id="reg-consent" class="form-select form-select-sm" @bind="_registrationConsent">
+                                    <option value="">Select consent</option>
+                                    <option value="Confirmed">Confirmed</option>
+                                    <option value="NotApplicable">Not applicable</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small" for="reg-license">License</label>
+                                <select id="reg-license" class="form-select form-select-sm" @bind="_registrationLicense">
+                                    <option value="">Select license</option>
+                                    <option value="Confirmed">Confirmed</option>
+                                    <option value="NotApplicable">Not applicable</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small" for="reg-license-label">License label</label>
+                                <input id="reg-license-label" class="form-control form-control-sm" @bind="_registrationLicenseLabel" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small" for="reg-policy">Content policy key</label>
+                                <input id="reg-policy" class="form-control form-control-sm" @bind="_registrationPolicy" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small" for="reg-compatibility">Compatibility metadata JSON</label>
+                                <textarea id="reg-compatibility" class="form-control form-control-sm font-monospace" rows="2" @bind="_registrationCompatibility"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small">Approved use scope</label>
+                                <div class="d-flex flex-wrap gap-3">
+                                    @foreach (var scope in Enum.GetValues<SceneAssetApprovedUseScope>())
+                                    {
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="reg-scope-@scope"
+                                                   checked="@_registrationScopes.Contains(scope)"
+                                                   @onchange="args => ToggleScope(scope, args)" />
+                                            <label class="form-check-label" for="reg-scope-@scope">@scope</label>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small" for="reg-reviewer">Reviewer id</label>
+                                <input id="reg-reviewer" class="form-control form-control-sm" @bind="_reviewedBy" />
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-sm mt-3" disabled="@(_busy || !CanRegister)" @onclick="RegisterAsync">
+                            Register @_preview.Ready.Count member(s)
+                        </button>
+                        @if (!RegistrationUseScopeHasLoraTraining)
+                        {
+                            <div class="form-text text-danger">CharacterLoraTraining must be granted: a member is a training image.</div>
+                        }
+                    }
+                </div>
+            </section>
+        }
 
         @if (_members.Count == 0)
         {
@@ -155,11 +328,46 @@
 
     private CharacterLoraDataset? _dataset;
     private readonly List<MemberEditor> _members = [];
+    private LoraCellRegistrationPreview? _preview;
+    private string _familyDraft = string.Empty;
+    private string _registrationSeedKey = string.Empty;
+    private string _registrationProvenance = string.Empty;
+    private string _registrationConsent = string.Empty;
+    private string _registrationLicense = string.Empty;
+    private string _registrationLicenseLabel = string.Empty;
+    private string _registrationPolicy = string.Empty;
+    private string _registrationCompatibility = string.Empty;
+    private readonly HashSet<SceneAssetApprovedUseScope> _registrationScopes = [];
     private string _reviewedBy = string.Empty;
     private bool _busy;
     private string? _error;
     private string? _status;
     private bool IsFrozen => _dataset?.Status != CharacterLoraDatasetStatus.Draft;
+
+    /// <summary>The flags the operator has ticked, as one bitmask. Empty means nothing has been granted yet.</summary>
+    private SceneAssetApprovedUseScope RegistrationUseScope =>
+        _registrationScopes.Aggregate(
+            (SceneAssetApprovedUseScope)0, (accumulated, scope) => accumulated | scope);
+
+    private bool RegistrationUseScopeHasLoraTraining =>
+        RegistrationUseScope.HasFlag(SceneAssetApprovedUseScope.CharacterLoraTraining);
+
+    /// <summary>
+    /// Registration is offered only when the set is unambiguous and every fact a production approval requires has
+    /// been supplied. Nothing here is defaulted: an invented consent or licence value would be a false record on
+    /// every member, and freezing reads those records.
+    /// </summary>
+    private bool CanRegister =>
+        _preview is { Refused.Count: 0 }
+        && _preview.Ready.Count > 0
+        && !string.IsNullOrWhiteSpace(_registrationProvenance)
+        && !string.IsNullOrWhiteSpace(_registrationConsent)
+        && !string.IsNullOrWhiteSpace(_registrationLicense)
+        && !string.IsNullOrWhiteSpace(_registrationLicenseLabel)
+        && !string.IsNullOrWhiteSpace(_registrationPolicy)
+        && !string.IsNullOrWhiteSpace(_registrationCompatibility)
+        && !string.IsNullOrWhiteSpace(_reviewedBy)
+        && RegistrationUseScopeHasLoraTraining;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -183,6 +391,113 @@
                 Member = member,
                 Asset = await AssetRepository.GetAsync(member.SceneAssetId)
             });
+        }
+
+        // A stored family that is not trainable cannot be shown in the list, so the picker starts on a real family
+        // and the page says why. Leaving it blank would let "save" quietly write back the unusable value.
+        _familyDraft = CharacterLoraModelFamilies.IsKnown(_dataset.TargetModelFamily)
+            ? _dataset.TargetModelFamily
+            : CharacterLoraModelFamilies.All[0];
+
+        if (_dataset.Status == CharacterLoraDatasetStatus.Draft)
+        {
+            _preview = await RegistrationService.PreviewAsync(DatasetId);
+            var seedKey = $"{_dataset.Id}|{_dataset.Version}|{_dataset.TargetModelFamily}";
+            if (!string.Equals(_registrationSeedKey, seedKey, StringComparison.Ordinal))
+            {
+                PrepareRegistration();
+            }
+        }
+        else
+        {
+            _preview = null;
+        }
+    }
+
+    /// <summary>
+    /// Seeds the provenance and compatibility JSON from the dataset's OWN record.
+    ///
+    /// <para>
+    /// Both are derived facts, not operator input: the compatibility block names the family the member images are
+    /// being trained FOR, which is the dataset's declared family. It is therefore re-derived whenever that family
+    /// (or the dataset version) changes - otherwise retargeting the set from one family to another would leave every
+    /// newly promoted asset carrying a compatibility record for the family it is no longer being trained for.
+    /// Consent, licence and the policy key are never seeded: they are the operator's to state.
+    /// </para>
+    /// </summary>
+    private void PrepareRegistration()
+    {
+        _registrationProvenance = JsonSerializer.Serialize(new
+        {
+            source = "lora-cell-acceptance",
+            datasetId = DatasetId,
+            characterId = _dataset?.CharacterTemplateId,
+            identityPackId = _dataset?.IdentityPackId,
+            targetModelFamily = _dataset?.TargetModelFamily
+        });
+        _registrationCompatibility = JsonSerializer.Serialize(new
+        {
+            modelFamilies = new[] { _dataset?.TargetModelFamily },
+            loraDatasetId = DatasetId,
+            loraDatasetVersion = _dataset?.Version
+        });
+        _registrationScopes.Add(SceneAssetApprovedUseScope.CharacterLoraTraining);
+        _registrationSeedKey = $"{_dataset?.Id}|{_dataset?.Version}|{_dataset?.TargetModelFamily}";
+    }
+
+    private void ToggleScope(SceneAssetApprovedUseScope scope, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            _registrationScopes.Add(scope);
+        }
+        else
+        {
+            _registrationScopes.Remove(scope);
+        }
+    }
+
+    private async Task RegisterAsync()
+    {
+        await RunAsync(async () =>
+        {
+            if (!CanRegister) throw new InvalidOperationException("Every approval fact is required before registering.");
+            var outcome = await RegistrationService.RegisterAsync(DatasetId, new LoraDatasetApprovalFacts(
+                _registrationProvenance,
+                Enum.Parse<SceneAssetConsentState>(_registrationConsent, false),
+                Enum.Parse<SceneAssetLicenseState>(_registrationLicense, false),
+                _registrationLicenseLabel,
+                RegistrationUseScope,
+                _registrationPolicy,
+                _registrationCompatibility,
+                _reviewedBy));
+            _status = $"Registered {outcome.RegisteredCount} member(s). "
+                + (outcome.Pending.Count > 0
+                    ? $"{outcome.Pending.Count} cell(s) still have no accepted image."
+                    : string.Empty);
+        });
+        await ReloadWhenItWorkedAsync();
+    }
+
+    private async Task SaveFamilyAsync()
+    {
+        await RunAsync(async () =>
+        {
+            _dataset = await LoraRepository.SetDatasetTargetFamilyAsync(DatasetId, _familyDraft);
+            _status = $"Dataset target family is now {_dataset.TargetModelFamily}.";
+        });
+        await ReloadWhenItWorkedAsync();
+    }
+
+    /// <summary>
+    /// Reload only after a SUCCESSFUL write. <see cref="LoadAsync"/> clears the error field, so reloading after a
+    /// refusal would erase the very message that tells the operator why nothing happened.
+    /// </summary>
+    private async Task ReloadWhenItWorkedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_error))
+        {
+            await LoadAsync();
         }
     }
 
@@ -227,9 +542,12 @@
         try { await action(); }
         catch (Exception exception)
         {
-            _error = exception.Message;
             Logger.LogWarning(exception, "LoRA dataset curation operation failed.");
+
+            // Reload FIRST: LoadAsync clears the error, so setting it before the reload is how a refusal used to
+            // disappear without ever reaching the operator.
             await LoadAsync();
+            _error = exception.Message;
         }
         finally { _busy = false; }
     }

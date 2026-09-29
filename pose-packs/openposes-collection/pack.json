@@ -1,0 +1,7 @@
+﻿{
+    "license":  "Civitai model 22214 terms: allowNoCredit true; allowCommercialUse Image, RentCivit, Rent, Sell, SellMerge; allowDerivatives true. Plus the creator\u0027s statement that the poses are free to use for any project, commercial or otherwise.",
+    "description":  "46 distinct 18-joint COCO OpenPose skeletons: standing, sitting, laying, jumping, dance, flexing and T-pose. One person per file. Two changes were made to the source files: the outer array wrapper was removed (the app reads an object root; no numbers changed) and the files were sorted into one folder per category so each pose is named by its category.",
+    "name":  "OpenPoses Collection",
+    "source":  "https://civitai.com/models/22214 - version v2.0, file openposesCollection_v20.zip, sha256 4f27407fd46712b5dfb30b1f1528f0f47aa93e0936b009f3913b5f4e639e27ba (verified byte-for-byte against the creator\u0027s published digest). Upstream site: https://openposes.com/",
+    "attribution":  "OpenPoses Collection by ChrGriffin (Civitai model 22214). Pack states: \"These poses are free to use for any and all projects, commercial or otherwise.\" JSON files are included for all poses as of v2.0."
+}

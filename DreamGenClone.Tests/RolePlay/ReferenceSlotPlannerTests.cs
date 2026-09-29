@@ -218,4 +218,77 @@ public sealed class ReferenceSlotPlannerTests
 
         Assert.Contains("more than once", exception.Message, StringComparison.Ordinal);
     }
+
+    private static ImageStepSlotBlueprint WardrobeSlot(string actorKey = "p-becky", bool allowsMultiple = true) =>
+        new(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, [ImageStepReferenceSourceKind.ApprovedSceneAsset],
+            actorKey, Required: false, AllowsMultiple: allowsMultiple);
+
+    /// <summary>
+    /// A wardrobe is the one slot that carries SEVERAL references: a dress and the shoes that go with it are two
+    /// garments, so the operator binds two images and both must reach the render. Position decides placement, so the
+    /// order they bound them in is the order the model sees.
+    /// </summary>
+    [Fact]
+    public void Plan_MultiSlot_KeepsEveryBindingInTheOrderTheHostSuppliedThem()
+    {
+        var bindings = ReferenceSlotPlanner.Plan(
+            Blueprint(WardrobeSlot()),
+            [
+                new ImageStepSlotAssignment(ImageStepSlotKind.Wardrobe, "p-becky", Source()),
+                new ImageStepSlotAssignment(ImageStepSlotKind.Wardrobe, "p-becky", Source())
+            ],
+            maxReferences: 10);
+
+        Assert.Equal(2, bindings.Count);
+        Assert.All(bindings, binding => Assert.Equal("Wardrobe", binding.ElementKey));
+        Assert.All(bindings, binding => Assert.Equal("p-becky", binding.ActorKey));
+        Assert.Equal([1, 2], bindings.Select(binding => binding.Ordinal));
+    }
+
+    /// <summary>
+    /// The opt-in is what makes the difference: the SAME two assignments against a slot that does not allow multiple
+    /// are refused, so "second reference silently dropped" cannot become the behaviour of every other slot.
+    /// </summary>
+    [Fact]
+    public void Plan_MultiSlotNotAllowed_StillRefusesTheSecondBinding()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => ReferenceSlotPlanner.Plan(
+            Blueprint(WardrobeSlot(allowsMultiple: false)),
+            [
+                new ImageStepSlotAssignment(ImageStepSlotKind.Wardrobe, "p-becky", Source()),
+                new ImageStepSlotAssignment(ImageStepSlotKind.Wardrobe, "p-becky", Source())
+            ],
+            maxReferences: 10));
+
+        Assert.Contains("more than once", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Several wardrobe images count against the SAME budget as everything else, and the measured pose ceiling still
+    /// applies: three garments beside a face, a body and a skeleton is seven references, which stops the skeleton
+    /// being honoured.
+    /// </summary>
+    [Fact]
+    public void Plan_MultiSlot_CountsEveryBindingAgainstTheBudget()
+    {
+        var blueprint = Blueprint(
+            FaceSlot("p-becky"),
+            WardrobeSlot(),
+            PoseSlot());
+
+        var exception = Assert.Throws<InvalidOperationException>(() => ReferenceSlotPlanner.Plan(
+            blueprint,
+            [
+                new ImageStepSlotAssignment(ImageStepSlotKind.Face, "p-becky", Source()),
+                new ImageStepSlotAssignment(ImageStepSlotKind.Wardrobe, "p-becky", Source()),
+                new ImageStepSlotAssignment(ImageStepSlotKind.Wardrobe, "p-becky", Source()),
+                new ImageStepSlotAssignment(ImageStepSlotKind.Wardrobe, "p-becky", Source()),
+                new ImageStepSlotAssignment(ImageStepSlotKind.Wardrobe, "p-becky", Source()),
+                new ImageStepSlotAssignment(ImageStepSlotKind.Wardrobe, "p-becky", Source()),
+                new ImageStepSlotAssignment(ImageStepSlotKind.Pose, null, Source(ImageStepReferenceSourceKind.PoseLibrarySkeleton))
+            ],
+            maxReferences: 10));
+
+        Assert.Contains("CASE-22", exception.Message, StringComparison.Ordinal);
+    }
 }
