@@ -133,6 +133,32 @@ public sealed class RegionDragCalculatorTests
     }
 
     [Theory]
+    [InlineData(30, 40)]
+    [InlineData(20, 30)]
+    [InlineData(45, 70)]
+    [InlineData(32.5, 50)]
+    public void IsInside_AcceptsTheBoxAndItsEdges(double x, double y)
+    {
+        // The frame's CSS passes the pointer through to the image, so this is the ONLY thing that tells a
+        // move-the-box press apart from a draw-a-new-box one. A press on the edge belongs to the box.
+        Assert.True(RegionDragCalculator.IsInside(Region, x, y));
+    }
+
+    [Theory]
+    [InlineData(19.9, 40)]
+    [InlineData(45.1, 40)]
+    [InlineData(30, 29.9)]
+    [InlineData(30, 70.1)]
+    [InlineData(0, 0)]
+    [InlineData(99, 99)]
+    public void IsInside_RejectsEverythingOutsideIt(double x, double y)
+    {
+        // Everything outside draws a new box instead, which is how a region gets drawn at all: if a press outside
+        // were read as a move, the only way to make a box would be to grab a corner handle that is not there yet.
+        Assert.False(RegionDragCalculator.IsInside(Region, x, y));
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("  ")]
     public void Resize_RequiresTheCornerThatWasGrabbed(string handle)

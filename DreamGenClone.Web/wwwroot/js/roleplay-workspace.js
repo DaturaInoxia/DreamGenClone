@@ -68,17 +68,23 @@ window.rolePlayWorkspace = {
     initCropDrag: function (stageSelector, dotNetRef) {
         const stage = document.querySelector(stageSelector);
         if (!stage) {
-            return;
+            return false;
         }
 
         // Idempotent: the component re-asserts this after renders, and an element that is already
         // listening must not gain a second listener.
         if (typeof stage.__cropDragDispose === 'function') {
-            return;
+            return true;
         }
 
         let active = false;
         let grabbedHandle = '';
+
+        // An image is natively draggable, which turns a press-and-move into the browser's own drag (the ghost
+        // cursor and no pointermove events). The stage takes the gesture instead, so the drag is reported here.
+        const onDragStart = function (event) {
+            event.preventDefault();
+        };
 
         const report = function (phase, event) {
             const rect = stage.getBoundingClientRect();
@@ -129,15 +135,19 @@ window.rolePlayWorkspace = {
         // input. Both are bound and guarded by `active`, so one drag never starts twice.
         stage.addEventListener('pointerdown', onDownEvent);
         stage.addEventListener('mousedown', onDownEvent);
+        stage.addEventListener('dragstart', onDragStart);
         stage.__cropDragDispose = function () {
             stage.removeEventListener('pointerdown', onDownEvent);
             stage.removeEventListener('mousedown', onDownEvent);
+            stage.removeEventListener('dragstart', onDragStart);
             document.removeEventListener('pointermove', onPointerMove);
             document.removeEventListener('pointerup', onPointerUp);
             document.removeEventListener('mousemove', onPointerMove);
             document.removeEventListener('mouseup', onPointerUp);
             stage.classList.remove('is-crop-dragging');
         };
+
+        return true;
     },
 
     disposeCropDrag: function (stageSelector) {

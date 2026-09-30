@@ -119,6 +119,20 @@ public static class RegionDragCalculator
                 "A region resize must leave a region at least as large as the minimum extent.");
     }
 
+    /// <summary>
+    /// True when a pointer position lies inside the rectangle. The selector needs it because the frame itself passes
+    /// the pointer through to the image underneath, so a press on the image has to be read two ways: inside the box it
+    /// moves it, anywhere else it draws a new one.
+    /// </summary>
+    public static bool IsInside(MediaEditRegionOperation region, double xPercent, double yPercent)
+    {
+        ArgumentNullException.ThrowIfNull(region);
+        return xPercent >= region.LeftPercent
+            && xPercent <= region.LeftPercent + region.WidthPercent
+            && yPercent >= region.TopPercent
+            && yPercent <= region.TopPercent + region.HeightPercent;
+    }
+
     /// <summary>True when the handle names a corner this calculator resizes.</summary>
     public static bool IsResizeHandle(string handle)
         => handle is TopLeftHandle or TopRightHandle or BottomLeftHandle or BottomRightHandle;

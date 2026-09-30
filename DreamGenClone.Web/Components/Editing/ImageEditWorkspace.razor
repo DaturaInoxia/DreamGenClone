@@ -53,9 +53,46 @@ else
                         <span class="badge bg-secondary">@_source.ImageSize</span>
                     }
                 </div>
-                <div class="scene-edit-image-stage">
-                    <img src="/scene-images/@_source.FileRelativePath" alt="Source image" class="scene-edit-image" />
+                @* B-130: the region is drawn on THIS image - the one the edit starts from - not on a second copy of it.
+                   The switch sits above the image and the box's numbers live on the Region tab, so this panel stays a
+                   picture rather than a second workbench. *@
+                <div class="form-check form-switch px-4 pt-2">
+                    <input class="form-check-input" type="checkbox" id="@RegionToggleId"
+                           checked="@_regionEnabled" disabled="@_busy" @onchange="OnRegionEnabledChanged" />
+                    <label class="form-check-label small" for="@RegionToggleId">
+                        Confine this edit to a region
+                    </label>
                 </div>
+                <div class="scene-edit-image-stage">
+                    @if (_regionEnabled)
+                    {
+                        @* The crop stage's own class is used deliberately: it is a block wrapper whose image rule
+                           (width 100%, height auto) makes the element box identical to the picture, which is the only
+                           way a percentage box drawn over it can line up with the image. *@
+                        <div id="@RegionStageId" class="scene-crop-preview-stage">
+                            <img src="/scene-images/@_source.FileRelativePath" alt="Region selection" draggable="false" />
+                            @if (_region is not null && RegionWindowStyle is not null)
+                            {
+                                @* The frame passes the pointer through to the image (its CSS does that so the image
+                                   stays grabbable); the four corners are the only real targets on it. *@
+                                <div class="scene-crop-preview-window is-dimmed" style="@RegionWindowStyle">
+                                    <span class="scene-crop-preview-corner is-tl" data-crop-handle="tl"></span>
+                                    <span class="scene-crop-preview-corner is-tr" data-crop-handle="tr"></span>
+                                    <span class="scene-crop-preview-corner is-bl" data-crop-handle="bl"></span>
+                                    <span class="scene-crop-preview-corner is-br" data-crop-handle="br"></span>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <img src="/scene-images/@_source.FileRelativePath" alt="Source image" class="scene-edit-image" />
+                    }
+                </div>
+                @if (_regionEnabled && !string.IsNullOrWhiteSpace(RegionBlockReason))
+                {
+                    <div class="form-text text-warning px-4 pb-2">@RegionBlockReason</div>
+                }
             </section>
         </div>
 
@@ -98,6 +135,15 @@ else
                             </button>
                         </li>
                     }
+                    @if (_regionEnabled)
+                    {
+                        <li class="nav-item" role="presentation">
+                            <button type="button" class="nav-link @(_activeTab == EditorTab.Region ? "active" : "") @(RegionBlockReason.Length > 0 ? "text-warning" : "")" aria-selected="@(_activeTab == EditorTab.Region)"
+                                    @onclick="() => SelectEditorTab(EditorTab.Region)">
+                                Region
+                            </button>
+                        </li>
+                    }
                 </ul>
 
                 @if (_activeTab == EditorTab.Edit)
@@ -137,55 +183,6 @@ else
                                                ShowPrompt="false" />
                         }
                     </div>
-                    @* B-130: an edit is a whole-frame edit unless the operator confines it. The box is drawn on the
-                       source in percent - the units the operation stores - and the two mask values open on the
-                       persisted settings and can be changed for this run. *@
-                    <div class="border rounded p-2 mb-3">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="@RegionToggleId"
-                                   checked="@_regionEnabled" disabled="@_busy" @onchange="OnRegionEnabledChanged" />
-                            <label class="form-check-label small" for="@RegionToggleId">
-                                Confine this edit to a region
-                            </label>
-                        </div>
-                        @if (_regionEnabled)
-                        {
-                            <div class="scene-crop-preview mt-2">
-                                <div id="@RegionStageId" class="scene-crop-preview-stage">
-                                    <img src="/scene-images/@_source.FileRelativePath" alt="Region selection" />
-                                    @if (_region is not null && RegionWindowStyle is not null)
-                                    {
-                                        <div class="scene-crop-preview-window is-dimmed" data-crop-handle="move" style="@RegionWindowStyle">
-                                            <span class="scene-crop-preview-corner is-tl" data-crop-handle="tl"></span>
-                                            <span class="scene-crop-preview-corner is-tr" data-crop-handle="tr"></span>
-                                            <span class="scene-crop-preview-corner is-bl" data-crop-handle="bl"></span>
-                                            <span class="scene-crop-preview-corner is-br" data-crop-handle="br"></span>
-                                        </div>
-                                    }
-                                </div>
-                                <div class="small text-muted mt-1">Drag on the image to draw the region, drag the box to move it, or a corner to resize it.</div>
-                            </div>
-                            <div class="row g-2 mt-1">
-                                <div class="col-sm-6">
-                                    <label class="form-label small mb-1" for="@RegionGrowInputId">Grow mask by (px)</label>
-                                    <input id="@RegionGrowInputId" type="number" step="1" min="0" max="64" class="form-control form-control-sm"
-                                           @bind="RegionGrowInput" disabled="@_busy" />
-                                    <div class="form-text">Overlap past the box edge, 0-64. The seed value comes from the reference workflow settings.</div>
-                                </div>
-                                <div class="col-sm-6">
-                                    <label class="form-label small mb-1" for="@RegionFeatherInputId">Feather edge (px)</label>
-                                    <input id="@RegionFeatherInputId" type="number" step="1" min="0" class="form-control form-control-sm"
-                                           @bind="RegionFeatherInput" disabled="@_busy" />
-                                    <div class="form-text">0 sends no feather at all.</div>
-                                </div>
-                            </div>
-                            <div class="small text-muted mt-1">@RegionSummary</div>
-                            @if (!string.IsNullOrWhiteSpace(RegionBlockReason))
-                            {
-                                <div class="form-text text-warning">@RegionBlockReason</div>
-                            }
-                        }
-                    </div>
                     <EditIterateWorkbench Error="@_errorMessage"
                                            StatusMessage="@_statusMessage"
                                            Loading="false"
@@ -222,6 +219,46 @@ else
                             }
                         </ReadyContent>
                     </EditIterateWorkbench>
+                }
+                else if (_activeTab == EditorTab.Region)
+                {
+                    <div class="scene-edit-panel-heading">
+                        <div>
+                            <span class="scene-edit-kicker">Confined edit</span>
+                            <strong>Region mask</strong>
+                        </div>
+                        @if (_region is not null)
+                        {
+                            <span class="badge bg-secondary">@RegionSizeLabel</span>
+                        }
+                    </div>
+
+                    <p class="small text-muted">
+                        Draw the box on the image on the left. Everything outside it is held to the source and only what
+                        is inside is left open to change. Dragging inside the box moves it, dragging outside it draws a
+                        new one, and the corners resize it. Run the edit from the Edit tab.
+                    </p>
+
+                    <div class="row g-2">
+                        <div class="col-sm-6">
+                            <label class="form-label small mb-1" for="@RegionGrowInputId">Grow mask by (px)</label>
+                            <input id="@RegionGrowInputId" type="number" step="1" min="0" max="64" class="form-control form-control-sm"
+                                   @bind="RegionGrowInput" disabled="@_busy" />
+                            <div class="form-text">Overlap past the box edge, 0-64. Opens on the reference workflow setting.</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label small mb-1" for="@RegionFeatherInputId">Feather edge (px)</label>
+                            <input id="@RegionFeatherInputId" type="number" step="1" min="0" class="form-control form-control-sm"
+                                   @bind="RegionFeatherInput" disabled="@_busy" />
+                            <div class="form-text">0 sends no feather at all: the graph gets no feather node.</div>
+                        </div>
+                    </div>
+
+                    <div class="small text-muted mt-2">@RegionSummary</div>
+                    @if (!string.IsNullOrWhiteSpace(RegionBlockReason))
+                    {
+                        <div class="form-text text-warning">@RegionBlockReason</div>
+                    }
                 }
                 else if (_activeTab == EditorTab.Crop)
                 {
@@ -776,7 +813,8 @@ else
         Identity,
         Crop,
         Enhance,
-        Presets
+        Presets,
+        Region
     }
 
     private IImageEditWorkspaceService? _service;
@@ -891,6 +929,13 @@ else
     private string? _regionDragHandle;
     private string? _regionDragInitializedStage;
 
+    /// <summary>
+    /// True while the drag in progress is moving the existing box rather than drawing a new one. The frame's CSS
+    /// passes the pointer through to the image, so both gestures begin with the same event and the only thing that
+    /// tells them apart is where the press landed.
+    /// </summary>
+    private bool _regionDraggingInside;
+
     /// <summary>The region as it was when the drag started, so a move or a resize is computed from the shape the
     /// operator grabbed rather than from the mutating one under their finger.</summary>
     private MediaEditRegionOperation? _regionDragStartRegion;
@@ -936,6 +981,11 @@ else
     private string RegionSummary => _region is { } region
         ? $"Region {region.WidthPercent:0.#}% x {region.HeightPercent:0.#}% at ({region.LeftPercent:0.#}%, {region.TopPercent:0.#}%) of the frame."
         : "No region drawn yet.";
+
+    /// <summary>The box's size on its own, for the Region tab's badge.</summary>
+    private string RegionSizeLabel => _region is { } region
+        ? $"{region.WidthPercent:0.#}% x {region.HeightPercent:0.#}%"
+        : "No region";
 
     /// <summary>
     /// Why the region cannot be used right now; empty means it can (or that the edit is a whole-frame edit). The
@@ -1624,13 +1674,23 @@ else
     /// </summary>
     private async Task EnsureRegionDragAsync()
     {
-        if (_source is null || _activeTab != EditorTab.Edit || !_regionEnabled)
+        if (_source is null || !_regionEnabled)
             return;
 
         _cropDragRef ??= DotNetObjectReference.Create(this);
         try
         {
-            await JS.InvokeVoidAsync("rolePlayWorkspace.initCropDrag", $"#{RegionStageId}", _cropDragRef);
+            var attached = await JS.InvokeAsync<bool>("rolePlayWorkspace.initCropDrag", $"#{RegionStageId}", _cropDragRef);
+            if (!attached)
+            {
+                // Naming the element it looked for, because a listener that silently never attached is
+                // indistinguishable from a drag that does nothing.
+                Logger.LogWarning(
+                    "Image edit workspace region stage '{Stage}' was not found, so the region cannot be drawn: Subject={Subject}",
+                    RegionStageId, SubjectKey);
+                return;
+            }
+
             _regionDragInitializedStage = RegionStageId;
         }
         catch (JSDisconnectedException)
@@ -1661,20 +1721,30 @@ else
             _regionDragStartXPercent = xPercent;
             _regionDragStartYPercent = yPercent;
 
-            // A press that landed on neither the window nor a corner begins a NEW box: that is how a region is drawn.
-            if (string.IsNullOrEmpty(handle))
+            // The frame passes the pointer through to the image, so a press that carries no handle landed on the
+            // IMAGE. Inside the box that means move this box; anywhere else it means draw a new one. Without this
+            // reading, the only draggable parts of the box would be its four corner handles.
+            _regionDraggingInside = _region is { } current && RegionDragCalculator.IsInside(current, xPercent, yPercent);
+            if (!_regionDraggingInside)
                 _region = null;
 
             return Task.CompletedTask;
         }
 
-        if (_regionGrowMaskBy is not { } grow || _regionFeatherPixels is not { } feather)
-            return Task.CompletedTask;
+        // The geometry is drawn from the controls' current values; if configuration is missing the box is still
+        // drawn (the numbers fall back to the stored ones) and BuildRegionOperation is what refuses the RUN, so a
+        // misconfiguration can never present itself as a selector that silently does nothing.
+        var grow = _regionGrowMaskBy ?? _region?.GrowMaskBy ?? 0;
+        var feather = _regionFeatherPixels ?? _region?.FeatherPixels ?? 0;
 
         MediaEditRegionOperation? updated;
         if (string.IsNullOrEmpty(handle))
         {
-            updated = RegionDragCalculator.Draw(_regionDragStartXPercent, _regionDragStartYPercent, xPercent, yPercent, grow, feather);
+            updated = _regionDraggingInside
+                ? _regionDragStartRegion is { } moving
+                    ? RegionDragCalculator.Move(moving, xPercent - _regionDragStartXPercent, yPercent - _regionDragStartYPercent)
+                    : _region
+                : RegionDragCalculator.Draw(_regionDragStartXPercent, _regionDragStartYPercent, xPercent, yPercent, grow, feather);
         }
         else if (_regionDragStartRegion is not { } start)
         {
@@ -1704,6 +1774,12 @@ else
     private Task OnRegionEnabledChanged(ChangeEventArgs args)
     {
         _regionEnabled = args.Value is bool enabled && enabled;
+
+        // The properties live on the Region tab, so turning the region on takes the operator there: the switch and
+        // the numbers it feeds are one decision, and leaving them on a tab nobody opened would hide half of it.
+        if (_regionEnabled)
+            _activeTab = EditorTab.Region;
+
         return Task.CompletedTask;
     }
 
