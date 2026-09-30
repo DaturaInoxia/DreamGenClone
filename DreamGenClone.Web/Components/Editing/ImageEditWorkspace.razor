@@ -137,6 +137,55 @@ else
                                                ShowPrompt="false" />
                         }
                     </div>
+                    @* B-130: an edit is a whole-frame edit unless the operator confines it. The box is drawn on the
+                       source in percent - the units the operation stores - and the two mask values open on the
+                       persisted settings and can be changed for this run. *@
+                    <div class="border rounded p-2 mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="@RegionToggleId"
+                                   checked="@_regionEnabled" disabled="@_busy" @onchange="OnRegionEnabledChanged" />
+                            <label class="form-check-label small" for="@RegionToggleId">
+                                Confine this edit to a region
+                            </label>
+                        </div>
+                        @if (_regionEnabled)
+                        {
+                            <div class="scene-crop-preview mt-2">
+                                <div id="@RegionStageId" class="scene-crop-preview-stage">
+                                    <img src="/scene-images/@_source.FileRelativePath" alt="Region selection" />
+                                    @if (_region is not null && RegionWindowStyle is not null)
+                                    {
+                                        <div class="scene-crop-preview-window is-dimmed" data-crop-handle="move" style="@RegionWindowStyle">
+                                            <span class="scene-crop-preview-corner is-tl" data-crop-handle="tl"></span>
+                                            <span class="scene-crop-preview-corner is-tr" data-crop-handle="tr"></span>
+                                            <span class="scene-crop-preview-corner is-bl" data-crop-handle="bl"></span>
+                                            <span class="scene-crop-preview-corner is-br" data-crop-handle="br"></span>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="small text-muted mt-1">Drag on the image to draw the region, drag the box to move it, or a corner to resize it.</div>
+                            </div>
+                            <div class="row g-2 mt-1">
+                                <div class="col-sm-6">
+                                    <label class="form-label small mb-1" for="@RegionGrowInputId">Grow mask by (px)</label>
+                                    <input id="@RegionGrowInputId" type="number" step="1" min="0" max="64" class="form-control form-control-sm"
+                                           @bind="RegionGrowInput" disabled="@_busy" />
+                                    <div class="form-text">Overlap past the box edge, 0-64. The seed value comes from the reference workflow settings.</div>
+                                </div>
+                                <div class="col-sm-6">
+                                    <label class="form-label small mb-1" for="@RegionFeatherInputId">Feather edge (px)</label>
+                                    <input id="@RegionFeatherInputId" type="number" step="1" min="0" class="form-control form-control-sm"
+                                           @bind="RegionFeatherInput" disabled="@_busy" />
+                                    <div class="form-text">0 sends no feather at all.</div>
+                                </div>
+                            </div>
+                            <div class="small text-muted mt-1">@RegionSummary</div>
+                            @if (!string.IsNullOrWhiteSpace(RegionBlockReason))
+                            {
+                                <div class="form-text text-warning">@RegionBlockReason</div>
+                            }
+                        }
+                    </div>
                     <EditIterateWorkbench Error="@_errorMessage"
                                            StatusMessage="@_statusMessage"
                                            Loading="false"
@@ -156,7 +205,7 @@ else
                                            PromptRevisionNumber="@((_activeRevision?.Ordinal ?? 0) + 1)"
                                            @bind-EditablePrompt="_editablePrompt"
                                            SubmittedInput="@SubmittedInput"
-                                           CanRun="@(_activeRevision is not null && !string.IsNullOrWhiteSpace(_selectedEditorModelId))"
+                                           CanRun="@(_activeRevision is not null && !string.IsNullOrWhiteSpace(_selectedEditorModelId) && CanRunRegionEdit)"
                                            ReviewDeckUrl="@ReviewDeckUrl"
                                            OnReanalyze="ReanalyzeAsync"
                                            OnPrepare="PrepareAsync"
@@ -830,7 +879,27 @@ else
     private double _cropDragStartX;
     private double _cropDragStartY;
 
+    // Region-edit state (B-130). The rectangle is PERCENT of the frame - the units the operation stores - so the
+    // numbers drawn here are the numbers the run is queued with, with nothing converted on the way. The toggle is off
+    // by default: an edit is a whole-frame edit unless the operator confines it, which keeps every existing flow
+    // byte-for-byte what it was.
+    private bool _regionEnabled;
+    private MediaEditRegionOperation? _region;
+    private string _regionSettingsError = string.Empty;
+    private int? _regionGrowMaskBy;
+    private int? _regionFeatherPixels;
+    private string? _regionDragHandle;
+    private string? _regionDragInitializedStage;
+
+    /// <summary>The region as it was when the drag started, so a move or a resize is computed from the shape the
+    /// operator grabbed rather than from the mutating one under their finger.</summary>
+    private MediaEditRegionOperation? _regionDragStartRegion;
+    private double _regionDragStartXPercent;
+    private double _regionDragStartYPercent;
+
     private string CropStageId => $"image-crop-stage-{StableId}";
+    private string RegionStageId => $"image-region-stage-{StableId}";
+    private string RegionToggleId => $"image-region-toggle-{StableId}";
 
     /// <summary>True while the dragged window is the window that will be cropped.</summary>
     private bool IsManualCrop => _cropMode == ImageCropMode.Manual;
@@ -843,6 +912,53 @@ else
     private string CropOffsetInputId => $"image-crop-offset-{StableId}";
     private string EnhanceUpscalerInputId => $"image-enhance-upscaler-{StableId}";
     private string EnhanceTargetEdgeInputId => $"image-enhance-edge-{StableId}";
+    private string RegionGrowInputId => $"image-region-grow-{StableId}";
+    private string RegionFeatherInputId => $"image-region-feather-{StableId}";
+
+    /// <summary>The grow value in force for the next region run, seeded from persisted settings and editable here.</summary>
+    private int? RegionGrowInput
+    {
+        get => _regionGrowMaskBy;
+        set => _regionGrowMaskBy = value;
+    }
+
+    /// <summary>The feather value in force for the next region run, seeded from persisted settings and editable here.</summary>
+    private int? RegionFeatherInput
+    {
+        get => _regionFeatherPixels;
+        set => _regionFeatherPixels = value;
+    }
+
+    private string? RegionWindowStyle => _region is { } region
+        ? FormattableString.Invariant($"left:{region.LeftPercent:0.###}%;top:{region.TopPercent:0.###}%;width:{region.WidthPercent:0.###}%;height:{region.HeightPercent:0.###}%;")
+        : null;
+
+    private string RegionSummary => _region is { } region
+        ? $"Region {region.WidthPercent:0.#}% x {region.HeightPercent:0.#}% at ({region.LeftPercent:0.#}%, {region.TopPercent:0.#}%) of the frame."
+        : "No region drawn yet.";
+
+    /// <summary>
+    /// Why the region cannot be used right now; empty means it can (or that the edit is a whole-frame edit). The
+    /// values it checks are persisted configuration, so an unset one is reported by key instead of being invented.
+    /// </summary>
+    private string RegionBlockReason
+    {
+        get
+        {
+            if (!_regionEnabled) return string.Empty;
+            if (!string.IsNullOrWhiteSpace(_regionSettingsError)) return _regionSettingsError;
+            if (_regionGrowMaskBy is not { } grow || grow is < 0 or > 64)
+                return "Missing required configuration 'RegionGrowMaskBy': set it in the reference workflow settings before confining an edit.";
+            if (_regionFeatherPixels is not { } feather || feather < 0)
+                return "Missing required configuration 'RegionFeatherPixels': set it in the reference workflow settings before confining an edit.";
+            if (_region is null)
+                return "Drag a box on the image to choose the region, or turn the region off to edit the whole frame.";
+            return string.Empty;
+        }
+    }
+
+    /// <summary>True when a region edit can run, or when the edit is a whole-frame edit.</summary>
+    private bool CanRunRegionEdit => RegionBlockReason.Length == 0;
 
     private ImageCropMode CropModeInput
     {
@@ -1010,6 +1126,7 @@ else
 
         // The crop stage only exists once a source is rendered, so the drag listener is attached here.
         await EnsureCropDragAsync();
+        await EnsureRegionDragAsync();
     }
 
     private async Task LoadAsync()
@@ -1044,6 +1161,7 @@ else
             _sourcePixelSize = ParseImageSize(_source.ImageSize);
             await LoadCropDefaultsAsync();
             await LoadEnhanceDefaultsAsync();
+            await LoadRegionDefaultsAsync();
 
             _session = await _service.OpenSessionAsync(Subject);
             _editorModelChoices = await ImageEditorModelResolver.ListImageEditorModelsAsync();
@@ -1313,6 +1431,56 @@ else
         }
     }
 
+    private async Task LoadRegionDefaultsAsync()
+    {
+        _regionSettingsError = string.Empty;
+        try
+        {
+            var settings = await WorkflowTemplates.ResolveSettingsAsync(null);
+            _regionGrowMaskBy = settings.RegionGrowMaskBy;
+            _regionFeatherPixels = settings.RegionFeatherPixels;
+
+            if (_regionGrowMaskBy is not { } grow || grow is < 0 or > 64)
+            {
+                _regionSettingsError =
+                    "Missing required configuration 'RegionGrowMaskBy': set it in the reference workflow settings before confining an edit.";
+            }
+            else if (_regionFeatherPixels is not { } feather || feather < 0)
+            {
+                _regionSettingsError =
+                    "Missing required configuration 'RegionFeatherPixels': set it in the reference workflow settings before confining an edit.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _regionSettingsError = $"Region settings could not be resolved: {ex.Message}";
+            Logger.LogWarning(ex, "Image edit workspace region settings load failed: Subject={Subject}", SubjectKey);
+        }
+    }
+
+    /// <summary>
+    /// The rectangle the run is confined to, or null for a whole-frame edit. The grow and feather values in force are
+    /// applied HERE, from the controls, so what the run records is what the panel showed - not whatever value happened
+    /// to be stored when the box was drawn.
+    /// </summary>
+    private MediaEditRegionOperation? BuildRegionOperation()
+    {
+        if (!_regionEnabled)
+            return null;
+        if (_region is not { } region)
+        {
+            throw new InvalidOperationException(
+                "A region edit needs the region that was drawn; draw one, or turn the region off to edit the whole frame.");
+        }
+
+        if (_regionGrowMaskBy is not { } grow || grow is < 0 or > 64)
+            throw new InvalidOperationException("A region grow value between 0 and 64 is required.");
+        if (_regionFeatherPixels is not { } feather || feather < 0)
+            throw new InvalidOperationException("A region feather that is not negative is required.");
+
+        return region with { GrowMaskBy = grow, FeatherPixels = feather };
+    }
+
     private MediaEditEnhanceOperation BuildEnhanceOperation()
     {
         if (string.IsNullOrWhiteSpace(_enhanceUpscalerModelName))
@@ -1451,6 +1619,95 @@ else
     }
 
     /// <summary>
+    /// Keeps the region stage's drag listener attached, for the same reason the crop stage re-asserts its own: a
+    /// re-render (polling updates this panel while work is in flight) can replace the element the listener sits on.
+    /// </summary>
+    private async Task EnsureRegionDragAsync()
+    {
+        if (_source is null || _activeTab != EditorTab.Edit || !_regionEnabled)
+            return;
+
+        _cropDragRef ??= DotNetObjectReference.Create(this);
+        try
+        {
+            await JS.InvokeVoidAsync("rolePlayWorkspace.initCropDrag", $"#{RegionStageId}", _cropDragRef);
+            _regionDragInitializedStage = RegionStageId;
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is going away; the listener goes with it.
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Image edit workspace region drag could not be initialised: Subject={Subject}", SubjectKey);
+        }
+    }
+
+    /// <summary>
+    /// Receives the region drag from the same page script the crop stage uses, with stage-normalized pointer
+    /// coordinates. The script reports only the pointer and which corner was grabbed; what that means for the
+    /// rectangle is decided here, by the one calculator the tests cover.
+    /// </summary>
+    [JSInvokable]
+    public Task OnRegionDragAsync(string phase, string handle, double normalizedX, double normalizedY)
+    {
+        var xPercent = normalizedX * 100;
+        var yPercent = normalizedY * 100;
+
+        if (string.Equals(phase, "start", StringComparison.Ordinal))
+        {
+            _regionDragHandle = handle;
+            _regionDragStartRegion = _region;
+            _regionDragStartXPercent = xPercent;
+            _regionDragStartYPercent = yPercent;
+
+            // A press that landed on neither the window nor a corner begins a NEW box: that is how a region is drawn.
+            if (string.IsNullOrEmpty(handle))
+                _region = null;
+
+            return Task.CompletedTask;
+        }
+
+        if (_regionGrowMaskBy is not { } grow || _regionFeatherPixels is not { } feather)
+            return Task.CompletedTask;
+
+        MediaEditRegionOperation? updated;
+        if (string.IsNullOrEmpty(handle))
+        {
+            updated = RegionDragCalculator.Draw(_regionDragStartXPercent, _regionDragStartYPercent, xPercent, yPercent, grow, feather);
+        }
+        else if (_regionDragStartRegion is not { } start)
+        {
+            updated = _region;
+        }
+        else if (RegionDragCalculator.IsResizeHandle(handle))
+        {
+            updated = RegionDragCalculator.Resize(start, handle, xPercent - _regionDragStartXPercent, yPercent - _regionDragStartYPercent);
+        }
+        else
+        {
+            updated = RegionDragCalculator.Move(start, xPercent - _regionDragStartXPercent, yPercent - _regionDragStartYPercent);
+        }
+
+        // A draw that is still too small to be a selection leaves no rectangle at all: the reason below says so, which
+        // is better than queueing an edit confined to a sliver the operator only brushed across.
+        if (updated is not null)
+            _region = updated;
+
+        if (string.Equals(phase, "end", StringComparison.Ordinal))
+            _regionDragHandle = null;
+
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private Task OnRegionEnabledChanged(ChangeEventArgs args)
+    {
+        _regionEnabled = args.Value is bool enabled && enabled;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Receives the crop drag from the page script with stage-normalized pointer coordinates, so this
     /// component decides the window (and can be tested) while the script only reports the pointer.
     /// </summary>
@@ -1527,6 +1784,7 @@ else
                 _activeRevision = revision;
             }
 
+            var region = BuildRegionOperation();
             _result = await _service.RunAsync(new ImageEditRunRequest(
                 Subject,
                 _session.Id,
@@ -1535,8 +1793,11 @@ else
                 _session.SourceImageSha256,
                 revision.PromptSha256,
                 _selectedEditorModelId!,
-                _bindings.ToList()));
-            _statusMessage = "Image edit queued.";
+                _bindings.ToList(),
+                region));
+            _statusMessage = region is null
+                ? "Image edit queued."
+                : "Region edit queued: only the box you drew is left open to change.";
             EnsurePolling();
         });
     }
@@ -1889,6 +2150,22 @@ else
 
     public async ValueTask DisposeAsync()
     {
+        if (_regionDragInitializedStage is not null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("rolePlayWorkspace.disposeCropDrag", $"#{_regionDragInitializedStage}");
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is already gone; there is nothing left to detach from.
+            }
+            catch (JSException)
+            {
+                // Teardown must not throw a second time over a missing element.
+            }
+        }
+
         if (_cropDragInitializedStage is not null)
         {
             try
@@ -1908,6 +2185,7 @@ else
         _cropDragRef?.Dispose();
         _cropDragRef = null;
         _cropDragInitializedStage = null;
+        _regionDragInitializedStage = null;
 
         var source = _pollingCts;
         _pollingCts = null;
