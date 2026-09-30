@@ -166,7 +166,8 @@ public sealed class SceneAssetImageEditWorkspaceService : IImageEditWorkspaceSer
             PromptSha256 = request.PromptSha256,
             EditorModelId = request.EditorModelId,
             CandidateBatchId = request.Subject.CandidateBatchId,
-            ReferenceApplications = request.ReferenceApplications.ToList()
+            ReferenceApplications = request.ReferenceApplications.ToList(),
+            Region = request.Region
         }, cancellationToken);
         return ToResult(image);
     }

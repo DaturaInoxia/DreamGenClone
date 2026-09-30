@@ -86,7 +86,13 @@ public sealed record ImageEditRunRequest(
     string SourceImageSha256,
     string PromptSha256,
     string EditorModelId,
-    IReadOnlyList<ReferenceApplicationSelection> ReferenceApplications);
+    IReadOnlyList<ReferenceApplicationSelection> ReferenceApplications,
+    /// <summary>
+    /// The rectangle the operator drew on the source, or null to edit the whole frame. It is the SAME
+    /// <see cref="MediaEditRegionOperation"/> the run is queued with, in percent of the frame, so what was drawn and what the
+    /// sampler confines cannot drift apart.
+    /// </summary>
+    MediaEditRegionOperation? Region = null);
 
 /// <summary>Current workspace state, raised to hosts after every refresh.</summary>
 public sealed record ImageEditWorkspaceSnapshot(
