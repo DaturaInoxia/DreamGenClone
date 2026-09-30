@@ -364,13 +364,13 @@ public sealed class SceneImageEditCompilationJobTests
     {
         public int Calls { get; private set; }
 
-        public Task<byte[]> EditAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, CancellationToken cancellationToken = default)
+        public Task<byte[]> EditAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, CancellationToken cancellationToken = default, ImageEditingMask? mask = null)
         {
             Calls++;
             return Task.FromResult(Array.Empty<byte>());
         }
 
-        public Task<byte[]> EditWithReferencesAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, IReadOnlyList<ImageEditingReference> references, CancellationToken cancellationToken = default)
+        public Task<byte[]> EditWithReferencesAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, IReadOnlyList<ImageEditingReference> references, CancellationToken cancellationToken = default, ImageEditingMask? mask = null)
         {
             Calls++;
             return Task.FromResult(Array.Empty<byte>());

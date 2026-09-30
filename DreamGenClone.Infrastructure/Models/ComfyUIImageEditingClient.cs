@@ -192,17 +192,32 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
         ResolvedImageEditorModel model,
         string sourceImageName,
         string instruction,
-        IReadOnlyList<string>? referenceImageNames = null) => model.GraphKind switch
+        IReadOnlyList<string>? referenceImageNames = null,
+        string? maskImageName = null,
+        ImageEditingMask? mask = null)
+    {
+        // Confinement is implemented in ONE graph. Saying so here, with the fix named, beats emitting a graph that
+        // quietly ignores the region and returns an edit of the whole frame.
+        if (!string.IsNullOrWhiteSpace(maskImageName) && model.GraphKind != ImageEditorGraphKind.QwenImage21Native)
+        {
+            throw new InvalidOperationException(
+                $"Image editor model '{model.ModelIdentifier}' cannot apply a region mask: confinement is implemented only "
+                + "in the Qwen-Image-2.1 native graph (VAEEncodeForInpaint over a masked latent). Set 'Editor Graph' to "
+                + "Qwen-Image-2.1 for this model in Model Manager (/model-manager), or edit without a region.");
+        }
+
+        return model.GraphKind switch
         {
             ImageEditorGraphKind.SplitUnet =>
                 BuildWorkflow(model, sourceImageName, instruction, referenceImageNames),
             ImageEditorGraphKind.MergedCheckpoint =>
                 BuildAioMergedCheckpointWorkflow(model, sourceImageName, instruction, referenceImageNames),
             ImageEditorGraphKind.QwenImage21Native =>
-                BuildQwenImage21EditWorkflow(model, sourceImageName, instruction, referenceImageNames),
+                BuildQwenImage21EditWorkflow(model, sourceImageName, instruction, referenceImageNames, maskImageName, mask),
             _ => throw new InvalidOperationException(
                 $"Image editor model '{model.ModelIdentifier}' has no editor graph kind configured. Set 'Editor Graph' for it in Model Manager (/model-manager).")
         };
+    }
 
     /// <summary>
     /// Qwen-Image-2.1 native edit graph: the source image and every reference travel through ONE
@@ -220,7 +235,9 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
         ResolvedImageEditorModel model,
         string sourceImageName,
         string instruction,
-        IReadOnlyList<string>? referenceImageNames = null)
+        IReadOnlyList<string>? referenceImageNames = null,
+        string? maskImageName = null,
+        ImageEditingMask? mask = null)
     {
         var resolutionBudget = model.ResolutionBudget
             ?? throw new InvalidOperationException(
@@ -310,6 +327,53 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                 };
                 encodeInputs[$"images.image_{index + 2}"] = new JsonArray(nodeId, 0);
             }
+        }
+
+        // A REGION swaps the sampler's starting latent (CASE-21's mechanism, node for node). TextEncodeQwenImage21's
+        // own latent carries the source as a REFERENCE, so without this the sampler is free to regenerate the whole
+        // frame - measured, and the reason a region named only in the instruction cannot contain an edit (CASE-23).
+        // Node ids start at 40 because references already occupy 20+; grow_mask_by is the operator's value, and
+        // FeatherMask is emitted ONLY when they asked for feathering, because a hidden default here would soften (or
+        // harden) every region edit without anybody asking.
+        if (!string.IsNullOrWhiteSpace(maskImageName) && mask is not null)
+        {
+            wf["40"] = new JsonObject
+            {
+                ["class_type"] = "LoadImageMask",
+                ["inputs"] = new JsonObject { ["image"] = maskImageName, ["channel"] = "red" }
+            };
+
+            JsonArray maskSource = new("40", 0);
+            if (mask.FeatherPixels > 0)
+            {
+                wf["41"] = new JsonObject
+                {
+                    ["class_type"] = "FeatherMask",
+                    ["inputs"] = new JsonObject
+                    {
+                        ["mask"] = new JsonArray("40", 0),
+                        ["left"] = mask.FeatherPixels,
+                        ["top"] = mask.FeatherPixels,
+                        ["right"] = mask.FeatherPixels,
+                        ["bottom"] = mask.FeatherPixels
+                    }
+                };
+                maskSource = new JsonArray("41", 0);
+            }
+
+            wf["42"] = new JsonObject
+            {
+                ["class_type"] = "VAEEncodeForInpaint",
+                ["inputs"] = new JsonObject
+                {
+                    ["pixels"] = new JsonArray("1", 0),
+                    ["vae"] = new JsonArray("4", 0),
+                    ["mask"] = maskSource,
+                    ["grow_mask_by"] = mask.GrowMaskBy
+                }
+            };
+
+            ((JsonObject)wf["7"]!["inputs"]!)["latent_image"] = new JsonArray("42", 0);
         }
 
         // Editor LoRA feeds the MODEL and the CLIP: wiring only the model branch would silently apply
@@ -523,7 +587,8 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
         Stream sourceImage,
         string sourceFileName,
         string instruction,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ImageEditingMask? mask = null)
     {
         if (sourceImage is null || !sourceImage.CanRead)
             throw new ImageGenerationException("The source image cannot be read.", model.ProviderName, reasonCode: "source_image_unreadable");
@@ -531,6 +596,7 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
             throw new ImageGenerationException("The source image file name is required.", model.ProviderName, reasonCode: "source_image_name_missing");
         if (string.IsNullOrWhiteSpace(instruction))
             throw new ImageGenerationException("An image edit instruction is required.", model.ProviderName, reasonCode: "instruction_missing");
+        ValidateMask(mask, model);
 
         var baseUrl = model.ComfyUiUrl.TrimEnd('/');
         var client = _httpClientFactory.CreateClient("CompletionClient");
@@ -544,7 +610,8 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
         {
             var uploadedName = await ComfyUiWorkflowTransport.UploadImageAsync(
                 client, baseUrl, sourceImage, sourceFileName, model.ProviderName, EditReasonPrefix, cancellationToken);
-            var workflow = BuildResolvedWorkflow(model, uploadedName, instruction.Trim());
+            var uploadedMaskName = await UploadMaskAsync(client, baseUrl, model, mask, cancellationToken);
+            var workflow = BuildResolvedWorkflow(model, uploadedName, instruction.Trim(), maskImageName: uploadedMaskName, mask: mask);
 
             _logger.LogInformation("ComfyUI source-image edit start: Provider={ProviderName}, DiffusionModel={DiffusionModel}, InstructionChars={InstructionChars}", model.ProviderName, model.DiffusionModel, instruction.Length);
             var promptId = await ComfyUiWorkflowTransport.SubmitPromptAsync(
@@ -572,10 +639,12 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
         string sourceFileName,
         string instruction,
         IReadOnlyList<ImageEditingReference> references,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ImageEditingMask? mask = null)
     {
         ValidateEditInputs(model, sourceImage, sourceFileName, instruction);
         ValidateReferences(references);
+        ValidateMask(mask, model);
 
         var baseUrl = model.ComfyUiUrl.TrimEnd('/');
         var client = _httpClientFactory.CreateClient("CompletionClient");
@@ -596,7 +665,8 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                     client, baseUrl, reference.Image, reference.FileName, model.ProviderName, EditReasonPrefix, cancellationToken));
             }
 
-            var workflow = BuildResolvedWorkflow(model, uploadedSourceName, instruction.Trim(), uploadedReferenceNames);
+            var uploadedMaskName = await UploadMaskAsync(client, baseUrl, model, mask, cancellationToken);
+            var workflow = BuildResolvedWorkflow(model, uploadedSourceName, instruction.Trim(), uploadedReferenceNames, uploadedMaskName, mask);
             var promptId = await ComfyUiWorkflowTransport.SubmitPromptAsync(
                 client, baseUrl, workflow, "dreamgen-app", model.ProviderName, EditReasonPrefix, cancellationToken);
 
@@ -615,6 +685,45 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
             throw new ImageGenerationException($"ComfyUI reference source-image edit failed: {ex.Message}", model.ProviderName, reasonCode: "comfyui_edit_client_error", inner: ex);
         }
     }
+
+    /// <summary>
+    /// A region mask must be complete, and its geometry must be one the HOST can honour: VAEEncodeForInpaint's own
+    /// <c>grow_mask_by</c> accepts 0-64. A value outside that range fails here with the reason, rather than as a
+    /// silent clamp on the far side of the wire where nobody would see it.
+    /// </summary>
+    private static void ValidateMask(ImageEditingMask? mask, ResolvedImageEditorModel model)
+    {
+        if (mask is null)
+            return;
+        if (mask.Mask is null || !mask.Mask.CanRead)
+            throw new ImageGenerationException("The region mask cannot be read.", model.ProviderName, reasonCode: "mask_unreadable");
+        if (string.IsNullOrWhiteSpace(mask.FileName))
+            throw new ImageGenerationException("The region mask file name is required.", model.ProviderName, reasonCode: "mask_name_missing");
+        if (string.IsNullOrWhiteSpace(mask.Checksum))
+            throw new ImageGenerationException("The region mask checksum is required.", model.ProviderName, reasonCode: "mask_checksum_missing");
+        if (mask.GrowMaskBy is < 0 or > 64)
+            throw new ImageGenerationException(
+                $"The region mask 'grow' value must be between 0 and 64, but was {mask.GrowMaskBy}.", model.ProviderName, reasonCode: "mask_grow_out_of_range");
+        if (mask.FeatherPixels < 0)
+            throw new ImageGenerationException(
+                $"The region mask feather must not be negative, but was {mask.FeatherPixels}.", model.ProviderName, reasonCode: "mask_feather_negative");
+    }
+
+    /// <summary>
+    /// Uploads the mask to the host's input folder, or returns null when there is no mask. ComfyUI reads a mask by input
+    /// FILE NAME exactly as it reads the source image, so a mask that was never uploaded cannot be referenced by the
+    /// graph - and the upload is the reason the graph takes a NAME rather than bytes.
+    /// </summary>
+    private static Task<string?> UploadMaskAsync(
+        HttpClient client,
+        string baseUrl,
+        ResolvedImageEditorModel model,
+        ImageEditingMask? mask,
+        CancellationToken cancellationToken)
+        => mask is null
+            ? Task.FromResult<string?>(null)
+            : ComfyUiWorkflowTransport.UploadImageAsync(
+                client, baseUrl, mask.Mask, mask.FileName, model.ProviderName, EditReasonPrefix, cancellationToken)!;
 
     private static void ValidateEditInputs(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction)
     {

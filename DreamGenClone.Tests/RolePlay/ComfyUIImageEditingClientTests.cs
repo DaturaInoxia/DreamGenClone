@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Infrastructure.Models;
 
@@ -36,6 +37,90 @@ public sealed class ComfyUIImageEditingClientTests
 
         Assert.Contains("UNETLoader", json, StringComparison.Ordinal);
         Assert.DoesNotContain("CheckpointLoaderSimple", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A REGION changes the sampler's STARTING LATENT to one that encodes the source under the mask (CASE-21). The
+    /// encoder's own latent carries the source only as a REFERENCE, so without this swap the sampler regenerates the
+    /// whole frame - which is exactly why a region named in the instruction cannot contain an edit (CASE-23, measured).
+    /// The pixels are proved on a host; what a unit test can pin is the WIRING.
+    /// </summary>
+    [Fact]
+    public void BuildResolvedWorkflow_Qwen21WithARegion_StartsTheSamplerFromAMaskedLatent()
+    {
+        var mask = new ImageEditingMask(Stream.Null, "region.png", "sha256-region", GrowMaskBy: 12, FeatherPixels: 0);
+
+        var json = ComfyUIImageEditingClient.BuildResolvedWorkflow(
+            Resolve(ImageEditorGraphKind.QwenImage21Native) with { ResolutionBudget = 1024 },
+            "source.png",
+            "Change the shirt to bright red.",
+            referenceImageNames: null,
+            maskImageName: "region.png",
+            mask: mask).ToJsonString();
+
+        Assert.Contains("\"LoadImageMask\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"VAEEncodeForInpaint\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"grow_mask_by\":12", json, StringComparison.Ordinal);
+        // The sampler now starts from the masked latent instead of the encoder's output[2].
+        Assert.Contains("\"latent_image\":[\"42\",0]", json, StringComparison.Ordinal);
+        // Feather 0 must emit NO feather node: the edge softness is the operator's value, so one nobody asked for is
+        // not invented here.
+        Assert.DoesNotContain("FeatherMask", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>Asked for, the feather sits between the mask and the encoder, which reads the feathered mask.</summary>
+    [Fact]
+    public void BuildResolvedWorkflow_Qwen21WithFeather_EmitsFeatherBetweenTheMaskAndTheEncoder()
+    {
+        var mask = new ImageEditingMask(Stream.Null, "region.png", "sha256-region", GrowMaskBy: 0, FeatherPixels: 24);
+
+        var json = ComfyUIImageEditingClient.BuildResolvedWorkflow(
+            Resolve(ImageEditorGraphKind.QwenImage21Native) with { ResolutionBudget = 1024 },
+            "source.png",
+            "Change the shirt to bright red.",
+            referenceImageNames: null,
+            maskImageName: "region.png",
+            mask: mask).ToJsonString();
+
+        Assert.Contains("\"FeatherMask\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"mask\":[\"41\",0]", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>No region means the proven whole-frame edit, byte for byte.</summary>
+    [Fact]
+    public void BuildResolvedWorkflow_Qwen21WithoutARegion_KeepsTheEncoderLatent()
+    {
+        var json = ComfyUIImageEditingClient.BuildResolvedWorkflow(
+            Resolve(ImageEditorGraphKind.QwenImage21Native) with { ResolutionBudget = 1024 },
+            "source.png",
+            "Change the shirt to bright red.").ToJsonString();
+
+        Assert.Contains("\"latent_image\":[\"6\",2]", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("VAEEncodeForInpaint", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Confinement exists in ONE graph. Emitting a graph that ignores the region would come back as a whole-frame edit
+    /// that looks exactly like a leak, so the refusal names the fix instead.
+    /// </summary>
+    [Fact]
+    public void BuildResolvedWorkflow_RegionOnANonQwen21Graph_IsRefusedNamingTheFix()
+    {
+        var mask = new ImageEditingMask(Stream.Null, "region.png", "sha256-region", GrowMaskBy: 0, FeatherPixels: 0);
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+        {
+            _ = ComfyUIImageEditingClient.BuildResolvedWorkflow(
+                Resolve(ImageEditorGraphKind.MergedCheckpoint),
+                "source.png",
+                "Change the shirt to bright red.",
+                referenceImageNames: null,
+                maskImageName: "region.png",
+                mask: mask);
+        });
+
+        Assert.Contains("Qwen-Image-2.1", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Editor Graph", exception.Message, StringComparison.Ordinal);
     }
 
     /// <summary>

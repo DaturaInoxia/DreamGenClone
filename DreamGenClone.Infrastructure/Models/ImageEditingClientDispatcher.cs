@@ -29,12 +29,13 @@ public sealed class ImageEditingClientDispatcher : IImageEditingClient
         Stream sourceImage,
         string sourceFileName,
         string instruction,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ImageEditingMask? mask = null)
     {
         return model.ImageProtocol switch
         {
-            ImageProtocol.ComfyUi => await _comfyUi.EditAsync(model, sourceImage, sourceFileName, instruction, cancellationToken),
-            ImageProtocol.ComfyUiServerless => await _serverless.EditAsync(model, sourceImage, sourceFileName, instruction, cancellationToken),
+            ImageProtocol.ComfyUi => await _comfyUi.EditAsync(model, sourceImage, sourceFileName, instruction, cancellationToken, mask),
+            ImageProtocol.ComfyUiServerless => await _serverless.EditAsync(model, sourceImage, sourceFileName, instruction, cancellationToken, mask),
             _ => throw new ImageGenerationException(
                 $"Image editor provider '{model.ProviderName}' does not support image editing over image protocol '{model.ImageProtocol}'. Configure a ComfyUI or RunPod Serverless editor in Model Manager (/model-manager).",
                 model.ProviderName,
@@ -48,12 +49,13 @@ public sealed class ImageEditingClientDispatcher : IImageEditingClient
         string sourceFileName,
         string instruction,
         IReadOnlyList<ImageEditingReference> references,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ImageEditingMask? mask = null)
     {
         return model.ImageProtocol switch
         {
-            ImageProtocol.ComfyUi => await _comfyUi.EditWithReferencesAsync(model, sourceImage, sourceFileName, instruction, references, cancellationToken),
-            ImageProtocol.ComfyUiServerless => await _serverless.EditWithReferencesAsync(model, sourceImage, sourceFileName, instruction, references, cancellationToken),
+            ImageProtocol.ComfyUi => await _comfyUi.EditWithReferencesAsync(model, sourceImage, sourceFileName, instruction, references, cancellationToken, mask),
+            ImageProtocol.ComfyUiServerless => await _serverless.EditWithReferencesAsync(model, sourceImage, sourceFileName, instruction, references, cancellationToken, mask),
             _ => throw new ImageGenerationException(
                 $"Image editor provider '{model.ProviderName}' does not support reference image editing over image protocol '{model.ImageProtocol}'. Configure a ComfyUI or RunPod Serverless editor in Model Manager (/model-manager).",
                 model.ProviderName,

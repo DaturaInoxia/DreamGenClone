@@ -39,8 +39,10 @@ public sealed class RunPodServerlessEditingClient : IImageEditingClient
         Stream sourceImage,
         string sourceFileName,
         string instruction,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ImageEditingMask? mask = null)
     {
+        RefuseRegionMask(model, mask);
         if (sourceImage is null || !sourceImage.CanRead)
             throw new ImageGenerationException("The source image cannot be read.", model.ProviderName, reasonCode: "source_image_unreadable");
         if (string.IsNullOrWhiteSpace(sourceFileName))
@@ -222,14 +224,34 @@ public sealed class RunPodServerlessEditingClient : IImageEditingClient
         }
     }
 
+    /// <summary>
+    /// The serverless transport carries ONE source image plus its references and has no mask input, so a region cannot
+    /// be honoured here. Refused rather than dropped: an edit that ignores the region the operator drew looks exactly
+    /// like a region edit that leaked, and finding out which costs a render.
+    /// </summary>
+    private static void RefuseRegionMask(ResolvedImageEditorModel model, ImageEditingMask? mask)
+    {
+        if (mask is null)
+            return;
+
+        throw new ImageGenerationException(
+            $"Image editor provider '{model.ProviderName}' cannot apply a region mask: the RunPod serverless edit "
+            + "transport carries no mask input. Confinement needs the ComfyUI Qwen-Image-2.1 native graph "
+            + "(VAEEncodeForInpaint over a masked latent) - configure a ComfyUI editor model, or edit without a region.",
+            model.ProviderName,
+            reasonCode: "region_mask_unsupported_transport");
+    }
+
     public async Task<byte[]> EditWithReferencesAsync(
         ResolvedImageEditorModel model,
         Stream sourceImage,
         string sourceFileName,
         string instruction,
         IReadOnlyList<ImageEditingReference> references,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ImageEditingMask? mask = null)
     {
+        RefuseRegionMask(model, mask);
         if (sourceImage is null || !sourceImage.CanRead)
             throw new ImageGenerationException("The source image cannot be read.", model.ProviderName, reasonCode: "source_image_unreadable");
         if (string.IsNullOrWhiteSpace(sourceFileName))

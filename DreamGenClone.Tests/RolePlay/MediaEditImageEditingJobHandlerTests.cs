@@ -866,7 +866,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
 
         public Exception? ThrowOnEdit { get; init; }
 
-        public Task<byte[]> EditAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, CancellationToken cancellationToken = default)
+        public Task<byte[]> EditAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, CancellationToken cancellationToken = default, ImageEditingMask? mask = null)
         {
             Calls++;
             Instructions.Add(instruction);
@@ -875,7 +875,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
             return Task.FromResult(CreatePng(4, 3));
         }
 
-        public Task<byte[]> EditWithReferencesAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, IReadOnlyList<ImageEditingReference> references, CancellationToken cancellationToken = default)
+        public Task<byte[]> EditWithReferencesAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, IReadOnlyList<ImageEditingReference> references, CancellationToken cancellationToken = default, ImageEditingMask? mask = null)
         {
             Calls++;
             Instructions.Add(instruction);
@@ -992,12 +992,14 @@ public sealed class MediaEditImageEditingJobHandlerTests
 
         public Task<byte[]> EditAsync(
             ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            ImageEditingMask? mask = null)
             => throw new InvalidOperationException("An identity run must always send its references.");
 
         public Task<byte[]> EditWithReferencesAsync(
             ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction,
-            IReadOnlyList<ImageEditingReference> references, CancellationToken cancellationToken = default)
+            IReadOnlyList<ImageEditingReference> references, CancellationToken cancellationToken = default,
+            ImageEditingMask? mask = null)
         {
             ReferenceCalls.Add((model, instruction, references));
             return Task.FromResult(CreatePng(4, 3));
