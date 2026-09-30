@@ -103,3 +103,59 @@ An **eight-step procedure** producing ~20 sentences / 400–500 words, written a
 | **B135-042** | `wh_ratio` / `ratio_follow` → canvas resolution, mapping into the checkpoint's qualified dimension set, refusing an unmappable ratio |
 | **B135-043** | PE call wired to the **same ordered reference list** the render uses, with the canvas image identified |
 | **B135-044** | Replace the SDXL-branded builder on the Qwen-2.1 path with the PE t2i contract, and record the deliberately-dropped SDXL style-tail/quality-booster behaviour as an expected, tested difference |
+
+---
+
+## 8. Decision (2026-09-30) — route 1 now, route 2 parked pending analysis
+
+Two routes exist for grounding the Qwen-2.1 compiler, and they are not interchangeable.
+
+### Route 1 — ADOPT THE VENDOR'S *RULES* INTO OUR OWN QWEN BUILDER PROSE ← **the plan of record, now**
+
+We write the Qwen long-form builder's system prompt ourselves, following the vendor's documented **shape and
+prohibitions** (§4 t2i, §5 edit) and citing this document as the external source (compiler-standards governance
+rules 4 and 9).
+
+Adopted: the eight-step observer-description procedure; ~20 sentences / 400–500 words **whatever the brief length**;
+no quality boosters (`masterpiece`, `8K`, `highly detailed`, `award-winning`); age as a life stage or decade and
+**never** a number of years; colours named with a modifier; enumerate-never-summarise; the ratio lives only in
+`wh_ratio` and never in the prose. On the edit side: attribute disentanglement at full strength, anchor-on-the-image,
+preservation stated affirmatively rather than as prohibitions, and identity **points at the reference image** instead
+of describing features in words.
+
+Why this route first: it needs **no new weights**, it closes the defect the code itself documents (*"the shared
+natural-language system prompt is SDXL-branded"*), and it is testable — a Qwen compile must never emit Pony tags or
+an SDXL-shaped brief, and the SDXL style tail (e.g. "35mm, natural skin texture") and quality boosters must never
+appear. The vendor's **contract** is what the PE weights were trained to emit; the **guidance** is ours to write.
+
+### Route 2 — USE THE VENDOR'S PROMPTS BYTE-EXACTLY ← **PARKED: needs its own analysis before any task starts**
+
+This is what §6 gate 1 and the §1 caveat are about, restated here with its gates so the dependency cannot get lost:
+
+> **Use the vendor's prompts byte-exactly.** That requires the **PE checkpoints** (`Qwen-Image-2.1-PE-T2I` /
+> `-PE-I2I`, fine-tuned Qwen3.5-VL 9B). The vendor is explicit that the stock model "will load and generate" but
+> wasn't trained against either prompt, so expect `parse_ok: false` on most rows — and this document flags exactly
+> this as the feasibility gate before the PE tasks.
+
+Analysis this needs before it is buildable (none of these are answered yet):
+
+1. **Do we have, or can we register, the PE weights?** `Qwen-Image-2.1-PE-T2I` / `-PE-I2I` are Qwen3.5-VL **9B** —
+   a VRAM and hosting question for the local 5080 and for RunPod, plus a Model Manager registration question.
+2. **Licence** of those checkpoints.
+3. **Is the stock-model + repaired-contract path viable at all?** If `parse_ok: false` dominates, the contract must be
+   repaired by hand — an unbounded repair burden, not a compile step. Quantify on a small sample before deciding.
+4. **Sampling is load-bearing and per task:** `presence_penalty` **1.5** (t2i) vs **0** (edit), thinking on and
+   required, `max_new_tokens` 16256 / 24000. Per our no-fallback rule these must be profile data, never defaults.
+5. **Byte-exactness is a build requirement, not a nicety** — pinned commit `7307809` plus a sha256 per file from the
+   fetch script. A reflowed copy is a paraphrase and silently changes behaviour (which is also why this document does
+   not carry the prompt text).
+6. **Relationship to route 1.** B135-008 must therefore put the Qwen long-form text behind the profile's
+   `SystemPrompt` — one replaceable source — so route 2 can later swap the *text* without rewriting the builder.
+   Route 1 is a step toward route 2, not a dead end; the seam is the deliverable.
+
+### Task status under this decision
+
+- **B135-039** (vendor both prompts + record hashes + asset test) — DONE.
+- **B135-040 … B135-044** — **BLOCKED** on the route-2 analysis above; do not start them by swapping the prompt text
+  onto a model that was not trained against it.
+- **B135-008** — proceeds under **route 1**, and is the next piece of work.

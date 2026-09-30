@@ -55,6 +55,10 @@ BigLust/Juggernaut get a small-prompt builder. FLUX gets its own grounding. This
 code itself documents ("the shared natural-language system prompt is SDXL-branded").
 - Files: `QwenImage21SceneImagePromptCompiler.cs`, `FluxSceneImagePromptCompiler.cs`, new `QwenSceneImagePromptBuilder.cs`, new `BigLustSceneImagePromptBuilder.cs`, `JuggernautSceneImagePromptBuilder.cs`
 - Test: a Qwen compile never emits Pony tags or an SDXL-shaped brief; a BigLust compile stays inside its budget.
+- **Route (2026-09-30):** Qwen long-form prose is written by us under **route 1** — adopt the vendor's documented
+  rules and prohibitions, cited to `research/qwen-2-1-prompt-enhancer.md` §4/§5. The byte-exact vendor-prompt route
+  (which needs the `Qwen-Image-2.1-PE-*` weights) is **parked pending the analysis in that document's §8**; keep the
+  text behind the profile's `SystemPrompt` so it can be swapped later without rewriting the builder.
 
 ### B135-009 — `PoseInText` enforcement (D18)
 `Forbidden` for BigLust/Juggernaut on complex or multi-person poses; `SimpleOnly` for Pony. A step
