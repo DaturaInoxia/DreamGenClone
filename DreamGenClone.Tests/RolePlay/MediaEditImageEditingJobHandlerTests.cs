@@ -489,6 +489,8 @@ public sealed class MediaEditImageEditingJobHandlerTests
                 OperationResolver(),
                 new StubImageEditorResolver(),
                 editor,
+                // The real, stateless region-mask engine: the production pixel code, not a stub of it.
+                new ImageRegionMaskEngine(),
                 NullLogger<MediaEditImageEditingJobHandler>.Instance);
         }
 
@@ -568,6 +570,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
                 OperationResolver(),
                 new StubImageEditorResolver(),
                 editor,
+                new ImageRegionMaskEngine(),
                 NullLogger<MediaEditImageEditingJobHandler>.Instance);
         }
 
@@ -603,6 +606,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
                 OperationResolver(),
                 modelResolver,
                 editor,
+                new ImageRegionMaskEngine(),
                 NullLogger<MediaEditImageEditingJobHandler>.Instance);
         }
 
@@ -716,6 +720,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
                 OperationResolver(),
                 new ThrowingImageEditorResolver(),
                 editor,
+                new ImageRegionMaskEngine(),
                 NullLogger<MediaEditImageEditingJobHandler>.Instance);
         }
 
@@ -807,6 +812,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
             new MediaEditOperationExecutorResolver([]),
             new StubImageEditorResolver(),
             editor,
+            new ImageRegionMaskEngine(),
             NullLogger<MediaEditImageEditingJobHandler>.Instance);
 
     /// <summary>

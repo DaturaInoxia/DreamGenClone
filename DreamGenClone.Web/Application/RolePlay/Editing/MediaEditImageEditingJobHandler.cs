@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.ModelManager;
@@ -9,6 +10,7 @@ using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using Microsoft.Extensions.Logging;
+using SixLabors.ImageSharp;
 
 namespace DreamGenClone.Web.Application.RolePlay.Editing;
 
@@ -25,6 +27,7 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
     private readonly MediaEditOperationExecutorResolver _operations;
     private readonly IImageEditorModelResolver _modelResolver;
     private readonly IImageEditingClient _imageEditingClient;
+    private readonly IImageRegionMaskEngine _regionMaskEngine;
     private readonly ILogger<MediaEditImageEditingJobHandler> _logger;
 
     public MediaEditImageEditingJobHandler(
@@ -32,12 +35,14 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
         MediaEditOperationExecutorResolver operations,
         IImageEditorModelResolver modelResolver,
         IImageEditingClient imageEditingClient,
+        IImageRegionMaskEngine regionMaskEngine,
         ILogger<MediaEditImageEditingJobHandler> logger)
     {
         _writers = writers;
         _operations = operations;
         _modelResolver = modelResolver;
         _imageEditingClient = imageEditingClient;
+        _regionMaskEngine = regionMaskEngine;
         _logger = logger;
     }
 
@@ -244,8 +249,14 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
         CancellationToken cancellationToken)
     {
         var sourceFileName = $"{plan.SourceImageId}.png";
+
+        // A region edit is an EDIT that also carries a mask (CASE-21): the instruction is untouched, and the mask is what
+        // pins everything outside the rectangle. It is built at the SOURCE's own pixel size here, so the operation's
+        // percentages mean the same thing on any frame.
+        using var mask = await BuildRegionMaskAsync(plan, source, resolved, cancellationToken);
+
         if (planReferences.Count == 0)
-            return await _imageEditingClient.EditAsync(resolved, source, sourceFileName, prompt, cancellationToken);
+            return await _imageEditingClient.EditAsync(resolved, source, sourceFileName, prompt, cancellationToken, mask);
 
         var streams = new List<Stream>(planReferences.Count);
         try
@@ -260,12 +271,60 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
             }
 
             return await _imageEditingClient.EditWithReferencesAsync(
-                resolved, source, sourceFileName, prompt, references, cancellationToken);
+                resolved, source, sourceFileName, prompt, references, cancellationToken, mask);
         }
         finally
         {
             foreach (var stream in streams)
                 await stream.DisposeAsync();
         }
+    }
+
+    /// <summary>
+    /// The mask for a region run, or null for a whole-frame edit. The region is refused HERE - before a render is paid
+    /// for - when the selected model's graph cannot confine an edit: the client refuses too, but an operator should not
+    /// learn that from a failed run.
+    ///
+    /// The source has to be MEASURED to build a mask at its own pixel size, so a region run requires a seekable source
+    /// and the stream is rewound: the editor client reads it again from the start.
+    /// </summary>
+    private async Task<ImageEditingMask?> BuildRegionMaskAsync(
+        MediaEditRunPlan plan,
+        Stream source,
+        ResolvedImageEditorModel resolved,
+        CancellationToken cancellationToken)
+    {
+        if (plan.Operation.Region is not { } region)
+            return null;
+
+        region.Validate();
+
+        if (resolved.GraphKind != ImageEditorGraphKind.QwenImage21Native)
+        {
+            throw new InvalidOperationException(
+                $"A region edit needs a model whose edit graph can confine one, but '{resolved.ModelIdentifier}' uses "
+                + $"'{resolved.GraphKind}'. Set 'Editor Graph' to Qwen-Image-2.1 for this model in Model Manager "
+                + "(/model-manager), or edit the whole frame.");
+        }
+
+        if (!source.CanSeek)
+        {
+            throw new InvalidOperationException(
+                "A region edit must measure the source to build its mask at the frame's own size, which needs a seekable "
+                + "source image. Open the image as a file-backed stream, or edit the whole frame.");
+        }
+
+        var info = await Image.IdentifyAsync(source, cancellationToken);
+        source.Position = 0;
+
+        var bytes = _regionMaskEngine.Build(region, info.Width, info.Height);
+        var checksum = Convert.ToHexString(SHA256.HashData(bytes));
+
+        return new ImageEditingMask(
+            new MemoryStream(bytes),
+            $"{plan.SourceImageId}-region.png",
+            checksum,
+            region.GrowMaskBy,
+            region.FeatherPixels);
     }
 }

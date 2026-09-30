@@ -47,9 +47,16 @@ public sealed record ImageEditingReference(
 /// <param name="GrowMaskBy">Pixels to grow the mask by at encode time. The host's own node accepts 0-64. A bare
 /// rectangle edge leaves a visible seam (CASE-21), so this is an operator-set value and never invented here.</param>
 /// <param name="FeatherPixels">Pixels of softening at the mask edge; 0 emits no feather node at all.</param>
+/// <remarks>
+/// The record OWNS <see cref="Mask"/>: a mask is built for one run, and whoever puts a stream in here hands over the
+/// job of disposing it, so a caller must not pass a stream it still needs.
+/// </remarks>
 public sealed record ImageEditingMask(
     Stream Mask,
     string FileName,
     string Checksum,
     int GrowMaskBy,
-    int FeatherPixels);
+    int FeatherPixels) : IDisposable
+{
+    public void Dispose() => Mask.Dispose();
+}
