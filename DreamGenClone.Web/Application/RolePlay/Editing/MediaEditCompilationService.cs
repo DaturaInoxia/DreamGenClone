@@ -207,6 +207,14 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
         if (request.Operation.Kind == MediaEditOperationKind.Edit)
             throw new InvalidOperationException(
                 "A media edit operation run must not be an edit; edits go through EnqueueRunAsync with their chosen editor model.");
+
+        // A REGION edit is an edit too. It needs a chosen editor model, and this path deliberately resolves no model and
+        // checks no endpoint - so queued here it would reach the worker with no editor and fail where the operator cannot
+        // see why. Region edits take the edit path, which is also where the prompt revision and references are prepared.
+        if (request.Operation.Kind == MediaEditOperationKind.MaskedRegion)
+            throw new InvalidOperationException(
+                "A media edit operation run must not carry a region edit; region edits go through EnqueueRunAsync with "
+                + "their chosen editor model, because confining an edit needs a model whose graph can support it.");
         if (request.MaxAttempts < 1)
             throw new InvalidOperationException(
                 "A media edit operation run requires an explicit attempt budget of at least one.");

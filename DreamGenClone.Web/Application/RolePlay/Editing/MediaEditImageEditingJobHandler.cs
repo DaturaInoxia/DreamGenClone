@@ -187,6 +187,9 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
             // operation's business.
             case MediaEditOperationKind.Crop:
             case MediaEditOperationKind.Enhance:
+            // A region edit carries the same envelope as they do: the kind, plus parameters of that same kind. Without
+            // this arm a region payload falls to the default and is refused as an unnamed operation kind.
+            case MediaEditOperationKind.MaskedRegion:
             {
                 var kind = payload.OperationKind;
                 if (string.IsNullOrWhiteSpace(payload.OperationJson))
