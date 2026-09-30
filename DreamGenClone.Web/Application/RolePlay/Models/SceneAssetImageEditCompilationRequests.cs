@@ -34,6 +34,12 @@ public sealed class EnqueueSceneAssetImageEditRequest
     public string EditorModelId { get; set; } = string.Empty;
     public string? CandidateBatchId { get; set; }
     public IReadOnlyList<ReferenceApplicationSelection>? ReferenceApplications { get; set; }
+
+    /// <summary>
+    /// The REGION this edit is confined to, or null to edit the whole frame. The scene studio's
+    /// <c>SceneImageEditRequest</c> carries the same field, so an asset edit and a scene edit stay one story.
+    /// </summary>
+    public MediaEditRegionOperation? Region { get; set; }
 }
 
 /// <summary>
@@ -60,6 +66,9 @@ public sealed class EnqueueSceneAssetImagePresetEditRequest
 
     /// <summary>The batch the derived image joins; defaults to the source's own batch, which is what an attempt deck shows.</summary>
     public string? CandidateBatchId { get; set; }
+
+    /// <summary>The REGION this edit is confined to, or null to edit the whole frame.</summary>
+    public MediaEditRegionOperation? Region { get; set; }
 }
 
 /// <summary>

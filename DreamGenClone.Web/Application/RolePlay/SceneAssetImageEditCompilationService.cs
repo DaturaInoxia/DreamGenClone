@@ -247,7 +247,8 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
                 image.Id,
                 request.EditorModelId.Trim(),
                 editAttempts,
-                referenceApplicationsJson),
+                referenceApplicationsJson,
+                Region: request.Region),
             cancellationToken);
         return image;
     }
@@ -332,7 +333,8 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
                 MediaEditSubjectKind.AssetImage,
                 image.Id,
                 request.EditorModelId.Trim(),
-                editAttempts),
+                editAttempts,
+                Region: request.Region),
             cancellationToken);
         return image;
     }

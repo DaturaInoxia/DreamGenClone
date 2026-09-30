@@ -50,4 +50,12 @@ public sealed class SceneImagePresetEditRequest
 
     /// <summary>The character whose override rows the instruction is assembled from, when the edit belongs to one.</summary>
     public string? CharacterId { get; set; }
+
+    /// <summary>
+    /// The REGION this edit is confined to, or null to edit the whole frame. A preset edit is the same instruction
+    /// either way - a relight of one part of the frame is a relight - so the rectangle rides on the request instead of
+    /// naming a second kind of run. Coordinates are PERCENT of the frame, and a model whose graph cannot confine an
+    /// edit is refused at enqueue rather than after a render.
+    /// </summary>
+    public MediaEditRegionOperation? Region { get; set; }
 }

@@ -466,6 +466,83 @@ public sealed class MediaEditCompilationServiceTests
         Assert.Empty(fixture.Queue.Jobs);
     }
 
+    [Fact]
+    public async Task EnqueueRunAsync_WithARegion_QueuesTheGeometryWithTheRun()
+    {
+        // The rectangle is the ONLY thing separating a region edit from a whole-frame edit, so it has to be on the
+        // queued job: the worker builds the mask from THESE numbers, never from a redraw of what the operator had on
+        // screen. Losing them here would silently turn a confined edit into a full-frame regeneration.
+        await using var fixture = await Fixture.CreateAsync(
+            new FixedEditorModels(DreamGenClone.Domain.ModelManager.ImageProtocol.ComfyUi),
+            new FixedEndpointReadiness(warm: false));
+        var region = new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 8, FeatherPixels: 4);
+
+        await fixture.Service.EnqueueRunAsync(new MediaEditRunRequest(
+            MediaEditSubjectKind.AssetImage,
+            "image-9",
+            "22222222-2222-2222-2222-222222222222",
+            MaxAttempts: 1,
+            Region: region));
+
+        using var payload = JsonDocument.Parse(Assert.Single(fixture.Queue.Jobs).PayloadJson);
+        Assert.Equal(
+            MediaEditOperationKind.MaskedRegion,
+            (MediaEditOperationKind)payload.RootElement.GetProperty("operationKind").GetInt32());
+        var operationJson = payload.RootElement.GetProperty("operationJson").GetString();
+        Assert.NotNull(operationJson);
+        var operation = JsonSerializer.Deserialize<MediaEditOperation>(operationJson!, Json);
+        Assert.NotNull(operation);
+        Assert.Equal(MediaEditOperationKind.MaskedRegion, operation!.Kind);
+        Assert.Equal(region, operation.Region);
+    }
+
+    [Fact]
+    public async Task EnqueueRunAsync_WithoutARegion_QueuesAPlainEdit()
+    {
+        // The whole-frame edit is what every earlier run was, and it must stay byte-for-byte that: the kind the worker
+        // has always switched on, and no operation payload at all.
+        await using var fixture = await Fixture.CreateAsync(
+            new FixedEditorModels(DreamGenClone.Domain.ModelManager.ImageProtocol.ComfyUi),
+            new FixedEndpointReadiness(warm: false));
+
+        await fixture.Service.EnqueueRunAsync(new MediaEditRunRequest(
+            MediaEditSubjectKind.AssetImage,
+            "image-10",
+            "22222222-2222-2222-2222-222222222222",
+            MaxAttempts: 1));
+
+        using var payload = JsonDocument.Parse(Assert.Single(fixture.Queue.Jobs).PayloadJson);
+        Assert.Equal(
+            MediaEditOperationKind.Edit,
+            (MediaEditOperationKind)payload.RootElement.GetProperty("operationKind").GetInt32());
+        Assert.True(
+            !payload.RootElement.TryGetProperty("operationJson", out var operationJson)
+            || operationJson.ValueKind == JsonValueKind.Null,
+            "A whole-frame edit carries no operation parameters.");
+    }
+
+    [Fact]
+    public async Task EnqueueRunAsync_RefusesAnUnusableRegionBeforeQueueingAnything()
+    {
+        // A rectangle that runs off the frame is refused HERE, while the operator's numbers are still in hand and no
+        // render has been paid for. It is never clamped: a clamped region edits a different area than the one drawn,
+        // and the result looks fine.
+        await using var fixture = await Fixture.CreateAsync(
+            new FixedEditorModels(DreamGenClone.Domain.ModelManager.ImageProtocol.ComfyUi),
+            new FixedEndpointReadiness(warm: false));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.EnqueueRunAsync(
+            new MediaEditRunRequest(
+                MediaEditSubjectKind.AssetImage,
+                "image-11",
+                "22222222-2222-2222-2222-222222222222",
+                MaxAttempts: 1,
+                Region: new MediaEditRegionOperation(90, 0, 30, 30, GrowMaskBy: 0, FeatherPixels: 0))));
+
+        Assert.Contains("run past its edge", error.Message, StringComparison.Ordinal);
+        Assert.Empty(fixture.Queue.Jobs);
+    }
+
     /// <summary>Only serverless admission probes warmth; a call here for a local model would be a defect.</summary>
     private sealed class StubEndpointReadiness : IImageEditorEndpointReadiness
     {

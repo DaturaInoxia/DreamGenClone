@@ -286,6 +286,8 @@ public sealed class SceneImageService : ISceneImageService
             new SceneImageEditingJobPayload { SessionId = session.Id, InteractionId = interaction.Id, ImageRecordId = record.Id },
             resolvedEditorModel.ImageProtocol,
             resolvedEditorModel,
+            // A finish pass re-renders the whole frame: it confines nothing.
+            region: null,
             cancellationToken);
     }
 
@@ -377,6 +379,8 @@ public sealed class SceneImageService : ISceneImageService
             },
             resolvedEditorModel.ImageProtocol,
             resolvedEditorModel,
+            // Face-only identity passes the whole frame to the writer: the writers place faces, not the sampler.
+            region: null,
             cancellationToken);
     }
 
@@ -486,6 +490,8 @@ public sealed class SceneImageService : ISceneImageService
             },
             resolvedEditorModel.ImageProtocol,
             resolvedEditorModel,
+            // Editor identity is the same face-only pass with the editor's own model: whole frame, no rectangle.
+            region: null,
             cancellationToken);
     }
 
@@ -1052,6 +1058,8 @@ public sealed class SceneImageService : ISceneImageService
             },
             resolvedEditorModel.ImageProtocol,
             resolvedEditorModel,
+            // A compiled edit takes the operator's rectangle when they drew one; null is the whole frame.
+            region: request.Region,
             cancellationToken);
     }
 
@@ -1153,6 +1161,9 @@ public sealed class SceneImageService : ISceneImageService
             },
             resolvedEditorModel.ImageProtocol,
             resolvedEditorModel,
+            // A preset edit is confined to the operator's rectangle when they drew one: a relight of one part of
+            // the frame is the same instruction as a relight of the whole frame, plus the rectangle.
+            region: request.Region,
             cancellationToken);
     }
 
@@ -1466,11 +1477,17 @@ public sealed class SceneImageService : ISceneImageService
         return await resolver.ResolveByIdAsync(modelId.Trim(), cancellationToken);
     }
 
+    /// <summary>
+    /// Queues an edit run through the shared pipeline. <paramref name="region"/> is the rectangle the edit is confined
+    /// to, or null for the whole-frame passes (finish, identity, editor identity) and every earlier edit. It is a
+    /// required argument with no default so that each pass states which of the two it is at its own call site.
+    /// </summary>
     private async Task<SceneImageRecord> DispatchEditAsync(
         SceneImageRecord record,
         SceneImageEditingJobPayload payload,
         ImageProtocol protocol,
         ResolvedImageEditorModel? editorModel,
+        MediaEditRegionOperation? region,
         CancellationToken cancellationToken)
     {
         var mediaEdits = _mediaEdits
@@ -1482,13 +1499,17 @@ public sealed class SceneImageService : ISceneImageService
         // Whether this runs now or waits for a user start is decided by the shared pipeline, from the
         // chosen model: a local endpoint is always running, a serverless one stages until it is warm.
         // Both studios queue through this one call, so neither can drift from the other.
+        // The region rides on the run rather than in the payload: it does not change which job was asked for,
+        // only what the sampler is allowed to touch, and the pipeline validates it against the chosen model
+        // before any render is paid for.
         await mediaEdits.EnqueueRunAsync(
             new MediaEditRunRequest(
                 MediaEditSubjectKind.SceneImage,
                 record.Id,
                 editorModelId,
                 MaxAttempts: 1,
-                ScopeId: payload.SessionId),
+                ScopeId: payload.SessionId,
+                Region: region),
             cancellationToken);
         return record;
     }
