@@ -13,7 +13,8 @@ public sealed record MediaEditRunRequest(
     string EditorModelId,
     int MaxAttempts,
     string? ReferenceApplicationsJson = null,
-    string? ScopeId = null);
+    string? ScopeId = null,
+    MediaEditRegionOperation? Region = null);
 
 /// <summary>
 /// Queues a non-model <b>operation</b> run (a crop) for a subject image row the caller has already

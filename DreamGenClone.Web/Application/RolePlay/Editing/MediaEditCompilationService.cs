@@ -165,6 +165,10 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
         if (request.MaxAttempts < 1)
             throw new InvalidOperationException("A media edit run requires an explicit attempt budget of at least one.");
 
+        // A region is validated HERE, while the operator's own numbers are still in hand: the worker would refuse them
+        // too, but an unusable rectangle should not cost a queued render first.
+        request.Region?.Validate();
+
         var imageId = request.ImageId.Trim();
         var editorModelId = request.EditorModelId.Trim();
 
@@ -182,7 +186,12 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
             {
                 SubjectKind = request.SubjectKind,
                 ImageId = imageId,
-                OperationKind = MediaEditOperationKind.Edit,
+                // A region edit is an EDIT that carries one more thing: the rectangle that confines it (CASE-21). The kind
+                // records which pixels were allowed to change, and its parameters travel the same way a crop's do.
+                OperationKind = request.Region is null ? MediaEditOperationKind.Edit : MediaEditOperationKind.MaskedRegion,
+                OperationJson = request.Region is null
+                    ? null
+                    : JsonSerializer.Serialize(MediaEditOperation.ForMaskedRegion(request.Region), JsonOptions),
                 EditorModelId = editorModelId,
                 ReferenceApplicationsJson = request.ReferenceApplicationsJson,
                 ScopeId = string.IsNullOrWhiteSpace(request.ScopeId) ? null : request.ScopeId.Trim()
