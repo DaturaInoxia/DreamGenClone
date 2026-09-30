@@ -443,6 +443,9 @@ builder.Services.AddSingleton<IPosePackDownloader, PosePackDownloader>();
 // as the render path, and persists nothing — a test has no session to file into.
 builder.Services.AddScoped<IPoseTestRenderService, PoseTestRenderService>();
 builder.Services.AddSingleton<IImageWorkflowRepository, ImageWorkflowRepository>();
+// B-135: one compiler profile per CHECKPOINT. The seed rows are reached from the store's own OpenAsync, so any
+// read seeds; a checkpoint with no row is refused by name rather than served an in-code fallback profile.
+builder.Services.AddSingleton<IImageCompilerProfileRepository, ImageCompilerProfileRepository>();
 builder.Services.AddSingleton<ICharacterIdentityBuildRepository, CharacterIdentityBuildRepository>();
 builder.Services.AddSingleton<ICharacterBodyCardRepository, CharacterBodyCardRepository>();
 // B-127: the explicit character-instance -> character-template links that own identity.
@@ -549,6 +552,9 @@ builder.Services.AddScoped<IMediaEditOperationExecutor, EnhanceOperationExecutor
 // The deterministic horizontal mirror is the identity angle remedy; its pixel work is one engine in the
 // shared editing namespace rather than a second image-manipulation path.
 builder.Services.AddSingleton<IImageMirrorEngine, ImageMirrorEngine>();
+// A REGION edit needs a mask (CASE-21): white where the instruction may change the picture, black where the source
+// must survive. One engine builds it, from the operation's own rectangle in percent.
+builder.Services.AddSingleton<IImageRegionMaskEngine, ImageRegionMaskEngine>();
 builder.Services.AddScoped<MediaEditOperationExecutorResolver>();
 builder.Services.AddSingleton<PonySceneImagePromptBuilder>();
 builder.Services.AddSingleton<IPonySceneImagePromptBuilder>(sp => sp.GetRequiredService<PonySceneImagePromptBuilder>());
@@ -566,6 +572,9 @@ builder.Services.AddSingleton<ISceneImagePromptCompiler, ApiSceneImagePromptComp
 builder.Services.AddSingleton<ISceneImagePromptCompiler, FluxSceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, QwenImage21SceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompilerRegistry, SceneImagePromptCompilerRegistry>();
+// B-135: checkpoint -> compiler profile, resolved from the checkpoint the render actually landed on. A checkpoint
+// with no profile is refused by name; there is no family-level fallback profile.
+builder.Services.AddSingleton<IImageCompilerProfileResolver, ImageCompilerProfileResolver>();
 
 // The WARDROBE ITEM prompt compiler (2026-09-29): one compiler per natural-language family, because a garment
 // reference has its own framing/backdrop rules and is NOT a scene prompt. A family with no registration (Pony tags)
