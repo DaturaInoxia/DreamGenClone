@@ -209,11 +209,17 @@ public sealed record MediaEditEnhanceOperation(string UpscalerModelName, int Tar
 /// <summary>
 /// The operation half of a run: which one, plus its parameters. The edit operation carries no payload
 /// because a compiled prompt revision is its payload and that is validated and passed separately.
+///
+/// <see cref="MediaEditOperationKind.MaskedRegion"/> is an EDIT that also carries a region: it runs the same editor
+/// path as <see cref="MediaEditOperationKind.Edit"/> - the same model, instruction, references and provenance - and
+/// adds the mask that confines it (CASE-21). It is a kind of its own because the provenance has to record WHICH pixels
+/// were allowed to change, not because it executes differently, and the handler treats the two alike.
 /// </summary>
 public sealed record MediaEditOperation(
     MediaEditOperationKind Kind,
     MediaEditCropOperation? Crop,
-    MediaEditEnhanceOperation? Enhance = null)
+    MediaEditEnhanceOperation? Enhance = null,
+    MediaEditRegionOperation? Region = null)
 {
     /// <summary>The editor-model operation.</summary>
     public static MediaEditOperation ForEdit { get; } = new(MediaEditOperationKind.Edit, null);
@@ -229,6 +235,10 @@ public sealed record MediaEditOperation(
     /// <summary>The deterministic horizontal-mirror operation (no parameters).</summary>
     public static MediaEditOperation ForMirror { get; } = new(MediaEditOperationKind.Mirror, null);
 
+    /// <summary>The confined edit: the editor path, limited to one region of the source.</summary>
+    public static MediaEditOperation ForMaskedRegion(MediaEditRegionOperation region)
+        => new(MediaEditOperationKind.MaskedRegion, null, null, region ?? throw new ArgumentNullException(nameof(region)));
+
     /// <summary>Fails fast when the operation is unnamed or when its parameters do not match its kind.</summary>
     public void Validate()
     {
@@ -236,10 +246,22 @@ public sealed record MediaEditOperation(
             throw new InvalidOperationException($"A {Kind} operation must not carry crop parameters.");
         if (Kind != MediaEditOperationKind.Enhance && Enhance is not null)
             throw new InvalidOperationException($"A {Kind} operation must not carry enhance parameters.");
+        if (Kind != MediaEditOperationKind.MaskedRegion && Region is not null)
+            throw new InvalidOperationException($"A {Kind} operation must not carry region parameters.");
 
         switch (Kind)
         {
             case MediaEditOperationKind.Edit:
+                break;
+
+            case MediaEditOperationKind.MaskedRegion:
+                if (Region is null)
+                {
+                    throw new InvalidOperationException(
+                        "A region edit requires its region parameters. Edit the whole frame, or draw a region.");
+                }
+
+                Region.Validate();
                 break;
 
             case MediaEditOperationKind.Crop:
@@ -264,6 +286,7 @@ public sealed record MediaEditOperation(
     {
         MediaEditOperationKind.Crop => Crop!.Describe(),
         MediaEditOperationKind.Enhance => Enhance!.Describe(),
+        MediaEditOperationKind.MaskedRegion => Region!.Describe(),
         _ => "edit"
     };
 }

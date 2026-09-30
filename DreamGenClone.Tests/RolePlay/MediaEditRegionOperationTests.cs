@@ -70,4 +70,42 @@ public sealed class MediaEditRegionOperationTests
 
         Assert.Contains("feather", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// A region edit is an EDIT that also carries a region, so its kind records WHICH pixels were allowed to change -
+    /// the provenance a later reader needs to tell "the whole frame was edited" from "this rectangle was".
+    /// </summary>
+    [Fact]
+    public void ARegionEditCarriesItsRegionAndDescribesIt()
+    {
+        var operation = MediaEditOperation.ForMaskedRegion(new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 3));
+
+        operation.Validate();
+
+        Assert.Equal(MediaEditOperationKind.MaskedRegion, operation.Kind);
+        Assert.Equal("region rect=10,20 30x40% grow=2 feather=3", operation.Describe());
+    }
+
+    /// <summary>A region kind with no region is a wiring mistake, not a whole-frame edit.</summary>
+    [Fact]
+    public void ARegionEditWithoutItsRegionIsRefused()
+    {
+        var operation = new MediaEditOperation(MediaEditOperationKind.MaskedRegion, null);
+
+        var exception = Assert.Throws<InvalidOperationException>(operation.Validate);
+
+        Assert.Contains("requires its region parameters", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Region parameters on any other kind are refused, the same way crop and enhance parameters are.</summary>
+    [Fact]
+    public void RegionParametersOnAnotherKindAreRefused()
+    {
+        var operation = new MediaEditOperation(
+            MediaEditOperationKind.Mirror, null, null, new MediaEditRegionOperation(10, 10, 10, 10, GrowMaskBy: 0, FeatherPixels: 0));
+
+        var exception = Assert.Throws<InvalidOperationException>(operation.Validate);
+
+        Assert.Contains("must not carry region parameters", exception.Message, StringComparison.Ordinal);
+    }
 }
