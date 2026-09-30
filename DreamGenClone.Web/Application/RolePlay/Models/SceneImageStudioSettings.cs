@@ -25,12 +25,6 @@ public sealed class SceneImageStudioSettings
     /// </summary>
     public long? Seed { get; set; }
 
-    /// <summary>
-    /// User-editable negative prompt (guard terms). The active model pipeline determines its
-    /// configured guard set when this value is blank.
-    /// </summary>
-    public string? NegativePrompt { get; set; } = SdxlSceneImagePromptBuilder.DefaultNegativePrompt;
-
     /// <summary>CFG scale control for the qualified photographic production recipe.</summary>
     [JsonPropertyName("guidance")]
     public double? Cfg { get; set; } = 5.0;

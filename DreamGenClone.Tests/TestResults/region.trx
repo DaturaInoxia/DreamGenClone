@@ -1,0 +1,118 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="9eb6b5a9-f5aa-4198-a4a2-d6ac47b8ebd3" name="kenac@WOODGAME 2026-09-29 23:52:00" runUser="WOODGAME\kenac" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-09-29T23:52:00.8249957-04:00" queuing="2026-09-29T23:52:00.8249959-04:00" start="2026-09-29T23:51:57.8515014-04:00" finish="2026-09-29T23:52:00.9027864-04:00" />
+  <TestSettings name="default" id="832ff68f-9f6f-491b-89fa-22f3a03416ed">
+    <Deployment runDeploymentRoot="kenac_WOODGAME_2026-09-29_23_52_00" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="1c18864e-4159-4c55-bc11-896231029ba2" testId="872b803e-96fb-c716-790c-d010bb86a5fa" testName="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests.ARegionTooSmallForTheFrameIsRefusedRatherThanEmittedAsAnAllBlackMask" computerName="WOODGAME" duration="00:00:00.0992025" startTime="2026-09-29T23:52:00.8077129-04:00" endTime="2026-09-29T23:52:00.8077222-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="1c18864e-4159-4c55-bc11-896231029ba2" />
+    <UnitTestResult executionId="e545f10b-1393-4ea0-8f4b-12f6573e1daa" testId="1fb30cdb-09b8-c0f4-0c07-959b900033f6" testName="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: -1, top: 0, width: 10, height: 10, expected: &quot;non-negative edges&quot;)" computerName="WOODGAME" duration="00:00:00.0000083" startTime="2026-09-29T23:52:00.8099150-04:00" endTime="2026-09-29T23:52:00.8099150-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e545f10b-1393-4ea0-8f4b-12f6573e1daa" />
+    <UnitTestResult executionId="c2f1fb52-5d85-4288-bc66-8a43ce711df2" testId="e81a9f55-9cd1-6079-29ff-c53524f81f7c" testName="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests.AFrameWithoutASizeIsRefused" computerName="WOODGAME" duration="00:00:00.0001428" startTime="2026-09-29T23:52:00.8098095-04:00" endTime="2026-09-29T23:52:00.8098096-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="c2f1fb52-5d85-4288-bc66-8a43ce711df2" />
+    <UnitTestResult executionId="9707bf76-ef2b-4be4-aba1-e0418365a7e6" testId="8a29aada-5c4b-1148-934c-8fd720f9bf8f" testName="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests.TheRegionIsWhiteAndEverythingElseIsBlack" computerName="WOODGAME" duration="00:00:00.0551573" startTime="2026-09-29T23:52:00.8628870-04:00" endTime="2026-09-29T23:52:00.8628875-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="9707bf76-ef2b-4be4-aba1-e0418365a7e6" />
+    <UnitTestResult executionId="5010a905-f969-4e31-81bf-657feb84a057" testId="4d70e944-b06d-dba0-503d-d825e0f1d00a" testName="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.ARegionFlushWithTwoEdgesIsAccepted" computerName="WOODGAME" duration="00:00:00.0000374" startTime="2026-09-29T23:52:00.8155085-04:00" endTime="2026-09-29T23:52:00.8155085-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="5010a905-f969-4e31-81bf-657feb84a057" />
+    <UnitTestResult executionId="feb7670f-d285-460c-ad75-70543bf68d6e" testId="20ab2053-6f87-0139-cef7-2e3251bef1fa" testName="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.AGrowValueOutsideTheHostsOwnBoundIsRefused(growMaskBy: -1)" computerName="WOODGAME" duration="00:00:00.0003652" startTime="2026-09-29T23:52:00.8153076-04:00" endTime="2026-09-29T23:52:00.8153077-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="feb7670f-d285-460c-ad75-70543bf68d6e" />
+    <UnitTestResult executionId="f8564f78-0bd2-48c6-bc32-cf94870490c4" testId="09844cc1-42be-25fc-e320-25dba841235b" testName="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: 80, top: 10, width: 30, height: 10, expected: &quot;inside the frame&quot;)" computerName="WOODGAME" duration="00:00:00.0001981" startTime="2026-09-29T23:52:00.8098689-04:00" endTime="2026-09-29T23:52:00.8098689-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="f8564f78-0bd2-48c6-bc32-cf94870490c4" />
+    <UnitTestResult executionId="28050c4e-e70b-4b5e-b63c-096ca65f52b1" testId="e16b6fd7-6073-955b-954f-8f610f24500f" testName="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: 10, top: 80, width: 10, height: 30, expected: &quot;inside the frame&quot;)" computerName="WOODGAME" duration="00:00:00.0000041" startTime="2026-09-29T23:52:00.8101057-04:00" endTime="2026-09-29T23:52:00.8101057-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="28050c4e-e70b-4b5e-b63c-096ca65f52b1" />
+    <UnitTestResult executionId="f904302f-b44d-4588-a1ad-8607e8a21927" testId="c550ed2c-f183-2bc5-8bd7-255a5d60aae4" testName="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: 10, top: 10, width: 0, height: 10, expected: &quot;positive size&quot;)" computerName="WOODGAME" duration="00:00:00.0000037" startTime="2026-09-29T23:52:00.8100019-04:00" endTime="2026-09-29T23:52:00.8100021-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="f904302f-b44d-4588-a1ad-8607e8a21927" />
+    <UnitTestResult executionId="3513da14-3027-4c69-b781-b6392a91464a" testId="789c474d-3bbf-01f9-4c2b-4c0cd52baf9f" testName="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.AGrowValueOutsideTheHostsOwnBoundIsRefused(growMaskBy: 65)" computerName="WOODGAME" duration="00:00:00.0001030" startTime="2026-09-29T23:52:00.8153548-04:00" endTime="2026-09-29T23:52:00.8153548-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="3513da14-3027-4c69-b781-b6392a91464a" />
+    <UnitTestResult executionId="4d4f178a-a3d7-4ee1-9d21-b4c9b0a19375" testId="d01942d8-f5fe-c448-c29f-32395caf5b96" testName="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: 0, top: -5, width: 10, height: 10, expected: &quot;non-negative edges&quot;)" computerName="WOODGAME" duration="00:00:00.0990751" startTime="2026-09-29T23:52:00.8091779-04:00" endTime="2026-09-29T23:52:00.8091780-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="4d4f178a-a3d7-4ee1-9d21-b4c9b0a19375" />
+    <UnitTestResult executionId="5420ef92-9c3f-4823-a1b7-65da7de8b7ab" testId="c800f656-e852-498d-77a3-088eb4e54650" testName="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests.ARegionFlushWithTwoEdgesIsWhiteFromTheEdge" computerName="WOODGAME" duration="00:00:00.0011609" startTime="2026-09-29T23:52:00.8641001-04:00" endTime="2026-09-29T23:52:00.8641001-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="5420ef92-9c3f-4823-a1b7-65da7de8b7ab" />
+    <UnitTestResult executionId="a442ea7f-8fad-4301-9b7d-2c7898392523" testId="ec1bf3ba-b3c4-392f-a890-6b2a3034383b" testName="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.ANegativeFeatherIsRefused" computerName="WOODGAME" duration="00:00:00.0000871" startTime="2026-09-29T23:52:00.8154559-04:00" endTime="2026-09-29T23:52:00.8154559-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a442ea7f-8fad-4301-9b7d-2c7898392523" />
+    <UnitTestResult executionId="82bb5ec1-fcc9-430d-8d82-c4949d464430" testId="dbb4a59b-b37a-3a92-59cf-f16dd56e0186" testName="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: 10, top: 10, width: 10, height: 0, expected: &quot;positive size&quot;)" computerName="WOODGAME" duration="00:00:00.0000056" startTime="2026-09-29T23:52:00.8099596-04:00" endTime="2026-09-29T23:52:00.8099596-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="82bb5ec1-fcc9-430d-8d82-c4949d464430" />
+    <UnitTestResult executionId="c26d22cb-98c2-418c-809e-6a0fe1372166" testId="c6d55864-9591-84c2-93fb-bc5a37a7fad6" testName="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.ARegionInsideTheFrameWithGrowAndFeatherIsAccepted" computerName="WOODGAME" duration="00:00:00.0003862" startTime="2026-09-29T23:52:00.8154065-04:00" endTime="2026-09-29T23:52:00.8154065-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="c26d22cb-98c2-418c-809e-6a0fe1372166" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests.ARegionTooSmallForTheFrameIsRefusedRatherThanEmittedAsAnAllBlackMask" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="872b803e-96fb-c716-790c-d010bb86a5fa">
+      <Execution id="1c18864e-4159-4c55-bc11-896231029ba2" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests" name="ARegionTooSmallForTheFrameIsRefusedRatherThanEmittedAsAnAllBlackMask" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: 0, top: -5, width: 10, height: 10, expected: &quot;non-negative edges&quot;)" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="d01942d8-f5fe-c448-c29f-32395caf5b96">
+      <Execution id="4d4f178a-a3d7-4ee1-9d21-b4c9b0a19375" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests" name="GeometryTheGraphCannotHonourIsRefused" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.AGrowValueOutsideTheHostsOwnBoundIsRefused(growMaskBy: -1)" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="20ab2053-6f87-0139-cef7-2e3251bef1fa">
+      <Execution id="feb7670f-d285-460c-ad75-70543bf68d6e" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests" name="AGrowValueOutsideTheHostsOwnBoundIsRefused" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests.ARegionFlushWithTwoEdgesIsWhiteFromTheEdge" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="c800f656-e852-498d-77a3-088eb4e54650">
+      <Execution id="5420ef92-9c3f-4823-a1b7-65da7de8b7ab" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests" name="ARegionFlushWithTwoEdgesIsWhiteFromTheEdge" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: 10, top: 10, width: 0, height: 10, expected: &quot;positive size&quot;)" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="c550ed2c-f183-2bc5-8bd7-255a5d60aae4">
+      <Execution id="f904302f-b44d-4588-a1ad-8607e8a21927" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests" name="GeometryTheGraphCannotHonourIsRefused" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: 80, top: 10, width: 30, height: 10, expected: &quot;inside the frame&quot;)" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="09844cc1-42be-25fc-e320-25dba841235b">
+      <Execution id="f8564f78-0bd2-48c6-bc32-cf94870490c4" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests" name="GeometryTheGraphCannotHonourIsRefused" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests.AFrameWithoutASizeIsRefused" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="e81a9f55-9cd1-6079-29ff-c53524f81f7c">
+      <Execution id="c2f1fb52-5d85-4288-bc66-8a43ce711df2" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests" name="AFrameWithoutASizeIsRefused" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: -1, top: 0, width: 10, height: 10, expected: &quot;non-negative edges&quot;)" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="1fb30cdb-09b8-c0f4-0c07-959b900033f6">
+      <Execution id="e545f10b-1393-4ea0-8f4b-12f6573e1daa" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests" name="GeometryTheGraphCannotHonourIsRefused" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.ARegionFlushWithTwoEdgesIsAccepted" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="4d70e944-b06d-dba0-503d-d825e0f1d00a">
+      <Execution id="5010a905-f969-4e31-81bf-657feb84a057" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests" name="ARegionFlushWithTwoEdgesIsAccepted" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.AGrowValueOutsideTheHostsOwnBoundIsRefused(growMaskBy: 65)" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="789c474d-3bbf-01f9-4c2b-4c0cd52baf9f">
+      <Execution id="3513da14-3027-4c69-b781-b6392a91464a" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests" name="AGrowValueOutsideTheHostsOwnBoundIsRefused" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: 10, top: 80, width: 10, height: 30, expected: &quot;inside the frame&quot;)" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="e16b6fd7-6073-955b-954f-8f610f24500f">
+      <Execution id="28050c4e-e70b-4b5e-b63c-096ca65f52b1" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests" name="GeometryTheGraphCannotHonourIsRefused" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.ANegativeFeatherIsRefused" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="ec1bf3ba-b3c4-392f-a890-6b2a3034383b">
+      <Execution id="a442ea7f-8fad-4301-9b7d-2c7898392523" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests" name="ANegativeFeatherIsRefused" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.ARegionInsideTheFrameWithGrowAndFeatherIsAccepted" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="c6d55864-9591-84c2-93fb-bc5a37a7fad6">
+      <Execution id="c26d22cb-98c2-418c-809e-6a0fe1372166" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests" name="ARegionInsideTheFrameWithGrowAndFeatherIsAccepted" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests.GeometryTheGraphCannotHonourIsRefused(left: 10, top: 10, width: 10, height: 0, expected: &quot;positive size&quot;)" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="dbb4a59b-b37a-3a92-59cf-f16dd56e0186">
+      <Execution id="82bb5ec1-fcc9-430d-8d82-c4949d464430" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.MediaEditRegionOperationTests" name="GeometryTheGraphCannotHonourIsRefused" />
+    </UnitTest>
+    <UnitTest name="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests.TheRegionIsWhiteAndEverythingElseIsBlack" storage="d:\src\dreamgenclone\dreamgenclone.tests\artifacts\build-check\region2\dreamgenclone.tests.dll" id="8a29aada-5c4b-1148-934c-8fd720f9bf8f">
+      <Execution id="9707bf76-ef2b-4be4-aba1-e0418365a7e6" />
+      <TestMethod codeBase="D:\src\DreamGenClone\DreamGenClone.Tests\artifacts\build-check\region2\DreamGenClone.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DreamGenClone.Tests.RolePlay.ImageRegionMaskEngineTests" name="TheRegionIsWhiteAndEverythingElseIsBlack" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="872b803e-96fb-c716-790c-d010bb86a5fa" executionId="1c18864e-4159-4c55-bc11-896231029ba2" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="1fb30cdb-09b8-c0f4-0c07-959b900033f6" executionId="e545f10b-1393-4ea0-8f4b-12f6573e1daa" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="e81a9f55-9cd1-6079-29ff-c53524f81f7c" executionId="c2f1fb52-5d85-4288-bc66-8a43ce711df2" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="8a29aada-5c4b-1148-934c-8fd720f9bf8f" executionId="9707bf76-ef2b-4be4-aba1-e0418365a7e6" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="4d70e944-b06d-dba0-503d-d825e0f1d00a" executionId="5010a905-f969-4e31-81bf-657feb84a057" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="20ab2053-6f87-0139-cef7-2e3251bef1fa" executionId="feb7670f-d285-460c-ad75-70543bf68d6e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="09844cc1-42be-25fc-e320-25dba841235b" executionId="f8564f78-0bd2-48c6-bc32-cf94870490c4" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="e16b6fd7-6073-955b-954f-8f610f24500f" executionId="28050c4e-e70b-4b5e-b63c-096ca65f52b1" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="c550ed2c-f183-2bc5-8bd7-255a5d60aae4" executionId="f904302f-b44d-4588-a1ad-8607e8a21927" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="789c474d-3bbf-01f9-4c2b-4c0cd52baf9f" executionId="3513da14-3027-4c69-b781-b6392a91464a" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="d01942d8-f5fe-c448-c29f-32395caf5b96" executionId="4d4f178a-a3d7-4ee1-9d21-b4c9b0a19375" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="c800f656-e852-498d-77a3-088eb4e54650" executionId="5420ef92-9c3f-4823-a1b7-65da7de8b7ab" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="ec1bf3ba-b3c4-392f-a890-6b2a3034383b" executionId="a442ea7f-8fad-4301-9b7d-2c7898392523" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="dbb4a59b-b37a-3a92-59cf-f16dd56e0186" executionId="82bb5ec1-fcc9-430d-8d82-c4949d464430" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="c6d55864-9591-84c2-93fb-bc5a37a7fad6" executionId="c26d22cb-98c2-418c-809e-6a0fe1372166" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Completed">
+    <Counters total="15" executed="15" passed="15" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 9.0.13)&#xD;
+[xUnit.net 00:00:01.32]   Discovering: DreamGenClone.Tests&#xD;
+[xUnit.net 00:00:01.53]   Discovered:  DreamGenClone.Tests&#xD;
+[xUnit.net 00:00:01.53]   Starting:    DreamGenClone.Tests&#xD;
+[xUnit.net 00:00:01.71]   Finished:    DreamGenClone.Tests&#xD;
+</StdOut>
+    </Output>
+  </ResultSummary>
+</TestRun>

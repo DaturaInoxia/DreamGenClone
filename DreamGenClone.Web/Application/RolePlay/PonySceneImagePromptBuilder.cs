@@ -294,33 +294,6 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         return prompt.Trim();
     }
 
-    /// <summary>
-    /// Builds the deterministic negative prompt for a frozen beat + POV. Suppresses common
-    /// image-model artifacts plus any character that must not appear in the frame.
-    /// </summary>
-    public string BuildDeterministicBeatNegativePrompt(SceneImageBeat beat, string pov)
-    {
-        // Pony is designed not to need a heavy negative; a short guard set suffices (validated on
-        // pod 2026-08-23 — large negatives fight the model and cause artifacts).
-        var artifacts = "lowres, bad anatomy, bad hands, extra digits, watermark, text, blurry";
-
-        var excludedNames = SceneImageRenderBriefBuilder.ResolveVisibleCharacters(beat, pov)
-            .Select(character => character.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var absent = beat.Characters
-            .Select(character => character.Name)
-            .Where(name => !excludedNames.Contains(name))
-            .ToList();
-
-        var negative = new List<string> { artifacts };
-        foreach (var name in absent)
-        {
-            negative.Add(name);
-            negative.Add($"{name} absent from frame");
-        }
-        return string.Join(", ", negative).Trim();
-    }
-
     private static void AddTag(List<string> tags, string? value, IReadOnlyList<string> excludedNames, string? cameraHolderName)
     {
         if (string.IsNullOrWhiteSpace(value)) return;

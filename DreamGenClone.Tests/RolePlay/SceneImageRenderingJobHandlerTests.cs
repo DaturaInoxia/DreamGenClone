@@ -50,6 +50,7 @@ public sealed class SceneImageRenderingJobHandlerTests
                 poseClient: null!,
                 poseResolver: null!,
                 compilerRegistry: null!,
+                compilerProfileResolver: null!,
                 debugEventSink: null!,
                 NullLogger<SceneImageRenderingJobHandler>.Instance,
                 producedImages);

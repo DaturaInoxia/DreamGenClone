@@ -205,15 +205,17 @@ public sealed class BodyReferencePromptCompilerTests
     }
 
     [Fact]
-    public void Pony_IsStructurallyValid_AndCarriesTheMinimalGuardNegative()
+    public void Pony_IsStructurallyValid_AndTheNegativeIsNotTheCompilersJob()
     {
         var compiled = Pony();
 
         // The compiled output passes the very validator the operator's reported prompt failed (§0 rule 5).
         Assert.True(compiled.IsValid);
         BodyPromptStructureValidator.RequireValid(compiled.Positive, BodyPromptFamily.Pony, ["Becky", "Dean"]);
-        // Rule 8: short guard set, not a wall of negatives.
-        Assert.Equal(BodyReferencePromptCompiler.PonyNegativeGuard, compiled.Negative);
+        // B-135 D10: the compiler authors no negative at all. Pony's short guard set is declared on the Pony
+        // checkpoint's compiler profile and read from there by the render path, so the compiled record carries only
+        // the positive text and a second copy of that string cannot exist here.
+        Assert.DoesNotContain("lowres", compiled.Positive, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Rules 2 and 4 are requirements, not defaults: the compiler refuses rather than inventing them.</summary>
@@ -268,12 +270,11 @@ public sealed class BodyReferencePromptCompilerTests
     }
 
     [Fact]
-    public void Sdxl_UsesAnEmptyNegative_AndStaysInsideTheCharacterCeiling()
+    public void Sdxl_StaysInsideTheCharacterCeiling()
     {
         var compiled = Sdxl();
 
-        // Author research: BigLust example workflows use no negative; the old guard set is superseded.
-        Assert.Equal(string.Empty, compiled.Negative);
+        // B-135 D10: the compiler authors no negative; the BigLust profile declares the empty one.
         Assert.True(compiled.Positive.Length <= BodyPromptStructureValidator.SdxlMaxChars,
             $"SDXL prompt was {compiled.Positive.Length} characters (§2.2 ceiling is {BodyPromptStructureValidator.SdxlMaxChars}).");
         Assert.True(compiled.IsValid);
@@ -393,8 +394,7 @@ public sealed class BodyReferencePromptCompilerTests
         Assert.StartsWith(
             BodyReferencePromptCompiler.ComposeFullDescription(Brief()), compiled.Positive, StringComparison.Ordinal);
         Assert.DoesNotContain("score_9", compiled.Positive, StringComparison.Ordinal);
-        // Those families carry no negative (BFL: most FLUX models do not support one), which is not a defect.
-        Assert.Equal(string.Empty, compiled.Negative);
+        // B-135 D10: the compiler authors no negative for any family — FLUX's profile declares the empty one.
         // Provenance records the MODEL family, not the dialect it happens to share.
         Assert.Equal(family, compiled.ModelFamily);
         Assert.True(compiled.IsValid);

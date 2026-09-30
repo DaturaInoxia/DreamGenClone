@@ -16,10 +16,6 @@ public sealed class PonySceneImagePromptCompiler : ISceneImagePromptCompiler
     public SceneImageModelFamily Family => SceneImageModelFamily.Pony;
     public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.PonyV6Tags;
     public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
-    public string CanonicalNegativePrompt => "lowres, bad anatomy, bad hands, extra digits, watermark, text, blurry";
-
-    public string BuildNegativePrompt(SceneImageBeat beat, string pov) =>
-        _builder.BuildDeterministicBeatNegativePrompt(beat, pov);
 }
 
 public sealed class SdxlSceneImagePromptCompiler : ISceneImagePromptCompiler
@@ -34,10 +30,6 @@ public sealed class SdxlSceneImagePromptCompiler : ISceneImagePromptCompiler
     public SceneImageModelFamily Family => SceneImageModelFamily.Sdxl;
     public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.SdxlNaturalLanguage;
     public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
-    public string CanonicalNegativePrompt => SdxlSceneImagePromptBuilder.DefaultNegativePrompt;
-
-    public string BuildNegativePrompt(SceneImageBeat beat, string pov) =>
-        _builder.BuildDeterministicBeatNegativePrompt(beat, pov);
 }
 
 /// <summary>
@@ -63,9 +55,6 @@ public sealed class ApiSceneImagePromptCompiler : ISceneImagePromptCompiler
     public SceneImageModelFamily Family => SceneImageModelFamily.Api;
     public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.NaturalLanguage;
     public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
-    public string CanonicalNegativePrompt => string.Empty;
-
-    public string BuildNegativePrompt(SceneImageBeat beat, string pov) => string.Empty;
 }
 
 /// <summary>
@@ -90,9 +79,6 @@ public sealed class FluxSceneImagePromptCompiler : ISceneImagePromptCompiler
     public SceneImageModelFamily Family => SceneImageModelFamily.Flux;
     public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.FluxNaturalLanguage;
     public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
-    public string CanonicalNegativePrompt => string.Empty;
-
-    public string BuildNegativePrompt(SceneImageBeat beat, string pov) => string.Empty;
 }
 
 /// <summary>
@@ -124,9 +110,6 @@ public sealed class QwenImage21SceneImagePromptCompiler : ISceneImagePromptCompi
     public SceneImageModelFamily Family => SceneImageModelFamily.QwenImage21;
     public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.NaturalLanguage;
     public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
-    public string CanonicalNegativePrompt => string.Empty;
-
-    public string BuildNegativePrompt(SceneImageBeat beat, string pov) => string.Empty;
 }
 
 public sealed class SceneImagePromptCompilerRegistry : ISceneImagePromptCompilerRegistry
@@ -153,6 +136,28 @@ public sealed class SceneImagePromptCompilerRegistry : ISceneImagePromptCompiler
                 $"No scene-image prompt compiler is registered for family '{family}' and dialect '{promptDialect}'. Configure the model in Model Manager."),
             _ => throw new InvalidOperationException(
                 $"Multiple scene-image prompt compilers are registered for family '{family}' and dialect '{promptDialect}'. Exactly one registration is required.")
+        };
+    }
+
+    public ISceneImagePromptCompiler Resolve(ImageCompilerProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ImageCompilerProfileValidation.Validate(profile);
+
+        var matches = _compilers
+            .Where(compiler => compiler.Family == profile.Family && compiler.PromptDialect == profile.PromptDialect)
+            .ToList();
+
+        return matches.Count switch
+        {
+            1 => matches[0],
+            0 => throw new InvalidOperationException(
+                $"No scene-image prompt compiler is registered for checkpoint '{profile.CheckpointIdentifier}' "
+                + $"(family '{profile.Family}', dialect '{profile.PromptDialect}'). A checkpoint carrying a profile with no "
+                + "compiler is a configuration error, not a cue to pick another compiler."),
+            _ => throw new InvalidOperationException(
+                $"Multiple scene-image prompt compilers are registered for checkpoint '{profile.CheckpointIdentifier}' "
+                + $"(family '{profile.Family}', dialect '{profile.PromptDialect}'). Exactly one registration is required.")
         };
     }
 }

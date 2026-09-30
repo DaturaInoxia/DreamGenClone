@@ -109,28 +109,6 @@ public sealed class SdxlSceneImagePromptBuilderTests
         Assert.Throws<InvalidOperationException>(() => _preprocessor.ParseOutput(raw));
     }
 
-    [Fact]
-    public void BuildDeterministicBeatNegativePrompt_IsEmptyForSdxl()
-    {
-        // SDXL scene images carry no negative (model-author guidance, 2026-09-08): BigLust v1.6's
-        // own example workflows use an empty negative, Juggernaut Hyper specifies none, and SDXL
-        // base guidance is "easy on negative prompts". See sdxl instruction file.
-        var negative = _preprocessor.BuildDeterministicBeatNegativePrompt(MakeThreeCharacterBeat(), SceneImagePovFramer.Omniscient);
-
-        Assert.Equal(string.Empty, negative);
-    }
-
-    [Fact]
-    public void BuildDeterministicBeatNegativePrompt_IsEmptyEvenWithAbsentObserver()
-    {
-        // From Becky's POV Ken (porch observer) is not in frame, but who is/isn't in frame is
-        // expressed in the POSITIVE prompt (visible-cast description + count/gender), never via
-        // "absent from frame" negative exclusions.
-        var negative = _preprocessor.BuildDeterministicBeatNegativePrompt(MakeThreeCharacterBeat(), "Becky");
-
-        Assert.Equal(string.Empty, negative);
-    }
-
     // ---- Canonical (B-100 CompiledMediaBrief) path — B-104 / B-103 part B ----
 
     private static CompiledMediaBrief MakeCanonicalStillBrief() => new(

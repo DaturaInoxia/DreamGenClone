@@ -610,9 +610,6 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
             candidateBatchId: key.BatchIdFor(build.Id),
             options: new SceneAssetImageGenerationOptions
             {
-                // The compiled negative travels WITH the prompt it belongs to. The render path cannot re-derive it:
-                // on this path the image is the only record of which compiler authored the text.
-                NegativePrompt = compiled.Negative,
                 // Stated, so the render path never compiles this text a second time (which would repeat the Pony
                 // quality string and push the prompt past its qualified length) — including when the operator edited
                 // the text, because what they edited is already this family's dialect.

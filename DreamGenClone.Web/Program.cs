@@ -446,6 +446,8 @@ builder.Services.AddSingleton<IImageWorkflowRepository, ImageWorkflowRepository>
 // B-135: one compiler profile per CHECKPOINT. The seed rows are reached from the store's own OpenAsync, so any
 // read seeds; a checkpoint with no row is refused by name rather than served an in-code fallback profile.
 builder.Services.AddSingleton<IImageCompilerProfileRepository, ImageCompilerProfileRepository>();
+// B-135: the Playground's suites and cells. Operator-authored configuration, so nothing is seeded on open.
+builder.Services.AddSingleton<IImageSuiteRepository, ImageSuiteRepository>();
 builder.Services.AddSingleton<ICharacterIdentityBuildRepository, CharacterIdentityBuildRepository>();
 builder.Services.AddSingleton<ICharacterBodyCardRepository, CharacterBodyCardRepository>();
 // B-127: the explicit character-instance -> character-template links that own identity.

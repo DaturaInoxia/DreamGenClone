@@ -10,7 +10,12 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// not named it. The picker falls back to a positional name so two images of one item are still tellable apart.
 /// </param>
 /// <param name="InUse">Whether this image is currently usable as a reference image.</param>
-public sealed record WardrobeItemImage(SceneAssetImage Image, string Label, bool InUse);
+/// <param name="IsPromptDraft">
+/// Whether this row is a PROMPT waiting for the operator rather than a picture: the compile produced (or is producing) a
+/// prompt and no render was ever asked for. A drafted prompt is not an attempt at an image, so a host lists it as text
+/// rather than as an image.
+/// </param>
+public sealed record WardrobeItemImage(SceneAssetImage Image, string Label, bool InUse, bool IsPromptDraft = false);
 
 /// <summary>
 /// A wardrobe item: ONE garment, with however many images of it the operator kept. Items are SHARED — the same

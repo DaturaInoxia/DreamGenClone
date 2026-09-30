@@ -657,8 +657,10 @@ public sealed class CharacterIdentityBodyServiceTests
 
             // The compiled prompt states its compiler, which is what stops the render path compiling it a second time.
             Assert.Equal(BodyReferencePromptCompiler.CompilerId, generation.Options?.PromptCompilerId);
-            // SDXL's negative is empty BY DESIGN, and an empty string is not the same as "no negative authored".
-            Assert.Equal(string.Empty, generation.Options?.NegativePrompt);
+            // B-135 D10: the body service authors NO negative. The render path resolves it from the checkpoint's
+            // compiler profile (the BigLust profile declares the empty one), so a value here would be a second
+            // source — null is the assertion that this path no longer supplies one.
+            Assert.Null(generation.Options?.NegativePrompt);
 
             // One request produced exactly one image.
             Assert.Single(world.Assets.All);

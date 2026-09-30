@@ -24,6 +24,9 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
     private readonly ISceneAssetRepository _repository;
     private readonly ISceneAssetStorageService _storage;
     private readonly IModelResolutionService _modelResolutionService;
+    // B-135 D10: the negative prompt is DECLARED on the checkpoint's compiler profile. This path reads it from the
+    // same place the scene render path does, so there is one source for the one string.
+    private readonly IImageCompilerProfileResolver _compilerProfileResolver;
     private readonly IImageGenerationClient _imageClient;
     private readonly IPoseConditionedImageClient _poseClient;
     private readonly IPoseImageModelResolver _poseResolver;
@@ -63,6 +66,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         IIdentityConditionedImageClient identityClient,
         IReferenceConditionedImageClient referenceClient,
         IReferenceStrategyResolver referenceStrategies,
+        IImageCompilerProfileResolver compilerProfileResolver,
         ICharacterImageIdentityRepository identityRepository,
         ICharacterImageAssetStorageService identityStorage,
         ILogger<SceneAssetGenerationJobHandler> logger,
@@ -73,6 +77,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         _repository = repository;
         _storage = storage;
         _modelResolutionService = modelResolutionService;
+        _compilerProfileResolver = compilerProfileResolver;
         _imageClient = imageClient;
         _poseClient = poseClient;
         _poseResolver = poseResolver;
@@ -140,20 +145,24 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         {
             var model = await _modelResolutionService.ResolveImageModelByIdAsync(payload.ModelId, cancellationToken);
 
+            // B-135 D10: the negative prompt is DECLARED on the checkpoint's compiler profile and read from there —
+            // on this path too. The body compiler used to author its own copy of the Pony guard set and the
+            // precompiled image carried it, which was a SECOND source of truth for one string, and it meant a Pony
+            // asset prompt got the guard set only when it happened to be precompiled.
+            var negativePrompt = (await _compilerProfileResolver.ResolveAsync(model, cancellationToken)).Negative;
+
             // Whether this text is already model-ready is STATED by the image, never guessed from the text's shape.
-            // An image that names its prompt compiler carries that compiler's family framing and its own negative;
-            // recompiling it would repeat the Pony quality string and push the prompt past its qualified length.
+            // An image that names its prompt compiler carries that compiler's family framing; recompiling it would
+            // repeat the Pony quality string and push the prompt past its qualified length.
             var precompiled = !string.IsNullOrWhiteSpace(image.PromptCompilerId);
             string compiledPrompt;
             string? compilerId;
             string? compilerVersion;
-            string? negativePrompt;
             if (precompiled)
             {
                 compiledPrompt = image.Prompt;
                 compilerId = image.PromptCompilerId;
                 compilerVersion = null;
-                negativePrompt = image.NegativePrompt;
             }
             else
             {
@@ -164,10 +173,6 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 compiledPrompt = compilation.Prompt;
                 compilerId = compilation.CompilerId;
                 compilerVersion = compilation.CompilerVersion;
-                // That compiler authors no negative: the documents' negatives are empty by design, so there is none
-                // to pass. The client is given null rather than an empty string to keep "no negative authored"
-                // distinguishable from "the author chose an empty one".
-                negativePrompt = null;
             }
 
             image.AssociationMetadataJson = JsonSerializer.Serialize(new

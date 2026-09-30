@@ -76,7 +76,11 @@ public sealed class WardrobeItemService : IWardrobeItemService
                 asset,
                 images
                     .OrderByDescending(image => image.CreatedUtc)
-                    .Select(image => new WardrobeItemImage(image, image.CandidateNotes?.Trim() ?? string.Empty, IsInUse(image)))
+                    .Select(image => new WardrobeItemImage(
+                        image,
+                        image.CandidateNotes?.Trim() ?? string.Empty,
+                        IsInUse(image),
+                        IsUnrenderedPromptDraft(image)))
                     .ToList()));
         }
 
@@ -275,11 +279,55 @@ public sealed class WardrobeItemService : IWardrobeItemService
         string imageSize,
         CancellationToken cancellationToken = default)
     {
+        var asset = await _assets.GetAsync(assetId, cancellationToken)
+            ?? throw new InvalidOperationException($"Wardrobe item '{assetId}' was not found.");
+
+        // ONE live draft per item: "Generate prompt" replaces the prompt the operator has not rendered yet, so pressing
+        // it twice leaves one text to read rather than a pile of drafts nobody asked to keep. A draft that HAS been
+        // rendered is left alone - it is the record of an image.
+        foreach (var stale in (await _assets.ListImagesAsync(asset.Id, cancellationToken)).Where(IsUnrenderedPromptDraft))
+        {
+            await _assets.DeleteImageAsync(stale.Id, cancellationToken);
+        }
+
         var row = await CreatePendingRowAsync(
             assetId, itemDescription, modelId, imageSize, renderWhenCompiled: false, cancellationToken);
         _logger.LogInformation(
             "Enqueued wardrobe item prompt draft: AssetId={AssetId}, ImageId={ImageId}", assetId, row.Id);
         return row;
+    }
+
+    /// <summary>
+    /// Whether a row is a PROMPT waiting for the operator rather than a picture: the compile ran (or is running) and no
+    /// render was ever asked for. This is what the tab hides from its image list, because a drafted prompt is not an
+    /// attempt at an image.
+    /// </summary>
+    private static bool IsUnrenderedPromptDraft(SceneAssetImage image)
+        => string.IsNullOrWhiteSpace(image.FileRelativePath)
+            && image.ProductionApprovalStatus is null
+            && (StageOf(image) is "compiling" or "prompt-ready");
+
+    /// <summary>The stage recorded on a row, or empty when it recorded none.</summary>
+    private static string StageOf(SceneAssetImage image)
+    {
+        if (string.IsNullOrWhiteSpace(image.AssociationMetadataJson) || image.AssociationMetadataJson.Trim().Length <= 2)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(image.AssociationMetadataJson);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("stage", out var stage)
+                && stage.ValueKind == JsonValueKind.String
+                    ? stage.GetString() ?? string.Empty
+                    : string.Empty;
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
+        }
     }
 
     /// <summary>

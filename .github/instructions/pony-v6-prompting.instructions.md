@@ -65,7 +65,7 @@ The `rating_*` tag is chosen by `NarrativePhase` in `ResolveRatingTag(phase, pol
 This replaces the old policy-only rating (`settings.AllowExplicitImage`). The user prompt line `Pony rating tag to use: <tag>` carries the resolved rating to the model.
 
 ### Negative prompt
-`BuildDeterministicBeatNegativePrompt` (kept, short guard set: `lowres, bad anatomy, bad hands, extra digits, watermark, text, blurry` + absent characters). The render handler uses this as the per-scene negative. Do NOT add `score_4/score_5/score_6` drops: the Pony V6 author's own `score_9` explainer states score tags in the negative are weak ("they will not push you away from really bad images") — the minimal guard set is the researched choice for Pony-family checkpoints including Pony Realism.
+The short guard set (`lowres, bad anatomy, bad hands, extra digits, watermark, text, blurry`) is **DECLARED on each Pony checkpoint's `ImageCompilerProfile.Negative`**, with its citation in `NegativeSource`, and read from there by the render path (B-135 D10). `BuildDeterministicBeatNegativePrompt` no longer exists — the builder authors no negative, and the absent-character exclusions it appended are gone because who IS in frame belongs in the POSITIVE. The Pony profiles are the ONLY non-empty negatives in the system; `ImageNegativePurgeGuardTests` fails if any purged member name reappears. Do NOT add `score_4/score_5/score_6` drops: the Pony V6 author's own `score_9` explainer states score tags in the negative are weak ("they will not push you away from really bad images") — the minimal guard set is the researched choice for Pony-family checkpoints including Pony Realism.
 
 ## Pony Realism v2.3 ULTRA (photorealistic Pony merge) — researched 2026-09-08
 
@@ -85,7 +85,7 @@ Generation notes validated from the model's discussion + card:
 - Strong on explicit poses/position fit; **explicit count tags are mandatory** ("two female" → single figure reported otherwise) — repeat the count tag and keep `1girl`/`1boy` style tokens.
 - Faces skew young; repeat explicit mature-age tokens when the moment calls for an older character.
 - v2.3 ULTRA specifically improves natural/balanced lighting and skin detail/realism.
-- The app keeps the **full V6 quality string** in the positive and the **short guard negative** (no score drops) for Pony-family models including Pony Realism.
+- The app keeps the **full V6 quality string** in the positive and the **short guard negative** (no score drops, declared on the Pony profiles — B-135 D10) for Pony-family models including Pony Realism.
 
 ## Verification protocol
 - After any change to the prompt builder, run the affected tests (`DreamGenClone.Tests/RolePlay/SceneImagePromptPreprocessorTests.cs`) and the full test suite — repo hard rule.

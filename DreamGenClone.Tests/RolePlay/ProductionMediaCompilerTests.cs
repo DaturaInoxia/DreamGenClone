@@ -18,7 +18,6 @@ public sealed class ProductionMediaCompilerTests
             Cfg = 5,
             SamplerName = " dpmpp_2m_sde ",
             Scheduler = " karras ",
-            NegativePrompt = "deformed",
             Seed = 42
         };
 
@@ -31,6 +30,10 @@ public sealed class ProductionMediaCompilerTests
         Assert.Equal(42, json.RootElement.GetProperty("seed").GetInt64());
         Assert.False(json.RootElement.TryGetProperty("Cfg", out _));
         Assert.False(json.RootElement.TryGetProperty("SamplerName", out _));
+        // B-135 D10: the qualified SDXL/BigLust production settings carry NO negative key. A negative is declared on
+        // the checkpoint's ImageCompilerProfile and read from there by the render path, so emitting one here would be a
+        // second source that nothing audits.
+        Assert.False(json.RootElement.TryGetProperty("negativePrompt", out _), "the production settings must not emit a negativePrompt key");
 
         var restored = JsonSerializer.Deserialize<SceneImageStudioSettings>(json.RootElement.GetRawText());
         Assert.NotNull(restored);

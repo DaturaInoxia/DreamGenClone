@@ -33,6 +33,9 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
     private readonly IPoseConditionedImageClient _poseClient;
     private readonly IPoseImageModelResolver _poseResolver;
     private readonly ISceneImagePromptCompilerRegistry _compilerRegistry;
+    // B-135 D10: the negative prompt is the CHECKPOINT PROFILE's declared value. This is the only source; the
+    // compiler no longer carries one, and a profile declares an empty negative unless external research requires it.
+    private readonly IImageCompilerProfileResolver _compilerProfileResolver;
     private readonly IRolePlayDebugEventSink _debugEventSink;
     private readonly ILogger<SceneImageRenderingJobHandler> _logger;
     private readonly IProducedImageRepository _producedImages;
@@ -75,6 +78,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         IPoseConditionedImageClient poseClient,
         IPoseImageModelResolver poseResolver,
         ISceneImagePromptCompilerRegistry compilerRegistry,
+        IImageCompilerProfileResolver compilerProfileResolver,
         IRolePlayDebugEventSink debugEventSink,
         ILogger<SceneImageRenderingJobHandler> logger,
         IProducedImageRepository producedImages,
@@ -94,6 +98,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         _poseClient = poseClient;
         _poseResolver = poseResolver;
         _compilerRegistry = compilerRegistry;
+        _compilerProfileResolver = compilerProfileResolver;
         _debugEventSink = debugEventSink;
         _logger = logger;
         _producedImages = producedImages;
@@ -153,7 +158,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
             var prompt = image.PromptSnapshot;
 
             var stopwatch = Stopwatch.StartNew();
-            var negative = await ResolveNegativePromptAsync(image, compiler, cancellationToken);
+            var negative = await ResolveNegativePromptAsync(resolved, cancellationToken);
             var injectedPrompt = InjectPlaceholders(prompt, image.SettingsJson);
             var seed = ResolveSeed(image.SettingsJson);
 
@@ -1033,72 +1038,19 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         ResolveAuditedValue(model, settingsJson, refs => refs.Scheduler, options => options.Scheduler ?? "model-default", "model-default");
 
     /// <summary>
-    /// Reads the user-editable negative prompt from the studio settings snapshot. Returns null when
-    /// unset or blank so the deterministic beat negative (or client baseline) applies instead.
+    /// The negative prompt for this render, taken from the CONTINUATION's checkpoint profile (B-135 D10).
+    ///
+    /// <para>
+    /// There is deliberately no other source. The compiler-level negative and the computed "who is absent from
+    /// frame" negative are gone: the positive prompt describes the desired state, including who is in frame, and a
+    /// negative list that fought the model was a repo-invented deviation rather than author guidance (2026-09-08
+    /// per-model research). Every profile declares an empty negative except the ones whose external research
+    /// requires one, so an empty result here is a configured fact and not a fallback.
+    /// </para>
     /// </summary>
-    private static string? ResolveNegativeOverride(string settingsJson)
+    private async Task<string?> ResolveNegativePromptAsync(ResolvedImageModel resolved, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(settingsJson)) return null;
-        try
-        {
-            var settings = JsonSerializer.Deserialize<SceneImageStudioSettings>(settingsJson, JsonOptions);
-            var negative = settings?.NegativePrompt;
-            return string.IsNullOrWhiteSpace(negative) ? null : negative.Trim();
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Resolves the negative prompt for this render. A user-editable negative in the studio settings
-    /// snapshot takes precedence; otherwise the deterministic beat negative (beat snapshot + POV) is
-    /// used. Returns null when neither is available so the client falls back to its baseline negative.
-    /// </summary>
-    private async Task<string?> ResolveNegativePromptAsync(SceneImageRecord image, ISceneImagePromptCompiler compiler, CancellationToken cancellationToken)
-    {
-        var overrideNegative = ResolveNegativeOverride(image.SettingsJson);
-        if (!string.IsNullOrWhiteSpace(overrideNegative))
-            return overrideNegative;
-
-        if (!string.IsNullOrWhiteSpace(image.CompiledMediaBriefId))
-        {
-            if (string.IsNullOrWhiteSpace(image.ProductionGroupId))
-                throw new InvalidOperationException("A canonical production render has a compiled Still brief without a production group.");
-            return compiler.CanonicalNegativePrompt;
-        }
-
-        if (string.IsNullOrWhiteSpace(image.BeatId) || string.IsNullOrWhiteSpace(image.Pov))
-            return null;
-        if (string.IsNullOrWhiteSpace(image.PromptRecordId))
-            return null;
-
-        var promptRecord = await _repository.GetPromptAsync(image.PromptRecordId, cancellationToken);
-        if (promptRecord is null || string.IsNullOrWhiteSpace(promptRecord.BeatSnapshotJson))
-            return null;
-
-        SceneImageBeat beat;
-        try
-        {
-            beat = JsonSerializer.Deserialize<SceneImageBeat>(promptRecord.BeatSnapshotJson, JsonOptions)
-                ?? throw new InvalidOperationException("Beat snapshot is invalid.");
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-
-        if (beat.SchemaVersion != SceneImageBeatAnalysisService.CurrentSchemaVersion)
-            return null;
-
-        try
-        {
-            return compiler.BuildNegativePrompt(beat, image.Pov);
-        }
-        catch
-        {
-            return null;
-        }
+        var profile = await _compilerProfileResolver.ResolveAsync(resolved, cancellationToken);
+        return profile.Negative;
     }
 }

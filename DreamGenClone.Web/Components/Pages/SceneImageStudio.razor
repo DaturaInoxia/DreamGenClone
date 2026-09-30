@@ -1777,9 +1777,9 @@
                                 <i class="bi bi-arrow-repeat me-1"></i> Refine
                             </button>
                         </div>
-                        <label class="form-label mt-3 mb-1 small fw-semibold">Negative Prompt (optional)</label>
-                        <textarea class="form-control font-monospace" rows="3" @bind="_settings.NegativePrompt"
-                                  placeholder="Optional guard terms (e.g. deformed, extra limbs, low quality). Leave blank to use the automatic negative."></textarea>
+                        @* B-135 D10: the negative prompt is deliberately NOT operator-editable. It is declared on the
+                           checkpoint's compiler profile and read from there by the render path, so a textbox here
+                           could only fight the model, with no way to audit where the value came from. *@
                     </div>
                 </div>
 

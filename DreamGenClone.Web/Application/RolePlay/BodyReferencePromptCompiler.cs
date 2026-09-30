@@ -15,7 +15,6 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed record CompiledBodyPrompt(
     BodyPromptFamily Family,
     string Positive,
-    string Negative,
     IReadOnlyList<BodyPromptFinding> Findings,
     IReadOnlyList<string> Omissions,
     SceneImageModelFamily ModelFamily)
@@ -51,19 +50,6 @@ public static class BodyReferencePromptCompiler
     /// compiled prompt is never compiled twice.
     /// </summary>
     public const string CompilerId = "body-reference-v1";
-
-    /// <summary>
-    /// The minimal Pony guard set (rule 8: Pony "does not need negative prompts in most cases"; a huge negative
-    /// fights the model). Shared verbatim with the scene builder's research.
-    /// </summary>
-    public const string PonyNegativeGuard =
-        "lowres, bad anatomy, bad hands, extra digits, watermark, text, blurry";
-
-    /// <summary>
-    /// SDXL's negative is EMPTY by design. The BigLust v1.6 author example workflows use no negative and the
-    /// Juggernaut Hyper card says "negative: none"; the older heavier guard set is superseded.
-    /// </summary>
-    public const string SdxlNegativePrompt = "";
 
     /// <summary>
     /// Age -> the maturity BAND, in ONE table so the two families cannot describe the same person differently.
@@ -304,13 +290,15 @@ public static class BodyReferencePromptCompiler
         };
 
         var findings = BodyPromptStructureValidator.Validate(positive, family, forbiddenTokens);
-        var negative = family == BodyPromptFamily.Pony ? PonyNegativeGuard : SdxlNegativePrompt;
 
         // Only the tag dialect drops detail; the natural-language brief carries all of it.
         var omissions = family == BodyPromptFamily.Pony ? PonyOmissions(brief) : [];
 
+        // B-135 D10: the compiler authors NO negative. It is declared on the checkpoint's ImageCompilerProfile and
+        // read from there by the render path. This file used to hold its own verbatim copy of the Pony guard set,
+        // which made two sources for one string.
         return new CompiledBodyPrompt(
-            family, positive, negative, findings, omissions, SceneImageModelFamily.Unknown);
+            family, positive, findings, omissions, SceneImageModelFamily.Unknown);
     }
 
     /// <summary>

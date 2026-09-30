@@ -462,6 +462,52 @@ public sealed class WardrobeItemServiceTests
         Assert.Contains("does not name the compiler", exception.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Pressing "Generate prompt" twice leaves ONE draft to read, not a pile: an unrendered draft is a prompt waiting for
+    /// the operator, so a new draft supersedes it. A draft that HAS been rendered is left alone - it is the record of an
+    /// image, not a draft.
+    /// </summary>
+    [Fact]
+    public async Task EnqueuePromptDraftAsync_SecondDraft_ReplacesTheUnrenderedOne()
+    {
+        var repository = new RecordingSceneAssetRepository();
+        repository.Seed(new SceneAsset { Id = "a1", Name = "Dress", Type = SceneAssetType.Wardrobe });
+        var world = new World(repository);
+
+        var first = await world.Wardrobe.EnqueuePromptDraftAsync("a1", "a yellow sundress", QwenModelId, "896x1152");
+        var second = await world.Wardrobe.EnqueuePromptDraftAsync("a1", "a blue sundress", QwenModelId, "896x1152");
+
+        Assert.Equal([first.Id], repository.DeletedImages);
+        Assert.NotEqual(first.Id, second.Id);
+        var rows = (await world.Wardrobe.ListItemsAsync()).Single().Images;
+        var row = Assert.Single(rows);
+        Assert.True(row.IsPromptDraft);
+        Assert.Equal(second.Id, row.Image.Id);
+    }
+
+    /// <summary>
+    /// A prompt draft is reported as a PROMPT, not as an attempt at an image: that is what the host needs to keep it out
+    /// of the image list (operator report 2026-09-29: pressing "Generate prompt" looked like an image generation had
+    /// started, because an empty card appeared for it).
+    /// </summary>
+    [Fact]
+    public async Task ListItemsAsync_MarksPromptDraftsSeparatelyFromImages()
+    {
+        var draft = PendingItemImage("img-draft");
+        draft.PromptCompilerId = "wardrobe-item-qwen-image-21-natural-language";
+        draft.AssociationMetadataJson = "{\"source\":\"wardrobe-item\",\"stage\":\"prompt-ready\"}";
+        var rendered = CompleteImage("img-rendered");
+        rendered.AssociationMetadataJson = "{\"source\":\"wardrobe-item\",\"stage\":\"rendering\"}";
+        var repository = new RecordingSceneAssetRepository(draft, rendered);
+        repository.Seed(new SceneAsset { Id = "a1", Name = "Dress", Type = SceneAssetType.Wardrobe });
+        var world = new World(repository);
+
+        var item = Assert.Single(await world.Wardrobe.ListItemsAsync());
+
+        Assert.True(item.Images.Single(entry => entry.Image.Id == "img-draft").IsPromptDraft);
+        Assert.False(item.Images.Single(entry => entry.Image.Id == "img-rendered").IsPromptDraft);
+    }
+
     private static ResolvedImageModel ImageModel(
         SceneImageModelFamily family,
         SceneImagePromptDialect dialect) => new(

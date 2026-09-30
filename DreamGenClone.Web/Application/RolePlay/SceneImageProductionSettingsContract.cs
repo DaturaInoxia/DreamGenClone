@@ -40,7 +40,6 @@ public static class SceneImageProductionSettingsContract
             guidance = settings.Cfg.Value,
             sampler = settings.SamplerName.Trim(),
             scheduler = settings.Scheduler.Trim(),
-            negativePrompt = settings.NegativePrompt ?? string.Empty,
             seed = settings.Seed ?? Random.Shared.NextInt64(0, int.MaxValue)
         });
     }

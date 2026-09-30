@@ -237,18 +237,27 @@ steps / CFG 5.0 / 1024×1024 (per `ComfyUIImageClient.BuildSdxlWorkflow` and the
   recommend a heavy negative — BigLust v1.6's own example workflows use an empty negative, Juggernaut
   Hyper specifies "negative prompt: none", and SDXL base guidance is "easy on negative prompts… only
   include things you want to avoid". The Juggernaut author's "add NSFW tokens to the negative"
-  guidance is an SFW-avoidance practice that does not apply to this app's adult-content renders.
-  `SdxlSceneImagePromptBuilder.DefaultNegativePrompt` is therefore `""` — the studio default, the
-  canonical compiler negative, and the deterministic beat negative all resolve to empty; the positive
-  prompt describes the desired state (including who is in frame). A user-supplied negative in the
-  Studio is still honored verbatim.
-- Negations ("no X") belong in the negative, never as "no X" in the positive.
-- SDXL-family finetunes can carry **BOORU anatomical tokens**; if any appear, they belong in the
-  **negative** to avoid accidental outputs (Juggernaut guide, "Keep it safe for work").
+  guidance is an SFW-avoidance practice that does not apply to this app's adult-content renders. The
+  positive prompt describes the desired state, including who is in frame.
+
+  **B-135 D10 (2026-09-29) — there is no operator-supplied negative and no compiler-level one. The negative is
+  DECLARED, per checkpoint, on `ImageCompilerProfile.Negative`, and the render path reads it from there and nowhere
+  else.** The old `SdxlSceneImagePromptBuilder.DefaultNegativePrompt` constant, the compilers'
+  `CanonicalNegativePrompt` / `BuildNegativePrompt` members, the builders' `BuildDeterministicBeatNegativePrompt`, the
+  Studio's negative textbox and `SceneImageStudioSettings.NegativePrompt` are all DELETED — purging the VALUES on
+  2026-09-08 left the CAPABILITY alive, which is why negatives kept coming back. A profile may declare a non-empty
+  negative only with a recorded citation in `NegativeSource`, and only the Pony profiles do.
+  `ImageNegativePurgeGuardTests` fails if a purged member name reappears anywhere in the Web or Domain assemblies.
+- Negations ("no X") are not written at all: describe the desired state. Under B-135 D10 there is no negative to move
+  them into, so a "no X" phrase is simply absent from the prompt.
+- SDXL-family finetunes can carry **BOORU anatomical tokens**. The Juggernaut guide's advice to put them in the
+  negative is SFW-avoidance practice for their platform and does not apply here — this app renders adult content
+  deliberately, so those tokens are not written at all.
 
 ### 3.3 SFW best practices (from the Juggernaut guide — applies to any NSFW-trained finetune)
 
-- Filter anatomical tokens into the **negative**.
+- Express SFW intent in the **positive**: name the clothing, and describe the desired state. Do NOT filter
+  anatomical tokens into a negative — the negative is not operator-controlled (B-135 D10).
 - **Describe clothing in the positive** to anchor safe imagery.
 - Use realism tokens carefully (`detailed skin`, `natural`, `realistic texture` enhance anatomical
   fidelity — pair with a hard SFW clamp when the provider is SFW-filtered).
@@ -279,8 +288,8 @@ repeat mature-age tokens because the model's faces skew young; the short guard n
 
 | Family | Prompt language | Count/quality tokens | Camera | Sampler / steps / CFG | Negative | Doc |
 |---|---|---|---|---|---|---|
-| **SDXL / Juggernaut / Big Lust** | natural-language photography brief | none — state gender+number in prose | name it (`wide shot`, `from behind`, distance) | DPM++ 2M SDE / 30–40 / 3–6 | **empty** (no negative for adult use; §3.2) | this doc + `sdxl-juggernaut-prompting.instructions.md` |
-| **Pony V6 XL / Pony Realism** | dense comma tags | `score_9…score_4_up` (full string, first) + `rating_*` + `1girl/1boy/2people` | explicit (`front view, eye level`) | `euler_ancestral` / 25 / 7 · CLIP skip 2 (V6); **Euler A / DPM2 A / ≥30 steps / CFG 6–7 / >1024px** (Pony Realism, §3.4) | short (~6 terms) | `pony-v6-prompting.instructions.md` |
+| **SDXL / Juggernaut / Big Lust** | natural-language photography brief | none — state gender+number in prose | name it (`wide shot`, `from behind`, distance) | DPM++ 2M SDE / 30–40 / 3–6 | **empty** — declared on the checkpoint's compiler profile (§3.2) | this doc + `sdxl-juggernaut-prompting.instructions.md` |
+| **Pony V6 XL / Pony Realism** | dense comma tags | `score_9…score_4_up` (full string, first) + `rating_*` + `1girl/1boy/2people` | explicit (`front view, eye level`) | `euler_ancestral` / 25 / 7 · CLIP skip 2 (V6); **Euler A / DPM2 A / ≥30 steps / CFG 6–7 / >1024px** (Pony Realism, §3.4) | short guard set (~6 terms) — the ONE cited exception, declared on the Pony profile (B-135 D10) | `pony-v6-prompting.instructions.md` |
 | **Qwen Image Edit** | edit instruction over a source image | n/a | n/a (edit) | see its doc | see its doc | `qwen-image-edit-2511.instructions.md` |
 | **FLUX.2** | natural language or structured JSON | explicit ordered subjects | explicit structured camera | variant/profile-specific | **unsupported; field forbidden** | `flux2-prompting.instructions.md` |
 | **Qwen Image 2512** | descriptive natural language | explicit subject clauses | explicit framing/lighting | 50 steps / true CFG 4 in official recipe | persisted profile value | `qwen-image-generation.instructions.md` |

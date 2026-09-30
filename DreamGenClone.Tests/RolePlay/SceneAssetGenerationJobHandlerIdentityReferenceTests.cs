@@ -464,6 +464,8 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
                 identityClient,
                 referenceClient,
                 new StubReferenceStrategies(),
+                // B-135 D10: the asset path takes its negative from the checkpoint profile, like the render path.
+                new TestImageCompilerProfileResolver(),
                 IdentityRepository,
                 IdentityStorage,
                 NullLogger<SceneAssetGenerationJobHandler>.Instance,

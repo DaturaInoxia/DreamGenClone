@@ -94,6 +94,19 @@
                     The prompt is what the model is actually sent. "Generate prompt" drafts it and stops; edit it here and
                     press "Render image" when it reads right. "Compile prompt and generate" does both in one go.
                 </div>
+                @if (IsDraftingPrompt)
+                {
+                    <div class="text-primary small mt-1">
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                        Drafting the prompt for the chosen model — this page updates by itself when it arrives.
+                    </div>
+                }
+                @if (!string.IsNullOrWhiteSpace(DraftFailureMessage))
+                {
+                    <div class="text-danger small mt-1">
+                        The prompt could not be drafted: @DraftFailureMessage
+                    </div>
+                }
             </div>
             <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
                 <button type="button" class="btn btn-sm btn-outline-primary" disabled="@(_busy || !CanDraftPrompt)"
@@ -114,6 +127,12 @@
                 {
                     <span class="form-text">@BlockedReason</span>
                 }
+                @if (!string.IsNullOrWhiteSpace(_draftedImageId) && !_promptEdited)
+                {
+                    <span class="form-text">
+                        This prompt is drafted but not rendered yet — press "Render image" to use it.
+                    </span>
+                }
             </div>
         </div>
 
@@ -128,18 +147,25 @@
                 <div class="border rounded p-3 mb-3">
                     <div class="d-flex justify-content-between align-items-baseline">
                         <strong>@item.Asset.Name</strong>
-                        <span class="small text-muted">
-                            @(item.IsUsable ? $"{item.InUseImages.Count} image(s) usable as a reference" : "not usable yet")
-                        </span>
+                        <span class="small text-muted">@ItemStatus(item)</span>
                     </div>
                     @if (item.Images.Count == 0)
                     {
                         <div class="text-muted small mt-2">No images yet — describe the garment above and generate.</div>
                     }
+                    else if (item.Images.All(entry => entry.IsPromptDraft))
+                    {
+                        @* A drafted prompt is not a picture: it is reported as a PROMPT, with no empty image card
+                           pretending an image is on its way. *@
+                        <div class="text-muted small mt-2">
+                            No images yet — a prompt draft is shown in the box above, where you can edit it and press
+                            "Render image".
+                        </div>
+                    }
                     else
                     {
                         <div class="row g-2 mt-1">
-                            @foreach (var entry in item.Images)
+                            @foreach (var entry in item.Images.Where(entry => !entry.IsPromptDraft))
                             {
                                 <div class="col-sm-6 col-xl-4 col-xxl-3">
                                     <div class="card h-100">
@@ -183,18 +209,14 @@
                                             {
                                                 <div class="text-danger mt-1">@entry.Image.ErrorMessage</div>
                                             }
-                                            @* The compiled prompt, in full. It is the operator's to read and to correct: the
-                                               text below the read-only copy is what a re-render will send, so a wording the
-                                               model got wrong can be fixed without regenerating from the short description. *@
+                                            @* ONE prompt per card, editable: the text that a re-render will send. A
+                                               read-only copy beside it showed the same words twice. *@
                                             <details class="mt-2">
-                                                <summary class="small">Prompt</summary>
-                                                <textarea class="form-control form-control-sm font-monospace mt-1" rows="7"
-                                                          readonly value="@entry.Image.Prompt"></textarea>
-                                                <textarea class="form-control form-control-sm font-monospace mt-1" rows="5"
-                                                          aria-label="Edited prompt to render"
-                                                          placeholder="Edit the prompt, then render it as a new image"
+                                                <summary class="small">Prompt — edit and re-render</summary>
+                                                <textarea class="form-control form-control-sm font-monospace mt-1" rows="6"
+                                                          aria-label="Prompt to render again"
                                                           value="@PromptDraft(entry)"
-                                                          @onchange="e => SetPromptDraft(entry, e.Value?.ToString())"></textarea>
+                                                          @oninput="e => SetPromptDraft(entry, e.Value?.ToString())"></textarea>
                                                 <button type="button" class="btn btn-sm btn-outline-primary mt-1 w-100"
                                                         disabled="@(_busy || string.IsNullOrWhiteSpace(_modelId))"
                                                         title="Render the prompt above as a new image, with the selected model and size"
@@ -267,6 +289,7 @@
 
     private System.Threading.Timer? _timer;
     private readonly object _timerLock = new();
+    private bool _disposed;
 
     /// <summary>
     /// The character whose studio is showing this tab, used ONLY to build the return path for the standard edit flow, so
@@ -316,7 +339,7 @@
                     : _models[0].ModelId;
             }
 
-            AdoptDraftedPrompt();
+            SyncPromptBoxWithDrafts();
         }
         catch (Exception ex)
         {
@@ -327,6 +350,18 @@
             _loading = false;
         }
 
+        if (_disposed)
+        {
+            return;
+        }
+
+        // THIS is what makes the page update. Blazor re-renders by itself only after an EVENT HANDLER (a button click);
+        // a load driven by the poll timer changes the fields and nothing else happens, so without this call the screen
+        // keeps showing whatever it showed when the last click finished. That is the reported failure: "Drafting the
+        // prompt for the chosen model" stayed on screen for 20 minutes while the prompt had been written in 5 seconds
+        // (verified 2026-09-30: the row was prompt-ready at 02:00:30 and the page was still drafting at 02:01:06).
+        // Same pattern as AssetStudioView/ProductionWorkspace, which call StateHasChanged() on their load path.
+        StateHasChanged();
         EnsurePolling();
     }
 
@@ -339,6 +374,10 @@
         {
             _prompt = string.Empty;
         }
+
+        // Switching item must show THAT item's prompt straight away. Clearing the box and waiting for a reload to refill
+        // it is the same "nothing happened" defect as the empty box after a refresh (2026-09-29).
+        SyncPromptBoxWithDrafts();
     }
 
     private void OnModelChanged(ChangeEventArgs args) => _modelId = args.Value?.ToString() ?? string.Empty;
@@ -350,44 +389,90 @@
     }
 
     /// <summary>
-    /// Shows a freshly drafted prompt IN THE BOX, so "Generate prompt" ends with the text where the operator can edit it
-    /// rather than only on the card. Adopted only while they have not typed one themselves: their words outrank a
-    /// compiler's.
+    /// Hands the box to the compiler: this action is a request for the compiler to write the prompt, so what is in the
+    /// box now is the PREVIOUS prompt and must not stay there looking like the answer to this request (and the operator's
+    /// typed text is never replaced when they render instead, which is what "Render image" is for). The description is
+    /// the input and is kept.
     /// </summary>
-    private void AdoptDraftedPrompt()
+    private void OnBeforeDrafting()
     {
-        if (string.IsNullOrWhiteSpace(_awaitingDraftImageId))
-        {
-            return;
-        }
+        _promptEdited = false;
+        _prompt = string.Empty;
+        _draftedImageId = null;
+    }
 
-        var drafted = _items
-            .SelectMany(item => item.Images)
-            .FirstOrDefault(entry => string.Equals(entry.Image.Id, _awaitingDraftImageId, StringComparison.Ordinal));
-        if (drafted is null)
+    /// <summary>
+    /// Shows the item's drafted prompt IN THE BOX. Read from the ROWS on every load rather than remembered from the
+    /// request that asked for it: remembering is why a draft that already existed stayed invisible after a refresh or a
+    /// tab switch (reported 2026-09-29: "i should not have to refresh or click off tab and back").
+    ///
+    /// The operator's own words win: text they have typed is never overwritten by a compiler's.
+    /// </summary>
+    private void SyncPromptBoxWithDrafts()
+    {
+        var draft = WardrobePromptDraftSelection.SelectPromptToShow(_items, _itemId);
+        if (draft is null)
         {
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(drafted.Image.PromptCompilerId))
-        {
-            // Still being drafted; a failure is shown on the card, so stop expecting one.
-            if (drafted.Image.Status != SceneAssetStatus.Failed)
+            // Nothing has been compiled yet. If a compile this tab asked for has finished unsuccessfully, stop waiting
+            // for it; the reason is shown in the form.
+            if (HasFailedDraft())
             {
-                return;
+                _awaitingDraftImageId = null;
+                if (string.Equals(_message, DraftingNotice, StringComparison.Ordinal))
+                {
+                    _message = null;
+                }
             }
 
-            _awaitingDraftImageId = null;
             return;
         }
 
-        _draftedImageId = drafted.Image.Id;
+        // The compile this tab was waiting for has arrived. The notice changes with it: a message that still says
+        // "drafting" after the prompt is on screen is the same lie as the spinner that never stopped (reported
+        // 2026-09-29: "Drafting the prompt ... for 20 minutes").
         _awaitingDraftImageId = null;
+        if (string.Equals(_message, DraftingNotice, StringComparison.Ordinal))
+        {
+            _message = "Prompt ready. Edit it above if you want, then press \"Render image\".";
+        }
+
+        _draftedImageId = draft.Image.Id;
         if (!_promptEdited)
         {
-            _prompt = drafted.Image.Prompt;
+            _prompt = draft.Image.Prompt;
         }
     }
+
+    private bool HasFailedDraft() => _items
+        .SelectMany(item => item.Images)
+        .Any(entry => entry.IsPromptDraft && entry.Image.Status == SceneAssetStatus.Failed);
+
+    /// <summary>
+    /// Whether this row's prompt is still being written. One definition, used by both the progress line and the polling
+    /// rule, so the two can never disagree about whether something is happening.
+    /// </summary>
+    private static bool IsCompileInFlight(WardrobeItemImage entry) => entry.IsPromptDraft
+        && string.IsNullOrWhiteSpace(entry.Image.PromptCompilerId)
+        && entry.Image.Status != SceneAssetStatus.Failed;
+
+    /// <summary>
+    /// Whether a compile is running for any item, so the form can say so instead of looking inert while a prompt is
+    /// being written.
+    /// </summary>
+    private bool IsDraftingPrompt => _items.SelectMany(item => item.Images).Any(IsCompileInFlight);
+
+    /// <summary>The compile failure a draft is carrying, if any, so the prompt area can show the reason.</summary>
+    private string? DraftFailureMessage => _items
+        .SelectMany(item => item.Images)
+        .FirstOrDefault(entry => entry.IsPromptDraft && entry.Image.Status == SceneAssetStatus.Failed)
+        ?.Image.ErrorMessage;
+
+    /// <summary>
+    /// The notice shown while a compile runs. Kept as one constant because it is both written and looked for: when the
+    /// prompt arrives, this exact message is replaced by the ready notice rather than left standing.
+    /// </summary>
+    private const string DraftingNotice = "Drafting the prompt. It appears in the box above for you to edit before "
+        + "rendering; your description and the prompt are both kept.";
 
     /// <summary>
     /// Drafts the prompt and stops. The row appears at once and says it is drafting; when the text arrives it is shown
@@ -401,11 +486,11 @@
         try
         {
             var itemId = await ResolveItemIdAsync();
+            OnBeforeDrafting();
             var row = await Wardrobe.EnqueuePromptDraftAsync(itemId, _description, _modelId, _imageSize);
             _itemId = itemId;
             _awaitingDraftImageId = row.Id;
-            _message = "Drafting the prompt. It appears in the box above for you to edit before rendering; your description "
-                + "and the prompt are both kept.";
+            _message = DraftingNotice;
             await LoadAsync();
         }
         catch (Exception ex)
@@ -545,6 +630,44 @@
         _promptDrafts.TryGetValue(entry.Image.Id, out var draft) ? draft : entry.Image.Prompt;
 
     /// <summary>
+    /// What this item is doing right now, counted from its own rows: usable images, drafts still being written, renders
+    /// in flight, failures. A prompt draft is counted as a PROMPT, never as an image, because that is what it is.
+    /// </summary>
+    private static string ItemStatus(WardrobeItem item)
+    {
+        var drafts = item.Images.Count(entry => entry.IsPromptDraft);
+        var drafted = item.Images.Count(entry => entry.IsPromptDraft
+            && !string.IsNullOrWhiteSpace(entry.Image.PromptCompilerId));
+        var rendering = item.Images.Count(entry => !entry.IsPromptDraft && entry.Image.Status == SceneAssetStatus.Pending);
+        var failed = item.Images.Count(entry => entry.Image.Status == SceneAssetStatus.Failed);
+
+        var parts = new List<string>();
+        if (item.IsUsable)
+        {
+            parts.Add($"{item.InUseImages.Count} image(s) usable as a reference");
+        }
+
+        if (drafts > 0)
+        {
+            parts.Add(drafted == drafts
+                ? $"{drafts} prompt(s) ready to render"
+                : $"{drafts} prompt(s) being drafted");
+        }
+
+        if (rendering > 0)
+        {
+            parts.Add($"{rendering} rendering");
+        }
+
+        if (failed > 0)
+        {
+            parts.Add($"{failed} failed");
+        }
+
+        return parts.Count == 0 ? "not usable yet" : string.Join(" · ", parts);
+    }
+
+    /// <summary>
     /// What this row is currently doing, in the operator's words, read from the STAGE the service recorded. Without the
     /// stage a row whose prompt is written and deliberately not rendered looks exactly like one still being drafted.
     /// </summary>
@@ -655,20 +778,27 @@
     }
 
     /// <summary>
-    /// Polls while a render is outstanding. The timer body is marshalled onto the Blazor dispatcher: a
-    /// System.Threading.Timer callback runs on a thread-pool thread, and touching component state from there throws
-    /// "current thread is not associated with the Dispatcher" and can take the whole app down.
+    /// Polls while anything is outstanding, so a compiled prompt and a finished render appear WITHOUT the operator
+    /// touching the page. The timer body is marshalled onto the Blazor dispatcher: a System.Threading.Timer callback runs
+    /// on a thread-pool thread, and touching component state from there throws "current thread is not associated with the
+    /// Dispatcher" and can take the whole app down.
     /// </summary>
+    /// <remarks>
+    /// The rule covers BOTH halves of an action: a row still being written (its prompt is not there yet) and a row still
+    /// being rendered. An earlier version only polled for a PENDING ROW, which stopped as soon as the compile finished -
+    /// the draft could be written and the page would never notice (reported 2026-09-29: "it should update when it is
+    /// done, i should not have to refresh or click off tab and back").
+    /// </remarks>
     private void EnsurePolling()
     {
         lock (_timerLock)
         {
-            if (_timer is not null)
+            if (_timer is not null || _disposed)
             {
                 return;
             }
 
-            if (!_items.SelectMany(item => item.Images).Any(image => image.Image.Status == SceneAssetStatus.Pending))
+            if (!NeedsPolling)
             {
                 return;
             }
@@ -678,14 +808,26 @@
                 await InvokeAsync(async () =>
                 {
                     await LoadAsync();
-                    if (!_items.SelectMany(item => item.Images).Any(image => image.Image.Status == SceneAssetStatus.Pending))
+                    if (!NeedsPolling)
                     {
                         StopPolling();
                     }
                 });
-            }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+            }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
         }
     }
+
+    /// <summary>
+    /// Whether work is genuinely IN FLIGHT: a compile this tab asked for and has not seen the result of, a row whose
+    /// prompt is still being written, or a row being rendered. A compiled-but-unrendered draft is deliberately NOT
+    /// work in flight - it is finished work waiting for the operator, and it stays Pending until they render it, so
+    /// polling on "Pending" alone would have ticked forever on a prompt that was already done.
+    /// </summary>
+    private bool NeedsPolling => _busy
+        || !string.IsNullOrWhiteSpace(_awaitingDraftImageId)
+        || _items.SelectMany(item => item.Images).Any(entry =>
+            IsCompileInFlight(entry)
+            || (!entry.IsPromptDraft && entry.Image.Status == SceneAssetStatus.Pending));
 
     private void StopPolling()
     {
@@ -698,6 +840,7 @@
 
     public ValueTask DisposeAsync()
     {
+        _disposed = true;
         StopPolling();
         return ValueTask.CompletedTask;
     }

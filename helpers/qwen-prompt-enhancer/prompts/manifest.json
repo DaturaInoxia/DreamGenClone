@@ -1,0 +1,40 @@
+{
+  "purpose": "Official Qwen-Image-2.1 Prompt Enhancer system prompts, vendored byte-exactly for B-135 (B135-039).",
+  "whyVendored": "These are the vendor's own system prompts. The answer contract they produce is part of what the fine-tuned PE checkpoints were trained against, so the prompt must travel with the weights. A re-typed or re-wrapped copy is a PARAPHRASE: it reviews as identical and quietly changes what the model emits.",
+  "source": {
+    "repository": "QwenLM/Qwen-Image-2.1",
+    "commit": "7307809d2c9d582be700a1b9b04d393fc9cdf865",
+    "commitSubject": "Add system prompt files for t2i and edit PE",
+    "path": "prompt_rewrite/prompts/",
+    "rawUrlTemplate": "https://raw.githubusercontent.com/QwenLM/Qwen-Image-2.1/{commit}/prompt_rewrite/prompts/{file}",
+    "retrievedUtc": "2026-09-30"
+  },
+  "notInterchangeable": "The two tasks have SEPARATE checkpoints and SEPARATE system prompts. There is no merged prompt. Using the stock (non-PE) Qwen3.5-VL 9B with either prompt does NOT reliably emit the answer contract (vendor-stated: expect parse_ok=false on most rows).",
+  "checkpoints": {
+    "t2i": "Qwen/Qwen-Image-2.1-PE-T2I",
+    "edit": "Qwen/Qwen-Image-2.1-PE-I2I"
+  },
+  "files": [
+    {
+      "task": "t2i",
+      "file": "system_prompt_t2i.txt",
+      "bytes": 10045,
+      "lines": 192,
+      "sha256": "a77c9a06c59b120741141d9514b95682bb8761d02bec49ca61def7b2b3d9fb99",
+      "answerContract": "{\"rewritten_prompt\": \"<description>\", \"wh_ratio\": \"<e.g. 3:2>\"}"
+    },
+    {
+      "task": "edit",
+      "file": "system_prompt_edit.txt",
+      "bytes": 18344,
+      "lines": 205,
+      "sha256": "e378fea686a1431581ba4c654d332ae96adad633f144ae738ec8ce9c4fd66439",
+      "answerContract": "{\"rewritten_prompt\": \"<instruction>\", \"wh_ratio\": \"\", \"ratio_follow\": \"<image1>\"}"
+    }
+  ],
+  "samplingDefaults": {
+    "note": "Vendor production settings per task. presence_penalty is LOAD-BEARING and per-task: the vendor states the two values are not interchangeable and a wrong one 'does not fail loudly - it quietly changes the distribution you sample from'. Never default it.",
+    "t2i": { "temperature": 1.0, "topP": 0.95, "topK": 20, "minP": 0, "presencePenalty": 1.5, "maxNewTokens": 16256, "thinking": "required" },
+    "edit": { "temperature": 1.0, "topP": 0.95, "topK": 20, "minP": 0, "presencePenalty": 0, "maxNewTokens": 24000, "thinking": "required" }
+  }
+}

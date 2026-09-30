@@ -34,7 +34,6 @@ public sealed class PoseTestRenderServiceTests
             PoseLabel: "a loaded pose",
             ModelId: "the-pinned-model",
             Prompt: "a person standing",
-            NegativePrompt: null,
             Size: "1024x1024",
             Seed: 7L));
 
@@ -90,7 +89,7 @@ public sealed class PoseTestRenderServiceTests
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.RenderAsync(new PoseTestRenderRequest(
-                Skeleton: [], "a pose", "the-pinned-model", "a person", null, "1024x1024", null)));
+                Skeleton: [], "a pose", "the-pinned-model", "a person", "1024x1024", null)));
 
         Assert.Contains("no pose to test", error.Message, StringComparison.OrdinalIgnoreCase);
     }

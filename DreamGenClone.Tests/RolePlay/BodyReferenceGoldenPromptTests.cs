@@ -82,7 +82,8 @@ public sealed class BodyReferenceGoldenPromptTests
             + "chubby, thick thighs, large ass, belly, large breasts, wide hips, "
             + "plain everyday clothing, full body, standing, front view, eye level",
             compiled.Positive);
-        Assert.Equal("lowres, bad anatomy, bad hands, extra digits, watermark, text, blurry", compiled.Negative);
+        // B-135 D10: the compiler authors no negative — Pony's short guard set is declared on the Pony checkpoint's
+        // compiler profile and read from there by the render path, so there is nothing to assert on the record.
         Assert.True(compiled.IsValid);
     }
 
@@ -109,7 +110,6 @@ public sealed class BodyReferenceGoldenPromptTests
             + "Whole body in frame and unobstructed, head to feet, natural skin texture, soft even lighting, sharp "
             + "focus, 35mm photograph.",
             compiled.Positive);
-        Assert.Equal(string.Empty, compiled.Negative);
         Assert.True(compiled.IsValid);
     }
 }

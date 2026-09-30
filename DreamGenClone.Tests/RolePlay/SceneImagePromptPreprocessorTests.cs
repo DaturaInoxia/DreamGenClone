@@ -632,18 +632,6 @@ public sealed class SceneImagePromptPreprocessorTests
     }
 
     [Fact]
-    public void BuildDeterministicBeatNegativePrompt_UsesShortGuardSet()
-    {
-        var negative = _preprocessor.BuildDeterministicBeatNegativePrompt(MakeThreeCharacterBeat(), SceneImagePovFramer.Omniscient);
-
-        // Pony needs only a short negative guard set (B-098 — validated on pod).
-        Assert.Contains("lowres", negative, StringComparison.Ordinal);
-        Assert.Contains("bad anatomy", negative, StringComparison.Ordinal);
-        Assert.DoesNotContain("merged bodies", negative, StringComparison.Ordinal);
-        Assert.DoesNotContain("extra limbs", negative, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void BuildDeterministicBeatPrompt_ExplicitParticipantPov_StatesPenetrationAndOmitsRemoteObserver()
     {
         var beat = new SceneImageBeat

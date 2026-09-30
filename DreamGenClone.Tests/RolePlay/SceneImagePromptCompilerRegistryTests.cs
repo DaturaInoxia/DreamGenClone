@@ -185,8 +185,9 @@ public sealed class SceneImagePromptCompilerRegistryTests
 
         Assert.Contains("score_9", ponyMessages.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("natural-language", sdxlMessages.SystemPrompt, StringComparison.OrdinalIgnoreCase);
-        Assert.NotEqual(pony.BuildNegativePrompt(moment, SceneImagePovFramer.Omniscient),
-            sdxl.BuildNegativePrompt(moment, SceneImagePovFramer.Omniscient));
+        // B-135 D10: the compilers no longer expose a negative prompt at all — the negative is declared on the
+        // checkpoint's ImageCompilerProfile and read from there by the render path. That rule is asserted against the
+        // profile rows in ImageCompilerProfileTests, which is where it now lives.
         Assert.Equal(snapshot, JsonSerializer.Serialize(moment));
     }
 

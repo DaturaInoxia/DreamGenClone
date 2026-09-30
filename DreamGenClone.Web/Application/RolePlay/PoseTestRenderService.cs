@@ -21,7 +21,6 @@ public sealed record PoseTestRenderRequest(
     string PoseLabel,
     string ModelId,
     string Prompt,
-    string? NegativePrompt,
     string? Size,
     long? Seed,
     byte[]? FaceReference = null,
@@ -221,7 +220,7 @@ public sealed class PoseTestRenderService : IPoseTestRenderService
                 new ReferenceConditionedImageRequest
                 {
                     PositivePrompt = request.Prompt,
-                    NegativePrompt = request.NegativePrompt ?? string.Empty,
+                    NegativePrompt = string.Empty,
                     Size = request.Size,
                     Seed = request.Seed,
                     // Order is face, body, skeleton — the same order the render path documents: the face anchors the
@@ -262,7 +261,7 @@ public sealed class PoseTestRenderService : IPoseTestRenderService
                 new PoseConditionedImageRequest
                 {
                     PositivePrompt = request.Prompt,
-                    NegativePrompt = request.NegativePrompt ?? string.Empty,
+                    NegativePrompt = string.Empty,
                     Size = request.Size,
                     Seed = request.Seed,
                     PoseImageBytes = skeleton,

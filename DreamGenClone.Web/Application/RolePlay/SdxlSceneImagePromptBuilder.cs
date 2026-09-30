@@ -21,19 +21,6 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
     public const int OutputPromptMaxChars = 2000;
     public const int OutputPromptTargetChars = 800;
 
-    /// <summary>
-    /// SDXL-family default negative prompt — EMPTY (2026-09-08, per-model author research).
-    /// The specific SDXL checkpoints in use do not recommend a negative: BigLust v1.6's own example
-    /// workflows use an empty negative, Juggernaut Hyper specifies "negative prompt: none", and SDXL
-    /// base guidance is "easy on negative prompts … only include things you want to avoid". Because
-    /// this app renders adult content (the authors' "add NSFW tokens to the negative" reason is an
-    /// SFW-avoidance practice that does not apply here), SDXL scene images are generated with NO
-    /// negative and the positive prompt describes the desired state. Kept as a named constant so the
-    /// studio default, the canonical compiler negative, and the deterministic beat negative all
-    /// resolve to the same empty value. See sdxl-juggernaut-prompting.instructions.md.
-    /// </summary>
-    public const string DefaultNegativePrompt = "";
-
     public (string SystemPrompt, string UserPrompt) BuildMessages(
         CompiledMediaBrief brief,
         string pov,
@@ -173,16 +160,6 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         return new SceneImagePreprocessorResult(prompt, excerpt);
     }
 
-    /// <inheritdoc/>
-    public string BuildDeterministicBeatNegativePrompt(SceneImageBeat beat, string pov)
-    {
-        // SDXL-family scene images carry no negative (model-author guidance, 2026-09-08 — see the
-        // DefaultNegativePrompt note). Who is and is not in frame is expressed in the POSITIVE
-        // prompt (visible-cast description + count/gender), never via "absent from frame" negative
-        // exclusions. See sdxl-juggernaut-prompting.instructions.md.
-        return string.Empty;
-    }
-
     /// <summary>
     /// SDXL expert system prompt: natural-language photography brief, no tag vocabulary, with
     /// depicted-content explicitness expressed in prose.
@@ -195,6 +172,17 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         sb.AppendLine("- Write 2-4 short natural sentences or phrases that describe the scene like a photography brief. The result must look realistic and photographic.");
         sb.AppendLine("- Describe each character's appearance (hair, eyes, body type, age) so the same character is recognizable every time. State each person's gender explicitly (e.g. 'a middle-aged man and a middle-aged woman') so the model never merges or miscounts people.");
         sb.AppendLine("- Fold in location, time of day, lighting, and mood in plain words. Do not repeat the same fact twice.");
+        // Adopted 2026-09-30 from the operator-supplied SDXL rewriter prompt (see
+        // specs/Planning/B-135-image-playground/research/sdxl-rewriter-prompt-assessment.md). Only the rules that
+        // agree with the canon were taken; that prompt's tag-list grammar, backtick wrapper, numeric-age clamp and
+        // race->appearance inference were REJECTED and must not be reintroduced here.
+        sb.AppendLine("- Use this element order, and cover each once: main subject (state the count and gender first: how many people, and each person's gender) -> physical traits (build, skin tone, hair colour and style, age band) -> pose and expression -> clothing or nudity plus accessories -> camera framing -> lighting and mood -> environment -> visual style and medium. Never repeat a concept or descriptor.");
+        sb.AppendLine("- Appearance comes from the character data you are given, never from inference: never derive skin tone, hair colour or hair style from a race, nationality or ethnicity, and never correct a combination you believe is unusual. If a trait is not given, leave it out rather than inventing one.");
+        sb.AppendLine("- Age is a life stage, never a number of years, and never a word that could read as a minor. Use young adult, middle-aged, mature or elderly.");
+        sb.AppendLine("- No filler or praise words: no masterpiece, best quality, high quality, 8K, award-winning. Style, medium and texture cues carry the realism instead.");
+        sb.AppendLine("- Never write a resolution, aspect ratio or pixel count into the description; those travel in the image settings.");
+        sb.AppendLine("- When you change clothing, stay in the same category: a dress becomes another dress, never trousers.");
+        sb.AppendLine("- Describe uncertainty the way an observer would (appears to be, likely) instead of inventing a specific you cannot see.");
         sb.AppendLine("- Include photographic style cues such as photorealistic, 35mm, natural skin texture, sharp focus.");
         sb.AppendLine("- Honor beat-stated clothing exactly; describe explicitness to match what the scene depicts, not a user toggle or narrative phase.");
         sb.AppendLine("- Never use Pony-style vocabulary: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.");
@@ -229,6 +217,14 @@ public sealed class SdxlSceneImagePromptBuilder : ISdxlSceneImagePromptBuilder
         sb.AppendLine("4. GENDER AND COUNT, NO ATTRIBUTE BLEED: state each person's gender and number, and describe each person as ONE self-contained clause (appearance + clothing together) — never interleave attributes across people.");
         sb.AppendLine("5. CLOTHING IS A SAFETY ANCHOR: always describe each person's clothing unless the brief explicitly implies nudity.");
         sb.AppendLine("6. TIGHT PHOTO CAPTION: lead with framing and the main subject in the first sentence; keep the ENTIRE caption under 800 characters; use photorealistic cues (35mm, natural skin texture, shallow depth of field).");
+        // Rules 7-10 adopted 2026-09-30 from the operator-supplied SDXL rewriter prompt (assessment record:
+        // specs/Planning/B-135-image-playground/research/sdxl-rewriter-prompt-assessment.md). Its tag-list grammar,
+        // backtick wrapper, numeric-age clamp and race->appearance inference were REJECTED — rule 8 is the corrected
+        // form of that inference clause, not a copy of it.
+        sb.AppendLine("7. ELEMENT ORDER: main subject (count and gender first: how many people, and each person's gender) -> physical traits -> pose and expression -> clothing or nudity plus accessories -> camera framing -> lighting and mood -> environment -> visual style and medium. Cover each once and never repeat a concept or descriptor.");
+        sb.AppendLine("8. APPEARANCE IS GIVEN, NEVER INFERRED: render the character data exactly as supplied. Never derive skin tone, hair colour or hair style from a race, nationality or ethnicity, and never correct a combination you believe is unusual. If a trait is absent, omit it rather than inventing one.");
+        sb.AppendLine("9. AGE IS A LIFE STAGE, NEVER A NUMBER, and never a word that could read as a minor (young adult, middle-aged, mature, elderly). No resolution, aspect ratio or pixel count in the caption — those travel in the image settings.");
+        sb.AppendLine("10. NO FILLER OR PRAISE WORDS: no masterpiece, best quality, high quality, 8K, award-winning. Style, medium and texture cues carry the realism instead. When clothing changes, stay in the same category (a dress becomes another dress, never trousers).");
         sb.AppendLine("Examples — target shape only, do not reuse their content:");
         sb.AppendLine("- General caption shape (SDXL/Juggernaut prompting guides): \"Young woman reading a book in a cozy coffee shop, brunette hair cascading over her shoulders, style candid photography, mood relaxed, lighting natural light streaming through a nearby window, perspective over-the-shoulder, texture soft wool sweater and glossy wooden table.\"");
         sb.AppendLine("- POV-scene shape (project reference, follows the same anatomy): \"a photorealistic view from twenty feet away across the grass at night: a woman with dark hair in a loose bun stands at the wooden deck railing of a silver trailer, wearing an unbuttoned pale-blue camp shirt, bare-legged, one hand resting beside a glass on the rail, her face turned toward the dark pines. She is lit only by thin strips of blue television light leaking through warped blinds. 35mm, shallow depth of field, natural skin texture.\" — the POV character is never in frame and people are described by appearance only.");
