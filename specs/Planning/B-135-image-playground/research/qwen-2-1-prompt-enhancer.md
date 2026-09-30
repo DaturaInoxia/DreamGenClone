@@ -155,6 +155,10 @@ Analysis this needs before it is buildable (none of these are answered yet):
 
 ### Task status under this decision
 
+> The consolidated, ordered plan across **all three** compiler threads (create granularity, this route
+decision, and the edit-compiler split) is `../compiler-roadmap.md` — §2 holds the decisions, §4 the
+ordered next steps and the open operator questions. Read that before starting any compiler task.
+
 - **B135-039** (vendor both prompts + record hashes + asset test) — DONE.
 - **B135-040 … B135-044** — **BLOCKED** on the route-2 analysis above; do not start them by swapping the prompt text
   onto a model that was not trained against it.
