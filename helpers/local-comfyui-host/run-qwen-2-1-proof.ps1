@@ -721,6 +721,32 @@ $cellDefs = @{
         MaskMode    = 'invert'
         Prompt      = 'Change the colour of the t-shirt the woman is wearing to bright red. Keep everything else in the image exactly as it is: her face, hair, pose, the background and the lighting.'
     }
+    # ---- C2b: THE CIRCLE AS A SELECTOR, NOT AS A CONTAINER (2026-09-29) -------------------------
+    # B-129 section C2 puts THREE routes under "local editing - flexible region selection": coloured
+    # circles and painted annotations SELECT the region, and "separate mask + original image as two inputs"
+    # is the one that PRESERVES the source outside it ("the production form"). CASE-21 already proved the
+    # mask route (VAEEncodeForInpaint, 0.319 containment) and documented that an UNMASKED 2.1 edit
+    # regenerates the whole frame - so a ring cannot contain anything on this graph, and testing it for
+    # containment only re-measures CASE-21's finding while looking like a refutation.
+    #
+    # What has NOT been measured is the SELECTION. This picture has two candidates - the man in the olive
+    # shirt and the woman in the grey t-shirt - the blue ring is drawn on ONE of them, and the instruction
+    # names only "the person inside the blue circle". If the ring selects, HER shirt changes; if it does
+    # not, the model chooses on its own, which is exactly what the control shows.
+    #
+    # p0CircleSelect  : run with -TargetImage artifacts/tmp/qwen-2-1/p0CircleMen/source.png (ring on the MAN,
+    #                   with a noun that does NOT pick him: the ring is the only cue pointing at him)
+    # p0CircleSelectControl : run with -TargetImage artifacts/tmp/qwen-2-1/genShedTight/result_0.png (clean)
+    p0CircleSelect = @{
+        Kind        = 'imageedit'
+        Description = 'C2b SELECTION: an AMBIGUOUS noun, with the blue ring on the MAN - only the ring can decide'
+        Prompt      = 'Change the colour of the garment worn by the person inside the blue circle drawn on the image to bright red. Leave the other person as they are.'
+    }
+    p0CircleSelectControl = @{
+        Kind        = 'imageedit'
+        Description = 'C2b SELECTION CONTROL: the same ambiguous edit on the clean base, with no circle to name'
+        Prompt      = 'Change the colour of the garment worn by the person in this image to bright red. Leave the rest of the image as it is.'
+    }
     # ---- EVP-1 REFERENCE-COUNT LADDER (2026-09-25) ----------------------------------------------
     # GATING QUESTION for B-129 section 2.1 rows C1c/C1d/C1e: only up to THREE references have ever
     # been run on 2.1, yet group portraits (6), virtual try-on (5) and interior assembly (10) all

@@ -95,7 +95,9 @@ control). Region masking is not only region targeting — it is what pins everyt
    soft/feathered region (`GrowMask`, `FeatherMask`) or a painted mask, which is an app-side choice.
 4. The instruction-only annotation route (a coloured circle in a reference slot) is **no longer needed as
    a fallback** for containment; it may still be worth measuring for *selecting* a region the operator
-   drew, but the latent route is the mechanism to build on.
+   drew, but the latent route is the mechanism to build on. **[Measured 2026-09-29 — CASE-23]**: the ring
+   DOES select (it moved the edit to the person it enclosed while the clean control changed the other
+   one), and it does NOT contain. The two mechanisms compose: ring for intent, mask for containment.
 
 ## Not measured
 

@@ -94,7 +94,7 @@ measured boundary) · **UNPROVEN** (no measurement exists — do not build UI on
 | C1d | 5 references (virtual try-on) | PARTLY | **CASE-22**: a mid-list reference (slot 5) DID transfer its garment (white tee, rolled jeans, left-calf tattoo). A 5-input try-on is still unmeasured |
 | C1e | 10 references (interior assembly) | **REFUTED** | **CASE-22**: at 10 references the pose reference is ignored **whichever slot it sits in** (skeleton at slot 10 → standing; at slot 1 → standing), and the anatomy breaks when the skeleton is last (extra arms). Both graphs were verified to really carry 10 slots. The declared `MaxReferences: 16` is unsupported; **6 is the validated budget** for a pose-carrying composition |
 | C2a | **Separate mask + original as two inputs ("the production form")** | **PROVEN** | **CASE-21** — `VAEEncodeForInpaint` contains the edit: 0.319 mean diff outside the mask vs 19.86 for the unmasked control (62×), 0.001 % of outside pixels changed |
-| C2b | Colored circles named in the instruction | **UNPROVEN** | needs only a prompt test — no graph change |
+| C2b | Colored circles named in the instruction | **PROVEN — SELECTION ONLY** | **CASE-23** (2026-09-29): with two candidates and an ambiguous noun, the ring moved the edit to the person it enclosed (the MAN) while the clean control changed the WOMAN — so the ring selects. It does **not** contain: the frame is regenerated (CASE-21's corollary), so masking stays the production form for containment. No graph change |
 | C2c | Painted / brushed region annotations | **UNPROVEN** | — |
 | C3a | Portrait identity preserved across edits | PARTLY | proven for generation-with-references (cases 6–10); **measured limit** on wide-frame *edits*: fails by scale, needs crop→edit→composite or `resolution` 2048 |
 | C3b | Product text/texture/shape preserved | N/A | no product use case in this app |
@@ -126,8 +126,10 @@ Ordered by how much UI it gates, not by how interesting it is:
    removed (`GrowMask`, `FeatherMask`). Gates shipping §5.4 at all.
 2. **Panorama / outpaint** — the CASE-21 recipe with the mask at the frame edge.
 3. **RGBA edit preserving alpha (B2) and cut-out extraction (B3)** — gates the transparency catalogue.
-4. **Colored circles as instruction-only annotation (C2b/C2c)** — may be unnecessary now that CASE-21
-   proved the mask route; measure to decide whether to build it at all.
+4. **Painted / brushed region annotation (C2c)** — the ring half of this question (C2b) is now MEASURED:
+   CASE-23 shows a coloured ring **selects** which candidate an edit applies to, and does **not** contain
+   it. C2c stays open, and the ring's result does not carry over to it: a brush stroke is not a closed
+   selection.
 5. **Three-view → storyboard (C4c)** — gates the character-sheet feature in §5.2.
 6. **The exact pose ceiling (7 / 8 / 9) and a genuine N-subject composition** — CASE-22 measured slot
    *consumption* (and a mid-list garment transfer), not a real 6-person group portrait or a 5-input try-on.
