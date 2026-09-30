@@ -330,6 +330,8 @@ public sealed class CharacterLoraCellService : ICharacterLoraCellService
                 EyeToolPythonPath = resolved.EyeToolPythonPath,
                 BodyModelId = resolved.BodyModelId,
                 BodyImageSize = resolved.BodyImageSize,
+                RegionGrowMaskBy = resolved.RegionGrowMaskBy,
+                RegionFeatherPixels = resolved.RegionFeatherPixels,
                 LoraCellModelId = modelId.Trim()
             },
             cancellationToken);

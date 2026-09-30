@@ -91,6 +91,22 @@ public sealed class ReferenceWorkflowSettings
     /// </summary>
     public double? CropTargetAspect { get; set; }
 
+    /// <summary>
+    /// Pixels the region mask is grown by at encode time (B-130). It is persisted rather than picked in code
+    /// because it is a quality decision with a visible consequence: a mask cut exactly on the rectangle's edge
+    /// leaves a seam in the render, so the seed starts a few pixels of overlap and the operator can raise it.
+    /// The host's own VAEEncodeForInpaint node accepts 0-64. The region panel seeds its control from here and
+    /// records whatever it actually used on the run.
+    /// </summary>
+    public int? RegionGrowMaskBy { get; set; }
+
+    /// <summary>
+    /// Pixels of softening at the region's edge (B-130). Zero means no feather node is emitted at all, which is
+    /// the whole reason the value is explicit: "no feather" and "feather by a little" produce different graphs,
+    /// and neither is a safe guess for the other.
+    /// </summary>
+    public int? RegionFeatherPixels { get; set; }
+
     public bool DeriveByMirrorThreeQuarterRight { get; set; } = true;
 
     public bool DeriveByMirrorProfileRight { get; set; } = true;

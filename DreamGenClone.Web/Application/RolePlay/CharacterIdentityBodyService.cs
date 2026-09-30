@@ -121,7 +121,9 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
             DeriveByMirrorProfileRight = resolved.DeriveByMirrorProfileRight,
             DeriveByMirrorThreeQuarterLeft = resolved.DeriveByMirrorThreeQuarterLeft,
             DeriveByMirrorProfileLeft = resolved.DeriveByMirrorProfileLeft,
-            EyeToolPythonPath = resolved.EyeToolPythonPath
+            EyeToolPythonPath = resolved.EyeToolPythonPath,
+            RegionGrowMaskBy = resolved.RegionGrowMaskBy,
+            RegionFeatherPixels = resolved.RegionFeatherPixels
         };
         await _templates.SaveSettingsAsync(settings, cancellationToken);
 

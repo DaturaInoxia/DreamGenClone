@@ -97,7 +97,7 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                    EyeGateMaxAbsIrisDyPercent, QualityGateMinSharpness, CropHeadroomPercent, CropTargetAspect,
                    DeriveByMirrorThreeQuarterRight, DeriveByMirrorProfileRight, DeriveByMirrorThreeQuarterLeft,
                    DeriveByMirrorProfileLeft, EyeToolPythonPath, UpdatedUtc, FrontModelId, AngleYawMinAbsPercent,
-                   BodyModelId, BodyImageSize, LoraCellModelId
+                   BodyModelId, BodyImageSize, LoraCellModelId, RegionGrowMaskBy, RegionFeatherPixels
             FROM ReferenceWorkflowSettings WHERE Id = $id;
             """;
         command.Parameters.AddWithValue("$id", id.Trim());
@@ -116,12 +116,12 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 EyeGateMaxAbsIrisDyPercent, QualityGateMinSharpness, CropHeadroomPercent, CropTargetAspect,
                 DeriveByMirrorThreeQuarterRight, DeriveByMirrorProfileRight, DeriveByMirrorThreeQuarterLeft,
                 DeriveByMirrorProfileLeft, EyeToolPythonPath, UpdatedUtc, FrontModelId, AngleYawMinAbsPercent,
-                BodyModelId, BodyImageSize, LoraCellModelId)
+                BodyModelId, BodyImageSize, LoraCellModelId, RegionGrowMaskBy, RegionFeatherPixels)
             VALUES (
                 $id, $characterProfileId, $editorModelId, $upscalerModelName, $enhanceTargetLongEdge,
                 $eyeGate, $qualityGate, $cropHeadroom, $cropAspect,
                 $mirror3qr, $mirrorProfR, $mirror3ql, $mirrorProfL, $eyeToolPythonPath, $updatedUtc, $frontModelId,
-                $angleYawMinAbs, $bodyModelId, $bodyImageSize, $loraCellModelId)
+                $angleYawMinAbs, $bodyModelId, $bodyImageSize, $loraCellModelId, $regionGrowMaskBy, $regionFeatherPixels)
             ON CONFLICT(Id) DO UPDATE SET
                 EditorModelId = excluded.EditorModelId,
                 UpscalerModelName = excluded.UpscalerModelName,
@@ -140,6 +140,8 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 BodyModelId = excluded.BodyModelId,
                 BodyImageSize = excluded.BodyImageSize,
                 LoraCellModelId = excluded.LoraCellModelId,
+                RegionGrowMaskBy = excluded.RegionGrowMaskBy,
+                RegionFeatherPixels = excluded.RegionFeatherPixels,
                 UpdatedUtc = excluded.UpdatedUtc;
             """;
         command.Parameters.AddWithValue("$id", settings.Id.Trim());
@@ -162,6 +164,8 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
         command.Parameters.AddWithValue("$bodyModelId", (object?)settings.BodyModelId ?? DBNull.Value);
         command.Parameters.AddWithValue("$bodyImageSize", (object?)settings.BodyImageSize ?? DBNull.Value);
         command.Parameters.AddWithValue("$loraCellModelId", (object?)settings.LoraCellModelId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$regionGrowMaskBy", settings.RegionGrowMaskBy);
+        command.Parameters.AddWithValue("$regionFeatherPixels", settings.RegionFeatherPixels);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -211,7 +215,9 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                     AngleYawMinAbsPercent REAL NOT NULL DEFAULT 5.0,
                     BodyModelId TEXT NULL,
                     BodyImageSize TEXT NULL,
-                    LoraCellModelId TEXT NULL
+                    LoraCellModelId TEXT NULL,
+                    RegionGrowMaskBy INTEGER NOT NULL DEFAULT 8,
+                    RegionFeatherPixels INTEGER NOT NULL DEFAULT 0
                 );
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
@@ -252,6 +258,25 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 await using var alterLoraCellModel = connection.CreateCommand();
                 alterLoraCellModel.CommandText = "ALTER TABLE ReferenceWorkflowSettings ADD COLUMN LoraCellModelId TEXT NULL;";
                 await alterLoraCellModel.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            if (!settingsColumns.Contains("RegionGrowMaskBy"))
+            {
+                // 8 is the seed's starting value written into the column for existing rows: a mask cut exactly on the
+                // rectangle's edge leaves a seam, so the seed starts a few pixels of overlap. The value in force is
+                // always the persisted one, and the region panel lets the operator change it per run.
+                await using var alterRegionGrow = connection.CreateCommand();
+                alterRegionGrow.CommandText = "ALTER TABLE ReferenceWorkflowSettings ADD COLUMN RegionGrowMaskBy INTEGER NOT NULL DEFAULT 8;";
+                await alterRegionGrow.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            if (!settingsColumns.Contains("RegionFeatherPixels"))
+            {
+                // 0 is the seed: no feather node is emitted at all, which is the plainest possible region edit and the
+                // one the masked-latent wiring was first proven with. Softening the edge is the operator's choice.
+                await using var alterRegionFeather = connection.CreateCommand();
+                alterRegionFeather.CommandText = "ALTER TABLE ReferenceWorkflowSettings ADD COLUMN RegionFeatherPixels INTEGER NOT NULL DEFAULT 0;";
+                await alterRegionFeather.ExecuteNonQueryAsync(cancellationToken);
             }
         }
 
@@ -1166,7 +1191,9 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
         AngleYawMinAbsPercent = reader.GetDouble(16),
         BodyModelId = reader.IsDBNull(17) ? null : reader.GetString(17),
         BodyImageSize = reader.IsDBNull(18) ? null : reader.GetString(18),
-        LoraCellModelId = reader.IsDBNull(19) ? null : reader.GetString(19)
+        LoraCellModelId = reader.IsDBNull(19) ? null : reader.GetString(19),
+        RegionGrowMaskBy = reader.GetInt32(20),
+        RegionFeatherPixels = reader.GetInt32(21)
     };
 
     private static void ValidateTemplate(ImageWorkflowPromptTemplate template)
@@ -1200,6 +1227,21 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
         {
             throw new InvalidOperationException(
                 "CropTargetAspect is required and must be positive; it has no code default and must be configured.");
+        }
+
+        // The region mask's geometry, bounded by what the graph can honour: the host's encode node accepts a grow of
+        // 0-64, and a negative feather is not a softening but a mistake. Both are persisted configuration with no
+        // code default, so an unset or out-of-range value fails fast naming the key.
+        if (settings.RegionGrowMaskBy is not { } regionGrowMaskBy || regionGrowMaskBy is < 0 or > 64)
+        {
+            throw new InvalidOperationException(
+                "RegionGrowMaskBy is required and must be between 0 and 64; it has no code default and must be configured.");
+        }
+
+        if (settings.RegionFeatherPixels is not { } regionFeatherPixels || regionFeatherPixels < 0)
+        {
+            throw new InvalidOperationException(
+                "RegionFeatherPixels is required and must not be negative; it has no code default and must be configured.");
         }
     }
 

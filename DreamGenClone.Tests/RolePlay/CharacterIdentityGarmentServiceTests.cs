@@ -86,13 +86,16 @@ public sealed class CharacterIdentityGarmentServiceTests
         await fixture.SetEditorModelAsync("editor-global");
 
         // A character-scoped row exists but declares no editor; the global editor must still resolve.
-        // Crop/enhance values are required persisted configuration, so an explicit row must carry them.
+        // The crop/enhance and region values are required persisted configuration, so an explicit row must carry
+        // them; a row missing any of them is refused by key, which is the contract this test leans on.
         await fixture.Templates.SaveSettingsAsync(new ReferenceWorkflowSettings
         {
             CharacterProfileId = "char-1",
             EnhanceTargetLongEdge = 1024,
             CropHeadroomPercent = 8,
-            CropTargetAspect = 1.0
+            CropTargetAspect = 1.0,
+            RegionGrowMaskBy = 8,
+            RegionFeatherPixels = 0
         });
 
         var resolved = await fixture.Service.ResolveEditorModelIdAsync();

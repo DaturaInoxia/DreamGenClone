@@ -165,6 +165,79 @@ public sealed class ImageWorkflowTemplateServiceTests
     }
 
     /// <summary>
+    /// The region mask's geometry is persisted configuration exactly as the crop's is: it has a seeded starting value,
+    /// it survives a round trip, and a row missing it fails fast by key. The bounds match what the graph can honour -
+    /// the encode node takes a grow of 0-64, and a negative feather is a mistake rather than a softening.
+    /// </summary>
+    [Fact]
+    public async Task Settings_RegionMaskGeometry_IsSeededRoundTripsAndFailsFastWhenMissing()
+    {
+        var (service, _, dbPath) = CreateService();
+        try
+        {
+            var seeded = await service.ResolveSettingsAsync(null);
+            Assert.Equal(8, seeded.RegionGrowMaskBy);
+            Assert.Equal(0, seeded.RegionFeatherPixels);
+
+            await service.SaveSettingsAsync(new ReferenceWorkflowSettings
+            {
+                CharacterProfileId = "char-region",
+                UpscalerModelName = seeded.UpscalerModelName,
+                EnhanceTargetLongEdge = seeded.EnhanceTargetLongEdge,
+                EyeGateMaxAbsIrisDyPercent = seeded.EyeGateMaxAbsIrisDyPercent,
+                AngleYawMinAbsPercent = seeded.AngleYawMinAbsPercent,
+                QualityGateMinSharpness = seeded.QualityGateMinSharpness,
+                CropHeadroomPercent = seeded.CropHeadroomPercent,
+                CropTargetAspect = seeded.CropTargetAspect,
+                RegionGrowMaskBy = 16,
+                RegionFeatherPixels = 6
+            });
+
+            var saved = await service.ResolveSettingsAsync("char-region");
+            Assert.Equal(16, saved.RegionGrowMaskBy);
+            Assert.Equal(6, saved.RegionFeatherPixels);
+
+            var missing = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveSettingsAsync(
+                new ReferenceWorkflowSettings
+                {
+                    CharacterProfileId = "char-no-region",
+                    EnhanceTargetLongEdge = 1024,
+                    CropHeadroomPercent = 8,
+                    CropTargetAspect = 1.0
+                }));
+            Assert.Contains("RegionGrowMaskBy", missing.Message, StringComparison.Ordinal);
+
+            var growTooLarge = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveSettingsAsync(
+                new ReferenceWorkflowSettings
+                {
+                    CharacterProfileId = "char-grow-too-large",
+                    EnhanceTargetLongEdge = 1024,
+                    CropHeadroomPercent = 8,
+                    CropTargetAspect = 1.0,
+                    RegionGrowMaskBy = 65,
+                    RegionFeatherPixels = 0
+                }));
+            Assert.Contains("RegionGrowMaskBy", growTooLarge.Message, StringComparison.Ordinal);
+
+            var negativeFeather = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveSettingsAsync(
+                new ReferenceWorkflowSettings
+                {
+                    CharacterProfileId = "char-bad-feather",
+                    EnhanceTargetLongEdge = 1024,
+                    CropHeadroomPercent = 8,
+                    CropTargetAspect = 1.0,
+                    RegionGrowMaskBy = 8,
+                    RegionFeatherPixels = -1
+                }));
+            Assert.Contains("RegionFeatherPixels", negativeFeather.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
     /// The crop/enhance values have no code default: persisting a row without them must fail fast naming
     /// the missing key, so a value nobody chose can never steer the crop or the enhance size.
     /// </summary>
