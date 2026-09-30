@@ -63,9 +63,11 @@ window.rolePlayWorkspace = {
         return { top: r.top, left: r.left, bottom: r.bottom, right: r.right, width: r.width, height: r.height };
     },
 
-    // Crop box dragging. The script only reports the pointer (stage-normalized) and which corner handle
-    // was grabbed; the component decides the window, so the arithmetic stays in one testable place.
-    initCropDrag: function (stageSelector, dotNetRef) {
+    // Box dragging. The script only reports the pointer (stage-normalized) and which handle was grabbed; the
+    // component decides the rectangle, so the arithmetic stays in one testable place. The component method that
+    // receives it is the CALLER's: a crop box and a region box report the same gesture but are decided by different
+    // handlers, and an element can only be listening once.
+    initCropDrag: function (stageSelector, dotNetRef, methodName) {
         const stage = document.querySelector(stageSelector);
         if (!stage) {
             return false;
@@ -94,7 +96,8 @@ window.rolePlayWorkspace = {
 
             const normalizedX = (event.clientX - rect.left) / rect.width;
             const normalizedY = (event.clientY - rect.top) / rect.height;
-            dotNetRef.invokeMethodAsync('OnCropDragAsync', phase, grabbedHandle, normalizedX, normalizedY);
+            const callback = methodName || 'OnCropDragAsync';
+            dotNetRef.invokeMethodAsync(callback, phase, grabbedHandle, normalizedX, normalizedY);
         };
 
         const onPointerMove = function (event) {

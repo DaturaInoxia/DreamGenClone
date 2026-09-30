@@ -69,7 +69,7 @@ else
                         @* The crop stage's own class is used deliberately: it is a block wrapper whose image rule
                            (width 100%, height auto) makes the element box identical to the picture, which is the only
                            way a percentage box drawn over it can line up with the image. *@
-                        <div id="@RegionStageId" class="scene-crop-preview-stage">
+                        <div id="@RegionStageId" class="scene-crop-preview-stage scene-region-stage">
                             <img src="/scene-images/@_source.FileRelativePath" alt="Region selection" draggable="false" />
                             @if (_region is not null && RegionWindowStyle is not null)
                             {
@@ -98,7 +98,7 @@ else
 
         <div class="col-lg-6">
             <section class="scene-edit-workbench">
-                <ul class="nav nav-tabs small" role="tablist" aria-label="Image edit flow">
+                <ul class="nav nav-tabs small flex-wrap" role="tablist" aria-label="Image edit flow">
                     <li class="nav-item" role="presentation">
                         <button type="button" class="nav-link @(_activeTab == EditorTab.Edit ? "active" : "")" aria-selected="@(_activeTab == EditorTab.Edit)"
                                 @onclick="() => SelectEditorTab(EditorTab.Edit)">
@@ -1680,7 +1680,7 @@ else
         _cropDragRef ??= DotNetObjectReference.Create(this);
         try
         {
-            var attached = await JS.InvokeAsync<bool>("rolePlayWorkspace.initCropDrag", $"#{RegionStageId}", _cropDragRef);
+            var attached = await JS.InvokeAsync<bool>("rolePlayWorkspace.initCropDrag", $"#{RegionStageId}", _cropDragRef, "OnRegionDragAsync");
             if (!attached)
             {
                 // Naming the element it looked for, because a listener that silently never attached is

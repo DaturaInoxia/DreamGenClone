@@ -296,6 +296,31 @@
     height: auto;
 }
 
+/* The region box is drawn on the SOURCE picture, and this stage exists to make that box line up: it hugs the
+   image (fit-content) instead of filling the column, so the stage's own box IS the picture's box and a percentage
+   rectangle lands exactly where it was drawn.
+
+   It is bounded by the same 68vh cap the plain source image uses. A full-width square picture is taller than the
+   panel that holds it, and the part of it an operator cannot see is the part they cannot draw on.
+
+   Crosshair, not grab: this stage is for drawing a box. The crop stage's hand cursor means the whole box moves. */
+.scene-region-stage {
+    display: inline-block;
+    width: fit-content;
+    max-width: 100%;
+    max-height: 68vh;
+    cursor: crosshair;
+}
+
+/* Scale on BOTH axes so the stage never letterboxes: object-fit would keep the picture inside a larger box, and
+   every drawn percentage would then be measured against a rectangle the operator never saw. */
+.scene-region-stage img {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 68vh;
+}
+
 /* Border-box, so the frame stays INSIDE the stage: a window that covers the whole image still draws a
    visible frame instead of having its edges clipped away. */
 .scene-crop-preview-window {
