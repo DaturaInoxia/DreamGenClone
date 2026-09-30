@@ -30,7 +30,59 @@ public enum MediaEditOperationKind
     /// <c>IImageMirrorEngine</c> so the pixel work has ONE implementation, and it is recorded with mirror
     /// provenance like every other operation.
     /// </summary>
-    Mirror = 4
+    Mirror = 4,
+
+    /// <summary>
+    /// Confines the instruction to a REGION of the source (CASE-21): everything outside it is pinned to the source
+    /// instead of being regenerated. The mask is built from the operator's rectangle at run time, so the geometry lives
+    /// in persisted settings rather than only inside a browser canvas - which is also what lets a proof reproduce a
+    /// region an operator drew.
+    /// </summary>
+    MaskedRegion = 5
+}
+
+/// <summary>
+/// The parameters of one masked-region edit. The rectangle is PERCENT of the frame, the same units the crop mode and
+/// the region proof use, so a region drawn in the UI, a region stored on a run, and a region measured in a case file
+/// are the same numbers.
+/// </summary>
+/// <param name="GrowMaskBy">Pixels to grow the mask by at encode time. The host's own node accepts 0-64, and a seam
+/// shows at a bare rectangle edge, so this is the operator's value rather than one invented here.</param>
+/// <param name="FeatherPixels">Pixels of softening at the region edge; 0 emits no feather node at all.</param>
+public sealed record MediaEditRegionOperation(
+    double LeftPercent,
+    double TopPercent,
+    double WidthPercent,
+    double HeightPercent,
+    int GrowMaskBy,
+    int FeatherPixels)
+{
+    /// <summary>
+    /// Rejects geometry the graph cannot honour, naming why. Nothing is CLAMPED on the way: a rectangle that runs off
+    /// the frame, or a grow value the host's node refuses, is a mistake to report rather than a value to quietly fix -
+    /// a silently clamped region edits a different area than the one the operator drew, and the result looks fine.
+    /// </summary>
+    public void Validate()
+    {
+        if (LeftPercent < 0 || TopPercent < 0)
+            throw new InvalidOperationException(
+                $"A region needs non-negative edges, but got left {LeftPercent}% and top {TopPercent}%.");
+        if (WidthPercent <= 0 || HeightPercent <= 0)
+            throw new InvalidOperationException(
+                $"A region needs a positive size, but got {WidthPercent}% x {HeightPercent}%. Draw a region, or edit the whole frame.");
+        if (LeftPercent + WidthPercent > 100 || TopPercent + HeightPercent > 100)
+            throw new InvalidOperationException(
+                $"A region must lie inside the frame, but left {LeftPercent}%+{WidthPercent}% and top {TopPercent}%+{HeightPercent}% run past its edge.");
+        if (GrowMaskBy is < 0 or > 64)
+            throw new InvalidOperationException(
+                $"A region 'grow' value must be between 0 and 64 pixels (the host node's own bound), but was {GrowMaskBy}.");
+        if (FeatherPixels < 0)
+            throw new InvalidOperationException($"A region feather must not be negative, but was {FeatherPixels} pixels.");
+    }
+
+    /// <summary>The provenance recorded with the produced image - an operation record, not a compiler revision.</summary>
+    public string Describe()
+        => $"region rect={LeftPercent},{TopPercent} {WidthPercent}x{HeightPercent}% grow={GrowMaskBy} feather={FeatherPixels}";
 }
 
 /// <summary>
