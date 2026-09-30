@@ -18,7 +18,9 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
 {
     public const int InputExcerptMaxChars = 1200;
     public const int OutputPromptMaxChars = 2000;
-    public const int OutputPromptTargetChars = 800;
+
+    /// <summary>Kept as the builder's name for the shared target so no caller has to know where it lives (B-135).</summary>
+    public const int OutputPromptTargetChars = SceneImageCompilerSystemPrompts.OutputTargetChars;
     public const int CharacterAppearanceDescriptionMaxChars = 240;
 
     /// <summary>
@@ -27,7 +29,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
     /// low-quality/deformed output. The `rating_*` tag is appended separately, chosen from the
     /// depicted scene content by the pre-processor.
     /// </summary>
-    public const string PonyQualityTags = "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up";
+    public const string PonyQualityTags = SceneImageCompilerSystemPrompts.PonyQualityTags;
 
     public (string SystemPrompt, string UserPrompt) BuildMessages(
         CompiledMediaBrief brief,
@@ -550,41 +552,24 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
             : string.Empty;
     }
 
-    private static string BuildSystemPrompt()
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("Convert story prose into a dense comma-separated tag prompt for the PONY DIFFUSION V6 XL image model (a Stable Diffusion XL finetune).");
-        sb.AppendLine("Pony reads DENSE, COMMA-SEPARATED TAGS — not prose, not sentences, not attribute metadata. Short prompts work; long ones degrade output into garbage.");
-        sb.AppendLine("Rules:");
-        sb.AppendLine("- ALWAYS start the prompt with the full quality tag string: score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up");
-        sb.AppendLine("- Immediately after the quality tags, choose the Pony rating tag from what the scene depicts: rating_explicit for explicit sexual acts or visible genitals, rating_questionable for suggestive content or partial nudity, and rating_safe for non-sexual content. Base it on the depicted content, not on narrative phase.");
-        sb.AppendLine("- Add a danbooru-style count tag (1boy, 1girl, 2people, 1girl and 1boy) matching the number of people in frame. This prevents the model merging people into one figure.");
-        sb.AppendLine("- Describe each character with 3-6 SHORT visual tags (hair, eyes, body type, age, key clothing) — never a metadata block, never 'Age: 51; Height: 5'8\"; Body type: curvy', never 'Appearance — ...'. Use concrete single tokens (e.g. chubby, not 'full figure').");
-        sb.AppendLine("- Fold the scene into a few short tags: location, time of day, lighting, mood. Do not repeat the same fact twice.");
-        sb.AppendLine("- Add one explicit camera/view tag (e.g. front view, eye level, from side).");
-        sb.AppendLine("- Honor beat-stated clothing exactly; only use nudity when the beat explicitly implies it.");
-        sb.AppendLine("- For explicit scenes use concrete anatomical language; for safe/questionable scenes imply rather than spell out.");
-        sb.AppendLine($@"- Keep the ENTIRE prompt under {OutputPromptTargetChars} characters and under ~40 tags. Short and dense beats verbose.");
-        sb.AppendLine("- Return ONLY the final comma-separated image prompt as plain text. No commentary, quotes, or markdown.");
-        sb.AppendLine("- Use female/male (danbooru vocabulary) rather than woman/man when a single gender tag fits the character.");
-        sb.AppendLine("- The Pony family spans the base V6 checkpoint and photorealistic human merges (e.g. Pony Realism) that all read the same danbooru tags. Do not force a cartoon/anime style, and do not invent style words the scene does not state.");
+    /// <summary>
+    /// Pony tag-dialect system prompt.
+    ///
+    /// <para>
+    /// B-135: the text lives in <see cref="SceneImageCompilerSystemPrompts"/> so the per-checkpoint profile rows are
+    /// seeded from the same source this builder compiles with. Same text, moved.
+    /// </para>
+    /// </summary>
+    private static string BuildSystemPrompt() => SceneImageCompilerSystemPrompts.PonyTagsBeat;
 
-        sb.AppendLine("- Choose the rating tag and scene explicitness from the depicted content; do not use narrative phase or a user setting as a substitute for reading the scene.");
-
-        return sb.ToString();
-    }
-
-    private static string BuildCanonicalSystemPrompt()
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("Convert the supplied immutable canonical Still brief into one short dense comma-separated prompt for the PONY DIFFUSION V6 XL image model. Do not invent or rediscover story facts.");
-        sb.AppendLine($"Start verbatim with: {PonyQualityTags}, then choose the rating tag from the depicted content: rating_explicit for explicit sexual acts or visible genitals, rating_questionable for suggestive content or partial nudity, and rating_safe for non-sexual content.");
-        sb.AppendLine("Then include the exact visible cast count, short visual identity/wardrobe/action tags, location, lighting, mood, one camera-view tag, and the {{style}} and {{size}} placeholders.");
-        sb.AppendLine("Keep every visible person's tags in its OWN self-contained cluster (one 1girl run, one 1boy run) and never merge or reorder attributes between people. Repeat each person's age token — Pony/Pony Realism faces skew young, so age must be stated explicitly and more than once.");
-        sb.AppendLine("Use female/male danbooru vocabulary. The checkpoint may be a photorealistic Pony merge (e.g. Pony Realism) or the base V6 checkpoint — both read dense danbooru tags; do not impose a cartoon/anime style.");
-        sb.AppendLine("Keep the result under 800 characters and about 40 tags. Return only the final prompt as plain text.");
-        return sb.ToString();
-    }
+    /// <summary>
+    /// Pony tag-dialect system prompt for the canonical-brief path.
+    ///
+    /// <para>
+    /// B-135: the text lives in <see cref="SceneImageCompilerSystemPrompts"/>. Same text, moved.
+    /// </para>
+    /// </summary>
+    private static string BuildCanonicalSystemPrompt() => SceneImageCompilerSystemPrompts.PonyTagsCanonical;
 
     private static string BuildCanonicalUserPrompt(
         CompiledMediaBrief brief,

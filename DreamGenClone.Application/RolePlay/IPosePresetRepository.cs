@@ -27,6 +27,15 @@ public interface IPosePresetRepository
 
     Task UpsertAsync(PosePreset preset, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Writes ONLY the derived metadata columns of an existing preset: stance, direction, camera, rating, the composed
+    /// prompt and the review flag. Separate from <see cref="UpsertAsync"/> because the two callers want different
+    /// things: an import creates the row (keypoints, skeleton, provenance) and the metadata backfill fills in metadata
+    /// for rows that already exist, including rows whose pose predates metadata. Nothing else on the row is touched, so
+    /// a backfill can never rewrite a pose.
+    /// </summary>
+    Task UpdateMetadataAsync(PosePreset preset, CancellationToken cancellationToken = default);
+
     Task DeleteAsync(string id, CancellationToken cancellationToken = default);
 
     Task EnsureSchemaAsync(CancellationToken cancellationToken = default);

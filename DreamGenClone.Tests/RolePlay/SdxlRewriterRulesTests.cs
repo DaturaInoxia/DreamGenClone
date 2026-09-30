@@ -20,8 +20,17 @@ namespace DreamGenClone.Tests.RolePlay;
 /// </summary>
 public sealed class SdxlRewriterRulesTests
 {
-    private static string BuilderSource() => File.ReadAllText(
-        Path.Combine(FindRepositoryRoot(), "DreamGenClone.Web", "Application", "RolePlay", "SdxlSceneImagePromptBuilder.cs"));
+    /// <summary>
+    /// Both files the SDXL instruction text lives in. B-135 moved the text itself into
+    /// <c>SceneImageCompilerSystemPrompts</c> (so the per-checkpoint profile rows can be seeded from the same source the
+    /// builder compiles with), while the builder keeps the provenance comments. Inspecting BOTH is STRICTER than
+    /// inspecting one: a rejected clause now has to be absent from the shared prompts file as well, which is the file a
+    /// profile row is seeded from and therefore the text that actually reaches a model.
+    /// </summary>
+    private static string CompilerSource() => string.Join(
+        Environment.NewLine,
+        File.ReadAllText(Path.Combine(FindRepositoryRoot(), "DreamGenClone.Web", "Application", "RolePlay", "SdxlSceneImagePromptBuilder.cs")),
+        File.ReadAllText(Path.Combine(FindRepositoryRoot(), "DreamGenClone.Domain", "RolePlay", "SceneImageCompilerSystemPrompts.cs")));
 
     // ---- the adopted rules are present ---------------------------------------------------------------------
 
@@ -35,13 +44,13 @@ public sealed class SdxlRewriterRulesTests
     [InlineData("count and gender first")]
     public void BothSystemPromptsCarryTheAdoptedRules(string rule)
     {
-        var source = BuilderSource();
+        var source = CompilerSource();
 
-        // Present once per prompt (legacy + canonical), so at least twice across the file.
+        // Present once per prompt (legacy + canonical), so at least twice across the compiler text.
         var occurrences = CountOccurrences(source, rule, StringComparison.OrdinalIgnoreCase);
 
         Assert.True(occurrences >= 2,
-            $"The adopted rule '{rule}' appears {occurrences} time(s) in SdxlSceneImagePromptBuilder; it must be stated in "
+            $"The adopted rule '{rule}' appears {occurrences} time(s) in the SDXL compiler text; it must be stated in "
             + "BOTH the legacy and the canonical SDXL system prompt.");
     }
 
@@ -50,7 +59,7 @@ public sealed class SdxlRewriterRulesTests
     {
         // Canon §2.6: without count + gender first, SDXL draws one person. The supplied prompt's element order omitted
         // this; ours must not.
-        var source = BuilderSource();
+        var source = CompilerSource();
 
         // Stated IDENTICALLY in both prompts, so the requirement cannot drift into one of them only.
         Assert.True(
@@ -70,11 +79,11 @@ public sealed class SdxlRewriterRulesTests
     [InlineData("based on race or nationality")]     // the inference rule itself
     public void TheRejectedClausesAreNotInTheCompiler(string rejected)
     {
-        var source = BuilderSource();
+        var source = CompilerSource();
 
         Assert.False(
             source.Contains(rejected, StringComparison.OrdinalIgnoreCase),
-            $"The rejected clause '{rejected}' is present in SdxlSceneImagePromptBuilder. It was deliberately excluded "
+            $"The rejected clause '{rejected}' is present in the SDXL compiler text. It was deliberately excluded "
             + "from the operator-supplied rewriter prompt when it was adopted — see the assessment record, and the "
             + "in-code comments at the point of adoption.");
     }
@@ -82,7 +91,7 @@ public sealed class SdxlRewriterRulesTests
     [Fact]
     public void AppearanceIsStatedAsGiven_NotInferred()
     {
-        var source = BuilderSource();
+        var source = CompilerSource();
 
         // The corrected form of the rejected clause: the character record is authoritative and nothing is invented.
         Assert.Contains("never from inference", source, StringComparison.OrdinalIgnoreCase);
@@ -95,7 +104,7 @@ public sealed class SdxlRewriterRulesTests
     {
         // Governance: a compiler change must be explainable and attributable. The comments name the source and the
         // assessment, so a later reader can tell author-researched rules from operator-supplied ones.
-        var source = BuilderSource();
+        var source = CompilerSource();
 
         Assert.Contains("operator-supplied SDXL rewriter prompt", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("sdxl-rewriter-prompt-assessment.md", source, StringComparison.OrdinalIgnoreCase);

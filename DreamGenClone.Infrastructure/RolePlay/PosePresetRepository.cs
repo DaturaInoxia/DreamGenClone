@@ -128,8 +128,10 @@ public sealed class PosePresetRepository : IPosePresetRepository
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO PosePresets (Id, Name, Category, LibraryId, Keywords, KeypointsJson, SkeletonPngPath, ThumbnailPath, KnownGood, ProvenanceJson, CreatedUtc)
-            VALUES ($id, $name, $category, $libraryId, $keywords, $keypoints, $skeleton, $thumbnail, $knownGood, $provenance, $createdUtc)
+            INSERT INTO PosePresets (Id, Name, Category, LibraryId, Keywords, KeypointsJson, SkeletonPngPath, ThumbnailPath, KnownGood, ProvenanceJson, CreatedUtc,
+                                     Stance, Direction, CameraAngle, ContentRating, MetadataPrompt, MetadataNeedsReview, MetadataReviewNote)
+            VALUES ($id, $name, $category, $libraryId, $keywords, $keypoints, $skeleton, $thumbnail, $knownGood, $provenance, $createdUtc,
+                    $stance, $direction, $camera, $rating, $prompt, $needsReview, $reviewNote)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = excluded.Name,
                 Category = excluded.Category,
@@ -139,7 +141,14 @@ public sealed class PosePresetRepository : IPosePresetRepository
                 SkeletonPngPath = excluded.SkeletonPngPath,
                 ThumbnailPath = excluded.ThumbnailPath,
                 KnownGood = excluded.KnownGood,
-                ProvenanceJson = excluded.ProvenanceJson;
+                ProvenanceJson = excluded.ProvenanceJson,
+                -- A re-import must never overwrite metadata the operator has edited, so the stored value wins whenever
+                -- one is present and only an empty column takes the incoming value.
+                Stance = CASE WHEN PosePresets.Stance IS NULL OR PosePresets.Stance = '' THEN excluded.Stance ELSE PosePresets.Stance END,
+                Direction = CASE WHEN PosePresets.Direction IS NULL OR PosePresets.Direction = '' THEN excluded.Direction ELSE PosePresets.Direction END,
+                CameraAngle = CASE WHEN PosePresets.CameraAngle IS NULL OR PosePresets.CameraAngle = '' THEN excluded.CameraAngle ELSE PosePresets.CameraAngle END,
+                ContentRating = CASE WHEN PosePresets.ContentRating IS NULL OR PosePresets.ContentRating = '' THEN excluded.ContentRating ELSE PosePresets.ContentRating END,
+                MetadataPrompt = CASE WHEN PosePresets.MetadataPrompt IS NULL OR PosePresets.MetadataPrompt = '' THEN excluded.MetadataPrompt ELSE PosePresets.MetadataPrompt END;
             """;
         command.Parameters.AddWithValue("$id", preset.Id.Trim());
         command.Parameters.AddWithValue("$name", preset.Name.Trim());
@@ -152,7 +161,49 @@ public sealed class PosePresetRepository : IPosePresetRepository
         command.Parameters.AddWithValue("$knownGood", preset.KnownGood ? 1 : 0);
         command.Parameters.AddWithValue("$provenance", (object?)preset.ProvenanceJson ?? DBNull.Value);
         command.Parameters.AddWithValue("$createdUtc", preset.CreatedUtc.ToString("O"));
+        AddMetadataParameters(command, preset);
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateMetadataAsync(PosePreset preset, CancellationToken cancellationToken = default)
+    {
+        Require(preset.Id, "Pose preset id");
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+
+        // Only the metadata columns, and only on a row that is already there. An UPDATE rather than an upsert on
+        // purpose: a backfill that could INSERT would be a second creation path for pose rows, and the pose's own
+        // keypoints are what make it a pose.
+        command.CommandText = """
+            UPDATE PosePresets SET
+                Stance = $stance,
+                Direction = $direction,
+                CameraAngle = $camera,
+                ContentRating = $rating,
+                MetadataPrompt = $prompt,
+                MetadataNeedsReview = $needsReview,
+                MetadataReviewNote = $reviewNote
+            WHERE Id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", preset.Id.Trim());
+        AddMetadataParameters(command, preset);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The metadata parameters, shared by the upsert and the metadata-only update so the two cannot write different
+    /// values for the same column.
+    /// </summary>
+    private static void AddMetadataParameters(SqliteCommand command, PosePreset preset)
+    {
+        command.Parameters.AddWithValue("$stance", preset.Stance.ToString());
+        command.Parameters.AddWithValue("$direction", preset.Direction.ToString());
+        command.Parameters.AddWithValue("$camera", preset.CameraAngle.ToString());
+        command.Parameters.AddWithValue("$rating", preset.ContentRating.ToString());
+        command.Parameters.AddWithValue("$prompt", preset.MetadataPrompt);
+        command.Parameters.AddWithValue("$needsReview", preset.MetadataNeedsReview ? 1 : 0);
+        command.Parameters.AddWithValue("$reviewNote", preset.MetadataReviewNote);
     }
 
     public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -166,7 +217,8 @@ public sealed class PosePresetRepository : IPosePresetRepository
     }
 
     private const string SelectSql = """
-        SELECT Id, Name, Category, KeypointsJson, SkeletonPngPath, ThumbnailPath, KnownGood, ProvenanceJson, CreatedUtc, LibraryId, Keywords
+        SELECT Id, Name, Category, KeypointsJson, SkeletonPngPath, ThumbnailPath, KnownGood, ProvenanceJson, CreatedUtc, LibraryId, Keywords,
+               Stance, Direction, CameraAngle, ContentRating, MetadataPrompt, MetadataNeedsReview, MetadataReviewNote
         FROM PosePresets
         """;
 
@@ -213,8 +265,34 @@ public sealed class PosePresetRepository : IPosePresetRepository
         ProvenanceJson = reader.IsDBNull(7) ? null : reader.GetString(7),
         CreatedUtc = ParseUtc(reader.GetString(8)),
         LibraryId = reader.GetString(9),
-        Keywords = reader.GetString(10)
+        Keywords = reader.GetString(10),
+        Stance = ParseMetadataEnum(reader.GetString(11), PoseStance.Unknown),
+        Direction = ParseMetadataEnum(reader.GetString(12), PoseFacingDirection.Unknown),
+        CameraAngle = ParseMetadataEnum(reader.GetString(13), PoseCameraAngle.Unknown),
+        ContentRating = ParseMetadataEnum(reader.GetString(14), PoseContentRating.Unrated),
+        MetadataPrompt = reader.GetString(15),
+        MetadataNeedsReview = reader.GetInt32(16) != 0,
+        MetadataReviewNote = reader.GetString(17)
     };
+
+    /// <summary>
+    /// Reads a stored metadata enum. An EMPTY string is the state of a row written before the column existed, so it
+    /// maps to the "not declared" member; anything else must parse, and a value that does not is an error rather than
+    /// a silent default.
+    ///
+    /// Note the deliberate difference from the identity repository's parser, which rejects the zero member: for pose
+    /// metadata, "not declared" IS a legitimate stored value, and collapsing it would hide the very state the library
+    /// reports.
+    /// </summary>
+    private static T ParseMetadataEnum<T>(string value, T notDeclared) where T : struct, Enum
+    {
+        if (string.IsNullOrWhiteSpace(value)) return notDeclared;
+
+        return Enum.TryParse<T>(value, out var parsed)
+            ? parsed
+            : throw new InvalidOperationException(
+                $"Pose preset metadata column holds '{value}', which is not a {typeof(T).Name} value.");
+    }
 
     private static PoseLibrary ReadLibrary(SqliteDataReader reader) => new()
     {
@@ -256,7 +334,14 @@ public sealed class PosePresetRepository : IPosePresetRepository
                     ThumbnailPath TEXT NULL,
                     KnownGood INTEGER NOT NULL DEFAULT 0,
                     ProvenanceJson TEXT NULL,
-                    CreatedUtc TEXT NOT NULL
+                    CreatedUtc TEXT NOT NULL,
+                    Stance TEXT NOT NULL DEFAULT '',
+                    Direction TEXT NOT NULL DEFAULT '',
+                    CameraAngle TEXT NOT NULL DEFAULT '',
+                    ContentRating TEXT NOT NULL DEFAULT '',
+                    MetadataPrompt TEXT NOT NULL DEFAULT '',
+                    MetadataNeedsReview INTEGER NOT NULL DEFAULT 0,
+                    MetadataReviewNote TEXT NOT NULL DEFAULT ''
                 );
                 CREATE INDEX IF NOT EXISTS IX_PosePresets_Category ON PosePresets (Category, Name);
                 """;
@@ -268,6 +353,16 @@ public sealed class PosePresetRepository : IPosePresetRepository
         // index is created AFTER the columns, because indexing a column that does not exist yet is an error.
         await AddColumnIfMissingAsync(connection, "PosePresets", "LibraryId", "TEXT NOT NULL DEFAULT ''", cancellationToken);
         await AddColumnIfMissingAsync(connection, "PosePresets", "Keywords", "TEXT NOT NULL DEFAULT ''", cancellationToken);
+
+        // Pose metadata, added 2026-09-30. Same additive shape as the two above: an existing dev DB upgrades in place,
+        // and every pre-existing row comes back as "not declared" until the backfill fills it in.
+        await AddColumnIfMissingAsync(connection, "PosePresets", "Stance", "TEXT NOT NULL DEFAULT ''", cancellationToken);
+        await AddColumnIfMissingAsync(connection, "PosePresets", "Direction", "TEXT NOT NULL DEFAULT ''", cancellationToken);
+        await AddColumnIfMissingAsync(connection, "PosePresets", "CameraAngle", "TEXT NOT NULL DEFAULT ''", cancellationToken);
+        await AddColumnIfMissingAsync(connection, "PosePresets", "ContentRating", "TEXT NOT NULL DEFAULT ''", cancellationToken);
+        await AddColumnIfMissingAsync(connection, "PosePresets", "MetadataPrompt", "TEXT NOT NULL DEFAULT ''", cancellationToken);
+        await AddColumnIfMissingAsync(connection, "PosePresets", "MetadataNeedsReview", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
+        await AddColumnIfMissingAsync(connection, "PosePresets", "MetadataReviewNote", "TEXT NOT NULL DEFAULT ''", cancellationToken);
 
         await using (var index = connection.CreateCommand())
         {

@@ -448,6 +448,8 @@ builder.Services.AddSingleton<IImageWorkflowRepository, ImageWorkflowRepository>
 builder.Services.AddSingleton<IImageCompilerProfileRepository, ImageCompilerProfileRepository>();
 // B-135: the Playground's suites and cells. Operator-authored configuration, so nothing is seeded on open.
 builder.Services.AddSingleton<IImageSuiteRepository, ImageSuiteRepository>();
+// B-135: the Playground's runs — evidence produced by executing a suite. Nothing is seeded; a re-run is a new row.
+builder.Services.AddSingleton<IImageRunRepository, ImageRunRepository>();
 builder.Services.AddSingleton<ICharacterIdentityBuildRepository, CharacterIdentityBuildRepository>();
 builder.Services.AddSingleton<ICharacterBodyCardRepository, CharacterBodyCardRepository>();
 // B-127: the explicit character-instance -> character-template links that own identity.

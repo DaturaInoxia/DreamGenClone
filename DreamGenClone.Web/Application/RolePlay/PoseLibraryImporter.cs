@@ -15,17 +15,45 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// overwriting metadata the operator has edited.
 /// </param>
 /// <param name="SkeletonsRendered">Skeleton PNGs this run wrote.</param>
+/// <param name="MetadataFilled">
+/// Existing presets whose pose metadata this run filled in. Separate from <paramref name="PresetsImported"/> because a
+/// pack imported before metadata existed has rows and no metadata: those are counts of two different things, and
+/// reporting one number for both would hide which of the two happened.
+/// </param>
 /// <param name="Skipped">Files that were not usable as a pose, each with its reason.</param>
 public sealed record PoseLibraryImportResult(
     int Packs,
     int PresetsImported,
     int PresetsAlreadyPresent,
     int SkeletonsRendered,
-    IReadOnlyList<string> Skipped);
+    IReadOnlyList<string> Skipped,
+    int MetadataFilled = 0);
 
-/// <summary>What a pack's <c>pack.json</c> declares. Only the name is required; the rest are provenance.</summary>
+/// <summary>What a pack's <c>pack.json</c> declares: its identity, its provenance, and what its poses ARE.</summary>
 internal sealed record PosePackManifest(
-    string Name, string Description, string? Source, string? License, string? Attribution);
+    string Name,
+    string Description,
+    string? Source,
+    string? License,
+    string? Attribution,
+    PosePackDeclarations Declarations);
+
+/// <summary>What a metadata backfill did, so the caller can report a count instead of asserting success.</summary>
+/// <param name="Examined">Stored presets examined.</param>
+/// <param name="Filled">Presets whose metadata was missing and has now been written.</param>
+/// <param name="Unchanged">
+/// Presets left exactly as they were, because metadata was already present. This is the number that makes the
+/// backfill's "never overwrites" promise visible: a second run fills nothing.
+/// </param>
+/// <param name="NotDeclared">
+/// Presets whose pack declares nothing for them, so there was nothing to write. Named rather than counted silently,
+/// because it is the actionable state for a pack that needs a declaration block.
+/// </param>
+public sealed record PoseMetadataBackfillResult(
+    int Examined,
+    int Filled,
+    int Unchanged,
+    IReadOnlyList<string> NotDeclared);
 
 public interface IPoseLibraryImporter
 {
@@ -50,7 +78,15 @@ public interface IPoseLibraryImporter
     /// nothing" was an honest reading of the UI. Idempotent, so calling it on every visit costs one indexed query.
     /// </summary>
     Task<PoseLibraryImportResult?> EnsureBundledPackAsync(CancellationToken cancellationToken = default);
-}
+    /// <summary>
+    /// Fills in pose metadata for every stored preset that does not have any yet, and changes nothing else.
+    ///
+    /// This exists because metadata arrived AFTER the packs did: 579 rows already sit in the dev database with no
+    /// stance, no rating and no prompt, and requiring the operator to delete and re-import the library to get metadata
+    /// would also throw away the skeletons, the keywords and any pose they had edited. A preset that already has
+    /// metadata is left untouched, so running this repeatedly costs one query and writes nothing.
+    /// </summary>
+    Task<PoseMetadataBackfillResult> EnsureMetadataAsync(CancellationToken cancellationToken = default);}
 
 /// <inheritdoc />
 public sealed class PoseLibraryImporter : IPoseLibraryImporter
@@ -152,12 +188,12 @@ public sealed class PoseLibraryImporter : IPoseLibraryImporter
         }
 
         var existing = (await _presets.ListAsync(cancellationToken))
-            .Select(preset => preset.Id)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(preset => preset.Id, preset => preset, StringComparer.OrdinalIgnoreCase);
 
         var imported = 0;
         var alreadyPresent = 0;
         var rendered = 0;
+        var metadataFilled = 0;
         var skipped = new List<string>();
 
         foreach (var packFolder in packFolders)
@@ -210,9 +246,23 @@ public sealed class PoseLibraryImporter : IPoseLibraryImporter
                     rendered++;
                 }
 
-                if (existing.Contains(id))
+                if (existing.TryGetValue(id, out var stored))
                 {
                     alreadyPresent++;
+
+                    // The row is old news, but its METADATA may not exist yet: the packs were imported before
+                    // metadata did. The rows are left alone unless they are missing metadata, in which case they are
+                    // filled — which is what lets 579 already-imported poses gain a prompt without a re-import.
+                    if (HasNoMetadata(stored))
+                    {
+                        var declaration = manifest.Declarations.For(CategoryOf(relative), relative);
+                        if (!declaration.IsEmpty)
+                        {
+                            await FillMetadataAsync(stored, person, declaration, cancellationToken);
+                            metadataFilled++;
+                        }
+                    }
+
                     continue;
                 }
 
@@ -224,21 +274,24 @@ public sealed class PoseLibraryImporter : IPoseLibraryImporter
                     $"{_options.SkeletonFolder!.Replace('\\', '/').Trim('/')}/{packSlug}/{skeletonFileName}";
 
                 await _presets.UpsertAsync(
-                    new PosePreset
-                    {
-                        Id = id,
-                        Name = $"{category} {number}",
-                        Category = category,
-                        LibraryId = packSlug,
-                        Keywords = BuildKeywords(relative, category, number),
-                        KeypointsJson = OpenPosePoseJson.Serialize(person),
-                        SkeletonPngPath = skeletonRelative,
-                        ThumbnailPath = skeletonRelative,
-                        KnownGood = VerifiedHolding.Contains(relative),
-                        ProvenanceJson = await BuildProvenanceAsync(
-                            packSlug, manifest, relative, file, cancellationToken),
-                        CreatedUtc = File.GetCreationTimeUtc(file)
-                    },
+                    Describe(
+                        new PosePreset
+                        {
+                            Id = id,
+                            Name = $"{category} {number}",
+                            Category = category,
+                            LibraryId = packSlug,
+                            Keywords = BuildKeywords(relative, category, number),
+                            KeypointsJson = OpenPosePoseJson.Serialize(person),
+                            SkeletonPngPath = skeletonRelative,
+                            ThumbnailPath = skeletonRelative,
+                            KnownGood = VerifiedHolding.Contains(relative),
+                            ProvenanceJson = await BuildProvenanceAsync(
+                                packSlug, manifest, relative, file, cancellationToken),
+                            CreatedUtc = File.GetCreationTimeUtc(file)
+                        },
+                        person,
+                        manifest.Declarations.For(category, relative)),
                     cancellationToken);
 
                 imported++;
@@ -247,10 +300,155 @@ public sealed class PoseLibraryImporter : IPoseLibraryImporter
 
         _logger.LogInformation(
             "Pose pack import from {PacksRoot}: {Packs} pack(s), {Imported} imported, {Present} already present, "
-            + "{Rendered} skeletons rendered, {Skipped} skipped.",
-            packsRoot, packFolders.Length, imported, alreadyPresent, rendered, skipped.Count);
+            + "{Rendered} skeletons rendered, {Filled} metadata filled in, {Skipped} skipped.",
+            packsRoot, packFolders.Length, imported, alreadyPresent, rendered, metadataFilled, skipped.Count);
 
-        return new PoseLibraryImportResult(packFolders.Length, imported, alreadyPresent, rendered, skipped);
+        return new PoseLibraryImportResult(
+            packFolders.Length, imported, alreadyPresent, rendered, skipped, metadataFilled);
+    }
+
+    /// <summary>
+    /// Fills in metadata for every stored preset that has none, reading the DECLARATION from the pack and the
+    /// measurement from the preset's own stored keypoints.
+    ///
+    /// The stored keypoints are what get measured rather than the pack file, deliberately: the stored pose is what a
+    /// render actually sends, so a pose the operator edited is classified from the pose that will be used.
+    /// </summary>
+    public async Task<PoseMetadataBackfillResult> EnsureMetadataAsync(CancellationToken cancellationToken = default)
+    {
+        var packsRoot = ResolvePacksRoot();
+        var stored = await _presets.ListAsync(cancellationToken);
+
+        // Declarations are read from every pack that is on disk, keyed by the library id the pack imported as, so a
+        // preset's own LibraryId finds its pack without a second pass over the folders per preset.
+        var declarations = new Dictionary<string, PosePackDeclarations>(StringComparer.OrdinalIgnoreCase);
+        foreach (var packFolder in Directory.EnumerateDirectories(packsRoot))
+        {
+            var folderName = Path.GetFileName(packFolder);
+            if (string.IsNullOrWhiteSpace(folderName)) continue;
+
+            var manifest = await ReadManifestAsync(packFolder, folderName, cancellationToken);
+            declarations[PoseLibraryService.Slug(folderName)] = manifest.Declarations;
+        }
+
+        var filled = 0;
+        var unchanged = 0;
+        var notDeclared = new List<string>();
+
+        foreach (var preset in stored)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!declarations.TryGetValue(preset.LibraryId, out var pack)) continue;
+
+            if (!HasNoMetadata(preset))
+            {
+                unchanged++;
+                continue;
+            }
+
+            // The per-file override is keyed by the pose's path inside its pack, which the import recorded in the
+            // provenance. A preset whose provenance is missing still gets its category's default; what it does not get
+            // is a guess at which file it came from.
+            var relative = RelativePathFromProvenance(preset);
+            var declaration = pack.For(preset.Category, relative ?? string.Empty);
+
+            if (declaration.IsEmpty)
+            {
+                // Named once per category rather than once per pose: the fix is one block in one pack.json.
+                notDeclared.Add($"{preset.LibraryId}/{preset.Category}");
+                continue;
+            }
+
+            await FillMetadataAsync(preset, ReadStoredPose(preset), declaration, cancellationToken);
+            filled++;
+        }
+
+        var missingDeclarations = notDeclared.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToArray();
+        _logger.LogInformation(
+            "Pose metadata backfill: {Examined} examined, {Filled} filled, {Unchanged} already had metadata, "
+            + "{NotDeclared} category/categories with no declaration in their pack.json.",
+            stored.Count, filled, unchanged, missingDeclarations.Length);
+
+        return new PoseMetadataBackfillResult(stored.Count, filled, unchanged, missingDeclarations);
+    }
+
+    /// <summary>
+    /// True when a preset carries no metadata at all. Both conditions are asked because a half-filled row is possible:
+    /// a rating can be declared for the pack while the category declares no stance, and re-running the backfill must
+    /// then still be the thing that completes it.
+    /// </summary>
+    private static bool HasNoMetadata(PosePreset preset) =>
+        preset.ContentRating == PoseContentRating.Unrated
+        && preset.Stance == PoseStance.Unknown
+        && string.IsNullOrEmpty(preset.MetadataPrompt);
+
+    /// <summary>
+    /// Copies a preset with its metadata derived from the pose and its declaration, leaving every other field as it
+    /// was. Shared by the import and the backfill so both produce the same metadata for the same pose — two code paths
+    /// that derived it separately could disagree, and the disagreement would be invisible until a render looked wrong.
+    /// </summary>
+    private static PosePreset Describe(
+        PosePreset preset, PosePerson person, PoseMetadataDeclaration declaration)
+    {
+        var metadata = PoseMetadataAnalyzer.Classify(person, declaration);
+
+        return new PosePreset
+        {
+            Id = preset.Id,
+            Name = preset.Name,
+            Category = preset.Category,
+            LibraryId = preset.LibraryId,
+            Keywords = preset.Keywords,
+            KeypointsJson = preset.KeypointsJson,
+            SkeletonPngPath = preset.SkeletonPngPath,
+            ThumbnailPath = preset.ThumbnailPath,
+            KnownGood = preset.KnownGood,
+            ProvenanceJson = preset.ProvenanceJson,
+            CreatedUtc = preset.CreatedUtc,
+            Stance = metadata.Stance,
+            Direction = metadata.Direction,
+            CameraAngle = metadata.Camera,
+            ContentRating = metadata.Rating,
+            MetadataPrompt = metadata.Prompt,
+            MetadataNeedsReview = metadata.NeedsReview,
+            MetadataReviewNote = metadata.ReviewNote
+        };
+    }
+
+    /// <summary>Derives a stored preset's metadata and writes ONLY the metadata columns back.</summary>
+    private async Task<bool> FillMetadataAsync(
+        PosePreset preset,
+        PosePerson person,
+        PoseMetadataDeclaration declaration,
+        CancellationToken cancellationToken)
+    {
+        var described = Describe(preset, person, declaration);
+        await _presets.UpdateMetadataAsync(described, cancellationToken);
+        return true;
+    }
+
+    /// <summary>The preset's own keypoints, which is the pose a render would send.</summary>
+    private static PosePerson ReadStoredPose(PosePreset preset) =>
+        OpenPosePoseJson.Parse(preset.KeypointsJson, $"stored pose '{preset.Id}'");
+
+    /// <summary>The pose's path inside its pack, as recorded at import, or null when the provenance does not say.</summary>
+    private static string? RelativePathFromProvenance(PosePreset preset)
+    {
+        if (string.IsNullOrWhiteSpace(preset.ProvenanceJson)) return null;
+
+        try
+        {
+            var root = JsonNode.Parse(preset.ProvenanceJson);
+            return root?["relativePath"] is JsonValue value && value.TryGetValue<string>(out var path)
+                && !string.IsNullOrWhiteSpace(path)
+                    ? path.Replace('\\', '/')
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -299,7 +497,8 @@ public sealed class PoseLibraryImporter : IPoseLibraryImporter
             Value(manifest, "description") ?? string.Empty,
             Value(manifest, "source"),
             Value(manifest, "license"),
-            Value(manifest, "attribution"));
+            Value(manifest, "attribution"),
+            PosePackDeclarations.Parse(manifest, packFolder));
     }
 
     private static string? Value(JsonObject manifest, string property) =>
