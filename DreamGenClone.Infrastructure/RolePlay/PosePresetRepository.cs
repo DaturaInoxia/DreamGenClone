@@ -129,9 +129,9 @@ public sealed class PosePresetRepository : IPosePresetRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO PosePresets (Id, Name, Category, LibraryId, Keywords, KeypointsJson, SkeletonPngPath, ThumbnailPath, KnownGood, ProvenanceJson, CreatedUtc,
-                                     Stance, Direction, CameraAngle, ContentRating, MetadataPrompt, MetadataNeedsReview, MetadataReviewNote)
+                                     Stance, Direction, CameraAngle, ContentRating, MetadataPrompt, MetadataNeedsReview, MetadataReviewNote, MetadataOperatorEdited)
             VALUES ($id, $name, $category, $libraryId, $keywords, $keypoints, $skeleton, $thumbnail, $knownGood, $provenance, $createdUtc,
-                    $stance, $direction, $camera, $rating, $prompt, $needsReview, $reviewNote)
+                    $stance, $direction, $camera, $rating, $prompt, $needsReview, $reviewNote, $operatorEdited)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = excluded.Name,
                 Category = excluded.Category,
@@ -142,13 +142,23 @@ public sealed class PosePresetRepository : IPosePresetRepository
                 ThumbnailPath = excluded.ThumbnailPath,
                 KnownGood = excluded.KnownGood,
                 ProvenanceJson = excluded.ProvenanceJson,
-                -- A re-import must never overwrite metadata the operator has edited, so the stored value wins whenever
-                -- one is present and only an empty column takes the incoming value.
-                Stance = CASE WHEN PosePresets.Stance IS NULL OR PosePresets.Stance = '' THEN excluded.Stance ELSE PosePresets.Stance END,
-                Direction = CASE WHEN PosePresets.Direction IS NULL OR PosePresets.Direction = '' THEN excluded.Direction ELSE PosePresets.Direction END,
-                CameraAngle = CASE WHEN PosePresets.CameraAngle IS NULL OR PosePresets.CameraAngle = '' THEN excluded.CameraAngle ELSE PosePresets.CameraAngle END,
-                ContentRating = CASE WHEN PosePresets.ContentRating IS NULL OR PosePresets.ContentRating = '' THEN excluded.ContentRating ELSE PosePresets.ContentRating END,
-                MetadataPrompt = CASE WHEN PosePresets.MetadataPrompt IS NULL OR PosePresets.MetadataPrompt = '' THEN excluded.MetadataPrompt ELSE PosePresets.MetadataPrompt END;
+                -- The CALLER is the authority for metadata here, so the incoming value wins. This is the method an
+                -- operator's edit is saved through, and a fill-only CASE would silently discard it — which is exactly
+                -- what it did before 2026-09-30: the panel showed the edit as saved and the next page load reinstated
+                -- the pack's prompt.
+                --
+                -- The "a re-import never overwrites an edited prompt" promise therefore does NOT live in this
+                -- statement; a second guard in a second place is how the two silently disagree. It lives in the
+                -- importer, on its single decision path: PoseLibraryImporter skips existing rows that have metadata
+                -- (HasNoMetadata) and fills through UpdateMetadataAsync only when there is none.
+                Stance = excluded.Stance,
+                Direction = excluded.Direction,
+                CameraAngle = excluded.CameraAngle,
+                ContentRating = excluded.ContentRating,
+                MetadataPrompt = excluded.MetadataPrompt,
+                MetadataNeedsReview = excluded.MetadataNeedsReview,
+                MetadataReviewNote = excluded.MetadataReviewNote,
+                MetadataOperatorEdited = excluded.MetadataOperatorEdited;
             """;
         command.Parameters.AddWithValue("$id", preset.Id.Trim());
         command.Parameters.AddWithValue("$name", preset.Name.Trim());
@@ -183,7 +193,8 @@ public sealed class PosePresetRepository : IPosePresetRepository
                 ContentRating = $rating,
                 MetadataPrompt = $prompt,
                 MetadataNeedsReview = $needsReview,
-                MetadataReviewNote = $reviewNote
+                MetadataReviewNote = $reviewNote,
+                MetadataOperatorEdited = $operatorEdited
             WHERE Id = $id;
             """;
         command.Parameters.AddWithValue("$id", preset.Id.Trim());
@@ -204,6 +215,7 @@ public sealed class PosePresetRepository : IPosePresetRepository
         command.Parameters.AddWithValue("$prompt", preset.MetadataPrompt);
         command.Parameters.AddWithValue("$needsReview", preset.MetadataNeedsReview ? 1 : 0);
         command.Parameters.AddWithValue("$reviewNote", preset.MetadataReviewNote);
+        command.Parameters.AddWithValue("$operatorEdited", preset.MetadataOperatorEdited ? 1 : 0);
     }
 
     public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -218,7 +230,7 @@ public sealed class PosePresetRepository : IPosePresetRepository
 
     private const string SelectSql = """
         SELECT Id, Name, Category, KeypointsJson, SkeletonPngPath, ThumbnailPath, KnownGood, ProvenanceJson, CreatedUtc, LibraryId, Keywords,
-               Stance, Direction, CameraAngle, ContentRating, MetadataPrompt, MetadataNeedsReview, MetadataReviewNote
+               Stance, Direction, CameraAngle, ContentRating, MetadataPrompt, MetadataNeedsReview, MetadataReviewNote, MetadataOperatorEdited
         FROM PosePresets
         """;
 
@@ -272,7 +284,8 @@ public sealed class PosePresetRepository : IPosePresetRepository
         ContentRating = ParseMetadataEnum(reader.GetString(14), PoseContentRating.Unrated),
         MetadataPrompt = reader.GetString(15),
         MetadataNeedsReview = reader.GetInt32(16) != 0,
-        MetadataReviewNote = reader.GetString(17)
+        MetadataReviewNote = reader.GetString(17),
+        MetadataOperatorEdited = reader.GetInt32(18) != 0
     };
 
     /// <summary>
@@ -341,7 +354,8 @@ public sealed class PosePresetRepository : IPosePresetRepository
                     ContentRating TEXT NOT NULL DEFAULT '',
                     MetadataPrompt TEXT NOT NULL DEFAULT '',
                     MetadataNeedsReview INTEGER NOT NULL DEFAULT 0,
-                    MetadataReviewNote TEXT NOT NULL DEFAULT ''
+                    MetadataReviewNote TEXT NOT NULL DEFAULT '',
+                    MetadataOperatorEdited INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE INDEX IF NOT EXISTS IX_PosePresets_Category ON PosePresets (Category, Name);
                 """;
@@ -363,6 +377,11 @@ public sealed class PosePresetRepository : IPosePresetRepository
         await AddColumnIfMissingAsync(connection, "PosePresets", "MetadataPrompt", "TEXT NOT NULL DEFAULT ''", cancellationToken);
         await AddColumnIfMissingAsync(connection, "PosePresets", "MetadataNeedsReview", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
         await AddColumnIfMissingAsync(connection, "PosePresets", "MetadataReviewNote", "TEXT NOT NULL DEFAULT ''", cancellationToken);
+
+        // Whether an OPERATOR saved this pose's metadata by hand, added with the metadata editor. It is the single
+        // thing that separates "no one has declared anything" from "an operator declared nothing", and it is what
+        // keeps the backfill from overwriting an edit that set only the camera angle.
+        await AddColumnIfMissingAsync(connection, "PosePresets", "MetadataOperatorEdited", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
 
         await using (var index = connection.CreateCommand())
         {

@@ -1,0 +1,28 @@
+{
+  "id": "shed-gear-three",
+  "title": "Maintenance shed — three collecting gear",
+  "actors": "1F2M",
+  "closeup": false,
+  "userInput": "Becky and the two men outside the shed, one with a toolbox and two with a ladder",
+  "expected": "A photorealistic photograph of three separate adults on the gravel apron outside a rusted corrugated metal shed in the late afternoon: one adult woman stands holding a toolbox by its handle, and two adult men carry a long aluminium step ladder between them, one at each end. Clear space between all three figures, the open shed doorway behind them with tools in shadow, deep shade under the tree line and low warm light across the gravel. Full body shot at eye level from a few paces back, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "Three separate adults on a gravel apron outside a rusted corrugated metal shed in the late afternoon: one adult woman holding a toolbox by its handle, two adult men carrying a long aluminium step ladder between them one at each end, clear space between all three, the open shed doorway behind with tools in shadow, low warm light, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of three separate adults on the gravel apron outside a rusted corrugated metal shed at the edge of a tree line in the late afternoon. One adult woman stands holding a metal toolbox by its handle, her weight on one hip; the two adult men carry a long aluminium step ladder between them, one gripping each end with the ladder held level, mid-stride toward the shed. Clear space separates all three figures. All wear work clothes, the men in gloves and the woman with her sleeves pushed up. Behind them the shed's doorway stands open with a workbench and hand tools in deep shadow, and low warm light rakes across the gravel, throwing their shadows long behind them. Full body shot at eye level from a few paces back, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of three separate adults outside a maintenance shed in the late afternoon: a woman holding a metal toolbox by its handle, and two men carrying a long aluminium step ladder level between them with a grip at each end, clear space between all three. Rusted corrugated panels behind, an open doorway with tools in shadow, gravel apron underfoot, low warm light and long shadows. Full body, eye level a few paces back, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 2boys, 3people, female, male, auburn hair, t-shirt, jeans, work gloves, holding toolbox, carrying ladder, aluminium step ladder, two men carrying, walking, maintenance shed, metal shed, corrugated walls, rust, gravel, tree line, late afternoon light, three separate people, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of three separate adults on the gravel apron outside a rusted corrugated metal maintenance shed at the edge of a tree line in the late afternoon. The woman stands with a metal toolbox held by its handle in one hand and her weight on one hip, her sleeves pushed up. The two men carry a long aluminium step ladder level between them, one gripping it at each end, mid-stride toward the shed with their arms straight. Clear open gravel separates all three figures. Behind them the shed's doorway stands open on a workbench and hand tools in deep shadow, and low warm late-afternoon light rakes across the apron, throwing their shadows long behind them toward the trees. Full body shot at eye level from a few paces back, 35mm lens, sharp focus on all three figures and the shed.",
+    "flux": "Photorealistic photograph of three adults collecting gear outside a maintenance shed. Primary subjects: a woman holding a metal toolbox by its handle, and two men carrying a long aluminium step ladder level between them with one grip each, all three clearly separate with open gravel between them. Action: walking toward the shed with the equipment. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a rusted corrugated metal shed at a tree line, an open doorway with tools in shadow, low warm late-afternoon light and long shadows. Camera: full body, eye level, a few paces back.",
+    "qwen-edit-2511": "Change only who is in frame: keep the shed, the doorway and the light, and arrange three separate adults on the gravel - the woman holding the toolbox, two men carrying the aluminium ladder between them one at each end, with clear space between all three. Keep her face, hair, identity, clothing, the toolbox and the shed exactly unchanged.",
+    "qwen-image-2.1-edit": "Add two men carrying a long aluminium step ladder level between them, one at each end, with clear space between them and her, all three separate people on the gravel. Preserve her face, hair, identity, clothing, the toolbox and the shed exactly as they are."
+  },
+  "settings": {
+    "seed": 40133,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

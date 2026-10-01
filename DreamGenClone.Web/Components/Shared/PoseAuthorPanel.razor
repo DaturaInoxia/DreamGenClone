@@ -40,7 +40,8 @@
                             all work on it.
                         </span>
                     }
-                    Saving writes a new pose; the original is not modified.
+                    <strong>Save</strong> writes your changes over this pose. <strong>Save As</strong> stores a new pose
+                    and leaves the original alone.
                 </div>
                 <button type="button" class="btn btn-sm btn-outline-secondary mt-2" disabled="@_busy"
                         @onclick="ClearLoadedAsync">
@@ -203,15 +204,93 @@
                             }
                         </select>
                     </div>
-                    <div class="col-md-2 d-grid">
+                    <div class="col-md-2 d-grid gap-1">
                         <button type="button" class="btn btn-sm btn-success" disabled="@(_busy || !CanSave())" @onclick="SaveAsync">
                             <i class="bi bi-save me-1"></i>Save
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-success" disabled="@(_busy || !CanSave())" @onclick="SaveAsAsync">
+                            <i class="bi bi-save2 me-1"></i>Save As
                         </button>
                     </div>
                     <div class="col-12">
                         <label class="form-label small fw-semibold mb-1">Keywords (optional)</label>
                         <input type="text" class="form-control form-control-sm" placeholder="three quarter, turn, profile"
                                value="@_keywords" @oninput="e => _keywords = e.Value?.ToString()" />
+                    </div>
+                </div>
+
+                <div class="border-top mt-3 pt-3">
+                    <div class="mb-2">
+                        <span class="small fw-semibold">Pose metadata</span>
+                        <span class="small text-muted">
+                            What this pose is, which way it faces and where the camera sits &mdash; the three facts a
+                            skeleton cannot carry. They write the prompt the pose renders with and choose the face and
+                            body references it needs. Every field can be set, including back to "not declared".
+                        </span>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold mb-1">Stance</label>
+                            <select class="form-select form-select-sm" value="@_metaStance"
+                                    @onchange="e => SetStanceAsync(e.Value?.ToString())">
+                                @foreach (var stance in MetaStances)
+                                {
+                                    <option value="@stance">@PoseMetadataLabels.Stance(stance)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold mb-1">Direction</label>
+                            <select class="form-select form-select-sm" value="@_metaDirection"
+                                    @onchange="e => SetDirectionAsync(e.Value?.ToString())">
+                                @foreach (var direction in MetaDirections)
+                                {
+                                    <option value="@direction">@PoseMetadataLabels.Direction(direction)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold mb-1">Camera angle</label>
+                            <select class="form-select form-select-sm" value="@_metaCamera"
+                                    @onchange="e => SetCameraAsync(e.Value?.ToString())">
+                                @foreach (var camera in MetaCameras)
+                                {
+                                    <option value="@camera">@PoseMetadataLabels.Camera(camera)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold mb-1">Content rating</label>
+                            <select class="form-select form-select-sm" value="@_metaRating"
+                                    @onchange="e => SetRatingAsync(e.Value?.ToString())">
+                                @foreach (var rating in MetaRatings)
+                                {
+                                    <option value="@rating">@PoseMetadataLabels.Rating(rating)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold mb-1">Metadata prompt</label>
+                            <textarea class="form-control form-control-sm" rows="3"
+                                      placeholder="Set a rating and the prompt is written from the fields above."
+                                      value="@_metaPrompt" @oninput="OnMetadataPromptInput"></textarea>
+                            <span class="form-text">
+                                @if (_promptHandEdited)
+                                {
+                                    <span>This is your own wording. No field change will overwrite it.</span>
+                                }
+                                else
+                                {
+                                    <span>Composed from the fields above; typing here makes it yours.</span>
+                                }
+                                An unrated pose has no prompt at all &mdash; the subject clause would have to declare
+                                whether the subject is clothed, which is the pack's call to make.
+                            </span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary mt-1" disabled="@_busy"
+                                    @onclick="RecomposeAsync">
+                                <i class="bi bi-arrow-repeat me-1"></i>Recompose from fields
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -277,7 +356,14 @@
                             </button>
                         </div>
                         <div class="col-12">
-                            <label class="form-label small fw-semibold mb-1">Prompt</label>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label small fw-semibold mb-0">Prompt</label>
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0"
+                                        disabled="@(_busy || string.IsNullOrWhiteSpace(_metaPrompt))"
+                                        @onclick="UseMetadataPromptAsync">
+                                    Use the pose's metadata prompt
+                                </button>
+                            </div>
                             <textarea class="form-control form-control-sm" rows="3"
                                       placeholder="A full-body photograph of a fully clothed person, natural skin texture, photorealistic, plain studio background, 85mm."
                                       value="@_testPrompt" @oninput="e => _testPrompt = e.Value?.ToString()"></textarea>
@@ -410,6 +496,28 @@
     private string? _testError;
     private bool _testBusy;
 
+    /// <summary>The metadata the editor is holding, for the pose on screen.</summary>
+    private PoseStance _metaStance = PoseStance.Unknown;
+    private PoseFacingDirection _metaDirection = PoseFacingDirection.Unknown;
+    private PoseCameraAngle _metaCamera = PoseCameraAngle.Unknown;
+    private PoseContentRating _metaRating = PoseContentRating.Unrated;
+    private string? _metaPrompt;
+
+    /// <summary>
+    /// True once the operator has typed in the prompt box. It is the one thing that stops a later field change from
+    /// overwriting wording they wrote themselves, and the Recompose button is the way back.
+    /// </summary>
+    private bool _promptHandEdited;
+
+    /// <summary>
+    /// The choices each dropdown offers, taken from the enums themselves so a new stance or camera angle appears in
+    /// the editor without a second list to keep in step.
+    /// </summary>
+    private static readonly PoseStance[] MetaStances = Enum.GetValues<PoseStance>();
+    private static readonly PoseFacingDirection[] MetaDirections = Enum.GetValues<PoseFacingDirection>();
+    private static readonly PoseCameraAngle[] MetaCameras = Enum.GetValues<PoseCameraAngle>();
+    private static readonly PoseContentRating[] MetaRatings = Enum.GetValues<PoseContentRating>();
+
     /// <summary>The configured step, so the button and the geometry use one number and it is changed in one place.</summary>
     private double StepDegrees => StudioOptions.Value.RequireRotationStepDegrees();
 
@@ -514,11 +622,21 @@
         _adoptedHead = _head;
         _nestedSaveSinceAdoption = false;
 
-        // Suggested from the source so saving does not collide with the pose it was loaded from: the library
-        // refuses a duplicate name in the same library rather than overwriting it.
-        _name = $"{LoadedFrom.Name} (edited)";
+        // The pose's OWN name, not a "(edited)" variant. Save now writes over this pose, so a renamed field would
+        // silently RENAME it in the library. Save As keeps this name too and the library refuses a duplicate in the
+        // same library, which is the prompt to rename rather than a silent overwrite of some other pose.
+        _name = LoadedFrom.Name;
         _category = LoadedFrom.Category;
         _keywords = LoadedFrom.Keywords;
+
+        // The stored metadata, so the editor opens on what the pose actually says instead of on blank fields — and so
+        // a save that changes nothing still writes back the values that were there.
+        _metaStance = LoadedFrom.Stance;
+        _metaDirection = LoadedFrom.Direction;
+        _metaCamera = LoadedFrom.CameraAngle;
+        _metaRating = LoadedFrom.ContentRating;
+        _metaPrompt = LoadedFrom.MetadataPrompt;
+        _promptHandEdited = false;
 
         // The residual is reported, never rounded away: a fitted pose is an approximation and the operator is the
         // one who decides whether it is close enough to edit from. The ambiguity flag matters more than the number,
@@ -549,6 +667,12 @@
         _view = new PoseView();
         _head = new PoseHeadRotation();
         _name = null;
+        _metaStance = PoseStance.Unknown;
+        _metaDirection = PoseFacingDirection.Unknown;
+        _metaCamera = PoseCameraAngle.Unknown;
+        _metaRating = PoseContentRating.Unrated;
+        _metaPrompt = null;
+        _promptHandEdited = false;
         await RefreshPreviewAsync();
     }
 
@@ -742,6 +866,13 @@
         }
     }
 
+    /// <summary>
+    /// SAVE: writes the pose and metadata on screen over the row they came from.
+    ///
+    /// A pose that has never been stored has no row to write over, so the first Save creates one and this panel adopts
+    /// it — from then on the same button overwrites that row instead of piling up a copy per press. Save As is the
+    /// button that deliberately makes another.
+    /// </summary>
     private async Task SaveAsync()
     {
         _busy = true;
@@ -749,27 +880,16 @@
         _status = null;
         try
         {
-            var preset = await LibraryService.SaveAuthoredPoseAsync(new AuthoredPoseRequest(
-                _name ?? string.Empty,
-                _category ?? string.Empty,
-                _keywords,
-                _view,
-                _libraryId ?? string.Empty,
-                _head,
-                // A fitted pose is saved as the KEYPOINTS on screen, drags included. Saving it as a view would
-                // re-derive the figure from the standing stance and silently discard the fit — the operator would get a
-                // different pose from the one on screen, described by a recipe that says otherwise.
-                //
-                // The test is "is a pose loaded" rather than "does it have rig rotations": a FACE pose is loaded and has
-                // NO rotations, so gating on rotations alone re-projected the rig and saved a standing MANNEQUIN with the
-                // turned head on it — a full body in place of the face the operator had just turned.
-                Keypoints: _storedPose is null && _draggedPose is null ? null : PoseOnScreen(),
-                // Named so the keywords and the provenance say what made it. With the default, a turned face would have
-                // been recorded as "dragged", which is a different act by a different tool.
-                Origin: TurningTheHead ? "head-turned" : null));
+            var overwriting = _loadedFrom is not null;
+            var preset = overwriting
+                ? await LibraryService.OverwritePoseAsync(_loadedFrom!.Id, BuildRequest())
+                : await LibraryService.SaveAuthoredPoseAsync(BuildRequest());
 
-            _status = $"Saved '{preset.Name}' to the library. It is searchable now.";
-            _name = null;
+            // Adopted either way, so the next Save writes over the pose just written rather than creating a second one.
+            _loadedFrom = preset;
+            _status = overwriting
+                ? $"Overwrote '{preset.Name}' with the pose and metadata on screen."
+                : $"Saved '{preset.Name}' as a new pose. Save writes over it from now on; Save As makes another.";
             await OnSaved.InvokeAsync(preset);
         }
         catch (Exception ex)
@@ -780,6 +900,151 @@
         {
             _busy = false;
         }
+    }
+
+    /// <summary>
+    /// SAVE AS: stores the pose on screen as a NEW pose and leaves the row it was loaded from untouched.
+    ///
+    /// It keeps the same name, and a library refuses two poses of the same name, so loading a library pose and pressing
+    /// Save As is refused until the operator renames it. That refusal is the intended behaviour: the alternative is
+    /// guessing which of two identically named poses the next render meant.
+    /// </summary>
+    private async Task SaveAsAsync()
+    {
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var preset = await LibraryService.SaveAuthoredPoseAsync(BuildRequest());
+            _loadedFrom = preset;
+            _status = $"Saved '{preset.Name}' as a new pose. Save writes over it from now on; Save As makes another.";
+            await OnSaved.InvokeAsync(preset);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// The save for the pose ON SCREEN, built in one place so Save and Save As cannot write different poses: the
+    /// keypoints, the origin and the metadata are identical for both, and the only difference between them is which row
+    /// the result lands on.
+    /// </summary>
+    private AuthoredPoseRequest BuildRequest() => new(
+        _name ?? string.Empty,
+        _category ?? string.Empty,
+        _keywords,
+        _view,
+        _libraryId ?? string.Empty,
+        _head,
+        // A fitted pose is saved as the KEYPOINTS on screen, drags included. Saving it as a view would
+        // re-derive the figure from the standing stance and silently discard the fit — the operator would get a
+        // different pose from the one on screen, described by a recipe that says otherwise.
+        //
+        // The test is "is a pose loaded" rather than "does it have rig rotations": a FACE pose is loaded and has
+        // NO rotations, so gating on rotations alone re-projected the rig and saved a standing MANNEQUIN with the
+        // turned head on it — a full body in place of the face the operator had just turned.
+        Keypoints: _storedPose is null && _draggedPose is null ? null : PoseOnScreen(),
+        // Named so the keywords and the provenance say what made it. With the default, a turned face would have
+        // been recorded as "dragged", which is a different act by a different tool.
+        Origin: TurningTheHead ? "head-turned" : null,
+        Metadata: new PoseMetadataEdit(
+            _metaStance, _metaDirection, _metaCamera, _metaRating, _metaPrompt ?? string.Empty));
+
+    /// <summary>
+    /// Reads one of the panel's OWN dropdown values. Throws rather than defaulting: these options are rendered from the
+    /// enum itself, so a value that will not parse means the markup and the enum disagree, and quietly landing on
+    /// "not declared" would store that disagreement as the pose's metadata.
+    /// </summary>
+    private static T ParseMetadataChoice<T>(string? value, string field) where T : struct, Enum =>
+        Enum.TryParse<T>(value, out var parsed)
+            ? parsed
+            : throw new InvalidOperationException(
+                $"'{value}' is not a {field} this editor offers, so nothing was changed.");
+
+    private Task SetStanceAsync(string? value)
+    {
+        _metaStance = ParseMetadataChoice<PoseStance>(value, "stance");
+        return RecomposeUnlessHandEditedAsync();
+    }
+
+    private Task SetDirectionAsync(string? value)
+    {
+        _metaDirection = ParseMetadataChoice<PoseFacingDirection>(value, "direction");
+        return RecomposeUnlessHandEditedAsync();
+    }
+
+    private Task SetCameraAsync(string? value)
+    {
+        _metaCamera = ParseMetadataChoice<PoseCameraAngle>(value, "camera angle");
+        return RecomposeUnlessHandEditedAsync();
+    }
+
+    private Task SetRatingAsync(string? value)
+    {
+        _metaRating = ParseMetadataChoice<PoseContentRating>(value, "content rating");
+        return RecomposeUnlessHandEditedAsync();
+    }
+
+    /// <summary>
+    /// Records that the operator typed their own prompt. Set from the input event rather than by comparing the text
+    /// against the composed one, because the two can coincide — a prompt typed to match the fields is still the
+    /// operator's own wording.
+    /// </summary>
+    private void OnMetadataPromptInput(ChangeEventArgs args)
+    {
+        _metaPrompt = args.Value?.ToString();
+        _promptHandEdited = true;
+    }
+
+    /// <summary>Puts the composed prompt back, which is also what makes the box composed again.</summary>
+    private Task RecomposeAsync()
+    {
+        _promptHandEdited = false;
+        _metaPrompt = ComposeMetadataPrompt();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Rewrites the prompt from the metadata fields unless the operator has written their own wording. The four fields
+    /// ARE the description, so keeping the prompt in step with them is the common case; their own text survives an
+    /// unrelated field change, and Recompose is the way back.
+    /// </summary>
+    private Task RecomposeUnlessHandEditedAsync()
+    {
+        if (!_promptHandEdited) _metaPrompt = ComposeMetadataPrompt();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The prompt the current fields compose, from the ONE composer the importer and the backfill also use — so a pose
+    /// edited here and a pose filled from its pack are worded identically rather than by two implementations.
+    /// </summary>
+    private string ComposeMetadataPrompt() => PoseMetadataPrompt.Compose(new PoseMetadata(
+        Stance: _metaStance,
+        Direction: _metaDirection,
+        Camera: _metaCamera,
+        Rating: _metaRating,
+        Prompt: string.Empty,
+        NeedsReview: false,
+        ReviewNote: string.Empty));
+
+    /// <summary>
+    /// Copies the pose's metadata prompt into the Test tab's box.
+    ///
+    /// A button rather than a silent substitution: the test's own wording is one fixed sentence so that a test compares
+    /// POSES, and swapping it behind the operator's back would make two runs differ for a reason they did not choose.
+    /// </summary>
+    private Task UseMetadataPromptAsync()
+    {
+        _testPrompt = _metaPrompt;
+        return Task.CompletedTask;
     }
 
     /// <summary>

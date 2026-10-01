@@ -3,13 +3,19 @@
 
 @inject ISceneAssetService AssetService
 
-<select class="form-select form-select-sm" value="@SelectedAssetImageId" @onchange="ChangeAsset" disabled="@_loading">
-    <option value="">Text only / no asset reference</option>
-    @foreach (var option in _options)
+<div>
+    <select class="form-select form-select-sm" value="@SelectedAssetImageId" @onchange="ChangeAsset" disabled="@_loading">
+        <option value="">Text only / no asset reference</option>
+        @foreach (var option in _options)
+        {
+            <option value="@option.Choice.Image.Id">@option.Label</option>
+        }
+    </select>
+    @if (!string.IsNullOrWhiteSpace(_emptyReason))
     {
-        <option value="@option.Choice.Image.Id">@option.Label</option>
+        <div class="form-text">@_emptyReason</div>
     }
-</select>
+</div>
 
 @code {
     [Parameter, EditorRequired]
@@ -33,16 +39,15 @@
 
     private IReadOnlyList<SceneAssetReferenceChoice> _choices = [];
     private IReadOnlyList<(SceneAssetReferenceChoice Choice, string Label)> _options = [];
+    private string? _emptyReason;
     private bool _loading;
 
     /// <summary>
-    /// Whether this asset type is OWNED by a character. A face, a build and a character pose asset are (the model
-    /// refuses a character slot that addresses nobody); a wardrobe item and a location are shared, so filtering them
-    /// by character would hide every item the operator created from another character's studio.
+    /// Whether this asset type is OWNED by a character. The rule itself lives in
+    /// <see cref="ReferencePickerEmptyReason.IsCharacterOwned"/>, so the picker and the reason an empty picker gives
+    /// cannot disagree about whether the list was meant to be scoped to one character.
     /// </summary>
-    private bool IsCharacterScoped => AssetType is SceneAssetType.CharacterFace
-        or SceneAssetType.CharacterBody
-        or SceneAssetType.CharacterPose;
+    private bool IsCharacterScoped => ReferencePickerEmptyReason.IsCharacterOwned(AssetType);
 
     protected override async Task OnParametersSetAsync()
     {
@@ -86,6 +91,10 @@
                     : choice.Image.CandidateNotes!.Trim();
                 return (choice, label is null ? choice.Asset.Name : $"{choice.Asset.Name} — {label}");
             }).ToList();
+
+            _emptyReason = _options.Count > 0
+                ? null
+                : ReferencePickerEmptyReason.Build(AssetType, CharacterProfileId, assets.Count);
         }
         finally
         {

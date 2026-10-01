@@ -1,0 +1,28 @@
+{
+  "id": "shelter-lunch-three",
+  "title": "Rest shelter — three resting",
+  "actors": "1F2M",
+  "closeup": false,
+  "userInput": "Becky and the two men resting in the shelter, two on the bench one at the post",
+  "expected": "A photorealistic photograph of three separate adults resting in a low open-fronted timber shelter: one adult woman and one adult man sitting at opposite ends of the plank bench, and a second adult man standing propped against the corner post with his arms folded. A daypack and two water bottles rest on the bench between them. Grey weathered timber, mossy shake roof, leaves on the plank floor, the grass clearing in front, mid-afternoon light under the roof edge. Full body shot at eye level from the open front, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "Three separate adults resting in a low open-fronted timber shelter: one adult woman and one adult man seated at opposite ends of the plank bench, a second adult man standing propped against the corner post with folded arms, daypack and two water bottles on the bench, grey timber and a mossy shake roof, leaves on the floor, clearing in front, afternoon light, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of three separate adults resting in a low open-fronted wooden shelter: one adult woman and one adult man sit at opposite ends of the plank bench with a daypack and two water bottles between them, while a second adult man stands propped against the corner post with his arms folded. Each is a clearly separate figure. The woman has wavy auburn hair and shorts; both men wear caps and hiking clothes. Grey weathered timber, a slanted shake roof with moss in the shingles and leaves blown across the plank floor, the grass clearing of the rest stop opening out in front. Mid-afternoon light rakes in under the roof edge. Full body shot at eye level from the open front, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of three separate adults resting in a low open-fronted timber shelter in mid-afternoon: one woman and one man sit at opposite ends of the plank bench, a daypack and two bottles between them, and a second man stands leaning against the corner post with his arms folded, all three clearly readable as distinct people with space between them. Weathered grey timber, a slanted shake roof with moss in the shingles, dried leaves on the plank floor, the rest stop's grass clearing beyond. Full body, eye level from the shelter front, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 2boys, 3people, female, male, auburn hair, cap, hiking clothes, daypack, sitting on bench, standing, leaning on post, arms crossed, wooden shelter, shake roof, clearing, afternoon light, three separate people, full body, front view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of three separate adults taking a rest inside a low open-fronted timber shelter. A woman with shoulder-length wavy auburn hair sits on the left end of the plank bench with one knee drawn up, shorts and a light t-shirt on; a man in a cap sits at the far right end of the same bench, leaning back against the wall; a second man in a cap stands propped against the corner post with his arms folded, one boot crossed over the other. A daypack sits on the bench between the two seated figures with two water bottles beside it. The shelter is grey weathered timber with a slanted shake roof and moss caught in the shingles, dried leaves have blown across the plank floor, and the cropped grass clearing opens out in front of them with thickets closing off the far side. Mid-afternoon sun rakes in under the roof edge. Full body shot at eye level from the open front, 35mm lens, sharp focus on all three figures.",
+    "flux": "Photorealistic photograph of three adults resting in a timber shelter. Primary subjects: a woman with wavy auburn hair seated at one end of a plank bench, a man in a cap seated at the other end, and a third man standing propped against the corner post with folded arms, all clearly separate figures. Action: resting after hiking, a daypack and water bottles on the bench between the seated pair. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a low open-fronted shelter of weathered grey timber with a mossy shake roof, leaves on the plank floor, a grass clearing outside. Camera: full body, eye level, from the shelter's open front in afternoon light.",
+    "qwen-edit-2511": "Change only who is in frame: keep the same shelter, bench and light, and place three separate adults in it - the woman on the bench, one man at the other end of the bench, and a second man standing at the corner post with folded arms, with clear space between all three. Keep the daypack, the bottles, the bench, the timber and the clearing exactly unchanged.",
+    "qwen-image-2.1-edit": "Add two men to this shelter: one seated at the far end of the bench and one standing against the corner post with his arms folded, both fully clothed and clearly separate from her. Preserve her face, hair, identity, clothing, her pose and the shelter structure exactly as they are."
+  },
+  "settings": {
+    "seed": 40106,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

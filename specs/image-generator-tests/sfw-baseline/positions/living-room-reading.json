@@ -1,0 +1,28 @@
+{
+  "id": "living-room-reading",
+  "title": "Trailer living room — reading on the couch",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Becky curled up on the couch reading a paperback, morning",
+  "expected": "A photorealistic photograph of one adult woman lying along a worn couch in a single-wide trailer's living room, feet tucked up under her and an open paperback in both hands, dressed in a loose t-shirt and leggings. Warped slatted blinds are half shut so one hard strip of morning daylight lies across the vinyl floor and the low table; the room holds a television on a stand, a coffee cup and a folded blanket. Full body shot at eye level from across the room, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman lying along a worn couch in a trailer living room, feet tucked up, open paperback in her hands, t-shirt and leggings, warped half-shut blinds casting one strip of morning light across the vinyl floor, television on a stand, coffee cup and folded blanket, full body at eye level from across the room, natural proportions and skin texture, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman lying along a worn couch in the living room of a single-wide trailer, her feet tucked up under her and an open paperback held in both hands. She wears a loose t-shirt and leggings and has shoulder-length wavy auburn hair. Warped slatted blinds are half shut, laying one hard strip of morning daylight across the vinyl floor and the low table; a television sits on a stand in the corner and a coffee cup rests on the table beside a folded blanket. Full body shot at eye level from across the room, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman reading on a couch in a narrow trailer living room in the morning: she lies along the cushions with her feet tucked up and a paperback open in both hands, in a t-shirt and leggings. Warped slatted blinds half shut throw one hard band of daylight across the vinyl floor and the low table; a television on a stand, a coffee cup, a folded blanket, thin walls and a worn carpet edge at the kitchen threshold. Full body, eye level from across the room, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, female, mature female, auburn hair, wavy hair, t-shirt, leggings, lying on couch, reading, book, paperback, feet tucked up, trailer interior, living room, tv, blinds, blinds half shut, morning light, full body, side view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman reading on a worn couch in the living room of a single-wide trailer. She lies along the cushions with her feet tucked up and an open paperback held in both hands, wearing a loose t-shirt and dark leggings, her wavy auburn hair spread on the armrest. Warped slatted blinds are half shut at the window behind her, so one hard strip of morning daylight lies across the vinyl floor and the low table. The room is narrow and plain: a television on a stand, a coffee cup and a folded blanket on the table, thin panelled walls and a worn carpet edge at the kitchen threshold. Full body shot at eye level from across the room, 35mm lens, sharp focus on her and the room's surfaces.",
+    "flux": "Photorealistic photograph of one adult woman reading at home. Primary subject: a woman with wavy auburn hair in a loose t-shirt and dark leggings, lying along a worn couch with her feet tucked up and an open paperback in both hands. Action: reading, relaxed, mid-page. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a narrow single-wide trailer living room with warped half-shut blinds, one strip of morning light on the vinyl floor, a television on a stand, a coffee cup and folded blanket. Camera: full body, eye level, from across the room.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage the same room in the evening with the blinds shut and a single warm lamp on, so the hard daylight strip is gone. Keep her face, hair, identity, clothing, her reading pose on the couch, the book and the furniture exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the room at night: the window goes black, the blinds are shut and the only light is a warm lamp beside the couch. Preserve her face, hair, identity, clothing, pose, the book and the furniture exactly as they are."
+  },
+  "settings": {
+    "seed": 40107,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

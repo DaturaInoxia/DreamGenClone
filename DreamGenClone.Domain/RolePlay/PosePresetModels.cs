@@ -70,6 +70,20 @@ public sealed class PosePreset
     /// <summary>The measured evidence behind <see cref="MetadataNeedsReview"/>.</summary>
     public string MetadataReviewNote { get; set; } = string.Empty;
 
+    /// <summary>
+    /// True once an OPERATOR has saved this pose's metadata by hand, in the pose editor.
+    ///
+    /// It exists because the values alone cannot express the difference between "nobody has declared anything for
+    /// this pose yet" and "an operator looked at it and decided to declare nothing". Those two states look identical
+    /// on the row, and the importer and the backfill have to treat them differently: the first may be filled, the
+    /// second must be left alone.
+    ///
+    /// Without it, an edit that sets only the CAMERA ANGLE on a pose whose pack declares no rating is invisible to the
+    /// fill-only guard (rating Unrated, stance Unknown, prompt empty) and the next backfill silently discards it —
+    /// which is exactly the case this marker was added to close.
+    /// </summary>
+    public bool MetadataOperatorEdited { get; set; }
+
     /// <summary>Provenance: authored vs extracted-from-image.</summary>
     public string? ProvenanceJson { get; set; }
 

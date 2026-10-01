@@ -36,6 +36,7 @@ internal sealed class TestImageCompilerProfileResolver : IImageCompilerProfileRe
             PoseInText = ImagePoseInText.Full,
             Negative = string.Empty,
             SettingsEnvelopeJson = "{}",
+            SystemPrompt = SceneImageCompilerSystemPrompts.For(family, canonical: false),
             ResearchSource = "test double",
         };
 }

@@ -1,0 +1,28 @@
+{
+  "id": "firepit-log-three",
+  "title": "Fire pit — three around the fire",
+  "actors": "1F2M",
+  "closeup": false,
+  "userInput": "Becky and the two men around the fire pit at night, she sits between them",
+  "expected": "A photorealistic photograph of three separate adults seated around a burning communal fire pit at night: one adult woman on a log bench with a man settled on the log to either side of her, all three lit orange from below by the flames, their faces turned toward the fire. Clear space between each figure. Beyond the ring of stones the grass and tree line are black, sparks rising above the flames. Full body shot at eye level from across the fire, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "Three separate adults seated around a burning fire pit at night, one adult woman on a log bench with a man to either side of her, all lit orange from below, faces turned toward the flames, clear space between each figure, black grass and tree line beyond, sparks above the fire, full body at eye level across the fire, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of three separate adults seated around a burning communal fire pit at night. One adult woman sits on a log bench with one adult man settled on the log to her left and another to her right, the three of them evenly spaced with clear gaps between them, all lit orange from below by the flames and all with their faces turned toward the fire. She wears a hooded sweatshirt and jeans, one man a flannel shirt and the other a plain jacket. Beyond the ring of stones the grass and tree line are solid black and sparks rise above the flames. Full body shot at eye level from across the fire, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of three separate adults around a fire pit at night: a woman on a log bench flanked by a man on either side, even spacing and clear gaps between all three, every face turned toward the flames and lit from below. Hooded sweatshirt, flannel shirt and jacket. Sparks over the fire, black beyond the stone ring. Full body, eye level across the fire, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 2boys, 3people, female, male, auburn hair, hoodie, flannel shirt, jacket, sitting, sitting on log, three people around fire, campfire, bonfire, fire pit, stones, flames, sparks, night, firelight on faces, dark background, three separate people, spaced apart, full body, front view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of three separate adults seated around a burning communal fire pit at night. The woman sits on a log bench in the middle with a man settled on the log to her left and another to her right, the three evenly spaced with visible gaps of bare log and grass between them, so all three read as distinct people. Every face is turned toward the flames and lit orange from below, their features softened and their eyes bright. She wears jeans and a hooded sweatshirt with her auburn hair loose; one man wears a flannel shirt with the sleeves rolled, the other a plain jacket. Sparks lift over the fire, and beyond the ring of stones the grass and the tree line are solid black. Full body shot at eye level from across the fire, 35mm lens, sharp focus on all three figures.",
+    "flux": "Photorealistic photograph of three adults around a campfire at night. Primary subjects: a woman in a hooded sweatshirt seated on a log bench with a man on the log to either side of her, all clearly separate with gaps between them and all faces lit orange from below and turned toward the flames. Action: sitting around the fire together at night. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a stone-ringed fire pit with sparks rising, solid black grass and tree line beyond, one man in a flannel shirt and one in a jacket. Camera: full body, eye level, across the fire.",
+    "qwen-edit-2511": "Change only the number and arrangement of people: keep the woman, the log and the fire as they are, and add a man on the log to each side of her with clear gaps between all three, every face turned toward the flames. Keep her face, hair, identity, clothing, her seated pose and the fire exactly unchanged.",
+    "qwen-image-2.1-edit": "Add a man seated to each side of her on the log, evenly spaced with clear gaps, both faces lit by the fire and turned toward it. Preserve her face, hair, identity, clothing, pose, the log and the fire exactly as they are."
+  },
+  "settings": {
+    "seed": 40124,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

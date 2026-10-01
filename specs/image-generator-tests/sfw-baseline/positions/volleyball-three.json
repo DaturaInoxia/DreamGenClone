@@ -1,0 +1,28 @@
+{
+  "id": "volleyball-three",
+  "title": "Activity area — three at the volleyball net",
+  "actors": "1F2M",
+  "closeup": false,
+  "userInput": "Becky at the volleyball net with the two men behind her on the grass",
+  "expected": "A photorealistic photograph of three separate adults on a scuffed grass volleyball court in hard midday sun: one adult woman stands at the sagging net with her hands up ready, and two adult men stand behind her across the grass in ready stances, all three in shorts and t-shirts. Clear space between each figure, the slack net line dividing the frame, the shuffleboard lane and horseshoe pits further back. Full body shot at eye level from the side of the net, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "Three separate adults on a scuffed grass volleyball court in hard midday sun: one adult woman at the sagging net with her hands up ready, two adult men behind her across the grass in ready stances, all in shorts and t-shirts, clear space between each, the slack net line dividing the frame, shuffleboard lane and horseshoe pits behind, full body at eye level from the side of the net, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of three separate adults on a scuffed grass volleyball court in hard midday sun. One adult woman stands at the sagging net with both hands up and her knees bent, ready for the ball; behind her across the grass, one adult man is crouched in a receiving stance and the second stands with his weight back, both watching the ball out of frame. All three wear shorts and t-shirts, and clear space separates them. The slack white net line divides the frame, and behind the court stand a chalked shuffleboard lane and the horseshoe pits. Full body shot at eye level from the side of the net, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of three separate adults on a grass volleyball court in hard midday sun: a woman at the sagging net with both hands up and knees bent, one man crouched behind her in a receiving stance and a second man standing with his weight back, both watching the ball. Shorts and t-shirts, clear space between all three. Slack net line across the frame, shuffleboard lane and horseshoe pits behind. Full body, eye level from the side of the net, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 2boys, 3people, female, male, auburn hair, ponytail, t-shirt, shorts, sneakers, standing, hands up, ready stance, volleyball net, net, grass court, two men behind, crouching, watching ball, shuffleboard, horseshoe pit, midday sun, three separate people, full body, side view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of three separate adults on a scuffed grass volleyball court in hard midday sun. The woman stands at the sagging net with both hands raised and her knees bent, her ponytail swinging as she tracks the ball out of frame. Behind her on the grass one man is crouched low in a receiving stance with his palms open, and the second man stands with his weight rocked back on one leg, both watching the ball. All three wear shorts, t-shirts and sneakers, and clear open grass separates them. The slack white net line cuts across the frame at shoulder height, and further back stand a chalked shuffleboard lane and the horseshoe pits with their whitewashed edges. The sun is directly overhead with short hard shadows under the net. Full body shot at eye level from the side of the net, 35mm lens, sharp focus on all three figures.",
+    "flux": "Photorealistic photograph of three adults playing volleyball on grass. Primary subjects: a woman at the sagging net with both hands up and knees bent, one man crouched behind her in a receiving stance, and a second man standing with his weight back, all in shorts and t-shirts and clearly separate. Action: all three watching the ball out of frame, ready. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a scuffed grass court with a slack white net, a shuffleboard lane and horseshoe pits behind, hard midday sun. Camera: full body, eye level, from the side of the net.",
+    "qwen-edit-2511": "Change only who is in frame: keep her at the net exactly as she is, and add two men behind her on the grass in ready stances, one crouched and one standing, both watching the ball, clearly separate with open grass between all three. Keep her face, hair, identity, clothing, her pose, the net and the light unchanged.",
+    "qwen-image-2.1-edit": "Add two men behind her on the court, one crouched in a receiving stance and one standing with his weight back, both watching the ball, clearly separate people with open grass between them and her. Preserve her face, hair, identity, clothing, her pose at the net and the court exactly as they are."
+  },
+  "settings": {
+    "seed": 40127,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

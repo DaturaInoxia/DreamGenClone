@@ -175,19 +175,46 @@ public static class ImageStepBlueprintFactory
     /// </summary>
     public static ImageStepBlueprint ForAssetCreate(ImageStepActor? subject = null)
     {
-        ImageStepReferenceSourceKind[] sources =
+        // The elements the CHARACTER owns are filled from either store: an approved scene asset, or an image out of the
+        // character's approved identity PACK. A pack image is a SceneImageReferenceAsset addressed by its own pack id,
+        // so it is NOT an approved scene asset and the two are not aliases. Declaring only ApprovedSceneAsset here - as
+        // this did - meant the pack picker never rendered, leaving the Face and Body tabs with a single dropdown that
+        // lists nothing, while the pack is exactly where the character's approved faces and builds actually live
+        // (measured 2026-09-30: two characters hold approved packs carrying 5 faces and up to 12 bodies, while ZERO
+        // character-owned face/body scene assets carry an approved usable image). This is the same defect the LoRA cell
+        // had - see ForLoraCell.
+        ImageStepReferenceSourceKind[] characterSources =
+        [
+            ImageStepReferenceSourceKind.ApprovedSceneAsset,
+            ImageStepReferenceSourceKind.IdentityPackAsset,
+            ImageStepReferenceSourceKind.ScratchImage
+        ];
+
+        // A wardrobe item and a location are SHARED library entries, never pack images: a pack carries faces and
+        // bodies. Offering the pack on either would be a control the operator can never satisfy.
+        ImageStepReferenceSourceKind[] sharedSources =
             [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.ScratchImage];
 
         var slots = new List<ImageStepSlotBlueprint>();
         if (subject is { } actor)
         {
             var resolved = RequireActor(actor);
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.None, sources, resolved.ActorKey));
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, sources, resolved.ActorKey));
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, resolved.ActorKey, AllowsMultiple: true));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.None, characterSources, resolved.ActorKey));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, characterSources, resolved.ActorKey));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sharedSources, resolved.ActorKey, AllowsMultiple: true));
         }
 
-        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sources));
+        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sharedSources));
+
+        // The pose comes from the pose library's own skeletons, never from an asset: the skeleton IS the reference the
+        // model conditions on, and a preset is addressed by ID so a stale path cannot make the render read a different
+        // file. Declared frame-wide because a pose is a fact about the frame, not about one character in it.
+        //
+        // Declared unconditionally, and SHOWN only when the selected model can carry it: the composer hides a slot's
+        // tab for a model that can offer it no strategy (D3), because a preset is honoured only on the
+        // native-reference route and a pose-conditioned ControlNet model cannot take one at all.
+        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Pose, ImageStepSlotPrefill.None,
+            [ImageStepReferenceSourceKind.PoseLibrarySkeleton]));
 
         return Build(new ImageStepBlueprint(
             ImageStepKind.AssetCreate, "Generate Image", ImageStepSourceMode.None, slots,

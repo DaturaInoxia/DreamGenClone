@@ -1,0 +1,28 @@
+{
+  "id": "flash-leg-up-vulva",
+  "title": "Flash — foot up on a bench, vulva exposed",
+  "actors": "1F",
+  "closeup": true,
+  "userInput": "She puts one foot up on the bench and pulls her clothes aside so you can see her pussy",
+  "expected": "A photorealistic explicit photograph of one adult woman standing in a doorway with one foot up on a bench and her dress pulled aside, exposing her vulva and inner thighs to the camera, holding the hem up with one hand and looking down at the lens with a smirk, medium close shot from a low angle, correct vulva anatomy, natural skin texture and pubic hair, indoor daylight, 35mm, sharp focus.",
+  "neutralScene": "One adult woman standing with one foot raised onto a low bench, her dress pulled aside at the hip so her vulva is exposed to the camera, one hand holding the hem clear, looking down at the lens with a smirk, medium close shot from a low angle, correct female genital anatomy, natural skin texture, indoor daylight, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic explicit close photograph of one adult woman standing with one bare foot raised onto a low wooden bench, her short summer dress pulled aside at the hip so her vulva and inner thighs are fully exposed to the camera. One hand holds the hem clear of her hip, the other rests on her knee. She looks down at the lens with a smirk. Medium close shot from a low angle aimed up between her thighs. Correct female anatomy with clearly rendered vulva and labia, natural pubic hair, natural body proportions, unretouched skin texture, soft indoor daylight, 35mm lens, sharp focus, highly detailed.",
+    "juggernaut": "A photorealistic explicit close photograph of one adult woman standing with one foot up on a low bench and her short dress pulled aside at the hip, exposing her vulva and inner thighs to the camera while one hand holds the hem clear. She looks down at the lens with a smirk. Medium close shot from a low angle looking up between her legs. Correct female genital anatomy, natural pubic hair, natural body proportions, unretouched skin. Soft indoor daylight, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl, female, dress lifted, clothes pulled aside, pussy, vulva, labia, pubic hair, bare thighs, one leg up, foot on bench, standing, holding hem, looking down, smirk, close-up, from below, low angle, indoor, daylight, sharp focus",
+    "qwen-image-2.1": "A photorealistic explicit close photograph of one adult woman standing in a doorway with her right foot raised onto a low wooden bench, her short summer dress dragged aside at the hip so that her vulva, labia and the soft inner surfaces of her thighs are fully exposed to the camera. Her left hand holds the hem clear of her hip and her right hand rests on her raised knee. Her head is tipped down as she looks into the lens with a smirk. Correct female genital anatomy with natural pubic hair, natural body proportions and unretouched skin showing pores and fine hair on her thighs. Soft daylight from the open door falls along the inside of her raised leg. Medium close shot from a low angle aimed up between her thighs, 35mm lens, the hem and bench frame the shot, sharp focus on her vulva and face.",
+    "flux": "Photorealistic explicit close photograph of one adult woman exposing her vulva to the camera. Primary subject: a woman with natural body proportions in a short summer dress pulled aside at the hip, her vulva, labia and bare inner thighs exposed, with natural pubic hair. Action: standing with one foot raised onto a low bench, one hand holding the hem clear and the other on her raised knee, looking down into the lens with a smirk. Critical style: explicit, photorealistic, 35mm, natural genital anatomy and unretouched skin texture, sharp focus. Context: a doorway with soft daylight from outside, a wooden bench at her raised foot. Camera: medium close shot, low angle from between her thighs.",
+    "qwen-edit-2511": "Change her pose and the clothing: raise her right foot onto the low bench and drag the dress aside at the hip so her vulva and inner thighs are exposed, with one hand holding the hem clear of her hip. Keep her face, hair, identity, body proportions, the dress and the doorway light exactly unchanged.",
+    "qwen-image-2.1-edit": "Raise one of her feet onto the bench and pull the dress aside at the hip so her exposed vulva and inner thighs face the camera, one hand holding the hem clear. Preserve her face, hair, identity, body proportions, the dress and the daylight from the doorway exactly as they are."
+  },
+  "settings": {
+    "seed": 30109,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

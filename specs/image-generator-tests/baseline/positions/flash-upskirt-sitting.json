@@ -1,0 +1,28 @@
+{
+  "id": "flash-upskirt-sitting",
+  "title": "Flash — upskirt, sitting",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "She sits with her skirt lifted, showing her panties to the camera",
+  "expected": "A photorealistic photograph of one adult woman sitting on the edge of a chair with her short skirt lifted clear of her hips so her panties are exposed to the camera, leaning back on one hand with her legs slightly apart, looking down at the lens with a smirk, low camera angle from the floor, correct anatomy, natural skin texture, indoor light, 35mm, sharp focus.",
+  "neutralScene": "One adult woman sitting on the edge of a chair with her short skirt lifted clear of her hips so her underwear is exposed to the camera, leaning back on one hand, legs slightly apart, looking down at the lens with a smirk, low camera angle, correct anatomy, natural skin texture, indoor light, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman sitting on the edge of an upholstered chair with her short skirt bunched up clear of her hips so her plain cotton panties are exposed to the camera. She leans back on one hand with her knees slightly apart and looks down at the lens with a smirk. Low camera angle from near the floor looking up between her legs. Correct female anatomy, natural body proportions, unretouched skin. Soft indoor light, 35mm lens, sharp focus, highly detailed.",
+    "juggernaut": "A photorealistic photograph of one adult woman sitting on the edge of a chair: she has lifted her short skirt clear of her hips so her cotton panties are fully visible to the camera, leaning back on one hand with her legs slightly apart, and she looks down at the lens with a smirk. Low camera angle from floor level looking up. Correct anatomy, natural body proportions, unretouched skin. Soft indoor light, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_questionable, 1girl, female, skirt lifted, upskirt, panties, underwear visible, sitting, sitting on chair, leaning back, legs apart, looking down, smirk, from below, low angle, worm's eye view, indoor, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman seated on the edge of an upholstered chair with her short grey skirt bunched up clear of her hips, so her plain white cotton panties are fully exposed to the camera. She leans back on one hand, her other arm resting along the chair, with her knees slightly apart and her thighs catching the light. She looks down at the lens with a knowing smirk. The camera is low, near the floor, looking up along her legs. She has natural body proportions and unretouched skin. Soft indoor light from a lamp, 35mm lens, a cluttered room blurred behind her, sharp focus on her hips and face.",
+    "flux": "Photorealistic photograph of one adult woman showing her underwear to the camera while seated. Primary subject: a woman with natural body proportions in a short grey skirt with her panties exposed, bare legs. Action: sitting on the edge of a chair, skirt lifted clear of her hips, leaning back on one hand, knees slightly apart, looking down at the camera with a smirk. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: an indoor room lit by a lamp, blurred furniture behind her. Camera: low angle from near the floor looking up.",
+    "qwen-edit-2511": "Change her pose and the viewpoint: lift her skirt clear of her hips so her panties are exposed, have her lean back on one hand with her knees slightly apart, and move the camera low, near the floor, looking up at her. Keep her face, hair, identity, the skirt, the chair and the lamp light exactly unchanged.",
+    "qwen-image-2.1-edit": "Lift her skirt clear of her hips to expose her panties, tilt her back onto one hand with her legs slightly parted, and view her from a low camera angle. Preserve her face, hair, identity, body proportions, the chair and the indoor lamp light exactly as they are."
+  },
+  "settings": {
+    "seed": 30105,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

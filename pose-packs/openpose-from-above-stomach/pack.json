@@ -3,5 +3,9 @@
     "description":  "High-angle (\"from above\") OpenPose stances: 18-joint COCO body keypoints, one person per file. Version \"On stomach v1.0\" of Civitai model 129435. Only the file layout was changed (one folder per category, so the library names each pose by its category and orders them by the pack\u0027s own numbers); keypoint values are untouched. The source zip\u0027s own PNG preview renders were not copied - the app renders its own skeleton PNGs from the keypoints.",
     "name":  "OpenPose From Above - on stomach",
     "source":  "https://civitai.com/models/129435 - version \"On stomach v1.0\" (version id 141957), file OpenposeFromAbove_onStomachV10.zip (id 104408), sha256 8660d7ef12d4114f29c09cdf13a42ef53a2e6dfdd645576729d6ce9696206c6f verified against Civitai\u0027s published digest before import",
-    "attribution":  "Civitai model 129435 \"[OpenPose] From above\". The uploader name is not returned by the Civitai API for this model, so no author can be credited. ControlNet settings stated by the pack: preprocessor none, model openpose, control mode balanced, control weight 0.8-1.0."
+    "attribution":  "Civitai model 129435 \"[OpenPose] From above\". The uploader name is not returned by the Civitai API for this model, so no author can be credited. ControlNet settings stated by the pack: preprocessor none, model openpose, control mode balanced, control weight 0.8-1.0.",
+    "rating":  "sfw",
+    "categories":  {
+        "on_stomach": { "stance": "lying", "direction": "back", "camera": "from-above" }
+    }
 }

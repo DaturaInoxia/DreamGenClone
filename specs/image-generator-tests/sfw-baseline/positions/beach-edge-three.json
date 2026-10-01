@@ -1,0 +1,28 @@
+{
+  "id": "beach-edge-three",
+  "title": "Lake beach — three at the water's edge",
+  "actors": "1F2M",
+  "closeup": false,
+  "userInput": "Becky waist-deep in the lake with the two men standing on the sand behind her",
+  "expected": "A photorealistic photograph of three separate adults at the water's edge of a small lake in summer afternoon light: one adult woman stands waist-deep in the water with her arms out to her sides, and two adult men stand on the wet sand behind her at the waterline in trunks, one with his hands on his hips and one with a towel over his shoulder. Clear space between all three. The buoyed swim area and floating dock beyond, the beach and striped towels behind them. Full body shot at eye level from the water, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "Three separate adults at the edge of a small lake in summer light: one adult woman waist-deep in the water with her arms out to her sides, two adult men standing on the wet sand behind her in trunks, one with hands on his hips and one with a towel over his shoulder, clear space between all three, buoyed swim area and floating dock beyond, full body at eye level from the water, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of three separate adults at the water's edge of a small lake in the afternoon. The woman stands waist-deep in the water with her arms held out to her sides and her wet auburn hair plastered back, ripples spreading from her hips. Two adult men stand on the wet sand behind her at the waterline in swimming trunks, one with his hands on his hips and the other with a towel slung over one shoulder, both watching her. Clear space separates all three figures. Beyond them a floating dock and a line of buoys mark the swim area, and further back along the sand lie striped towels and a beached paddle. Full body shot at eye level from the water, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of three separate adults at a lake's edge in the afternoon: a woman waist-deep in the water with her arms out to her sides, two men standing on the wet sand behind her in trunks, one with his hands on his hips and one with a towel over his shoulder, clear space between all three. Buoyed swim area and floating dock beyond, striped towels on the sand behind. Full body, eye level from the water, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 2boys, 3people, female, male, auburn hair, wet hair, swimsuit, swimming trunks, bare shoulders, waist deep, wading, arms out, standing, two men on sand, hands on hips, towel on shoulder, beach, sand, water, lake, buoys, floating dock, summer afternoon, sunlight, three separate people, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of three separate adults at the water's edge of a small lake in the afternoon. The woman stands waist-deep in the water with her arms held out to her sides at shoulder height, her wet auburn hair plastered back and rings of ripples spreading outward from her hips. Behind her two men stand on the wet sand at the waterline in swimming trunks: one has his hands planted on his hips and the other has a towel slung over one shoulder, and both are watching her. Clear open water and sand separate all three figures. Beyond them a floating dock rides on its barrels and a line of orange buoys marks the swim area; further back along the sand lie striped towels and a beached paddle against a post. Full body shot at eye level from the water, 35mm lens, sharp focus on all three people and the shallows.",
+    "flux": "Photorealistic photograph of three adults swimming at a lake. Primary subjects: a woman waist-deep in the water in a swimsuit with her arms held out to her sides, and two men on the wet sand at the waterline in trunks, one with his hands on his hips and one with a towel over his shoulder, all three clearly separate. Action: she stands in the water, the two men watch from the shore. Critical style: photorealistic, 35mm, wet unretouched skin, sharp focus. Context: a small lake with a buoyed swim area, a floating dock, striped towels and a beached paddle on the sand. Camera: full body, eye level, from the water in summer afternoon light.",
+    "qwen-edit-2511": "Change only who is in frame: keep her standing waist-deep in the water exactly as she is, and place two men on the wet sand behind her at the waterline, one with his hands on his hips and one with a towel over his shoulder, both clearly separate from her and from each other. Keep her face, hair, identity, the swimsuit, her pose and the lake exactly unchanged.",
+    "qwen-image-2.1-edit": "Add two men to the wet sand at the waterline behind her, one with his hands on his hips and one with a towel slung over his shoulder, both in trunks and clearly separate people. Preserve her face, hair, identity, the swimsuit, her pose and the lake exactly as they are."
+  },
+  "settings": {
+    "seed": 40130,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

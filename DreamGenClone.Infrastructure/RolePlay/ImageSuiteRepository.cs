@@ -24,7 +24,8 @@ public sealed class ImageSuiteRepository : IImageSuiteRepository
 
     private const string CellColumns = """
         Id, SuiteId, Ordinal, Name, CheckpointProfileId, UserDirection, ExpectedPrompt,
-        BindingsJson, SeedJson, SettingsJson, CompilerLlmJson, GatesJson, SimilarityTolerance, UpdatedUtc
+        BindingsJson, VariantsJson, ProblemsJson, SeedJson, SettingsJson, CompilerLlmJson, GatesJson,
+        SimilarityTolerance, UpdatedUtc
         """;
 
     private readonly string _connectionString;
@@ -128,16 +129,19 @@ public sealed class ImageSuiteRepository : IImageSuiteRepository
         command.CommandText = """
             INSERT INTO ImageSuiteCells (
                 Id, SuiteId, Ordinal, Name, CheckpointProfileId, UserDirection, ExpectedPrompt,
-                BindingsJson, SeedJson, SettingsJson, CompilerLlmJson, GatesJson, SimilarityTolerance, UpdatedUtc)
+                BindingsJson, VariantsJson, ProblemsJson, SeedJson, SettingsJson, CompilerLlmJson, GatesJson,
+                SimilarityTolerance, UpdatedUtc)
             VALUES (
                 $id, $suiteId, $ordinal, $name, $checkpointProfileId, $userDirection, $expectedPrompt,
-                $bindings, $seed, $settings, $compilerLlm, $gates, $tolerance, $updatedUtc)
+                $bindings, $variants, $problems, $seed, $settings, $compilerLlm, $gates, $tolerance, $updatedUtc)
             ON CONFLICT(SuiteId, Ordinal) DO UPDATE SET
                 Name = excluded.Name,
                 CheckpointProfileId = excluded.CheckpointProfileId,
                 UserDirection = excluded.UserDirection,
                 ExpectedPrompt = excluded.ExpectedPrompt,
                 BindingsJson = excluded.BindingsJson,
+                VariantsJson = excluded.VariantsJson,
+                ProblemsJson = excluded.ProblemsJson,
                 SeedJson = excluded.SeedJson,
                 SettingsJson = excluded.SettingsJson,
                 CompilerLlmJson = excluded.CompilerLlmJson,
@@ -153,6 +157,8 @@ public sealed class ImageSuiteRepository : IImageSuiteRepository
         command.Parameters.AddWithValue("$userDirection", cell.UserDirection);
         command.Parameters.AddWithValue("$expectedPrompt", cell.ExpectedPrompt);
         command.Parameters.AddWithValue("$bindings", cell.BindingsJson);
+        command.Parameters.AddWithValue("$variants", cell.VariantsJson);
+        command.Parameters.AddWithValue("$problems", cell.ProblemsJson);
         command.Parameters.AddWithValue("$seed", cell.SeedJson);
         command.Parameters.AddWithValue("$settings", cell.SettingsJson);
         command.Parameters.AddWithValue("$compilerLlm", cell.CompilerLlmJson);
@@ -203,6 +209,8 @@ public sealed class ImageSuiteRepository : IImageSuiteRepository
         UserDirection = reader.GetString(reader.GetOrdinal("UserDirection")),
         ExpectedPrompt = reader.GetString(reader.GetOrdinal("ExpectedPrompt")),
         BindingsJson = reader.GetString(reader.GetOrdinal("BindingsJson")),
+        VariantsJson = reader.GetString(reader.GetOrdinal("VariantsJson")),
+        ProblemsJson = reader.GetString(reader.GetOrdinal("ProblemsJson")),
         SeedJson = reader.GetString(reader.GetOrdinal("SeedJson")),
         SettingsJson = reader.GetString(reader.GetOrdinal("SettingsJson")),
         CompilerLlmJson = reader.GetString(reader.GetOrdinal("CompilerLlmJson")),
@@ -245,6 +253,8 @@ public sealed class ImageSuiteRepository : IImageSuiteRepository
                 UserDirection TEXT NOT NULL DEFAULT '',
                 ExpectedPrompt TEXT NOT NULL DEFAULT '',
                 BindingsJson TEXT NOT NULL DEFAULT '[]',
+                VariantsJson TEXT NOT NULL DEFAULT '{}',
+                ProblemsJson TEXT NOT NULL DEFAULT '[]',
                 SeedJson TEXT NOT NULL DEFAULT '{}',
                 SettingsJson TEXT NOT NULL DEFAULT '{}',
                 CompilerLlmJson TEXT NOT NULL DEFAULT '{}',
@@ -257,5 +267,29 @@ public sealed class ImageSuiteRepository : IImageSuiteRepository
             CREATE INDEX IF NOT EXISTS IX_ImageSuiteCells_Suite ON ImageSuiteCells (SuiteId);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        // Added after the table shipped, so an existing dev DB is migrated rather than recreated.
+        await AddColumnIfMissingAsync(connection, "ImageSuiteCells", "VariantsJson", "TEXT NOT NULL DEFAULT '{}'", cancellationToken);
+        await AddColumnIfMissingAsync(connection, "ImageSuiteCells", "ProblemsJson", "TEXT NOT NULL DEFAULT '[]'", cancellationToken);
+    }
+
+    private static async Task AddColumnIfMissingAsync(
+        SqliteConnection connection,
+        string table,
+        string column,
+        string definition,
+        CancellationToken cancellationToken)
+    {
+        await using var check = connection.CreateCommand();
+        check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = $column;";
+        check.Parameters.AddWithValue("$column", column);
+        if (Convert.ToInt64(await check.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture) > 0)
+        {
+            return;
+        }
+
+        await using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
+        await alter.ExecuteNonQueryAsync(cancellationToken);
     }
 }

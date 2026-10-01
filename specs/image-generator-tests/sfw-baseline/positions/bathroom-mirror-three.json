@@ -1,0 +1,28 @@
+{
+  "id": "bathroom-mirror-three",
+  "title": "Camp bathrooms — three at the sinks",
+  "actors": "1F2M",
+  "closeup": false,
+  "userInput": "Becky at the sink with the two men behind her, all seen in the long mirror",
+  "expected": "A photorealistic photograph of three separate adults at a long row of sinks in an older restroom: one adult woman at the middle basin with her hands under the tap, and two adult men standing behind her left and right shoulders, all three reflected in the long mirror ahead. Pale green tile, grey grout, four stall partitions with a gap underneath, paper towel on the tile floor, midday light from a high window. Three distinct figures, full body shot at eye level from behind them, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "Three separate adults at a long row of sinks in an older restroom: one adult woman at the middle basin washing her hands, two adult men standing behind her left and right shoulders, all reflected in the long mirror, pale green tile and grey grout, four stall partitions, paper towel on the floor, midday light from a high window, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of three separate adults at a long row of porcelain sinks in an older restroom. One adult woman stands at the middle basin with her hands under the running tap; behind her left shoulder stands one adult man with his arms folded and behind her right shoulder a second adult man with his hands in his pockets, both facing the mirror. All three are reflected in the long mirror on the wall ahead. The room is pale green tile with grout gone grey, four stall partitions along the opposite wall with a gap under them, and paper towel scattered on the tile floor. Midday light comes flat and bright through the high window. Three distinct figures with clear space between them. Full body shot at eye level from behind them, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of three separate adults at restroom sinks: a woman at the middle basin washing her hands with two men standing behind her, one at each shoulder, the three of them doubled in the long mirror. Pale green tile and grey grout, four stall partitions with a gap at the bottom, a hand dryer, paper towel on the tile floor, flat bright light from a high window. Full body, eye level from behind, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 2boys, 3people, female, male, auburn hair, tied back hair, t-shirt, jeans, shirt, standing at sink, washing hands, two men standing behind, arms folded, hands in pockets, mirror, reflection, bathroom, public restroom, tile wall, stall doors, from behind, back view, eye level, midday light, three separate people, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of three separate adults standing at a long row of porcelain sinks in an older public restroom, all three reflected in the long mirror on the wall ahead. The woman stands at the middle basin with both hands under the running tap, her hair tied back. Behind her left shoulder stands one man with his arms folded across his chest, and behind her right shoulder a second man with both hands pushed into his pockets; neither is washing anything, and both face the mirror rather than each other. The room is pale green tile with grout gone grey, four stall partitions along the opposite wall with a wide gap beneath them, paper towel scattered on the tile floor and a hand dryer between the basins. Bright midday light comes through the high window and reflects off the wet porcelain, and the space behind them is empty. Three clearly separate figures. Full body shot at eye level from behind them, 35mm lens, sharp focus on all three reflections.",
+    "flux": "Photorealistic photograph of three adults at restroom sinks. Primary subjects: a woman with tied-back auburn hair at the middle basin washing her hands, a man with folded arms behind her left shoulder and another man with his hands in his pockets behind her right, all three reflected in the long mirror. Action: washing hands; the two men standing and watching. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: an older restroom in pale green tile with grey grout, four stalls with a gap under the partitions, paper towel on the floor, bright midday light from a high window. Camera: full body, eye level, from behind them.",
+    "qwen-edit-2511": "Change only who is in frame: keep the woman, the sink row and the mirror, and place two men behind her, one at each shoulder, facing the mirror with arms folded and hands in pockets, all three clearly separate. Keep the tile, the stalls, the paper towel, her pose and the light exactly unchanged.",
+    "qwen-image-2.1-edit": "Add two men behind her, one at each shoulder, facing the mirror, one with his arms folded and one with his hands in his pockets, all three clearly separate people. Preserve her face, hair, identity, clothing, pose and the restroom exactly as they are."
+  },
+  "settings": {
+    "seed": 40118,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

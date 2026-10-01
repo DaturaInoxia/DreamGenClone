@@ -19,6 +19,11 @@ public sealed record PoseLibraryQuery(string? Keyword = null, string? Category =
 /// <see cref="Head"/> still describe the pose the edit STARTED from, so the recipe stays complete.
 /// </param>
 /// <param name="Drags">A human-readable log of the drags applied, recorded in the recipe.</param>
+/// <param name="Metadata">
+/// The operator's own metadata for this pose, when they set it in the editor. Null for every caller that is not the
+/// editor — a pose saved without an explicit edit keeps "not declared" metadata and stays eligible for the pack
+/// backfill, which is what the pack libraries rely on.
+/// </param>
 public sealed record AuthoredPoseRequest(
     string Name,
     string Category,
@@ -29,7 +34,25 @@ public sealed record AuthoredPoseRequest(
     PosePerson? Keypoints = null,
     IReadOnlyList<string>? Drags = null,
     string? Origin = null,
-    ExtractedPoseProvenance? Extraction = null);
+    ExtractedPoseProvenance? Extraction = null,
+    PoseMetadataEdit? Metadata = null);
+
+/// <summary>
+/// An operator's OWN metadata for a pose, as typed in the pose editor.
+///
+/// Deliberately not the same shape as <see cref="PoseMetadata"/>: that type also carries the review flag and its
+/// note, which are a MEASUREMENT's output and have no business being typed in by hand.
+/// </summary>
+/// <param name="Prompt">
+/// The prompt the pose renders with. The editor composes it from the four fields above unless the operator has written
+/// their own, so this is the operator's text either way and is stored verbatim.
+/// </param>
+public sealed record PoseMetadataEdit(
+    PoseStance Stance,
+    PoseFacingDirection Direction,
+    PoseCameraAngle Camera,
+    PoseContentRating Rating,
+    string Prompt);
 
 /// <summary>
 /// Where an EXTRACTED pose came from: the image that was read, the host that read it, and the graph it ran. Recorded
@@ -129,6 +152,17 @@ public interface IPoseLibraryService
     /// </summary>
     Task<PosePreset> SaveAuthoredPoseAsync(
         AuthoredPoseRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// OVERWRITES an existing preset with the pose and metadata now in the editor.
+    ///
+    /// A separate operation from <see cref="SaveAuthoredPoseAsync"/> on purpose, not a flag on it: creation refuses a
+    /// name already in the library, while overwriting is nothing but taking one. It also does NOT refuse a pack
+    /// (system) library — metadata written over an imported row survives, because the importer skips any row an
+    /// operator has edited. That refusal exists to stop authored POSES being stored where a re-import would lose them.
+    /// </summary>
+    Task<PosePreset> OverwritePoseAsync(
+        string id, AuthoredPoseRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The bytes of a preset's skeleton PNG. Fails loudly when the file is missing: silently conditioning on
@@ -432,8 +466,122 @@ public sealed class PoseLibraryService : IPoseLibraryService
             CreatedUtc = DateTime.UtcNow
         };
 
+        // The operator's own metadata, when the editor supplied it. Absent for every other caller, which is what keeps
+        // a pose saved without an explicit edit eligible for the pack backfill.
+        if (request.Metadata is { } metadata) ApplyMetadata(preset, metadata);
+
         await _presets.UpsertAsync(preset, cancellationToken);
         return preset;
+    }
+
+    /// <summary>
+    /// OVERWRITES an existing preset: the pose you have open is written back over the row it came from.
+    ///
+    /// Name, category, keypoints and metadata are replaced; the library, the keywords, the recorded provenance, the
+    /// known-good measurement and the creation date are the ROW's, not the edit's, and are carried across untouched —
+    /// a pack row's keywords are how the library's search still finds it after its camera angle was corrected.
+    /// </summary>
+    public async Task<PosePreset> OverwritePoseAsync(
+        string id, AuthoredPoseRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new InvalidOperationException(
+                "Overwriting a pose needs the id of the pose being written over; without it there is no row to write.");
+        }
+
+        var existing = await _presets.GetAsync(id.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Pose preset '{id}' is not in the library, so there is nothing to overwrite. Save it as a new pose "
+                + "instead.");
+
+        var name = request.Name?.Trim() ?? string.Empty;
+        if (name.Length == 0)
+        {
+            throw new InvalidOperationException("An overwritten pose still needs a name — the library lists poses by it.");
+        }
+
+        var category = request.Category?.Trim() ?? string.Empty;
+        if (category.Length == 0)
+        {
+            throw new InvalidOperationException($"Pose '{name}' needs a category — the search matches on it.");
+        }
+
+        // The same two explicit sources as creation, and never both: the operator's dragged keypoints are the pose, or
+        // the rig is projected from the view.
+        var person = request.Keypoints is not null
+            ? request.Keypoints
+            : ProjectAuthoredPose(request.View, request.Head);
+
+        // The skeleton is re-rendered over the row's OWN file, because the pose still IS that row: a fresh path would
+        // orphan the old PNG and leave two files on disk for the one pose the library shows. A row with no skeleton is
+        // left without one rather than pointed at a file nothing serves.
+        if (!string.IsNullOrWhiteSpace(existing.SkeletonPngPath))
+        {
+            var webRoot = _environment.WebRootPath
+                ?? throw new InvalidOperationException(
+                    "The app has no web root, so this pose's skeleton cannot be written or served.");
+
+            var skeletonPath = Path.Combine(
+                webRoot,
+                BodyStanceSkeletons.WebRootFolder,
+                existing.SkeletonPngPath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(skeletonPath)!);
+            await File.WriteAllBytesAsync(
+                skeletonPath, PoseSkeletonRenderer.RenderPng(person), cancellationToken);
+        }
+
+        var preset = new PosePreset
+        {
+            Id = existing.Id,
+            Name = name,
+            Category = category,
+            LibraryId = existing.LibraryId,
+            Keywords = existing.Keywords,
+            KeypointsJson = OpenPosePoseJson.Serialize(person),
+            SkeletonPngPath = existing.SkeletonPngPath,
+            ThumbnailPath = existing.ThumbnailPath,
+            KnownGood = existing.KnownGood,
+            ProvenanceJson = existing.ProvenanceJson,
+            CreatedUtc = existing.CreatedUtc,
+            Stance = existing.Stance,
+            Direction = existing.Direction,
+            CameraAngle = existing.CameraAngle,
+            ContentRating = existing.ContentRating,
+            MetadataPrompt = existing.MetadataPrompt,
+            MetadataNeedsReview = existing.MetadataNeedsReview,
+            MetadataReviewNote = existing.MetadataReviewNote,
+            MetadataOperatorEdited = existing.MetadataOperatorEdited
+        };
+
+        if (request.Metadata is { } metadata) ApplyMetadata(preset, metadata);
+
+        await _presets.UpsertAsync(preset, cancellationToken);
+        return preset;
+    }
+
+    /// <summary>
+    /// Writes an operator's metadata onto a preset and marks the row as operator-edited.
+    ///
+    /// The marker is not bookkeeping: it is what makes the importer and the backfill leave this row alone from now on,
+    /// including when the operator set one field and deliberately left the rest "not declared".
+    ///
+    /// The review flag and its note are CLEARED. They are a measurement's output — "the declaration disagrees with the
+    /// keypoints" — and an operator saving this pose has answered the question that flag asked. Leaving it set would
+    /// re-raise a disagreement against the operator's own declaration on every read.
+    /// </summary>
+    private static void ApplyMetadata(PosePreset preset, PoseMetadataEdit metadata)
+    {
+        preset.Stance = metadata.Stance;
+        preset.Direction = metadata.Direction;
+        preset.CameraAngle = metadata.Camera;
+        preset.ContentRating = metadata.Rating;
+        preset.MetadataPrompt = metadata.Prompt;
+        preset.MetadataNeedsReview = false;
+        preset.MetadataReviewNote = string.Empty;
+        preset.MetadataOperatorEdited = true;
     }
 
     /// <summary>

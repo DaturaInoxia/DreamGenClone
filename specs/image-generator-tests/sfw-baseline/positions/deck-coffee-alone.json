@@ -1,0 +1,28 @@
+{
+  "id": "deck-coffee-alone",
+  "title": "Trailer kitchen and deck — pouring coffee",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Becky pouring coffee in the trailer kitchen, looking out the sliding doors, early morning",
+  "expected": "A photorealistic photograph of one adult woman standing at the laminate counter of a narrow trailer kitchen in early morning, pouring coffee into a mug while she looks out through open sliding glass doors onto a small wooden deck and the open grass beyond. She wears an oversized t-shirt and shorts with her hair loose and sleep-mussed; the counter is chipped laminate with a dish rack behind her and two mismatched chairs at a small table. Full body shot at eye level from inside the room, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman standing at a chipped laminate counter in a narrow trailer kitchen, pouring coffee into a mug and looking out through open sliding glass doors onto a small wooden deck and grass beyond, oversized t-shirt and shorts, dish rack behind her, two mismatched chairs at a small table, early morning light, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman standing at the chipped laminate counter of a narrow trailer kitchen in the early morning, pouring coffee from a glass jug into a chunky mug while she looks out through open sliding glass doors onto a small wooden deck and the open grass beyond. She wears an oversized t-shirt and shorts with her wavy auburn hair loose and sleep-mussed. A dish rack sits behind her on the counter and two mismatched chairs stand at a small table under the window. Cool early light comes in flat from outside and warms as it reaches her arms. Full body shot at eye level from inside the room, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman at the counter of a narrow trailer kitchen in the early morning: she pours coffee into a mug and looks out through open sliding glass doors onto a small wooden deck and twenty feet of open grass. She wears an oversized t-shirt and shorts. Chipped laminate counter, a dish rack, two mismatched chairs at a small table, deck boards cupped by weather beyond the glass. Full body, eye level from inside the room, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, female, mature female, auburn hair, bedhead, oversized t-shirt, shorts, standing, pouring coffee, coffee mug, kitchen, kitchen counter, dish rack, sliding glass doors, small wooden deck, grass, early morning light, full body, side view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman standing at the chipped laminate counter of a narrow trailer kitchen in the early morning, pouring coffee from a glass jug into a chunky mug while her attention is out through the open sliding glass doors. Beyond the glass is a small wooden deck with boards cupped by weather, then twenty feet of open grass running to the opposite trailer. She wears an oversized t-shirt and shorts, her wavy auburn hair loose and sleep-mussed, one bare foot crossed over the other on the cool vinyl. A dish rack sits behind her on the counter beside a sink, and two mismatched chairs stand at a small table under the window. Flat cool early light comes through the doors, straightening into warm bands across the floor. Full body shot at eye level from inside the room, 35mm lens, sharp focus on her and the kitchen surfaces.",
+    "flux": "Photorealistic photograph of one adult woman in a trailer kitchen early in the morning. Primary subject: a woman with loose sleep-mussed auburn hair in an oversized t-shirt and shorts, pouring coffee from a glass jug into a mug. Action: standing at the counter, looking out through open sliding glass doors. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a narrow trailer kitchen with chipped laminate counter, a dish rack, two mismatched chairs at a small table, a wooden deck and open grass beyond the glass. Camera: full body, eye level, from inside the room.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage the same kitchen in the late evening with the deck outside in blue dusk and a light on over the counter, so the flat morning light is gone. Keep her face, hair, identity, clothing, her pose at the counter, the mug and the kitchen exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the kitchen at night: the glass doors now reflect the room, the deck outside is dark and the only light on her is a ceiling fixture. Preserve her face, hair, identity, clothing, pose, the counter and the kitchen exactly as they are."
+  },
+  "settings": {
+    "seed": 40110,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

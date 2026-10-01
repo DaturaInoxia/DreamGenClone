@@ -1,0 +1,28 @@
+{
+  "id": "living-room-cards-three",
+  "title": "Trailer living room — three playing cards",
+  "actors": "1F2M",
+  "closeup": false,
+  "userInput": "Becky and the two men playing cards in the living room, one on the couch two on the floor",
+  "expected": "A photorealistic photograph of three separate adults playing cards in a trailer living room in the evening: one adult woman sits on the couch holding her hand of cards, while two adult men sit cross-legged on the floor at the low table between them with cards spread out. Warm lamp light, warped blinds shut, three distinct figures with clear space between them. Full body shot at eye level from across the room, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "Three separate adults playing cards in a trailer living room in the evening: one adult woman on the couch with her hand of cards, two adult men cross-legged on the floor at the low table, cards spread between them, warm lamp light, blinds shut, three distinct figures, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of three separate adults playing cards in the living room of a single-wide trailer in the evening. One adult woman sits on the couch holding her hand of cards folded against her chest, while two adult men sit cross-legged on the floor on either side of the low table with cards spread out on its surface and a few discarded face up. There is clear space between all three figures. Warm light from a single lamp, warped slatted blinds shut behind the couch, a television off on its stand. Full body shot at eye level from across the room, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of three separate adults playing cards in a narrow trailer living room at night: a woman sits on the couch holding her hand, and two men sit cross-legged on the floor around the low table with cards laid out between them. Clear space separates all three. One warm lamp, warped blinds shut, television off on its stand, thin panelled walls. Full body, eye level from across the room, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 2boys, 3people, female, male, auburn hair, t-shirt, jeans, playing cards, holding cards, sitting on couch, sitting on floor, cross-legged, card game, trailer interior, living room, low table, lamp light, blinds closed, night, three separate people, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of three separate adults playing cards in the living room of a single-wide trailer in the evening. A woman with wavy auburn hair sits on the worn couch with her hand of cards folded against her chest, leaning forward over her knees. Two men sit cross-legged on the vinyl floor on either side of the low table, cards spread across its surface between them and a few turned face up beside a mug. Clear space separates all three, and each holds a different posture. A single warm lamp lights the room, the warped slatted blinds are shut behind the couch, and an old television stands switched off in the corner. Full body shot at eye level from across the room, 35mm lens, sharp focus on the three figures and the cards.",
+    "flux": "Photorealistic photograph of three adults playing cards in a trailer at night. Primary subjects: a woman with wavy auburn hair on the couch holding her hand of cards, and two men sitting cross-legged on the floor either side of a low table with cards spread out, all three clearly separate figures. Action: playing a card game, mid-hand. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a narrow trailer living room lit by one warm lamp, warped blinds shut, a television off in the corner. Camera: full body, eye level, from across the room.",
+    "qwen-edit-2511": "Change only who is in frame: keep the same room, couch, table and lamp light, and arrange three separate adults at a card game - the woman on the couch with her hand, one man on the floor at each side of the table, cards spread between them. Keep the furniture, the mugs and the lamp exactly unchanged.",
+    "qwen-image-2.1-edit": "Change the scene into a card game for three: keep her on the couch holding cards and seat two men cross-legged on the floor either side of the table with cards laid out, all three clearly separate. Preserve her face, hair, identity, clothing, the couch and the room exactly as they are."
+  },
+  "settings": {
+    "seed": 40109,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

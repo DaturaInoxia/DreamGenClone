@@ -303,6 +303,58 @@ public sealed class ImageStepBlueprintFactoryTests
     }
 
     /// <summary>
+    /// The asset creator's face and build come from the character's APPROVED PACK as well as from an approved scene
+    /// asset, because the pack is where a character's curated references actually live.
+    ///
+    /// Declaring only <c>ApprovedSceneAsset</c> - as this did - meant the pack picker never rendered and the Face and
+    /// Build tabs were left with a single dropdown that lists nothing: the operator picked a character, the tabs
+    /// appeared, and every control in them was empty (reported live 2026-09-30). Measured on the dev store at that
+    /// moment: two characters held approved packs carrying 5 faces and up to 12 bodies, while ZERO character-owned
+    /// face/body scene assets carried an approved usable image. Same defect the LoRA cell had.
+    /// </summary>
+    [Theory]
+    [InlineData(ImageStepSlotKind.Face)]
+    [InlineData(ImageStepSlotKind.Body)]
+    public void AssetCreate_CanBindItsFaceAndBodyFromTheCharacterPack(ImageStepSlotKind slotKind)
+    {
+        var slot = ImageStepBlueprintFactory.ForAssetCreate(Becky).Slots
+            .Single(candidate => candidate.SlotKind == slotKind);
+
+        Assert.Contains(ImageStepReferenceSourceKind.IdentityPackAsset, slot.AllowedSources);
+        Assert.Equal(Becky.ActorKey, slot.ActorKey);
+    }
+
+    /// <summary>
+    /// A pack carries faces and bodies and nothing else, so the wardrobe and location slots must not offer it: an
+    /// option the source cannot satisfy is a control the operator can never use.
+    /// </summary>
+    [Theory]
+    [InlineData(ImageStepSlotKind.Wardrobe)]
+    [InlineData(ImageStepSlotKind.Location)]
+    public void AssetCreate_DoesNotOfferThePackForWardrobeOrLocation(ImageStepSlotKind slotKind)
+    {
+        var slot = ImageStepBlueprintFactory.ForAssetCreate(Becky).Slots
+            .Single(candidate => candidate.SlotKind == slotKind);
+
+        Assert.DoesNotContain(ImageStepReferenceSourceKind.IdentityPackAsset, slot.AllowedSources);
+    }
+
+    /// <summary>
+    /// With no character picked there is nobody to take a face or build from, so the asset creator declares only the
+    /// frame-wide elements. Picking a character is what DECLARES the per-character tabs, which is why the selector sits
+    /// above them rather than beside them.
+    /// </summary>
+    [Fact]
+    public void AssetCreate_DeclaresNoPerCharacterSlotsWithoutASubject()
+    {
+        var blueprint = ImageStepBlueprintFactory.ForAssetCreate();
+
+        Assert.Equal(
+            [ImageStepSlotKind.Location, ImageStepSlotKind.Pose],
+            blueprint.Slots.Select(slot => slot.SlotKind));
+    }
+
+    /// <summary>
     /// Every slot kind a blueprint can declare must be fillable by the composer, so the picker's asset-type mapping
     /// has to cover it. A slot kind with no mapping would render an unfillable control.
     /// </summary>

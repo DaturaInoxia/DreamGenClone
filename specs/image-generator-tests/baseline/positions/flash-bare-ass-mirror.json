@@ -1,0 +1,28 @@
+{
+  "id": "flash-bare-ass-mirror",
+  "title": "Flash — bare ass at the mirror",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "She pulls her underwear down at the mirror and looks back at the camera",
+  "expected": "A photorealistic explicit photograph of one adult woman standing side-on to a dressing mirror with her leggings and underwear pulled down to her knees, her bare ass reflected in the glass, looking back over her shoulder at the camera with a smirk, full body at eye level, correct anatomy, natural skin texture, warm bedroom lamp light, 35mm, sharp focus.",
+  "neutralScene": "One adult woman standing side-on to a dressing mirror with her leggings and underwear pulled down to her knees so her bare buttocks are exposed, her reflection visible in the mirror, looking back over her shoulder at the camera with a smirk, full body shot at eye level, correct anatomy, natural body proportions and skin texture, warm lamp light, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic explicit photograph of one adult woman standing side-on to a tall dressing mirror, her leggings and plain underwear pulled down to her knees so her bare buttocks and the tops of her thighs are exposed and reflected in the glass. She looks back over her shoulder at the camera with a smirk, one hand still on the waistband. Full body shot at eye level with both her rear and her reflection visible. Correct female anatomy, natural body proportions, unretouched skin texture, warm bedroom lamp light, 35mm lens, sharp focus, highly detailed.",
+    "juggernaut": "A photorealistic explicit photograph of one adult woman standing side-on to a dressing mirror with her leggings and underwear dragged down to her knees: her bare buttocks are exposed and doubled in the mirror as she looks back over her shoulder at the camera with a smirk, one hand on the waistband. Full body shot at eye level. Correct female anatomy, natural body proportions, unretouched skin. Warm lamp light in a bedroom, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl, female, leggings pulled down, panties pulled down, ass, bare ass, thighs, mirror, reflection, standing, looking back, over shoulder, smirk, full body, side view, eye level, bedroom, warm lamp light, sharp focus",
+    "qwen-image-2.1": "A photorealistic explicit photograph of one adult woman standing side-on to a tall dressing mirror in a bedroom, her grey leggings and plain underwear dragged down to her knees so both bare buttocks and the backs of her thighs are exposed and repeated in the mirror glass beside her. Her back arches slightly as she looks back over her shoulder directly at the camera with a smirk, one hand still hooked in the waistband. She has natural body proportions and unretouched skin with visible texture. The mirror carries the shape of the room and a warm lamp behind her. Full body shot at eye level, 35mm lens, sharp focus on her hips and the reflected body in the glass.",
+    "flux": "Photorealistic explicit photograph of one adult woman undressing at a mirror. Primary subject: a woman with natural body proportions in a t-shirt with grey leggings and underwear pulled down to her knees, bare buttocks and thighs exposed. Action: standing side-on to a tall dressing mirror, her rear reflected in the glass, looking back over her shoulder at the camera with a smirk, one hand on the waistband. Critical style: explicit, photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a bedroom with warm lamp light, the mirror carrying the room. Camera: full body, side view, eye level.",
+    "qwen-edit-2511": "Change the clothing action: drag her leggings and underwear down to her knees so her bare ass and the backs of her thighs are exposed, put her side-on to the dressing mirror so her rear is reflected in the glass, and have her look back over her shoulder at the camera with a smirk. Keep her face, hair, identity, body proportions and the warm lamp light exactly unchanged.",
+    "qwen-image-2.1-edit": "Pull her leggings and underwear down to her knees to expose her bare ass, turn her side-on to the mirror with her reflection beside her, and have her look back over her shoulder with a smirk. Preserve her face, hair, identity, body proportions, the t-shirt and the bedroom lamp light exactly as they are."
+  },
+  "settings": {
+    "seed": 30108,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

@@ -52,6 +52,12 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
     /// </summary>
     private readonly IdentityBodyReferenceResolver? _identityBodyReferenceResolver;
     private readonly IPoseLibraryService? _poseLibrary;
+
+    /// <summary>
+    /// Optional, exactly as <see cref="_identityFaceResolver"/> is: only a render that SELECTS a character LoRA needs
+    /// it, and such a render fails fast when it is absent rather than rendering the character without their identity.
+    /// </summary>
+    private readonly ISceneImageCharacterLoraResolver? _characterLoraResolver;
     private readonly ILogger<SceneAssetGenerationJobHandler> _logger;
 
     public SceneAssetGenerationJobHandler(
@@ -72,7 +78,8 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         ILogger<SceneAssetGenerationJobHandler> logger,
         IdentityFaceReferenceResolver? identityFaceResolver = null,
         IdentityBodyReferenceResolver? identityBodyReferenceResolver = null,
-        IPoseLibraryService? poseLibrary = null)
+        IPoseLibraryService? poseLibrary = null,
+        ISceneImageCharacterLoraResolver? characterLoraResolver = null)
     {
         _repository = repository;
         _storage = storage;
@@ -91,6 +98,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         _identityFaceResolver = identityFaceResolver;
         _identityBodyReferenceResolver = identityBodyReferenceResolver;
         _poseLibrary = poseLibrary;
+        _characterLoraResolver = characterLoraResolver;
         _logger = logger;
     }
 
@@ -151,6 +159,14 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
             // asset prompt got the guard set only when it happened to be precompiled.
             var negativePrompt = (await _compilerProfileResolver.ResolveAsync(model, cancellationToken)).Negative;
 
+            // The seed is decided HERE, once, for two reasons. A caller can PIN one (a catalog position declares a seed,
+            // so a re-run reproduces the image) or leave it null to ask for a NEW result; either way the number below
+            // is the one the sampler receives, so it can be RECORDED. Drawing it inside the workflow builder - which is
+            // what happens when null is passed straight through - makes the value unknowable, and an image nobody can
+            // reproduce is an image nobody can build on.
+            var seed = payload.Seed ?? Random.Shared.Next(0, int.MaxValue);
+            image.Seed = seed;
+
             // Whether this text is already model-ready is STATED by the image, never guessed from the text's shape.
             // An image that names its prompt compiler carries that compiler's family framing; recompiling it would
             // repeat the Pony quality string and push the prompt past its qualified length.
@@ -175,6 +191,19 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 compilerVersion = compilation.CompilerVersion;
             }
 
+            // Character LoRAs ride on the resolved MODEL, which is the same channel the studio's render uses, so the
+            // ComfyUI client injects one LoraLoader chain either way. Applied BEFORE the graph is built and before the
+            // prompt is snapshotted, because the trigger tokens are part of the prompt that actually rendered. The
+            // decision itself lives in CharacterLoraRenderApplication so this path and the studio's cannot drift.
+            var loraApplication = await CharacterLoraRenderApplication.ApplyAsync(
+                model,
+                compiledPrompt,
+                payload.CharacterLoras,
+                _characterLoraResolver,
+                cancellationToken);
+            model = loraApplication.Model;
+            compiledPrompt = loraApplication.Prompt;
+
             image.AssociationMetadataJson = JsonSerializer.Serialize(new
             {
                 semanticDescription = image.Prompt,
@@ -184,6 +213,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 requestedModelId = payload.ModelId,
                 imageSize = payload.ImageSize,
                 negativePrompt,
+                seed,
                 referenceApplicationsJson = payload.ReferenceApplicationsJson
             }, JsonOptions);
             await _repository.UpsertImageAsync(image, cancellationToken);
@@ -220,21 +250,22 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
             // unreachable from the app.
 
             var bytes = !string.IsNullOrWhiteSpace(payload.BodyAngleView)
-                ? await RenderBodyAngleAsync(image, model, payload, compiledPrompt, negativePrompt, cancellationToken)
+                ? await RenderBodyAngleAsync(image, model, payload, compiledPrompt, negativePrompt, seed, cancellationToken)
                 // A pack reference decides this route: EITHER a face or a body reference is enough, because a view
                 // from directly behind carries no face in frame and still conditions on the character's build.
                 // Treating the face as the only trigger is what would leave those cells unconditioned.
                 : string.IsNullOrWhiteSpace(payload.IdentityFaceAssetId)
                     && string.IsNullOrWhiteSpace(payload.BodyReferenceAssetId)
                     ? string.IsNullOrWhiteSpace(payload.PoseStance) && string.IsNullOrWhiteSpace(payload.PosePresetId)
-                        ? await _imageClient.GenerateAsync(model, compiledPrompt, payload.ImageSize, negativePrompt, null, cancellationToken)
+                        ? await _imageClient.GenerateAsync(model, compiledPrompt, payload.ImageSize, negativePrompt, seed, cancellationToken)
                             ?? throw new InvalidOperationException("The image model returned no image bytes.")
                         : poseIsNative
-                            ? await RenderNativePoseAsync(image, model, payload, compiledPrompt, negativePrompt, cancellationToken)
-                            : await RenderPoseConditionedAsync(image, payload, compiledPrompt, negativePrompt, cancellationToken)
+                            ? await RenderNativePoseAsync(image, model, payload, compiledPrompt, negativePrompt, seed, cancellationToken)
+                            : await RenderPoseConditionedAsync(image, payload, compiledPrompt, negativePrompt, seed, cancellationToken)
                     : await RenderIdentityConditionedAsync(
                         model, image, payload, compiledPrompt, negativePrompt,
                         asset.Type ?? throw new InvalidOperationException("Scene asset generation requires an explicit asset type."),
+                        seed,
                         cancellationToken,
                         poseIsNative);
             image.ModelSnapshotJson = JsonSerializer.Serialize(new
@@ -377,6 +408,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         SceneAssetGenerationJobPayload payload,
         string compiledPrompt,
         string? negativePrompt,
+        long seed,
         CancellationToken cancellationToken)
     {
         var skeleton = await ReadPoseSkeletonAsync(payload, cancellationToken);
@@ -392,7 +424,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 PositivePrompt = compiledPrompt,
                 NegativePrompt = negativePrompt ?? string.Empty,
                 Size = payload.ImageSize,
-                Seed = null,
+                Seed = seed,
                 References = [skeleton],
                 CorrelationId = image.Id
             },
@@ -410,6 +442,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         SceneAssetGenerationJobPayload payload,
         string compiledPrompt,
         string? negativePrompt,
+        long seed,
         CancellationToken cancellationToken)
     {
         if (!Enum.TryParse<SceneImageReferenceBodyView>(payload.BodyAngleView, ignoreCase: false, out var view))
@@ -545,7 +578,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 PositivePrompt = compiledPrompt,
                 NegativePrompt = negativePrompt ?? string.Empty,
                 Size = payload.ImageSize,
-                Seed = null,
+                Seed = seed,
                 References = references,
                 CorrelationId = image.Id
             },
@@ -562,6 +595,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         SceneAssetGenerationJobPayload payload,
         string compiledPrompt,
         string? negativePrompt,
+        long seed,
         CancellationToken cancellationToken)
     {
         if (!Enum.TryParse<BodyReferenceStance>(payload.PoseStance, ignoreCase: false, out var stance))
@@ -596,7 +630,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 PositivePrompt = compiledPrompt,
                 NegativePrompt = negativePrompt ?? string.Empty,
                 Size = payload.ImageSize,
-                Seed = null,
+                Seed = seed,
                 PoseImageBytes = skeleton,
                 Strength = strength,
                 CorrelationId = image.Id
@@ -616,6 +650,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         string compiledPrompt,
         string? negativePrompt,
         SceneAssetType assetType,
+        long seed,
         CancellationToken cancellationToken,
         bool poseIsNative = false)
     {
@@ -739,7 +774,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                     PositivePrompt = compiledPrompt,
                     NegativePrompt = negativePrompt ?? string.Empty,
                     Size = payload.ImageSize,
-                    Seed = null,
+                    Seed = seed,
                     References = references,
                     CorrelationId = image.Id
                 },
@@ -796,7 +831,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 PositivePrompt = compiledPrompt,
                 NegativePrompt = negativePrompt ?? string.Empty,
                 Size = payload.ImageSize,
-                Seed = null,
+                Seed = seed,
                 ReferenceImageBytes = referenceBytes,
                 PoseImageBytes = skeleton,
                 ControlNetAdapterRef = controlNetRef,

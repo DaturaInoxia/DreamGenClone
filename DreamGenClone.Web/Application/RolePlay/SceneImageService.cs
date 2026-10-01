@@ -779,37 +779,11 @@ public sealed class SceneImageService : ISceneImageService
     {
         if (applications is not { Count: > 0 })
             return null;
-        if (applications.Any(application => string.IsNullOrWhiteSpace(application.ElementKey)
-            || string.IsNullOrWhiteSpace(application.SemanticRole)
-            || string.IsNullOrWhiteSpace(application.Strategy)))
-        {
-            throw new InvalidOperationException("Every reference application requires an element key, semantic role, and strategy.");
-        }
-        if (applications.Select(application => application.ElementKey.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase).Count() != applications.Count)
-        {
-            throw new InvalidOperationException("Reference application element keys must be unique.");
-        }
 
-        foreach (var application in applications)
-        {
-            var hasAsset = !string.IsNullOrWhiteSpace(application.SceneAssetId);
-            if (hasAsset && (string.IsNullOrWhiteSpace(application.SceneAssetImageId)
-                || application.SceneAssetVersion is null
-                || string.IsNullOrWhiteSpace(application.SceneAssetSha256)))
-            {
-                throw new InvalidOperationException($"Reference application '{application.ElementKey}' is missing an exact approved asset version or checksum.");
-            }
-            if (!hasAsset && !string.Equals(application.Strategy, "TextOnly", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException($"Reference application '{application.ElementKey}' requires an approved asset for strategy '{application.Strategy}'.");
-            }
-            if (application.Strength is < 0m or > 1m)
-            {
-                throw new InvalidOperationException($"Reference application '{application.ElementKey}' strength must be between 0 and 1.");
-            }
-        }
-
+        // The rules live in ONE place: these were three copies that knew only the legacy scene-asset channel, so a
+        // binding naming an identity-pack reference or a pose skeleton was refused even though the render accepts both
+        // (see ReferenceApplicationSelectionValidation).
+        ReferenceApplicationSelectionValidation.Validate(applications, "Reference");
         return JsonSerializer.Serialize(applications, JsonOptions);
     }
 

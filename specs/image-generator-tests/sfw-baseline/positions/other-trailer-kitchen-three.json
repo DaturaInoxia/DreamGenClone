@@ -1,0 +1,28 @@
+{
+  "id": "other-trailer-kitchen-three",
+  "title": "Other trailer — three in the kitchen",
+  "actors": "1F2M",
+  "closeup": false,
+  "userInput": "Becky and the two men standing around in the other trailer's kitchen talking",
+  "expected": "A photorealistic photograph of three separate adults standing in the narrow galley kitchen of a single-wide trailer in the evening: one adult woman leaning back against the counter on the left, and two adult men on the right, one leaning a shoulder on the counter and one standing with his back to the fridge, all three conversing with clear space between them. Warm overhead light, warped blinds shut behind them, a kettle and dish rack on the counter. Full body shot at eye level from the end of the kitchen, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "Three separate adults standing in a narrow trailer galley kitchen in the evening: one adult woman leaning back against the left counter, two adult men on the right, one leaning on the counter and one standing against the fridge, all three in conversation with clear space between them, warm overhead light, warped blinds shut, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of three separate adults standing and talking in the narrow galley kitchen of a single-wide trailer in the evening. One adult woman leans back against the left counter with her arms folded; on the right one adult man leans a shoulder into the counter and the other stands with his back against the fridge, hands in his pockets. Clear space separates all three figures. A kettle and a dish rack stand on the counter between them, warped slatted blinds are shut over the small window, and warm overhead light falls across the worn vinyl floor. Full body shot at eye level from the end of the kitchen, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of three separate adults standing in conversation in a narrow trailer galley kitchen at night: a woman leans back against the left counter with folded arms, one man leans a shoulder on the right counter and the second man stands with his back against the fridge, clear space between all three. Warm overhead light, warped blinds shut over the small window, a kettle and dish rack, worn vinyl floor. Full body, eye level from the end of the galley, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 2boys, 3people, female, male, auburn hair, t-shirt, jeans, standing, talking, leaning on counter, arms folded, leaning on fridge, galley kitchen, trailer interior, counter, kettle, blinds closed, evening, overhead light, three separate people, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of three separate adults standing and talking in the narrow galley kitchen of a single-wide trailer in the evening. A woman with her auburn hair tied back leans against the left counter with her arms folded, one hip against the cupboard doors. Across the galley one man leans a shoulder into the right counter, and behind him the second man stands with his back against the fridge, hands pushed into his pockets. Clear space separates all three, and their postures all differ. A kettle and a dish rack stand on the counter between them, warped slatted blinds are shut over the small window above the sink, and warm overhead light falls across the worn vinyl floor and the cupboard fronts. Full body shot at eye level from the end of the kitchen, 35mm lens, sharp focus on all three figures.",
+    "flux": "Photorealistic photograph of three adults talking in a trailer galley kitchen at night. Primary subjects: a woman leaning back against the left counter with folded arms, one man leaning a shoulder on the right counter, and a second man standing against the fridge, all three clearly separate. Action: standing in conversation. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a narrow galley kitchen with a kettle and dish rack, warped blinds shut, worn vinyl floor, warm overhead light. Camera: full body, eye level, from the end of the galley.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage the same kitchen in daylight with the blinds open and flat overcast light coming through the small window. Keep all three people's faces, hair, identity, clothing, their poses and the kitchen exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the kitchen in flat daytime overcast light with the blinds open, replacing the warm overhead lamp. Preserve all three faces, hair, identity, clothing, poses and the kitchen exactly as they are."
+  },
+  "settings": {
+    "seed": 40115,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 896,
+    "height": 1152
+  }
+}

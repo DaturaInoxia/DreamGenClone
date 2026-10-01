@@ -30,22 +30,48 @@ public static class PoseMetadataPrompt
 
         if (metadata.Rating == PoseContentRating.Unrated) return string.Empty;
 
-        var clauses = new List<string>(3);
-        if (StanceClause(metadata) is { Length: > 0 } stance) clauses.Add(stance);
-        if (DirectionClause(metadata.Direction) is { Length: > 0 } direction) clauses.Add(direction);
-        if (CameraClause(metadata.Camera) is { Length: > 0 } camera) clauses.Add(camera);
+        var stance = StanceClause(metadata);
+        var direction = DirectionClause(metadata.Direction);
+        var camera = CameraClause(metadata.Camera);
 
         var subject = metadata.Rating == PoseContentRating.Nsfw
             ? "a naked woman"
             : "a woman, fully clothed";
 
+        // The stance and the direction are one phrase about the BODY ("standing facing the camera") and read as one
+        // when they are space-joined; the camera is a separate clause because it is a fact about the SHOT, so it takes
+        // a comma of its own. Each is omitted rather than defaulted when undeclared, so an undeclared field leaves a
+        // shorter prompt instead of a guessed clause.
+        var posture = string.Join(' ', new[] { stance, direction }.Where(clause => clause.Length > 0));
+        var pose = posture.Length > 0 ? " " + posture : string.Empty;
+        if (camera.Length > 0) pose += posture.Length > 0 ? ", " + camera : " " + camera;
+
         // The framing and the tail are the proof's formulation, unchanged: it is what the pose proof ran against every
         // tested pose, so a render driven by this prompt is comparable to the recorded results rather than a new
         // experiment. Only the pose clause in the middle is new.
-        var pose = clauses.Count > 0 ? " " + string.Join(", ", clauses) : string.Empty;
 
         return "A full-body photograph of " + subject + pose
             + ", natural skin texture, photorealistic, plain studio background, 85mm.";
+    }
+
+    /// <summary>
+    /// The plan for a STORED preset, read from the metadata columns it carries.
+    ///
+    /// This overload exists so a caller holding a preset cannot build the plan from a hand-made metadata value and
+    /// leave the pose's own columns out of the decision.
+    /// </summary>
+    public static PoseReferencePlan ReferencePlan(PosePreset preset)
+    {
+        ArgumentNullException.ThrowIfNull(preset);
+
+        return ReferencePlan(new PoseMetadata(
+            Stance: preset.Stance,
+            Direction: preset.Direction,
+            Camera: preset.CameraAngle,
+            Rating: preset.ContentRating,
+            Prompt: preset.MetadataPrompt,
+            NeedsReview: preset.MetadataNeedsReview,
+            ReviewNote: preset.MetadataReviewNote));
     }
 
     /// <summary>

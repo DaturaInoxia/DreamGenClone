@@ -1,0 +1,28 @@
+{
+  "id": "other-trailer-drinks-pair",
+  "title": "Other trailer — two in the kitchen",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Becky and Dean in the other trailer's kitchen, he's pouring two drinks",
+  "expected": "A photorealistic photograph of one adult man and one adult woman in the narrow kitchen of a single-wide trailer in the late afternoon: the man stands at the counter pouring from a bottle into two glasses, and the woman leans back against the opposite counter with her arms crossed watching him. Two separate figures with the width of the galley kitchen between them, warm afternoon light through the small window. Full body shot at eye level from the end of the kitchen, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult man and one adult woman in a narrow trailer galley kitchen in the late afternoon: he pours from a bottle into two glasses at the counter, she leans back against the opposite counter with her arms crossed watching him, the width of the kitchen between them, warm light through a small window, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult man and one adult woman in the narrow galley kitchen of a single-wide trailer in the late afternoon. The man stands at the counter with a bottle in one hand, pouring into two glasses set side by side; the woman leans back against the opposite counter with her arms crossed, watching him, her weight on one hip. The width of the galley separates the two figures. Chipped laminate counters run down both sides under a small window, a kettle and a dish rack on one and a bowl of fruit on the other. Warm late afternoon light comes through the window and across the man's forearms. Full body shot at eye level from the end of the kitchen, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of two separate adults in a narrow trailer galley kitchen in the late afternoon: a man at the counter pours from a bottle into two glasses, a woman leans back against the opposite counter with her arms folded watching him, the width of the kitchen between them. Chipped laminate counters, a small window over the sink, a kettle and dish rack, vinyl floor. Warm western light through the window. Full body, eye level from the end of the galley, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 1boy, 2people, female, male, auburn hair, short black hair, t-shirt, jeans, pouring drinks, bottle, two glasses, kitchen counter, leaning on counter, arms crossed, galley kitchen, trailer interior, small window, late afternoon light, two separate people, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult man and one adult woman standing in the narrow galley kitchen of a single-wide trailer in the late afternoon, the full width of the kitchen between them. The man leans slightly over the counter with a bottle in his hand, pouring into two glasses set side by side, his sleeves pushed up. The woman has propped herself back against the opposite counter with her arms crossed and her weight on one hip, watching him without speaking. Both are in t-shirts and jeans. Chipped laminate counters run down both walls beneath a small window over the sink; a kettle and a dish rack stand on one side and a bowl of fruit on the other, and the vinyl floor is worn through in a patch by the stove. Warm late afternoon light comes through the window and lays a band across the man's forearms and the counter. Full body shot at eye level from the end of the galley, 35mm lens, sharp focus on both figures.",
+    "flux": "Photorealistic photograph of two adults in a trailer galley kitchen in the late afternoon. Primary subjects: a man at the counter pouring from a bottle into two glasses, and a woman leaning back against the opposite counter with her arms crossed watching him, the width of the kitchen between them. Action: pouring drinks, mid-conversation. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: chipped laminate counters under a small window, a kettle and dish rack, a bowl of fruit, worn vinyl floor. Camera: full body, eye level, from the end of the galley.",
+    "qwen-edit-2511": "Change only who is in frame: keep the same galley kitchen, counter and glasses, and place both a woman with tied-back auburn hair leaning against the far counter and a man pouring the drinks at the near one, both fully clothed and clearly separate. Keep the counters, the kettle, the fruit bowl and the light exactly unchanged.",
+    "qwen-image-2.1-edit": "Add a man to this kitchen, standing at the counter pouring a drink into two glasses, while she stays leaning back against the opposite counter with her arms crossed as two separate people. Preserve her face, hair, identity, clothing, pose and the kitchen exactly as they are."
+  },
+  "settings": {
+    "seed": 40114,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 896,
+    "height": 1152
+  }
+}

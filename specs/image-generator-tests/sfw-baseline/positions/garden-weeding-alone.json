@@ -1,0 +1,28 @@
+{
+  "id": "garden-weeding-alone",
+  "title": "Flower garden — kneeling and weeding",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Becky kneeling in the flower garden weeding, back to the other trailer, afternoon",
+  "expected": "A photorealistic photograph of one adult woman kneeling on a foam pad in a garden bed beside a trailer, bent forward over the turned soil with a trowel in one hand, working marigolds and tomato cages. She is seen from behind and to the side, so her back faces the matching trailer across the grass with its windows framed behind her. Warm mid-afternoon sun, hose reel and watering can on the grass beside her, dark soil on her gloves. Full body shot at eye level from a few paces off, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman kneeling on a foam pad in a garden bed along a trailer, bent forward over turned dark soil with a trowel in one hand, marigolds and tomato cages around her, seen from behind so her back faces the matching trailer across the grass, hose reel and watering can on the lawn, warm afternoon light, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman kneeling on a foam pad in a garden bed that runs along the side of a trailer. She is bent forward over the turned dark soil with a trowel in one gloved hand, working between marigolds and wire tomato cages, her hips up and her knees planted wide in the dirt. She is photographed from behind and slightly to the side, so her back is turned toward the matching trailer across the grass and its windows are framed behind her. She wears jeans and a t-shirt with her auburn hair tied back. A hose reel and a metal watering can stand on the lawn beside her, and warm mid-afternoon sun falls across her back and the soil. Full body shot at eye level from a few paces off, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman weeding a garden bed beside a trailer in the afternoon: kneeling on a pad, bent forward over turned dark soil with a trowel in one gloved hand, hips up, knees wide in the dirt, marigolds and wire tomato cages around her. Photographed from behind so her back faces the matching trailer across the grass. Warm afternoon sun, a hose reel and watering can on the lawn. Full body, eye level a few paces off, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_questionable, 1girl, female, mature female, auburn hair, tied back hair, t-shirt, jeans, gardening gloves, kneeling, bent over, on knees, trowel, weeding, flower garden, garden bed, soil, marigolds, tomato cage, hose reel, watering can, grass, trailer behind, afternoon light, from behind, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman kneeling on a foam pad in a garden bed that runs along the side of a trailer. She is bent forward over the turned dark soil with a trowel in one gloved hand, working between marigolds and wire tomato cages, her hips raised and her knees planted wide apart in the dirt. She is photographed from behind and slightly to the side, so her back is turned toward the matching trailer across the grass and its windows and aluminium siding are framed behind her. She wears jeans and a t-shirt with her auburn hair tied back. A hose reel and a metal watering can stand on the lawn beside her, and warm mid-afternoon sun falls across her back, the soil and the grass beyond, throwing a short shadow under the bed. Full body shot at eye level from a few paces off, 35mm lens, sharp focus on her and the garden bed.",
+    "flux": "Photorealistic photograph of one adult woman weeding a flower garden. Primary subject: a woman with tied-back auburn hair in jeans, a t-shirt and gardening gloves, kneeling on a foam pad and bent forward over turned dark soil with a trowel in one hand, marigolds and tomato cages around her. Action: weeding, bent over the bed. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a garden bed along a trailer with a hose reel and watering can on the lawn, the matching trailer framed across the grass behind her, warm mid-afternoon sun. Camera: full body, eye level, from behind and slightly to the side.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage the same garden in the early morning with cool light and long damp shadows on the soil, so the warm afternoon cast is gone. Keep her face, hair, identity, clothing, her kneeling pose, the trowel, the plants and the trailer behind exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the garden in cool early morning light with dew on the leaves and long shadows across the bed. Preserve her face, hair, identity, clothing, her kneeling pose, the trowel, the plants and the trailer exactly as they are."
+  },
+  "settings": {
+    "seed": 40134,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "deck-two-mugs-pair",
+  "title": "Trailer deck — two mugs on the deck",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Ken leaning on the deck rail, Becky bringing two mugs out to him, morning",
+  "expected": "A photorealistic photograph of one adult man leaning on the wooden rail of a small trailer deck with his back to the camera, and one adult woman coming out through the open sliding doors behind him carrying two mugs. Twenty feet of open grass runs from the deck to the matching trailer opposite, with a clothes line strung across it. Two separate figures with clear space between them, morning light. Full body shot at eye level from the deck, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult man leaning on the wooden rail of a small trailer deck with his back to the camera, one adult woman stepping out through the sliding doors behind him carrying two coffee mugs, twenty feet of open grass to the opposite trailer with a clothes line strung across it, morning light, two separate figures, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult man and one adult woman on the small wooden deck of a single-wide trailer in the morning. The man leans on the deck rail with his back to the camera, one boot up on the bottom rail, looking across the open grass at the matching trailer opposite; the woman is stepping out through the open sliding glass doors behind him, carrying two coffee mugs in one hand. Clear space separates the two figures. The deck boards are cupped by weather and a clothes line is strung across the twenty feet of grass between the trailers. Flat morning light. Full body shot at eye level from the deck, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of two separate adults on a small trailer deck in the morning: a man leans on the wooden rail with his back to the camera, one boot hooked on the bottom rail, and behind him a woman steps out through the open sliding doors carrying two mugs. Between the deck and the matching trailer opposite lie twenty feet of open grass with a clothes line strung across it. Weathered deck boards, aluminium door frames, flat morning light. Full body, eye level from the deck, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 1boy, 2people, female, male, auburn hair, t-shirt, shorts, jeans, man leaning on rail, standing, holding two mugs, coffee mugs, wooden deck, deck rail, sliding glass doors, clothes line, open grass, trailer exterior, morning light, two separate people, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult man and one adult woman on the small wooden deck of a single-wide trailer in the morning. The man stands at the deck rail with his back to the camera, one boot hooked on the bottom rail and both forearms resting on the top one, looking across the open grass at the matching trailer twenty feet away. Behind him the woman is stepping out through the open sliding glass doors, both hands wrapped around two chunky coffee mugs, her weight still on the door sill. Weathered deck boards sag slightly under them, a house martin's nest sits under the eave, and a clothes line is strung across the grass between the two trailers. Flat morning light, no hard shadows. Full body shot at eye level from the deck, 35mm lens, both figures clearly separate, sharp focus.",
+    "flux": "Photorealistic photograph of two adults on a trailer deck in the morning. Primary subjects: a man in jeans leaning on the wooden deck rail with his back to the camera, and a woman with auburn hair stepping out of the sliding glass doors behind him carrying two coffee mugs. Action: he looks out over the grass, she brings the coffee out. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: weathered deck boards, a clothes line strung across twenty feet of open grass to the matching trailer opposite. Camera: full body, eye level, from the deck.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage the same deck at dusk with warm low light from the west and the opposite trailer's windows lit. Keep both people's faces, hair, identity, clothing, their poses, the mugs, the rail and the grass exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the deck in the evening: the grass goes dim, the opposite trailer's windows glow and the light on the two of them is warm and low. Preserve both faces, hair, identity, clothing, poses and the deck exactly as they are."
+  },
+  "settings": {
+    "seed": 40111,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

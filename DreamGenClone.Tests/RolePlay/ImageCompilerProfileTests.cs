@@ -58,6 +58,7 @@ public sealed class ImageCompilerProfileTests
         PoseInText = ImagePoseInText.Forbidden,
         Negative = string.Empty,
         SettingsEnvelopeJson = "{}",
+        SystemPrompt = SceneImageCompilerSystemPrompts.NaturalLanguageBeat,
         ResearchSource = "test",
     };
 
@@ -180,6 +181,60 @@ public sealed class ImageCompilerProfileTests
 
         // BigLust is registered twice (local ComfyUI + serverless) against one checkpoint, so one profile serves both.
         Assert.Single(bigLust);
+    }
+
+    [Fact]
+    public async Task Seed_GivesEveryProfilesItsFamilysResearchedCompilerText()
+    {
+        // B-135 B135-008. The compiler instructions live in ONE place (SceneImageCompilerSystemPrompts, which the prompt
+        // builders also read), and each row carries its own copy so a render never looks instructions up from anywhere
+        // but the checkpoint it is about. This asserts the copy is the researched text - not a paraphrase, and not empty.
+        var repository = NewRepository(NewDbPath());
+
+        var profiles = await repository.ListAsync();
+
+        Assert.NotEmpty(profiles);
+        Assert.All(profiles, profile =>
+            Assert.Equal(
+                SceneImageCompilerSystemPrompts.For(profile.Family, canonical: false),
+                profile.SystemPrompt));
+    }
+
+    [Fact]
+    public void APonyProfileIsNotGivenTheNaturalLanguageText()
+    {
+        // The dialect is not cosmetic: handing Pony the natural-language instructions would ask a tag model for prose,
+        // and handing an SDXL checkpoint the tag text would do the reverse. Asserting they differ is what stops a future
+        // refactor from collapsing the two into one "shared" text.
+        Assert.NotEqual(
+            SceneImageCompilerSystemPrompts.NaturalLanguageBeat,
+            SceneImageCompilerSystemPrompts.For(SceneImageModelFamily.Pony, canonical: false));
+        Assert.Contains(
+            SceneImageCompilerSystemPrompts.PonyQualityTags,
+            SceneImageCompilerSystemPrompts.For(SceneImageModelFamily.Pony, canonical: false),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnUnknownFamilyHasNoCompilerTextRatherThanASharedOne()
+    {
+        // Fails fast by name. A family with no researched instructions cannot be compiled for, and quietly handing it
+        // another family's text is how a prompt ends up in a language its model ignores.
+        var error = Assert.Throws<InvalidOperationException>(
+            () => SceneImageCompilerSystemPrompts.For(SceneImageModelFamily.Unknown, canonical: false));
+
+        Assert.Contains("Unknown", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AProfileWithNoCompilerInstructionsIsRefused()
+    {
+        var profile = ValidProfile();
+        profile.SystemPrompt = "   ";
+
+        var error = Assert.Throws<InvalidOperationException>(() => ImageCompilerProfileValidation.Validate(profile));
+
+        Assert.Contains("compiler instructions", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

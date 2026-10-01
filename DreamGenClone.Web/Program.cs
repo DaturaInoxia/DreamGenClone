@@ -450,6 +450,17 @@ builder.Services.AddSingleton<IImageCompilerProfileRepository, ImageCompilerProf
 builder.Services.AddSingleton<IImageSuiteRepository, ImageSuiteRepository>();
 // B-135: the Playground's runs — evidence produced by executing a suite. Nothing is seeded; a re-run is a new row.
 builder.Services.AddSingleton<IImageRunRepository, ImageRunRepository>();
+// B-135: the Playground's compile step and free-layer executor. The compiler reads the checkpoint's OWN profile
+// SystemPrompt, so no compiler instruction is composed in code.
+builder.Services.AddScoped<IImageCellPromptCompiler, ImageCellPromptCompiler>();
+builder.Services.AddScoped<IImageRunExecutor, ImageRunExecutor>();
+// B-135: the catalog render driver. It enqueues REAL images from a suite's cells (one prompt per model) into a run
+// container, which is the path that lets an operator run the baseline catalog on BigLust, then Juggernaut, and look.
+builder.Services.AddScoped<IImageSuiteRenderDriver, ImageSuiteRenderDriver>();
+// B-135: prompt catalogs are agent-authored files imported into suites. Read-only from the app's side; the root
+// resolves against the working directory and its parents so a repo checkout works without configuration.
+builder.Services.Configure<PlaygroundOptions>(builder.Configuration.GetSection(PlaygroundOptions.SectionName));
+builder.Services.AddSingleton<IImageSuiteImporter, ImageSuiteImporter>();
 builder.Services.AddSingleton<ICharacterIdentityBuildRepository, CharacterIdentityBuildRepository>();
 builder.Services.AddSingleton<ICharacterBodyCardRepository, CharacterBodyCardRepository>();
 // B-127: the explicit character-instance -> character-template links that own identity.
@@ -607,6 +618,23 @@ using (var scope = app.Services.CreateScope())
 {
     var sqlitePersistence = scope.ServiceProvider.GetRequiredService<ISqlitePersistence>();
     await sqlitePersistence.InitializeAsync();
+
+    // Pose metadata maintenance (B-136): a headless, one-shot way to fill metadata for poses that are already in
+    // the store, without opening the app. It calls the SAME importer path the Pose Library page calls, so there is
+    // one place that derives metadata rather than a second implementation for offline use.
+    if (args.Contains("--backfill-pose-metadata", StringComparer.OrdinalIgnoreCase))
+    {
+        var backfill = await scope.ServiceProvider.GetRequiredService<IPoseLibraryImporter>().EnsureMetadataAsync();
+
+        Console.WriteLine(
+            $"Pose metadata backfill: {backfill.Examined} examined, {backfill.Filled} filled, "
+            + $"{backfill.Unchanged} already had metadata, {backfill.NotDeclared.Count} category/categories "
+            + "with no declaration in their pack.json.");
+
+        foreach (var notDeclared in backfill.NotDeclared) Console.WriteLine($"  not declared: {notDeclared}");
+
+        return;
+    }
 
     // B-124 B124-012: the single media edit store. Creates it and runs the one-time backfill out
     // of the two legacy edit stores so both edit surfaces share one schema and one code path.

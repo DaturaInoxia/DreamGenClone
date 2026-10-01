@@ -1,0 +1,28 @@
+{
+  "id": "shelter-lunch-alone",
+  "title": "Rest shelter — eating lunch alone",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Becky sitting on the bench in the rest shelter with her lunch, afternoon",
+  "expected": "A photorealistic photograph of one adult woman sitting on the plank bench inside a low open-fronted wooden shelter, one knee drawn up and a water bottle beside her, a paper-wrapped sandwich in one hand. Weathered grey timber, a slanted shake roof with moss on the shingles, dried leaves blown across the plank floor, and the small grass clearing of the rest stop opening out in front of her. Mid-afternoon light rakes in under the roof edge. Full body shot at eye level from the front of the shelter, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman seated on the plank bench inside a low open-fronted timber shelter, one knee up, water bottle on the bench, sandwich in hand, grey weathered timber and a mossy shake roof over her, leaves on the plank floor, a cropped grass clearing in front, afternoon light under the roof edge, full body at eye level, natural proportions and skin texture, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman sitting on the plank bench inside a low open-fronted wooden rest shelter, one knee drawn up and a water bottle on the bench beside her while she holds a paper-wrapped sandwich in one hand. She has shoulder-length wavy auburn hair and a lightly curvy build, dressed in shorts and a light t-shirt. The shelter is grey weathered timber with a slanted shake roof, moss on the shingles and dried leaves blown across the plank floor. Mid-afternoon light rakes in under the roof edge across her legs and the clearing beyond. Full body shot at eye level from the front of the shelter, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman seated on the plank bench of a low open-fronted timber rest shelter in the mid-afternoon: one knee is drawn up, a water bottle sits on the bench, and she holds a wrapped sandwich in one hand. Weathered grey timber posts and a slanted shake roof with moss in the shingles; dried leaves scattered on the plank floor; a small cropped-grass clearing opens out in front of her, ringed by thickets. Full body shot at eye level from the shelter's open front. Natural body proportions, unretouched skin, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, female, mature female, auburn hair, wavy hair, t-shirt, shorts, sitting, sitting on bench, one knee up, sandwich, water bottle, wooden shelter, plank bench, shake roof, clearing, afternoon light, full body, front view, eye level, outdoors, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman sitting on the plank bench inside a low open-fronted wooden rest shelter, her back to the shelter's solid wall and the clearing spread out in front of her. One knee is drawn up on the bench, a metal water bottle stands beside her hip, and she holds a paper-wrapped sandwich in one hand, mid-bite. She wears shorts and a light t-shirt and has shoulder-length wavy auburn hair with a lightly curvy build. The timber around her is grey and weathered, the shake roof slopes low over her head with moss caught in the shingles, and dried leaves have blown across the plank floor. Mid-afternoon sun rakes in under the roof edge, laying a bright band across her legs and the cropped grass outside, with thickets closing in behind the clearing. Full body shot at eye level from the open front, 35mm lens, sharp focus on her and the shelter's structure.",
+    "flux": "Photorealistic photograph of one adult woman resting and eating inside a timber shelter. Primary subject: a woman with wavy auburn hair in a light t-shirt and shorts, sitting on a plank bench with one knee drawn up, a water bottle beside her and a wrapped sandwich in her hand. Action: sitting still mid-lunch, looking out at the clearing. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a low open-fronted shelter of weathered grey timber with a slanted mossy shake roof, leaves on the plank floor, a cropped grass clearing ringed by thickets. Camera: full body, eye level, from the shelter's open front in afternoon light.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage this same interior in the early morning, with cool even light in the clearing and no hard shaft under the roof. Keep her face, hair, identity, clothing, her seated pose, the bench, the water bottle and the shelter exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the shelter at dusk instead of mid-afternoon: the clearing goes dim and blue and the underside of the roof falls dark, with all hard light gone. Preserve her face, hair, identity, clothing, pose, the bench and the shelter structure exactly as they are."
+  },
+  "settings": {
+    "seed": 40104,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

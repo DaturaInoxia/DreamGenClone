@@ -1,0 +1,28 @@
+{
+  "id": "sfw-walking-away",
+  "title": "SFW — walking away from camera",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "A woman walking away from the camera down a dirt trail",
+  "expected": "A photorealistic photograph of one adult woman walking away from the camera along a narrow dirt trail, seen from behind, mid-stride with one arm swinging, wearing a light jacket and jeans, full body from a low eye level behind her, dappled forest light, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman walking away from the camera down a narrow dirt trail, seen from directly behind, mid-stride with one arm swinging, light jacket and jeans, full body shot at eye level, dappled light through a forest canopy, natural body proportions, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman walking away from the camera along a narrow dirt trail through a forest, seen from directly behind and mid-stride with one arm swinging. She wears a light jacket and jeans and has natural body proportions. Full body shot from a standing eye level behind her, dappled light through the canopy above, 35mm lens, natural skin texture, sharp focus, highly detailed.",
+    "juggernaut": "A photorealistic photograph of one adult woman walking away from the camera down a narrow dirt trail in a forest, photographed from behind: she is mid-stride, one arm swinging, wearing a light jacket and jeans. Full body shot at eye level from directly behind her. Dappled sunlight through the canopy, natural body proportions, unretouched skin, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, female, jacket, jeans, walking, walking away, from behind, looking away, mid-stride, full body, back view, eye level, outdoors, dirt trail, forest, trees, dappled light, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman walking away from the camera along a narrow dirt trail that curves into a mixed forest. She is seen from directly behind, mid-stride with one arm swinging and her hair moving slightly. She wears a light jacket over a t-shirt and dark jeans. Sunlight filters through the canopy in patches that fall across the trail and her shoulders. Full body shot from a standing eye level behind her, 35mm lens, shallow depth of field so the trees ahead soften, sharp focus on her back and the ground she is walking on.",
+    "flux": "Photorealistic photograph of one adult woman walking on a forest trail. Primary subject: a woman with natural body proportions wearing a light jacket and dark jeans, walking away from the camera. Action: mid-stride on a narrow dirt trail, one arm swinging, seen from directly behind. Critical style: photorealistic, 35mm, unretouched skin, sharp focus. Context: a mixed forest with dappled sunlight through the canopy and a trail curving ahead. Camera: full body, eye level, from behind.",
+    "qwen-edit-2511": "Change only the viewpoint: move the camera directly behind her so she is seen from behind, walking away down the trail mid-stride with one arm swinging. Her face is no longer visible from this angle; keep her hair, identity, the jacket and jeans, the trail and the forest light exactly unchanged.",
+    "qwen-image-2.1-edit": "Re-frame her from behind, walking away along the trail mid-stride with one arm swinging. Preserve her hair, identity, clothing, body proportions, the dirt trail and the dappled forest light exactly as they are."
+  },
+  "settings": {
+    "seed": 30103,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "beach-wading-alone",
+  "title": "Lake beach — wading knee-deep",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Becky standing knee-deep in the lake in her swimsuit, looking back at the shore",
+  "expected": "A photorealistic photograph of one adult woman standing knee-deep in warm shallow lake water in a one-piece swimsuit, turned back to look over her shoulder at the shore, one hand shading her eyes. Ripples spread from her legs over a sandy bottom, a floating dock and a line of buoys mark the swim area behind her, and a strip of sand with striped towels runs along the far edge. Hard summer afternoon light, full body shot at eye level from the water, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman standing knee-deep in warm shallow lake water in a one-piece swimsuit, turned to look back at the shore over her shoulder with one hand shading her eyes, ripples around her legs, sandy bottom, floating dock and buoy line behind, sand and striped towels along the shore, hard summer light, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman standing knee-deep in the warm shallow water of a small lake, wearing a plain one-piece swimsuit, her wet auburn hair pushed back and her body turned so she looks back over her shoulder toward the shore with one hand shading her eyes. Ripples spread out from her legs across a sandy bottom. Behind her a floating dock and a line of buoys mark the swim area, and along the far edge of the water a strip of sand carries striped towels and a beached paddle. Hard summer afternoon light, full body shot at eye level from the water, 35mm lens, natural unretouched skin with water beading on her shoulders, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman knee-deep in a warm shallow lake in a one-piece swimsuit, turned back to look over her shoulder at the shore with one hand shading her eyes. Ripples around her legs, sand visible through the clear water, a floating dock and buoy line behind her, sand and striped towels along the shore. Hard summer light, full body, eye level from the water, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, female, mature female, auburn hair, wet hair, one-piece swimsuit, swimsuit, bare shoulders, bare legs, standing, knee deep, wading, wading in water, ocean, lake, shallow water, ripples, looking back, over shoulder, hand shading eyes, floating dock, buoys, sand beach, towels, summer afternoon, sunlight, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman standing knee-deep in the warm shallow water of a small lake, wearing a plain one-piece swimsuit. She has turned back toward the shore, looking over her shoulder with one hand raised to shade her eyes from the sun, her wet auburn hair pushed back off her face and water beading on her shoulders and arms. The water is clear enough to show the sandy bottom and each step has sent a ring of ripples out across the surface. Beyond her a floating dock rides on its barrels and a line of orange buoys marks the edge of the swim area; along the shore behind them a narrow strip of sand carries striped towels and a beached paddle against a post. The light is hard early-summer afternoon sun, so the water glitters and her shadow falls sharp onto the lakebed beneath her. Full body shot at eye level from the water, 35mm lens, sharp focus on her and the ripples.",
+    "flux": "Photorealistic photograph of one adult woman wading in a lake. Primary subject: a woman with wet auburn hair in a plain one-piece swimsuit, standing knee-deep in clear shallow water, turned back to look over her shoulder at the shore with one hand shading her eyes, water beading on her arms. Action: standing still in the water, rings of ripples spreading from her legs. Critical style: photorealistic, 35mm, wet unretouched skin, sharp focus. Context: a small lake with a sandy bottom, a floating dock, a buoy line and a strip of sand with striped towels behind her. Camera: full body, eye level, from the water in hard summer light.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage the same lake in the late evening with the sun low behind her, the water going dark and every ripple picked out in warm light. Keep her face, hair, identity, the swimsuit, her pose, the docks and the shore exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the lake in low golden evening light with the sun behind her and the surface of the water catching long warm reflections. Preserve her face, hair, identity, the swimsuit, her pose, the buoys, the dock and the shore exactly as they are."
+  },
+  "settings": {
+    "seed": 40128,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

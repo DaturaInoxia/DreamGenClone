@@ -65,6 +65,37 @@ public sealed class ReferenceSlotPlannerTests
         Assert.True(binding.UsesReference);
     }
 
+    /// <summary>
+    /// An identity-pack face bound on the ASSET CREATOR plans through, and the pack travels on the binding.
+    ///
+    /// This is the chain that was broken. The composer offers the pack picker only when the slot DECLARES
+    /// <c>IdentityPackAsset</c>, so with the source missing the control never rendered at all (reported live
+    /// 2026-09-30: "i picked a character pack, the tabs show but nothing shows in the face, body drop downs"), and the
+    /// planner refuses the source outright as well - so the host's translation of the binding into the render's identity
+    /// conditioning had nothing to consume either.
+    /// </summary>
+    [Fact]
+    public void Plan_IdentityPackFaceOnTheAssetCreator_CarriesThePackThrough()
+    {
+        var bindings = ReferenceSlotPlanner.Plan(
+            ImageStepBlueprintFactory.ForAssetCreate(new ImageStepActor("p-becky", "Becky")),
+            [
+                new ImageStepSlotAssignment(ImageStepSlotKind.Face, "p-becky", new ImageStepSlotSource(
+                    ImageStepReferenceSourceKind.IdentityPackAsset,
+                    "IdentityNativeMultiReference",
+                    IdentityPackId: "pack-9",
+                    ReferenceAssetId: "ref-front"))
+            ],
+            maxReferences: 10);
+
+        var binding = Assert.Single(bindings);
+        Assert.Equal("Face", binding.Kind);
+        Assert.Equal("p-becky", binding.ActorKey);
+        Assert.Equal("IdentityPackAsset", binding.Source);
+        Assert.Equal("pack-9", binding.IdentityPackId);
+        Assert.Equal("ref-front", binding.ReferenceAssetId);
+    }
+
     [Fact]
     public void Plan_AssignmentForAnUndeclaredSlot_Throws()
     {

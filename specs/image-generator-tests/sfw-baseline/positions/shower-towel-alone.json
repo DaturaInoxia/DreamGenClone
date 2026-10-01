@@ -1,0 +1,28 @@
+{
+  "id": "shower-towel-alone",
+  "title": "Shower block — towel, hand on the door",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Becky coming out of the shower room in a towel with wet hair, morning",
+  "expected": "A photorealistic photograph of one adult woman standing in a shower facility under renovation, wrapped in a bath towel with her wet hair pushed back and one hand on the door of a private shower room. Wet concrete board walls, a strip light overhead, puddles on the tile by the drain, plumbing stacked against the wall and a construction tarp hanging at the end of the row. Morning light. Full body shot at eye level from down the row, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman standing in a shower facility under renovation, wrapped in a bath towel with wet hair and one hand on the door of a private shower room, wet concrete board walls, a strip light, puddles by the drain, stacked plumbing and a construction tarp, morning light, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman standing in a shower facility under renovation, wrapped in a plain bath towel that covers her from chest to mid-thigh, her wet auburn hair pushed back off her face and one hand resting on the door of a private shower room behind her. Water still beads on her shoulders and arms. The room is unfinished: wet concrete board walls, a bare strip light overhead, puddles standing on the tile by the drain, lengths of plumbing stacked against the wall and a construction tarp hanging at the end of the row of shower rooms. Flat morning light. Full body shot at eye level from down the row, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman in a shower facility under renovation, a bath towel wrapped from her chest to mid-thigh, wet hair pushed back, one hand on the shower room door, water beading on her shoulders. Unfinished concrete board walls, a bare strip light, puddles on the tile by the drain, stacked plumbing, a tarp at the end of the row. Full body, eye level from down the row, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_questionable, 1girl, female, mature female, auburn hair, wet hair, wet skin, bath towel, towel wrapped, bare shoulders, bare legs, standing, hand on door, shower room, shower block, unfinished room, concrete board, strip light, puddles, tile floor, construction tarp, morning light, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman standing in a shower facility under renovation, wrapped in a plain bath towel that covers her from the top of her chest to mid-thigh, her wet auburn hair pushed back off her face and one hand resting on the door of a private shower room behind her. Water still beads on her shoulders and forearms and darkens the tile under her feet. The room is unfinished: wet concrete board walls with visible screw lines, a bare fluorescent strip overhead, puddles standing on the grey tile by the floor drain, lengths of copper and plastic plumbing stacked against the far wall, and a construction tarp hanging loose at the end of the row of shower rooms. Flat morning light with no warmth in it. Full body shot at eye level from down the row, 35mm lens, sharp focus on her and the unfinished surfaces.",
+    "flux": "Photorealistic photograph of one adult woman in a shower block under renovation. Primary subject: a woman with wet auburn hair wrapped in a plain bath towel from chest to mid-thigh, water beading on her shoulders and bare legs. Action: standing with one hand on the door of a private shower room, having just come out. Critical style: photorealistic, 35mm, wet unretouched skin, sharp focus. Context: unfinished concrete board walls, a bare strip light, puddles on the tile by the drain, stacked plumbing, a construction tarp at the end of the row. Camera: full body, eye level, from down the row in flat morning light.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage the same shower block in the evening with the strip light now the only source, so the room goes dim and the tile reflects the tube. Keep her face, hair, identity, the towel, her wet skin, her pose at the door and the unfinished room exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the shower block at night: the only light is the bare strip tube overhead, the room falls into shadow at the edges and the wet tile mirrors the light. Preserve her face, hair, identity, the towel, her pose and the room exactly as they are."
+  },
+  "settings": {
+    "seed": 40119,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

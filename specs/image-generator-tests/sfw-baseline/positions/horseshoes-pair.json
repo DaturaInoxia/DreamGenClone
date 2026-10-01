@@ -1,0 +1,28 @@
+{
+  "id": "horseshoes-pair",
+  "title": "Activity area — two at the horseshoe pit",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Becky throwing a horseshoe while Ken watches from behind the pit",
+  "expected": "A photorealistic photograph of one adult woman and one adult man at a packed-dirt horseshoe pit in hard midday sun: she is mid-throw with a steel horseshoe in her raised hand, and he stands several paces behind the far stake with his arms folded, watching. Clear space between the two figures, whitewashed pit edges and scuffed stakes between them, the shuffleboard lane and sagging volleyball net beyond. Full body shot at eye level from the side, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman and one adult man at a horseshoe pit in hard midday sun: she is mid-throw with a horseshoe in her raised hand, he stands several paces behind the far stake with folded arms watching, clear space between them, whitewashed pit edges and scuffed stakes, shuffleboard lane and volleyball net beyond, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman and one adult man at a packed-dirt horseshoe pit in hard midday sun. The woman is mid-throw with her arm cocked back and a steel horseshoe in her raised hand, weight on her rear foot at the whitewashed pit edge. Several paces beyond the far stake the man stands with his arms folded across his chest, watching her throw, a horseshoe of his own hanging from one hand. Clear space separates the two figures. Behind them across scuffed grass stand a chalked shuffleboard lane and a sagging volleyball net. Full body shot at eye level from the side, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of two separate adults at a horseshoe pit in hard midday sun: the woman mid-throw, arm back, horseshoe raised, front foot at the whitewashed pit edge; the man several paces past the far stake, arms folded, a second horseshoe hanging from one hand, watching. Scuffed stakes in raked dirt between them, shuffleboard lane and slack volleyball net behind. Full body, eye level from the side, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 1boy, 2people, female, male, auburn hair, cap, t-shirt, shorts, shirt, standing, throwing, horseshoe, arm raised, mid throw, man watching, arms folded, holding horseshoe, horseshoe pit, dirt, stakes, shuffleboard, volleyball net, grass, midday sun, two separate people, full body, side view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman and one adult man at a packed-dirt horseshoe pit in hard midday sun. The woman is mid-throw with her arm cocked back behind her head and the steel horseshoe in her raised hand, her weight loaded onto her rear foot at the whitewashed pit edge. Several paces past the far stake the man stands with his arms folded across his chest, a second horseshoe hanging from one hand, watching her throw without comment. Clear open dirt separates the two figures. Behind them across scuffed grass are a chalked shuffleboard lane and a sagging volleyball net on a slack line. The sun is directly overhead with short hard shadows. Full body shot at eye level from the side, 35mm lens, sharp focus on both of them.",
+    "flux": "Photorealistic photograph of two adults playing horseshoes. Primary subjects: a woman in shorts and a cap mid-throw with a steel horseshoe in her raised hand and her weight on her rear foot, and a man several paces past the far stake with his arms folded and a horseshoe hanging from one hand, watching. Action: she throws, he watches. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a packed-dirt pit with whitewashed edges and scuffed stakes, a shuffleboard lane and a sagging volleyball net behind, hard midday sun. Camera: full body, eye level, from the side.",
+    "qwen-edit-2511": "Change only who is in frame: keep her mid-throw at the pit exactly as she is, and add a man several paces beyond the far stake with his arms folded and a horseshoe in one hand, watching her, clearly separate from her. Keep her face, hair, identity, clothing, her pose, the pit and the light unchanged.",
+    "qwen-image-2.1-edit": "Add a man behind the far stake with his arms folded and a horseshoe hanging from one hand, watching her throw, clearly a separate person with open dirt between them. Preserve her face, hair, identity, clothing, her mid-throw pose and the pit exactly as they are."
+  },
+  "settings": {
+    "seed": 40126,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

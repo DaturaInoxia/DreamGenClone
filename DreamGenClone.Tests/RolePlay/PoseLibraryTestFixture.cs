@@ -19,7 +19,7 @@ namespace DreamGenClone.Tests.RolePlay;
 internal sealed class PoseLibraryTestFixture : IDisposable
 {
     private readonly string _root;
-    private readonly string _dbPath;
+    private string _dbPath = string.Empty;
 
     public PoseLibraryTestFixture(bool configurePackRoot = true)
     {
@@ -35,6 +35,31 @@ internal sealed class PoseLibraryTestFixture : IDisposable
             Path.Combine(PackRoot, "pack.json"),
             """{ "name": "Test pack", "description": "Fixture pack", "source": "test" }""");
 
+        Initialise(configurePackRoot);
+    }
+
+    /// <summary>
+    /// A fixture pointed at a packs root that ALREADY EXISTS — used to import the real git-tracked packs into a
+    /// throwaway database and a throwaway web root, so a test can prove the shipped data end to end without writing a
+    /// single byte into the repository's own <c>pose-packs</c> or <c>wwwroot</c>.
+    /// </summary>
+    /// <param name="existingPacksRoot">An absolute path to an existing packs root.</param>
+    public static PoseLibraryTestFixture ForExistingPacksRoot(string existingPacksRoot) =>
+        new(existingPacksRoot);
+
+    private PoseLibraryTestFixture(string existingPacksRoot)
+    {
+        _root = Path.Combine(Path.GetTempPath(), $"pose-library-real-{Guid.NewGuid():N}");
+        PacksRoot = existingPacksRoot;
+        PackRoot = Path.Combine(PacksRoot, PoseLibraryIds.BundledPackFolder);
+        WebRoot = Path.Combine(_root, "web");
+        Directory.CreateDirectory(WebRoot);
+
+        Initialise(configurePackRoot: true);
+    }
+
+    private void Initialise(bool configurePackRoot)
+    {
         _dbPath = Path.Combine(_root, "poses.db");
         Repository = new PosePresetRepository(
             Options.Create(new PersistenceOptions { ConnectionString = $"Data Source={_dbPath};Pooling=False" }));
@@ -72,13 +97,13 @@ internal sealed class PoseLibraryTestFixture : IDisposable
 
     public string WebRoot { get; }
 
-    public PoseLibraryOptions OptionsValue { get; }
+    public PoseLibraryOptions OptionsValue { get; private set; } = new();
 
-    public PosePresetRepository Repository { get; }
+    public PosePresetRepository Repository { get; private set; } = null!;
 
-    public PoseLibraryImporter Importer { get; }
+    public PoseLibraryImporter Importer { get; private set; } = null!;
 
-    public PoseLibraryService Service { get; }
+    public PoseLibraryService Service { get; private set; } = null!;
 
     /// <summary>
     /// A downloader whose HTTP factory fails loudly on use, so a refusal test proves the refusal happened before

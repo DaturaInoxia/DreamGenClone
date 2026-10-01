@@ -1,0 +1,28 @@
+{
+  "id": "garden-bed-three",
+  "title": "Flower garden — three at the bed",
+  "actors": "1F2M",
+  "closeup": false,
+  "userInput": "Becky kneeling in the garden while the two men stand on the grass behind her",
+  "expected": "A photorealistic photograph of three separate adults at a garden bed beside a trailer on a warm afternoon: one adult woman kneels in the turned soil with a trowel, bent forward over the flowers, while two adult men stand together on the grass behind her - one with his hands in his pockets and one holding a coiled hose - both looking on. Clear space between all three figures. Marigolds and tomato cages in the bed, the matching trailer and its windows across the grass behind them, warm mid-afternoon sun. Full body shot at eye level from a few paces off, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "Three separate adults at a garden bed beside a trailer in the afternoon: one adult woman kneeling in the turned soil with a trowel, bent over the flowers, two adult men standing together on the grass behind her, one with hands in pockets and one holding a coiled hose, both looking on, clear space between all three, marigolds and tomato cages, the matching trailer across the grass, warm sun, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of three separate adults at a garden bed that runs along the side of a trailer on a warm afternoon. One adult woman kneels on a pad in the turned dark soil with a trowel in one gloved hand, bent forward between marigolds and wire tomato cages, her hips up and her knees planted wide. Behind her on the grass stand two adult men: one with both hands pushed into his pockets and the other holding a coiled hose against his hip, the two of them talking to each other while they watch her work. Clear space separates all three figures. She wears jeans and a t-shirt, the men wear shorts and open shirts. Warm mid-afternoon sun falls across the bed and the grass, and the matching trailer with its windows is framed behind them. Full body shot at eye level from a few paces off, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of three separate adults at a garden bed beside a trailer in the afternoon: a woman kneeling in the turned soil with a trowel, bent over marigolds and tomato cages, and two men standing together on the grass behind her, one with his hands in his pockets and one with a coiled hose at his hip, both watching. Clear space between all three. Warm afternoon sun, dark soil, the matching trailer framed across the grass. Full body, eye level a few paces off, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_questionable, 1girl and 2boys, 3people, female, male, auburn hair, tied back hair, t-shirt, jeans, gardening gloves, shorts, kneeling, bent over, trowel, weeding, two men standing behind, hands in pockets, holding coiled hose, watching, flower garden, garden bed, soil, marigolds, tomato cage, grass, trailer behind, afternoon light, three separate people, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of three separate adults at a garden bed running along the side of a trailer on a warm afternoon. The woman kneels on a foam pad in the turned dark soil with a trowel in one gloved hand, bent forward between marigolds and wire tomato cages, her hips raised and her knees planted wide apart. Behind her, standing on the grass with clear space between them and her, are two men: one has both hands pushed into his pockets and the other holds a coiled hose against his hip, and the two of them are talking to each other while they watch her work. She wears jeans and a t-shirt with her hair tied back, the men wear shorts and open over-shirts. Warm mid-afternoon sun falls across the bed, her back and the lawn, and the matching trailer with its windows and aluminium siding is framed across the grass behind them. Full body shot at eye level from a few paces off, 35mm lens, sharp focus on all three figures and the bed.",
+    "flux": "Photorealistic photograph of three adults at a flower garden. Primary subjects: a woman with tied-back auburn hair kneeling in the turned soil with a trowel, bent over marigolds and tomato cages; two men standing together on the grass behind her, one with his hands in his pockets and one with a coiled hose at his hip, both watching. Action: she weeds, the two men stand and talk. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a garden bed along a trailer with dark soil, the matching trailer framed across the grass, warm mid-afternoon sun. Camera: full body, eye level, a few paces off.",
+    "qwen-edit-2511": "Change only who is in frame: keep her kneeling in the bed exactly as she is, and add two men standing together on the grass behind her, one with his hands in his pockets and one holding a coiled hose, both watching her, with clear space between all three. Keep her face, hair, identity, clothing, her kneeling pose, the plants and the trailer exactly unchanged.",
+    "qwen-image-2.1-edit": "Add two men standing together on the grass behind her, one with his hands in his pockets and one with a coiled hose at his hip, both watching her work, clearly separate from her and from each other. Preserve her face, hair, identity, clothing, her kneeling pose and the garden exactly as they are."
+  },
+  "settings": {
+    "seed": 40136,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

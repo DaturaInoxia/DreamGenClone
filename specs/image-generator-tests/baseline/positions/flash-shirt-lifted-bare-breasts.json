@@ -1,0 +1,28 @@
+{
+  "id": "flash-shirt-lifted-bare-breasts",
+  "title": "Flash — shirt lifted, bare breasts",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "She lifts her shirt up over her chest and shows her bare tits",
+  "expected": "A photorealistic explicit photograph of one adult woman standing and lifting her t-shirt up over her chest so both bare breasts hang free with the nipples visible, no bra, looking at the camera with her tongue between her teeth, medium shot at eye level, correct female anatomy, natural breasts and skin texture, indoor daylight, 35mm, sharp focus.",
+  "neutralScene": "One adult woman standing indoors, t-shirt lifted up over her chest and bunched at her collarbones so both bare breasts are exposed with nipples visible, no bra, looking at the camera with a playful expression, medium shot at eye level, correct anatomy, natural breasts and skin texture, indoor daylight, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic explicit photograph of one adult woman standing indoors, her t-shirt lifted up over her chest and bunched at her collarbones so both bare breasts hang free with the nipples clearly visible. She wears no bra and low-slung jeans. She looks at the camera with her tongue caught between her teeth. Medium shot from eye level, torso and face filling the frame. Correct female anatomy, natural full breasts with real weight and natural asymmetry, unretouched skin texture, soft indoor daylight, 35mm lens, sharp focus, highly detailed.",
+    "juggernaut": "A photorealistic explicit photograph of one adult woman standing: she has lifted her t-shirt up over her chest so both bare breasts are exposed with the nipples visible, and she wears no bra. She looks at the camera with her tongue caught between her teeth. Medium shot at eye level. Correct female anatomy with natural full breasts and unretouched skin, natural body proportions. Soft indoor daylight, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl, female, shirt lifted, t-shirt lifted, breasts out, bare breasts, nipples, no bra, topless, jeans, standing, tongue out, playful expression, looking at viewer, medium shot, front view, eye level, indoor, daylight, sharp focus",
+    "qwen-image-2.1": "A photorealistic explicit photograph of one adult woman standing in a plainly lit room, wearing low-slung jeans and a t-shirt that she has pulled up over her chest and bunched at her collarbones so that both breasts hang free with the nipples clearly visible. She wears no bra, and the fabric bunches under her arms. She looks straight at the camera with her tongue caught between her teeth, chin slightly down. Natural full breasts with real weight and mild natural asymmetry, unretouched skin with visible texture across her chest and stomach. Soft daylight from a window to her left, 35mm lens, medium shot at eye level, a blurred wall behind her, sharp focus on her face and chest.",
+    "flux": "Photorealistic explicit photograph of one adult woman showing her breasts to the camera indoors. Primary subject: a woman with natural full breasts and unretouched skin wearing low-slung jeans, her t-shirt lifted over her chest and bunched at her collarbones, both bare breasts exposed with nipples visible, no bra. Action: standing, looking straight at the camera with her tongue caught between her teeth. Critical style: explicit, photorealistic, 35mm, natural breasts and skin texture, sharp focus. Context: an indoor room with soft daylight from a window on her left. Camera: medium shot, eye level.",
+    "qwen-edit-2511": "Change the clothing action: lift her t-shirt up over her chest and bunch it at her collarbones so both bare breasts are exposed with no bra, and give her a playful look at the camera with her tongue between her teeth. Keep her face, hair, identity, the jeans, body proportions and the window light exactly unchanged.",
+    "qwen-image-2.1-edit": "Raise her t-shirt over her chest so both bare breasts are exposed with visible nipples and no bra, and change her expression to a playful look toward the camera with her tongue between her teeth. Preserve her face, hair, identity, body proportions, the jeans and the indoor daylight exactly as they are."
+  },
+  "settings": {
+    "seed": 30107,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

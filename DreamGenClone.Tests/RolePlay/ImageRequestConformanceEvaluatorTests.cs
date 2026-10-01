@@ -36,6 +36,7 @@ public sealed class ImageRequestConformanceEvaluatorTests
         MaxTokens = 100,
         PoseInText = ImagePoseInText.Forbidden,
         Negative = string.Empty,
+        SystemPrompt = SceneImageCompilerSystemPrompts.NaturalLanguageBeat,
         RequiredComponentsJson = """["subject","framing"]""",
         ForbiddenTokensJson = """["story-name"]""",
     };
@@ -53,6 +54,7 @@ public sealed class ImageRequestConformanceEvaluatorTests
         PoseInText = ImagePoseInText.SimpleOnly,
         Negative = "lowres, bad anatomy",
         NegativeSource = "pony-v6-prompting.instructions.md rules 8-9",
+        SystemPrompt = SceneImageCompilerSystemPrompts.PonyTagsBeat,
         RequiredComponentsJson = """["quality-tag-string"]""",
         ForbiddenTokensJson = """["natural-language-prose"]""",
     };

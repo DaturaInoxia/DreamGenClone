@@ -1,0 +1,28 @@
+{
+  "id": "living-room-couch-pair",
+  "title": "Trailer living room — talking on the couch",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Becky and Ken on the couch, he's watching the TV, she's turned toward him talking",
+  "expected": "A photorealistic photograph of one adult woman and one adult man on a worn couch in a trailer living room: he sits forward watching a television on a stand, and she sits turned toward him with one leg folded under her, mid-sentence. Two separate figures on the same couch with a clear gap between them. Evening light from a single lamp, warped blinds shut behind them, low table with two mugs. Full body shot at eye level from across the room, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman and one adult man sitting on a worn couch in a trailer living room, he watching a television on a stand, she turned toward him mid-sentence with one leg folded under her, a clear gap between them, a lamp on, blinds shut, two mugs on the low table, full body at eye level from the side, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman and one adult man sitting on a worn couch in the living room of a single-wide trailer in the evening. The man sits forward, elbows on his knees, watching a television on a stand; the woman sits turned toward him with one leg folded under her, mid-sentence, one hand open in the air between them. A clear gap of cushion separates the two figures. Warm light from a single lamp, warped slatted blinds shut behind them, and two mugs on the low table. Full body shot at eye level from across the room, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman and one adult man on a couch in a narrow trailer living room at night: he leans forward watching a television on a stand, she sits turned toward him with one leg tucked under her, talking, and there is a clear gap of cushion between them. A single lamp lights the room, the warped blinds are shut, two mugs sit on the low table. Two distinct seated figures, full body, eye level from the side, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 1boy, 2people, female, male, auburn hair, t-shirt, jeans, sitting, sitting on couch, talking, looking at television, trailer interior, living room, tv, lamp light, blinds closed, night, two separate people, full body, side view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman and one adult man sitting on a worn couch in the living room of a single-wide trailer at night. The man sits forward with his elbows on his knees, watching a television on a stand; the woman has turned toward him with one leg folded under her and is mid-sentence, one hand open in the air between them. A clear stretch of empty cushion separates them. A single warm lamp lights the room, the warped slatted blinds are shut behind the couch, and two mugs stand on the low table in front of them. The room is narrow and plainly furnished, with thin panelled walls and a worn carpet edge at the kitchen threshold. Full body shot at eye level from across the room, 35mm lens, sharp focus on both figures.",
+    "flux": "Photorealistic photograph of two adults on a couch in a trailer at night. Primary subjects: a man sitting forward watching a television on a stand, and a woman turned toward him with one leg folded under her, mid-sentence, a clear gap of cushion between them. Action: sitting together, she talking, he watching the screen. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a narrow trailer living room lit by a single lamp, warped blinds shut, two mugs on the low table. Camera: full body, eye level, from across the room.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage the same room in the morning with the blinds half open and hard daylight crossing the floor instead of lamp light. Keep both people's faces, hair, identity, clothing, their seated poses, the couch and the furniture exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the room in daylight: open the blinds and replace the lamp with flat morning light through the window. Preserve both faces, hair, identity, clothing, their poses on the couch and the furniture exactly as they are."
+  },
+  "settings": {
+    "seed": 40108,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

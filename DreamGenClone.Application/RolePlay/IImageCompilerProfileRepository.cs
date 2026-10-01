@@ -21,6 +21,13 @@ public interface IImageCompilerProfileRepository
     /// </summary>
     Task<ImageCompilerProfile?> FindByCheckpointAsync(string checkpointIdentifier, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The profile by its OWN id, which is what a suite cell records (<c>ImageSuiteCell.CheckpointProfileId</c>). Kept
+    /// separate from the checkpoint lookup because a cell pins a profile row, and pinning it by id is what makes a run's
+    /// evidence survive a later checkpoint rename. Null when no row matches - the caller fails fast naming the id.
+    /// </summary>
+    Task<ImageCompilerProfile?> FindByIdAsync(string profileId, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ImageCompilerProfile>> ListAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Writes a profile. Validated first by <see cref="ImageCompilerProfileValidation"/>.</summary>

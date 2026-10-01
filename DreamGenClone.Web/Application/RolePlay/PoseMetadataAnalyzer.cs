@@ -193,6 +193,15 @@ public static class PoseMetadataAnalyzer
             && observation.TorsoVerticalRatio > 0
             && observation.TorsoVerticalRatio < PoseGeometryObservation.FoldedTorsoRatio)
         {
+            // A folded torso under an upright stance word. This is NOT a claim that the pose is something else — a
+            // figure bending at the waist is still standing, and the pack's own folder is the better authority on
+            // which joints carry the weight. It is the fact the prompt's stance word cannot carry ("standing" does not
+            // say "bent over"), recorded where a render that comes back straight can be compared against it.
+            //
+            // Measured on the shipped packs (2026-09-30): 48 flagged poses in 7 categories, 28 of them in
+            // openpose-nsfw/standing. Verified by recomputing four of them straight from the pack files — standing 081
+            // measures torso-vertical 0.484 and standing 075 measures 0.414 — so this is data about the packs rather
+            // than a threshold that needs moving.
             notes.Add(
                 $"declared {Label(declared.Stance)} but the torso is folded "
                 + $"({observation.Evidence()})");

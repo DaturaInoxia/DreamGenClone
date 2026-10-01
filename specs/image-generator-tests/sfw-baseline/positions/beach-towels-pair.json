@@ -1,0 +1,28 @@
+{
+  "id": "beach-towels-pair",
+  "title": "Lake beach — two on the towels",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Becky and Ken sitting on towels on the sand, she leans back against him",
+  "expected": "A photorealistic photograph of one adult woman and one adult man sitting on a pair of striped towels on a narrow lake beach in summer afternoon light: he sits with his knees up and she sits in front of him, leaning back against his chest with her legs stretched out on the sand. Two separate bodies in clear contact, swimsuits, a beached paddle and the water line a few feet away. Full body shot at eye level from the side, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman and one adult man sitting on striped towels on a narrow sand beach in summer light, he sits with his knees up and she leans back against his chest with her legs stretched out on the sand, both in swimwear, the water line and a beached paddle a few feet away, full body at eye level from the side, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman and one adult man sitting on a pair of striped towels spread on the sand of a narrow lake beach in the afternoon. The man sits with his knees drawn up and his elbows resting on them; the woman sits directly in front of him, leaned back against his chest with her legs stretched out flat across the sand, one hand resting on his knee. Both wear swimsuits, and the two bodies are clearly in contact while remaining two distinct people. A beached paddle leans against a post a few feet away and the water line runs across the frame behind them. Full body shot at eye level from the side, 35mm lens, natural unretouched skin with sand sticking to her feet, sharp focus.",
+    "juggernaut": "A photorealistic photograph of two separate adults on towels on a narrow sand beach in the afternoon: the man sits with his knees up and elbows on them, the woman sits in front of him leaning back against his chest with her legs stretched out on the sand, one hand on his knee. Both in swimwear, bodies in contact but clearly two distinct people. Beached paddle, water line, hard afternoon sun. Full body, eye level from the side, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 1boy, 2people, female, male, auburn hair, wet hair, swimsuit, trunks, sitting, sitting on towel, leaning back, leaning against man, legs stretched out, knees up, beach, sand, towels, water, lake, summer afternoon, sunlight, two separate people, full body, side view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman and one adult man sitting on striped towels spread across a narrow strip of sand at a small lake. The man sits with his knees drawn up and his elbows resting on them; the woman sits directly in front of him, leaned back against his chest with her legs stretched out flat across the sand and one hand dropped onto his knee. Both wear swimsuits and both have wet hair, and sand clings to her heels. Their bodies are in clear contact while reading as two distinct people. A beached paddle leans against a post a few feet away and the water line runs across the frame behind them, with the buoyed swim area and floating dock beyond. Hard summer afternoon light. Full body shot at eye level from the side, 35mm lens, sharp focus on the two of them and the sand.",
+    "flux": "Photorealistic photograph of two adults resting on a beach. Primary subjects: a woman in a swimsuit sitting in front of a man in trunks, leaned back against his chest with her legs stretched out on the sand and one hand on his knee, while he sits with his knees drawn up. Action: sitting together on striped towels, resting after swimming. Critical style: photorealistic, 35mm, wet unretouched skin, sharp focus. Context: a narrow lake beach with a beached paddle, a water line, a floating dock and buoyed swim area beyond, hard summer light. Camera: full body, eye level, from the side.",
+    "qwen-edit-2511": "Change only who is in frame: keep the towels, the sand and the water line, and seat a man behind her with his knees up so she leans back against his chest with her legs stretched out on the sand. Keep her face, hair, identity, the swimsuit, her pose and the beach exactly unchanged.",
+    "qwen-image-2.1-edit": "Add a man seated behind her with his knees drawn up, so that she leans back against his chest with her legs stretched out across the sand, the two of them clearly separate people. Preserve her face, hair, identity, the swimsuit, her pose, the towels and the beach exactly as they are."
+  },
+  "settings": {
+    "seed": 40129,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

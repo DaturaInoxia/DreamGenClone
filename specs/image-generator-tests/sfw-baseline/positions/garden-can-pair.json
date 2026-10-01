@@ -1,0 +1,28 @@
+{
+  "id": "garden-can-pair",
+  "title": "Flower garden — she kneels, he waters",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Becky kneeling in the garden weeding while Ken stands over her with the watering can",
+  "expected": "A photorealistic photograph of one adult woman and one adult man in a garden bed beside a trailer on a warm afternoon: she kneels in the dirt with a trowel in one hand, bent forward over the soil, and he stands over her with a metal watering can pouring a slow arc of water onto a row of marigolds. Two clearly separate figures. Warm mid-afternoon sun, dark turned soil, tomato cages, the matching trailer across the grass behind them. Full body shot at eye level from a few paces off, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman and one adult man in a garden bed beside a trailer in the afternoon: she kneels in the dirt with a trowel, bent over the soil, he stands over her pouring from a metal watering can onto marigolds, two separate figures, dark turned soil, tomato cages, the matching trailer across the grass behind, warm sun, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman and one adult man in a garden bed running along the side of a trailer on a warm afternoon. The woman kneels on a pad in the turned dark soil with a trowel in one gloved hand, bent forward between marigolds and wire tomato cages. Standing over her, the man tilts a metal watering can and pours a slow arc of water onto the row in front of her knees. The two figures are clearly separate, her at ground level and him upright above her. She wears jeans and a t-shirt, he wears shorts and an open shirt. Warm mid-afternoon sun falls across his shoulders and the soil, and the matching trailer and its windows are framed across the grass behind them. Full body shot at eye level from a few paces off, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of two separate adults in a garden bed beside a trailer in the afternoon: the woman kneeling in the dirt with a trowel, bent forward over the soil between marigolds and tomato cages, and the man standing over her tipping a metal watering can so water arcs onto the row. Warm afternoon sun, dark turned soil, the matching trailer framed behind. Full body, eye level a few paces off, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_questionable, 1girl and 1boy, 2people, female, male, auburn hair, tied back hair, t-shirt, jeans, gardening gloves, shorts, open shirt, kneeling, bent over, trowel, weeding, standing over her, watering can, pouring water, flower garden, garden bed, soil, marigolds, tomato cage, grass, trailer behind, afternoon light, two separate people, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman and one adult man working in a garden bed that runs along the side of a trailer on a warm afternoon. The woman kneels on a foam pad in the turned dark soil with a trowel in one gloved hand, bent forward between marigolds and wire tomato cages, her hips up and her knees planted wide. Standing over her, the man tilts a metal watering can down and pours a slow arc of water onto the row in front of her knees, the water catching the light as it falls. Her position on the ground and his upright stance above her keep the two figures clearly separate. She wears jeans and a t-shirt with her hair tied back, he wears shorts and an open over-shirt. Warm mid-afternoon sun falls across his shoulders, her back and the soil, and the matching trailer with its windows is framed across the grass behind them. Full body shot at eye level from a few paces off, 35mm lens, sharp focus on both of them and the bed.",
+    "flux": "Photorealistic photograph of two adults working in a flower garden. Primary subjects: a woman with tied-back auburn hair kneeling in the dirt with a trowel, bent forward between marigolds and tomato cages; a man standing over her tipping a metal watering can so water arcs onto the row. Action: she weeds, he waters. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a garden bed along a trailer with dark turned soil, the matching trailer framed across the grass behind, warm mid-afternoon sun. Camera: full body, eye level, a few paces off.",
+    "qwen-edit-2511": "Change only who is in frame: keep her kneeling in the bed exactly as she is, and add a man standing over her tipping a watering can onto the row of flowers, the two of them clearly separate with him upright above her. Keep her face, hair, identity, clothing, her kneeling pose, the trowel, the plants and the trailer exactly unchanged.",
+    "qwen-image-2.1-edit": "Add a man standing over her with a metal watering can, pouring water onto the row of flowers, clearly a separate person standing upright above her kneeling figure. Preserve her face, hair, identity, clothing, her kneeling pose, the trowel and the garden exactly as they are."
+  },
+  "settings": {
+    "seed": 40135,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

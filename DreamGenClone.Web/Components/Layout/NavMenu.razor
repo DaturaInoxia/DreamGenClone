@@ -93,6 +93,22 @@
 
         <div class="nav-group">
             <div class="nav-group-header px-3" onclick="navGroupToggle(this); event.stopPropagation();">
+                <span class="nav-group-label">Image Playground</span>
+                <span class="nav-group-chevron">&#x203a;</span>
+            </div>
+            <div class="nav-group-items">
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="playground">
+                        @* B-135: the playground and proof area. bi-card-text-nav-menu is one of the icon classes actually
+                           defined in NavMenu.razor.css, so this entry renders its icon like the nav's other working ones. *@
+                        <span class="bi bi-card-text-nav-menu" aria-hidden="true"></span> Playground
+                    </NavLink>
+                </div>
+            </div>
+        </div>
+
+        <div class="nav-group">
+            <div class="nav-group-header px-3" onclick="navGroupToggle(this); event.stopPropagation();">
                 <span class="nav-group-label">Configuration</span>
                 <span class="nav-group-chevron">&#x203a;</span>
             </div>

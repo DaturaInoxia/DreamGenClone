@@ -1,0 +1,28 @@
+{
+  "id": "trail-walk-alone",
+  "title": "Hiking trail — walking alone",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Becky walking the hiking trail by herself, late morning",
+  "expected": "A photorealistic photograph of one adult woman walking along a narrow dirt trail through a dense forest, seen from the side as she passes, mid-stride with a small daypack on her shoulders and a light jacket tied at her waist. Late morning light comes down through the canopy in broken patches that move across the trail, with low ferns and leaf litter at the edges. Full body shot at eye level, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman walking along a narrow dirt trail through a forest, seen from the side mid-stride, small daypack on her shoulders, light jacket at her waist, low ferns beside packed dirt and gravel, broken canopy light in patches, full body at eye level, natural body proportions and skin texture, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman walking along a narrow dirt trail through dense forest, seen from the side as she passes the camera, mid-stride with a small daypack on her shoulders and a light jacket knotted at her waist. She has shoulder-length wavy auburn hair and a lightly curvy build. Late morning light comes down through the canopy in broken patches across the trail and the ferns. Full body at eye level, 35mm lens, natural skin texture, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman walking a forest trail in late morning light: she passes the camera side-on, mid-stride, a small daypack on her shoulders and a light jacket at her waist. Narrow packed dirt and loose gravel, low ferns and leaf litter at the trail edges, trunks close on both sides, the canopy breaking the sun into moving patches. Full body shot at eye level, uncropped feet. Natural body proportions, unretouched skin, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, female, mature female, auburn hair, wavy hair, shoulder-length hair, hiking clothes, jacket tied at waist, daypack, walking, mid-stride, side view, eye level, full body, outdoors, dirt trail, forest, trees, ferns, dappled morning light, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman walking along a narrow dirt trail through a dense mixed forest, caught side-on in mid-stride as she passes. She wears hiking boots, shorts and a light jacket knotted around her waist, with a small daypack on her shoulders and a water bottle clipped to the strap. She has shoulder-length wavy auburn hair and a lightly curvy build with natural proportions. Loose gravel and packed earth make up the trail, low ferns and last year's leaf litter crowd the edges, and trunks stand close on both sides. Late morning sun breaks through the canopy in patches that move across the trail and her arms. Full body shot at eye level, 35mm lens, the trail receding into soft green distance, sharp focus on her and the ground she walks on.",
+    "flux": "Photorealistic photograph of one adult woman hiking alone. Primary subject: a woman with shoulder-length wavy auburn hair and a lightly curvy build, wearing hiking boots and shorts with a small daypack on her shoulders and a light jacket knotted at her waist. Action: walking a narrow dirt trail, mid-stride, seen from the side as she passes the camera. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a dense mixed forest with low ferns and leaf litter, late morning sun breaking through the canopy in moving patches. Camera: full body, eye level, trail receding behind her.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage this same scene in early evening, with the forest in even shade and a low warm shaft of light crossing the trail from behind. Keep her face, hair, identity, clothing, the daypack, her mid-stride pose and the trail itself exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the same walk much later in the day, with the canopy shade gone cold and a single low band of warm light cutting across the trail and her legs. Preserve her face, hair, identity, clothing, the daypack and the trail exactly as they are."
+  },
+  "settings": {
+    "seed": 40101,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1152
+  }
+}

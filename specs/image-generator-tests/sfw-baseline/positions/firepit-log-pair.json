@@ -1,0 +1,28 @@
+{
+  "id": "firepit-log-pair",
+  "title": "Fire pit — two on a log",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Becky and Ken sitting on a log at the fire pit with drinks, the fire between them and the camera",
+  "expected": "A photorealistic photograph of one adult woman and one adult man sitting side by side on a log bench with a burning fire pit between them and the camera, bottles tipped in their hands and their faces lit orange from below by the flames. They sit close, turned slightly toward each other, two separate figures. Beyond the ring of stones the grass and tree line are black. Full body shot at eye level across the fire, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman and one adult man sitting side by side on a log bench with a burning fire pit between them and the camera, bottles in their hands, faces lit orange from below, turned slightly toward each other, two separate figures, black grass and tree line beyond, full body at eye level across the fire, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman and one adult man sitting side by side on a log bench with a burning fire pit between them and the camera, bottles tipped in their hands and their faces lit orange from below by the flames. They sit close and turned slightly toward each other, two clearly separate figures. She wears a hooded sweatshirt and jeans, he a flannel shirt with the sleeves rolled. Sparks rise above the flames and everything beyond the ring of stones is black. Full body shot at eye level across the fire, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of two separate adults on a log bench with a burning fire pit between them and the camera: bottles in their hands, both faces lit from below by moving orange firelight, sitting close and turned slightly toward one another. Hooded sweatshirt and jeans on her; flannel shirt on him. Sparks above the flames, black beyond the stone ring. Full body, eye level across the fire, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 1boy, 2people, female, male, auburn hair, hoodie, jeans, flannel shirt, sitting, sitting on log, bottle in hand, campfire, bonfire, fire pit, stones, flames, sparks, night, firelight on faces, dark background, two separate people, full body, front view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman and one adult man sitting side by side on a log bench with a burning fire pit between them and the camera, so the flames and the two of them share the frame. Both hold bottles tipped back against their knees, and both faces are lit from below by moving orange firelight, their features softened and their eyes bright in it. They sit close and turned slightly toward each other. She wears jeans and a hooded sweatshirt with her auburn hair loose; he wears a flannel shirt with the sleeves rolled to the elbow. Sparks lift over the flames, and everything beyond the ring of stones - the grass, the tree line - is solid black. Full body shot at eye level across the fire, 35mm lens, sharp focus on the two of them.",
+    "flux": "Photorealistic photograph of two adults at a campfire at night. Primary subjects: a woman in a hooded sweatshirt and jeans and a man in a rolled-sleeve flannel shirt, sitting side by side on a log bench with bottles in their hands, faces lit orange from below, turned slightly toward each other. Action: sitting and drinking with the fire between them and the camera. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a stone-ringed fire pit with sparks rising, solid black beyond the ring of firelight. Camera: full body, eye level, across the fire.",
+    "qwen-edit-2511": "Change only who is in frame: keep the fire, the log and the black night, and seat a man beside her on the same log with a bottle in his hand, the two of them clearly separate and both lit by the flames. Keep her face, hair, identity, clothing, her seated pose and the fire exactly unchanged.",
+    "qwen-image-2.1-edit": "Add a man beside her on the log with a bottle in his hand, sitting close and turned toward her, clearly a separate person, both faces lit by the fire. Preserve her face, hair, identity, clothing, pose, the log and the fire exactly as they are."
+  },
+  "settings": {
+    "seed": 40123,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

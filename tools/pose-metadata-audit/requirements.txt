@@ -1,0 +1,6 @@
+# No third-party dependencies.
+#
+# The audit runs inside the .NET test project (DreamGenClone.Tests), so its only requirement is the .NET SDK the repo
+# already builds with — see Directory.Build.props for the target framework. Kept as a file so this tool follows the
+# tools/ convention (script + README.md + requirements.txt) and so the "no Python deps" fact is written down rather
+# than inferred from the absence of the file.

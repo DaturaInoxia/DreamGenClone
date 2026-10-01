@@ -12,7 +12,14 @@ public enum ImageSuiteKind
     Comparison = 2,
 
     /// <summary>A regression suite captured from real defects (B135-033 specimen capture).</summary>
-    Regression = 3
+    Regression = 3,
+
+    /// <summary>
+    /// A prompt CATALOG: a set of positions to survey across several checkpoints, imported from an agent-authored
+    /// manifest. Distinct from the other kinds because what it answers is "how does this set look on each model" rather
+    /// than "does this capability still work" - which is why a run of one is one checkpoint over all the cells.
+    /// </summary>
+    Catalog = 4
 }
 
 /// <summary>
@@ -97,6 +104,25 @@ public sealed class ImageSuiteCell
     /// </summary>
     public string BindingsJson { get; set; } = "[]";
 
+    /// <summary>
+    /// JSON object: ONE PROMPT PER MODEL, keyed by the manifest's variant key (<c>biglust</c>, <c>juggernaut</c>,
+    /// <c>qwen-edit-2511</c>).
+    ///
+    /// <para>
+    /// This is what makes "run this set against BigLust" meaningful: the same position is worded differently for each
+    /// checkpoint (dense tags for Pony, prose for SDXL, an edit instruction for Qwen Edit), and a run picks the prompt
+    /// matching the model it is running. A cell with no variant for the chosen model is simply skipped for that run -
+    /// reported, never fatal.
+    /// </para>
+    /// </summary>
+    public string VariantsJson { get; set; } = "{}";
+
+    /// <summary>
+    /// JSON array of what the manifest said was missing or malformed for this cell. Displayed against the cell so a gap
+    /// is visible without stopping anything from running.
+    /// </summary>
+    public string ProblemsJson { get; set; } = "[]";
+
     /// <summary>JSON: the seed policy — one fixed seed, a list, or a grid.</summary>
     public string SeedJson { get; set; } = "{}";
 
@@ -124,6 +150,15 @@ public sealed class ImageSuiteCell
 /// <summary>
 /// The one validation path for a suite and its cells. Every write calls it, so there is a single definition of a
 /// valid suite — duplicated validation is how two call sites come to disagree about what is allowed.
+///
+/// <para>
+/// <b>What it enforces is IDENTITY, not content.</b> A cell must be findable and orderable (a suite id, a non-negative
+/// ordinal, a name). It does NOT require a user direction, an expected prompt or a tolerance: a catalog cell carries one
+/// prompt per MODEL and may legitimately have none of those, and the compile step and the prompt layer simply have
+/// nothing to say about such a cell. Refusing it at the store would mean an agent-authored catalog cannot be imported
+/// because it lacks a field only the compiler needs — which is the wrong place for the check, and it stops the images
+/// from ever being made. Content gaps are reported on the cell instead (see <c>ProblemsJson</c>).
+/// </para>
 /// </summary>
 public static class ImageSuiteValidation
 {
@@ -139,7 +174,7 @@ public static class ImageSuiteValidation
         if (suite.Kind == ImageSuiteKind.Unknown)
         {
             throw new InvalidOperationException(
-                $"Image suite '{suite.Name}' must declare a kind (Qualification, Comparison or Regression).");
+                $"Image suite '{suite.Name}' must declare a kind (Qualification, Comparison, Regression or Catalog).");
         }
 
         if (suite.Status == ImageSuiteStatus.Unknown)
@@ -173,13 +208,6 @@ public static class ImageSuiteValidation
         if (string.IsNullOrWhiteSpace(cell.Name))
         {
             throw new InvalidOperationException("An image suite cell must have a name.");
-        }
-
-        if (string.IsNullOrWhiteSpace(cell.UserDirection))
-        {
-            throw new InvalidOperationException(
-                $"Image suite cell '{cell.Name}' has no user direction. A cell without an input cannot be compiled, "
-                + "and therefore cannot test the compiler.");
         }
     }
 }

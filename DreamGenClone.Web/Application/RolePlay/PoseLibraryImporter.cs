@@ -38,8 +38,7 @@ internal sealed record PosePackManifest(
     string? Attribution,
     PosePackDeclarations Declarations);
 
-/// <summary>What a metadata backfill did, so the caller can report a count instead of asserting success.</summary>
-/// <param name="Examined">Stored presets examined.</param>
+    /// <summary>What a metadata backfill did, so the caller can report a count instead of asserting success.</summary>
 /// <param name="Filled">Presets whose metadata was missing and has now been written.</param>
 /// <param name="Unchanged">
 /// Presets left exactly as they were, because metadata was already present. This is the number that makes the
@@ -377,9 +376,14 @@ public sealed class PoseLibraryImporter : IPoseLibraryImporter
     /// True when a preset carries no metadata at all. Both conditions are asked because a half-filled row is possible:
     /// a rating can be declared for the pack while the category declares no stance, and re-running the backfill must
     /// then still be the thing that completes it.
+    ///
+    /// An OPERATOR-EDITED row is never "no metadata", whatever its values say. That is the one case the values cannot
+    /// express: an operator who declares only a camera angle leaves a row that looks untouched by the three fields
+    /// below, and filling it would discard the very edit the editor exists to make.
     /// </summary>
     private static bool HasNoMetadata(PosePreset preset) =>
-        preset.ContentRating == PoseContentRating.Unrated
+        !preset.MetadataOperatorEdited
+        && preset.ContentRating == PoseContentRating.Unrated
         && preset.Stance == PoseStance.Unknown
         && string.IsNullOrEmpty(preset.MetadataPrompt);
 
@@ -412,7 +416,10 @@ public sealed class PoseLibraryImporter : IPoseLibraryImporter
             ContentRating = metadata.Rating,
             MetadataPrompt = metadata.Prompt,
             MetadataNeedsReview = metadata.NeedsReview,
-            MetadataReviewNote = metadata.ReviewNote
+            MetadataReviewNote = metadata.ReviewNote,
+            // Carried across rather than reset: this method only ever writes metadata, and a fill must not be able to
+            // clear the marker that says an operator owns this row.
+            MetadataOperatorEdited = preset.MetadataOperatorEdited
         };
     }
 

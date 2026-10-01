@@ -1,0 +1,28 @@
+{
+  "id": "shower-door-pair",
+  "title": "Shower block — towelling her hair, he waits",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Becky towelling her wet hair outside the shower room while Ken waits with their bag",
+  "expected": "A photorealistic photograph of one adult woman and one adult man in a shower facility under renovation: she stands in a bath towel rubbing her wet hair with a second towel, and he waits a few steps away holding a canvas bag with his jacket on. Clear space between the two separate figures. Unfinished concrete board walls, a strip light, puddles on the tile, stacked plumbing and a hanging tarp. Morning light, full body shot at eye level from down the row, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman and one adult man in a shower facility under renovation: she stands in a bath towel towelling her wet hair with a second towel, he waits a few steps off holding a canvas bag and wearing his jacket, clear space between them, unfinished concrete board walls, strip light, puddles on the tile, plumbing and a tarp, morning light, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman and one adult man in a shower facility under renovation. The woman stands in a plain bath towel that covers her from chest to mid-thigh, bent slightly forward with her head tipped down while she rubs her wet auburn hair dry with a second towel, water still on her shoulders. A few steps away, clear space between them, the man waits with a canvas bag hanging from one hand, dressed and patient, watching the door rather than her. The room is unfinished: wet concrete board walls, a bare strip light, puddles on the grey tile by the drain, stacked plumbing and a tarp at the end of the row. Flat morning light. Two separate figures. Full body shot at eye level from down the row, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of two separate adults in a shower block under renovation: a woman in a bath towel bent forward towelling her wet hair with a second towel, and a man a few steps away in his jacket holding a canvas bag, waiting. Unfinished concrete board walls, a bare strip light, puddles by the drain, stacked plumbing, a tarp. Full body, eye level from down the row, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_questionable, 1girl and 1boy, 2people, female, male, auburn hair, wet hair, wet skin, bath towel, towel wrapped, bare shoulders, bare legs, drying hair, towel on head, standing, man waiting, jacket, canvas bag, shower block, unfinished room, concrete board, strip light, tile floor, morning light, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman and one adult man in a shower facility under renovation, several steps apart. The woman stands in a plain bath towel wrapped from the top of her chest to mid-thigh, bent slightly forward with her head tipped down, rubbing her wet auburn hair with a second towel; water still beads on her shoulders and legs. To her left and behind her, with clear space between them, the man stands dressed in a jacket with a canvas bag hanging from one hand, his weight on one leg, waiting and looking toward the row of shower room doors rather than at her. The room is unfinished: wet concrete board walls with visible screw lines, a bare fluorescent tube overhead, puddles standing on the grey tile by the drain, lengths of plumbing stacked along the wall and a construction tarp hanging loose. Flat morning light. Two separate figures. Full body shot at eye level from down the row, 35mm lens, sharp focus on both of them.",
+    "flux": "Photorealistic photograph of two adults in a shower block under renovation. Primary subjects: a woman with wet auburn hair wrapped in a bath towel, bent forward towelling her hair dry with a second towel, and a man a few steps away in a jacket holding a canvas bag, waiting. Action: she dries her hair, he waits. Critical style: photorealistic, 35mm, wet unretouched skin, sharp focus. Context: unfinished concrete board walls, a bare strip light, puddles on the tile by the drain, stacked plumbing, a construction tarp. Camera: full body, eye level, from down the row in flat morning light.",
+    "qwen-edit-2511": "Change only who is in frame: keep her, the towel, the shower room doors and the unfinished room, and place a man several steps behind her in a jacket with a canvas bag, waiting and looking away, clearly separate from her. Keep her face, hair, identity, the towel, her pose and the room exactly unchanged.",
+    "qwen-image-2.1-edit": "Add a man to the row behind her, dressed in a jacket with a canvas bag in one hand, standing several steps away and looking toward the shower room doors, clearly separate from her. Preserve her face, hair, identity, the towel, her pose and the room exactly as they are."
+  },
+  "settings": {
+    "seed": 40120,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

@@ -59,7 +59,15 @@ public enum SceneAssetType
     /// being a SceneAsset is what lets it reuse the approval / production-version / sha256 validation and the
     /// reference-binding channel the render already revalidates, instead of inventing a second reference mechanism.
     /// </remarks>
-    CharacterPose = 9
+    CharacterPose = 9,
+
+    /// <summary>
+    /// A scratch container for images an operator makes in the Image Playground (B-135). It is a real asset so the
+    /// playground inherits the whole existing loop — the one composer, the edit workspace, the review deck and the
+    /// lineage chain — instead of growing a second pipeline, but it is its OWN type so playground scratch images never
+    /// appear among production assets that carry approval and licensing meaning.
+    /// </summary>
+    Playground = 10
 }
 
 public enum SceneAssetCandidateDecision
@@ -278,6 +286,22 @@ public sealed class SceneAssetImage
     /// and so a compiled prompt is never compiled twice.
     /// </summary>
     public string? PromptCompilerId { get; set; }
+
+    /// <summary>
+    /// The sampler seed this render ACTUALLY used, or null for a row written before the seed was recorded.
+    ///
+    /// <para>
+    /// Recorded whichever way the seed was chosen. A run can PIN one (a catalog position declares a seed, so a re-run
+    /// reproduces the image) or ask for a fresh one (exploration), and in both cases the number that reached the
+    /// sampler is written here — which is what turns a good result into something reproducible instead of a one-off.
+    /// </para>
+    ///
+    /// <para>
+    /// Null therefore means "not recorded", never "no seed": every render has one, because the workflow builder draws
+    /// a random value when it is given none.
+    /// </para>
+    /// </summary>
+    public long? Seed { get; set; }
 
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? StartedUtc { get; set; }

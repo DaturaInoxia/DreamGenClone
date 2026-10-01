@@ -61,6 +61,27 @@ public sealed class ImageCompilerProfileRepository : IImageCompilerProfileReposi
         return await reader.ReadAsync(cancellationToken) ? ReadProfile(reader) : null;
     }
 
+    public async Task<ImageCompilerProfile?> FindByIdAsync(string profileId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            throw new InvalidOperationException("A profile id is required to resolve an image compiler profile.");
+        }
+
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        // Matched on Id, not on a checkpoint name: a suite cell pins the ROW it was compiled for, so a later edit to
+        // that row's checkpoint identifier cannot silently retarget the cell at a different checkpoint's settings.
+        command.CommandText = $"""
+            SELECT {SelectColumns}
+            FROM ImageCompilerProfiles
+            WHERE Id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", profileId.Trim());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? ReadProfile(reader) : null;
+    }
+
     public async Task<IReadOnlyList<ImageCompilerProfile>> ListAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken);
@@ -211,6 +232,12 @@ public sealed class ImageCompilerProfileRepository : IImageCompilerProfileReposi
     {
         foreach (var profile in SeedProfiles())
         {
+            // B-135: the row carries its OWN copy of the compiler instructions, derived here from its family's
+            // researched text (SceneImageCompilerSystemPrompts, which the prompt builders read too). This is a SEED,
+            // not a read-path fallback: nothing at render time substitutes a missing value, and a row whose text is
+            // later edited keeps that edit because the insert is DO NOTHING.
+            profile.SystemPrompt = SceneImageCompilerSystemPrompts.For(profile.Family, canonical: false);
+
             // A bad seed row is a bug in this file, not user data: refuse it loudly rather than writing a
             // profile that would compile prompts against a rule nobody can satisfy.
             ImageCompilerProfileValidation.Validate(profile);

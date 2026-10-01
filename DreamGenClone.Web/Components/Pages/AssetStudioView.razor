@@ -32,7 +32,7 @@
     {
         <div class="row g-3 mb-4">
             <div class="col-xl-7">
-                <PromptAssetCreator AssetId="@_asset.Id" SubjectActor="SubjectActor()" ImagesChanged="LoadAsync" />
+                <PromptAssetCreator AssetId="@_asset.Id" SubjectActor="SubjectActor()" ImagesChanged="LoadAsync" Draft="_draft" />
             </div>
             <div class="col-xl-5">
                 <AssetUploadCreator AssetId="@_asset.Id" ImagesChanged="LoadAsync" />
@@ -104,6 +104,11 @@
                                         <a class="btn btn-sm btn-outline-info" href="/review-deck/asset/@image.CandidateBatchId" title="Review candidate batch"><i class="bi bi-collection-play"></i></a>
                                     }
                                     <a class="btn btn-sm btn-outline-secondary" href="/asset-studio/images/@image.Id/download" title="Download image"><i class="bi bi-download"></i></a>
+                                    <button type="button" class="btn btn-sm btn-outline-warning" disabled="@_busy"
+                                            title="Load the prompt, model, size, seed and references that made this image into the generator above"
+                                            @onclick="() => LoadIntoGenerator(image)">
+                                        <i class="bi bi-arrow-counterclockwise"></i>
+                                    </button>
                                     <button type="button" class="btn btn-sm btn-outline-danger" disabled="@_busy"
                                             title="Delete this image" @onclick="() => DeleteImageAsync(image)">
                                         <i class="bi bi-trash"></i>
@@ -136,6 +141,30 @@
     private List<SceneAssetImage> _images = [];
     private bool _busy;
     private string? _message;
+
+    /// <summary>
+    /// The image whose own recorded settings have been loaded into the generate panel above, or null until one is.
+    /// Held on the page rather than in the panel so the panel stays a plain surface that a parent can seed.
+    /// </summary>
+    private DreamGenClone.Web.Application.RolePlay.ImageStep.ImageGenerationDraft? _draft;
+
+    /// <summary>
+    /// Loads one image's own settings back into the generator: the prompt it rendered, the model, the size, the seed
+    /// and the references it carried.
+    ///
+    /// <para>
+    /// Read from the image ROW, not from its queue payload: a completed job's payload is gone, and for an image that
+    /// succeeded the row is the authoritative record of how it was made. Nothing is invented for a field the row never
+    /// recorded - the panel names what it could not restore instead.
+    /// </para>
+    /// </summary>
+    private void LoadIntoGenerator(SceneAssetImage image)
+    {
+        _draft = DreamGenClone.Web.Application.RolePlay.ImageStep.ImageGenerationDraft.FromImage(image);
+        _message = _draft.HasAnythingToLoad
+            ? $"Loaded image {image.Id[..Math.Min(8, image.Id.Length)]}… into the generator."
+            : $"Image {image.Id[..Math.Min(8, image.Id.Length)]}… recorded nothing that can be loaded.";
+    }
 
     /// <summary>
     /// Deletes one image. The service refuses an image that is IN USE as a reference image, and its message is shown

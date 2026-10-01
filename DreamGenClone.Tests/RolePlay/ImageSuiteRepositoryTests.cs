@@ -28,7 +28,7 @@ public sealed class ImageSuiteRepositoryTests
         Kind = ImageSuiteKind.Qualification,
         Status = ImageSuiteStatus.Draft,
         Description = "the model-agnostic position catalog",
-        Provenance = "seeded from specs/image-generator-tests/baseline/manifest.json",
+        Provenance = "test fixture",
     };
 
     private static ImageSuiteCell ValidCell(string suiteId, int ordinal) => new()
@@ -80,16 +80,30 @@ public sealed class ImageSuiteRepositoryTests
     }
 
     [Fact]
-    public void ACellWithoutUserDirectionIsRefused()
+    public void ACellValidationEnforcesIdentityNotContent()
     {
-        // The point of a cell is that it carries an input the compiler must handle. Without one there is nothing to
-        // compile, so it could not test the compiler even if it rendered.
+        // A catalog cell carries one prompt per MODEL and may have no user direction at all. Requiring one here meant
+        // an agent-authored catalog could not be imported because it lacked a field only the COMPILER needs - and the
+        // images were never made. Identity is what the store enforces; content gaps are reported on the cell.
         var cell = ValidCell("suite-1", 0);
-        cell.UserDirection = "  ";
+        cell.UserDirection = string.Empty;
+        cell.ExpectedPrompt = string.Empty;
+        cell.SimilarityTolerance = null;
 
-        var error = Assert.Throws<InvalidOperationException>(() => ImageSuiteValidation.Validate(cell));
+        ImageSuiteValidation.Validate(cell);
 
-        Assert.Contains("user direction", error.Message, StringComparison.OrdinalIgnoreCase);
+        // Identity is still required.
+        var unnamed = ValidCell("suite-1", 0);
+        unnamed.Name = "  ";
+        Assert.Throws<InvalidOperationException>(() => ImageSuiteValidation.Validate(unnamed));
+
+        var withoutSuite = ValidCell("suite-1", 0);
+        withoutSuite.SuiteId = string.Empty;
+        Assert.Throws<InvalidOperationException>(() => ImageSuiteValidation.Validate(withoutSuite));
+
+        var negativeOrdinal = ValidCell("suite-1", 0);
+        negativeOrdinal.Ordinal = -1;
+        Assert.Throws<InvalidOperationException>(() => ImageSuiteValidation.Validate(negativeOrdinal));
     }
 
     // ---- the store -----------------------------------------------------------------------------------------
@@ -198,6 +212,29 @@ public sealed class ImageSuiteRepositoryTests
     }
 
     [Fact]
+    public async Task ACatalogCellWithNoCompilerInputStillPersists()
+    {
+        // The import path depends on this: a manifest position with no userInput becomes a cell that can still be
+        // rendered from its per-model variants.
+        var dbPath = NewDbPath();
+        var repository = NewRepository(dbPath);
+
+        var suite = ValidSuite();
+        await repository.UpsertSuiteAsync(suite);
+
+        var cell = ValidCell(suite.Id, 0);
+        cell.UserDirection = string.Empty;
+        cell.ExpectedPrompt = string.Empty;
+        cell.VariantsJson = """{"biglust":"Photorealistic explicit sex scene, cowgirl position."}""";
+
+        await repository.UpsertCellAsync(cell);
+
+        var stored = Assert.Single(await NewRepository(dbPath).ListCellsAsync(suite.Id));
+        Assert.Equal(string.Empty, stored.UserDirection);
+        Assert.Contains("cowgirl position", stored.VariantsJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task WritingAnInvalidCellDoesNotPersistIt()
     {
         var dbPath = NewDbPath();
@@ -207,7 +244,7 @@ public sealed class ImageSuiteRepositoryTests
         await repository.UpsertSuiteAsync(suite);
 
         var cell = ValidCell(suite.Id, 0);
-        cell.UserDirection = string.Empty;
+        cell.Ordinal = -1;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => repository.UpsertCellAsync(cell));
 

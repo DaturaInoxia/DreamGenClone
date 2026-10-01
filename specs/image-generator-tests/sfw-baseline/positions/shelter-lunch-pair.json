@@ -1,0 +1,28 @@
+{
+  "id": "shelter-lunch-pair",
+  "title": "Rest shelter — two sharing lunch",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Becky and Ken sitting on the shelter bench sharing a sandwich",
+  "expected": "A photorealistic photograph of one adult woman and one adult man sitting side by side on the plank bench inside a low open-fronted timber shelter, a wrapped sandwich open between them and a water bottle at each hip. She sits with one knee up turned slightly toward him, he leans back against the wall with his cap pushed up. Grey weathered timber, mossy shake roof, leaves on the plank floor, the grass clearing in front, mid-afternoon light under the roof edge. Full body shot at eye level from the open front, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman and one adult man sitting side by side on the plank bench of a low open-fronted timber shelter, a sandwich opened between them and a water bottle at each hip, she turned slightly toward him with a knee up, he leaning back with his cap pushed up, grey timber and a mossy shake roof, leaves on the floor, clearing in front, afternoon light, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman and one adult man sitting side by side on the plank bench inside a low open-fronted wooden rest shelter, sharing a paper-wrapped sandwich opened out between them with a water bottle at each hip. She has wavy auburn hair and sits with one knee drawn up, turned slightly toward him; he leans back against the shelter wall with his cap pushed up off his forehead. Both are dressed for hiking. The shelter is weathered grey timber with a mossy shake roof and leaves blown across the plank floor, and the grass clearing opens out in front of them. Mid-afternoon light rakes in under the roof edge. Full body shot at eye level from the open front, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman and one adult man seated side by side on the plank bench of a low open-fronted timber shelter: a sandwich is opened between them and a water bottle sits at each hip, she sits with one knee up and her body angled toward him, and he leans back against the wall with his cap pushed up. Both in hiking clothes. Weathered grey timber, a slanted shake roof with moss in the shingles, dried leaves on the plank floor, the rest stop's grass clearing in front. Full body, eye level from the shelter front, mid-afternoon light under the roof edge, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 1boy, 2people, female, male, auburn hair, cap, hiking clothes, sitting, sitting on bench, sharing food, sandwich, water bottle, wooden shelter, plank bench, shake roof, clearing, afternoon light, full body, front view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman and one adult man sitting side by side on the plank bench of a low open-fronted timber rest shelter, a paper-wrapped sandwich opened flat between them and a water bottle standing at each of their hips. She has shoulder-length wavy auburn hair, wears shorts and a light t-shirt, and sits with one knee drawn up and her body angled toward him as she picks at the sandwich. He wears a cap pushed up off his forehead and leans back against the shelter's solid wall, one boot flat on the floor. The shelter around them is grey weathered timber, the shake roof slopes low with moss caught in the shingles, and dried leaves have blown across the plank floor. The cropped grass clearing opens out in front and thickets close in behind it. Mid-afternoon sun rakes in under the roof edge across their legs. Full body shot at eye level from the open front, 35mm lens, sharp focus on the two of them.",
+    "flux": "Photorealistic photograph of two adults sharing lunch in a timber shelter. Primary subjects: a woman with wavy auburn hair sitting with one knee drawn up and her body turned toward a man in a cap who leans back against the wall, a sandwich opened between them and a water bottle at each hip. Action: sitting together eating, mid-conversation. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a low open-fronted shelter of weathered grey timber with a mossy shake roof, leaves on the plank floor, a grass clearing behind them. Camera: full body, eye level, from the shelter's open front in afternoon light.",
+    "qwen-edit-2511": "Change only who is in frame: keep the same shelter, bench and light, and place both a woman with wavy auburn hair and a man in a cap on the bench side by side sharing the sandwich, each a separate seated figure. Keep the sandwich, the water bottles, the timber and the clearing exactly unchanged.",
+    "qwen-image-2.1-edit": "Add a man to this bench beside her, in a cap and hiking clothes, leaning back against the shelter wall, so the two share the sandwich side by side as two distinct people. Preserve her face, hair, identity, clothing, her seated pose and the shelter exactly as they are."
+  },
+  "settings": {
+    "seed": 40105,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

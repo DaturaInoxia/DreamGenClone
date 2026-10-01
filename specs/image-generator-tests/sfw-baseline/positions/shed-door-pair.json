@@ -1,0 +1,28 @@
+{
+  "id": "shed-door-pair",
+  "title": "Maintenance shed — he carries the can, she holds the door",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Ken carrying a gas can out of the shed while Becky holds the door open",
+  "expected": "A photorealistic photograph of one adult man and one adult woman at a rusted corrugated metal shed in the late afternoon: the man steps out through the open doorway carrying a red gas can in one hand, and the woman stands to the side holding the door open with one hand. Two clearly separate figures on the gravel apron, deep shade under the tree line, a workbench and tools in shadow inside, low warm light across the gravel. Full body shot at eye level from a few paces back, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult man and one adult woman at a rusted corrugated metal shed in the late afternoon: he steps out through the doorway carrying a red gas can in one hand, she stands to the side holding the door open with one hand, two separate figures on the gravel apron, shade under the tree line, tools in shadow inside, low warm light, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult man and one adult woman at a rusted corrugated metal shed at the edge of a tree line in the late afternoon. The man steps out through the open doorway carrying a red gas can in one hand with his shoulder turned to the light; the woman stands to the side with one hand flat on the door holding it wide open, her weight on one hip. Clear space separates the two figures. She wears jeans and a t-shirt, he wears a jacket with the sleeves rolled and work gloves. Inside the shed a workbench and hand tools sit in deep shadow, and low warm light rakes across the gravel apron at their feet. Full body shot at eye level from a few paces back, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of two separate adults at a maintenance shed in the late afternoon: a man stepping out through the doorway with a red gas can in one hand, a woman to the side holding the door wide with one flat hand. Rusted corrugated panels, gravel apron, a workbench and tools in shadow inside, deep shade under the trees, low warm light across the gravel. Full body, eye level a few paces back, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 1boy, 2people, female, male, auburn hair, t-shirt, jeans, jacket, work gloves, carrying gas can, holding door open, standing in doorway, maintenance shed, metal shed, corrugated walls, rust, workbench, tools, gravel, tree line, late afternoon light, two separate people, full body, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult man and one adult woman at a rusted corrugated metal maintenance shed at the edge of a tree line in the late afternoon. The man is stepping out through the open double doorway with a red gas can carried in one hand, his shoulder turned into the light and his boots already on the gravel. The woman stands to one side with one hand flat against the door panel, holding it wide, her weight settled on one hip. Clear open gravel separates the two figures. She wears jeans and a t-shirt, he wears a jacket with the sleeves rolled and work gloves. Inside the shed a workbench and a shelf of hand tools sit in deep shadow, and low warm late-afternoon light rakes across the gravel apron at their feet, throwing their shadows long behind them. Full body shot at eye level from a few paces back, 35mm lens, sharp focus on both figures and the shed.",
+    "flux": "Photorealistic photograph of two adults at a maintenance shed. Primary subjects: a man in a rolled-sleeve jacket and work gloves stepping out through the doorway carrying a red gas can in one hand, and a woman in jeans and a t-shirt standing to the side holding the door wide open with one flat hand, both clearly separate. Action: leaving the shed, one carrying, one holding the door. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a rusted corrugated metal shed at a tree line with a gravel apron, a workbench and tools in shadow inside, low warm late-afternoon light. Camera: full body, eye level, a few paces back.",
+    "qwen-edit-2511": "Change only who is in frame: keep the shed, the open door and the light, and place a man stepping out through the doorway with a red gas can in one hand while she stands to the side holding the door, both clearly separate. Keep her face, hair, identity, clothing, her pose at the door and the shed exactly unchanged.",
+    "qwen-image-2.1-edit": "Add a man to the doorway stepping out with a red gas can in one hand, while she stands to the side holding the door open, the two of them clearly separate people. Preserve her face, hair, identity, clothing, pose and the shed exactly as they are."
+  },
+  "settings": {
+    "seed": 40132,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

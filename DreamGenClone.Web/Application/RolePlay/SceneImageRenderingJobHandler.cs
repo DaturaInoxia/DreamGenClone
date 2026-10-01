@@ -170,7 +170,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
             if (characterLoras.Count > 0)
             {
                 resolved = resolved with { Loras = characterLoras };
-                injectedPrompt = PrependCharacterLoraTokens(injectedPrompt, characterLoras);
+                injectedPrompt = CharacterLoraPromptTokens.Prepend(injectedPrompt, characterLoras);
             }
 
             // Permanent observability: record the EXACT payload the app submits to ComfyUI so the
@@ -861,19 +861,6 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                 "This render selects character LoRA(s), but the character LoRA resolver is not available, so the "
                 + "selected identity cannot be applied. Rendering without it would produce a different person.");
         return await resolver.ResolveAsync(resolved, settings, cancellationToken);
-    }
-
-    /// <summary>
-    /// States each character's trigger token in the prompt so the LoRA actually binds to them. Without the token
-    /// the graph would happily load the LoRA and render a stranger — a failure indistinguishable from success.
-    /// Order follows the chain, so a multi-character frame names each character in the order its LoRA is applied.
-    /// </summary>
-    private static string PrependCharacterLoraTokens(
-        string prompt,
-        IReadOnlyList<ResolvedCharacterLora> loras)
-    {
-        var tokens = string.Join(", ", loras.Select(lora => lora.TriggerToken.Trim()));
-        return tokens.Length == 0 ? prompt : $"{tokens}, {prompt}";
     }
 
     private static SceneImageStudioSettings? ReadStudioSettings(string? settingsJson)

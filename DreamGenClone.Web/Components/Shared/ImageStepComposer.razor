@@ -54,12 +54,12 @@
            selected model declares and qualifies the Lora strategy, so a model that carries identity another way
            shows nothing here and keeps that mechanism exactly as it was.
 
-           It also requires the host to have somewhere to PUT the value (CharacterLorasChanged). A host that has not
-           adopted LoRA selection therefore shows no picker at all, rather than a control that looks usable, accepts
-           an entry, and quietly loses it — a dead control is worse than an absent one. Deliberately not shown on the
-           LoRA dataset workspace either, where rendering training cells WITH the LoRA being trained would be
-           circular. *@
-        @if (CarriesLora && CharacterLorasChanged.HasDelegate)
+           It also requires the host to have somewhere to PUT the value (CharacterLorasChanged) AND the step kind to
+           offer it at all (ImageStepProfile, which is where that decision belongs now instead of in each host). A host
+           that has not adopted LoRA selection therefore shows no picker, rather than a control that looks usable,
+           accepts an entry, and quietly loses it — a dead control is worse than an absent one. The LoRA training cell
+           does not offer it BY KIND, because rendering training cells WITH the LoRA being trained would be circular. *@
+        @if (OffersCharacterLoras)
         {
             <div class="mt-3">
                 <CharacterLoraPicker ModelIdentifier="@SelectedChoice!.ModelIdentifier"
@@ -83,7 +83,7 @@
                    tab labels carry the state (required and unbound, or bound) so the work still shows without opening
                    each tab. *@
                 <ul class="nav nav-tabs">
-                    @foreach (var slot in Blueprint.Slots)
+                    @foreach (var slot in OfferedSlots)
                     {
                         var tabKey = SlotKey(slot);
                         var tabBinding = BindingFor(slot);
@@ -105,7 +105,7 @@
                 </ul>
 
                 <div class="border border-top-0 rounded-bottom p-2">
-                    @foreach (var slot in Blueprint.Slots)
+                    @foreach (var slot in OfferedSlots)
                     {
                         var key = SlotKey(slot);
                         var binding = BindingFor(slot);
@@ -248,7 +248,7 @@
                 </div>
             </div>
         }
-        else
+        else if (SelectedChoice is not null)
         {
             @* A structurally different surface, not a disabled one: this model has no reference slots, so the prompt
                carries every element and there is nothing to bind. *@
@@ -259,7 +259,7 @@
             </div>
         }
 
-        @if (HasPresets)
+        @if (OffersPresets)
         {
             @* B-133. Lighting and expression are prompt-side conditions, not reference slots, so they sit beside the slot
                tabs rather than among them. The HOST supplies the condition this step is planned for (a LoRA cell's plan
@@ -312,7 +312,7 @@
                                RefineInstruction="@RefineInstruction" RefineInstructionChanged="RefineInstructionChanged"
                                Bindings="@Bindings" GeneratedForSignature="@_generatedForSignature"
                                DraftedFromBindings="@_draftedFromBindings" OmittedElements="@OmittedElementLabels"
-                               Busy="@Busy" OnGenerate="GeneratePromptAsync" OnRefine="OnRefinePrompt" />
+                               Busy="@Busy" OnGenerate="CompilePromptCallback" OnRefine="OnRefinePrompt" />
                 @if (!string.IsNullOrWhiteSpace(PromptError))
                 {
                     <div class="alert alert-danger py-2 small mt-2 mb-0">@PromptError</div>
@@ -490,6 +490,40 @@
     /// <summary>Where the host's own condition came from, shown beside the picker (e.g. "from this cell's plan").</summary>
     [Parameter]
     public string? PresetNote { get; set; }
+
+    /// <summary>
+    /// What this STEP KIND offers, read from the one table that decides it. The composer derives it from the blueprint
+    /// the host already supplies, so no host has to state it and no host can disagree with another about what a
+    /// composition step is.
+    /// </summary>
+    private ImageStepProfile Profile => ImageStepProfile.ForKind(Blueprint.StepKind);
+
+    /// <summary>
+    /// The LoRA picker appears when the KIND offers it AND the host has somewhere to put the value AND the selected
+    /// model can actually carry one. The kind decides, the host supplies, the model gates - three different questions
+    /// that used to be one, with the host answering all three.
+    /// </summary>
+    private bool OffersCharacterLoras =>
+        Profile.Allows(ImageStepFeature.CharacterLoras) && CarriesLora && CharacterLorasChanged.HasDelegate;
+
+    /// <summary>The presets appear when the KIND offers them and the host has loaded choices to offer.</summary>
+    private bool OffersPresets => Profile.Allows(ImageStepFeature.Presets) && HasPresets;
+
+    /// <summary>
+    /// The callback the prompt panel is given for its Generate Prompt button.
+    ///
+    /// <para>
+    /// Handing the panel a delegate UNCONDITIONALLY (which is what this did) put the button on every host that showed
+    /// a prompt panel, including hosts with no compile path at all - where pressing it recorded staleness bookkeeping
+    /// and then did nothing. The panel's own rule is that a button which does nothing is worse than no button, so the
+    /// button now needs the step KIND to offer a compile path AND the host to have supplied one.
+    /// </para>
+    /// </summary>
+    private EventCallback CompilePromptCallback =>
+        Profile.Allows(ImageStepFeature.CompilePrompt) && OnGeneratePrompt.HasDelegate
+            // Built explicitly rather than relying on a method-group conversion: a ternary has no target type to infer.
+            ? new EventCallback(this, (Func<Task>)GeneratePromptAsync)
+            : default;
 
     /// <summary>True when this step has presets to offer at all.</summary>
     private bool HasPresets => PresetChoices is { Count: > 0 };
@@ -748,6 +782,24 @@
             ? $"{binding.Kind ?? binding.ElementKey}: {source}"
             : $"{binding.Kind ?? binding.ElementKey} for {binding.ActorKey}: {source}";
     }
+
+    /// <summary>
+    /// The slots this step actually SHOWS: the ones the selected model can serve, plus any that already carry a
+    /// binding.
+    ///
+    /// <para>
+    /// D3 says a capability the model does not have is ABSENT rather than disabled, and that applies to the slot's
+    /// TAB and not only to the pickers inside it. A slot the model can offer no strategy for is a tab that opens onto
+    /// nothing usable - the operator can only conclude the feature is broken, and on some routes binding anyway
+    /// produces a render the handler then refuses. A bound slot is always shown regardless, because a binding the
+    /// operator cannot see is a binding they cannot clear.
+    /// </para>
+    /// </summary>
+    private IReadOnlyList<ImageStepSlotBlueprint> OfferedSlots =>
+        Blueprint.Slots.Where(IsSlotOffered).ToList();
+
+    private bool IsSlotOffered(ImageStepSlotBlueprint slot) =>
+        BindingFor(slot) is not null || StrategiesForSlot(slot).Any(CarriesAStrategy);
 
     /// <summary>
     /// The strategies to offer for a slot: what the slot means, intersected with what the model can execute. Both

@@ -1,0 +1,28 @@
+{
+  "id": "flash-pulled-down-top",
+  "title": "Flash — top pulled down, bare breasts",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "She pulls her top and bra down to flash her tits at the camera",
+  "expected": "A photorealistic explicit photograph of one adult woman standing and pulling her t-shirt and bra down beneath her breasts so both bare breasts are exposed, looking straight at the camera with a wicked grin, medium shot at eye level, correct female anatomy with natural breasts and nipples, natural skin texture, indoor daylight, 35mm, sharp focus.",
+  "neutralScene": "One adult woman standing indoors, having pulled her t-shirt and bra down under her breasts so both bare breasts are exposed, looking directly at the camera with a grin, medium shot at eye level, correct anatomy, natural breasts and skin texture, soft daylight, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic explicit photograph of one adult woman standing indoors in jeans, having pulled her t-shirt and bra down beneath her breasts so both bare breasts are fully exposed with visible nipples. She looks straight at the camera with a wicked grin and her shoulders are squared to the lens. Medium shot from eye level. Correct female anatomy, natural full breasts, natural body proportions, unretouched skin texture, soft daylight, 35mm lens, sharp focus, highly detailed.",
+    "juggernaut": "A photorealistic explicit photograph of one adult woman standing in a room: she has pulled her t-shirt and bra down under her breasts so that both bare breasts are exposed with the nipples visible, and she looks directly at the camera with a mischievous grin. Medium shot at eye level, shoulders square to the lens. Correct female anatomy with natural breasts and unretouched skin, natural body proportions. Soft indoor daylight, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl, female, clothes pulled down, shirt lifted, bra pulled down, breasts out, nipples, bare breasts, cleavage, jeans, standing, grinning, looking at viewer, medium shot, front view, eye level, indoor, daylight, sharp focus",
+    "qwen-image-2.1": "A photorealistic explicit photograph of one adult woman standing indoors, wearing faded jeans and a light t-shirt that she has dragged down with her bra so that both breasts hang free below the fabric with the nipples clearly visible. Her shoulders are squared to the camera and she looks straight into the lens with a wicked, knowing grin, one eyebrow slightly raised. She has natural full breasts and unretouched skin with visible texture and weight to the breasts. Soft daylight from a window falls across her chest and casts gentle shadow under each breast. Medium shot from eye level, 35mm lens, a blurred room behind her, sharp focus on her face and chest.",
+    "flux": "Photorealistic explicit photograph of one adult woman flashing the camera indoors. Primary subject: a woman with natural full breasts wearing faded jeans and a light t-shirt pulled down beneath her breasts along with her bra, both bare breasts fully exposed with nipples visible. Action: standing with her shoulders square to the lens, looking straight at the camera with a wicked grin. Critical style: explicit, photorealistic, 35mm, natural breasts and unretouched skin texture, sharp focus. Context: an indoor room with soft daylight through a window, blurred furniture behind her. Camera: medium shot, eye level.",
+    "qwen-edit-2511": "Change the clothing action: pull her t-shirt and bra down beneath her breasts so both bare breasts are exposed with the nipples visible, and turn her to face the camera squarely with a wicked grin. Keep her face, hair, identity, jeans, body proportions and the room lighting exactly unchanged.",
+    "qwen-image-2.1-edit": "Pull her top and bra down under her breasts to expose both bare breasts with visible nipples, and have her face the camera with a mischievous grin. Preserve her face, hair, identity, body proportions, the jeans and the indoor lighting exactly as they are."
+  },
+  "settings": {
+    "seed": 30104,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

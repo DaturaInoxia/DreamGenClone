@@ -1,0 +1,28 @@
+{
+  "id": "sfw-standing-casual",
+  "title": "SFW — standing, casual",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "A woman standing around in a t-shirt and jeans, just hanging out",
+  "expected": "A photorealistic photograph of one adult woman standing casually in a plain t-shirt and jeans, weight settled on one hip with her hands loose at her sides, looking at the camera with a relaxed half-smile, medium shot from eye level, natural daylight from a window, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman standing in a plain t-shirt and jeans, weight on one hip, hands loose, relaxed expression, medium shot at eye level, natural window light, correct anatomy, natural body proportions and skin texture, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman standing in a plain t-shirt and jeans, weight settled on one hip, hands loose at her sides, looking at the camera with a relaxed half-smile. She has natural body proportions and unretouched skin. Medium shot from eye level, soft natural daylight from a window behind the camera, 35mm lens, sharp focus, highly detailed.",
+    "juggernaut": "A photorealistic photograph of one adult woman standing casually in a plain t-shirt and blue jeans: her weight is settled on one hip, her hands rest loose at her sides, and she looks at the camera with a relaxed half-smile. Medium shot at eye level. Natural unretouched skin, natural body proportions, correct anatomy. Soft daylight from a window, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, female, casual clothes, t-shirt, jeans, standing, one hip out, hands at sides, relaxed smile, looking at viewer, medium shot, front view, eye level, indoor, daylight, window light, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman standing in a plainly lit room, wearing a loose grey t-shirt and faded blue jeans. Her weight is settled onto one hip, her arms hang loose at her sides, and she looks straight at the camera with a relaxed half-smile. She has natural body proportions and unretouched skin with visible texture. Soft daylight comes through a window behind the camera and falls evenly across her. Medium shot from eye level, 35mm lens, shallow depth of field, a blurred room behind her, sharp focus on her.",
+    "flux": "Photorealistic photograph of one adult woman standing in a room. Primary subject: a woman with natural body proportions wearing a loose grey t-shirt and faded blue jeans, her weight settled on one hip and her arms loose at her sides. Action: standing still, looking at the camera with a relaxed half-smile. Critical style: photorealistic, 35mm, natural unretouched skin texture, sharp focus. Context: a plainly furnished room with soft daylight from a window behind the camera. Camera: medium shot, eye level.",
+    "qwen-edit-2511": "Change only her pose: move her weight onto one hip and let her arms hang loose at her sides, with a relaxed half-smile toward the camera. Keep her face, hair, identity, the t-shirt and jeans, the room and the window light exactly unchanged.",
+    "qwen-image-2.1-edit": "Adjust her stance so her weight settles on one hip with her arms loose at her sides, and give her a relaxed half-smile toward the camera. Preserve her face, hair, identity, clothing, the room behind her and the daylight exactly as they are."
+  },
+  "settings": {
+    "seed": 30101,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

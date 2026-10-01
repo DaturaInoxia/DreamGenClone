@@ -1,0 +1,28 @@
+{
+  "id": "bathroom-sink-alone",
+  "title": "Camp bathrooms — washing hands at the sinks",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Becky washing her hands at the sinks in the old bathroom, seen in the mirror",
+  "expected": "A photorealistic photograph of one adult woman standing at a long row of sinks in an older restroom, washing her hands under the tap, seen from behind over her shoulder so both her back and her face in the long mirror are visible. Pale green tiles with grey grout, four stalls along the opposite wall with a gap under the partitions, paper towel on the tile floor, high window light and echo. Full body shot at eye level from behind her, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman standing at a long row of sinks in an older restroom washing her hands, seen from behind with her face visible in the long mirror ahead of her, pale green tiles and grey grout, four stalls with a gap under the partitions, paper towel on the floor, high window light, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman standing at a long row of porcelain sinks in an older restroom, washing her hands under a running tap, photographed from behind so her back and her reflected face in the long mirror are both in frame. She wears jeans and a plain t-shirt with her hair tied back. The room is pale green tile with grout gone grey, four stalls along the opposite wall with a gap under the partitions, paper towel scattered on the tile floor, and a high window letting in flat light. Full body shot at eye level from behind her, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman at the sinks of an older restroom, washing her hands, seen from behind with her face doubled in the long mirror: pale green tile walls, grey grout, four stalls across the room with a gap at the bottom of the partitions, paper towel on the floor, a hand dryer on the wall, flat light from a high window. Full body, eye level from behind her, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, female, mature female, auburn hair, tied back hair, t-shirt, jeans, standing, washing hands, sink, row of sinks, mirror, reflection, bathroom, public restroom, tile wall, stall doors, from behind, back view, eye level, indoor, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman standing at a long row of porcelain sinks in an older public restroom, washing her hands under a running tap, photographed from behind so that her back fills the lower frame and her face is doubled in the long mirror on the wall ahead of her. She wears jeans and a plain t-shirt, her hair tied back off her neck. The room is pale green tile with grout gone grey, four stall partitions along the opposite wall with a wide gap under them, paper towel scattered across the tile floor, and a high narrow window that lets in flat even light with nothing warm in it. The space is echoing and empty apart from her. Full body shot at eye level from behind her, 35mm lens, sharp focus on her reflection and the sink row.",
+    "flux": "Photorealistic photograph of one adult woman washing her hands in a public restroom. Primary subject: a woman with tied-back auburn hair in jeans and a plain t-shirt standing at a long row of sinks, her face visible in the long mirror ahead of her. Action: washing her hands under a running tap, seen from behind. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: an older restroom in pale green tile with grey grout, four stalls with a gap under the partitions, paper towel on the floor, flat light from a high window. Camera: full body, eye level, from behind her.",
+    "qwen-edit-2511": "Change only the lighting: restage the same restroom at night with a single fluorescent strip over the sinks, so the high window goes dark and the tile reflects the tube instead of daylight. Keep her face, hair, identity, clothing, her pose at the sink and the room exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the room at night: the window is dark, one fluorescent strip lights the sinks and the tile carries a cold green cast. Preserve her face, hair, identity, clothing, pose and the restroom exactly as they are."
+  },
+  "settings": {
+    "seed": 40116,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

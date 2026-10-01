@@ -78,6 +78,16 @@
             {
                 <div class="alert alert-info py-1 small mt-2 mb-0">@_status</div>
             }
+            @if (_metadataNotDeclared.Count > 0)
+            {
+                <div class="alert alert-warning py-1 small mt-2 mb-0">
+                    <strong>@_metadataNotDeclared.Count category/categories have no pose metadata declared</strong>, so
+                    their poses carry no prompt and no reference angles:
+                    <code>@string.Join(", ", _metadataNotDeclared)</code>.
+                    Declare each one in its pack's <code>pack.json</code> — a <code>rating</code> for the pack plus a
+                    <code>categories</code> entry for the folder — then search again.
+                </div>
+            }
         </div>
     </div>
 
@@ -90,6 +100,11 @@
                 Renders one throwaway image of the picked pose and saves nothing — no session, no gallery entry. The
                 skeleton sent is the pose's <strong>own file</strong>, the same artifact the pose proofs used, so a
                 result here can be reproduced outside the app.
+                <br />
+                Picking a pose also loads <strong>its prompt</strong> (the pose, the direction it faces and the camera,
+                as its pack declares them) and resolves the character's references from <strong>the angle the pose
+                needs</strong> — the unclothed build for an NSFW pose, and no face at all for a pose shot from behind.
+                A character whose pack lacks that angle is refused by name instead of tested with a substitute.
             </span>
         </div>
         <div class="card-body">
@@ -108,6 +123,12 @@
                             }
                         </div>
                         <div class="form-text"><strong>@_testPreset.Name</strong> — this is the skeleton that will be sent.</div>
+                        <div class="small text-muted">
+                            @PoseMetadataLabels.Rating(@_testPreset.ContentRating) ·
+                            @PoseMetadataLabels.Stance(@_testPreset.Stance) ·
+                            @PoseMetadataLabels.Direction(@_testPreset.Direction) ·
+                            @PoseMetadataLabels.Camera(@_testPreset.CameraAngle)
+                        </div>
 
                         @* The render sits under the skeleton it came from, so the pair reads as one comparison instead
                            of the image landing beneath the whole composer on the far side of the card. *@
@@ -168,6 +189,12 @@
                                         <span class="form-text">@TestMechanismHint()</span>
                                     </div>
                                 </div>
+                                @if (TestReferencePlan is { } plan)
+                                {
+                                    <div class="form-text">
+                                        This pose needs <strong>@ReferenceRequirementText(plan)</strong>. @plan.Rationale
+                                    </div>
+                                }
                                 @if (!string.IsNullOrWhiteSpace(_characterError))
                                 {
                                     <div class="alert alert-warning py-1 small mt-2 mb-0">@_characterError</div>
@@ -175,8 +202,9 @@
                                 else if (_characterReference is not null)
                                 {
                                     <div class="form-text">
-                                        Conditioning on <strong>@_characterReference.Label</strong>: approved face + approved
-                                        @_characterReference.BodyLabel, sent beside the skeleton.
+                                        Conditioning on <strong>@_characterReference.Label</strong>:
+                                        @_characterReference.FaceLabel and @_characterReference.BodyLabel, sent beside
+                                        the skeleton.
                                     </div>
                                 }
                             </ChildContent>
@@ -236,8 +264,45 @@
                                 {
                                     <span class="badge text-bg-success" title="Measured to hold under the control model">known-good</span>
                                 }
+                                @* What the pose IS, as declared by its pack and checked against its own keypoints. The
+                                   rating is on the card because it decides the prompt AND which body reference the test
+                                   will load — the two things an operator would otherwise have to guess at. *@
+                                @if (preset.ContentRating == PoseContentRating.Unrated)
+                                {
+                                    <span class="badge text-bg-light border" title="@NoMetadataHint(preset)">not declared</span>
+                                }
+                                else
+                                {
+                                    <span class="badge @RatingBadgeCss(preset.ContentRating)">@PoseMetadataLabels.Rating(preset.ContentRating)</span>
+                                }
+                                @if (preset.Stance != PoseStance.Unknown)
+                                {
+                                    <span class="badge text-bg-primary">@PoseMetadataLabels.Stance(preset.Stance)</span>
+                                }
+                                @if (preset.Direction != PoseFacingDirection.Unknown)
+                                {
+                                    <span class="badge text-bg-info">@PoseMetadataLabels.Direction(preset.Direction)</span>
+                                }
+                                @if (preset.CameraAngle != PoseCameraAngle.Unknown)
+                                {
+                                    <span class="badge text-bg-dark">@PoseMetadataLabels.Camera(preset.CameraAngle)</span>
+                                }
+                                @if (preset.MetadataNeedsReview)
+                                {
+                                    <span class="badge text-bg-warning" title="@preset.MetadataReviewNote">check pose</span>
+                                }
                             </div>
                             <div class="small text-muted mt-1 text-truncate" title="@preset.Keywords">@preset.Keywords</div>
+                            @if (preset.MetadataPrompt is { Length: > 0 } cardPrompt)
+                            {
+                                <div class="small text-body-secondary mt-1" title="@cardPrompt">
+                                    <i class="bi bi-chat-left-text me-1"></i>@cardPrompt
+                                </div>
+                            }
+                            @if (preset.MetadataNeedsReview)
+                            {
+                                <div class="small text-warning-emphasis mt-1">@preset.MetadataReviewNote</div>
+                            }
                             <div class="d-grid gap-1 mt-2">
                                 <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(_busy || _testBusy)"
                                         @onclick="() => SelectForTestAsync(preset)">
@@ -267,6 +332,13 @@
     private string? _status;
     private bool _busy;
 
+    /// <summary>
+    /// Categories whose own pack declares no metadata for them, as reported by the backfill. Held so the page can NAME
+    /// them: a pose with no declaration has no prompt and no reference angles, and the fix is one block in one
+    /// pack.json — which the operator cannot write without knowing which pack and which category.
+    /// </summary>
+    private IReadOnlyList<string> _metadataNotDeclared = [];
+
     /// <summary>How many poses the library holds with NO filters. Only read when a search came back empty, because
     /// that is the only moment the difference between an empty library and an over-narrow filter matters.</summary>
     private int _totalPoses;
@@ -274,7 +346,7 @@
     /// <summary>The rig fitted onto a library pose, handed to the authoring panel as its starting point.</summary>
     private PoseRigFitResult? _loaded;
 
-    /// <summary>The preset <see cref="_loaded"/> came from, so the panel can name it and refuse to overwrite it.</summary>
+    /// <summary>The preset <see cref="_loaded"/> came from, so the panel can name it and write over the row it came from.</summary>
     private PosePreset? _loadedFrom;
 
     /// <summary>
@@ -306,30 +378,43 @@
     private IReadOnlyList<IdentityPackOwner> _characters = [];
     private string? _characterProfileId;
 
-    /// <summary>The picked character's conditioned references, resolved once per pick.</summary>
+    /// <summary>The picked character's conditioned references, resolved once per pose/character pick.</summary>
     private PoseTestCharacterReference? _characterReference;
 
     private string? _characterError;
 
-    /// <summary>A character's approved face and build, with the pack and asset ids the step's bindings need.</summary>
+    /// <summary>
+    /// A character's approved references for the POSE's angles, with the pack and asset ids the step's bindings need.
+    ///
+    /// The face is optional and its absence is a fact about the pose, not a failure to resolve: a back-facing pose
+    /// shows no face, so no face reference is resolved and none is sent. Everything else is required, and a missing
+    /// angle is reported rather than substituted.
+    /// </summary>
     private sealed record PoseTestCharacterReference(
         string Label,
         string PackId,
-        string FaceAssetId,
+        string? FaceAssetId,
         string BodyAssetId,
-        byte[] FaceBytes,
-        byte[]? BodyBytes,
-        string? BodyLabel);
+        byte[]? FaceBytes,
+        byte[] BodyBytes,
+        string FaceLabel,
+        string BodyLabel);
 
     /// <summary>
-    /// Resolves the picked character's APPROVED references for the test.
+    /// The reference images the SELECTED POSE requires, from the direction and rating its pack declares. Null until a
+    /// pose is picked, because with no pose there is nothing that could justify one angle over another.
+    /// </summary>
+    private PoseReferencePlan? TestReferencePlan =>
+        _testPreset is null ? null : PoseMetadataPrompt.ReferencePlan(_testPreset);
+
+    /// <summary>
+    /// Resolves the picked character's APPROVED references for the pose's OWN angles.
     ///
-    /// The face is the pack's first available face view (the resolver orders them in angle order, so that is the
-    /// canonical front), and the build is the approved CLOTHED FRONT - matched by state, because a clothed test
-    /// conditioned on an unclothed reference is how a clothed render comes back unclothed.
-    ///
-    /// A character with no approved face, or no approved clothed front build, is REFUSED by name rather than tested
-    /// unconditioned: a test that silently drops the character measures something the app would never render.
+    /// This used to resolve a front face and a clothed front build, whatever the pose was. That was a silent claim:
+    /// 472 of the 579 poses in this library are NSFW, so the test conditioned a naked pose on a clothed reference, and
+    /// the render came back clothed (or invented clothing) while the skeleton said otherwise. The angles now come from
+    /// the pose, and a character who cannot serve them is REFUSED by name rather than tested with a substitute — a
+    /// substitute reference measures something the app would never render.
     /// </summary>
     private async Task OnCharacterChangedAsync(string? characterProfileId)
     {
@@ -339,6 +424,7 @@
 
         if (string.IsNullOrWhiteSpace(characterProfileId))
         {
+            _testBindings = StepBindings();
             return;
         }
 
@@ -350,36 +436,61 @@
             return;
         }
 
-        var faceView = owner.FaceViews.FirstOrDefault();
-        var faceAsset = faceView == default ? null : IdentityPackReferenceResolver.ResolveFace(owner.ApprovedAssets, faceView);
-        if (faceAsset is null)
+        if (_testPreset is not { } pose || TestReferencePlan is not { } plan)
         {
             _characterError =
-                $"'{owner.DisplayName}' has no APPROVED face in its newest approved pack, so the pose cannot be tested "
-                + "on them. Approve a face reference in Character Studio, or clear the character.";
+                "Pick a pose first: which face and body references the test sends comes from what that pose needs.";
             return;
         }
 
-        var bodyAsset = IdentityPackReferenceResolver.ResolveBody(
-            owner.ApprovedAssets, SceneImageReferenceBodyView.Front, SceneImageReferenceBodyState.Clothed);
+        if (plan.BodyView is not { } bodyView || plan.BodyState is not { } bodyState)
+        {
+            _characterError = $"'{pose.Name}' cannot be tested on a character yet: {plan.Rationale}";
+            return;
+        }
+
+        // A back-facing pose shows no face, so no face reference is resolved AND none is sent. Substituting the front
+        // face here is the failure this whole path exists to avoid: it would put a face where the pose has none.
+        SceneImageReferenceAsset? faceAsset = null;
+        if (plan.FaceView is { } faceView)
+        {
+            faceAsset = IdentityPackReferenceResolver.ResolveFace(owner.ApprovedAssets, faceView);
+            if (faceAsset is null)
+            {
+                _characterError =
+                    $"'{owner.DisplayName}' has no APPROVED {PoseMetadataLabels.Direction(pose.Direction)} face, which "
+                    + $"is the angle '{pose.Name}' is shot at. Approve one in Character Studio, or clear the character.";
+                return;
+            }
+        }
+
+        var bodyAsset = IdentityPackReferenceResolver.ResolveBody(owner.ApprovedAssets, bodyView, bodyState);
         if (bodyAsset is null)
         {
+            var state = bodyState == SceneImageReferenceBodyState.Unclothed ? "unclothed" : "clothed";
             _characterError =
-                $"'{owner.DisplayName}' has no APPROVED clothed front build, so the pose cannot be tested on their "
-                + "build. Approve one in Character Studio, or clear the character.";
+                $"'{owner.DisplayName}' has no APPROVED {state} {PoseMetadataLabels.Direction(pose.Direction)} body, "
+                + $"which is what '{pose.Name}' needs (the pose is {PoseMetadataLabels.Rating(pose.ContentRating)}). "
+                + "Approve one in Character Studio, or clear the character.";
             return;
         }
 
         try
         {
+            var faceBytes = faceAsset is null ? null : await IdentityService.ReadAssetBytesAsync(faceAsset);
+
             _characterReference = new PoseTestCharacterReference(
                 Label: owner.DisplayName,
                 PackId: owner.PackId,
-                FaceAssetId: faceAsset.Id,
+                FaceAssetId: faceAsset?.Id,
                 BodyAssetId: bodyAsset.Id,
-                FaceBytes: await IdentityService.ReadAssetBytesAsync(faceAsset),
+                FaceBytes: faceBytes,
                 BodyBytes: await IdentityService.ReadAssetBytesAsync(bodyAsset),
-                BodyLabel: "approved clothed front build");
+                FaceLabel: plan.FaceView is null
+                    ? "no face reference (this pose shows no face)"
+                    : $"approved {PoseMetadataLabels.Direction(pose.Direction)} face",
+                BodyLabel: $"approved {(bodyState == SceneImageReferenceBodyState.Unclothed ? "unclothed" : "clothed")} "
+                    + $"{PoseMetadataLabels.Direction(pose.Direction)} build");
             _testNote = null;
         }
         catch (Exception exception)
@@ -421,7 +532,7 @@
         ? new ImageStepActor(profileId, _characterReference?.Label ?? profileId)
         : null;
 
-    /// <summary>The bindings for the character's own elements, from its APPROVED pack assets.</summary>
+    /// <summary>The bindings for the character's own elements, for the angle the POSE needs.</summary>
     private IReadOnlyList<ReferenceApplicationSelection> CharacterBindings()
     {
         if (_characterProfileId is not { Length: > 0 } profileId || _characterReference is not { } reference)
@@ -431,31 +542,38 @@
 
         // Face and body are ADDRESSED to the character, because both are per-character slots. The strategy is the
         // reference-image route, which is the only route that carries them beside a pose.
-        return
-        [
-            new ReferenceApplicationSelection
+        var bindings = new List<ReferenceApplicationSelection>(2);
+
+        // A pose that shows no face has no face element at all, so the step is never left holding a slot the render
+        // would have to drop.
+        if (reference.FaceAssetId is { Length: > 0 } faceAssetId)
+        {
+            bindings.Add(new ReferenceApplicationSelection
             {
                 ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Face),
-                SemanticRole = "approved identity face",
+                SemanticRole = reference.FaceLabel,
                 Kind = ImageStepSlotKind.Face.ToString(),
                 ActorKey = profileId,
                 Source = ImageStepReferenceSourceKind.IdentityPackAsset.ToString(),
                 Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
                 IdentityPackId = reference.PackId,
-                ReferenceAssetId = reference.FaceAssetId
-            },
-            new ReferenceApplicationSelection
-            {
-                ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Body),
-                SemanticRole = "approved body build reference",
-                Kind = ImageStepSlotKind.Body.ToString(),
-                ActorKey = profileId,
-                Source = ImageStepReferenceSourceKind.IdentityPackAsset.ToString(),
-                Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
-                IdentityPackId = reference.PackId,
-                ReferenceAssetId = reference.BodyAssetId
-            }
-        ];
+                ReferenceAssetId = faceAssetId
+            });
+        }
+
+        bindings.Add(new ReferenceApplicationSelection
+        {
+            ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Body),
+            SemanticRole = reference.BodyLabel,
+            Kind = ImageStepSlotKind.Body.ToString(),
+            ActorKey = profileId,
+            Source = ImageStepReferenceSourceKind.IdentityPackAsset.ToString(),
+            Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+            IdentityPackId = reference.PackId,
+            ReferenceAssetId = reference.BodyAssetId
+        });
+
+        return bindings;
     }
 
     /// <summary>
@@ -534,14 +652,28 @@
                 // before the tabs exist is not a design - the tabs ARE the feature. A character is skipped rather than
                 // chosen when it cannot serve them, so the default never lands on a roster entry the page would then
                 // refuse.
-                var defaultCharacter = _characters.FirstOrDefault(owner =>
-                    owner.FaceViews.Count > 0
-                    && IdentityPackReferenceResolver.ResolveBody(
-                        owner.ApprovedAssets, SceneImageReferenceBodyView.Front, SceneImageReferenceBodyState.Clothed)
-                        is not null);
-                if (defaultCharacter is not null && string.IsNullOrWhiteSpace(_characterProfileId))
+                // The default character is the first who can serve the POSE's own references. With no pose picked yet,
+                // the first preference is what most of this library needs — an unclothed front build with a front face
+                // (472 of the 579 poses are NSFW) — and the second is the clothed one. A character who can serve
+                // neither is simply not chosen: the page then names what is missing the moment a pose is picked,
+                // instead of defaulting to someone whose references would be silently substituted.
+                if (string.IsNullOrWhiteSpace(_characterProfileId))
                 {
-                    await OnCharacterChangedAsync(defaultCharacter.CharacterProfileId);
+                    var chosen = DefaultCharacterSearchOrder()
+                        .Select(plan => _characters.FirstOrDefault(owner => CanServe(owner, plan)))
+                        .FirstOrDefault(owner => owner is not null);
+
+                    if (chosen is not null)
+                    {
+                        await OnCharacterChangedAsync(chosen.CharacterProfileId);
+                    }
+                    else
+                    {
+                        _characterError = _characters.Count == 0
+                            ? "No character has an approved identity pack yet, so a pose can be tested on nobody."
+                            : "No character's approved pack can serve a pose's references yet (a face plus a front build, "
+                                + "clothed or unclothed), so a pose can be tested on nobody.";
+                    }
                 }
             }
             catch (Exception characters)
@@ -556,7 +688,7 @@
     }
 
     /// <summary>Selects a library pose for testing without fitting a rig onto it.</summary>
-    private Task SelectForTestAsync(PosePreset preset)
+    private async Task SelectForTestAsync(PosePreset preset)
     {
         _testPreset = preset;
         _testError = null;
@@ -567,9 +699,14 @@
         // change what this rule resolves to. A binding left over from the previous pose would hold the old artifact,
         // and the step would then (correctly) refuse to render it.
         _testBindings = StepBindings();
-        // Offered, never enforced: it stays editable in the box next to the button.
-        _testPrompt ??= PoseTestPrompts.Default;
-        return Task.CompletedTask;
+
+        // The POSE's prompt replaces whatever is in the box, on every pick. That is what makes the test comparable to
+        // the recorded pose proof: the words describe the pose that is about to be rendered, including the two things
+        // a skeleton cannot say — which way the figure faces and where the camera sits.
+        _testPrompt = preset.MetadataPrompt is { Length: > 0 } posePrompt ? posePrompt : PoseTestPrompts.Default;
+
+        // The references follow the pose, so the character's angles are re-resolved against what this pose needs.
+        await OnCharacterChangedAsync(_characterProfileId);
     }
 
     /// <summary>True only when a pose is selected, the selected model can carry a pose, AND the step still sends that
@@ -603,6 +740,71 @@
                 + "pose from the library grid to change what is tested.";
 
         return null;
+    }
+
+    /// <summary>
+    /// The reference plans the default character is chosen against, most-preferred first: the selected pose's own
+    /// plan when a pose is picked, otherwise an unclothed front build (the first preference, because most of this
+    /// library is NSFW) and then a clothed one.
+    /// </summary>
+    private IReadOnlyList<PoseReferencePlan> DefaultCharacterSearchOrder()
+    {
+        if (TestReferencePlan is { } selected) return [selected];
+
+        return
+        [
+            new PoseReferencePlan(
+                SceneImageReferenceFaceView.Front,
+                SceneImageReferenceBodyView.Front,
+                SceneImageReferenceBodyState.Unclothed,
+                "the first preference: an unclothed front build"),
+            new PoseReferencePlan(
+                SceneImageReferenceFaceView.Front,
+                SceneImageReferenceBodyView.Front,
+                SceneImageReferenceBodyState.Clothed,
+                "the second preference: a clothed front build")
+        ];
+    }
+
+    /// <summary>True when the character's approved pack can serve every reference the plan asks for.</summary>
+    private static bool CanServe(IdentityPackOwner owner, PoseReferencePlan plan)
+    {
+        if (plan.BodyView is not { } view || plan.BodyState is not { } state) return false;
+        if (IdentityPackReferenceResolver.ResolveBody(owner.ApprovedAssets, view, state) is null) return false;
+
+        return plan.FaceView is not { } face
+            || IdentityPackReferenceResolver.ResolveFace(owner.ApprovedAssets, face) is not null;
+    }
+
+    /// <summary>The rating badge's colour, so NSFW is not the same grey as everything else on the card.</summary>
+    private static string RatingBadgeCss(PoseContentRating rating) =>
+        rating == PoseContentRating.Nsfw ? "text-bg-danger" : "text-bg-success";
+
+    /// <summary>What to tell the operator about a pose whose pack declares nothing about it.</summary>
+    private static string NoMetadataHint(PosePreset preset) =>
+        $"This pose's pack declares no metadata for '{preset.Category}', so it has no prompt and no reference angles. "
+        + "Add a \"rating\" and a \"categories\" entry to the pack's pack.json (see pose-packs/README.md).";
+
+    /// <summary>
+    /// The references the pose needs, in one line, so the operator sees what will be loaded BEFORE pressing the button.
+    /// Every "not declared" is named as such rather than dressed up as a value.
+    /// </summary>
+    private static string ReferenceRequirementText(PoseReferencePlan plan)
+    {
+        if (plan.BodyView is not { } bodyView)
+        {
+            return "no reference angles (its pack declares no direction)";
+        }
+
+        var state = plan.BodyState switch
+        {
+            SceneImageReferenceBodyState.Unclothed => "unclothed",
+            SceneImageReferenceBodyState.Clothed => "clothed",
+            _ => "state not declared"
+        };
+
+        var body = $"{bodyView} body ({state})";
+        return plan.FaceView is { } faceView ? $"{faceView} face + {body}" : $"{body}, no face";
     }
 
     /// <summary>
@@ -708,6 +910,7 @@
         try
         {
             await EnsureBundledPackAsync();
+            await EnsurePoseMetadataAsync();
             _libraries = await LibraryService.ListLibrariesAsync();
             _categories = await LibraryService.ListCategoriesAsync();
             _results = await LibraryService.SearchAsync(new PoseLibraryQuery(_keyword, _category, _libraryId));
@@ -748,6 +951,34 @@
         catch (Exception ex)
         {
             _error = $"The bundled pose pack could not be imported: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Fills in pose metadata for rows imported before it existed — the packs shipped first, metadata second — and
+    /// writes nothing when every row already has it, which is why it can run on every search instead of once.
+    ///
+    /// A category a pack declares nothing for is NAMED rather than passed over: it is a state the operator can fix in
+    /// that pack's pack.json, and the alternative it produces — a pose with no wording and no reference angles — is the
+    /// failure this whole path exists to prevent. The backfill never overwrites metadata that is already stored, so an
+    /// edited prompt survives it.
+    /// </summary>
+    private async Task EnsurePoseMetadataAsync()
+    {
+        try
+        {
+            var filled = await LibraryImporter.EnsureMetadataAsync();
+            _metadataNotDeclared = filled.NotDeclared;
+
+            if (filled.Filled > 0)
+            {
+                _status = $"Filled in pose metadata for {filled.Filled} pose(s) imported before it existed — each now "
+                    + "has a rating, a stance, a camera angle and a prompt.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Pose metadata could not be filled in: {ex.Message}";
         }
     }
 
@@ -806,7 +1037,7 @@
                 _loaded = null;
                 _loadedFrom = preset;
                 _status = $"Opened '{preset.Name}' as a head pose: it carries a face and no body, so the Head step turns "
-                    + "the head itself. Saving adds a new pose and leaves this one alone.";
+                    + "the head itself. Save writes your changes over it; Save As makes a new pose.";
                 return Task.CompletedTask;
             }
 
@@ -828,7 +1059,7 @@
             _loadedFrom = preset;
 
             _status = $"Fitted the rig onto '{preset.Name}': {fitted.MeanErrorPercentOfHeight:0.0}% mean joint error. "
-                + "Edit it in the panel above — saving adds a new pose and leaves this one alone.";
+                + "Edit it in the panel above — Save writes your changes over it, Save As makes a new pose.";
         }
         catch (Exception ex)
         {

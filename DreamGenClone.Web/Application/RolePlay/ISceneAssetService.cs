@@ -87,6 +87,20 @@ public sealed record SceneAssetImageGenerationOptions
 
     /// <summary>A canonical angle rendered from an accepted body image, or null for a render that starts from text.</summary>
     public SceneAssetBodyAngleConditioning? BodyAngle { get; init; }
+
+    /// <summary>
+    /// The sampler seed to render with, or null to draw a fresh one. Null asks for a NEW result; a pinned value asks
+    /// for a repeatable one. Whichever is used is recorded on the image, so a result worth keeping can be reproduced
+    /// after the fact even when it was discovered by accident.
+    /// </summary>
+    public long? Seed { get; init; }
+
+    /// <summary>
+    /// The character LoRA(s) this render selects, or null for none. They travel on the resolved MODEL, which is the
+    /// same channel the studio's render uses, so the ComfyUI client injects one LoraLoader chain either way and the two
+    /// paths cannot disagree about which LoRAs a render carried.
+    /// </summary>
+    public IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageCharacterLoraSelection>? CharacterLoras { get; init; }
 }
 
 /// <summary>/// Orchestration surface for the app-wide asset library (Asset Studio). Creates assets by prompt or

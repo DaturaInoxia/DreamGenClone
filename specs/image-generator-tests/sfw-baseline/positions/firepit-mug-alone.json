@@ -1,0 +1,28 @@
+{
+  "id": "firepit-mug-alone",
+  "title": "Fire pit — sitting alone with a mug",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Becky sitting on a log by the fire pit at night with a mug",
+  "expected": "A photorealistic photograph of one adult woman sitting on a log bench beside a stone-ringed communal fire pit at night, a chipped enamel mug held in both hands, leaning slightly forward into the warmth. Orange firelight moves up from below across her face and knees while the grass and tree line behind her fall away into black. A cooler and a couple of cans sit on the log beside her, sparks rise above the flames. Full body shot at eye level across the fire, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman sitting on a log bench beside a stone-ringed fire pit at night, a mug in both hands, leaning toward the flames, orange firelight from below across her face and knees, black tree line behind her, a cooler and cans on the log, sparks above the fire, full body at eye level across the fire, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman sitting on a log bench beside a stone-ringed communal fire pit at night, a chipped enamel mug held in both hands, leaning slightly forward into the warmth. She wears jeans and a hooded sweatshirt with her auburn hair loose. Orange firelight moves up from below across her face, her forearms and her knees, while the grass and the tree line behind her fall away into solid black. A cooler and a couple of cans sit on the log beside her and sparks lift above the flames. Full body shot at eye level from across the fire, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman seated on a log bench at a stone-ringed fire pit at night, a mug in both hands, leaning toward the flames. Orange firelight from below catches her face, forearms and jeans-clad knees; everything beyond the ring of light is black, with the tree line barely implied. A cooler and cans sit on the log, sparks above the fire. Full body, eye level from across the fire, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, female, mature female, auburn hair, hoodie, jeans, sitting, sitting on log, mug, both hands on mug, campfire, bonfire, fire pit, stones, flames, sparks, night, firelight, dark background, trees, full body, front view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman sitting on a log bench beside a stone-ringed communal fire pit at night, a chipped enamel mug held in both hands and her elbows resting on her knees as she leans into the warmth. She wears jeans and a hooded sweatshirt with her auburn hair loose. The fire is the only light: it comes from below and moves across her face, forearms and knees in slow orange flickers, while the grass beyond the ring of stones and the tree line behind her fall away into solid black. A cooler and two cans stand on the log beside her. Full body shot at eye level from across the fire, 35mm lens, sharp focus on her lit face and the log she sits on.",
+    "flux": "Photorealistic photograph of one adult woman at a campfire at night. Primary subject: a woman in a hooded sweatshirt and jeans with loose auburn hair, sitting on a log bench with a chipped enamel mug in both hands, leaning toward the flames. Action: sitting and drinking, warmed by the fire. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a stone-ringed communal fire pit, sparks rising, a cooler and cans on the log, solid black beyond the ring of firelight. Camera: full body, eye level, across the fire.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage the same fire pit in daylight with the fire burned down to grey ash, so the scene is lit flatly from above and the black background becomes ordinary daylight. Keep her face, hair, identity, clothing, her seated pose, the mug and the log exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the fire pit in daylight: the fire is out, the stones are grey and the scene is lit evenly from above with no firelight on her. Preserve her face, hair, identity, clothing, pose, the mug and the log exactly as they are."
+  },
+  "settings": {
+    "seed": 40122,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

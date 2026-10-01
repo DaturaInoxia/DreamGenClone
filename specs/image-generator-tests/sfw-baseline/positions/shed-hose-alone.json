@@ -1,0 +1,28 @@
+{
+  "id": "shed-hose-alone",
+  "title": "Maintenance shed — coiled hose in the doorway",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Becky standing in the maintenance shed doorway with a coiled hose, late afternoon",
+  "expected": "A photorealistic photograph of one adult woman standing in the open double doorway of a rusted corrugated metal shed at the edge of a tree line, a coiled green garden hose looped over one shoulder and one hand on the door frame. Gravel apron under her boots, gas cans and a workbench inside, deep shadow under the trees behind and a shaft of late afternoon light lying across the shed floor. Full body shot at eye level from the gravel outside, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman standing in the open double doorway of a rusted corrugated metal shed at the tree line, a coiled garden hose over one shoulder and one hand on the frame, gravel apron underfoot, gas cans and a workbench inside, deep shadow under the trees and a shaft of late afternoon light across the floor, full body at eye level from outside, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman standing in the open double doorway of a rusted corrugated metal shed at the edge of a tree line, a coiled green garden hose looped over one shoulder and one hand resting on the door frame. She wears work gloves, jeans and a t-shirt with her auburn hair tied back. The gravel apron crunches under her boots, and inside the shed a workbench, gas cans and a shelf of tools sit in shadow; outside the trees hold deep shade while a shaft of late afternoon light lies across the shed floor toward her. Full body shot at eye level from the gravel outside, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman in the doorway of a maintenance shed in the late afternoon: a coiled garden hose over one shoulder, one hand on the door frame, work gloves and jeans. Rusted corrugated panels streaked with shadow, a gravel apron underfoot, gas cans and a workbench inside, deep shade under the tree line and one hard shaft of low sun across the shed floor. Full body, eye level from outside, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, female, mature female, auburn hair, tied back hair, t-shirt, jeans, work gloves, standing, doorway, coiled hose, garden hose over shoulder, hand on door frame, maintenance shed, metal shed, corrugated walls, rust, workbench, gas can, tools, gravel, tree line, late afternoon light, full body, front view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman standing in the open double doorway of a rusted corrugated metal maintenance shed at the edge of a tree line, a coiled green garden hose looped over one shoulder and one hand resting flat on the door frame. She wears work gloves, jeans and a plain t-shirt, her auburn hair tied back off her neck. The gravel apron crunches under her boots where it meets the shed's concrete lip. Inside, a workbench runs along the back wall with gas cans beneath it and hand tools on a shelf above, all of it in deep shadow. Outside, the trees hold heavy shade while one hard shaft of low late-afternoon sun lies across the shed floor and reaches her boots. Full body shot at eye level from the gravel outside, 35mm lens, dust visible in the light, sharp focus on her and the shed.",
+    "flux": "Photorealistic photograph of one adult woman at a maintenance shed door. Primary subject: a woman with tied-back auburn hair in jeans, a t-shirt and work gloves, standing in an open double doorway with a coiled garden hose over one shoulder and one hand on the frame. Action: pausing in the doorway, about to leave. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a rusted corrugated metal shed at a tree line, gravel apron, gas cans and a workbench inside in shadow, one shaft of low late-afternoon light across the floor. Camera: full body, eye level, from outside.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage the same shed in the early morning with the low sun coming from the other side and long shadow across the gravel instead of a shaft on the floor. Keep her face, hair, identity, clothing, the hose, her pose in the doorway and the shed exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the shed in cool early morning light, with long shade across the gravel apron and no warm shaft inside the doorway. Preserve her face, hair, identity, clothing, the hose, her pose and the shed exactly as they are."
+  },
+  "settings": {
+    "seed": 40131,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

@@ -84,6 +84,17 @@ public static class ImageCompilerProfileValidation
                 + "in NegativeSource or clear the negative.");
         }
 
+        // The compiler instructions are the profile's reason to exist: a row with none would send a model an empty
+        // system prompt and let it invent its own rules, which is the "just get an image" failure the compiler
+        // standards forbid. Governance rule 4: a model with no researched settings cannot be the target of a compiler.
+        if (string.IsNullOrWhiteSpace(profile.SystemPrompt))
+        {
+            throw new InvalidOperationException(
+                $"Image compiler profile '{profile.CheckpointIdentifier}' carries no compiler instructions (SystemPrompt). "
+                + "Seed them from the family's researched text (SceneImageCompilerSystemPrompts) rather than leaving the "
+                + "model to invent its own rules.");
+        }
+
         RequireJsonArray(profile.RequiredComponentsJson, nameof(profile.RequiredComponentsJson), profile.CheckpointIdentifier);
         RequireJsonArray(profile.ForbiddenTokensJson, nameof(profile.ForbiddenTokensJson), profile.CheckpointIdentifier);
         RequireJsonArray(profile.ExamplesJson, nameof(profile.ExamplesJson), profile.CheckpointIdentifier);

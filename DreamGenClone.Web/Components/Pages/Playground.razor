@@ -1,0 +1,1263 @@
+@page "/playground"
+@rendermode InteractiveServer
+
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Evaluation
+@using DreamGenClone.Web.Application.RolePlay.Models
+
+@inject IImageSuiteRepository Suites
+@inject IImageRunRepository Runs
+@inject IImageCompilerProfileRepository Profiles
+@inject IImageRunExecutor Executor
+@inject IImageSuiteRenderDriver Renderer
+@inject IModelResolutionService ModelResolution
+@inject IImageSuiteImporter Importer
+
+<PageTitle>Image Playground - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h1 class="mb-0">Image Playground</h1>
+            <p class="text-muted small mb-0">
+                Make an image, then edit it — the same composer and edit workspace every other surface uses.
+                The suites tab is where testable claims are authored and run; that work is for agents.
+            </p>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="OnShowSuites" disabled="@_busy">Suites</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_notice))
+    {
+        <div class="alert alert-success" role="alert">@_notice</div>
+    }
+
+    <ul class="nav nav-tabs mt-3">
+        <li class="nav-item">
+            <button class="nav-link @(_tab == PlaygroundTab.Studio ? "active" : string.Empty)" type="button"
+                    @onclick="@(() => _tab = PlaygroundTab.Studio)">
+                Studio
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_tab == PlaygroundTab.Suites ? "active" : string.Empty)" type="button"
+                    @onclick="OnShowSuites">
+                Suites &amp; verdicts
+            </button>
+        </li>
+    </ul>
+
+    @if (_tab == PlaygroundTab.Studio)
+    {
+        <div class="mt-3">
+            <PlaygroundStudio />
+        </div>
+    }
+
+    @if (_tab == PlaygroundTab.Suites)
+    {
+    <div class="d-flex justify-content-between align-items-center mb-2 mt-3">
+        <span class="small text-muted">
+            A cell records what it declared; a run records what actually happened.
+        </span>
+        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@_busy">Refresh</button>
+    </div>
+    <div class="row g-3">
+
+        @* ── Left rail: suites -> cells, and runs ── *@
+        <div class="col-xl-3">
+
+            <div class="card mb-3">
+                <div class="card-header py-2"><span class="small fw-semibold">Catalogs on disk</span></div>
+                <div class="card-body py-2">
+                    <p class="text-muted small mb-2">
+                        Agent-authored prompt catalogs under the configured root. Importing writes one into a suite;
+                        re-importing is how edited prompts are picked up. A run keeps the cells it executed, so
+                        re-importing never rewrites the record of a run that already happened.
+                    </p>
+                    @if (_manifests.Count == 0)
+                    {
+                        <p class="text-muted small mb-2">No catalog found under the configured root.</p>
+                    }
+                    else
+                    {
+                        <ul class="list-unstyled mb-2">
+                            @foreach (var manifest in _manifests)
+                            {
+                                <li class="mb-1">
+                                    <div class="small text-truncate" title="@manifest">@ManifestLabel(manifest)</div>
+                                    <button class="btn btn-sm btn-outline-primary w-100" type="button"
+                                            @onclick="@(() => ImportCatalogAsync(manifest))" disabled="@_busy">
+                                        Import
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    <button class="btn btn-sm btn-outline-secondary w-100" type="button"
+                            @onclick="ImportAllCatalogsAsync" disabled="@(_busy || _manifests.Count == 0)">
+                        Import all
+                    </button>
+                    @if (_importReports.Count > 0)
+                    {
+                        <ul class="list-unstyled small mt-2 mb-0">
+                            @foreach (var importReport in _importReports)
+                            {
+                                <li>
+                                    <span class="fw-semibold">@importReport.SuiteName</span>
+                                    <span class="text-muted">
+                                        v@importReport.Version · @importReport.CellCount cell(s) · @importReport.ProblemCount gap(s)
+                                    </span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header py-2"><span class="small fw-semibold">Suites</span></div>
+                <div class="card-body py-2">
+                    @if (_suites.Count == 0)
+                    {
+                        <p class="text-muted small mb-2">No suites yet. Create one below to start authoring cells.</p>
+                    }
+                    else
+                    {
+                        <ul class="list-unstyled mb-2">
+                            @foreach (var suite in _suites)
+                            {
+                                <li class="mb-1">
+                                    <button type="button"
+                                            class="btn btn-sm w-100 text-start @(IsSelectedSuite(suite.Id) ? "btn-primary" : "btn-outline-secondary")"
+                                            @onclick="@(() => SelectSuiteAsync(suite.Id))">
+                                        @suite.Name <span class="opacity-75">v@suite.Version</span>
+                                    </button>
+                                    @if (IsSelectedSuite(suite.Id))
+                                    {
+                                        <ul class="list-unstyled ms-3 mt-1 mb-0">
+                                            @foreach (var cell in _cells)
+                                            {
+                                                <li class="mb-1">
+                                                    <button type="button"
+                                                            class="btn btn-sm w-100 text-start @(IsSelectedCell(cell.Id) ? "btn-secondary" : "btn-outline-secondary")"
+                                                            @onclick="@(() => SelectCell(cell.Id))">
+                                                        <span class="text-muted">@cell.Ordinal.</span> @cell.Name
+                                                        @if (StatusForCell(cell.Ordinal) is { } status)
+                                                        {
+                                                            <span class="badge @StatusBadgeClass(status) ms-1">@status</span>
+                                                        }
+                                                    </button>
+                                                </li>
+                                            }
+                                            @if (_cells.Count == 0)
+                                            {
+                                                <li class="text-muted small">No cells yet.</li>
+                                            }
+                                        </ul>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    }
+
+                    <div class="border-top pt-2">
+                        <label class="form-label small mb-1">New suite</label>
+                        <input type="text" class="form-control form-control-sm mb-1" placeholder="name"
+                               value="@_newSuiteName" @onchange="OnNewSuiteName" />
+                        <select class="form-select form-select-sm mb-1" value="@_newSuiteKind"
+                                @onchange="OnNewSuiteKind">
+                            @foreach (var kind in SuiteKinds)
+                            {
+                                <option value="@kind">@kind</option>
+                            }
+                        </select>
+                        <button class="btn btn-sm btn-outline-primary w-100" type="button"
+                                @onclick="CreateSuiteAsync" disabled="@_busy">Create suite</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header py-2"><span class="small fw-semibold">Runs</span></div>
+                <div class="card-body py-2">
+                    @if (_runs.Count == 0)
+                    {
+                        <p class="text-muted small mb-0">No runs yet.</p>
+                    }
+                    else
+                    {
+                        <ul class="list-unstyled mb-0">
+                            @foreach (var run in _runs)
+                            {
+                                <li class="mb-1">
+                                    <button type="button"
+                                            class="btn btn-sm w-100 text-start @(IsSelectedRun(run.Id) ? "btn-primary" : "btn-outline-secondary")"
+                                            @onclick="@(() => SelectRunAsync(run.Id))">
+                                        <span class="badge @RunStatusBadgeClass(run.Status) me-1">@run.Status</span>
+                                        <span class="small">@run.CreatedUtc.ToLocalTime().ToString("MM-dd HH:mm")</span>
+                                        @if (!run.ImageLayerRequested)
+                                        {
+                                            <span class="text-muted small d-block">free layers only</span>
+                                        }
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* ── Centre: the step ── *@
+        <div class="col-xl-6">
+            @if (_selectedSuite is null)
+            {
+                <div class="card">
+                    <div class="card-body">
+                        <p class="text-muted mb-0">Select a suite on the left, or create one, to author and run cells.</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="card mb-3">
+                    <div class="card-header py-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="small fw-semibold">@_selectedSuite.Name · @_selectedSuite.Kind</span>
+                            <span class="badge bg-secondary">v@_selectedSuite.Version</span>
+                        </div>
+                    </div>
+                    <div class="card-body py-2">
+                        <label class="form-label small mb-1">
+                            Compiler LLM (declared, never defaulted &mdash; D11)
+                        </label>
+                        <div class="input-group input-group-sm mb-2">
+                            <input type="text" class="form-control" placeholder='{"model":"...","temperature":0}'
+                                   value="@_compilerLlmJson" @onchange="OnCompilerLlmChanged" />
+                            <button class="btn btn-primary" type="button" @onclick="RunFreeLayersAsync"
+                                    disabled="@(_busy || _cells.Count == 0)">
+                                Run free layers
+                            </button>
+                        </div>
+                        <p class="text-muted small mb-0">
+                            The free layers (compile, then the prompt layer) cost no GPU and always run. The free-layer
+                            run judges a compiled prompt; making images from a catalog is the separate card below.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header py-2"><span class="small fw-semibold">Render the catalog</span></div>
+                    <div class="card-body py-2">
+                        <p class="text-muted small mb-2">
+                            Enqueues one real image per selected cell, from that cell's prompt for the chosen variant.
+                            Every image lands in ONE run container in the Asset Manager, so the set is browsable together.
+                        </p>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Prompt variant</label>
+                                <select class="form-select form-select-sm" value="@_renderVariantKey"
+                                        @onchange="OnRenderVariantKey">
+                                    <option value="">(choose)</option>
+                                    @foreach (var key in _variantKeys)
+                                    {
+                                        <option value="@key">@key</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Model</label>
+                                <select class="form-select form-select-sm" value="@_renderModelId"
+                                        @onchange="OnRenderModelId">
+                                    <option value="">(choose)</option>
+                                    @foreach (var model in _models)
+                                    {
+                                        <option value="@model.ModelId">@model.DisplayName · @model.Family · @model.Dialect</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-4">
+                                <label class="form-label small mb-1">Seed</label>
+                                <select class="form-select form-select-sm" value="@_renderSeedSource"
+                                        @onchange="OnRenderSeedSource">
+                                    <option value="@ImageSeedSource.Declared">As declared (reproducible)</option>
+                                    <option value="@ImageSeedSource.Random">Random (new image each run)</option>
+                                </select>
+                            </div>
+                            <div class="col-8">
+                                <span class="form-text">
+                                    @if (_renderSeedSource == ImageSeedSource.Declared)
+                                    {
+                                        <text>
+                                            Each cell renders from its own declared seed, so re-running this run
+                                            reproduces these images and a difference is attributable to what you changed.
+                                            A cell that declares no seed is skipped and reported.
+                                        </text>
+                                    }
+                                    else
+                                    {
+                                        <text>
+                                            A fresh seed per image. The seed actually used is recorded on every image,
+                                            so a keeper can be pinned afterwards by re-running it as declared.
+                                        </text>
+                                    }
+                                </span>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-4">
+                                <label class="form-label small mb-1">Image size</label>
+                                <input type="text" class="form-control form-control-sm" value="@_renderImageSize"
+                                       @onchange="OnRenderImageSize" />
+                            </div>
+                            <div class="col-8">
+                                <label class="form-label small mb-1">Run name (becomes the Asset Manager container)</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control" value="@_renderRunName"
+                                           @onchange="OnRenderRunName" placeholder="name this run" />
+                                    <button class="btn btn-outline-secondary" type="button" @onclick="ComposeRunName">
+                                        Compose
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* The MODEL decides what may be applied: a character LoRA binds only to the checkpoint it was
+                           trained against, so the picker reads the SELECTED model's checkpoint and offers the qualified
+                           artifacts for it, and says so plainly when there are none. It is not a free-text field, and it
+                           is not hidden - an operator who trained a character needs to see whether it applies to the
+                           model they just chose. *@
+                        <div class="mb-2">
+                            <CharacterLoraPicker ModelIdentifier="@RenderCheckpoint"
+                                                 Selections="_renderLoras"
+                                                 SelectionsChanged="OnRenderLorasChanged"
+                                                 Disabled="_busy"
+                                                 Scope="playground-run" />
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Identity pack (optional)</label>
+                                <input type="text" class="form-control form-control-sm" value="@_renderIdentityPackId"
+                                       @onchange="OnRenderIdentityPackId" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Identity face asset (optional)</label>
+                                <input type="text" class="form-control form-control-sm" value="@_renderIdentityFaceAssetId"
+                                       @onchange="OnRenderIdentityFaceAssetId" />
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="small text-muted">@_renderCells.Count of @_cells.Count cell(s) selected</span>
+                            <span>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="SelectAllCells">All</button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="ClearRenderCells">None</button>
+                            </span>
+                        </div>
+                        <div class="border rounded p-2 mb-2" style="max-height: 220px; overflow-y: auto;">
+                            @foreach (var cell in _cells)
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="@($"render-cell-{cell.Id}")"
+                                           checked="@_renderCells.Contains(cell.Id)"
+                                           @onchange="@((ChangeEventArgs args) => ToggleRenderCell(cell.Id, args))" />
+                                    <label class="form-check-label small" for="@($"render-cell-{cell.Id}")">
+                                        <span class="text-muted">@cell.Ordinal.</span> @cell.Name
+                                        @if (HasVariant(cell))
+                                        {
+                                            <span class="badge bg-success ms-1">@_renderVariantKey</span>
+                                        }
+                                        else if (!string.IsNullOrWhiteSpace(_renderVariantKey))
+                                        {
+                                            <span class="badge bg-warning text-dark ms-1">no @_renderVariantKey</span>
+                                        }
+                                    </label>
+                                </div>
+                            }
+                            @if (_cells.Count == 0)
+                            {
+                                <span class="text-muted small">This suite has no cells to render.</span>
+                            }
+                        </div>
+                        <button class="btn btn-primary btn-sm" type="button" @onclick="RenderSelectedAsync"
+                                disabled="@(_busy || _renderCells.Count == 0)">
+                            Render selected
+                        </button>
+
+                        @if (_renderReport is { } report)
+                        {
+                            <div class="alert alert-info py-2 px-2 small mt-2 mb-0">
+                                Enqueued @report.EnqueuedCount image(s) into <strong>@report.RunName</strong>
+                                (@report.VariantKey on @report.ModelId, seed @report.SeedSource, @DescribeLoras(report)).
+                                skipped @report.SkippedCount.
+                                <a class="ms-1" href="/asset-studio" target="_blank" rel="noopener">Open Asset Manager</a>
+                            </div>
+                            @if (report.Skipped.Count > 0)
+                            {
+                                <ul class="list-unstyled small mt-1 mb-0">
+                                    @foreach (var skip in report.Skipped)
+                                    {
+                                        <li class="text-muted">@skip.Ordinal. @skip.CellName — @skip.Reason</li>
+                                    }
+                                </ul>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header py-2"><span class="small fw-semibold">Add a cell</span></div>
+                    <div class="card-body py-2">
+                        <div class="row g-2 mb-2">
+                            <div class="col-4">
+                                <label class="form-label small mb-1">Name</label>
+                                <input type="text" class="form-control form-control-sm" value="@_newCellName"
+                                       @onchange="OnNewCellName" />
+                            </div>
+                            <div class="col-5">
+                                <label class="form-label small mb-1">Checkpoint profile</label>
+                                <select class="form-select form-select-sm" value="@_newCellProfileId"
+                                        @onchange="OnNewCellProfileId">
+                                    <option value="">(choose)</option>
+                                    @foreach (var profile in _profiles)
+                                    {
+                                        <option value="@profile.Id">@profile.DisplayName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-3">
+                                <label class="form-label small mb-1">Tolerance</label>
+                                <input type="text" class="form-control form-control-sm" value="@_newCellTolerance"
+                                       @onchange="OnNewCellTolerance" />
+                            </div>
+                        </div>
+                        <label class="form-label small mb-1">User direction (what a user would type)</label>
+                        <textarea class="form-control form-control-sm mb-2" rows="2" value="@_newCellDirection"
+                                  @onchange="OnNewCellDirection"></textarea>
+                        <label class="form-label small mb-1">Expected prompt (the canned prompt known to work)</label>
+                        <textarea class="form-control form-control-sm mb-2" rows="2" value="@_newCellExpected"
+                                  @onchange="OnNewCellExpected"></textarea>
+                        <button class="btn btn-sm btn-outline-primary" type="button" @onclick="AddCellAsync"
+                                disabled="@_busy">Add cell</button>
+                    </div>
+                </div>
+
+                @if (_selectedRun is null)
+                {
+                    <div class="card">
+                        <div class="card-body">
+                            <p class="text-muted mb-0">
+                                Pick a run on the left to see its verdicts, or run the free layers above.
+                            </p>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="card">
+                        <div class="card-header py-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="small fw-semibold">
+                                    Verdicts of run @(_selectedRun is null ? string.Empty : _selectedRun.CreatedUtc.ToLocalTime().ToString("MM-dd HH:mm"))
+                                </span>
+                                <span class="small text-muted">@_runRows.Count cell(s)</span>
+                            </div>
+                        </div>
+                        <div class="card-body py-2">
+                            @foreach (var row in _runRows)
+                            {
+                                <div class="border rounded p-2 mb-2">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="small fw-semibold">
+                                            <span class="text-muted">@row.Cell.Ordinal.</span> @row.Cell.Name
+                                        </span>
+                                        <span class="badge @StatusBadgeClass(row.Cell.Status)">@row.Cell.Status</span>
+                                    </div>
+
+                                    @if (!string.IsNullOrWhiteSpace(row.Cell.FailureMessage))
+                                    {
+                                        <div class="alert alert-warning py-1 px-2 small mb-2">@row.Cell.FailureMessage</div>
+                                    }
+
+                                    <div class="small text-muted mb-1">
+                                        seed policy @row.Cell.SeedJson · tolerance @(row.Cell.SimilarityTolerance?.ToString() ?? "(none)")
+                                        @if (row.Cell.Similarity is { } similarity)
+                                        {
+                                            <span> · similarity @similarity.ToString("0.000")</span>
+                                        }
+                                    </div>
+
+                                    @if (!string.IsNullOrWhiteSpace(row.Cell.UserDirection))
+                                    {
+                                        <div class="small mb-1"><span class="text-muted">direction:</span> @row.Cell.UserDirection</div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(row.Cell.CompiledPrompt))
+                                    {
+                                        <div class="small mb-1"><span class="text-muted">compiled:</span> @row.Cell.CompiledPrompt</div>
+                                    }
+                                    <div class="small mb-2"><span class="text-muted">expected:</span> @row.Cell.ExpectedPrompt</div>
+
+                                    @if (row.PromptChecks.Count > 0)
+                                    {
+                                        <div class="small fw-semibold mt-2">Prompt layer</div>
+                                        @foreach (var check in row.PromptChecks)
+                                        {
+                                            <div class="small">
+                                                <span class="badge @OutcomeBadgeClass(check.Outcome)">@check.Outcome</span>
+                                                <span class="ms-1">@check.Name</span>
+                                                <span class="text-muted"> — @check.Detail</span>
+                                            </div>
+                                        }
+                                    }
+
+                                    @if (row.RequestChecks.Count > 0)
+                                    {
+                                        <div class="small fw-semibold mt-2">Request layer</div>
+                                        @foreach (var check in row.RequestChecks)
+                                        {
+                                            <div class="small">
+                                                <span class="badge @OutcomeBadgeClass(check.Outcome)">@check.Outcome</span>
+                                                <span class="ms-1">@check.Name</span>
+                                                <span class="text-muted"> — @check.Detail</span>
+                                            </div>
+                                        }
+                                    }
+
+                                    @if (row.PromptChecks.Count == 0 && row.RequestChecks.Count == 0)
+                                    {
+                                        <p class="text-muted small mb-0">No layer verdicts recorded for this cell yet.</p>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+
+        @* ── Right: the variables this run was made under ── *@
+        <div class="col-xl-3">
+            @* B-135: the pattern variable is deliberately NOT called 'run' - the runs list above already declares a
+               'run' loop variable, and a pattern variable shares its enclosing declaration space, so the two collide
+               (CS0136). 'activeRun' says which run these variables belong to, which is the clearer name anyway. *@
+            @if (_selectedRun is { } activeRun)
+            {
+                <div class="card mb-3">
+                    <div class="card-header py-2"><span class="small fw-semibold">Run variables</span></div>
+                    <div class="card-body py-2 small">
+                        <div class="mb-1"><span class="text-muted">status:</span> @activeRun.Status</div>
+                        <div class="mb-1"><span class="text-muted">suite version:</span> @activeRun.SuiteVersion</div>
+                        <div class="mb-1"><span class="text-muted">kind:</span> @activeRun.Kind</div>
+                        <div class="mb-1"><span class="text-muted">renders from:</span> @_runRenderFrom</div>
+                        <div class="mb-1"><span class="text-muted">image layer:</span> @(activeRun.ImageLayerRequested ? "requested" : "not requested")</div>
+                        <div class="mb-1"><span class="text-muted">compiler:</span> <code>@activeRun.CompilerLlmJson</code></div>
+                        @if (activeRun.StartedUtc is { } started && activeRun.CompletedUtc is { } completed)
+                        {
+                            <div class="mb-1"><span class="text-muted">duration:</span> @((completed - started).TotalSeconds.ToString("0.0"))s</div>
+                        }
+                        <div><span class="text-muted">provenance:</span> @activeRun.Provenance</div>
+                    </div>
+                </div>
+            }
+
+            <div class="card">
+                <div class="card-header py-2"><span class="small fw-semibold">Checkpoint profiles</span></div>
+                <div class="card-body py-2">
+                    <p class="text-muted small">One compiler profile per checkpoint. A cell pins the row it was compiled for.</p>
+                    <ul class="list-unstyled mb-0 small">
+                        @foreach (var profile in _profiles)
+                        {
+                            <li class="mb-1">
+                                <span class="fw-semibold">@profile.DisplayName</span>
+                                <span class="text-muted d-block">
+                                    @profile.Family · @profile.PromptDialect · pose-in-text @profile.PoseInText
+                                </span>
+                                <span class="text-muted d-block">@profile.MinChars-@profile.MaxChars chars</span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    }
+</div>
+
+@code {
+    private static readonly ImageSuiteKind[] SuiteKinds =
+        [ImageSuiteKind.Qualification, ImageSuiteKind.Comparison, ImageSuiteKind.Regression];
+
+    /// <summary>
+    /// Which half of the page is showing. The STUDIO is the default because it is the operator's loop; the suites tab is
+    /// the proof machinery, which agents author and run.
+    /// </summary>
+    private enum PlaygroundTab
+    {
+        Studio = 0,
+        Suites = 1
+    }
+
+    private PlaygroundTab _tab = PlaygroundTab.Studio;
+
+    private readonly List<ImageSuite> _suites = [];
+    private readonly List<ImageSuiteCell> _cells = [];
+    private readonly List<ImageRun> _runs = [];
+    private readonly List<ImageRunCell> _runCells = [];
+    private readonly List<RunCellRow> _runRows = [];
+    private readonly List<ImageCompilerProfile> _profiles = [];
+
+    private ImageSuite? _selectedSuite;
+    private ImageRun? _selectedRun;
+    private string? _selectedCellId;
+    private bool _busy;
+    private string _error = string.Empty;
+    private string _notice = string.Empty;
+
+    private string _newSuiteName = string.Empty;
+    private ImageSuiteKind _newSuiteKind = ImageSuiteKind.Qualification;
+
+    private string _newCellName = string.Empty;
+    private string _newCellDirection = string.Empty;
+    private string _newCellExpected = string.Empty;
+    private string _newCellProfileId = string.Empty;
+    private string _newCellTolerance = "0.7";
+
+    private string _compilerLlmJson = string.Empty;
+    private string _runRenderFrom = string.Empty;
+    private bool _suitesLoaded;
+
+    // ---- catalog render state ------------------------------------------------------------------------
+
+    private readonly List<SceneImageModelChoice> _models = [];
+    private readonly List<string> _variantKeys = [];
+    private readonly HashSet<string> _renderCells = [];
+
+    private string _renderVariantKey = string.Empty;
+    private string _renderModelId = string.Empty;
+    private string _renderImageSize = "1024x1024";
+    private ImageSeedSource _renderSeedSource = ImageSeedSource.Declared;
+    private string _renderRunName = string.Empty;
+    private string _renderIdentityPackId = string.Empty;
+    private string _renderIdentityFaceAssetId = string.Empty;
+    private ImageSuiteRenderReport? _renderReport;
+
+    /// <summary>
+    /// The character LoRAs this run applies, in chain order. Empty is the normal state and means NO LoRA: the render
+    /// then emits no LoRA node and is identical to a render made before character LoRAs existed.
+    /// </summary>
+    private IReadOnlyList<SceneImageCharacterLoraSelection> _renderLoras = [];
+
+    private readonly List<string> _manifests = [];
+    private readonly List<ImageSuiteImportReport> _importReports = [];
+
+    /// <summary>One run cell with its layer verdicts already parsed, so rendering never re-parses or throws.</summary>
+    private sealed record RunCellRow(
+        ImageRunCell Cell,
+        IReadOnlyList<ImagePromptCheck> PromptChecks,
+        IReadOnlyList<ImagePromptCheck> RequestChecks);
+
+    protected override Task OnInitializedAsync() => Task.CompletedTask;
+
+    /// <summary>
+    /// Switches to the suites tab, loading the stores on first use. Deferred rather than loaded with the page because a
+    /// visit to the Studio — and every visit starts there — has no reason to open the suite, run and profile stores.
+    /// </summary>
+    private async Task OnShowSuites()
+    {
+        _tab = PlaygroundTab.Suites;
+        if (!_suitesLoaded)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _busy = true;
+        _error = string.Empty;
+        _notice = string.Empty;
+
+        try
+        {
+            // The stores create themselves and the profile store seeds its rows on open, so a first visit has a usable
+            // store rather than an empty page with no explanation.
+            await Suites.EnsureSchemaAsync();
+            await Runs.EnsureSchemaAsync();
+            await Profiles.EnsureSchemaAsync();
+
+            await ReloadListsAsync();
+            _suitesLoaded = true;
+            await LoadRenderChoicesAsync();
+            LoadManifests();
+
+            if (_selectedSuite is not null && _selectedRun is not null)
+            {
+                await LoadRunRowsAsync(_selectedRun.Id);
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ReloadListsAsync()
+    {
+        Replace(_suites, await Suites.ListSuitesAsync());
+        Replace(_profiles, await Profiles.ListAsync());
+        Replace(_runs, await Runs.ListRunsAsync());
+
+        if (_selectedSuite is not null)
+        {
+            _selectedSuite = _suites.FirstOrDefault(suite => suite.Id == _selectedSuite.Id);
+        }
+
+        if (_selectedSuite is null && _suites.Count > 0)
+        {
+            _selectedSuite = _suites[0];
+        }
+
+        if (_selectedRun is not null)
+        {
+            _selectedRun = _runs.FirstOrDefault(run => run.Id == _selectedRun.Id);
+        }
+
+        _cells.Clear();
+        if (_selectedSuite is not null)
+        {
+            _cells.AddRange(await Suites.ListCellsAsync(_selectedSuite.Id));
+        }
+
+        // The tick boxes hold cell ids, so a cell that no longer exists must not stay selected: the run would render
+        // fewer cells than the count on screen claims, with nothing to say so.
+        _renderCells.RemoveWhere(id => _cells.All(cell => cell.Id != id));
+        RefreshVariantKeys();
+    }
+
+    private static void Replace<T>(List<T> target, IReadOnlyList<T> source)    {
+        target.Clear();
+        target.AddRange(source);
+    }
+
+    private async Task LoadRunRowsAsync(string runId)
+    {
+        Replace(_runCells, await Runs.ListCellsAsync(runId));
+        _selectedRun = await Runs.GetRunAsync(runId);
+
+        _runRows.Clear();
+        foreach (var cell in _runCells)
+        {
+            _runRows.Add(new RunCellRow(
+                cell,
+                ReadChecks(cell.PromptLayerJson, cell.Name, "prompt layer"),
+                ReadChecks(cell.RequestLayerJson, cell.Name, "request layer")));
+        }
+
+        _runRenderFrom = _runRows.Count > 0 ? _runRows[0].Cell.RenderFromPath.ToString() : string.Empty;
+    }
+
+    /// <summary>
+    /// Reads a layer's verdicts for display. Unreadable evidence is surfaced as an error rather than as an empty list,
+    /// because an empty list reads as a clean run.
+    /// </summary>
+    private IReadOnlyList<ImagePromptCheck> ReadChecks(string json, string cellName, string layer)
+    {
+        try
+        {
+            return ImageLayerJson.ReadChecks(json);
+        }
+        catch (InvalidOperationException exception)
+        {
+            _error = $"Cell '{cellName}' has unreadable {layer} evidence. {exception.Message}";
+            return [];
+        }
+    }
+
+    private async Task SelectSuiteAsync(string suiteId)
+    {
+        _selectedSuite = _suites.FirstOrDefault(suite => suite.Id == suiteId);
+        _selectedCellId = null;
+        _error = string.Empty;
+        _notice = string.Empty;
+
+        try
+        {
+            _cells.Clear();
+            if (_selectedSuite is not null)
+            {
+                _cells.AddRange(await Suites.ListCellsAsync(_selectedSuite.Id));
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+
+        // The variant keys and the tick boxes belong to the suite that is now selected, so neither survives a switch.
+        RefreshVariantKeys();
+        _renderCells.Clear();
+        _renderReport = null;
+    }
+
+    private async Task SelectRunAsync(string runId)
+    {
+        _error = string.Empty;
+        _notice = string.Empty;
+
+        try
+        {
+            await LoadRunRowsAsync(runId);
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private void SelectCell(string cellId) => _selectedCellId = cellId;
+
+    private async Task CreateSuiteAsync()
+    {
+        _busy = true;
+        _error = string.Empty;
+        _notice = string.Empty;
+
+        try
+        {
+            var suite = new ImageSuite
+            {
+                Name = _newSuiteName.Trim(),
+                Kind = _newSuiteKind,
+                Status = ImageSuiteStatus.Draft,
+                Description = string.Empty,
+                Provenance = "playground"
+            };
+
+            await Suites.UpsertSuiteAsync(suite);
+            await ReloadListsAsync();
+
+            _selectedSuite = _suites.FirstOrDefault(candidate => candidate.Name == suite.Name && candidate.Version == suite.Version);
+            _notice = $"Suite '{suite.Name}' created. Add a cell to it below.";
+            _newSuiteName = string.Empty;
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task AddCellAsync()
+    {
+        _busy = true;
+        _error = string.Empty;
+        _notice = string.Empty;
+
+        try
+        {
+            if (_selectedSuite is null)
+            {
+                throw new InvalidOperationException("Select a suite before adding a cell.");
+            }
+
+            double? tolerance = null;
+            if (!string.IsNullOrWhiteSpace(_newCellTolerance))
+            {
+                if (!double.TryParse(_newCellTolerance, out var parsed))
+                {
+                    throw new InvalidOperationException(
+                        $"The similarity tolerance '{_newCellTolerance}' is not a number. A tolerance is declared per cell "
+                        + "and never defaulted, so it cannot be guessed.");
+                }
+
+                tolerance = parsed;
+            }
+
+            var cell = new ImageSuiteCell
+            {
+                SuiteId = _selectedSuite.Id,
+                Ordinal = _cells.Count,
+                Name = _newCellName.Trim(),
+                CheckpointProfileId = string.IsNullOrWhiteSpace(_newCellProfileId) ? null : _newCellProfileId.Trim(),
+                UserDirection = _newCellDirection.Trim(),
+                ExpectedPrompt = _newCellExpected.Trim(),
+                SimilarityTolerance = tolerance,
+                BindingsJson = "[]",
+                SeedJson = "{}",
+                SettingsJson = "{}",
+                CompilerLlmJson = "{}",
+                GatesJson = "[]"
+            };
+
+            await Suites.UpsertCellAsync(cell);
+            await SelectSuiteAsync(_selectedSuite.Id);
+
+            _notice = $"Cell '{cell.Name}' added.";
+            _newCellName = string.Empty;
+            _newCellDirection = string.Empty;
+            _newCellExpected = string.Empty;
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RunFreeLayersAsync()
+    {
+        _busy = true;
+        _error = string.Empty;
+        _notice = string.Empty;
+
+        try
+        {
+            if (_selectedSuite is null)
+            {
+                throw new InvalidOperationException("Select a suite before running it.");
+            }
+
+            if (string.IsNullOrWhiteSpace(_compilerLlmJson))
+            {
+                throw new InvalidOperationException(
+                    "Declare the compiler LLM first, for example {\"model\":\"qwen3.5-vl\",\"temperature\":0}. The run "
+                    + "records which compiler drafted its prompts (D11); there is no default to fall back on.");
+            }
+
+            var start = new ImageRunStart(
+                SuiteId: _selectedSuite.Id,
+                RenderFromPath: ImageRenderSource.CompiledPrompt,
+                ImageLayerRequested: false,
+                CompilerLlmJson: _compilerLlmJson.Trim(),
+                Notes: string.Empty,
+                Provenance: "playground");
+
+            var run = await Executor.CreateRunAsync(start);
+            await Executor.RunFreeLayersAsync(run.Id);
+            await ReloadListsAsync();
+            await LoadRunRowsAsync(run.Id);
+
+            _notice = $"Run completed over {_runRows.Count} cell(s).";
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- catalog render -------------------------------------------------------------------------------
+
+    private void RefreshVariantKeys()
+    {
+        _variantKeys.Clear();
+        _variantKeys.AddRange(ImageCellVariants.ListKeys(_cells));
+    }
+
+    /// <summary>
+    /// Loads the registered image models and preselects the configured default, so the common case is one click and the
+    /// model that is about to render is a visible choice in the dropdown rather than an assumption.
+    /// </summary>
+    private async Task LoadRenderChoicesAsync()
+    {
+        Replace(_models, await ModelResolution.ListSceneImageModelsAsync(identityCapableOnly: false));
+
+        if (string.IsNullOrWhiteSpace(_renderModelId) && _models.Count > 0)
+        {
+            _renderModelId = (_models.FirstOrDefault(model => model.IsDefaultModel) ?? _models[0]).ModelId;
+        }
+
+        RefreshVariantKeys();
+        if (string.IsNullOrWhiteSpace(_renderVariantKey) && _variantKeys.Count > 0)
+        {
+            _renderVariantKey = _variantKeys[0];
+        }
+    }
+
+    private bool HasVariant(ImageSuiteCell cell) =>
+        !string.IsNullOrWhiteSpace(_renderVariantKey)
+        && ImageCellVariants.Read(cell.VariantsJson, cell.Name).ContainsKey(_renderVariantKey);
+
+    private void SelectAllCells()
+    {
+        foreach (var cell in _cells)
+        {
+            _renderCells.Add(cell.Id);
+        }
+    }
+
+    private void ClearRenderCells() => _renderCells.Clear();
+
+    private void ToggleRenderCell(string cellId, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            _renderCells.Add(cellId);
+        }
+        else
+        {
+            _renderCells.Remove(cellId);
+        }
+    }
+
+    /// <summary>
+    /// Fills the run name from what is actually selected. A BUTTON rather than an automatic default: the name is the
+    /// container an operator has to find later, so they see the value that will be used before it is used.
+    /// </summary>
+    private void ComposeRunName()
+    {
+        var model = _models.FirstOrDefault(candidate => candidate.ModelId == _renderModelId);
+        var variant = string.IsNullOrWhiteSpace(_renderVariantKey) ? "variant" : _renderVariantKey;
+        var modelName = model is null ? "(no model)" : model.DisplayName;
+        _renderRunName = $"{_selectedSuite?.Name ?? "suite"} · {variant} · {modelName} · {DateTime.Now:yyyy-MM-dd HH:mm}";
+    }
+
+    private async Task RenderSelectedAsync()
+    {
+        _busy = true;
+        _error = string.Empty;
+        _notice = string.Empty;
+        _renderReport = null;
+
+        try
+        {
+            if (_selectedSuite is null)
+            {
+                throw new InvalidOperationException("Select a suite before rendering it.");
+            }
+
+            var request = new ImageSuiteRenderRequest(
+                SuiteId: _selectedSuite.Id,
+                CellIds: _renderCells.ToList(),
+                VariantKey: _renderVariantKey.Trim(),
+                ModelId: _renderModelId.Trim(),
+                ImageSize: _renderImageSize.Trim(),
+                SeedSource: _renderSeedSource,
+                RunName: _renderRunName.Trim(),
+                IdentityPackId: string.IsNullOrWhiteSpace(_renderIdentityPackId) ? null : _renderIdentityPackId.Trim(),
+                IdentityFaceAssetId: string.IsNullOrWhiteSpace(_renderIdentityFaceAssetId)
+                    ? null
+                    : _renderIdentityFaceAssetId.Trim(),
+                CharacterLoras: _renderLoras.Count > 0 ? _renderLoras : null);
+
+            _renderReport = await Renderer.RenderAsync(request);
+            _notice = $"Enqueued {_renderReport.EnqueuedCount} image(s) into '{_renderReport.RunName}'. They render in "
+                + "the background - open the Asset Manager to look at them.";
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- catalog import -------------------------------------------------------------------------------
+
+    private void LoadManifests() => Replace(_manifests, Importer.DiscoverManifests());
+
+    private async Task ImportCatalogAsync(string manifestPath)
+    {
+        _busy = true;
+        _error = string.Empty;
+        _notice = string.Empty;
+
+        try
+        {
+            _importReports.Clear();
+            _importReports.Add(await Importer.ImportAsync(manifestPath));
+            await ReloadListsAsync();
+            _notice = DescribeImports();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ImportAllCatalogsAsync()
+    {
+        _busy = true;
+        _error = string.Empty;
+        _notice = string.Empty;
+
+        try
+        {
+            _importReports.Clear();
+            _importReports.AddRange(await Importer.ImportAllAsync());
+            await ReloadListsAsync();
+            _notice = DescribeImports();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string DescribeImports()
+    {
+        if (_importReports.Count == 0)
+        {
+            return "No catalog was found under the configured root.";
+        }
+
+        var cells = _importReports.Sum(report => report.CellCount);
+        var problems = _importReports.Sum(report => report.ProblemCount);
+        return $"Imported {_importReports.Count} catalog(s) into {cells} cell(s); {problems} gap(s) reported. "
+            + "Pick a suite, choose a prompt variant and a model, then tick the cells to render.";
+    }
+
+    // ---- handlers -------------------------------------------------------------------------------------
+
+    private void OnNewSuiteName(ChangeEventArgs e) => _newSuiteName = e.Value?.ToString() ?? string.Empty;
+
+    private void OnNewSuiteKind(ChangeEventArgs e) =>
+        _newSuiteKind = Enum.TryParse<ImageSuiteKind>(e.Value?.ToString(), out var kind) ? kind : ImageSuiteKind.Qualification;
+
+    private void OnNewCellName(ChangeEventArgs e) => _newCellName = e.Value?.ToString() ?? string.Empty;
+
+    private void OnNewCellProfileId(ChangeEventArgs e) => _newCellProfileId = e.Value?.ToString() ?? string.Empty;
+
+    private void OnNewCellTolerance(ChangeEventArgs e) => _newCellTolerance = e.Value?.ToString() ?? string.Empty;
+
+    private void OnNewCellDirection(ChangeEventArgs e) => _newCellDirection = e.Value?.ToString() ?? string.Empty;
+
+    private void OnNewCellExpected(ChangeEventArgs e) => _newCellExpected = e.Value?.ToString() ?? string.Empty;
+
+    private void OnCompilerLlmChanged(ChangeEventArgs e) => _compilerLlmJson = e.Value?.ToString() ?? string.Empty;
+
+    private void OnRenderVariantKey(ChangeEventArgs e)
+    {
+        _renderVariantKey = e.Value?.ToString() ?? string.Empty;
+        _renderReport = null;
+    }
+
+    private void OnRenderModelId(ChangeEventArgs e)
+    {
+        _renderModelId = e.Value?.ToString() ?? string.Empty;
+        _renderReport = null;
+
+        // A character LoRA binds to the checkpoint it was trained against, so changing the model invalidates the
+        // choice: carrying it over would either refuse the render or, worse, apply an artifact trained on a different
+        // base. Cleared here, where the change happens, rather than filtered later.
+        _renderLoras = [];
+    }
+
+    /// <summary>
+    /// The checkpoint (ComfyUI file name) of the selected model, or null when nothing is chosen. This is the ONE thing
+    /// that decides which character LoRAs can be offered: the picker lists the qualified artifacts trained against it.
+    /// </summary>
+    private string? RenderCheckpoint => _models
+        .FirstOrDefault(candidate => string.Equals(candidate.ModelId, _renderModelId, StringComparison.Ordinal))
+        ?.ModelIdentifier;
+
+    private Task OnRenderLorasChanged(IReadOnlyList<SceneImageCharacterLoraSelection> selections)
+    {
+        _renderLoras = selections;
+        _renderReport = null;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// What the run was rendered with, in the report's own words. Stated even when nothing was applied: a set of images
+    /// made with a character LoRA and a set made without look like two results of one experiment unless the run says
+    /// which it was.
+    /// </summary>
+    private static string DescribeLoras(ImageSuiteRenderReport report) => report.LoraCount > 0
+        ? $"{report.LoraCount} character LoRA(s) applied"
+        : "no LoRA";
+
+    private void OnRenderImageSize(ChangeEventArgs e) => _renderImageSize = e.Value?.ToString() ?? string.Empty;
+
+    private void OnRenderSeedSource(ChangeEventArgs e)
+    {
+        _renderSeedSource = Enum.TryParse<ImageSeedSource>(e.Value?.ToString(), out var source)
+            ? source
+            : ImageSeedSource.Unknown;
+        _renderReport = null;
+    }
+
+    private void OnRenderRunName(ChangeEventArgs e) => _renderRunName = e.Value?.ToString() ?? string.Empty;
+
+    private void OnRenderIdentityPackId(ChangeEventArgs e) => _renderIdentityPackId = e.Value?.ToString() ?? string.Empty;
+
+    private void OnRenderIdentityFaceAssetId(ChangeEventArgs e) =>
+        _renderIdentityFaceAssetId = e.Value?.ToString() ?? string.Empty;
+
+    // ---- display helpers ------------------------------------------------------------------------------
+
+    private bool IsSelectedSuite(string suiteId) => _selectedSuite?.Id == suiteId;
+
+    private bool IsSelectedCell(string cellId) => _selectedCellId == cellId;
+
+    private bool IsSelectedRun(string runId) => _selectedRun?.Id == runId;
+
+    /// <summary>The catalog's own directory plus its file name, so two catalogs named manifest.json stay readable.</summary>
+    private static string ManifestLabel(string manifestPath)
+    {
+        var directory = Path.GetFileName(Path.GetDirectoryName(manifestPath));
+        var file = Path.GetFileName(manifestPath);
+        return string.IsNullOrEmpty(directory) ? file : $"{directory}/{file}";
+    }
+
+    /// <summary>The status the selected run gave this cell position, or null when no run is selected.</summary>
+    private ImageRunCellStatus? StatusForCell(int ordinal) =>
+        _runCells.FirstOrDefault(cell => cell.Ordinal == ordinal)?.Status;
+
+    private static string OutcomeBadgeClass(ImagePromptCheckOutcome outcome) => outcome switch
+    {
+        ImagePromptCheckOutcome.Pass => "bg-success",
+        ImagePromptCheckOutcome.Fail => "bg-danger",
+        _ => "bg-warning text-dark"
+    };
+
+    private static string StatusBadgeClass(ImageRunCellStatus status) => status switch
+    {
+        ImageRunCellStatus.Complete or ImageRunCellStatus.Compiled => "bg-success",
+        ImageRunCellStatus.Failed => "bg-danger",
+        ImageRunCellStatus.Rendering or ImageRunCellStatus.Pending => "bg-secondary",
+        _ => "bg-warning text-dark"
+    };
+
+    private static string RunStatusBadgeClass(ImageRunStatus status) => status switch
+    {
+        ImageRunStatus.Complete => "bg-success",
+        ImageRunStatus.Failed => "bg-danger",
+        ImageRunStatus.Running or ImageRunStatus.Queued => "bg-info text-dark",
+        _ => "bg-secondary"
+    };
+}

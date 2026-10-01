@@ -1,0 +1,28 @@
+{
+  "id": "bathroom-mirror-pair",
+  "title": "Camp bathrooms — two at the sinks",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Becky and Dean at the bathroom sinks talking, seen in the long mirror",
+  "expected": "A photorealistic photograph of one adult woman and one adult man standing at a long row of sinks in an older restroom, leaning apart with the width of a basin between them, mid-conversation and both visible in the long mirror ahead of them. Pale green tile, grey grout, four stall partitions with a gap underneath, paper towel on the tile floor, evening light from a high window. Two separate figures, full body shot at eye level from behind them, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman and one adult man standing at a long row of sinks in an older restroom with the width of a basin between them, mid-conversation, both visible in the long mirror, pale green tile and grey grout, four stall partitions, paper towel on the floor, evening light from a high window, two separate figures, full body at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman and one adult man standing at a long row of porcelain sinks in an older restroom, a basin's width apart, turned slightly toward each other mid-conversation, both of them visible in the long mirror on the wall ahead. She wears jeans and a t-shirt with her hair tied back; he wears a plain shirt with the sleeves rolled. The room is pale green tile with grout gone grey, four stall partitions along the opposite wall with a gap under them, and paper towel scattered on the tile floor. Evening light comes flat through the high window. Two separate figures. Full body shot at eye level from behind them, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of two separate adults at the sinks of an older restroom, one basin apart and turned toward each other in conversation, both doubled in the long mirror ahead: pale green tile, grey grout, four stall partitions with a gap at the bottom, a hand dryer, paper towel on the tile floor, flat light from a high window. Full body, eye level from behind them, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 1boy, 2people, female, male, auburn hair, tied back hair, t-shirt, jeans, shirt, standing, sink, row of sinks, mirror, reflection, talking, leaning on counter, bathroom, public restroom, tile wall, stall doors, from behind, back view, eye level, evening light, two separate people, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman and one adult man standing at a long row of porcelain sinks in an older public restroom, one basin's width apart, both turned slightly toward each other in conversation and both doubled in the long mirror on the wall ahead of them. She has her hair tied back and her hands still on the basin edge; he stands with his weight on one leg and one hand in his pocket. The room is pale green tile with grout gone grey, four stall partitions along the opposite wall with a wide gap beneath them, paper towel scattered on the tile floor and a hand dryer mounted between the basins. Flat evening light comes through the high window with nothing warm in it, and the space behind them is empty and echoing. Two clearly separate figures. Full body shot at eye level from behind them, 35mm lens, sharp focus on both reflections.",
+    "flux": "Photorealistic photograph of two adults talking at restroom sinks. Primary subjects: a woman with tied-back auburn hair and a man in a rolled-sleeve shirt, standing one basin apart and turned toward each other, both visible in the long mirror. Action: mid-conversation, hands on the basin edges. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: an older restroom in pale green tile with grey grout, four stalls with a gap under the partitions, a hand dryer, paper towel on the floor, flat evening light from a high window. Camera: full body, eye level, from behind them.",
+    "qwen-edit-2511": "Change only who is in frame: keep the same restroom, sinks and mirror, and place a man beside her at the next basin, turned toward her in conversation, the two of them clearly separate and both reflected in the mirror. Keep the tile, the stalls, the paper towel and the light exactly unchanged.",
+    "qwen-image-2.1-edit": "Add a man at the next basin, turned toward her and talking, both of them clearly separate and reflected in the mirror. Preserve her face, hair, identity, clothing, her pose and the restroom exactly as they are."
+  },
+  "settings": {
+    "seed": 40117,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

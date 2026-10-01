@@ -206,6 +206,55 @@ public sealed class SceneAssetRepositoryTests
     }
 
     /// <summary>
+    /// The seed that produced an image is PERSISTED, so a keeper can be reproduced instead of lost. Recorded whichever
+    /// way the seed was chosen: a run can pin one (a catalog position declares a seed) or let the render draw a fresh
+    /// one, and in both cases the number that reached the sampler is what makes the image repeatable.
+    /// </summary>
+    [Fact]
+    public async Task Image_RecordsTheSeedThatProducedIt()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await repo.UpsertAsync(new SceneAsset
+            {
+                Id = "asset-1",
+                Name = "Forest clearing",
+                Type = SceneAssetType.Location,
+                Kind = SceneAssetKind.Uploaded,
+                Status = SceneAssetStatus.Pending
+            });
+            await repo.UpsertImageAsync(new SceneAssetImage
+            {
+                Id = "image-1",
+                AssetId = "asset-1",
+                Kind = SceneAssetKind.PromptGenerated,
+                Status = SceneAssetStatus.Complete,
+                Prompt = "a photorealistic scene",
+                Seed = 20311
+            });
+            await repo.UpsertImageAsync(new SceneAssetImage
+            {
+                Id = "image-2",
+                AssetId = "asset-1",
+                Kind = SceneAssetKind.Uploaded,
+                Status = SceneAssetStatus.Complete
+            });
+
+            var images = await repo.ListImagesAsync("asset-1");
+
+            Assert.Equal(20311L, images.Single(image => image.Id == "image-1").Seed!.Value);
+            // Null is "not recorded" — an uploaded image, or a row written before the seed was kept. It is never
+            // "no seed", because every render has one.
+            Assert.Null(images.Single(image => image.Id == "image-2").Seed);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
     /// Operator report 2026-09-24: the uploaded front candidate could not be deleted at all — "SQLite Error 19:
     /// FOREIGN KEY constraint failed" — because <c>SceneAssetImageEditSessions.SourceImageId</c> references the image
     /// ON DELETE RESTRICT and the delete only detached the derived <c>SceneAssetImages</c> rows. Every source of a

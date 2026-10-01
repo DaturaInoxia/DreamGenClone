@@ -13,6 +13,20 @@ public sealed class SceneAssetGenerationJobPayload
     public string? ReferenceApplicationsJson { get; set; }
 
     /// <summary>
+    /// The sampler seed to render with, or null to draw a fresh one for this image. Null is NOT "no seed" — the
+    /// handler draws one and records it on the image — it means the caller asked for a new result rather than a
+    /// reproduction. A pinned value makes the render repeatable, given the same prompt, model and sampler recipe.
+    /// </summary>
+    public long? Seed { get; set; }
+
+    /// <summary>
+    /// The character LoRA(s) this render selects, or null for none. Carried on the payload because the LoRA has to
+    /// survive the queue: the graph the worker builds reads the resolved model, and a selection that only existed in
+    /// the enqueueing request would be lost by the time anything rendered it.
+    /// </summary>
+    public List<DreamGenClone.Web.Application.RolePlay.Models.SceneImageCharacterLoraSelection>? CharacterLoras { get; set; }
+
+    /// <summary>
     /// The verified stance whose OpenPose skeleton conditions this render, or null for a plain text-to-image call.
     /// Null means "no pose was asked for" — never "use a default pose".
     /// </summary>

@@ -45,34 +45,37 @@ public sealed record PosePackDeclarations(
     /// </summary>
     public PoseMetadataDeclaration For(string category, string relativePath)
     {
-        var declaration = PoseMetadataDeclaration.None;
+        // The merge STARTS at the pack-wide rating because that is the WEAKEST statement the pack makes: a category,
+        // a folder or a single file that states a rating replaces it. Applying it last instead would make it the
+        // strongest and silently discard a per-file override — which is what happened before 2026-09-30: a file
+        // declaring "nsfw" inside an "sfw" pack resolved back to Sfw, so the one escape hatch that makes a mixed
+        // category expressible did nothing.
+        var declaration = new PoseMetadataDeclaration(
+            PoseStance.Unknown, PoseFacingDirection.Unknown, PoseCameraAngle.Unknown, Rating);
 
-        if (Poses.TryGetValue(relativePath, out var poseOverride))
-        {
-            declaration = declaration.OverriddenBy(poseOverride);
-        }
-
-        var path = relativePath.Replace('\\', '/');
-        while (path.Length > 0)
-        {
-            if (Categories.TryGetValue(path, out var folderDefault))
-            {
-                declaration = declaration.OverriddenBy(folderDefault);
-                break;
-            }
-
-            var cut = path.LastIndexOf('/');
-            if (cut < 0) break;
-            path = path[..cut];
-        }
-
+        // Each step overrides the last, so a more specific key always wins: the category NAME, then each folder on the
+        // path from shallowest to deepest, then the file itself.
         if (Categories.TryGetValue(category, out var categoryDefault))
         {
             declaration = declaration.OverriddenBy(categoryDefault);
         }
 
-        return declaration.OverriddenBy(new PoseMetadataDeclaration(
-            PoseStance.Unknown, PoseFacingDirection.Unknown, PoseCameraAngle.Unknown, Rating));
+        var path = relativePath.Replace('\\', '/');
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (var depth = 1; depth < segments.Length; depth++)
+        {
+            if (Categories.TryGetValue(string.Join('/', segments.Take(depth)), out var folderDefault))
+            {
+                declaration = declaration.OverriddenBy(folderDefault);
+            }
+        }
+
+        if (Poses.TryGetValue(path, out var poseOverride))
+        {
+            declaration = declaration.OverriddenBy(poseOverride);
+        }
+
+        return declaration;
     }
 
     /// <summary>True when this pack declares nothing at all, i.e. every pose in it will be "not declared".</summary>
@@ -101,15 +104,15 @@ public sealed record PosePackDeclarations(
 
         if (manifest[property] is not JsonObject map)
         {
-            if (manifest[property] is JsonValue)
+            if (manifest[property] is null)
             {
-                throw new InvalidOperationException(
-                    $"Pose pack '{packFolder}/pack.json' has a '{property}' that is not an object. Each entry is a "
-                    + $"key plus a metadata object, for example \"{property}\": {{ \"standing\": {{ \"stance\": "
-                    + "\"standing\" }} }}.");
+                return result;
             }
 
-            return result;
+            throw new InvalidOperationException(
+                $"Pose pack '{packFolder}/pack.json' has a '{property}' that is not an object. Each entry is a "
+                + $"key plus a metadata object, for example \"{property}\": {{ \"standing\": {{ \"stance\": "
+                + "\"standing\" }} }}.");
         }
 
         foreach (var (key, node) in map)
@@ -135,19 +138,24 @@ public sealed record PosePackDeclarations(
             Rating: ParseRating(Text(entry, "rating"), packFolder, where) ?? PoseContentRating.Unrated);
     }
 
+    /// <summary>
+    /// The raw, trimmed text of a property, or null when it is absent or blank. The RAW text is kept, not a normalized
+    /// copy, so an error can quote what the pack actually says — reporting "explicitsh" for a typo of "explicit-ish"
+    /// would send the operator looking for a word that is not in their file.
+    /// </summary>
     private static string? Text(JsonObject node, string property) =>
         node[property] is JsonValue value && value.TryGetValue<string>(out var text) && !string.IsNullOrWhiteSpace(text)
-            ? Normalize(text)
+            ? text.Trim()
             : null;
 
     /// <summary>
     /// Case, spaces and hyphens are all ignored, so "Three Quarter Left", "three-quarter-left" and
     /// "threequarterleft" are one value. Nothing else is guessed: an unrecognised word is an error, not a default.
     /// </summary>
-    private static string Normalize(string value) =>
-        new(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+    private static string? Normalized(string? value) =>
+        value is null ? null : new string(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 
-    private static PoseStance? ParseStance(string? value, string packFolder, string where) => value switch
+    private static PoseStance? ParseStance(string? value, string packFolder, string where) => Normalized(value) switch
     {
         null => null,
         "standing" => PoseStance.Standing,
@@ -163,10 +171,10 @@ public sealed record PosePackDeclarations(
         "flexing" => PoseStance.Flexing,
         "tpose" => PoseStance.TPose,
         "unknown" => PoseStance.Unknown,
-        _ => throw Unrecognised(packFolder, where, "stance", value)
+        _ => throw Unrecognised(packFolder, where, "stance", value!)
     };
 
-    private static PoseFacingDirection? ParseDirection(string? value, string packFolder, string where) => value switch
+    private static PoseFacingDirection? ParseDirection(string? value, string packFolder, string where) => Normalized(value) switch
     {
         null => null,
         "front" => PoseFacingDirection.Front,
@@ -176,26 +184,26 @@ public sealed record PosePackDeclarations(
         "profileright" => PoseFacingDirection.ProfileRight,
         "back" => PoseFacingDirection.Back,
         "unknown" => PoseFacingDirection.Unknown,
-        _ => throw Unrecognised(packFolder, where, "direction", value)
+        _ => throw Unrecognised(packFolder, where, "direction", value!)
     };
 
-    private static PoseCameraAngle? ParseCamera(string? value, string packFolder, string where) => value switch
+    private static PoseCameraAngle? ParseCamera(string? value, string packFolder, string where) => Normalized(value) switch
     {
         null => null,
         "eyelevel" => PoseCameraAngle.EyeLevel,
         "fromabove" => PoseCameraAngle.FromAbove,
         "frombelow" => PoseCameraAngle.FromBelow,
         "unknown" => PoseCameraAngle.Unknown,
-        _ => throw Unrecognised(packFolder, where, "camera", value)
+        _ => throw Unrecognised(packFolder, where, "camera", value!)
     };
 
-    private static PoseContentRating? ParseRating(string? value, string packFolder, string where) => value switch
+    private static PoseContentRating? ParseRating(string? value, string packFolder, string where) => Normalized(value) switch
     {
         null => null,
         "sfw" => PoseContentRating.Sfw,
         "nsfw" => PoseContentRating.Nsfw,
         "unrated" => PoseContentRating.Unrated,
-        _ => throw Unrecognised(packFolder, where, "rating", value)
+        _ => throw Unrecognised(packFolder, where, "rating", value!)
     };
 
     private static InvalidOperationException Unrecognised(

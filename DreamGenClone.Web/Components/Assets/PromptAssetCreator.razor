@@ -3,10 +3,16 @@
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Editing
 @using DreamGenClone.Web.Application.RolePlay.ImageStep
+@using DreamGenClone.Web.Application.RolePlay.Models
 
 @inject ISceneAssetService AssetService
 @inject IModelResolutionService ModelResolutionService
+@inject IImageCompilerProfileRepository CompilerProfiles
+@inject IImageCellPromptCompiler PromptCompiler
+@inject IImagePresetService ImagePresets
+@inject ICharacterImageIdentityService IdentityService
 @inject ILogger<PromptAssetCreator> Logger
 
 @* B-130: this surface used to lay out its own model select, its own reference panel and its own prompt box. It now
@@ -22,12 +28,61 @@
                   BindingsChanged="OnBindingsChanged"
                   Prompt="@_prompt"
                   PromptChanged="OnPromptChanged"
+                  OnGeneratePrompt="GeneratePromptAsync"
+                  PresetChoices="@_presetChoices"
+                  PresetKey="@_presetKey"
+                  PresetKeyChanged="OnPresetPickedAsync"
+                  PresetNote="@_presetNote"
+                  CharacterLoras="_characterLoras"
+                  CharacterLorasChanged="OnCharacterLorasChanged"
                   Busy="_busy"
                   CanSubmit="CanGenerate"
                   SubmitLabel="Generate"
                   SubmitBlockedReason="@SubmitBlockedReason"
                   OnSubmit="GenerateAsync">
     <ChildContent>
+        @* The character comes FIRST, exactly as it does on the pose library page, because everything below it is
+           addressed to somebody: an asset that belongs to no character cannot declare a face, build or wardrobe slot at
+           all (a character element must name its character), so without this picker those tabs simply do not exist and
+           there is no way to bind an identity. Choosing one here declares them. *@
+        <div class="row g-2 align-items-end mb-2">
+            <div class="col-md-6">
+                <label class="form-label" for="asset-character">Character</label>
+                <select id="asset-character" class="form-select" value="@_characterProfileId"
+                        disabled="@_busy" @onchange="OnCharacterChangedAsync">
+                    <option value="">— no character (a standalone image) —</option>
+                    @foreach (var character in _characters)
+                    {
+                        <option value="@character.CharacterProfileId">
+                            @character.DisplayName (pack v@character.PackVersion)
+                        </option>
+                    }
+                </select>
+                <div class="form-text">
+                    Binds their approved face and build to this image's tabs. Only characters with an APPROVED identity
+                    pack are listed.
+                </div>
+            </div>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(_characterError))
+        {
+            <div class="alert alert-warning py-2 small">@_characterError</div>
+        }
+        @* This surface's own compile INPUT, and nothing else of the prompt: the prompt itself is the composer's own
+           panel, which already carries the Generate Prompt button, the "supplied by the bound images" list and the
+           "the references changed since this prompt was drafted" notice. Re-implementing any of that here would give
+           this page a second staleness rule - which is exactly what I must not do. *@
+        <div class="mb-2">
+            <label class="form-label" for="asset-user-input">Your input</label>
+            <textarea id="asset-user-input" class="form-control" rows="2"
+                      placeholder="Describe the image in your own words"
+                      value="@_userInput"
+                      @oninput="args => _userInput = args.Value?.ToString() ?? string.Empty"></textarea>
+            <div class="form-text">
+                What you want, in your words. Not sent to the model - press Generate Prompt above to compile it into
+                one prompt for the selected model's own checkpoint.
+            </div>
+        </div>
         <div class="row g-2">
             <div class="col-sm-6">
                 <label class="form-label" for="generated-asset-size">Image size</label>
@@ -40,6 +95,38 @@
             <div class="col-sm-6">
                 <label class="form-label" for="generated-asset-count">Outputs</label>
                 <input id="generated-asset-count" type="number" class="form-control" min="1" max="8" @bind="_outputCount" />
+            </div>
+        </div>
+        <div class="row g-2 mt-2">
+            <div class="col-sm-6">
+                <label class="form-label" for="asset-compiler-llm">Compiler LLM</label>
+                <input id="asset-compiler-llm" type="text" class="form-control"
+                       placeholder='{"model":"...","temperature":0}'
+                       value="@_compilerLlmJson"
+                       @oninput="args => _compilerLlmJson = args.Value?.ToString() ?? string.Empty" />
+                <div class="form-text">
+                    From Model Manager's prompt-drafting function, so it is declared without being typed. Editable, and
+                    recorded with the image that it drafted the prompt for.
+                </div>
+            </div>
+            <div class="col-sm-6 d-flex align-items-end">
+                @* Not a button: the Generate Prompt control is the composer's, in its own prompt panel, so that every
+                   host fires the same staleness bookkeeping. This shows what the last compile did. *@
+                @if (!string.IsNullOrWhiteSpace(_compilerNote))
+                {
+                    <div class="form-text">@_compilerNote</div>
+                }
+            </div>
+        </div>
+        <div class="row g-2 mt-2">
+            <div class="col-sm-6">
+                <label class="form-label" for="asset-seed">Seed</label>
+                <input id="asset-seed" type="text" class="form-control" placeholder="blank = a new image"
+                       value="@_seedText" @oninput="args => _seedText = args.Value?.ToString() ?? string.Empty" />
+                <div class="form-text">
+                    Set a seed to reproduce an image exactly. Blank draws a new one, and the seed actually used is
+                    recorded on the image either way.
+                </div>
             </div>
         </div>
         @if (!string.IsNullOrWhiteSpace(_modelId))
@@ -67,12 +154,23 @@
     </ChildContent>
 </ImageStepComposer>
 
+@if (!string.IsNullOrWhiteSpace(_loadedNotice))
+{
+    <div class="alert alert-secondary py-2 small mt-3 mb-0">@_loadedNotice</div>
+}
+
 @if (!string.IsNullOrWhiteSpace(_error))
 {
     <div class="alert alert-danger mt-3">@_error</div>
 }
 
 @code {
+    /// <summary>
+    /// Names the author of a compiled asset prompt. The render only needs to know the text is already model-ready, so
+    /// the value identifies the AUTHOR honestly: this crate's compile step, not a runtime prompt builder.
+    /// </summary>
+    private const string AssetPromptCompilerId = "asset-prompt-compiler";
+
     [Parameter, EditorRequired]
     public string AssetId { get; set; } = string.Empty;
 
@@ -87,9 +185,59 @@
     [Parameter]
     public EventCallback ImagesChanged { get; set; }
 
+    /// <summary>
+    /// An existing image's own recorded settings, loaded into this panel so the result can be reproduced or varied
+    /// instead of re-described from memory. The parent reads it from the image ROW (not from a queue payload, which is
+    /// gone once the job completes) and hands it here; this component applies it once per image id.
+    /// </summary>
+    [Parameter]
+    public ImageGenerationDraft? Draft { get; set; }
+
     private List<SceneImageModelChoice> _models = [];
     private List<SceneAssetImage> _results = [];
     private string _prompt = string.Empty;
+    private string _userInput = string.Empty;
+    private string _seedText = string.Empty;
+    private string _compilerLlmJson = string.Empty;
+    private string? _compilerNote;
+
+    /// <summary>Every preset this asset's character can pick from, loaded once.</summary>
+    private IReadOnlyList<ImagePresetChoice> _presetChoices = [];
+
+    private string? _presetKey;
+    private string? _presetNote;
+
+    /// <summary>
+    /// The EXACT clause this panel inserted into the prompt for each axis, or nothing for an axis it has not touched.
+    ///
+    /// <para>
+    /// Tracked so a new pick can REPLACE what the last one wrote. Appending instead would leave two lighting clauses
+    /// disagreeing in one prompt - the operator picked a second condition precisely because they did not want the
+    /// first - and nothing may be removed that was not first recorded verbatim, because guessing which words of a
+    /// hand-written prompt describe the lighting is how a panel silently deletes the operator's own writing.
+    /// </para>
+    /// </summary>
+    private readonly Dictionary<ImagePresetAxis, string> _appliedPresetClauses = [];
+
+    /// <summary>Every character with an APPROVED identity pack, so the picker can only offer a bindable identity.</summary>
+    private IReadOnlyList<IdentityPackOwner> _characters = [];
+
+    private string _characterProfileId = string.Empty;
+    private string? _characterError;
+
+    /// <summary>
+    /// The character LoRA(s) this step selects. Held as the picker reports them and carried into the render's options,
+    /// which is what makes the picker a real control rather than one that looks usable and loses its value.
+    /// </summary>
+    private IReadOnlyList<SceneImageCharacterLoraSelection> _characterLoras = [];
+
+    /// <summary>
+    /// True when the text in the compiled box was authored by the prompt compiler for the selected checkpoint, so the
+    /// render must send it AS WRITTEN. It is cleared the moment the operator edits the box by hand: a hand-written
+    /// prompt must keep going through the family's own compiler (a Pony prompt still needs its training tags), which is
+    /// what it did before this button existed.
+    /// </summary>
+    private bool _promptAuthoredByCompiler;
     private string? _modelId;
     private string _imageSize = "1024x1024";
     private int _outputCount = 1;
@@ -98,8 +246,28 @@
     private bool _busy;
     private string? _error;
 
-    /// <summary>The step this surface presents, built by the one factory that owns host knowledge.</summary>
-    private ImageStepBlueprint Blueprint => ImageStepBlueprintFactory.ForAssetCreate(SubjectActor);
+    /// <summary>
+    /// The image id the current draft was applied from, so a re-render does not re-apply it and stomp on edits the
+    /// operator has since made. Null until a draft is loaded.
+    /// </summary>
+    private string? _appliedDraftImageId;
+
+    /// <summary>
+    /// The step this surface presents. The subject is the character the operator PICKED, falling back to the asset's
+    /// own character when it has one - because the per-character slots are declared from this, and a character slot
+    /// must name its character. Without a subject an asset legitimately has only its frame-wide slots.
+    /// </summary>
+    private ImageStepBlueprint Blueprint => ImageStepBlueprintFactory.ForAssetCreate(StepSubject);
+
+    /// <summary>
+    /// The character this step is for. The picked character wins over the asset's own, so an asset that belongs to
+    /// nobody - a Playground container, a location - can still be rendered with somebody in it.
+    /// </summary>
+    private ImageStepActor? StepSubject =>
+        _characters.FirstOrDefault(character =>
+            character.CharacterProfileId == _characterProfileId) is { } owner
+                ? new ImageStepActor(owner.CharacterProfileId, owner.DisplayName)
+                : SubjectActor;
 
     private bool CanGenerate => !string.IsNullOrWhiteSpace(AssetId)
         && !string.IsNullOrWhiteSpace(_prompt)
@@ -138,10 +306,134 @@
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Picking a character changes WHO this step is for, which changes which slots exist - so the bindings are cleared,
+    /// for the same reason a model change clears them: bindings made for the previous shape would leave the plan
+    /// describing a step that is no longer on screen.
+    /// </summary>
+    private async Task OnCharacterChangedAsync(ChangeEventArgs args)
+    {
+        _characterProfileId = args.Value?.ToString() ?? string.Empty;
+        _characterError = null;
+        _bindings = [];
+
+        // The presets are per character (a character may override a lighting row), so they follow the pick. A failure
+        // here must not lose the pick itself, or the tabs would appear and the preset tab would silently not.
+        try
+        {
+            _presetChoices = await ImagePresets.ListAsync(characterId: StepSubject?.ActorKey);
+            RevertPresetClauses();
+            _presetKey = null;
+            _presetNote = null;
+        }
+        catch (Exception ex)
+        {
+            _characterError = $"The character's presets could not be loaded: {ex.Message}";
+            Logger.LogWarning(ex, "Failed to load presets after a character change.");
+        }
+    }
+
+    private Task OnCharacterLorasChanged(IReadOnlyList<SceneImageCharacterLoraSelection> selections)
+    {
+        _characterLoras = selections;
+        return Task.CompletedTask;
+    }
+
     private Task OnPromptChanged(string? prompt)
     {
         _prompt = prompt ?? string.Empty;
+
+        // An edit makes the text the operator's, not the compiler's, so the family compiler takes over again.
+        _promptAuthoredByCompiler = false;
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Drafts the compiled prompt from the operator's own input, using the CHOSEN MODEL's checkpoint profile.
+    ///
+    /// <para>
+    /// Which compiler runs is decided by the model that will render: the profile is looked up by the checkpoint's own
+    /// identifier (<see cref="IImageCompilerProfileRepository.FindByCheckpointAsync"/>), so a Pony checkpoint gets the
+    /// Pony instructions and a Qwen checkpoint gets the Qwen long-form instructions. A checkpoint with no profile is
+    /// refused by name rather than compiled with some other model's instructions, and no instruction text is composed
+    /// here - there is exactly one place compiler instructions can come from.
+    /// </para>
+    /// </summary>
+    private async Task GeneratePromptAsync()
+    {
+        _busy = true;
+        _error = null;
+        _compilerNote = null;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_userInput))
+            {
+                throw new InvalidOperationException("Describe the image in 'Your input' first - there is nothing to compile.");
+            }
+
+            if (string.IsNullOrWhiteSpace(_modelId))
+            {
+                throw new InvalidOperationException(
+                    "Choose an image model first. The prompt is compiled for the checkpoint that will render it, and "
+                    + "every checkpoint carries its own compiler instructions.");
+            }
+
+            var settings = ImageCellCompilerLlmSettings.Parse(_compilerLlmJson);
+
+            var choice = _models.FirstOrDefault(candidate => candidate.ModelId == _modelId)
+                ?? throw new InvalidOperationException("The selected image model is no longer enabled.");
+
+            var profile = await CompilerProfiles.FindByCheckpointAsync(choice.ModelIdentifier)
+                ?? throw new InvalidOperationException(
+                    $"No compiler profile exists for checkpoint '{choice.ModelIdentifier}', so there are no instructions "
+                    + "to compile with. Add its profile in Model Manager (/model-manager).");
+
+            // The bound references are declared to the compiler as the axes they ALREADY carry, so the prompt leaves
+            // those elements to the images instead of describing them a second time (D4). The translation is the
+            // shared one; nothing here decides an axis by hand.
+            var axes = ImageStepBindingAxes.ToCellBindings(_bindings);
+            var result = await PromptCompiler.CompileAsync(new ImageCellCompileInput(_userInput, profile, settings, axes));
+
+            _prompt = result.CompiledPrompt;
+            _promptAuthoredByCompiler = true;
+            _compilerNote = $"Compiled for {profile.DisplayName} by {result.ModelIdentifier} at temperature "
+                + $"{result.Temperature.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
+                + DescribeDeclaredAxes(axes) + ".";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Asset prompt compilation failed.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// What the compiler was told the bound references carry, appended to the compile note in the store's own words.
+    ///
+    /// It exists because "the compiler left the face out because the image carries it" and "the compiler forgot the
+    /// face" look identical in the result. Stating the declared axes makes the omission a visible decision, which is
+    /// the same reason the composer shows the element text struck through once a reference supplies it.
+    /// </summary>
+    private static string DescribeDeclaredAxes(IReadOnlyList<ImageCellBinding> axes)
+    {
+        if (axes.Count == 0)
+        {
+            return ", with nothing declared as carried by a reference";
+        }
+
+        var structural = axes
+            .Where(axis => axis.Mode != ImageBindingMode.Text)
+            .Select(axis => $"{axis.Axis} via {axis.Mode}")
+            .ToList();
+
+        return structural.Count == 0
+            ? ", with every element left to the prompt"
+            : $", leaving {string.Join(" and ", structural)} to the bound reference(s)";
     }
 
     protected override async Task OnInitializedAsync()
@@ -149,13 +441,206 @@
         try
         {
             _models = (await ModelResolutionService.ListSceneImageModelsAsync(identityCapableOnly: false)).ToList();
+            _presetChoices = await ImagePresets.ListAsync(characterId: SubjectActor?.ActorKey);
+            _characters = await IdentityService.ListPackOwnersAsync();
         }
         catch (Exception ex)
         {
             _error = ex.Message;
             Logger.LogWarning(ex, "Failed to load models for asset creation.");
         }
+
+        // The compiler LLM is a CONFIGURED model (Model Manager's scene-image prompt-drafting function), not something
+        // an operator should have to spell as raw JSON before a button works. It is resolved here and SHOWN in the
+        // field, so the declaration stays visible and editable, and the run records exactly what drafted the prompt
+        // (B-135 D11) - a pinned compiler is the point, and typing it by hand was never the point.
+        try
+        {
+            var promptModel = await ModelResolutionService.ResolveImagePromptModelAsync();
+            _compilerLlmJson = new ImageCellCompilerLlmSettings(
+                promptModel.ModelIdentifier,
+                promptModel.Temperature).Serialize();
+        }
+        catch (Exception ex)
+        {
+            // NOT fatal to the panel: an image can still be generated from a prompt written by hand. The note says what
+            // is missing, and pressing Generate Prompt names it again from the declaration parser.
+            _compilerNote = $"No compiler LLM is configured, so Generate Prompt is unavailable: {ex.Message}";
+            Logger.LogWarning(ex, "No prompt-drafting model is configured for asset creation.");
+        }
     }
+
+    /// <summary>
+    /// Applies a picked lighting or expression preset to the prompt, REPLACING whatever this panel put there for that
+    /// axis.
+    ///
+    /// <para>
+    /// The clause text comes from <see cref="IImagePresetService.ResolveInstructionAsync"/> in Compose mode, because
+    /// that is the one place a preset becomes an instruction - this panel must not assemble preset wording of its own,
+    /// and it must never hand a preset to the vision compiler (B-133 D1), which would paraphrase away the very detail
+    /// the operator picked.
+    /// </para>
+    /// </summary>
+    private async Task OnPresetPickedAsync(string? presetKey)
+    {
+        _error = null;
+        _presetNote = null;
+        _presetKey = string.IsNullOrWhiteSpace(presetKey) ? null : presetKey;
+
+        try
+        {
+            // "use the condition this step already carries" means take OUR clause back out, so the prompt returns to
+            // what the operator or the compiler actually wrote.
+            if (_presetKey is null)
+            {
+                RevertPresetClauses();
+                return;
+            }
+
+            var choice = _presetChoices.FirstOrDefault(candidate => candidate.PresetKey == _presetKey)
+                ?? throw new InvalidOperationException(
+                    $"Preset '{_presetKey}' is not one this asset's character can pick, so it cannot be applied.");
+
+            // Condition, not Change: this is a compose step, so the preset conditions the render rather than
+            // instructing an edit of an existing image. The mode is the STEP's decision (ImagePresetMode's own rule),
+            // which is why this surface asks for the conditioning clause and the edit pass asks for the change one.
+            var clause = (await ImagePresets.ResolveInstructionAsync(
+                _presetKey,
+                ImagePresetMode.Condition,
+                SubjectActor?.ActorKey)).Trim();
+
+            if (string.IsNullOrWhiteSpace(clause))
+            {
+                throw new InvalidOperationException(
+                    $"Preset '{choice.ShortName}' resolved to no text, so applying it would change nothing while "
+                    + "looking like it had.");
+            }
+
+            ApplyPresetClause(choice.Axis, clause, choice.ShortName);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _presetKey = null;
+            Logger.LogWarning(ex, "Applying an image preset failed.");
+        }
+    }
+
+    private void ApplyPresetClause(ImagePresetAxis axis, string clause, string shortName)
+    {
+        _appliedPresetClauses.TryGetValue(axis, out var previous);
+
+        // The replacement itself lives in ImagePresetClauseEditor: it is prompt manipulation, not layout, and a private
+        // method inside a component cannot be tested at all.
+        _prompt = ImagePresetClauseEditor.Apply(_prompt, previous, clause, axis);
+        _appliedPresetClauses[axis] = clause;
+        _presetNote = $"{shortName} is the {axis} condition in this prompt.";
+    }
+
+    /// <summary>Removes every clause this panel inserted, leaving the operator's and the compiler's text untouched.</summary>
+    private void RevertPresetClauses()
+    {
+        foreach (var clause in _appliedPresetClauses.Values)
+        {
+            _prompt = ImagePresetClauseEditor.Remove(_prompt, clause);
+        }
+
+        _appliedPresetClauses.Clear();
+    }
+
+    /// <summary>
+    /// Applies a loaded draft ONCE per image id. Each field is taken only when the image actually recorded it: a
+    /// missing model or size leaves the picker as the operator left it and is named in the notice, because silently
+    /// substituting the current selection would make the reproduction differ from the original in a way nobody chose.
+    /// </summary>
+    protected override void OnParametersSet()
+    {
+        if (Draft is not { } draft || draft.ImageId == _appliedDraftImageId)
+        {
+            return;
+        }
+
+        _appliedDraftImageId = draft.ImageId;
+        _userInput = draft.UserInput ?? string.Empty;
+
+        // Prefer the prompt that actually rendered. When the image recorded none, no compiler authored one and the
+        // submitted text WAS the user input - so that is the honest value to put back, not a guess.
+        _prompt = draft.CompiledPrompt ?? draft.UserInput ?? string.Empty;
+        _seedText = draft.Seed?.ToString() ?? string.Empty;
+        _bindings = draft.Bindings;
+        _results = [];
+        _candidateBatchId = null;
+        _error = null;
+
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(draft.ModelId))
+        {
+            missing.Add("model");
+        }
+        else
+        {
+            _modelId = draft.ModelId;
+        }
+
+        if (string.IsNullOrWhiteSpace(draft.ImageSize))
+        {
+            missing.Add("image size");
+        }
+        else
+        {
+            _imageSize = draft.ImageSize;
+        }
+
+        _loadedNotice = missing.Count == 0
+            ? $"Loaded image {draft.ImageId}: prompt, model, size, seed and {_bindings.Count} reference(s)."
+            : $"Loaded image {draft.ImageId}, but it did not record its {string.Join(" or ", missing)}, so that control "
+                + "was left as it was. Everything else was restored.";
+    }
+
+    private string? _loadedNotice;
+
+    /// <summary>
+    /// The seed to render with, or null for a new one. A non-numeric entry is REFUSED rather than ignored: rendering a
+    /// random image when a specific seed was asked for is the exact failure this field exists to prevent.
+    /// </summary>
+    private long? ResolveSeed()
+    {
+        if (string.IsNullOrWhiteSpace(_seedText))
+        {
+            return null;
+        }
+
+        if (!long.TryParse(_seedText.Trim(), out var seed) || seed < 0)
+        {
+            throw new InvalidOperationException(
+                $"Seed '{_seedText.Trim()}' is not a whole number. Leave it blank to draw a new one.");
+        }
+
+        return seed;
+    }
+
+    /// <summary>
+    /// The identity conditioning a bound identity PACK supplies, or null when the slot holds no pack.
+    ///
+    /// <para>
+    /// This is the step that was missing: the composer's bindings used to travel as provenance only, because the
+    /// render reads identity, body and pose from the request OPTIONS and never from the binding list. A pack has to be
+    /// turned into that conditioning here, in the host, which is what every other host of this composer does.
+    /// </para>
+    /// </summary>
+    private SceneAssetIdentityConditioning? IdentityFromBindings() =>
+        _bindings.FirstOrDefault(binding =>
+            string.Equals(binding.Kind, nameof(ImageStepSlotKind.Face), StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(binding.IdentityPackId)) is { } face
+                ? new SceneAssetIdentityConditioning(face.IdentityPackId!, face.ReferenceAssetId ?? string.Empty)
+                : null;
+
+    private SceneAssetBodyReferenceConditioning? BodyFromBindings() =>
+        _bindings.FirstOrDefault(binding =>
+            string.Equals(binding.Kind, nameof(ImageStepSlotKind.Body), StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(binding.IdentityPackId)) is { } body
+                ? new SceneAssetBodyReferenceConditioning(body.IdentityPackId!, body.ReferenceAssetId ?? string.Empty)
+                : null;
 
     private async Task GenerateAsync()
     {
@@ -168,12 +653,33 @@
         try
         {
             var outputCount = Math.Clamp(_outputCount, 1, 8);
+            var seed = ResolveSeed();
+            var identity = IdentityFromBindings();
+            var bodyReference = BodyFromBindings();
+
+            // The pose travels BESIDE the face and build, not instead of them, through the shared translation every
+            // other host uses. It resolves to a preset id, which the render honours only on the native-reference
+            // route - a model that carries pose another way does not offer the slot at all (the composer hides it).
+            var pose = ImageStepPoseBinding.Resolve(_bindings);
+
             for (var output = 1; output <= outputCount; output++)
             {
                 _results.Add(await AssetService.AddGeneratedImageAsync(
                     AssetId, _prompt, _modelId!, _imageSize,
                     referenceApplications: _bindings,
-                    candidateBatchId: _candidateBatchId));
+                    candidateBatchId: _candidateBatchId,
+                    options: new SceneAssetImageGenerationOptions
+                    {
+                        // Stated only when the compiler authored the box above, which is what makes the handler send
+                        // that text verbatim instead of compiling it a second time.
+                        PromptCompilerId = _promptAuthoredByCompiler ? AssetPromptCompilerId : null,
+                        Seed = seed,
+                        CharacterLoras = _characterLoras.Count > 0 ? _characterLoras : null,
+                        Identity = identity,
+                        BodyReference = bodyReference,
+                        PosePresetId = pose?.PresetId,
+                        PoseSkeletonRelativePath = pose?.SkeletonRelativePath
+                    }));
             }
             await ImagesChanged.InvokeAsync();
         }

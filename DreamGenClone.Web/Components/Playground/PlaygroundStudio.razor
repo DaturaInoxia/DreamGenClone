@@ -1,0 +1,233 @@
+@using DreamGenClone.Components.Assets
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Editing
+@using DreamGenClone.Domain.RolePlay
+
+@inject ISceneAssetService AssetService
+@inject IImageCompilerProfileRepository Profiles
+@inject ILogger<PlaygroundStudio> Logger
+
+@* B-135: the operator's create-and-edit loop, assembled from the pieces the app already has rather than a second
+   pipeline. Creation is the ONE ImageStepComposer (B-130), reached through PromptAssetCreator, so model choice,
+   bindings (references / pose / LoRA), the resolved-render badge and the review-deck batch are the same ones every
+   other surface uses. Editing is the SAME ImageEditWorkspace the roleplay path opens. The playground adds no render
+   code: it points the existing loop at a container of its own. *@
+
+<div class="row g-3">
+    <div class="col-xl-7">
+        <div class="card">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                <span class="small fw-semibold">Create an image</span>
+                @if (_assetId is not null)
+                {
+                    <a class="small" href="/asset-studio/@_assetId">open in Asset Studio</a>
+                }
+            </div>
+            <div class="card-body py-2">
+                @if (_assetId is null)
+                {
+                    <p class="text-muted small mb-0">
+                        @(_error.Length > 0 ? _error : "Preparing the playground container...")
+                    </p>
+                }
+                else
+                {
+                    <PromptAssetCreator AssetId="_assetId" ImagesChanged="LoadImagesAsync" />
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-5">
+        <div class="card">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                <span class="small fw-semibold">Your images</span>
+                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadImagesAsync"
+                        disabled="@_busy">Refresh</button>
+            </div>
+            <div class="card-body py-2">
+                @if (_images.Count == 0)
+                {
+                    <p class="text-muted small mb-0">Nothing here yet. Generate one on the left.</p>
+                }
+                else
+                {
+                    <div class="row g-2">
+                        @foreach (var image in _images)
+                        {
+                            <div class="col-6">
+                                <div class="card h-100 @(IsEditing(image.Id) ? "border-primary" : string.Empty)">
+                                    <div class="ratio ratio-1x1 bg-dark">
+                                        @if (!string.IsNullOrWhiteSpace(image.FileRelativePath))
+                                        {
+                                            <img src="/scene-images/@image.FileRelativePath" class="w-100 h-100"
+                                                 style="object-fit:contain;" alt="playground image" />
+                                        }
+                                        else
+                                        {
+                                            <div class="d-flex align-items-center justify-content-center text-light small">
+                                                @image.Status
+                                            </div>
+                                        }
+                                    </div>
+                                    <div class="card-body p-1">
+                                        <button type="button" class="btn btn-sm w-100 @(IsEditing(image.Id) ? "btn-primary" : "btn-outline-secondary")"
+                                                disabled="@(image.Status != SceneAssetStatus.Complete)"
+                                                @onclick="@(() => SelectImage(image.Id))">
+                                            @(IsEditing(image.Id) ? "Editing" : "Edit")
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header py-2"><span class="small fw-semibold">Checkpoint compiler profiles</span></div>
+            <div class="card-body py-2">
+                <p class="text-muted small">
+                    What each checkpoint's compiler expects. Advisory: the composer decides what is offerable from the
+                    selected model's own capability.
+                </p>
+                <ul class="list-unstyled mb-0 small">
+                    @foreach (var profile in _profiles)
+                    {
+                        <li class="mb-1">
+                            <span class="fw-semibold">@profile.DisplayName</span>
+                            <span class="text-muted d-block">
+                                @profile.Family · @profile.PromptDialect · pose-in-text @profile.PoseInText
+                            </span>
+                            <span class="text-muted d-block">
+                                @profile.MinChars-@profile.MaxChars chars · @(string.IsNullOrWhiteSpace(profile.Negative) ? "no negative" : "cited negative")
+                            </span>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_selectedImageId is not null)
+{
+    <div class="mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0">Edit</h5>
+            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ClearSelection">Close editor</button>
+        </div>
+        <ImageEditWorkspace Subject="ImageEditSubject.ForAssetImage(_assetId!, _selectedImageId)"
+                            ReviewDeckUrl="@_reviewDeckUrl"
+                            ResultChanged="OnEditResultAsync" />
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// The container playground images live in. Named, not generated, so it is findable and so an operator can open the
+    /// same images in the Asset Studio.
+    /// </summary>
+    private const string PlaygroundAssetName = "Image Playground";
+
+    private readonly List<SceneAssetImage> _images = [];
+    private readonly List<ImageCompilerProfile> _profiles = [];
+
+    private string? _assetId;
+    private string? _selectedImageId;
+    private string? _reviewDeckUrl;
+    private bool _busy;
+    private string _error = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await EnsureContainerAsync();
+        await LoadProfilesAsync();
+        await LoadImagesAsync();
+    }
+
+    /// <summary>
+    /// Finds or creates the playground container. A missing container is created rather than reported, because "there is
+    /// nowhere to put an image yet" is not a decision the operator should have to make before typing a prompt.
+    /// </summary>
+    private async Task EnsureContainerAsync()
+    {
+        try
+        {
+            _busy = true;
+            var assets = await AssetService.ListAssetsAsync();
+            var container = assets.FirstOrDefault(asset =>
+                string.Equals(asset.Name, PlaygroundAssetName, StringComparison.OrdinalIgnoreCase)
+                && asset.Type == SceneAssetType.Playground);
+
+            container ??= await AssetService.CreateAssetAsync(PlaygroundAssetName, SceneAssetType.Playground);
+            _assetId = container.Id;
+            _error = string.Empty;
+        }
+        catch (Exception exception)
+        {
+            // Shown, not swallowed: without a container there is nothing to create into, and a silent failure here would
+            // look like an empty playground.
+            _error = $"The playground container could not be prepared: {exception.Message}";
+            Logger.LogWarning(exception, "Playground container could not be prepared.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task LoadProfilesAsync()
+    {
+        _profiles.Clear();
+        _profiles.AddRange(await Profiles.ListAsync());
+    }
+
+    private async Task LoadImagesAsync()
+    {
+        if (_assetId is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _images.Clear();
+            _images.AddRange((await AssetService.ListImagesAsync(_assetId))
+                .OrderByDescending(image => image.Status == SceneAssetStatus.Complete)
+                .ThenBy(image => image.Id, StringComparer.Ordinal));
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private bool IsEditing(string imageId) => string.Equals(_selectedImageId, imageId, StringComparison.Ordinal);
+
+    private void SelectImage(string imageId)
+    {
+        _selectedImageId = imageId;
+        // The review deck is per CANDIDATE BATCH, and the batch id only exists once a generation has been queued. Without
+        // one there is no deck to link to, and the workspace hides the link rather than pointing at a dead route.
+        _reviewDeckUrl = null;
+    }
+
+    private void ClearSelection() => _selectedImageId = null;
+
+    /// <summary>
+    /// The edit produced a new image in the same container, so the strip is reloaded and the result becomes the edit
+    /// target. Chaining edits is the normal case (crop, then enhance, then a model edit), so the workspace stays open.
+    /// </summary>
+    private async Task OnEditResultAsync(ImageEditResultView result)
+    {
+        await LoadImagesAsync();
+        if (result.IsComplete && !string.IsNullOrWhiteSpace(result.ImageId))
+        {
+            _selectedImageId = result.ImageId;
+        }
+    }
+}

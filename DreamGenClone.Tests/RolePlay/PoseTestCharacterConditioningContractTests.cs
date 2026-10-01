@@ -45,8 +45,13 @@ public sealed class PoseTestCharacterConditioningContractTests
     }
 
     /// <summary>
-    /// The page resolves the character's references itself, from the APPROVED pack, and refuses a character with no
-    /// approved face or no approved clothed front build rather than testing them unconditioned.
+    /// The page resolves the character's references itself, from the APPROVED pack, at the angles THE POSE asks for and
+    /// refuses a character who cannot serve them rather than testing with a substitute.
+    ///
+    /// Both the angle and the state come from the pose's metadata now (2026-09-30): 472 of the 579 poses in this
+    /// library are NSFW, so a fixed clothed-front reference conditioned a naked pose on a clothed build. The refusal
+    /// therefore has to NAME the angle and the state it wanted — that is what tells the operator which reference to
+    /// shoot — which is why these assertions pin the interpolated source text rather than a bare phrase.
     /// </summary>
     [Fact]
     public void ThePageResolvesApprovedReferencesAndRefusesAnIncompleteCharacter()
@@ -55,8 +60,19 @@ public sealed class PoseTestCharacterConditioningContractTests
         Assert.Contains("IdentityPackReferenceResolver.ResolveFace", Page, StringComparison.Ordinal);
         Assert.Contains("IdentityPackReferenceResolver.ResolveBody", Page, StringComparison.Ordinal);
         Assert.Contains("SceneImageReferenceBodyState.Clothed", Page, StringComparison.Ordinal);
-        Assert.Contains("has no APPROVED face", Page, StringComparison.Ordinal);
-        Assert.Contains("has no APPROVED clothed front build", Page, StringComparison.Ordinal);
+
+        // The state is not a constant on the page: it comes from the pose's rating through the plan.
+        Assert.Contains("plan.BodyState is not { } bodyState", Page, StringComparison.Ordinal);
+
+        Assert.Contains(
+            "has no APPROVED {PoseMetadataLabels.Direction(pose.Direction)} face",
+            Page,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "has no APPROVED {state} {PoseMetadataLabels.Direction(pose.Direction)} body",
+            Page,
+            StringComparison.Ordinal);
+
         // And the test refuses to run until those resolved, rather than running unconditioned.
         Assert.Contains("CharacterIsReady", Page, StringComparison.Ordinal);
     }

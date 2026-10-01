@@ -1,0 +1,28 @@
+{
+  "id": "horseshoes-alone",
+  "title": "Activity area — swinging a horseshoe",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Becky throwing a horseshoe at the pits, midday",
+  "expected": "A photorealistic photograph of one adult woman at a packed-dirt horseshoe pit in bright midday sun, caught mid-throw with her arm back and her weight on her rear foot, a steel horseshoe in her raised hand. Whitewashed pit edges and a set of scuffed stakes sit in front of her, the shuffleboard lane and a sagging volleyball net further back across the grass. Full body shot at eye level from the side, 35mm, natural skin texture, sharp focus.",
+  "neutralScene": "One adult woman at a packed-dirt horseshoe pit in bright midday sun, mid-throw with her arm back and weight on the rear foot, a steel horseshoe in her raised hand, whitewashed pit edges and scuffed stakes ahead of her, shuffleboard lane and a sagging volleyball net across the grass behind, full body at eye level from the side, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman throwing a horseshoe at a packed-dirt pit in bright midday sun, caught mid-throw with her arm cocked back, a steel horseshoe in her raised hand and her weight loaded onto her rear foot. She wears shorts, a t-shirt and a cap. The pit edges are whitewashed and the two stakes are scuffed from use; behind her across the scuffed grass stand a chalked shuffleboard lane and a sagging volleyball net. Full body shot at eye level from the side, 35mm lens, natural unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman at a horseshoe pit in hard midday sun, mid-throw: arm back, horseshoe in her raised hand, weight on the rear foot, front foot planted at the whitewashed pit edge. Two scuffed stakes stand in the dirt ahead of her; the shuffleboard lane and a sagging volleyball net sit behind across scuffed grass. Shorts, t-shirt, cap. Full body, eye level from the side, 35mm lens, natural body proportions, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl, female, mature female, auburn hair, cap, t-shirt, shorts, standing, throwing, horseshoe, arm raised, mid throw, horseshoe pit, dirt, stakes, activity area, shuffleboard, volleyball net, grass, midday sun, hard shadows, full body, side view, eye level, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman throwing a horseshoe at a packed-dirt pit in hard midday sun, caught mid-throw with her arm cocked back behind her head, the steel horseshoe in her raised hand and her weight loaded onto her rear foot while her front foot is planted at the whitewashed pit edge. She wears shorts, a t-shirt and a cap with her auburn hair tied back under it. Two scuffed steel stakes stand in the raked dirt a few paces ahead of her. Behind her across scuffed grass are a chalked shuffleboard lane and a sagging volleyball net on a slack line, with the white-painted edges of the second pit beyond. The sun is directly overhead, so the shadows are short and hard. Full body shot at eye level from the side, 35mm lens, sharp focus on her and the pit.",
+    "flux": "Photorealistic photograph of one adult woman playing horseshoes. Primary subject: a woman in shorts, a t-shirt and a cap with tied-back auburn hair, mid-throw with a steel horseshoe in her raised hand, arm cocked back and weight on her rear foot. Action: throwing at a packed-dirt horseshoe pit, front foot planted at the whitewashed edge. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: two scuffed stakes in the dirt, a chalked shuffleboard lane and a sagging volleyball net across scuffed grass behind her. Camera: full body, eye level, from the side in hard midday sun.",
+    "qwen-edit-2511": "Change only the time of day and the light: restage the same pit in the late afternoon with low warm sunlight coming from behind her and long shadows across the dirt. Keep her face, hair, identity, clothing, her mid-throw pose, the horseshoe and the pit exactly unchanged.",
+    "qwen-image-2.1-edit": "Restage the pit in warm low evening light with long shadows across the dirt and the sun low behind her. Preserve her face, hair, identity, clothing, her mid-throw pose, the horseshoe and the pit exactly as they are."
+  },
+  "settings": {
+    "seed": 40125,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1152,
+    "height": 896
+  }
+}

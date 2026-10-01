@@ -32,6 +32,31 @@ public interface ISceneImageCharacterLoraResolver
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// The ONE place a character LoRA's trigger tokens are stated in a prompt, shared by every render path.
+///
+/// <para>
+/// Without the token the graph happily loads the LoRA and renders a stranger — a failure indistinguishable from
+/// success — so the token is as load-bearing as the LoRA itself. It lives here rather than privately on one handler
+/// because two paths now apply character LoRAs, and two copies of "prepend the trigger tokens" would eventually
+/// disagree about the separator, the order, or whether to trim.
+/// </para>
+/// </summary>
+public static class CharacterLoraPromptTokens
+{
+    /// <summary>
+    /// States each character's trigger token at the FRONT of the prompt. Order follows the chain, so a
+    /// multi-character frame names each character in the order its LoRA is applied.
+    /// </summary>
+    public static string Prepend(string prompt, IReadOnlyList<ResolvedCharacterLora> loras)
+    {
+        ArgumentNullException.ThrowIfNull(loras);
+
+        var tokens = string.Join(", ", loras.Select(lora => lora.TriggerToken.Trim()));
+        return tokens.Length == 0 ? prompt : $"{tokens}, {prompt}";
+    }
+}
+
 public sealed class SceneImageCharacterLoraResolver : ISceneImageCharacterLoraResolver
 {
     private readonly ICharacterLoraRepository _loraRepository;

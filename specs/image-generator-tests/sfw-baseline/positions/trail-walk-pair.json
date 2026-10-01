@@ -1,0 +1,28 @@
+{
+  "id": "trail-walk-pair",
+  "title": "Hiking trail — two walking single file",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Becky and Ken walking the trail one behind the other, late morning",
+  "expected": "A photorealistic photograph of one adult woman and one adult man walking a narrow dirt trail in single file, seen from behind at a distance of a few steps. She leads, mid-stride, with a small daypack; he follows two paces back with a cap on. Late morning sun breaks through the canopy in patches over the trail and the ferns. Full body shot at eye level from behind, 35mm, natural skin texture and body proportions, sharp focus.",
+  "neutralScene": "One adult woman and one adult man walking a narrow forest trail in single file, seen from behind a few steps back; she leads with a daypack, he follows two paces behind in a cap; low ferns and leaf litter at the trail edges, patchy canopy light, full body, eye level, natural proportions and skin texture, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman and one adult man walking a narrow dirt trail through forest in single file, viewed from behind a few steps back. The woman leads in mid-stride with a small daypack, and the man follows two paces behind wearing a cap and carrying nothing. Late morning sun comes down through the canopy in patches that cross the trail and the ferns beside it. Full body shot at eye level from behind, 35mm lens, natural body proportions and unretouched skin, sharp focus.",
+    "juggernaut": "A photorealistic photograph of one adult woman and one adult man hiking a forest trail in single file, seen from behind at a few paces: she walks ahead in mid-stride with a small daypack, he follows two paces back in a cap. Both wear hiking clothes and proper boots. Narrow packed trail with gravel and leaf litter, ferns crowding the edges, trunks close on both sides, late morning light broken into patches by the canopy. Two separate figures, full body, eye level, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_safe, 1girl and 1boy, 2people, female, male, auburn hair, hiking clothes, daypack, cap, walking, single file, walking away, from behind, back view, full body, eye level, outdoors, dirt trail, forest, ferns, dappled morning light, sharp focus",
+    "qwen-image-2.1": "A photorealistic photograph of one adult woman and one adult man walking a narrow dirt trail through mixed forest in single file, seen from directly behind a few steps back. She is in front, mid-stride, wearing boots and shorts with a light jacket at her waist and a small daypack on her shoulders, her wavy auburn hair moving as she walks. Two paces behind her, the man wears a cap and a plain t-shirt and carries nothing, his stride falling out of step with hers. Loose gravel and packed earth underfoot, ferns and leaf litter at the edges, trunks close on both sides. Late morning sun breaks through the canopy in patches that slide across their backs and the trail ahead. Full body shot at eye level from behind, 35mm lens, sharp focus on the two figures and the trail.",
+    "flux": "Photorealistic photograph of two adults hiking a forest trail in single file. Primary subjects: a woman with wavy auburn hair in boots and shorts carrying a small daypack, walking ahead; a man in a cap and t-shirt two paces behind her. Action: both mid-stride, walking away from the camera along a narrow dirt trail. Critical style: photorealistic, 35mm, unretouched skin texture, sharp focus. Context: a dense forest with ferns and leaf litter at the trail edges, late morning canopy light in patches. Camera: full body, eye level, from behind.",
+    "qwen-edit-2511": "Change only the cast arrangement and the light: keep the same trail, and restage it so the two walk single file instead of together, with the light now falling in the low flat patches of early evening. Keep both people's faces, hair, identity, clothing, their body proportions and the forest exactly unchanged.",
+    "qwen-image-2.1-edit": "Have the two walk one behind the other instead of side by side, and change the light to late afternoon with long shade across the trail. Preserve both faces, hair, identity, clothing, body proportions and the trail exactly as they are."
+  },
+  "settings": {
+    "seed": 40102,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1152
+  }
+}
