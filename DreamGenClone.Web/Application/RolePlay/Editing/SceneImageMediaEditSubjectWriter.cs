@@ -55,8 +55,9 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
             return null;
 
         // An operation is not a render and has no production stage of its own: it is resolved on its own
-        // path so it never falls into a stage's compiler-provenance validation.
-        if (context.Operation.Kind != MediaEditOperationKind.Edit)
+        // path so it never falls into a stage's compiler-provenance validation. A masked-region edit is an
+        // EDIT that also carries a region, so it stays on the compiled-edit path below.
+        if (context.Operation.Kind is not MediaEditOperationKind.Edit and not MediaEditOperationKind.MaskedRegion)
             return await PrepareOperationAsync(image, context, cancellationToken);
 
         return image.ProductionStage switch
@@ -80,8 +81,9 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
         MediaEditRunContext context, CancellationToken cancellationToken = default)
     {
         // An operation is never claimed: it is finished by the same job that picked it up and its
-        // completion accepts a row that is still 'Pending' (TryCompleteOperationImageAsync).
-        if (context.Operation.Kind != MediaEditOperationKind.Edit)
+        // completion accepts a row that is still 'Pending' (TryCompleteOperationImageAsync). A region edit
+        // IS an edit, so it claims like one.
+        if (context.Operation.Kind is not MediaEditOperationKind.Edit and not MediaEditOperationKind.MaskedRegion)
             return true;
 
         if (await _images.TryClaimImageAsync(context.ImageId, DateTime.UtcNow, cancellationToken))
@@ -127,7 +129,7 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
             source.Id,
             token => _storage.OpenReadAsync(SourcePath(source), token),
             sourceSha256,
-            MediaEditOperation.ForEdit,
+            context.Operation,
             Prompt: prompt,
             References: references,
             Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),

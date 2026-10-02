@@ -890,6 +890,9 @@ public sealed class WardrobeItemServiceTests
         public Task CreatePromotedAsync(SceneAsset asset, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task RenameAsync(string assetId, string name, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task DeleteAsync(string assetId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }

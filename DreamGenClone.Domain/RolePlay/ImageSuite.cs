@@ -19,7 +19,21 @@ public enum ImageSuiteKind
     /// manifest. Distinct from the other kinds because what it answers is "how does this set look on each model" rather
     /// than "does this capability still work" - which is why a run of one is one checkpoint over all the cells.
     /// </summary>
-    Catalog = 4
+    Catalog = 4,
+
+    /// <summary>
+    /// The POSE LIBRARY as a suite: one cell per pose preset, derived from the library rather than authored.
+    ///
+    /// <para>
+    /// Distinct from <see cref="Catalog"/> because a catalog cell answers "which prompt" (one wording per model) while a
+    /// pose cell answers "which POSE". A pose cell carries the preset it stands for - the preset id and its skeleton are
+    /// the reference - and the face and body angles the render also needs come from the POSE'S OWN declared metadata
+    /// (direction decides the angle, rating decides clothed/unclothed), resolved against whichever character the run
+    /// picks. That is why a pose cell has no per-model variants: the wording is the pose's own stored prompt, which is
+    /// already model-ready, and every model renders it as written.
+    /// </para>
+    /// </summary>
+    PoseLibrary = 5
 }
 
 /// <summary>

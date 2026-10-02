@@ -22,9 +22,10 @@ public static class ImageStepBlueprintFactory
         foreach (var actor in RequireCast(cast))
         {
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.MomentCast,
-                [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.ScratchImage], actor.ActorKey));
+                [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.ScratchImage], actor.ActorKey,
+                ActorDisplayName: actor.DisplayName));
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.PackCanonicalBody,
-                [ImageStepReferenceSourceKind.ApprovedSceneAsset], actor.ActorKey));
+                [ImageStepReferenceSourceKind.ApprovedSceneAsset], actor.ActorKey, ActorDisplayName: actor.DisplayName));
         }
 
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.RecordRule,
@@ -56,7 +57,9 @@ public static class ImageStepBlueprintFactory
         IReadOnlyDictionary<ImageStepSlotKind, string>? elementText = null,
         bool faceIsRequired = true)
     {
-        var actorKey = RequireActor(actor).ActorKey;
+        var cellActor = RequireActor(actor);
+        var actorKey = cellActor.ActorKey;
+        var actorName = cellActor.DisplayName;
 
         // The ACCEPTED PACK IS THIS CELL'S FACE AND BODY SOURCE. A pack image is an
         // `SceneImageReferenceAsset` addressed by its own pack id, so it is NOT an approved scene asset, and the cell
@@ -75,16 +78,17 @@ public static class ImageStepBlueprintFactory
             ImageStepSourceMode.None,
             [
                 WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.RecordRule,
-                    faceAndBodySources, actorKey, Required: faceIsRequired), ImageStepSlotKind.Face, elementText),
+                    faceAndBodySources, actorKey, Required: faceIsRequired, ActorDisplayName: actorName), ImageStepSlotKind.Face, elementText),
                 // The build is always required: a cell rendered without it is a training image of an unverified body.
                 WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.RecordRule,
-                    faceAndBodySources, actorKey, Required: true), ImageStepSlotKind.Body, elementText),
+                    faceAndBodySources, actorKey, Required: true, ActorDisplayName: actorName), ImageStepSlotKind.Body, elementText),
                 // Wardrobe is NOT required: the render does not demand it, so the step must not either. It is SUPPLIED BY
                 // THE BODY REFERENCE (2026-09-27): that reference is state-matched, so a clothed cell's is a clothed
                 // full-body image and the garment is in it. Describing an outfit as well made the prompt contradict the
                 // image it was conditioned on, so the element is now left out of the prompt and shown as supplied.
                 WithElementText(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.RecordRule,
-                    [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey, AllowsMultiple: true)
+                    [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey, AllowsMultiple: true,
+                    ActorDisplayName: actorName)
                     { SuppliedBySlotKind = ImageStepSlotKind.Body },
                     ImageStepSlotKind.Wardrobe, elementText),
                 // The POSE is bindable, and it COMPOSES with the face and body references (restored 2026-09-27).
@@ -136,18 +140,21 @@ public static class ImageStepBlueprintFactory
         ImageStepReferenceSourceKind[] packSources =
             [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.IdentityPackAsset];
 
-        var actorKey = character is null ? null : RequireActor(character).ActorKey;
+        var resolvedCharacter = character is null ? null : RequireActor(character);
+        var actorKey = resolvedCharacter?.ActorKey;
+        var actorName = resolvedCharacter?.DisplayName;
         if (actorKey is not null)
         {
             slots.Add(WithElementText(new ImageStepSlotBlueprint(
-                ImageStepSlotKind.Face, ImageStepSlotPrefill.None, packSources, actorKey),
+                ImageStepSlotKind.Face, ImageStepSlotPrefill.None, packSources, actorKey, ActorDisplayName: actorName),
                 ImageStepSlotKind.Face, elementText));
             slots.Add(WithElementText(new ImageStepSlotBlueprint(
-                ImageStepSlotKind.Body, ImageStepSlotPrefill.None, packSources, actorKey),
+                ImageStepSlotKind.Body, ImageStepSlotPrefill.None, packSources, actorKey, ActorDisplayName: actorName),
                 ImageStepSlotKind.Body, elementText));
             slots.Add(WithElementText(new ImageStepSlotBlueprint(
                 ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None,
-                [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey, AllowsMultiple: true),
+                [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey, AllowsMultiple: true,
+                ActorDisplayName: actorName),
                 ImageStepSlotKind.Wardrobe, elementText));
         }
 
@@ -199,9 +206,9 @@ public static class ImageStepBlueprintFactory
         if (subject is { } actor)
         {
             var resolved = RequireActor(actor);
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.None, characterSources, resolved.ActorKey));
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, characterSources, resolved.ActorKey));
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sharedSources, resolved.ActorKey, AllowsMultiple: true));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.None, characterSources, resolved.ActorKey, ActorDisplayName: resolved.DisplayName));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, characterSources, resolved.ActorKey, ActorDisplayName: resolved.DisplayName));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sharedSources, resolved.ActorKey, AllowsMultiple: true, ActorDisplayName: resolved.DisplayName));
         }
 
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sharedSources));
@@ -228,7 +235,8 @@ public static class ImageStepBlueprintFactory
         foreach (var actor in RequireCast(cast))
         {
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.MomentCast,
-                [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.ScratchImage], actor.ActorKey));
+                [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.ScratchImage], actor.ActorKey,
+                ActorDisplayName: actor.DisplayName));
         }
 
         return Build(new ImageStepBlueprint(
@@ -258,8 +266,8 @@ public static class ImageStepBlueprintFactory
                 continue;
             }
 
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, sources, actor.ActorKey));
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, actor.ActorKey, AllowsMultiple: true));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, sources, actor.ActorKey, ActorDisplayName: actor.DisplayName));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, actor.ActorKey, AllowsMultiple: true, ActorDisplayName: actor.DisplayName));
         }
 
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sources));
@@ -304,8 +312,8 @@ public static class ImageStepBlueprintFactory
                 continue;
             }
 
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, sources, actor.ActorKey));
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, actor.ActorKey, AllowsMultiple: true));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, sources, actor.ActorKey, ActorDisplayName: actor.DisplayName));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, actor.ActorKey, AllowsMultiple: true, ActorDisplayName: actor.DisplayName));
         }
 
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sources));
@@ -328,9 +336,9 @@ public static class ImageStepBlueprintFactory
             ImageStepSourceMode.None,
             [
                 new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.PackCanonicalFace,
-                    [ImageStepReferenceSourceKind.ApprovedSceneAsset], resolved.ActorKey, Required: true),
+                    [ImageStepReferenceSourceKind.ApprovedSceneAsset], resolved.ActorKey, Required: true, ActorDisplayName: resolved.DisplayName),
                 new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.PackCanonicalBody,
-                    [ImageStepReferenceSourceKind.ApprovedSceneAsset], resolved.ActorKey, Required: true),
+                    [ImageStepReferenceSourceKind.ApprovedSceneAsset], resolved.ActorKey, Required: true, ActorDisplayName: resolved.DisplayName),
                 new ImageStepSlotBlueprint(ImageStepSlotKind.Pose, ImageStepSlotPrefill.CallerSupplied,
                     [ImageStepReferenceSourceKind.PoseLibrarySkeleton], Required: true)
             ],

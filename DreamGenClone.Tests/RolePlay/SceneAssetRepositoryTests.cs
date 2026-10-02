@@ -314,10 +314,115 @@ public sealed class SceneAssetRepositoryTests
     }
 
     /// <summary>
+    /// Operator report 2026-10-01: deleting a run CONTAINER from the Asset Manager failed with the same bare
+    /// "SQLite Error 19: FOREIGN KEY constraint failed". The cause is one level up from the image case above: an edit
+    /// session holds its ASSET (<c>AssetId</c>, ON DELETE RESTRICT) as well as the image it started from, and the
+    /// asset delete removed only the images and the asset row. The container's own edit history now goes with it, in
+    /// dependency order, in one transaction.
+    /// </summary>
+    [Fact]
+    public async Task Delete_ClearsTheAssetsOwnEditHistoryAndItsImages()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await repo.UpsertAsync(new SceneAsset
+            {
+                Id = "asset-1",
+                Name = "Biglust Baseline",
+                Kind = SceneAssetKind.PromptGenerated,
+                Status = SceneAssetStatus.Complete,
+                Type = SceneAssetType.Playground
+            });
+            await repo.UpsertImageAsync(new SceneAssetImage
+            {
+                Id = "upload",
+                AssetId = "asset-1",
+                Kind = SceneAssetKind.Uploaded,
+                Status = SceneAssetStatus.Complete,
+                FileRelativePath = "assets/upload.png"
+            });
+            // One image derived from another INSIDE the same asset: the parent must not be deleted before its child.
+            await repo.UpsertImageAsync(new SceneAssetImage
+            {
+                Id = "edited",
+                AssetId = "asset-1",
+                Kind = SceneAssetKind.Edited,
+                Status = SceneAssetStatus.Complete,
+                SourceImageId = "upload",
+                FileRelativePath = "assets/edited.png"
+            });
+
+            await SeedEditHistoryAsync(dbPath, sourceImageId: "upload");
+
+            // The constraint has to be enforced here for this test to mean anything.
+            await AssertDirectDeleteIsBlockedAsync(dbPath, "upload");
+
+            await repo.DeleteAsync("asset-1");
+
+            Assert.Null(await repo.GetAsync("asset-1"));
+            Assert.Empty(await repo.ListImagesAsync("asset-1"));
+            Assert.Equal(0, await CountEditHistoryAsync(dbPath));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// An edit in ANOTHER asset that started from one of ours is refused by name, and nothing is deleted: those rows
+    /// would be left pointing at an image that no longer exists, and deleting what somebody else holds is not this
+    /// asset's decision to make.
+    /// </summary>
+    [Fact]
+    public async Task Delete_RefusesWhenAnotherAssetEditedOneOfItsImages()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await repo.UpsertAsync(new SceneAsset
+            {
+                Id = "asset-1",
+                Name = "Run container",
+                Kind = SceneAssetKind.PromptGenerated,
+                Status = SceneAssetStatus.Complete,
+                Type = SceneAssetType.Playground
+            });
+            await repo.UpsertImageAsync(new SceneAssetImage
+            {
+                Id = "upload",
+                AssetId = "asset-1",
+                Kind = SceneAssetKind.Uploaded,
+                Status = SceneAssetStatus.Complete,
+                FileRelativePath = "assets/upload.png"
+            });
+            await SeedEditHistoryAsync(dbPath, sourceImageId: "upload", assetId: "asset-2");
+
+            var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() => repo.DeleteAsync("asset-1"));
+
+            Assert.Contains("edit(s) in OTHER assets", refusal.Message, StringComparison.Ordinal);
+            // Nothing was deleted: the whole delete is one transaction, so the refused delete leaves both the asset row
+            // and every image it holds — including the self-mirrored row the schema backfill creates (Id = asset id) for
+            // every non-container asset.
+            Assert.NotNull(await repo.GetAsync("asset-1"));
+            var remaining = await repo.ListImagesAsync("asset-1");
+            Assert.Equal(
+                new[] { "asset-1", "upload" },
+                remaining.Select(image => image.Id).OrderBy(id => id, StringComparer.Ordinal));
+            Assert.NotEqual(0, await CountEditHistoryAsync(dbPath));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
     /// Creates the asset-image edit tables with the RESTRICTed foreign key the live schema has, plus one session,
     /// its compilation attempt and its prompt revision, all keyed by the image under test.
     /// </summary>
-    private static async Task SeedEditHistoryAsync(string dbPath, string sourceImageId)
+    private static async Task SeedEditHistoryAsync(string dbPath, string sourceImageId, string assetId = "asset-1")
     {
         await using var connection = new SqliteConnection($"Data Source={dbPath};Pooling=False");
         await connection.OpenAsync();
@@ -345,7 +450,7 @@ public sealed class SceneAssetRepositoryTests
         rows.CommandText = """
             INSERT INTO SceneAssetImageEditSessions
                 (Id, AssetId, SourceImageId, SourceImageSha256, Status, CreatedUtc, UpdatedUtc)
-            VALUES ('session-1', 'asset-1', $source, 'SHA', 'Completed',
+            VALUES ('session-1', $asset, $source, 'SHA', 'Completed',
                     '2026-09-24T01:11:25.0000000Z', '2026-09-24T01:11:25.0000000Z');
             INSERT INTO SceneAssetImageEditCompilationAttempts
                 (Id, EditSessionId, Ordinal, RawIntent, Status, CreatedUtc)
@@ -355,6 +460,7 @@ public sealed class SceneAssetRepositoryTests
             VALUES ('revision-1', 'attempt-1', 0, 'remove the background', '2026-09-24T01:11:25.0000000Z');
             """;
         rows.Parameters.AddWithValue("$source", sourceImageId);
+        rows.Parameters.AddWithValue("$asset", assetId);
         await rows.ExecuteNonQueryAsync();
     }
 

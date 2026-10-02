@@ -15,7 +15,7 @@ public sealed class SceneImagePromptCompilerRegistryTests
         var pony = new PonySceneImagePromptCompiler(new PonySceneImagePromptBuilder());
         var sdxl = new SdxlSceneImagePromptCompiler(new SdxlSceneImagePromptBuilder());
         var flux = new FluxSceneImagePromptCompiler(new SdxlSceneImagePromptBuilder());
-        var qwen21 = new QwenImage21SceneImagePromptCompiler(new SdxlSceneImagePromptBuilder());
+        var qwen21 = new QwenImage21SceneImagePromptCompiler(new QwenSceneImagePromptBuilder());
         var registry = new SceneImagePromptCompilerRegistry([pony, sdxl, flux, qwen21]);
 
         Assert.Same(pony, registry.Resolve(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags));
@@ -85,17 +85,20 @@ public sealed class SceneImagePromptCompilerRegistryTests
     /// <summary>
     /// The natural-language families (Qwen-Image-2.1 and API image models) must compile the natural-language
     /// photography brief, and must not carry the Pony tag vocabulary, regardless of which builder DI hands out.
+    /// B135-008 route 1: Qwen-2.1 now carries its OWN long-form text (not the SDXL brief), so its system prompt
+    /// differs from the API/SDXL one while remaining natural-language and Pony-free.
     /// </summary>
     [Fact]
     public void NaturalLanguageFamilies_CompileTheBrief_NotPonyTags()
     {
         var naturalLanguageBuilder = new SdxlSceneImagePromptBuilder();
+        var qwenBuilder = new QwenSceneImagePromptBuilder();
         var ponyBuilder = new PonySceneImagePromptBuilder();
-        var qwen21 = new QwenImage21SceneImagePromptCompiler(naturalLanguageBuilder);
+        var qwen21 = new QwenImage21SceneImagePromptCompiler(qwenBuilder);
         var api = new ApiSceneImagePromptCompiler(naturalLanguageBuilder);
 
         // Wiring proof by identity: neither compiler can hold the tag builder.
-        Assert.Same(naturalLanguageBuilder, qwen21.PromptBuilder);
+        Assert.Same(qwenBuilder, qwen21.PromptBuilder);
         Assert.Same(naturalLanguageBuilder, api.PromptBuilder);
         Assert.NotSame(ponyBuilder, qwen21.PromptBuilder);
         Assert.NotSame(ponyBuilder, api.PromptBuilder);
@@ -124,6 +127,9 @@ public sealed class SceneImagePromptCompilerRegistryTests
         var expected = naturalLanguageBuilder.BuildMessages(
             session, fullTurn, state, settings, ImageContentPolicy.AdultAllowed,
             null, null, selectedBeat: moment, pov: SceneImagePovFramer.Omniscient);
+        var qwenExpected = qwenBuilder.BuildMessages(
+            session, fullTurn, state, settings, ImageContentPolicy.AdultAllowed,
+            null, null, selectedBeat: moment, pov: SceneImagePovFramer.Omniscient);
         var pony = ponyBuilder.BuildMessages(
             session, fullTurn, state, settings, ImageContentPolicy.AdultAllowed,
             null, null, selectedBeat: moment, pov: SceneImagePovFramer.Omniscient);
@@ -131,17 +137,26 @@ public sealed class SceneImagePromptCompilerRegistryTests
         // The drafted dialect, not the render workflow, is what went wrong: the tag system prompt and the brief
         // system prompt must differ, and the natural-language families must produce the brief.
         Assert.NotEqual(pony.SystemPrompt, expected.SystemPrompt);
+        Assert.NotEqual(pony.SystemPrompt, qwenExpected.SystemPrompt);
         Assert.Contains("score_9", pony.SystemPrompt, StringComparison.Ordinal);
 
-        foreach (var compiler in new ISceneImagePromptCompiler[] { qwen21, api })
-        {
-            var messages = compiler.PromptBuilder.BuildMessages(
-                session, fullTurn, state, settings, ImageContentPolicy.AdultAllowed,
-                null, null, selectedBeat: moment, pov: SceneImagePovFramer.Omniscient);
+        // Qwen-2.1 carries its own long-form text (route 1), distinct from the SDXL/API brief, but both are
+        // natural-language descriptions. Pony vocabulary and the SDXL style tail appear only as PROHIBITIONS in
+        // the Qwen text, never as cues to emit.
+        Assert.NotEqual(expected.SystemPrompt, qwenExpected.SystemPrompt);
+        Assert.Contains("no score_9", qwenExpected.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("never write masterpiece", qwenExpected.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("natural-language", qwenExpected.SystemPrompt, StringComparison.OrdinalIgnoreCase);
 
-            Assert.Equal(expected.SystemPrompt, messages.SystemPrompt);
-            Assert.Equal(expected.UserPrompt, messages.UserPrompt);
-        }
+        // The API family still shares the SDXL natural-language brief: same system prompt, same user prompt.
+        var apiMessages = api.PromptBuilder.BuildMessages(
+            session, fullTurn, state, settings, ImageContentPolicy.AdultAllowed,
+            null, null, selectedBeat: moment, pov: SceneImagePovFramer.Omniscient);
+        Assert.Equal(expected.SystemPrompt, apiMessages.SystemPrompt);
+        Assert.Equal(expected.UserPrompt, apiMessages.UserPrompt);
+
+        // The Qwen builder shares the SAME user-prompt assembly (only the system prompt differs).
+        Assert.Equal(expected.UserPrompt, qwenExpected.UserPrompt);
     }
 
     [Fact]

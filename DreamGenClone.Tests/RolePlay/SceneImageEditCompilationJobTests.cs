@@ -21,6 +21,24 @@ namespace DreamGenClone.Tests.RolePlay;
 public sealed class SceneImageEditCompilationJobTests
 {
     [Fact]
+    public async Task Compilation_WithA21Editor_StampsThe21CompilerVersion()
+    {
+        await using var fixture = await Fixture.CreateAsync(ReadyResponse, ImageEditorGraphKind.QwenImage21Native);
+        var (_, attempt) = await fixture.CreateAndEnqueueAsync("change the shirt to red");
+
+        Assert.Equal(QwenImage21EditPromptCompiler.SystemPromptVersion, attempt.SystemPromptVersion);
+    }
+
+    [Fact]
+    public async Task Compilation_WithAMergedEditor_StampsThe2511CompilerVersion()
+    {
+        await using var fixture = await Fixture.CreateAsync(ReadyResponse);
+        var (_, attempt) = await fixture.CreateAndEnqueueAsync("change the shirt to red");
+
+        Assert.Equal(QwenSceneImageEditPromptCompiler.SystemPromptVersion, attempt.SystemPromptVersion);
+    }
+
+    [Fact]
     public async Task ReadyCompilation_CreatesRevisionZeroAndIsIdempotent()
     {
         await using var fixture = await Fixture.CreateAsync(ReadyResponse);
@@ -224,7 +242,7 @@ public sealed class SceneImageEditCompilationJobTests
         public RecordingDebugSink Debug { get; }
         public SceneImageRecord Source { get; }
 
-        public static async Task<Fixture> CreateAsync(string response)
+        public static async Task<Fixture> CreateAsync(string response, ImageEditorGraphKind graphKind = ImageEditorGraphKind.MergedCheckpoint)
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"scene-image-edit-job-{Guid.NewGuid():N}.db");
             var root = Path.Combine(Path.GetTempPath(), $"scene-image-edit-job-files-{Guid.NewGuid():N}");
@@ -254,11 +272,12 @@ public sealed class SceneImageEditCompilationJobTests
 
             var resolver = new StubResolver(CreateResolvedModel());
             var queue = new CapturingQueue();
-            var compiler = new QwenSceneImageEditPromptCompiler();
+            var compilers = new SceneImageEditPromptCompilerResolver(new QwenSceneImageEditPromptCompiler(), new QwenImage21EditPromptCompiler());
+            var editorModels = new StubEditorModels(graphKind);
             var completion = new StubCompletion(response);
             var debug = new RecordingDebugSink();
-            var service = new SceneImageEditCompilationService(imageRepository, editRepository, storage, resolver, compiler, queue);
-            var handler = new SceneImageEditCompilationJobHandler(editRepository, imageRepository, storage, resolver, completion, compiler, debug);
+            var service = new SceneImageEditCompilationService(imageRepository, editRepository, storage, resolver, compilers, editorModels, queue);
+            var handler = new SceneImageEditCompilationJobHandler(editRepository, imageRepository, storage, resolver, completion, compilers, debug);
             return new Fixture(dbPath, root, service, handler, editRepository, imageRepository, storage, queue, completion, debug, source);
         }
 
@@ -296,7 +315,28 @@ public sealed class SceneImageEditCompilationJobTests
         {
             Assert.Equal(AppFunction.RolePlaySceneImageEditPromptCompiler, function);
             return Task.FromResult(model);
+     
+
         }
+    }
+
+    /// <summary>The compile flow resolves the editor model for its graph kind (B135-008 N2); the fixture defaults to a merged (2511) editor.</summary>
+    private sealed class StubEditorModels(ImageEditorGraphKind graphKind) : IImageEditorModelResolver
+    {
+        public Task<ResolvedImageEditorModel> ResolveAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(Editor());
+
+        public Task<ResolvedImageEditorModel> ResolveByIdAsync(string modelId, CancellationToken cancellationToken = default)
+            => Task.FromResult(Editor());
+
+        public Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<SceneImageModelChoice>>([]);
+
+        private ResolvedImageEditorModel Editor() => new(
+            "http://localhost:8188", 120, null, "Qwen-Rapid-AIO-NSFW-v23.safetensors", "Local ComfyUI",
+            ImageContentPolicy.AdultAllowed, "diffusion.safetensors", "text_encoder.safetensors", "vae.safetensors",
+            8, 1.0, "euler_ancestral", "beta", 1.0, 3.1, 1.0,
+            GraphKind: graphKind);
     }
 
     private sealed class StubCompletion(string response) : IMultimodalCompletionClient

@@ -343,7 +343,8 @@ public sealed class SceneAssetImageEditRunCutoverTests
                 Edits,
                 Storage,
                 new ThrowingMultimodalResolver(),
-                new ThrowingPromptCompiler(),
+                new ThrowingPromptCompilerResolver(),
+                new ThrowingEditorModels(),
                 queue,
                 new StubDurableSettingsResolver(),
                 TimeProvider.System,
@@ -521,12 +522,27 @@ public sealed class SceneAssetImageEditRunCutoverTests
             => throw new NotSupportedException();
     }
 
-    private sealed class ThrowingPromptCompiler : ISceneImageEditPromptCompiler
+    private sealed class ThrowingPromptCompilerResolver : ISceneImageEditPromptCompilerResolver
     {
-        public SceneImageEditCompilerMessages BuildMessages(SceneImageEditCompilerContext context)
+        public ISceneImageEditPromptCompiler Resolve(ImageEditorGraphKind? graphKind)
             => throw new NotSupportedException();
 
-        public SceneImageEditCompilationResult Parse(string rawResponse, int imageWidth, int imageHeight)
+        public ISceneImageEditPromptCompiler Resolve(ResolvedImageEditorModel editorModel)
+            => throw new NotSupportedException();
+
+        public ISceneImageEditPromptCompiler ResolveByVersion(string systemPromptVersion)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingEditorModels : IImageEditorModelResolver
+    {
+        public Task<ResolvedImageEditorModel> ResolveAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ResolvedImageEditorModel> ResolveByIdAsync(string modelId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 

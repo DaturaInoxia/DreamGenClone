@@ -67,6 +67,14 @@ public sealed class ReferenceApplicationSelection
     /// <summary>The approved pack image this binding supplies. See <see cref="IdentityPackId"/>.</summary>
     public string? ReferenceAssetId { get; set; }
 
+    /// <summary>
+    /// What that pack image is, in words — "Front · Clothed", from <c>IdentityPackReferenceLabels.Describe</c>. Stored
+    /// beside the ids rather than resolved at display time because the surfaces that show a binding do not all hold the
+    /// identity service, and a pack asset id means nothing to the operator reading it. Null on a binding written before
+    /// this existed, which then shows the ids exactly as it used to.
+    /// </summary>
+    public string? ReferenceLabel { get; set; }
+
     public bool UsesReference => !string.IsNullOrWhiteSpace(SceneAssetId)
         && !string.IsNullOrWhiteSpace(SceneAssetImageId);
 

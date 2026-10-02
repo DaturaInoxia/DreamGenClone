@@ -1,11 +1,13 @@
 using System.Text.Json;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
 public sealed record SceneImageEditCompilerContext(
     string RawIntent,
-    IReadOnlyList<string> ClarificationHistory);
+    IReadOnlyList<string> ClarificationHistory,
+    MediaEditRegionOperation? Region = null);
 
 public sealed record SceneImageEditCompilerMessages(
     string SchemaVersion,

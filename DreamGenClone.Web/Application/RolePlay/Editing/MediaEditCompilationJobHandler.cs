@@ -27,7 +27,7 @@ public sealed class MediaEditCompilationJobHandler : IDurableBackgroundJobHandle
     private readonly MediaEditSubjectSourceResolver _sources;
     private readonly IMultimodalModelResolutionService _modelResolver;
     private readonly IMultimodalCompletionClient _completionClient;
-    private readonly ISceneImageEditPromptCompiler _compiler;
+    private readonly ISceneImageEditPromptCompilerResolver _compilers;
     private readonly IRolePlayDebugEventSink? _debugEvents;
     private readonly ILogger<MediaEditCompilationJobHandler> _logger;
 
@@ -36,7 +36,7 @@ public sealed class MediaEditCompilationJobHandler : IDurableBackgroundJobHandle
         MediaEditSubjectSourceResolver sources,
         IMultimodalModelResolutionService modelResolver,
         IMultimodalCompletionClient completionClient,
-        ISceneImageEditPromptCompiler compiler,
+        ISceneImageEditPromptCompilerResolver compilers,
         ILogger<MediaEditCompilationJobHandler> logger,
         IRolePlayDebugEventSink? debugEvents = null)
     {
@@ -44,7 +44,7 @@ public sealed class MediaEditCompilationJobHandler : IDurableBackgroundJobHandle
         _sources = sources;
         _modelResolver = modelResolver;
         _completionClient = completionClient;
-        _compiler = compiler;
+        _compilers = compilers;
         _logger = logger;
         _debugEvents = debugEvents;
     }
@@ -103,7 +103,12 @@ public sealed class MediaEditCompilationJobHandler : IDurableBackgroundJobHandle
                 ? Array.Empty<string>()
                 : JsonSerializer.Deserialize<string[]>(attempt.ClarificationContextJson, JsonOptions)
                     ?? throw new InvalidOperationException("The compilation clarification snapshot is invalid.");
-            var messages = _compiler.BuildMessages(new SceneImageEditCompilerContext(attempt.RawIntent, clarificationHistory));
+            var region = string.IsNullOrWhiteSpace(attempt.RegionJson)
+                ? null
+                : JsonSerializer.Deserialize<MediaEditRegionOperation>(attempt.RegionJson, JsonOptions)
+                    ?? throw new InvalidOperationException("The compilation region snapshot is invalid.");
+            var compiler = _compilers.ResolveByVersion(attempt.SystemPromptVersion);
+            var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(attempt.RawIntent, clarificationHistory, region));
             if (messages.SchemaVersion != attempt.CompilerSchemaVersion || messages.SystemPromptVersion != attempt.SystemPromptVersion)
                 throw new InvalidOperationException("The compiler prompt contract changed after this attempt was queued.");
 
@@ -120,7 +125,7 @@ public sealed class MediaEditCompilationJobHandler : IDurableBackgroundJobHandle
                 cancellationToken);
 
             attempt.RawModelResponse = completion.Content;
-            var result = _compiler.Parse(completion.Content, input.Width, input.Height);
+            var result = compiler.Parse(completion.Content, input.Width, input.Height);
             attempt.ParsedResultJson = JsonSerializer.Serialize(result, JsonOptions);
             attempt.Status = result.Status switch
             {

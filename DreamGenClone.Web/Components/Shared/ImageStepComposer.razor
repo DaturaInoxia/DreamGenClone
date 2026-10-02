@@ -121,7 +121,7 @@
                                     <strong class="small">@slot.SlotKind</strong>
                                     @if (!string.IsNullOrWhiteSpace(slot.ActorKey))
                                     {
-                                        <span class="small text-muted">· @slot.ActorKey</span>
+                                        <span class="small text-muted">· @ActorLabel(slot.ActorKey)</span>
                                     }
                                     @if (slot.Required)
                                     {
@@ -722,7 +722,8 @@
                 SkeletonRelativePath: binding.SkeletonRelativePath,
                 PosePresetId: binding.PosePresetId,
                 IdentityPackId: binding.IdentityPackId,
-                ReferenceAssetId: binding.ReferenceAssetId));
+                ReferenceAssetId: binding.ReferenceAssetId,
+                ReferenceLabel: binding.ReferenceLabel));
 
     private static bool OffersSkeleton(ImageStepSlotBlueprint slot) =>
         slot.AllowedSources.Contains(ImageStepReferenceSourceKind.PoseLibrarySkeleton);
@@ -754,7 +755,10 @@
             SourceKind: ImageStepReferenceSourceKind.IdentityPackAsset,
             Strategy: ReferenceStrategyResolver.IdentityNativeMultiReference,
             IdentityPackId: choice.PackId,
-            ReferenceAssetId: choice.ReferenceAssetId));
+            ReferenceAssetId: choice.ReferenceAssetId,
+            // The picker already resolved what this image IS ("Front · Clothed"), so the binding records the name
+            // rather than making every surface that later reads it look the asset up again.
+            ReferenceLabel: choice.Label));
     }
 
     /// <summary>The asset type a slot's approved-asset picker lists. A pose asset is a SceneAsset (D8), so the same
@@ -770,17 +774,56 @@
             $"Reference slot '{slotKind}' has no approved-asset type, so it cannot be filled from the asset picker.")
     };
 
-    private static string DescribeBinding(ReferenceApplicationSelection binding)
+    /// <summary>
+    /// The name of the character a slot belongs to, falling back to its key when no host declared one.
+    ///
+    /// Read from the BLUEPRINT on purpose: this component holds no services, so a name it displays has to arrive as
+    /// host-supplied data — which is where the name already was, on <c>ImageStepActor</c>, before it was dropped on the
+    /// way here. A slot that renders the raw profile key makes the operator read a GUID to find out whose face they are
+    /// binding.
+    /// </summary>
+    private string ActorLabel(string? actorKey)
+    {
+        if (string.IsNullOrWhiteSpace(actorKey)) return string.Empty;
+
+        if (!ReferenceEquals(_actorNamesFrom, Blueprint))
+        {
+            _actorNamesFrom = Blueprint;
+            _actorNames = Blueprint.Slots
+                .Where(slot => !string.IsNullOrWhiteSpace(slot.ActorKey)
+                    && !string.IsNullOrWhiteSpace(slot.ActorDisplayName))
+                .GroupBy(slot => slot.ActorKey!, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First().ActorDisplayName!, StringComparer.Ordinal);
+        }
+
+        return _actorNames.TryGetValue(actorKey, out var name) && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : actorKey;
+    }
+
+    private ImageStepBlueprint? _actorNamesFrom;
+    private IReadOnlyDictionary<string, string> _actorNames = new Dictionary<string, string>();
+
+    /// <summary>
+    /// One binding in words: the element, whose it is, and what image supplies it.
+    ///
+    /// Every part prefers a NAME over an id. The bound pack image carries its own label ("Front · Clothed"), and the
+    /// character carries theirs; an id is shown only where nothing named it, so an older binding or a host that
+    /// declared no name degrades to what this line used to say rather than to a blank or a guess.
+    /// </summary>
+    private string DescribeBinding(ReferenceApplicationSelection binding)
     {
         var source = !string.IsNullOrWhiteSpace(binding.SceneAssetImageId)
             ? binding.SceneAssetImageId
             : binding.SkeletonRelativePath
-                ?? (string.IsNullOrWhiteSpace(binding.ReferenceAssetId)
-                    ? "no source"
-                    : $"pack asset {binding.ReferenceAssetId}");
+                ?? (!string.IsNullOrWhiteSpace(binding.ReferenceLabel)
+                    ? binding.ReferenceLabel
+                    : string.IsNullOrWhiteSpace(binding.ReferenceAssetId)
+                        ? "no source"
+                        : $"pack asset {binding.ReferenceAssetId}");
         return string.IsNullOrWhiteSpace(binding.ActorKey)
             ? $"{binding.Kind ?? binding.ElementKey}: {source}"
-            : $"{binding.Kind ?? binding.ElementKey} for {binding.ActorKey}: {source}";
+            : $"{binding.Kind ?? binding.ElementKey} for {ActorLabel(binding.ActorKey)}: {source}";
     }
 
     /// <summary>

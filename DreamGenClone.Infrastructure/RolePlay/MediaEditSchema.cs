@@ -32,7 +32,7 @@ public static class MediaEditSchema
 
         CREATE TABLE IF NOT EXISTS MediaEditCompilationAttempts (
             Id TEXT PRIMARY KEY, EditSessionId TEXT NOT NULL, Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
-            RawIntent TEXT NOT NULL, ClarificationContextJson TEXT NULL, SourceImageSha256 TEXT NOT NULL,
+            RawIntent TEXT NOT NULL, ClarificationContextJson TEXT NULL, RegionJson TEXT NULL, SourceImageSha256 TEXT NOT NULL,
             Status TEXT NOT NULL, ResolvedModelSnapshotJson TEXT NOT NULL, CompilerSchemaVersion TEXT NOT NULL,
             SystemPromptVersion TEXT NOT NULL, RawModelResponse TEXT NULL, ParsedResultJson TEXT NULL,
             Error TEXT NULL, CreatedUtc TEXT NOT NULL, StartedUtc TEXT NULL, CompletedUtc TEXT NULL,
@@ -66,6 +66,17 @@ public static class MediaEditSchema
         {
             ddl.CommandText = Ddl;
             await ddl.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var regionCheck = connection.CreateCommand())
+        {
+            regionCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('MediaEditCompilationAttempts') WHERE name='RegionJson'";
+            if (Convert.ToInt64(await regionCheck.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                await using var regionAlter = connection.CreateCommand();
+                regionAlter.CommandText = "ALTER TABLE MediaEditCompilationAttempts ADD COLUMN RegionJson TEXT NULL";
+                await regionAlter.ExecuteNonQueryAsync(cancellationToken);
+            }
         }
 
         if (await HasMarkerAsync(connection, cancellationToken))

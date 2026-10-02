@@ -761,6 +761,9 @@ public sealed class CharacterIdentityBuildServiceTests
         public Task<(SceneAsset Asset, Stream Stream)> OpenForDownloadAsync(string assetId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<SceneAsset> RenameAssetAsync(string assetId, string name, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task DeleteAssetAsync(string assetId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }

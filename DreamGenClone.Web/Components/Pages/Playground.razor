@@ -15,6 +15,8 @@
 @inject IImageSuiteRenderDriver Renderer
 @inject IModelResolutionService ModelResolution
 @inject IImageSuiteImporter Importer
+@inject IPoseLibrarySuiteBuilder PoseSuites
+@inject ICharacterImageIdentityService Identity
 
 <PageTitle>Image Playground - DreamGenClone</PageTitle>
 
@@ -115,6 +117,43 @@
                                     <span class="fw-semibold">@importReport.SuiteName</span>
                                     <span class="text-muted">
                                         v@importReport.Version · @importReport.CellCount cell(s) · @importReport.ProblemCount gap(s)
+                                    </span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header py-2"><span class="small fw-semibold">Pose library</span></div>
+                <div class="card-body py-2">
+                    <p class="text-muted small mb-2">
+                        Derives ONE suite per pose library, with a cell per pose — the poses ARE the suite, so importing
+                        a pack or correcting a pose's declared direction changes what the next run sends without anyone
+                        editing a manifest. Rebuilding updates the same suites in place.
+                    </p>
+                    <button class="btn btn-sm btn-outline-primary w-100" type="button"
+                            @onclick="BuildPoseSuitesAsync" disabled="@_busy">
+                        Build suites from the pose library
+                    </button>
+                    @if (_poseSuiteReports.Count > 0)
+                    {
+                        <ul class="list-unstyled small mt-2 mb-0">
+                            @foreach (var poseReport in _poseSuiteReports)
+                            {
+                                <li>
+                                    <span class="fw-semibold">@poseReport.SuiteName</span>
+                                    <span class="text-muted">
+                                        · @poseReport.CellCount pose(s)
+                                        @if (poseReport.RemovedCells > 0)
+                                        {
+                                            <text>· @poseReport.RemovedCells removed</text>
+                                        }
+                                        @if (poseReport.Problems.Count > 0)
+                                        {
+                                            <text>· @poseReport.Problems.Count gap(s)</text>
+                                        }
                                     </span>
                                 </li>
                             }
@@ -256,24 +295,48 @@
                 </div>
 
                 <div class="card mb-3">
-                    <div class="card-header py-2"><span class="small fw-semibold">Render the catalog</span></div>
+                    <div class="card-header py-2"><span class="small fw-semibold">@(SelectedSuiteIsPoseLibrary ? "Render the pose suite" : "Render the catalog")</span></div>
                     <div class="card-body py-2">
-                        <p class="text-muted small mb-2">
-                            Enqueues one real image per selected cell, from that cell's prompt for the chosen variant.
-                            Every image lands in ONE run container in the Asset Manager, so the set is browsable together.
-                        </p>
+                        @if (SelectedSuiteIsPoseLibrary)
+                        {
+                            <p class="text-muted small mb-2">
+                                Enqueues one real image per selected pose. Each cell renders the POSE's own stored prompt
+                                and sends its library skeleton, plus the approved face and body angle that pose's own
+                                declared direction and rating ask for. Pick a character to condition the poses on one; with
+                                no character the poses render from their skeletons alone.
+                            </p>
+                        }
+                        else
+                        {
+                            <p class="text-muted small mb-2">
+                                Enqueues one real image per selected cell, from that cell's prompt for the chosen variant.
+                                Every image lands in ONE run container in the Asset Manager, so the set is browsable together.
+                            </p>
+                        }
                         <div class="row g-2 mb-2">
-                            <div class="col-6">
-                                <label class="form-label small mb-1">Prompt variant</label>
-                                <select class="form-select form-select-sm" value="@_renderVariantKey"
-                                        @onchange="OnRenderVariantKey">
-                                    <option value="">(choose)</option>
-                                    @foreach (var key in _variantKeys)
-                                    {
-                                        <option value="@key">@key</option>
-                                    }
-                                </select>
-                            </div>
+                            @if (SelectedSuiteIsPoseLibrary)
+                            {
+                                <div class="col-6">
+                                    <span class="form-text">
+                                        No prompt variant to choose: a pose suite's cells are POSES, and the wording is the
+                                        pose's own stored prompt so the result stays comparable to the recorded pose proofs.
+                                    </span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="col-6">
+                                    <label class="form-label small mb-1">Prompt variant</label>
+                                    <select class="form-select form-select-sm" value="@_renderVariantKey"
+                                            @onchange="OnRenderVariantKey">
+                                        <option value="">(choose)</option>
+                                        @foreach (var key in _variantKeys)
+                                        {
+                                            <option value="@key">@key</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
                             <div class="col-6">
                                 <label class="form-label small mb-1">Model</label>
                                 <select class="form-select form-select-sm" value="@_renderModelId"
@@ -345,18 +408,64 @@
                                                  Disabled="_busy"
                                                  Scope="playground-run" />
                         </div>
+                        @* The run's CHARACTER, picked rather than pasted. A pose suite needs the character (not a face
+                           asset id) because each pose's own direction decides which approved face and body angle that
+                           cell conditions on; a catalog has no pose, so its face angle is chosen here explicitly. *@
                         <div class="row g-2 mb-2">
                             <div class="col-6">
-                                <label class="form-label small mb-1">Identity pack (optional)</label>
-                                <input type="text" class="form-control form-control-sm" value="@_renderIdentityPackId"
-                                       @onchange="OnRenderIdentityPackId" />
+                                <label class="form-label small mb-1">Character (optional)</label>
+                                <select class="form-select form-select-sm" value="@_renderCharacterProfileId"
+                                        @onchange="OnRenderCharacterChanged">
+                                    <option value="">(no character)</option>
+                                    @foreach (var owner in _packOwners)
+                                    {
+                                        <option value="@owner.CharacterProfileId">@owner.DisplayName · pack v@owner.PackVersion</option>
+                                    }
+                                </select>
                             </div>
                             <div class="col-6">
-                                <label class="form-label small mb-1">Identity face asset (optional)</label>
-                                <input type="text" class="form-control form-control-sm" value="@_renderIdentityFaceAssetId"
-                                       @onchange="OnRenderIdentityFaceAssetId" />
+                                @if (SelectedSuiteIsPoseLibrary)
+                                {
+                                    <span class="form-text">
+                                        @if (SelectedCharacter is { } poseCharacter)
+                                        {
+                                            <text>
+                                                Each pose is conditioned on @poseCharacter.DisplayName's approved
+                                                face and body for the angle THAT POSE declares; a pose needing an angle
+                                                they have not approved is skipped and reported by name.
+                                            </text>
+                                        }
+                                        else
+                                        {
+                                            <text>The poses render from their skeletons alone, with no character applied.</text>
+                                        }
+                                    </span>
+                                }
+                                else
+                                {
+                                    <label class="form-label small mb-1">Identity face angle (catalog runs)</label>
+                                    <select class="form-select form-select-sm" value="@_renderIdentityFaceAssetId"
+                                            @onchange="OnRenderIdentityFaceAssetId" disabled="@(SelectedCharacter is null)">
+                                        <option value="">(none)</option>
+                                        @if (SelectedCharacter is { } catalogCharacter)
+                                        {
+                                            @foreach (var view in catalogCharacter.FaceViews)
+                                            {
+                                                var asset = IdentityPackReferenceResolver.ResolveFace(catalogCharacter.ApprovedAssets, view);
+                                                <option value="@asset?.Id">@view</option>
+                                            }
+                                        }
+                                    </select>
+                                }
                             </div>
                         </div>
+                        @if (_packOwners.Count == 0)
+                        {
+                            <p class="text-muted small mb-2">
+                                No character has an approved identity pack, so runs cannot be conditioned on one yet.
+                                Approve a pack in Character Studio.
+                            </p>
+                        }
 
                         <div class="d-flex justify-content-between align-items-center mb-1">
                             <span class="small text-muted">@_renderCells.Count of @_cells.Count cell(s) selected</span>
@@ -376,9 +485,9 @@
                                         <span class="text-muted">@cell.Ordinal.</span> @cell.Name
                                         @if (HasVariant(cell))
                                         {
-                                            <span class="badge bg-success ms-1">@_renderVariantKey</span>
+                                            <span class="badge bg-success ms-1">@(SelectedSuiteIsPoseLibrary ? "pose" : _renderVariantKey)</span>
                                         }
-                                        else if (!string.IsNullOrWhiteSpace(_renderVariantKey))
+                                        else if (!SelectedSuiteIsPoseLibrary && !string.IsNullOrWhiteSpace(_renderVariantKey))
                                         {
                                             <span class="badge bg-warning text-dark ms-1">no @_renderVariantKey</span>
                                         }
@@ -653,6 +762,25 @@
     private ImageSuiteRenderReport? _renderReport;
 
     /// <summary>
+    /// The characters that HAVE an approved identity pack, so the run can be conditioned on one by picking it rather
+    /// than by pasting two ids. Read from the same roster every other picker uses, so the run offers exactly what the
+    /// render would accept.
+    /// </summary>
+    private readonly List<IdentityPackOwner> _packOwners = [];
+
+    private string _renderCharacterProfileId = string.Empty;
+
+    /// <summary>The character in force, or null when the run is not conditioned on one.</summary>
+    private IdentityPackOwner? SelectedCharacter => _packOwners
+        .FirstOrDefault(owner => string.Equals(owner.CharacterProfileId, _renderCharacterProfileId, StringComparison.Ordinal));
+
+    /// <summary>
+    /// Whether the selected suite's cells name a POSE rather than a per-model prompt. A pose suite has no variant to
+    /// choose: its wording is the pose's own, and the angles come from the pose's metadata.
+    /// </summary>
+    private bool SelectedSuiteIsPoseLibrary => _selectedSuite?.Kind == ImageSuiteKind.PoseLibrary;
+
+    /// <summary>
     /// The character LoRAs this run applies, in chain order. Empty is the normal state and means NO LoRA: the render
     /// then emits no LoRA node and is identical to a render made before character LoRAs existed.
     /// </summary>
@@ -660,6 +788,7 @@
 
     private readonly List<string> _manifests = [];
     private readonly List<ImageSuiteImportReport> _importReports = [];
+    private readonly List<PoseLibrarySuiteReport> _poseSuiteReports = [];
 
     /// <summary>One run cell with its layer verdicts already parsed, so rendering never re-parses or throws.</summary>
     private sealed record RunCellRow(
@@ -978,6 +1107,21 @@
         _variantKeys.AddRange(ImageCellVariants.ListKeys(_cells));
     }
 
+    /// <summary>Loads the characters that have an approved pack, so the run can be conditioned on one by picking it.</summary>
+    private async Task LoadPackOwnersAsync()
+    {
+        Replace(_packOwners, await Identity.ListPackOwnersAsync());
+
+        // A character that is no longer offered must not stay selected: the run would condition on a pack the app cannot
+        // resolve, and the reason would only surface as a refusal at render time.
+        if (SelectedCharacter is null)
+        {
+            _renderCharacterProfileId = string.Empty;
+            _renderIdentityPackId = string.Empty;
+            _renderIdentityFaceAssetId = string.Empty;
+        }
+    }
+
     /// <summary>
     /// Loads the registered image models and preselects the configured default, so the common case is one click and the
     /// model that is about to render is a visible choice in the dropdown rather than an assumption.
@@ -991,6 +1135,8 @@
             _renderModelId = (_models.FirstOrDefault(model => model.IsDefaultModel) ?? _models[0]).ModelId;
         }
 
+        await LoadPackOwnersAsync();
+
         RefreshVariantKeys();
         if (string.IsNullOrWhiteSpace(_renderVariantKey) && _variantKeys.Count > 0)
         {
@@ -999,8 +1145,9 @@
     }
 
     private bool HasVariant(ImageSuiteCell cell) =>
-        !string.IsNullOrWhiteSpace(_renderVariantKey)
-        && ImageCellVariants.Read(cell.VariantsJson, cell.Name).ContainsKey(_renderVariantKey);
+        SelectedSuiteIsPoseLibrary
+        || (!string.IsNullOrWhiteSpace(_renderVariantKey)
+            && ImageCellVariants.Read(cell.VariantsJson, cell.Name).ContainsKey(_renderVariantKey));
 
     private void SelectAllCells()
     {
@@ -1062,6 +1209,7 @@
                 IdentityFaceAssetId: string.IsNullOrWhiteSpace(_renderIdentityFaceAssetId)
                     ? null
                     : _renderIdentityFaceAssetId.Trim(),
+                CharacterProfileId: SelectedCharacter?.CharacterProfileId,
                 CharacterLoras: _renderLoras.Count > 0 ? _renderLoras : null);
 
             _renderReport = await Renderer.RenderAsync(request);
@@ -1213,10 +1361,50 @@
 
     private void OnRenderRunName(ChangeEventArgs e) => _renderRunName = e.Value?.ToString() ?? string.Empty;
 
-    private void OnRenderIdentityPackId(ChangeEventArgs e) => _renderIdentityPackId = e.Value?.ToString() ?? string.Empty;
-
     private void OnRenderIdentityFaceAssetId(ChangeEventArgs e) =>
         _renderIdentityFaceAssetId = e.Value?.ToString() ?? string.Empty;
+
+    /// <summary>
+    /// The run's character. Choosing one also settles the CATALOG route's pack id (a face asset id is only meaningful
+    /// inside its pack), and clears any face angle already chosen, because that angle belonged to the previous character.
+    /// </summary>
+    private void OnRenderCharacterChanged(ChangeEventArgs e)
+    {
+        _renderCharacterProfileId = e.Value?.ToString() ?? string.Empty;
+        _renderIdentityPackId = SelectedCharacter?.PackId ?? string.Empty;
+        _renderIdentityFaceAssetId = string.Empty;
+    }
+
+    /// <summary>
+    /// Derives the pose suites from the pose library and reloads the list, so "the library IS the suite" is one click
+    /// rather than a manifest someone maintains by hand.
+    /// </summary>
+    private async Task BuildPoseSuitesAsync()
+    {
+        _busy = true;
+        _error = string.Empty;
+        _notice = string.Empty;
+
+        try
+        {
+            _poseSuiteReports.Clear();
+            _poseSuiteReports.AddRange(await PoseSuites.BuildAsync(new PoseLibrarySuiteRequest()));
+            await ReloadListsAsync();
+
+            var cells = _poseSuiteReports.Sum(report => report.CellCount);
+            var problems = _poseSuiteReports.Sum(report => report.Problems.Count);
+            _notice = $"Derived {_poseSuiteReports.Count} pose suite(s) with {cells} pose(s); {problems} gap(s) "
+                + "reported. Pick one below, choose a model and optionally a character, and render it.";
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     // ---- display helpers ------------------------------------------------------------------------------
 

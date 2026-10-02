@@ -456,7 +456,17 @@ builder.Services.AddScoped<IImageCellPromptCompiler, ImageCellPromptCompiler>();
 builder.Services.AddScoped<IImageRunExecutor, ImageRunExecutor>();
 // B-135: the catalog render driver. It enqueues REAL images from a suite's cells (one prompt per model) into a run
 // container, which is the path that lets an operator run the baseline catalog on BigLust, then Juggernaut, and look.
-builder.Services.AddScoped<IImageSuiteRenderDriver, ImageSuiteRenderDriver>();
+// A POSE-library suite additionally needs the library (the cell names a pose, and the pose's declared direction decides
+// which approved face and body angle each cell conditions on) and the identity roster (the run's character).
+builder.Services.AddScoped<IImageSuiteRenderDriver>(provider => new ImageSuiteRenderDriver(
+    provider.GetRequiredService<IImageSuiteRepository>(),
+    provider.GetRequiredService<ISceneAssetService>(),
+    provider.GetRequiredService<ILogger<ImageSuiteRenderDriver>>(),
+    provider.GetRequiredService<IPoseLibraryService>(),
+    provider.GetRequiredService<ICharacterImageIdentityService>()));
+// B-135: the POSE LIBRARY as a suite — one cell per pose, derived from the library rather than authored by hand, so a
+// new pack or a corrected pose direction changes what the next run sends with no manifest to maintain.
+builder.Services.AddScoped<IPoseLibrarySuiteBuilder, PoseLibrarySuiteBuilder>();
 // B-135: prompt catalogs are agent-authored files imported into suites. Read-only from the app's side; the root
 // resolves against the working directory and its parents so a repo checkout works without configuration.
 builder.Services.Configure<PlaygroundOptions>(builder.Configuration.GetSection(PlaygroundOptions.SectionName));
@@ -578,9 +588,19 @@ builder.Services.AddSingleton<IPonySceneImagePromptBuilder>(sp => sp.GetRequired
 // binding can only ever be right for one dialect and silently wrong for the other - it was bound to the Pony
 // builder, which compiled Qwen-Image-2.1 and API prompts as Pony tags (reported 2026-09-24). Each compiler now
 // names its builder dialect by concrete type, and SceneImagePromptCompilerRegistryTests guards the rule.
-builder.Services.AddSingleton<ISceneImageEditPromptCompiler, QwenSceneImageEditPromptCompiler>();
+builder.Services.AddSingleton<QwenSceneImageEditPromptCompiler>();
+builder.Services.AddSingleton<ISceneImageEditPromptCompiler>(sp => sp.GetRequiredService<QwenSceneImageEditPromptCompiler>());
+// B135-008 N2: the 2.1 native editor graph has its own compiler, and a resolver selects by ImageEditorGraphKind.
+// The interface binding above stays on the 2511 compiler so existing compile sites keep their current behaviour until
+// N2's threading phase moves them onto the resolver.
+builder.Services.AddSingleton<QwenImage21EditPromptCompiler>();
+builder.Services.AddSingleton<ISceneImageEditPromptCompilerResolver, SceneImageEditPromptCompilerResolver>();
 builder.Services.AddSingleton<SdxlSceneImagePromptBuilder>();
 builder.Services.AddSingleton<ISdxlSceneImagePromptBuilder>(sp => sp.GetRequiredService<SdxlSceneImagePromptBuilder>());
+// B-135 B135-008 route 1: Qwen-Image-2.1 has its own long-form builder (its prompt is NOT the SDXL photography
+// brief), registered by concrete type for the same reason as the SDXL builder above.
+builder.Services.AddSingleton<QwenSceneImagePromptBuilder>();
+builder.Services.AddSingleton<IQwenSceneImagePromptBuilder>(sp => sp.GetRequiredService<QwenSceneImagePromptBuilder>());
 builder.Services.AddSingleton<ISceneImagePromptCompiler, PonySceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, SdxlSceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, ApiSceneImagePromptCompiler>();
@@ -632,6 +652,20 @@ using (var scope = app.Services.CreateScope())
             + "with no declaration in their pack.json.");
 
         foreach (var notDeclared in backfill.NotDeclared) Console.WriteLine($"  not declared: {notDeclared}");
+
+        return;
+    }
+
+    // Pose direction correction (B-136): re-points poses that are stored as "front" only because the original
+    // measurement could not see a 3/4 or a profile — the shoulder ORDERING stays negative all the way through a
+    // 45-degree turn. Same importer as the page uses, so there is one implementation of the classification.
+    if (args.Contains("--recompute-pose-facing", StringComparer.OrdinalIgnoreCase))
+    {
+        var recompute = await scope.ServiceProvider.GetRequiredService<IPoseLibraryImporter>().RecomputeFacingAsync();
+
+        Console.WriteLine(
+            $"Pose facing recompute: {recompute.Examined} examined, {recompute.Repointed} re-pointed, "
+            + $"{recompute.Flagged} flagged for review, {recompute.LeftAlone} left alone.");
 
         return;
     }

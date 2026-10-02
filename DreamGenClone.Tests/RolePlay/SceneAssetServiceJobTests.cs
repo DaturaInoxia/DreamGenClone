@@ -399,6 +399,112 @@ public sealed class SceneAssetServiceJobTests
         }
     }
 
+    /// <summary>
+    /// Renaming is the one thing about an asset an operator sets by typing, so it must write the row and return the
+    /// stored value rather than a locally-edited copy.
+    /// </summary>
+    [Fact]
+    public async Task RenameAsset_WritesTheNameAndReturnsTheStoredRow()
+    {
+        var (service, _, repo, _, dbPath, root) = Build();
+        try
+        {
+            var container = await service.CreateAssetAsync("Biglust Baseline", SceneAssetType.Playground);
+
+            var renamed = await service.RenameAssetAsync(container.Id, "  Becky · LoRA set 1  ");
+
+            Assert.Equal("Becky · LoRA set 1", renamed.Name);
+            Assert.Equal("Becky · LoRA set 1", (await repo.GetAsync(container.Id))!.Name);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    /// <summary>A blank name is refused rather than stored: an unnamed container is unreadable beside the next one.</summary>
+    [Fact]
+    public async Task RenameAsset_RefusesABlankName()
+    {
+        var (service, _, repo, _, dbPath, root) = Build();
+        try
+        {
+            var container = await service.CreateAssetAsync("Named", SceneAssetType.Playground);
+
+            var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.RenameAssetAsync(container.Id, "   "));
+
+            Assert.Contains("name is required", refusal.Message, StringComparison.Ordinal);
+            Assert.Equal("Named", (await repo.GetAsync(container.Id))!.Name);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    /// <summary>
+    /// A pack-owned asset is not renamed here: the pack's own page creates, replaces and deletes those rows, so a name
+    /// changed in the asset manager would drift from the pack the next time it is promoted.
+    /// </summary>
+    [Fact]
+    public async Task RenameAsset_RefusesIdentityPackAssets()
+    {
+        var (service, _, repo, _, dbPath, root) = Build();
+        try
+        {
+            var packAsset = new SceneAsset { Id = "pa1", Name = "Face", Kind = SceneAssetKind.ProfilePackFace, Status = SceneAssetStatus.Complete, IdentityPackId = "pack-1", FileRelativePath = "identity/c/f.png" };
+            await repo.UpsertAsync(packAsset);
+
+            var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.RenameAssetAsync("pa1", "Renamed"));
+
+            Assert.Contains("Character Identity", refusal.Message, StringComparison.Ordinal);
+            Assert.Equal("Face", (await repo.GetAsync("pa1"))!.Name);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    /// <summary>Renaming an asset that does not exist fails by name rather than reporting a successful no-op.</summary>
+    [Fact]
+    public async Task RenameAsset_RefusesAnAssetThatIsNotThere()
+    {
+        var (service, _, _, _, dbPath, root) = Build();
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.RenameAssetAsync("no-such-asset", "Anything"));
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    /// <summary>The same name is a no-op, not a write: nothing is reported as changed that did not change.</summary>
+    [Fact]
+    public async Task RenameAsset_WithTheSameName_ChangesNothing()
+    {
+        var (service, _, repo, _, dbPath, root) = Build();
+        try
+        {
+            var container = await service.CreateAssetAsync("Unchanged", SceneAssetType.Playground);
+            var before = (await repo.GetAsync(container.Id))!.UpdatedUtc;
+
+            var returned = await service.RenameAssetAsync(container.Id, "Unchanged");
+
+            Assert.Equal("Unchanged", returned.Name);
+            Assert.Equal(before, (await repo.GetAsync(container.Id))!.UpdatedUtc);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
     [Fact]
     public async Task DeleteAsset_DeletesRowAndFileWhenUnreferenced()
     {

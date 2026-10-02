@@ -1,0 +1,29 @@
+{
+  "id": "facesitting",
+  "title": "facesitting",
+  "actors": "1M1F",
+  "closeup": false,
+  "userInput": "She sits on his face",
+  "expected": "A photorealistic explicit scene of two nude adults on a bed: the man lying on his back while the woman straddles his head and sits on his face with his mouth on her vulva, her hands braced against the headboard, clear oral contact, correct female genital anatomy, natural skin texture, soft warm light, medium shot at eye level, 35mm, sharp focus.",
+  "neutralScene": "Two naked adults on a bed: the man lying on his back while the woman straddles his head and sits on his face with his mouth on her vulva, her hands braced on the headboard; facesitting, clear oral contact, correct anatomy, natural bodies and skin texture, soft warm light, medium shot at eye level, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic explicit sex scene, one adult man and one adult woman on a bed, the man lying flat on his back while the woman straddles his head and lowers herself onto his face, his mouth and tongue on her vulva as she sits on him, facesitting with the oral contact clearly visible, correct vulva anatomy, both fully nude, natural realistic body proportions, natural skin texture, soft warm bedroom lighting, medium shot at eye level, 35mm lens, sharp focus, highly detailed",
+    "juggernaut": "A photorealistic explicit photograph of one adult man and one adult woman on a bed: he lies on his back while she straddles his head and sits on his face with his mouth on her vulva, her hands braced on the headboard, facesitting with the oral contact clearly visible. Both fully nude with natural adult body proportions and unretouched skin, correct female genital anatomy. Soft warm bedroom lighting, medium shot at eye level, 35mm lens, sharp focus.",
+    "pony": "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, rating_explicit, 1girl and 1boy, 2people, facesitting, sitting on face, cunnilingus, mouth on vulva, woman straddling, man on back, female, male, nude, medium shot, side view, eye level, bedroom, soft warm lighting, sharp focus",
+    "qwen-image-2.1": "A photorealistic explicit photograph of two nude adults on a bed in a dimly lit bedroom. A man lies flat on his back while a woman straddles his head, knees either side of his face, and lowers herself onto him so his mouth and tongue are on her vulva; her hands are braced against the wooden headboard above him and the contact point is clearly visible. Both adults have natural realistic body proportions and unretouched skin texture, with correct female genital anatomy and natural pubic hair. Soft warm lamp light from the side, medium shot from a low side angle at eye level, 35mm lens, shallow depth of field, sharp focus on the contact point.",
+    "flux": "Photorealistic explicit photograph of two nude adults on a bed. Primary subjects: a man lying on his back, and a woman straddling his head. Action: she sits on his face with his mouth on her vulva in cunnilingus, her hands braced on the headboard, the oral contact clearly visible. Critical style: photorealistic, 35mm, natural skin texture, shallow depth of field, sharp focus. Both subjects nude with natural adult body proportions and correct female genital anatomy. Context: dimly lit bedroom, soft warm lamp light from the side, pale rumpled sheets, wooden headboard. Camera: medium shot from a low side angle at eye level.",
+    "qwen-edit-2511": "Change the scene so the man lies on his back while the woman straddles his head and sits on his face with his mouth on her vulva and her hands braced on the headboard. Keep both people's faces, hair, identity, body proportions, skin texture and the warm bedroom lighting exactly unchanged, and keep both fully nude.",
+    "qwen-image-2.1-edit": "Reposition the couple into facesitting: the man lying flat on his back with the woman straddling his head and sitting on his face, his mouth on her vulva and her hands braced on the headboard, the oral contact clearly visible. Preserve both people's faces, hair, identity, bodies and the warm bedroom lighting exactly as they are.",
+    "krea2": "Photorealistic editorial photograph of two naked adults on a bed, an adult man and an adult woman: the man lies flat on his back with his face pressed between the woman's thighs while she sits tall over him with her knees either side of his head and her hands braced on the headboard, his mouth and tongue on her vulva. Two separate bodies, explicit genital detail at the contact, natural skin texture, soft warm bedroom light, medium close shot at eye level from the side, 35mm photograph, shallow depth of field."
+  },
+  "settings": {
+    "seed": 74504,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1024
+  }
+}

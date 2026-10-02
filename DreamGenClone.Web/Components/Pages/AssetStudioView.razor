@@ -7,6 +7,7 @@
 @implements IAsyncDisposable
 
 @inject ISceneAssetService AssetService
+@inject NavigationManager Navigation
 
 <PageTitle>Asset - DreamGenClone</PageTitle>
 
@@ -30,6 +31,61 @@
     }
     else
     {
+        @* The container's own name, and its own end-of-life. Both live here rather than in the images list because
+           they are facts about the container, not about any one image in it: a run container is named by whoever
+           starts the run and is deleted as a whole. *@
+        <div class="card mb-3">
+            <div class="card-header py-2"><span class="small fw-semibold">This container</span></div>
+            <div class="card-body py-2">
+                <div class="row g-2 align-items-end">
+                    <div class="col-sm-6 col-lg-4">
+                        <label class="form-label small mb-1" for="container-name">Name</label>
+                        <input id="container-name" class="form-control form-control-sm" value="@_nameDraft"
+                               disabled="@_busy" @onchange="e => _nameDraft = e.Value?.ToString() ?? string.Empty" />
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn btn-sm btn-primary" type="button" disabled="@(_busy || !CanRename)"
+                                @onclick="RenameAsync">
+                            Save name
+                        </button>
+                    </div>
+                    <div class="col-auto ms-auto">
+                        @if (!_deleteArmed)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" type="button" disabled="@_busy"
+                                    @onclick="() => _deleteArmed = true">
+                                <i class="bi bi-trash me-1"></i>Delete container
+                            </button>
+                        }
+                        else
+                        {
+                            <span class="small text-danger me-1">Delete this container and its images permanently?</span>
+                            <button class="btn btn-sm btn-danger" type="button" disabled="@_busy"
+                                    @onclick="DeleteContainerAsync">
+                                Yes, delete
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary ms-1" type="button" disabled="@_busy"
+                                    @onclick="() => _deleteArmed = false">
+                                Cancel
+                            </button>
+                        }
+                    </div>
+                </div>
+                <div class="form-text">
+                    The name is the container's label in the Asset Manager and in every run report. Deleting removes the
+                    container and every image in it; a container that is in use (a LoRA dataset member, an approved
+                    production asset, an identity pack) is refused by name instead.
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_containerMessage))
+                {
+                    <div class="alert alert-secondary py-1 small mb-0 mt-2">@_containerMessage</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(_containerError))
+                {
+                    <div class="alert alert-warning py-1 small mb-0 mt-2">@_containerError</div>
+                }
+            </div>
+        </div>
         <div class="row g-3 mb-4">
             <div class="col-xl-7">
                 <PromptAssetCreator AssetId="@_asset.Id" SubjectActor="SubjectActor()" ImagesChanged="LoadAsync" Draft="_draft" />
@@ -142,6 +198,85 @@
     private bool _busy;
     private string? _message;
 
+    /// <summary>The name being typed. A DRAFT, not the stored name: nothing is written until Save, so a half-typed name
+    /// never reaches the row that a run report or a container link is already showing.</summary>
+    private string _nameDraft = string.Empty;
+
+    /// <summary>
+    /// Whether the delete button has been pressed once. Two steps rather than one: a container and every image in it go
+    /// together, so the confirmation is an act of its own rather than a click that can be made by accident.
+    /// </summary>
+    private bool _deleteArmed;
+
+    private string? _containerMessage;
+    private string? _containerError;
+
+    /// <summary>Which asset the name box was seeded from, so a reload of the SAME asset leaves it alone.</summary>
+    private string? _nameDraftAssetId;
+
+    /// <summary>Save is offered only for a name that differs from the stored one, so a no-op write cannot be queued.</summary>
+    private bool CanRename => _asset is not null
+        && !string.IsNullOrWhiteSpace(_nameDraft)
+        && !string.Equals(_nameDraft.Trim(), _asset.Name, StringComparison.Ordinal);
+
+    private async Task RenameAsync()
+    {
+        if (_asset is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _containerError = null;
+        _containerMessage = null;
+        try
+        {
+            var renamed = await AssetService.RenameAssetAsync(_asset.Id, _nameDraft);
+            _containerMessage = $"Renamed to '{renamed.Name}'.";
+            _nameDraft = renamed.Name;
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            _containerError = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Deletes this container and everything in it, then returns to the Asset Manager. The refusal cases - an approved
+    /// production asset, a LoRA dataset member, an identity pack - come back in the service's own words and are shown
+    /// where the button was, because a delete that silently did nothing would read as a delete that worked.
+    /// </summary>
+    private async Task DeleteContainerAsync()
+    {
+        if (_asset is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _containerError = null;
+        _containerMessage = null;
+        try
+        {
+            await AssetService.DeleteAssetAsync(_asset.Id);
+            Navigation.NavigateTo("/asset-studio");
+        }
+        catch (Exception exception)
+        {
+            _containerError = exception.Message;
+            _deleteArmed = false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
     /// <summary>
     /// The image whose own recorded settings have been loaded into the generate panel above, or null until one is.
     /// Held on the page rather than in the panel so the panel stays a plain surface that a parent can seed.
@@ -208,6 +343,15 @@
         _images = _asset is null
             ? []
             : (await AssetService.ListImagesAsync(_asset.Id)).ToList();
+
+        // Seeded ONCE per asset, not on every load. This page polls while an image is pending, and a poll that
+        // re-seeded the box would delete a name the operator was halfway through typing.
+        if (!string.Equals(_nameDraftAssetId, AssetId, StringComparison.Ordinal))
+        {
+            _nameDraftAssetId = AssetId;
+            _nameDraft = _asset?.Name ?? string.Empty;
+        }
+
         StateHasChanged();
     }
 

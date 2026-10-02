@@ -89,20 +89,21 @@ public sealed class FluxSceneImagePromptCompiler : ISceneImagePromptCompiler
 /// cfg 1 with euler/simple, where the negative prompt is inert, so this compiler carries NO
 /// canonical negative - the same posture as API and FLUX models.
 ///
-/// The positive prompt is a natural-language photography brief, which is why the builder is the
-/// NATURAL-LANGUAGE builder by concrete type and not <c>ISceneImageLLMPromptBuilder</c>. Two builders
-/// implement that interface (Pony tags and natural language), so DI can bind it to only one of them, and it is
-/// bound to the Pony tag builder - injecting the interface here silently compiled 2.1 prompts with the Pony tag
-/// system prompt. Reported 2026-09-24: with 2.1 selected the Studio's "Generate Prompt" returned
+/// The positive prompt is the Qwen long-form natural-language description (B135-008 route 1), which is why the
+/// builder is <see cref="QwenSceneImagePromptBuilder"/> by concrete type and not <c>ISceneImageLLMPromptBuilder</c>.
+/// Two builders implement that interface (Pony tags and natural language), so DI can bind it to only one of them,
+/// and it is bound to the Pony tag builder - injecting the interface here silently compiled 2.1 prompts with the
+/// Pony tag system prompt. Reported 2026-09-24: with 2.1 selected the Studio's "Generate Prompt" returned
 /// <c>score_9, score_8_up, ... rating_explicit, 1girl, ...</c> into the natural-language ("SDXL") draft, because
 /// the record's style came from the requested style while the text came from the Pony builder. The render
-/// workflow is unaffected either way; only the dialect of the drafted text was wrong.
+/// workflow is unaffected either way; only the dialect of the drafted text was wrong. The Qwen builder was
+/// previously the SDXL builder by concrete type (its prose is SDXL-branded); route 1 gives Qwen its own text.
 /// </summary>
 public sealed class QwenImage21SceneImagePromptCompiler : ISceneImagePromptCompiler
 {
-    private readonly SdxlSceneImagePromptBuilder _builder;
+    private readonly QwenSceneImagePromptBuilder _builder;
 
-    public QwenImage21SceneImagePromptCompiler(SdxlSceneImagePromptBuilder builder)
+    public QwenImage21SceneImagePromptCompiler(QwenSceneImagePromptBuilder builder)
     {
         _builder = builder;
     }

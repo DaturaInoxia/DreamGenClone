@@ -9,6 +9,7 @@ using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -20,16 +21,16 @@ public sealed class SceneAssetImageEditCompilationJobHandler : IDurableBackgroun
     private readonly ISceneAssetStorageService _storage;
     private readonly IMultimodalModelResolutionService _modelResolver;
     private readonly IMultimodalCompletionClient _completionClient;
-    private readonly ISceneImageEditPromptCompiler _compiler;
+    private readonly ISceneImageEditPromptCompilerResolver _compilers;
 
-    public SceneAssetImageEditCompilationJobHandler(ISceneAssetImageEditRepository editRepository, ISceneAssetRepository assetRepository, ISceneAssetStorageService storage, IMultimodalModelResolutionService modelResolver, IMultimodalCompletionClient completionClient, ISceneImageEditPromptCompiler compiler)
+    public SceneAssetImageEditCompilationJobHandler(ISceneAssetImageEditRepository editRepository, ISceneAssetRepository assetRepository, ISceneAssetStorageService storage, IMultimodalModelResolutionService modelResolver, IMultimodalCompletionClient completionClient, ISceneImageEditPromptCompilerResolver compilers)
     {
         _editRepository = editRepository;
         _assetRepository = assetRepository;
         _storage = storage;
         _modelResolver = modelResolver;
         _completionClient = completionClient;
-        _compiler = compiler;
+        _compilers = compilers;
     }
 
     public string JobType => BackgroundJobTypes.SceneAssetImageEditPromptCompilation;
@@ -59,12 +60,14 @@ public sealed class SceneAssetImageEditCompilationJobHandler : IDurableBackgroun
             SceneImageMultimodalInput.Validate(input, resolved);
             RequireChecksum(input.Sha256, session, attempt);
             var history = string.IsNullOrWhiteSpace(attempt.ClarificationContextJson) ? Array.Empty<string>() : JsonSerializer.Deserialize<string[]>(attempt.ClarificationContextJson, JsonOptions) ?? throw new InvalidOperationException("The asset compilation clarification snapshot is invalid.");
-            var messages = _compiler.BuildMessages(new SceneImageEditCompilerContext(attempt.RawIntent, history));
+            var region = string.IsNullOrWhiteSpace(attempt.RegionJson) ? null : JsonSerializer.Deserialize<MediaEditRegionOperation>(attempt.RegionJson, JsonOptions) ?? throw new InvalidOperationException("The asset compilation region snapshot is invalid.");
+            var compiler = _compilers.ResolveByVersion(attempt.SystemPromptVersion);
+            var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(attempt.RawIntent, history, region));
             if (messages.SchemaVersion != attempt.CompilerSchemaVersion || messages.SystemPromptVersion != attempt.SystemPromptVersion) throw new InvalidOperationException("The compiler prompt contract changed after this asset attempt was queued.");
             await _completionClient.CheckHealthAsync(resolved, cancellationToken);
             var completion = await _completionClient.GenerateAsync(resolved, new MultimodalCompletionRequest(messages.SystemMessage, messages.UserMessage, new MultimodalImageInput(input.MediaType, input.Bytes, input.Width, input.Height, input.Sha256), messages.ResponseSchemaName, messages.ResponseSchema), cancellationToken);
             attempt.RawModelResponse = completion.Content;
-            var result = _compiler.Parse(completion.Content, input.Width, input.Height);
+            var result = compiler.Parse(completion.Content, input.Width, input.Height);
             attempt.ParsedResultJson = JsonSerializer.Serialize(result, JsonOptions);
             attempt.Status = result.Status switch { SceneImageEditCompilationResultStatus.Ready => SceneImageEditCompilationAttemptStatus.Ready, SceneImageEditCompilationResultStatus.ClarificationRequired => SceneImageEditCompilationAttemptStatus.ClarificationRequired, SceneImageEditCompilationResultStatus.Invalid => SceneImageEditCompilationAttemptStatus.Invalid, _ => throw new InvalidOperationException("The compiler returned a non-terminal result.") };
             attempt.CompletedUtc = DateTime.UtcNow;

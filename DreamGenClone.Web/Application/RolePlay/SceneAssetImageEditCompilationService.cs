@@ -9,6 +9,7 @@ using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.ModelManager;
 using DreamGenClone.Web.Application.RolePlay.Editing;
 using DreamGenClone.Web.Application.RolePlay.Models;
 
@@ -21,7 +22,8 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
     private readonly ISceneAssetImageEditRepository _editRepository;
     private readonly ISceneAssetStorageService _storage;
     private readonly IMultimodalModelResolutionService _modelResolver;
-    private readonly ISceneImageEditPromptCompiler _compiler;
+    private readonly ISceneImageEditPromptCompilerResolver _compilers;
+    private readonly IImageEditorModelResolver _editorModels;
     private readonly IDurableBackgroundJobQueue _queue;
     private readonly ISceneBeatAnalyzerResolver _durableSettingsResolver;
     private readonly TimeProvider _timeProvider;
@@ -29,13 +31,14 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
     private readonly ISceneImageProductionService _productionService;
     private readonly IImagePresetService? _presets;
 
-    public SceneAssetImageEditCompilationService(ISceneAssetRepository assetRepository, ISceneAssetImageEditRepository editRepository, ISceneAssetStorageService storage, IMultimodalModelResolutionService modelResolver, ISceneImageEditPromptCompiler compiler, IDurableBackgroundJobQueue queue, ISceneBeatAnalyzerResolver durableSettingsResolver, TimeProvider timeProvider, IMediaEditCompilationService mediaEdits, ISceneImageProductionService productionService, IImagePresetService? presets = null)
+    public SceneAssetImageEditCompilationService(ISceneAssetRepository assetRepository, ISceneAssetImageEditRepository editRepository, ISceneAssetStorageService storage, IMultimodalModelResolutionService modelResolver, ISceneImageEditPromptCompilerResolver compilers, IImageEditorModelResolver editorModels, IDurableBackgroundJobQueue queue, ISceneBeatAnalyzerResolver durableSettingsResolver, TimeProvider timeProvider, IMediaEditCompilationService mediaEdits, ISceneImageProductionService productionService, IImagePresetService? presets = null)
     {
         _assetRepository = assetRepository;
         _editRepository = editRepository;
         _storage = storage;
         _modelResolver = modelResolver;
-        _compiler = compiler;
+        _compilers = compilers;
+        _editorModels = editorModels;
         _queue = queue;
         _durableSettingsResolver = durableSettingsResolver;
         _timeProvider = timeProvider;
@@ -67,9 +70,13 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
         var input = await SceneImageMultimodalInput.ReadAsync(stream, resolved.MaximumInputImageBytes, cancellationToken);
         SceneImageMultimodalInput.Validate(input, resolved);
         RequireUnchanged(input.Sha256, session.SourceImageSha256, "The source asset image checksum changed after the edit session was created.");
-        var messages = _compiler.BuildMessages(new SceneImageEditCompilerContext(request.RawIntent.Trim(), request.ClarificationHistory));
+        var editorModel = string.IsNullOrWhiteSpace(request.EditorModelId)
+            ? await _editorModels.ResolveAsync(cancellationToken)
+            : await _editorModels.ResolveByIdAsync(request.EditorModelId, cancellationToken);
+        var compiler = _compilers.Resolve(editorModel);
+        var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(request.RawIntent.Trim(), request.ClarificationHistory, request.Region));
         var latest = await _editRepository.GetLatestAttemptAsync(session.Id, cancellationToken);
-        var attempt = new SceneAssetImageEditCompilationAttempt { EditSessionId = session.Id, Ordinal = latest is null ? 0 : latest.Ordinal + 1, RawIntent = request.RawIntent.Trim(), ClarificationContextJson = request.ClarificationHistory.Count == 0 ? null : JsonSerializer.Serialize(request.ClarificationHistory, JsonOptions), SourceImageSha256 = input.Sha256, Status = SceneImageEditCompilationAttemptStatus.Pending, ResolvedModelSnapshotJson = SceneImageMultimodalInput.SerializeResolutionSnapshot(resolved), CompilerSchemaVersion = messages.SchemaVersion, SystemPromptVersion = messages.SystemPromptVersion };
+        var attempt = new SceneAssetImageEditCompilationAttempt { EditSessionId = session.Id, Ordinal = latest is null ? 0 : latest.Ordinal + 1, RawIntent = request.RawIntent.Trim(), ClarificationContextJson = request.ClarificationHistory.Count == 0 ? null : JsonSerializer.Serialize(request.ClarificationHistory, JsonOptions), RegionJson = request.Region is null ? null : JsonSerializer.Serialize(request.Region, JsonOptions), SourceImageSha256 = input.Sha256, Status = SceneImageEditCompilationAttemptStatus.Pending, ResolvedModelSnapshotJson = SceneImageMultimodalInput.SerializeResolutionSnapshot(resolved), CompilerSchemaVersion = messages.SchemaVersion, SystemPromptVersion = messages.SystemPromptVersion };
         await _editRepository.CreateAttemptAsync(attempt, cancellationToken);
         await _editRepository.UpdateSessionStatusAsync(session.Id, SceneAssetImageEditSessionStatus.Active, DateTime.UtcNow, cancellationToken: cancellationToken);
         await EnqueueAsync(BackgroundJobTypes.SceneAssetImageEditPromptCompilation, DurableJobLane.PromptCompilation, new SceneAssetImageEditCompilationJobPayload { AttemptId = attempt.Id }, attempt.Id, "Compilation attempt", cancellationToken);

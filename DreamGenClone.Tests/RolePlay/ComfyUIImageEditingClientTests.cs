@@ -60,17 +60,21 @@ public sealed class ComfyUIImageEditingClientTests
 
         Assert.Contains("\"LoadImageMask\"", json, StringComparison.Ordinal);
         Assert.Contains("\"VAEEncodeForInpaint\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"grow_mask_by\":12", json, StringComparison.Ordinal);
+        // Grow and feather are baked into the mask when it is built, so the graph reads it as-is.
+        Assert.Contains("\"grow_mask_by\":0", json, StringComparison.Ordinal);
         // The sampler now starts from the masked latent instead of the encoder's output[2].
         Assert.Contains("\"latent_image\":[\"42\",0]", json, StringComparison.Ordinal);
-        // Feather 0 must emit NO feather node: the edge softness is the operator's value, so one nobody asked for is
-        // not invented here.
+        // The host FeatherMask node feathers the frame border, not an interior region, so it is never emitted.
         Assert.DoesNotContain("FeatherMask", json, StringComparison.Ordinal);
     }
 
-    /// <summary>Asked for, the feather sits between the mask and the encoder, which reads the feathered mask.</summary>
+    /// <summary>
+    /// Feathering is baked into the mask at build time, so a feathered run reads the mask straight from
+    /// LoadImageMask - no host FeatherMask node, because that node feathers the frame border and cannot soften an
+    /// interior rectangle's edge.
+    /// </summary>
     [Fact]
-    public void BuildResolvedWorkflow_Qwen21WithFeather_EmitsFeatherBetweenTheMaskAndTheEncoder()
+    public void BuildResolvedWorkflow_Qwen21WithFeather_ReadsTheBakedMaskWithNoHostFeatherNode()
     {
         var mask = new ImageEditingMask(Stream.Null, "region.png", "sha256-region", GrowMaskBy: 0, FeatherPixels: 24);
 
@@ -82,8 +86,8 @@ public sealed class ComfyUIImageEditingClientTests
             maskImageName: "region.png",
             mask: mask).ToJsonString();
 
-        Assert.Contains("\"FeatherMask\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"mask\":[\"41\",0]", json, StringComparison.Ordinal);
+        Assert.Contains("\"mask\":[\"40\",0]", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("FeatherMask", json, StringComparison.Ordinal);
     }
 
     /// <summary>No region means the proven whole-frame edit, byte for byte.</summary>

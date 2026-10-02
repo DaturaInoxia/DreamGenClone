@@ -42,7 +42,8 @@ Each position file under `positions/` is:
     "qwen-image-2.1": "...",       // long descriptive prose
     "flux": "...",                 // ordered subject -> action -> style -> context
     "qwen-edit-2511": "...",       // instruction: what changes AND what is preserved
-    "qwen-image-2.1-edit": "..."
+    "qwen-image-2.1-edit": "...",
+    "krea2": "..."                 // photographic BRIEF: format + subject + action + lens + DoF
   },
   "settings": { "seed": 73190, "steps": 30, "cfg": 5.0, "sampler": "dpmpp_2m_sde", ... }
 }
@@ -87,6 +88,7 @@ follow. `dialectNotes` records the cross-cutting rules (multi-person separation,
 | `flux` | ordered-fields | subject → action → critical style → context → secondary detail; no negative field |
 | `qwen-edit-2511` | edit-instruction | names what changes **and** what is preserved; instructs the action, not the result |
 | `qwen-image-2.1-edit` | edit-instruction | as above |
+| `krea2` | natural-language brief | **photographic brief**: format + subject + the subject's **action** + lens + depth of field. Never a body-part noun list, never a framing demand, and for acts never a face-facing clause. No negative exists for this family. |
 
 **Multi-person separation** is mandatory for the prose dialects: `2F1M` → Pony `2girls and 1boy,
 3people`, prose says "three separate nude bodies" and states each person as a self-contained clause.
@@ -98,8 +100,12 @@ Without this, three-person prompts merge bodies.
 
 ## Files
 
-- `positions/*.json` — 32 position entries (18 two-person + 14 multi-person)
+- `positions/*.json` — 49 position entries (36 two-person incl. the four added 2026-10-01 + 13 single-female)
 - `manifest.json` — the model legend, dialect notes, and the position index
+
+> **Note:** `positions/` also still holds the 32 pre-refactor `juggernaut-nsfw-*-test.json` provenance
+> files. They share ids with the refactored files and are **not** part of the catalog —
+> `ImageSuiteImporter` enumerates `manifest.Positions`, not the directory — so leave them alone.
 
 ## Reading the manifest
 
@@ -117,5 +123,4 @@ overwrite the refactored files with the old shape. New positions are authored di
 `positions/<model-agnostic-id>.json` plus a `manifest.json` entry.
 
 ## Consuming suites
-
 - `identity-two-character/positions/` — 2-person (1M1F) subset adapted for the Dean+Becky identity pack.

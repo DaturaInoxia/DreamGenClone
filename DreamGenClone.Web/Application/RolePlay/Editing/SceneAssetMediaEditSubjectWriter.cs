@@ -43,8 +43,9 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
         MediaEditRunContext context, CancellationToken cancellationToken = default)
     {
         // An operation is not a render: it needs no editor model, no prompt revision and no references,
-        // so it is prepared on its own path instead of being forced through the edit validation below.
-        if (context.Operation.Kind != MediaEditOperationKind.Edit)
+        // so it is prepared on its own path instead of being forced through the edit validation below. A
+        // masked-region edit is an EDIT that also carries a region, so it stays on the compiled-edit path.
+        if (context.Operation.Kind is not MediaEditOperationKind.Edit and not MediaEditOperationKind.MaskedRegion)
             return await PrepareOperationAsync(context, cancellationToken);
 
         if (string.IsNullOrWhiteSpace(context.ExplicitEditorModelId))
@@ -130,7 +131,7 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
             source.Id,
             token => _storage.OpenReadAsync(sourceFileRelativePath, token),
             sourceSha256,
-            MediaEditOperation.ForEdit,
+            context.Operation,
             Prompt: revision.Prompt,
             References: references,
             Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),

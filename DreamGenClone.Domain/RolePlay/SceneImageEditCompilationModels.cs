@@ -58,6 +58,7 @@ public sealed class SceneImageEditCompilationAttempt
     public int Ordinal { get; set; }
     public string RawIntent { get; set; } = string.Empty;
     public string? ClarificationContextJson { get; set; }
+    public string? RegionJson { get; set; }
     public string SourceImageSha256 { get; set; } = string.Empty;
     public SceneImageEditCompilationAttemptStatus Status { get; set; }
     public string ResolvedModelSnapshotJson { get; set; } = string.Empty;

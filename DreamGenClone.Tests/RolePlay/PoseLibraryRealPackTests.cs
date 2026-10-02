@@ -154,6 +154,33 @@ public sealed class PoseLibraryRealPackTests
         });
     }
 
+    [Fact]
+    public async Task TheQuadrupedPosesAreMeasuredRatherThanLeftDeclared()
+    {
+        // The operator read two poses of the shipped all-fours category by eye — 006 facing away from the camera, 004 a
+        // side view with her left toward it — and both were stored "front", because the only measurement that existed
+        // asked an UPRIGHT torso to read a turn and a quadruped never has one. These are those two readings, pinned
+        // against the real pack rather than against a fixture.
+        using var fixture = PoseLibraryTestFixture.ForExistingPacksRoot(PacksRoot());
+        await fixture.Importer.ImportAsync();
+
+        var quadruped = (await fixture.Repository.ListAsync())
+            .Where(preset => preset.LibraryId == PoseLibraryIds.BundledPackFolder && preset.Category == "all_fours")
+            .ToDictionary(preset => preset.Name, StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(12, quadruped.Count);
+
+        Assert.Equal(PoseFacingDirection.Back, quadruped["all_fours 006"].Direction);
+        Assert.Equal(PoseFacingDirection.ProfileLeft, quadruped["all_fours 004"].Direction);
+
+        // And the rule never claims a 3/4 on a quadruped: the span cannot carry a turn magnitude on a body whose own
+        // torso is shortened by the same turn.
+        Assert.DoesNotContain(
+            quadruped.Values,
+            preset => preset.Direction is PoseFacingDirection.ThreeQuarterLeft
+                or PoseFacingDirection.ThreeQuarterRight);
+    }
+
     /// <summary>
     /// Finds the packs root by walking up from the test binaries to the repository root, so the test does not
     /// depend on the working directory a runner happens to use.

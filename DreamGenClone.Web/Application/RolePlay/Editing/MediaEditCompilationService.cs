@@ -26,7 +26,7 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
     private readonly IMediaEditRepository _editRepository;
     private readonly MediaEditSubjectSourceResolver _sources;
     private readonly IMultimodalModelResolutionService _modelResolver;
-    private readonly ISceneImageEditPromptCompiler _compiler;
+    private readonly ISceneImageEditPromptCompilerResolver _compilers;
     private readonly IDurableBackgroundJobQueue _queue;
     private readonly ISceneBeatAnalyzerResolver _durableSettingsResolver;
     private readonly TimeProvider _timeProvider;
@@ -37,7 +37,7 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
         IMediaEditRepository editRepository,
         MediaEditSubjectSourceResolver sources,
         IMultimodalModelResolutionService modelResolver,
-        ISceneImageEditPromptCompiler compiler,
+        ISceneImageEditPromptCompilerResolver compilers,
         IDurableBackgroundJobQueue queue,
         ISceneBeatAnalyzerResolver durableSettingsResolver,
         TimeProvider timeProvider,
@@ -47,7 +47,7 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
         _editRepository = editRepository;
         _sources = sources;
         _modelResolver = modelResolver;
-        _compiler = compiler;
+        _compilers = compilers;
         _queue = queue;
         _durableSettingsResolver = durableSettingsResolver;
         _timeProvider = timeProvider;
@@ -96,7 +96,11 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
         RequireUnchangedChecksum(input.Sha256, session.SourceImageSha256,
             "The source image checksum changed after the edit session was created.");
 
-        var messages = _compiler.BuildMessages(new SceneImageEditCompilerContext(request.RawIntent.Trim(), request.ClarificationHistory));
+        var editorModel = string.IsNullOrWhiteSpace(request.EditorModelId)
+            ? await _editorModels.ResolveAsync(cancellationToken)
+            : await _editorModels.ResolveByIdAsync(request.EditorModelId, cancellationToken);
+        var compiler = _compilers.Resolve(editorModel);
+        var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(request.RawIntent.Trim(), request.ClarificationHistory, request.Region));
         var latest = await _editRepository.GetLatestAttemptAsync(session.Id, cancellationToken);
         var attempt = new MediaEditCompilationAttempt
         {
@@ -106,6 +110,7 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
             ClarificationContextJson = request.ClarificationHistory.Count == 0
                 ? null
                 : JsonSerializer.Serialize(request.ClarificationHistory, JsonOptions),
+            RegionJson = request.Region is null ? null : JsonSerializer.Serialize(request.Region, JsonOptions),
             SourceImageSha256 = input.Sha256,
             Status = SceneImageEditCompilationAttemptStatus.Pending,
             ResolvedModelSnapshotJson = SceneImageMultimodalInput.SerializeResolutionSnapshot(resolved),

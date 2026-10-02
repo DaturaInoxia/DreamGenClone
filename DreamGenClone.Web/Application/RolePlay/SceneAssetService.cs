@@ -618,6 +618,40 @@ public sealed class SceneAssetService : ISceneAssetService
         return (asset, stream);
     }
 
+    /// <summary>
+    /// Renames an asset. Refused for a pack-owned asset because the pack's own page creates, replaces and deletes those
+    /// rows, so a name changed here would drift from the pack the moment it is next promoted - the same boundary the
+    /// delete path draws.
+    /// </summary>
+    public async Task<SceneAsset> RenameAssetAsync(
+        string assetId, string name, CancellationToken cancellationToken = default)
+    {
+        var asset = await RequireAssetAsync(assetId, cancellationToken);
+        var trimmed = name?.Trim() ?? string.Empty;
+        if (trimmed.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "An asset name is required. An unnamed container cannot be told apart from the next one.");
+        }
+
+        if (string.Equals(trimmed, asset.Name, StringComparison.Ordinal))
+        {
+            // Nothing to do, and saying so beats a write that reports success without changing anything.
+            return asset;
+        }
+
+        if (!string.IsNullOrWhiteSpace(asset.IdentityPackId))
+        {
+            throw new InvalidOperationException(
+                "This asset belongs to an identity pack. Rename it from the Character Identity page instead.");
+        }
+
+        await _repository.RenameAsync(asset.Id, trimmed, cancellationToken);
+        _logger.LogInformation("Renamed scene asset: AssetId={AssetId}, Name={Name}", asset.Id, trimmed);
+
+        return await RequireAssetAsync(asset.Id, cancellationToken);
+    }
+
     public async Task DeleteAssetAsync(string assetId, CancellationToken cancellationToken = default)
     {
         var asset = await _repository.GetAsync(assetId, cancellationToken)

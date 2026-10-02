@@ -54,15 +54,30 @@ public sealed class ImageRegionMaskEngine : IImageRegionMaskEngine
                 + "edit the whole frame.");
         }
 
+        // Grow the rectangle before it is painted (B-130): a mask cut exactly on the drawn edge leaves a seam, so the
+        // operator's grow value widens the white area first. Clamped to the frame, the same way the host's own grow
+        // node is bounded by the image.
+        var grow = Math.Max(0, region.GrowMaskBy);
+        left = Math.Max(0, left - grow);
+        top = Math.Max(0, top - grow);
+        right = Math.Min(width, right + grow);
+        bottom = Math.Min(height, bottom + grow);
+
+        // Soften the edge by painting the falloff into the mask ITSELF (CASE-21): the host's FeatherMask node feathers
+        // the mask TENSOR's outer frame border, not a region drawn inside the frame, so it can never soften an interior
+        // rectangle's edge. The ramp below is what actually removes the visible seam, and it behaves the same on every
+        // host and every frame size.
+        var feather = Math.Min(Math.Max(0, region.FeatherPixels), Math.Min(width, height));
+
         using var image = new Image<L8>(width, height, new L8(0));
         image.ProcessPixelRows(accessor =>
         {
-            for (var y = top; y < bottom; y++)
+            for (var y = 0; y < height; y++)
             {
                 var row = accessor.GetRowSpan(y);
-                for (var x = left; x < right; x++)
+                for (var x = 0; x < width; x++)
                 {
-                    row[x] = new L8(255);
+                    row[x] = new L8(MaskValue(x, y, left, top, right, bottom, feather));
                 }
             }
         });
@@ -70,6 +85,34 @@ public sealed class ImageRegionMaskEngine : IImageRegionMaskEngine
         using var buffer = new MemoryStream();
         image.SaveAsPng(buffer);
         return buffer.ToArray();
+    }
+
+    /// <summary>
+    /// The mask value for one pixel: fully white inside the grown rectangle, fully black outside it, and a linear ramp
+    /// across <paramref name="feather"/> pixels on each side of the edge. A zero feather is a hard edge.
+    /// </summary>
+    private static byte MaskValue(int x, int y, int left, int top, int right, int bottom, int feather)
+    {
+        // Signed distance to the rectangle: negative inside, positive outside, 0 exactly on the edge.
+        int signedDistance;
+        if (x >= left && x < right && y >= top && y < bottom)
+        {
+            var insideX = Math.Min(x - left, right - 1 - x);
+            var insideY = Math.Min(y - top, bottom - 1 - y);
+            signedDistance = -Math.Min(insideX, insideY);
+        }
+        else
+        {
+            var outsideX = Math.Max(left - x, x - (right - 1));
+            var outsideY = Math.Max(top - y, y - (bottom - 1));
+            signedDistance = Math.Max(outsideX, outsideY);
+        }
+
+        if (feather <= 0)
+            return signedDistance <= 0 ? (byte)255 : (byte)0;
+
+        var t = Math.Clamp((feather - signedDistance) / (2.0 * feather), 0.0, 1.0);
+        return (byte)Math.Round(t * 255);
     }
 
     private static int ToPixels(int extent, double percent)

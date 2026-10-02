@@ -1683,6 +1683,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
                 RawIntent TEXT NOT NULL,
                 ClarificationContextJson TEXT NULL,
+                RegionJson TEXT NULL,
                 SourceImageSha256 TEXT NOT NULL,
                 Status TEXT NOT NULL,
                 ResolvedModelSnapshotJson TEXT NOT NULL,
@@ -1716,6 +1717,16 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 ON SceneImageEditPromptRevisions (CompilationAttemptId, Ordinal DESC);
             """;
         await sceneImageEditSchema.ExecuteNonQueryAsync(cancellationToken);
+
+        var checkSceneImageEditRegionColumn = connection.CreateCommand();
+        checkSceneImageEditRegionColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImageEditCompilationAttempts') WHERE name='RegionJson'";
+        if (Convert.ToInt64(await checkSceneImageEditRegionColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+        {
+            var alterSceneImageEditRegion = connection.CreateCommand();
+            alterSceneImageEditRegion.CommandText = "ALTER TABLE SceneImageEditCompilationAttempts ADD COLUMN RegionJson TEXT NULL";
+            await alterSceneImageEditRegion.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated SceneImageEditCompilationAttempts table: added RegionJson column");
+        }
 
         var checkSceneImageEditDescriptionColumn = connection.CreateCommand();
         checkSceneImageEditDescriptionColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImageEditSessions') WHERE name='DescriptionText'";

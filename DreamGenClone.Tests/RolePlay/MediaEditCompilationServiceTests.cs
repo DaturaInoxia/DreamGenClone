@@ -315,7 +315,7 @@ public sealed class MediaEditCompilationServiceTests
                 editRepository,
                 sources,
                 new StubMultimodalResolver(),
-                new QwenSceneImageEditPromptCompiler(),
+                new SceneImageEditPromptCompilerResolver(new QwenSceneImageEditPromptCompiler(), new QwenImage21EditPromptCompiler()),
                 queue,
                 new StubDurableSettings(),
                 TimeProvider.System,
@@ -401,17 +401,26 @@ public sealed class MediaEditCompilationServiceTests
         }
     }
 
-    /// <summary>The compile flow never picks an editor model; a call here would be a real defect.</summary>
+    /// <summary>
+    /// The compile flow resolves the editor model for its graph kind (B135-008 N2); the default fixture is a merged
+    /// (2511) editor, so a compile without an explicit editor model id compiles the 2511 dialect.
+    /// </summary>
     private sealed class StubEditorModels : IImageEditorModelResolver
     {
         public Task<ResolvedImageEditorModel> ResolveAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult(MergedEditor());
 
         public Task<ResolvedImageEditorModel> ResolveByIdAsync(string modelId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult(MergedEditor());
 
         public Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult<IReadOnlyList<SceneImageModelChoice>>([]);
+
+        private static ResolvedImageEditorModel MergedEditor() => new(
+            "http://localhost:8188", 120, null, "Qwen-Rapid-AIO-NSFW-v23.safetensors", "Local ComfyUI",
+            ImageContentPolicy.AdultAllowed, "diffusion.safetensors", "text_encoder.safetensors", "vae.safetensors",
+            8, 1.0, "euler_ancestral", "beta", 1.0, 3.1, 1.0,
+            GraphKind: ImageEditorGraphKind.MergedCheckpoint);
     }
 
     [Fact]

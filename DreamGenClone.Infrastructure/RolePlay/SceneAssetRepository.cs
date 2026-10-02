@@ -719,6 +719,24 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         }
     }
 
+    /// <summary>
+    /// Deletes an asset, its images, and the edit history that belongs to them - in one transaction.
+    ///
+    /// <para>
+    /// The store enforces its foreign keys (every one of them <c>ON DELETE RESTRICT</c>), so the order is not a
+    /// preference: an edit session holds both its asset and the image it started from, an edit attempt holds its
+    /// session, and a prompt revision holds its attempt. Deleting the images first fails with a bare
+    /// "FOREIGN KEY constraint failed" and tells the operator nothing (hit live 2026-10-01 on a run container whose
+    /// images had each been edited once).
+    /// </para>
+    ///
+    /// <para>
+    /// What is DELETED is everything the asset owns: its images and its own edit history, including the compiled
+    /// attempts and prompt revisions underneath. What is REFUSED is anything held by someone ELSE - a LoRA dataset
+    /// member, a production derivative, an ordered media reference, or another asset whose image was derived from one
+    /// of ours - and each refusal names the holder, because those are the rows that would be left pointing at nothing.
+    /// </para>
+    /// </summary>
     public async Task DeleteAsync(string assetId, CancellationToken cancellationToken = default)
     {
         Require(assetId, "Asset id");
@@ -727,8 +745,31 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, cancellationToken);
 
+        // One transaction, so a refusal part-way through cannot leave a half-deleted container: the images and the
+        // asset either both go or neither does.
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        async Task<int> CountAsync(string sql)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = sql;
+            command.Parameters.AddWithValue("$id", assetId.Trim());
+            return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+        }
+
+        async Task ExecuteAsync(string sql)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = sql;
+            command.Parameters.AddWithValue("$id", assetId.Trim());
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         await using (var guard = connection.CreateCommand())
         {
+            guard.Transaction = transaction;
             guard.CommandText = "SELECT ProductionApprovalStatus FROM SceneAssets WHERE Id = $id;";
             guard.Parameters.AddWithValue("$id", assetId.Trim());
             var status = await guard.ExecuteScalarAsync(cancellationToken);
@@ -740,32 +781,114 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             }
         }
 
-        foreach (var table in new[]
+        // Production provenance: rows that record this asset as the thing that was approved, bound or trained on.
+        // Named one at a time rather than as "in use", because "in use" leaves the operator with nowhere to look.
+        foreach (var (table, description) in new[]
         {
-            "CharacterBodyAssetBindings",
-            "CharacterWardrobeAssetBindings",
-            "CharacterLoraDatasetMembers"
+            ("CharacterBodyAssetBindings", "a character's body build"),
+            ("CharacterWardrobeAssetBindings", "a character's wardrobe"),
+            ("CharacterLoraDatasetMembers", "a character LoRA dataset"),
+            ("OrderedMediaReferenceBindings", "a compiled media request's references"),
+            ("ProductionDerivatives", "an approved production derivative")
         })
         {
             if (!await TableExistsAsync(connection, table, cancellationToken)) continue;
-            await using var referenceCheck = connection.CreateCommand();
-            referenceCheck.CommandText = $"SELECT COUNT(*) FROM {table} WHERE SceneAssetId = $id;";
-            referenceCheck.Parameters.AddWithValue("$id", assetId.Trim());
-            if (Convert.ToInt32(await referenceCheck.ExecuteScalarAsync(cancellationToken)) > 0)
-                throw new InvalidOperationException($"Scene asset '{assetId}' is in use and cannot be deleted.");
+            if (await CountAsync($"SELECT COUNT(*) FROM {table} WHERE SceneAssetId = $id;") > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Scene asset '{assetId}' is used by {description}, so it cannot be deleted. Remove it from there "
+                    + "first.");
+            }
         }
 
-        await using (var deleteImages = connection.CreateCommand())
+        // The image store's own network of references. Our own images are deleted below; anything outside the asset is
+        // refused by name, because deleting it would leave another asset's row pointing at an image that is gone.
+        var sessionsOnOurs = await TableExistsAsync(connection, "SceneAssetImageEditSessions", cancellationToken)
+            ? await CountAsync(
+                "SELECT COUNT(*) FROM SceneAssetImageEditSessions "
+                + "WHERE AssetId <> $id AND SourceImageId IN (SELECT Id FROM SceneAssetImages WHERE AssetId = $id);")
+            : 0;
+        if (sessionsOnOurs > 0)
         {
-            deleteImages.CommandText = "DELETE FROM SceneAssetImages WHERE AssetId = $id;";
-            deleteImages.Parameters.AddWithValue("$id", assetId.Trim());
-            await deleteImages.ExecuteNonQueryAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"{sessionsOnOurs} image edit(s) in OTHER assets were started from this asset's images, so deleting it "
+                + "would leave them without the image they were made from. Delete those edits first.");
         }
 
-        await using var deleteAsset = connection.CreateCommand();
-        deleteAsset.CommandText = "DELETE FROM SceneAssets WHERE Id = $id;";
-        deleteAsset.Parameters.AddWithValue("$id", assetId.Trim());
-        await deleteAsset.ExecuteNonQueryAsync(cancellationToken);
+        if (await CountAsync(
+                "SELECT COUNT(*) FROM SceneAssetImages "
+                + "WHERE AssetId <> $id AND SourceImageId IN (SELECT Id FROM SceneAssetImages WHERE AssetId = $id);") > 0)
+        {
+            throw new InvalidOperationException(
+                "An image in another asset was derived from this asset's images, so deleting it would leave that image "
+                + "without its source. Delete the derived image first.");
+        }
+
+        // Our OWN edit history goes with the asset: it is the record of edits to the images being deleted, so keeping
+        // it would leave attempts and prompt revisions describing images that no longer exist.
+        // The generic MediaEditSessions store is deliberately NOT touched: it has no foreign key on SourceImageId (the
+        // live schema only indexes it), so it cannot block this delete, and it holds its own history for other subjects
+        // too. Its rows are removed through that store's own delete path rather than from here.
+        if (await TableExistsAsync(connection, "SceneAssetImageEditSessions", cancellationToken))
+        {
+            if (await TableExistsAsync(connection, "SceneAssetImageEditPromptRevisions", cancellationToken))
+            {
+                await ExecuteAsync(
+                    "DELETE FROM SceneAssetImageEditPromptRevisions WHERE CompilationAttemptId IN ("
+                    + "SELECT a.Id FROM SceneAssetImageEditCompilationAttempts a "
+                    + "JOIN SceneAssetImageEditSessions s ON s.Id = a.EditSessionId WHERE s.AssetId = $id);");
+            }
+
+            if (await TableExistsAsync(connection, "SceneAssetImageEditCompilationAttempts", cancellationToken))
+            {
+                await ExecuteAsync(
+                    "DELETE FROM SceneAssetImageEditCompilationAttempts "
+                    + "WHERE EditSessionId IN (SELECT Id FROM SceneAssetImageEditSessions WHERE AssetId = $id);");
+            }
+
+            await ExecuteAsync("DELETE FROM SceneAssetImageEditSessions WHERE AssetId = $id;");
+        }
+
+        // Images can be derived from each other inside one asset (an edit in place). Clearing the internal links first
+        // makes the delete order-independent, which a single DELETE cannot be when the parent row may be removed before
+        // its child.
+        await ExecuteAsync(
+            "UPDATE SceneAssetImages SET SourceImageId = NULL WHERE AssetId = $id AND SourceImageId IS NOT NULL;");
+        await ExecuteAsync("DELETE FROM SceneAssetImages WHERE AssetId = $id;");
+        await ExecuteAsync("DELETE FROM SceneAssets WHERE Id = $id;");
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task RenameAsync(string assetId, string name, CancellationToken cancellationToken = default)
+    {
+        Require(assetId, "Asset id");
+        Require(name, "Asset name");
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE SceneAssets SET Name = $name, UpdatedUtc = $updatedUtc WHERE Id = $id;";
+        command.Parameters.AddWithValue("$name", name.Trim());
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$id", assetId.Trim());
+
+        try
+        {
+            if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+                throw new InvalidOperationException($"Scene asset '{assetId}' was not found.");
+        }
+        catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
+        {
+            // 19 = SQLITE_CONSTRAINT. A PROMOTED asset is unique per (source decision, type, name), so renaming one onto
+            // another promoted asset's name is refused by the store. Translated here because the storage error names an
+            // index nobody can act on, while the name the operator collided with is the thing they can change.
+            throw new InvalidOperationException(
+                $"Another asset of this type is already named '{name.Trim()}'. A promoted asset and its name are paired, "
+                + "so choose a different name.", exception);
+        }
     }
 
     public async Task<int> CountByFilePathAsync(string fileRelativePath, CancellationToken cancellationToken = default)

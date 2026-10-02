@@ -3,6 +3,11 @@ using DreamGenClone.Domain.RolePlay;
 namespace DreamGenClone.Web.Application.RolePlay.ImageStep;
 
 /// <summary>One reference image a host has resolved and is offering to a slot.</summary>
+/// <param name="ReferenceLabel">
+/// What the bound image IS, in words, for the operator — "Front · Clothed" rather than the pack's asset id. Carried
+/// beside the ids so the step composer can name the reference it is showing without a lookup of its own: the component
+/// is host-driven and holds no services, so anything it displays has to arrive as data. Null falls back to the ids.
+/// </param>
 public sealed record ImageStepSlotSource(
     ImageStepReferenceSourceKind SourceKind,
     string Strategy,
@@ -13,7 +18,8 @@ public sealed record ImageStepSlotSource(
     string? SkeletonRelativePath = null,
     string? PosePresetId = null,
     string? IdentityPackId = null,
-    string? ReferenceAssetId = null);
+    string? ReferenceAssetId = null,
+    string? ReferenceLabel = null);
 
 /// <summary>A slot the host has filled: which slot, for which actor, with which resolved source.</summary>
 public sealed record ImageStepSlotAssignment(
@@ -207,6 +213,9 @@ public static class ReferenceSlotPlanner
                     PosePresetId = assignment.Source.PosePresetId,
                     IdentityPackId = assignment.Source.IdentityPackId,
                     ReferenceAssetId = assignment.Source.ReferenceAssetId,
+                    // The operator-facing name of the bound image travels with the ids, so the surfaces that show a
+                    // binding can say "Front · Clothed" without holding the identity service themselves.
+                    ReferenceLabel = assignment.Source.ReferenceLabel,
                     Ordinal = bindings.Count + 1
                 });
             }

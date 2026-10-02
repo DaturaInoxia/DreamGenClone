@@ -251,9 +251,11 @@ public sealed class ImageSuiteImporterTests
     public async Task TheRealBaselineCatalogImportsWithItsGapsReported()
     {
         // The actual specs/image-generator-tests/baseline catalog, imported by the importer the app uses. What is
-        // asserted is deliberately CONTENT-STABLE: the 32 positions import, and every cell carries at least one model
+        // asserted is deliberately CONTENT-STABLE: the 49 positions import, and every cell carries at least one model
         // prompt so it can be rendered for some model. The catalog is being populated model by model, so any assertion
         // about which gaps exist today would go stale on the next edit - the gaps themselves are read from the report.
+        // (49 = the original 45 plus the four 1M1F woman-receiving-oral cells added 2026-10-01: cunnilingus,
+        // cunnilingus-closeup, cunnilingus-from-behind, facesitting. Growing the catalog means updating this anchor.)
         var db = NewDbPath();
         var root = RealCatalogRoot();
         var manifestPath = Path.Combine(root, "manifest.json");
@@ -262,10 +264,10 @@ public sealed class ImageSuiteImporterTests
         var report = await NewImporter(db, root).ImportAsync(manifestPath);
 
         Assert.Equal("baseline-positions", report.SuiteName);
-        Assert.Equal(32, report.CellCount);
+        Assert.Equal(49, report.CellCount);
 
         var cells = await NewSuiteRepo(db).ListCellsAsync(report.SuiteId);
-        Assert.Equal(32, cells.Count);
+        Assert.Equal(49, cells.Count);
 
         // Every cell is renderable for at least one model, and the model legend is declared so a run can map a key to
         // a checkpoint.

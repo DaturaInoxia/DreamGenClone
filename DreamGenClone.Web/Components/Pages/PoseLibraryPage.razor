@@ -445,7 +445,9 @@
 
         if (plan.BodyView is not { } bodyView || plan.BodyState is not { } bodyState)
         {
-            _characterError = $"'{pose.Name}' cannot be tested on a character yet: {plan.Rationale}";
+            // The refusal wording lives beside the plan (PoseReferenceRequirement), so the pose library's test render and
+            // a pose SUITE run explain the same missing angle the same way.
+            _characterError = PoseReferenceRequirement.Unplannable(pose.Name, plan);
             return;
         }
 
@@ -457,9 +459,7 @@
             faceAsset = IdentityPackReferenceResolver.ResolveFace(owner.ApprovedAssets, faceView);
             if (faceAsset is null)
             {
-                _characterError =
-                    $"'{owner.DisplayName}' has no APPROVED {PoseMetadataLabels.Direction(pose.Direction)} face, which "
-                    + $"is the angle '{pose.Name}' is shot at. Approve one in Character Studio, or clear the character.";
+                _characterError = PoseReferenceRequirement.MissingFace(owner, pose.Name, pose.Direction);
                 return;
             }
         }
@@ -467,11 +467,8 @@
         var bodyAsset = IdentityPackReferenceResolver.ResolveBody(owner.ApprovedAssets, bodyView, bodyState);
         if (bodyAsset is null)
         {
-            var state = bodyState == SceneImageReferenceBodyState.Unclothed ? "unclothed" : "clothed";
-            _characterError =
-                $"'{owner.DisplayName}' has no APPROVED {state} {PoseMetadataLabels.Direction(pose.Direction)} body, "
-                + $"which is what '{pose.Name}' needs (the pose is {PoseMetadataLabels.Rating(pose.ContentRating)}). "
-                + "Approve one in Character Studio, or clear the character.";
+            _characterError = PoseReferenceRequirement.MissingBody(
+                owner, pose.Name, pose.Direction, pose.ContentRating, bodyState);
             return;
         }
 

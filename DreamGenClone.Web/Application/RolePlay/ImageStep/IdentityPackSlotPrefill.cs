@@ -94,7 +94,7 @@ public static class IdentityPackSlotPrefill
                     $"Identity pack '{packId}' has no approved {request.FaceView} face reference, so a step at that angle "
                     + "cannot be rendered as this character. Shoot or approve that view on the Faces tab first.");
             bindings.Add(BindingFor(request.Actor, ImageStepSlotKind.Face, "character identity", packId, face.Id,
-                bindings.Count + 1));
+                bindings.Count + 1, IdentityPackReferenceLabels.Describe(face)));
         }
 
         if (request.IncludeBody)
@@ -106,7 +106,7 @@ public static class IdentityPackSlotPrefill
                     + "this step cannot be rendered on the character's build. Shoot or approve that body slot in that "
                     + "state on the Body tab first.");
             bindings.Add(BindingFor(request.Actor, ImageStepSlotKind.Body, "character body", packId, body.Id,
-                bindings.Count + 1));
+                bindings.Count + 1, IdentityPackReferenceLabels.Describe(body)));
         }
 
         if (bindings.Count == 0)
@@ -139,7 +139,8 @@ public static class IdentityPackSlotPrefill
     }
 
     private static ReferenceApplicationSelection BindingFor(
-        ImageStepActor actor, ImageStepSlotKind slotKind, string semanticRole, string packId, string assetId, int ordinal) =>
+        ImageStepActor actor, ImageStepSlotKind slotKind, string semanticRole, string packId, string assetId, int ordinal,
+        string referenceLabel) =>
         new()
         {
             ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(slotKind),
@@ -151,6 +152,7 @@ public static class IdentityPackSlotPrefill
             Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
             IdentityPackId = packId,
             ReferenceAssetId = assetId,
+            ReferenceLabel = referenceLabel,
             Ordinal = ordinal
         };
 }

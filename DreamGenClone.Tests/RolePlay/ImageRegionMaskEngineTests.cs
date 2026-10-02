@@ -47,6 +47,36 @@ public sealed class ImageRegionMaskEngineTests
         Assert.Equal(0, image[99, 20].PackedValue);
     }
 
+    /// <summary>The operator's grow value widens the white area before feathering, so the edit overlaps the seam.</summary>
+    [Fact]
+    public void GrowMaskByWidensTheWhiteRectangle()
+    {
+        var region = new MediaEditRegionOperation(25, 25, 50, 50, GrowMaskBy: 5, FeatherPixels: 0);
+
+        using var image = Image.Load<L8>(_engine.Build(region, 100, 100));
+
+        Assert.Equal(255, image[20, 20].PackedValue);   // grew 5px past the drawn corner
+        Assert.Equal(0, image[19, 19].PackedValue);     // and no further
+        Assert.Equal(255, image[50, 50].PackedValue);   // the middle is still white
+    }
+
+    /// <summary>
+    /// Feathering is baked into the mask as a blur of its own edge: a region drawn inside the frame gets a soft
+    /// boundary, which the host FeatherMask node cannot do (it feathers the frame border only).
+    /// </summary>
+    [Fact]
+    public void FeatherPixelsSoftensTheRegionEdge()
+    {
+        var region = new MediaEditRegionOperation(25, 25, 50, 50, GrowMaskBy: 0, FeatherPixels: 10);
+
+        using var image = Image.Load<L8>(_engine.Build(region, 100, 100));
+
+        Assert.Equal(255, image[50, 50].PackedValue);   // deep inside stays fully white
+        Assert.True(image[25, 25].PackedValue < 255, "the drawn edge is no longer a hard 255");
+        Assert.True(image[24, 24].PackedValue > 0, "the blur bleeds outside the drawn rectangle");
+        Assert.Equal(0, image[0, 0].PackedValue);       // the far corner stays black
+    }
+
     /// <summary>
     /// A region that rounds away to nothing would emit an all-black mask, which pins the WHOLE frame and returns the
     /// source unchanged. Refused instead: a render that looks like a success and did nothing is the worst outcome.

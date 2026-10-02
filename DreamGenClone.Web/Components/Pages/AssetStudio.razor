@@ -176,6 +176,51 @@
                             </a>
                         }
                         <a class="btn btn-sm btn-outline-primary mt-2" href="/asset-studio/@_selectedAsset.Id">View asset details</a>
+
+                        @* Rename and delete for the selected row, including a run CONTAINER: a container appears here as
+                           a library row like any other, and it is deleted as a whole, so it must be manageable without
+                           opening its own page first. *@
+                        <hr class="my-3" />
+                        <div class="row g-1 align-items-end">
+                            <div class="col-8">
+                                <label class="form-label small mb-1" for="inspector-name">Name</label>
+                                <input id="inspector-name" class="form-control form-control-sm" value="@_inspectorNameDraft"
+                                       disabled="@_busy" @onchange="e => _inspectorNameDraft = e.Value?.ToString() ?? string.Empty" />
+                            </div>
+                            <div class="col-4">
+                                <button class="btn btn-sm btn-primary w-100" type="button"
+                                        disabled="@(_busy || !CanRenameSelected)" @onclick="RenameSelectedAsync">
+                                    Save name
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            @if (!_inspectorDeleteArmed)
+                            {
+                                <button class="btn btn-sm btn-outline-danger" type="button" disabled="@_busy"
+                                        @onclick="() => _inspectorDeleteArmed = true">
+                                    <i class="bi bi-trash me-1"></i>Delete asset
+                                </button>
+                            }
+                            else
+                            {
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="text-danger">Delete @_selectedAsset.Name and its images?</span>
+                                    <button class="btn btn-sm btn-danger" type="button" disabled="@_busy"
+                                            @onclick="DeleteSelectedAsync">
+                                        Yes, delete
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" type="button" disabled="@_busy"
+                                            @onclick="() => _inspectorDeleteArmed = false">
+                                        Cancel
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_inspectorMessage))
+                        {
+                            <div class="alert alert-secondary py-1 small mt-2 mb-0">@_inspectorMessage</div>
+                        }
                     </div>
                 </section>
             }
@@ -193,6 +238,14 @@
     private string _assetApprovalFilter = string.Empty;
     private string _assetCharacterFilter = string.Empty;
     private string? _selectedAssetId;
+
+    /// <summary>The name being typed in the inspector, and whether its delete has been armed by a first click.</summary>
+    private string _inspectorNameDraft = string.Empty;
+    private bool _inspectorDeleteArmed;
+    private string? _inspectorMessage;
+
+    private bool _busy;
+    private string? _notice;
 
     private bool _hasInFlight;
     private string? _error;
@@ -299,9 +352,85 @@
     private void SelectAsset(string assetId)
     {
         _selectedAssetId = assetId;
+
+        // The draft follows the SELECTION, so inspecting a second row never shows the first row's name, and a refresh
+        // of the same list never overwrites a name being typed.
+        _inspectorNameDraft = _assets.FirstOrDefault(asset => asset.Id == assetId)?.Name ?? string.Empty;
+        _inspectorDeleteArmed = false;
+        _inspectorMessage = null;
     }
 
-    private void ClearAssetSelection() => _selectedAssetId = null;
+    private void ClearAssetSelection()
+    {
+        _selectedAssetId = null;
+        _inspectorDeleteArmed = false;
+        _inspectorMessage = null;
+    }
+
+    /// <summary>Save is offered only for a name that actually differs, so a no-op write cannot be queued.</summary>
+    private bool CanRenameSelected => _selectedAsset is not null
+        && !string.IsNullOrWhiteSpace(_inspectorNameDraft)
+        && !string.Equals(_inspectorNameDraft.Trim(), _selectedAsset.Name, StringComparison.Ordinal);
+
+    private async Task RenameSelectedAsync()
+    {
+        if (_selectedAsset is not { } asset)
+        {
+            return;
+        }
+
+        _busy = true;
+        _inspectorMessage = null;
+        _error = null;
+        try
+        {
+            var renamed = await AssetService.RenameAssetAsync(asset.Id, _inspectorNameDraft);
+            _inspectorNameDraft = renamed.Name;
+            _inspectorMessage = $"Renamed to '{renamed.Name}'.";
+            await ReloadAssetsAsync();
+        }
+        catch (Exception exception)
+        {
+            _inspectorMessage = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Deletes the selected asset and everything under it. A refusal (approved for production, referenced by a LoRA
+    /// dataset, owned by an identity pack) is shown here in the service's own words rather than swallowed: a delete
+    /// that quietly did nothing would look exactly like one that worked.
+    /// </summary>
+    private async Task DeleteSelectedAsync()
+    {
+        if (_selectedAsset is not { } asset)
+        {
+            return;
+        }
+
+        _busy = true;
+        _inspectorMessage = null;
+        _error = null;
+        try
+        {
+            await AssetService.DeleteAssetAsync(asset.Id);
+            ClearAssetSelection();
+            await ReloadAssetsAsync();
+            _notice = $"Deleted '{asset.Name}'.";
+        }
+        catch (Exception exception)
+        {
+            _inspectorMessage = exception.Message;
+            _inspectorDeleteArmed = false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     private async Task ReloadAssetsAsync()
     {

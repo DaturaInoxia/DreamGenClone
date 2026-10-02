@@ -252,5 +252,16 @@ public interface ISceneAssetService
     Task<(SceneAsset Asset, Stream Stream)> OpenForDownloadAsync(
         string assetId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Renames an asset (a run container, a wardrobe item, a location …) and returns the stored row.
+    ///
+    /// <para>
+    /// The name is the only thing about an asset an operator can change by typing: status, approval, version and
+    /// checksum are all produced. A blank name is refused rather than accepted as an empty label, because an unnamed
+    /// container is unreadable once there are several - the same reason a run refuses to start without a run name.
+    /// </para>
+    /// </summary>
+    Task<SceneAsset> RenameAssetAsync(string assetId, string name, CancellationToken cancellationToken = default);
+
     Task DeleteAssetAsync(string assetId, CancellationToken cancellationToken = default);
 }

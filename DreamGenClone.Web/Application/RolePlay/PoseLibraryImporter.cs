@@ -54,6 +54,22 @@ public sealed record PoseMetadataBackfillResult(
     int Unchanged,
     IReadOnlyList<string> NotDeclared);
 
+/// <summary>
+/// What a facing recompute did. <paramref name="Repointed"/> is the count that matters — those are poses whose stored
+/// direction was wrong because the only measurement that existed could not see a turn. <paramref name="Flagged"/> is
+/// the count of poses whose two turn signals disagreed, which keep their stored direction and are marked for the
+/// operator rather than guessed at.
+/// </summary>
+/// <param name="LeftAlone">
+/// Rows that were not the recompute's business: an operator's own metadata, a library whose pack is not on disk, or a
+/// category that declares nothing.
+/// </param>
+public sealed record PoseFacingRecomputeResult(
+    int Examined,
+    int Repointed,
+    int Flagged,
+    int LeftAlone);
+
 public interface IPoseLibraryImporter
 {
     /// <summary>
@@ -85,7 +101,21 @@ public interface IPoseLibraryImporter
     /// would also throw away the skeletons, the keywords and any pose they had edited. A preset that already has
     /// metadata is left untouched, so running this repeatedly costs one query and writes nothing.
     /// </summary>
-    Task<PoseMetadataBackfillResult> EnsureMetadataAsync(CancellationToken cancellationToken = default);}
+    Task<PoseMetadataBackfillResult> EnsureMetadataAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-points the DIRECTION of poses that are already stored, from a fresh measurement of their own keypoints, and
+    /// leaves every other field on the row as it was.
+    ///
+    /// This exists because the direction axis was measurable all along and was never measured: the shoulder ORDERING
+    /// can only say front from back, and it stays negative through a 45-degree turn, so every 3/4 pose in the library
+    /// was stored as "front" and could not be corrected by re-running anything. <see cref="EnsureMetadataAsync"/>
+    /// cannot fix them either — it is fill-only by design, so a row that already has metadata is invisible to it.
+    ///
+    /// An OPERATOR-EDITED row is never recomputed, and a row whose pack declares nothing is skipped rather than
+    /// guessed at. A row whose two turn signals disagree keeps its stored direction and is flagged for review.
+    /// </summary>
+    Task<PoseFacingRecomputeResult> RecomputeFacingAsync(CancellationToken cancellationToken = default);}
 
 /// <inheritdoc />
 public sealed class PoseLibraryImporter : IPoseLibraryImporter
@@ -307,6 +337,85 @@ public sealed class PoseLibraryImporter : IPoseLibraryImporter
     }
 
     /// <summary>
+    /// Re-points the direction of every stored pose whose OWN keypoints decide a different one, writing only through
+    /// <see cref="Describe"/> so a recomputed pose and an imported pose are classified by the same code.
+    /// </summary>
+    public async Task<PoseFacingRecomputeResult> RecomputeFacingAsync(CancellationToken cancellationToken = default)
+    {
+        var packsRoot = ResolvePacksRoot();
+        var stored = await _presets.ListAsync(cancellationToken);
+        var declarations = await LoadDeclarationsAsync(packsRoot, cancellationToken);
+
+        var examined = 0;
+        var repointed = 0;
+        var flagged = 0;
+        var leftAlone = 0;
+
+        foreach (var preset in stored)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // An operator's own metadata is never recomputed, and that is the whole reason the marker is stored.
+            if (preset.MetadataOperatorEdited || !declarations.TryGetValue(preset.LibraryId, out var pack))
+            {
+                leftAlone++;
+                continue;
+            }
+
+            var relative = RelativePathFromProvenance(preset);
+            var declaration = pack.For(preset.Category, relative ?? string.Empty);
+            if (declaration.IsEmpty)
+            {
+                leftAlone++;
+                continue;
+            }
+
+            examined++;
+
+            var recomputed = Describe(preset, ReadStoredPose(preset), declaration);
+
+            if (recomputed.Direction == preset.Direction
+                && recomputed.MetadataNeedsReview == preset.MetadataNeedsReview)
+            {
+                leftAlone++;
+                continue;
+            }
+
+            if (recomputed.Direction != preset.Direction) repointed++;
+            if (recomputed.MetadataNeedsReview) flagged++;
+
+            await _presets.UpdateMetadataAsync(recomputed, cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "Pose facing recompute: {Examined} examined, {Repointed} re-pointed, {Flagged} flagged for review, "
+            + "{LeftAlone} left alone.",
+            examined, repointed, flagged, leftAlone);
+
+        return new PoseFacingRecomputeResult(examined, repointed, flagged, leftAlone);
+    }
+
+    /// <summary>
+    /// The declarations of every pack on disk, keyed by the library id that pack imported as, so a preset's own
+    /// LibraryId finds its pack without a second pass over the folders per preset.
+    /// </summary>
+    private async Task<Dictionary<string, PosePackDeclarations>> LoadDeclarationsAsync(
+        string packsRoot, CancellationToken cancellationToken)
+    {
+        var declarations = new Dictionary<string, PosePackDeclarations>(StringComparer.OrdinalIgnoreCase);
+        foreach (var packFolder in Directory.EnumerateDirectories(packsRoot))
+        {
+            var folderName = Path.GetFileName(packFolder);
+            if (string.IsNullOrWhiteSpace(folderName)) continue;
+
+            var manifest = await ReadManifestAsync(packFolder, folderName, cancellationToken);
+            declarations[PoseLibraryService.Slug(folderName)] = manifest.Declarations;
+        }
+
+        return declarations;
+    }
+
+    /// <summary>
     /// Fills in metadata for every stored preset that has none, reading the DECLARATION from the pack and the
     /// measurement from the preset's own stored keypoints.
     ///
@@ -317,18 +426,7 @@ public sealed class PoseLibraryImporter : IPoseLibraryImporter
     {
         var packsRoot = ResolvePacksRoot();
         var stored = await _presets.ListAsync(cancellationToken);
-
-        // Declarations are read from every pack that is on disk, keyed by the library id the pack imported as, so a
-        // preset's own LibraryId finds its pack without a second pass over the folders per preset.
-        var declarations = new Dictionary<string, PosePackDeclarations>(StringComparer.OrdinalIgnoreCase);
-        foreach (var packFolder in Directory.EnumerateDirectories(packsRoot))
-        {
-            var folderName = Path.GetFileName(packFolder);
-            if (string.IsNullOrWhiteSpace(folderName)) continue;
-
-            var manifest = await ReadManifestAsync(packFolder, folderName, cancellationToken);
-            declarations[PoseLibraryService.Slug(folderName)] = manifest.Declarations;
-        }
+        var declarations = await LoadDeclarationsAsync(packsRoot, cancellationToken);
 
         var filled = 0;
         var unchanged = 0;

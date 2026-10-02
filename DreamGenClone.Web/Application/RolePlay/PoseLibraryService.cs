@@ -82,6 +82,17 @@ public interface IPoseLibraryService
 
     Task<IReadOnlyList<PosePreset>> SearchAsync(PoseLibraryQuery query, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// One preset by id, or null when it is gone.
+    ///
+    /// <para>
+    /// Needed by a consumer that holds an ID rather than a row: a suite cell records WHICH pose it stands for, and the
+    /// angles that pose needs are read from the preset's own metadata at render time - never copied onto the cell, so a
+    /// corrected direction cannot leave a stale angle behind on the cell that was built before the correction.
+    /// </para>
+    /// </summary>
+    Task<PosePreset?> GetPresetAsync(string presetId, CancellationToken cancellationToken = default);
+
     /// <summary>The categories actually present, for the filter, instead of a hardcoded list that can go stale.</summary>
     Task<IReadOnlyList<string>> ListCategoriesAsync(CancellationToken cancellationToken = default);
 
@@ -656,6 +667,16 @@ public sealed class PoseLibraryService : IPoseLibraryService
     {
         ArgumentNullException.ThrowIfNull(query);
         return _presets.SearchAsync(query.Keyword, query.Category, query.LibraryId, cancellationToken);
+    }
+
+    public Task<PosePreset?> GetPresetAsync(string presetId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(presetId))
+        {
+            throw new InvalidOperationException("A pose preset id is required to read a preset.");
+        }
+
+        return _presets.GetAsync(presetId.Trim(), cancellationToken);
     }
 
     public async Task<IReadOnlyList<string>> ListCategoriesAsync(CancellationToken cancellationToken = default)

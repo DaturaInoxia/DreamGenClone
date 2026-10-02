@@ -71,6 +71,24 @@ public sealed record ImageSuiteRenderRequest(
     string? IdentityFaceAssetId = null,
 
     /// <summary>
+    /// The CHARACTER a run conditions on, applied to every render in the run.
+    ///
+    /// <para>
+    /// A pose-library run needs the character rather than a face asset id, because which FACE and which BODY the render
+    /// conditions on is decided per cell by the POSE: the pose's declared direction picks the angle and its rating picks
+    /// clothed or unclothed. One character therefore renders a whole suite of poses, each with its own correct pair of
+    /// references, and a character who has not approved an angle a pose needs is reported against that cell by name.
+    /// </para>
+    ///
+    /// <para>
+    /// Null means NO character, which is a configured state: the poses render from the skeleton alone, exactly as the
+    /// pose proofs do. A catalog run keeps using <see cref="IdentityPackId"/> and <see cref="IdentityFaceAssetId"/>,
+    /// where there is no pose to derive an angle from.
+    /// </para>
+    /// </summary>
+    string? CharacterProfileId = null,
+
+    /// <summary>
     /// The character LoRAs applied to every render in the run, in chain order.
     ///
     /// <para>
@@ -110,7 +128,14 @@ public sealed record ImageSuiteRenderReport(
     /// The LoRAs the run was rendered WITH, so the report is readable on its own. A set of images made with a character
     /// applied and a set made without look like two results of one experiment unless the run says which it was.
     /// </summary>
-    IReadOnlyList<SceneImageCharacterLoraSelection>? CharacterLoras = null)
+    IReadOnlyList<SceneImageCharacterLoraSelection>? CharacterLoras = null,
+
+    /// <summary>
+    /// The character every image in this run was conditioned on, or null for a run with no character. Stated for the
+    /// same reason as the LoRAs: a pose suite rendered on a character and one rendered from skeletons alone produce two
+    /// sets of images that mean different things.
+    /// </summary>
+    string? CharacterLabel = null)
 {
     public int EnqueuedCount => Rendered.Count;
 
@@ -118,6 +143,9 @@ public sealed record ImageSuiteRenderReport(
 
     /// <summary>How many character LoRAs conditioned every image in this run; zero means none were applied.</summary>
     public int LoraCount => CharacterLoras?.Count ?? 0;
+
+    /// <summary>True when the run conditioned on a character, which every image in it shares.</summary>
+    public bool HasCharacter => !string.IsNullOrWhiteSpace(CharacterLabel);
 }
 
 /// <summary>

@@ -160,13 +160,20 @@ public sealed record ImageStepActor(string ActorKey, string DisplayName);
 /// rest would be invisible in the UI. A wardrobe opts in, because a look genuinely can be two garments (a dress and
 /// the shoes that go with it) and each is its own reference image.
 /// </param>
+/// <param name="ActorDisplayName">
+/// The name of <see cref="ActorKey"/>'s character, as the operator sees it — carried here because the composer shows
+/// the slot's owner and a slot that renders the raw profile key makes the operator read a GUID to find out whose face
+/// they are binding. Supplied by the host through <see cref="ImageStepActor"/>, which has carried the name all along;
+/// this field is what stopped it being dropped on the way to the screen. Null falls back to the key.
+/// </param>
 public sealed record ImageStepSlotBlueprint(
     ImageStepSlotKind SlotKind,
     ImageStepSlotPrefill Prefill,
     IReadOnlyList<ImageStepReferenceSourceKind> AllowedSources,
     string? ActorKey = null,
     bool Required = false,
-    bool AllowsMultiple = false)
+    bool AllowsMultiple = false,
+    string? ActorDisplayName = null)
 {
     /// <summary>
     /// Whether this slot names a character, names the scene, or may name either. This is also what decides the

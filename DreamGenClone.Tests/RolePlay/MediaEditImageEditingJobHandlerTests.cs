@@ -377,7 +377,9 @@ public sealed class MediaEditImageEditingJobHandlerTests
                 Id = "asset-1", Name = "Asset one", Type = SceneAssetType.CharacterFace, Status = SceneAssetStatus.Complete
             });
 
-            var png = CreatePng(4, 3);
+            // A real, decodable PNG: the editor client never decodes the source, but the region-mask engine
+            // (exercised by the region-edit test) does measure it.
+            var png = MakeDecodablePng(8, 6);
             await using (var sourceContent = new MemoryStream(png))
             {
                 var stored = await storage.SaveAsync("asset-source.png", sourceContent);
@@ -490,6 +492,29 @@ public sealed class MediaEditImageEditingJobHandlerTests
                 new StubImageEditorResolver(),
                 editor,
                 // The real, stateless region-mask engine: the production pixel code, not a stub of it.
+                new ImageRegionMaskEngine(),
+                NullLogger<MediaEditImageEditingJobHandler>.Instance);
+        }
+
+        /// <summary>
+        /// The real writer armed with the 2.1-native resolver a region edit requires: the shared stub resolves a
+        /// merged checkpoint, which the region path rejects before any render is paid for.
+        /// </summary>
+        public MediaEditImageEditingJobHandler BuildRegionHandler(IImageEditingClient editor)
+        {
+            var options = Options.Create(new PersistenceOptions
+            {
+                ConnectionString = $"Data Source={_dbPath};Pooling=False",
+                SceneImageRoot = Path.Combine(_root, "scene-images")
+            });
+            var storage = new SceneAssetStorageService(options, NullLogger<SceneAssetStorageService>.Instance);
+            var references = new MediaEditReferenceResolver(Assets, storage, new StubReferenceStrategies());
+            var writer = new SceneAssetMediaEditSubjectWriter(Assets, Edits, storage, references);
+            return new MediaEditImageEditingJobHandler(
+                new MediaEditSubjectWriterResolver([writer]),
+                OperationResolver(),
+                new Qwen21ImageEditorResolver(),
+                editor,
                 new ImageRegionMaskEngine(),
                 NullLogger<MediaEditImageEditingJobHandler>.Instance);
         }
@@ -792,6 +817,86 @@ public sealed class MediaEditImageEditingJobHandlerTests
         Assert.Equal(0, editor.Calls);
     }
 
+    /// <summary>
+    /// A masked-region edit is an EDIT, not a deterministic operation: it must run the editor path (with a mask),
+    /// never the operation-executor resolver (which has no executor for <c>MaskedRegion</c>).
+    /// </summary>
+    [Fact]
+    public async Task MaskedRegionRun_RoutesThroughTheEditorPath_WithAMask()
+    {
+        var writer = new RegionSubjectWriter();
+        var editor = new RecordingImageEditor();
+        var handler = new MediaEditImageEditingJobHandler(
+            new MediaEditSubjectWriterResolver([writer]),
+            // Empty on purpose: routing a MaskedRegion to the operation path would throw "no executor".
+            new MediaEditOperationExecutorResolver([]),
+            new Qwen21ImageEditorResolver(),
+            editor,
+            new ImageRegionMaskEngine(),
+            NullLogger<MediaEditImageEditingJobHandler>.Instance);
+
+        await handler.HandleAsync(JobForMaskedRegion(writer.ImageId));
+
+        Assert.Equal(["claim", "complete"], writer.Order);
+        Assert.Equal(1, editor.Calls);
+        Assert.True(editor.LastEditMaskPresent, "A region edit must pass a mask to the editor.");
+    }
+
+    /// <summary>
+    /// The writer must route a masked-region edit through the compiled-edit path, not the operation path: the real
+    /// writer resolves the accepted prompt revision (a prompt-less operation plan would throw at the handler's
+    /// <c>RequireEditParts</c>), then the run passes a mask. This is the other half of the dispatch fix above —
+    /// that test uses a stub writer, which cannot catch a writer that mis-routes a region.
+    /// </summary>
+    [Fact]
+    public async Task MaskedRegionRun_ThroughTheRealWriter_ResolvesTheCompiledPrompt()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var editor = new RecordingImageEditor();
+        var handler = fixture.BuildRegionHandler(editor);
+
+        var operation = MediaEditOperation.ForMaskedRegion(
+            new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 3));
+        var job = new DurableBackgroundJob
+        {
+            JobType = BackgroundJobTypes.MediaEditImageEditing,
+            PayloadJson = JsonSerializer.Serialize(new MediaEditImageEditingJobPayload
+            {
+                SubjectKind = MediaEditSubjectKind.AssetImage,
+                ImageId = fixture.EditedImageId,
+                OperationKind = MediaEditOperationKind.MaskedRegion,
+                OperationJson = JsonSerializer.Serialize(operation, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+                EditorModelId = Fixture.EditorModelId
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+        };
+
+        await handler.HandleAsync(job);
+
+        var edited = await fixture.Assets.GetImageAsync(fixture.EditedImageId);
+        Assert.Equal(SceneAssetStatus.Complete, edited!.Status);
+        Assert.Equal(1, editor.Calls);
+        Assert.Equal("Change the shirt to red.", Assert.Single(editor.Instructions));
+        Assert.True(editor.LastEditMaskPresent, "A region edit must resolve its compiled prompt and pass a mask.");
+    }
+
+    private static DurableBackgroundJob JobForMaskedRegion(string imageId)
+    {
+        var operation = MediaEditOperation.ForMaskedRegion(
+            new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 3));
+        return new DurableBackgroundJob
+        {
+            JobType = BackgroundJobTypes.MediaEditImageEditing,
+            PayloadJson = JsonSerializer.Serialize(new MediaEditImageEditingJobPayload
+            {
+                SubjectKind = MediaEditSubjectKind.SceneImage,
+                ImageId = imageId,
+                OperationKind = MediaEditOperationKind.MaskedRegion,
+                OperationJson = JsonSerializer.Serialize(operation, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+                EditorModelId = Fixture.EditorModelId
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+        };
+    }
+
     private static DurableBackgroundJob JobFor(string imageId)
         => new()
         {
@@ -870,12 +975,16 @@ public sealed class MediaEditImageEditingJobHandlerTests
         /// <summary>Every instruction the run actually sent, in order.</summary>
         public List<string> Instructions { get; } = [];
 
+        /// <summary>Whether the most recent edit call carried a mask (null before any edit).</summary>
+        public bool? LastEditMaskPresent { get; private set; }
+
         public Exception? ThrowOnEdit { get; init; }
 
         public Task<byte[]> EditAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, CancellationToken cancellationToken = default, ImageEditingMask? mask = null)
         {
             Calls++;
             Instructions.Add(instruction);
+            LastEditMaskPresent = mask is not null;
             if (ThrowOnEdit is not null)
                 throw ThrowOnEdit;
             return Task.FromResult(CreatePng(4, 3));
@@ -885,6 +994,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
         {
             Calls++;
             Instructions.Add(instruction);
+            LastEditMaskPresent = mask is not null;
             if (ThrowOnEdit is not null)
                 throw ThrowOnEdit;
             return Task.FromResult(CreatePng(4, 3));
@@ -1056,6 +1166,82 @@ public sealed class MediaEditImageEditingJobHandlerTests
 
         public Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<SceneImageModelChoice>>([]);
+    }
+
+    /// <summary>
+    /// A subject writer whose plan is a MASKED-REGION edit (an edit that also carries a region), with a decodable
+    /// source so the region-mask engine can measure it.
+    /// </summary>
+    private sealed class RegionSubjectWriter : IMediaEditSubjectWriter
+    {
+        private static readonly byte[] SourceBytes = MakeDecodablePng(8, 6);
+
+        public string ImageId { get; } = "scene-region-1";
+        public List<string> Order { get; } = [];
+
+        public MediaEditSubjectKind Kind => MediaEditSubjectKind.SceneImage;
+
+        public Task<MediaEditRunPlan?> PrepareAsync(
+            MediaEditRunContext context, CancellationToken cancellationToken = default)
+            => Task.FromResult<MediaEditRunPlan?>(new MediaEditRunPlan(
+                ImageId,
+                "source-1",
+                _ => Task.FromResult<Stream>(new MemoryStream(SourceBytes)),
+                Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(SourceBytes)),
+                MediaEditOperation.ForMaskedRegion(new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 3)),
+                Prompt: "change the shirt to red inside the region",
+                References: [],
+                Editor: new MediaEditEditorResolution(Fixture.EditorModelId, RequiresAdultContentPolicy: false),
+                LogScope: "test"));
+
+        public Task<bool> ClaimAsync(MediaEditRunContext context, CancellationToken cancellationToken = default)
+        {
+            Order.Add("claim");
+            return Task.FromResult(true);
+        }
+
+        public Task CompleteAsync(
+            MediaEditRunPlan plan, MediaEditRunOutput output, CancellationToken cancellationToken = default)
+        {
+            Order.Add("complete");
+            return Task.CompletedTask;
+        }
+
+        public Task FailAsync(
+            MediaEditRunContext context, string error, CancellationToken cancellationToken = default)
+        {
+            Order.Add("fail");
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>A region edit needs the 2.1 native graph; the shared stub resolves a merged checkpoint.</summary>
+    private sealed class Qwen21ImageEditorResolver : IImageEditorModelResolver
+    {
+        public Task<ResolvedImageEditorModel> ResolveAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(Model());
+
+        public Task<ResolvedImageEditorModel> ResolveByIdAsync(string modelId, CancellationToken cancellationToken = default)
+        {
+            Assert.Equal(Fixture.EditorModelId, modelId);
+            return Task.FromResult(Model());
+        }
+
+        public Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<SceneImageModelChoice>>([]);
+
+        private static ResolvedImageEditorModel Model() => new(
+            "http://192.168.0.16:8188", 120, null, "qwen-image-2.1", "Local ComfyUI", ImageContentPolicy.AdultAllowed,
+            "diffusion.safetensors", "text_encoder.safetensors", "vae.safetensors", 25, 1.0, "euler", "simple", 1.0, 0.0, 0.0,
+            GraphKind: ImageEditorGraphKind.QwenImage21Native);
+    }
+
+    private static byte[] MakeDecodablePng(int width, int height)
+    {
+        using var image = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(width, height);
+        using var content = new MemoryStream();
+        image.Save(content, new SixLabors.ImageSharp.Formats.Png.PngEncoder());
+        return content.ToArray();
     }
 
     private static byte[] CreatePng(int width, int height)

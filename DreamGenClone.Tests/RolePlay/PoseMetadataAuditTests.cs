@@ -136,23 +136,30 @@ public sealed class PoseMetadataAuditTests
     }
 
     /// <summary>
-    /// The disagreements the shipped packs really contain, counted per category and read on 2026-09-30 (the poses are
+    /// The disagreements the shipped packs really contain, counted per category and read on 2026-10-01 (the poses are
     /// named, with their measured numbers, in the report this test writes).
     ///
-    /// Both kinds are honest facts about the pack rather than defects in it: a pose whose shoulders are ordered like a
-    /// back view contradicts its declared facing, and a pose whose torso measures far off vertical is a body that
-    /// LEANS, which the prompt's stance word does not convey. Neither one changes what the app stores — the pack's
-    /// declaration still wins — so this list exists to be looked at, and to fail loudly when it grows.
+    /// Both kinds are honest facts about the pack rather than defects in it. A pose whose torso measures far off
+    /// vertical is a body that LEANS, which the prompt's stance word does not convey. A pose whose shoulders read
+    /// turned while its head faces the camera has two signals in conflict, and the app refuses to pick a side from
+    /// them — it keeps the declared direction and says so.
+    ///
+    /// Neither kind changes silently: the folded-torso count is a stance question, and the turn-disagreement count is
+    /// the measurement declining to answer. Where the turn measurement IS decisive it does change the stored facing,
+    /// which is why the count of stored Front fell by exactly the 54 poses it re-pointed.
     /// </summary>
     private static readonly (string Library, string Category, int Count)[] ReviewedDisagreements =
     [
-        ("openpose-nsfw", "all_fours", 1),
-        ("openpose-nsfw", "kneeling", 5),
-        ("openpose-nsfw", "sitting", 8),
-        ("openpose-nsfw", "squatting", 2),
-        ("openpose-nsfw", "standing", 28),
-        ("openposes-collection", "sitting", 2),
-        ("openposes-collection", "standing", 2)
+        ("openpose-from-above-standing", "standing", 1),
+        ("openpose-nsfw", "kneeling", 7),
+        ("openpose-nsfw", "sitting", 16),
+        ("openpose-nsfw", "split_leg", 13),
+        ("openpose-nsfw", "squatting", 4),
+        ("openpose-nsfw", "standing", 43),
+        ("openposes-collection", "dance", 1),
+        ("openposes-collection", "flexing", 1),
+        ("openposes-collection", "jumping", 1),
+        ("openposes-collection", "sitting", 2)
     ];
 
     private static string PacksRoot()

@@ -104,7 +104,7 @@ public sealed class SceneAssetImageEditRepository : ISceneAssetImageEditReposito
         ordinal.Parameters.AddWithValue("$id", attempt.EditSessionId);
         if (Convert.ToInt32(await ordinal.ExecuteScalarAsync(cancellationToken)) != attempt.Ordinal) throw new InvalidOperationException("Asset compilation attempt ordinal is stale.");
         await using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO SceneAssetImageEditCompilationAttempts (Id, EditSessionId, Ordinal, RawIntent, ClarificationContextJson, SourceImageSha256, Status, ResolvedModelSnapshotJson, CompilerSchemaVersion, SystemPromptVersion, RawModelResponse, ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc) VALUES ($id,$session,$ordinal,$intent,$clarification,$sha,$status,$model,$schema,$promptVersion,$response,$result,$error,$created,$started,$completed);";
+        command.CommandText = "INSERT INTO SceneAssetImageEditCompilationAttempts (Id, EditSessionId, Ordinal, RawIntent, ClarificationContextJson, SourceImageSha256, Status, ResolvedModelSnapshotJson, CompilerSchemaVersion, SystemPromptVersion, RawModelResponse, ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc, RegionJson) VALUES ($id,$session,$ordinal,$intent,$clarification,$sha,$status,$model,$schema,$promptVersion,$response,$result,$error,$created,$started,$completed,$region);";
         AddAttemptParameters(command, attempt);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -113,7 +113,7 @@ public sealed class SceneAssetImageEditRepository : ISceneAssetImageEditReposito
     {
         ValidateAttempt(attempt);
         var existing = await GetAttemptAsync(attempt.Id, cancellationToken) ?? throw new InvalidOperationException($"Asset compilation attempt '{attempt.Id}' was not found.");
-        if (existing.EditSessionId != attempt.EditSessionId || existing.Ordinal != attempt.Ordinal || existing.RawIntent != attempt.RawIntent || existing.ClarificationContextJson != attempt.ClarificationContextJson || !string.Equals(NormalizeSha256(existing.SourceImageSha256), NormalizeSha256(attempt.SourceImageSha256), StringComparison.Ordinal) || existing.ResolvedModelSnapshotJson != attempt.ResolvedModelSnapshotJson || existing.CompilerSchemaVersion != attempt.CompilerSchemaVersion || existing.SystemPromptVersion != attempt.SystemPromptVersion) throw new InvalidOperationException("Asset compilation attempt immutable input fields cannot be changed.");
+        if (existing.EditSessionId != attempt.EditSessionId || existing.Ordinal != attempt.Ordinal || existing.RawIntent != attempt.RawIntent || existing.ClarificationContextJson != attempt.ClarificationContextJson || existing.RegionJson != attempt.RegionJson || !string.Equals(NormalizeSha256(existing.SourceImageSha256), NormalizeSha256(attempt.SourceImageSha256), StringComparison.Ordinal) || existing.ResolvedModelSnapshotJson != attempt.ResolvedModelSnapshotJson || existing.CompilerSchemaVersion != attempt.CompilerSchemaVersion || existing.SystemPromptVersion != attempt.SystemPromptVersion) throw new InvalidOperationException("Asset compilation attempt immutable input fields cannot be changed.");
         if (!IsAllowedAttemptTransition(existing.Status, attempt.Status)) throw new InvalidOperationException($"Asset compilation attempt cannot transition from {existing.Status} to {attempt.Status}.");
         await using var connection = await OpenAsync(cancellationToken); await using var command = connection.CreateCommand();
         command.CommandText = "UPDATE SceneAssetImageEditCompilationAttempts SET Status=$status, RawModelResponse=$response, ParsedResultJson=$result, Error=$error, StartedUtc=$started, CompletedUtc=$completed WHERE Id=$id;";
@@ -188,7 +188,7 @@ public sealed class SceneAssetImageEditRepository : ISceneAssetImageEditReposito
                 ON SceneAssetImageEditSessions (AssetId, UpdatedUtc DESC);
             CREATE TABLE IF NOT EXISTS SceneAssetImageEditCompilationAttempts (
                 Id TEXT PRIMARY KEY, EditSessionId TEXT NOT NULL, Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
-                RawIntent TEXT NOT NULL, ClarificationContextJson TEXT NULL, SourceImageSha256 TEXT NOT NULL,
+                RawIntent TEXT NOT NULL, ClarificationContextJson TEXT NULL, RegionJson TEXT NULL, SourceImageSha256 TEXT NOT NULL,
                 Status TEXT NOT NULL, ResolvedModelSnapshotJson TEXT NOT NULL, CompilerSchemaVersion TEXT NOT NULL,
                 SystemPromptVersion TEXT NOT NULL, RawModelResponse TEXT NULL, ParsedResultJson TEXT NULL,
                 Error TEXT NULL, CreatedUtc TEXT NOT NULL, StartedUtc TEXT NULL, CompletedUtc TEXT NULL,
@@ -207,6 +207,15 @@ public sealed class SceneAssetImageEditRepository : ISceneAssetImageEditReposito
                 ON SceneAssetImageEditPromptRevisions (CompilationAttemptId, Ordinal DESC);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        var regionCheck = connection.CreateCommand();
+        regionCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneAssetImageEditCompilationAttempts') WHERE name='RegionJson'";
+        if (Convert.ToInt64(await regionCheck.ExecuteScalarAsync(cancellationToken)) == 0)
+        {
+            var regionAlter = connection.CreateCommand();
+            regionAlter.CommandText = "ALTER TABLE SceneAssetImageEditCompilationAttempts ADD COLUMN RegionJson TEXT NULL";
+            await regionAlter.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private static async Task<SceneAssetImageEditSession?> GetSessionAsync(SqliteConnection connection, string sessionId, CancellationToken cancellationToken)
@@ -235,12 +244,12 @@ public sealed class SceneAssetImageEditRepository : ISceneAssetImageEditReposito
         await using var command = connection.CreateCommand(); command.CommandText = $"{RevisionSelect} WHERE Id=$id;"; command.Parameters.AddWithValue("$id", revisionId); await using var reader = await command.ExecuteReaderAsync(cancellationToken); return await reader.ReadAsync(cancellationToken) ? ReadRevision(reader) : null;
     }
 
-    private const string AttemptSelect = "SELECT Id, EditSessionId, Ordinal, RawIntent, ClarificationContextJson, SourceImageSha256, Status, ResolvedModelSnapshotJson, CompilerSchemaVersion, SystemPromptVersion, RawModelResponse, ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc FROM SceneAssetImageEditCompilationAttempts";
+    private const string AttemptSelect = "SELECT Id, EditSessionId, Ordinal, RawIntent, ClarificationContextJson, SourceImageSha256, Status, ResolvedModelSnapshotJson, CompilerSchemaVersion, SystemPromptVersion, RawModelResponse, ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc, RegionJson FROM SceneAssetImageEditCompilationAttempts";
     private const string RevisionSelect = "SELECT Id, CompilationAttemptId, Ordinal, Prompt, RevisionKind, PromptSha256, CreatedUtc FROM SceneAssetImageEditPromptRevisions";
 
     private static SceneAssetImageEditCompilationAttempt ReadAttempt(SqliteDataReader reader) => new()
     {
-        Id = reader.GetString(0), EditSessionId = reader.GetString(1), Ordinal = reader.GetInt32(2), RawIntent = reader.GetString(3), ClarificationContextJson = reader.IsDBNull(4) ? null : reader.GetString(4), SourceImageSha256 = reader.GetString(5), Status = ParseAttemptStatus(reader.GetString(6), reader.GetString(0)), ResolvedModelSnapshotJson = reader.GetString(7), CompilerSchemaVersion = reader.GetString(8), SystemPromptVersion = reader.GetString(9), RawModelResponse = reader.IsDBNull(10) ? null : reader.GetString(10), ParsedResultJson = reader.IsDBNull(11) ? null : reader.GetString(11), Error = reader.IsDBNull(12) ? null : reader.GetString(12), CreatedUtc = ParseUtc(reader.GetString(13), reader.GetString(0)), StartedUtc = reader.IsDBNull(14) ? null : ParseUtc(reader.GetString(14), reader.GetString(0)), CompletedUtc = reader.IsDBNull(15) ? null : ParseUtc(reader.GetString(15), reader.GetString(0))
+        Id = reader.GetString(0), EditSessionId = reader.GetString(1), Ordinal = reader.GetInt32(2), RawIntent = reader.GetString(3), ClarificationContextJson = reader.IsDBNull(4) ? null : reader.GetString(4), SourceImageSha256 = reader.GetString(5), Status = ParseAttemptStatus(reader.GetString(6), reader.GetString(0)), ResolvedModelSnapshotJson = reader.GetString(7), CompilerSchemaVersion = reader.GetString(8), SystemPromptVersion = reader.GetString(9), RawModelResponse = reader.IsDBNull(10) ? null : reader.GetString(10), ParsedResultJson = reader.IsDBNull(11) ? null : reader.GetString(11), Error = reader.IsDBNull(12) ? null : reader.GetString(12), CreatedUtc = ParseUtc(reader.GetString(13), reader.GetString(0)), StartedUtc = reader.IsDBNull(14) ? null : ParseUtc(reader.GetString(14), reader.GetString(0)), CompletedUtc = reader.IsDBNull(15) ? null : ParseUtc(reader.GetString(15), reader.GetString(0)), RegionJson = reader.IsDBNull(16) ? null : reader.GetString(16)
     };
 
     private static SceneAssetImageEditPromptRevision ReadRevision(SqliteDataReader reader) => new()
@@ -250,7 +259,7 @@ public sealed class SceneAssetImageEditRepository : ISceneAssetImageEditReposito
 
     private static void AddAttemptParameters(SqliteCommand command, SceneAssetImageEditCompilationAttempt attempt)
     {
-        command.Parameters.AddWithValue("$id", attempt.Id); command.Parameters.AddWithValue("$session", attempt.EditSessionId); command.Parameters.AddWithValue("$ordinal", attempt.Ordinal); command.Parameters.AddWithValue("$intent", attempt.RawIntent); command.Parameters.AddWithValue("$clarification", (object?)attempt.ClarificationContextJson ?? DBNull.Value); command.Parameters.AddWithValue("$sha", NormalizeSha256(attempt.SourceImageSha256)); command.Parameters.AddWithValue("$status", attempt.Status.ToString()); command.Parameters.AddWithValue("$model", attempt.ResolvedModelSnapshotJson); command.Parameters.AddWithValue("$schema", attempt.CompilerSchemaVersion); command.Parameters.AddWithValue("$promptVersion", attempt.SystemPromptVersion); command.Parameters.AddWithValue("$response", (object?)attempt.RawModelResponse ?? DBNull.Value); command.Parameters.AddWithValue("$result", (object?)attempt.ParsedResultJson ?? DBNull.Value); command.Parameters.AddWithValue("$error", (object?)attempt.Error ?? DBNull.Value); command.Parameters.AddWithValue("$created", attempt.CreatedUtc.ToString("O")); command.Parameters.AddWithValue("$started", attempt.StartedUtc?.ToString("O") ?? (object)DBNull.Value); command.Parameters.AddWithValue("$completed", attempt.CompletedUtc?.ToString("O") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$id", attempt.Id); command.Parameters.AddWithValue("$session", attempt.EditSessionId); command.Parameters.AddWithValue("$ordinal", attempt.Ordinal); command.Parameters.AddWithValue("$intent", attempt.RawIntent); command.Parameters.AddWithValue("$clarification", (object?)attempt.ClarificationContextJson ?? DBNull.Value); command.Parameters.AddWithValue("$sha", NormalizeSha256(attempt.SourceImageSha256)); command.Parameters.AddWithValue("$status", attempt.Status.ToString()); command.Parameters.AddWithValue("$model", attempt.ResolvedModelSnapshotJson); command.Parameters.AddWithValue("$schema", attempt.CompilerSchemaVersion); command.Parameters.AddWithValue("$promptVersion", attempt.SystemPromptVersion); command.Parameters.AddWithValue("$response", (object?)attempt.RawModelResponse ?? DBNull.Value); command.Parameters.AddWithValue("$result", (object?)attempt.ParsedResultJson ?? DBNull.Value); command.Parameters.AddWithValue("$error", (object?)attempt.Error ?? DBNull.Value); command.Parameters.AddWithValue("$created", attempt.CreatedUtc.ToString("O")); command.Parameters.AddWithValue("$started", attempt.StartedUtc?.ToString("O") ?? (object)DBNull.Value); command.Parameters.AddWithValue("$completed", attempt.CompletedUtc?.ToString("O") ?? (object)DBNull.Value); command.Parameters.AddWithValue("$region", (object?)attempt.RegionJson ?? DBNull.Value);
     }
 
     private static void ValidateAttempt(SceneAssetImageEditCompilationAttempt attempt)

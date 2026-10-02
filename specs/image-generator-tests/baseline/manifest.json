@@ -9,13 +9,14 @@
     "2F2M": "2 women + 2 men",
     "2M1F": "2 men + 1 woman"
   },
-  "count": 45,
+  "count": 49,
   "models": [
     { "key": "biglust", "checkpoint": "bigLust_v16.safetensors", "kind": "Generate", "displayName": "BigLust v1.6" },
     { "key": "juggernaut", "checkpoint": "juggernautXL_ragnarok.safetensors", "kind": "Generate", "displayName": "Juggernaut XL Ragnarok" },
     { "key": "pony", "checkpoint": "ponyDiffusionV6XL_v6.safetensors", "kind": "Generate", "displayName": "Pony V6 XL" },
     { "key": "qwen-image-2.1", "checkpoint": "qwen_image_2.1_int8_convrot.safetensors", "kind": "Generate", "displayName": "Qwen Image 2.1" },
     { "key": "flux", "checkpoint": "flux1-dev-fp8.safetensors", "kind": "Generate", "displayName": "FLUX.1 dev (fp8)" },
+    { "key": "krea2", "checkpoint": "krea2_turbo_fp8_scaled.safetensors", "kind": "Generate", "displayName": "Krea 2 Turbo (local ComfyUI)" },
     { "key": "qwen-edit-2511", "checkpoint": "Qwen-Rapid-AIO-NSFW-v23.safetensors", "kind": "Edit", "displayName": "Qwen Edit 2511" },
     { "key": "qwen-image-2.1-edit", "checkpoint": "Qwen-Rapid-AIO-NSFW-v23.safetensors", "kind": "Edit", "displayName": "Qwen Image 2.1 (edit)" }
   ],
@@ -25,7 +26,8 @@
     "qwen-image-2.1: long descriptive natural language - subject appearance, clothing, action/pose, environment, lighting, framing and photographic treatment, stated explicitly.",
     "flux: ordered primary subject, action, critical style, essential context, then secondary detail; attributes attached to their exact subject; NO negative prompt at all.",
     "qwen-edit-2511 / qwen-image-2.1-edit: an INSTRUCTION that edits an existing image, naming what changes and what must be preserved. Verified rule (2026-09-12): instruct the clothing/pose ACTION, not just the anatomy - asking to \"add\" a body part layers a shape over closed clothing, while naming the action produces natural integration.",
-    "No per-position 'negative' is carried. The SDXL-family and FLUX authors specify no negative, and Pony's researched short guard set is declared on each checkpoint's profile, so a catalog negative would contradict the per-model research."
+    "No per-position 'negative' is carried. The SDXL-family and FLUX authors specify no negative, and Pony's researched short guard set is declared on each checkpoint's profile, so a catalog negative would contradict the per-model research.",
+    "krea2: natural-language PHOTOGRAPHIC BRIEF, and the shape matters more than the wording. Write format + subject + the subject's ACTION + lens + depth of field ('Photorealistic editorial photograph of ... , 35mm photograph, shallow depth of field'). Do NOT write a body-part noun list ('a nude woman standing, arms relaxed at her sides, visible nipples ...') - Krea 2 answers that with a torso crop and loses the head entirely; the same content phrased as a brief returns a complete figure. Do NOT add framing demands ('entire figure head to toe in frame, standing upright facing camera') - they never once worked in testing. Name BOTH people as the actors of the act ('an adult man and an adult woman performing fellatio, the woman kneeling in front of him'); a participial clause like 'the woman kneeling in front of the man performing fellatio' parses as 'the man who is performing fellatio'. For acts, do NOT include a face-facing clause ('both turning their heads toward the window light') - it pulls the faces together and fights the act. State the count and 'separate bodies' for 3+ people, as the other prose dialects do. Krea 2 has NO negative prompt (the negative is ConditioningZeroOut of the positive), so nothing here can be steered negatively. Practical notes from the 2026-10-01 local proof: missionary/doggy/cowgirl/cunnilingus render on the stock base plus the NSFW LoRA, but FELLATIO-class oral did not - it needs either an act LoRA or the uncensored finetune. Sampling is 8 steps, cfg 1, euler/simple, denoise 1 (these live on the model profile, not in this file)."
   ],
   "positions": [
     {
@@ -73,6 +75,30 @@
     {
       "id": "fellatio",
       "path": "positions/fellatio.json",
+      "actors": "1M1F",
+      "closeup": false
+    },
+    {
+      "id": "cunnilingus",
+      "path": "positions/cunnilingus.json",
+      "actors": "1M1F",
+      "closeup": false
+    },
+    {
+      "id": "cunnilingus-closeup",
+      "path": "positions/cunnilingus-closeup.json",
+      "actors": "1M1F",
+      "closeup": true
+    },
+    {
+      "id": "cunnilingus-from-behind",
+      "path": "positions/cunnilingus-from-behind.json",
+      "actors": "1M1F",
+      "closeup": false
+    },
+    {
+      "id": "facesitting",
+      "path": "positions/facesitting.json",
       "actors": "1M1F",
       "closeup": false
     },

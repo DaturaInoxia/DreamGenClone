@@ -20,10 +20,11 @@ namespace DreamGenClone.Domain.RolePlay;
 /// </para>
 ///
 /// <para>
-/// <b>Known, deliberately unfixed gap.</b> The natural-language texts open by naming an SDXL-based model. Four families
-/// (Api, Flux, QwenImage21, Sdxl) currently use them, so FLUX and Qwen cells are told they are SDXL-family. That is the
-/// app's existing behaviour, preserved here rather than silently "improved": correcting it means editing researched
-/// compiler prose per family, which is research work (governance rules 4 and 9), not a rename.
+/// <b>Known, deliberately unfixed gap.</b> The natural-language texts open by naming an SDXL-based model. Three families
+/// (Api, Flux, Sdxl) still use them, so FLUX and API cells are told they are SDXL-family. That is the app's existing
+/// behaviour, preserved here rather than silently "improved": correcting it means editing researched compiler prose per
+/// family, which is research work (governance rules 4 and 9), not a rename. Qwen-Image-2.1 was separated out in B135-008
+/// route 1 (<see cref="Qwen21Beat"/> / <see cref="Qwen21Canonical"/>); FLUX remains a documented follow-up.
 /// </para>
 /// </summary>
 public static class SceneImageCompilerSystemPrompts
@@ -147,6 +148,87 @@ public static class SceneImageCompilerSystemPrompts
         """;
 
     /// <summary>
+    /// Qwen-Image-2.1 long-form dialect, beat-shaped. Route 1 of B135-008: the shape and the prohibitions are adopted
+    /// from the vendor's own prompt-enhancer t2i system prompt (the eight-step observer-description procedure, ~20
+    /// sentences / 400-500 words, no quality boosters, age as a life stage never a number, enumerate-never-summarise,
+    /// ratio never in the prose) — the vendor's rules, written in our words and cited to
+    /// <c>specs/Planning/B-135-image-playground/research/qwen-2-1-prompt-enhancer.md</c> §4 and §8. The byte-exact
+    /// vendor prompt is route 2 and is NOT this text. Unlike the SDXL-family text, this one must NOT emit the SDXL
+    /// style tail ("35mm", "natural skin texture", "shallow depth of field") — the vendor forbids quality boosters,
+    /// and the SDXL style cues are the same class of filler for this model.
+    /// </summary>
+    public static readonly string Qwen21Beat = """
+        Convert story prose into ONE long, descriptive natural-language image prompt for Qwen-Image-2.1, a text-to-image model that reads detailed observer descriptions and performs best when the prompt is a full, concrete, present-tense account of the finished picture - not a short caption, not a comma tag list, not an attribute metadata block.
+
+        Facts about this model that shape the prompt:
+        - It reads descriptive natural-language prose: present tense, third person, declarative, written as an observer describing the picture that is already finished.
+        - It rewards LENGTH: about 20 sentences / 400-500 words, whatever the length of the source material. A short brief means you invent most of the frame, not that you write less.
+        - It does not know character names, relationships or ownership. Describe every person by observable surface only.
+        - The prompt is one continuous paragraph; do not add line breaks.
+
+        Rules:
+        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint - show only what that character sees, and never include the POV character in the frame. If the POV is Omniscient, show the full scene with all characters visible.
+        2. NO NAMES / RELATIONS / OWNERSHIP: describe every person by appearance only (build, skin tone, hair, clothing, pose, expression). Never emit story names, relationships or property.
+        3. RENDERABLE-ONLY: include only what is visually present at the frozen instant. Omit narrative distance, intent, metaphor and off-screen facts.
+        4. GENDER AND COUNT: state how many people and each person's gender explicitly so the model never merges or miscounts people, and describe each person as one self-contained run of sentences.
+        5. OBSERVER PROCEDURE (the target shape):
+           - Open with one sentence of about 20 words naming the medium (for example "a photorealistic photograph of"), the style, the main subject, and the background or palette. Never omit the medium.
+           - Walk the frame in reading order: background first, then the top band, then left to centre to right, then the bottom band - or, for a subject-led image, background, then the subject's pose and placement, then head and face, then body and garments, then held objects, then the edges. Around a third of the sentences open on the positional phrase ("In the foreground...", "To the left...").
+           - Give each colour with a modifier (not "blue" but "dusty blue"), and give the material as well as the noun (not "a dress" but "a dress of thin cotton").
+           - Enumerate rather than summarise; never compress a list into "various objects".
+           - Lighting gets its own sentence: source, direction, quality, and the shadows or highlights it produces.
+           - Close with exactly one whole-frame sentence covering composition, palette, style and mood.
+        6. APPEARANCE IS GIVEN, NEVER INFERRED: render the character data exactly as supplied. Never derive skin tone, hair colour or hair style from a race, nationality or ethnicity, and never correct a combination you believe is unusual. If a trait is absent, omit it rather than inventing one.
+        7. AGE IS A LIFE STAGE, NEVER A NUMBER, and never a word that could read as a minor: use young adult, middle-aged, mature or elderly.
+        8. NO QUALITY BOOSTERS AND NO SDXL STYLE TAIL: never write masterpiece, best quality, high quality, 8K, award-winning, highly detailed, 35mm, natural skin texture, shallow depth of field, sharp focus, or any equivalent. The concrete description carries the quality.
+        9. NO RESOLUTION, ASPECT RATIO OR PIXEL COUNT in the description - those travel in the image settings, never in the prose.
+        10. CLOTHING OR NUDITY: name each person's clothing or nudity from the depicted content. When clothing changes, stay in the same category (a dress becomes another dress, never trousers).
+        11. EXPLICITNESS FROM THE DEPICTED CONTENT: describe what the scene shows - explicit sexual acts or visible genitals in concrete anatomical language, suggestive content or partial nudity as questionable, non-sexual content as safe. Base it on the scene, not on narrative phase or a user toggle.
+        12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
+        13. Hedge what you cannot see the way an observer would ("appears to be", "likely"). The description is always in English; only in-image text keeps its own script.
+        14. Keep the whole prompt between 300 and 1600 characters, written as one continuous paragraph.
+        Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
+        """;
+
+    /// <summary>
+    /// Qwen-Image-2.1 long-form dialect, canonical-brief-shaped (B-104/B-103 part B). Same route-1 source as
+    /// <see cref="Qwen21Beat"/> (cited there), adapted to the immutable canonical Still brief: expand the brief, do not
+    /// add to it. Same prohibitions - no quality boosters, no SDXL style tail, no Pony vocabulary, no ratio in prose.
+    /// </summary>
+    public static readonly string Qwen21Canonical = """
+        Convert the canonical Still brief below into ONE long, descriptive natural-language image prompt for Qwen-Image-2.1, a text-to-image model that reads detailed observer descriptions and performs best when the prompt is a full, concrete, present-tense account of the finished picture.
+
+        Facts about this model that shape the prompt:
+        - It reads descriptive natural-language prose: present tense, third person, declarative, written as an observer describing the picture that is already finished.
+        - It rewards LENGTH: about 20 sentences / 400-500 words. Expand the brief - do not invent or rediscover story facts, and do not add to what the brief states.
+        - It does not know character names, relationships or ownership. Describe every person by observable surface only.
+        - The prompt is one continuous paragraph; do not add line breaks.
+
+        Rules:
+        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint - show only what that character sees, and never include the POV character in the frame. If the POV is Omniscient, show the full scene with all characters visible.
+        2. NO NAMES / RELATIONS / OWNERSHIP: describe every person by appearance only (build, skin tone, hair, clothing, pose, expression). Never emit story names, relationships or property.
+        3. RENDERABLE-ONLY: include only what is visually present at the frozen instant. Omit narrative distance, intent, metaphor and off-screen facts.
+        4. GENDER AND COUNT: state how many people and each person's gender explicitly so the model never merges or miscounts people, and describe each person as one self-contained run of sentences.
+        5. OBSERVER PROCEDURE (the target shape):
+           - Open with one sentence of about 20 words naming the medium (for example "a photorealistic photograph of"), the style, the main subject, and the background or palette. Never omit the medium.
+           - Walk the frame in reading order: background first, then the top band, then left to centre to right, then the bottom band - or, for a subject-led image, background, then the subject's pose and placement, then head and face, then body and garments, then held objects, then the edges. Around a third of the sentences open on the positional phrase.
+           - Give each colour with a modifier, and give the material as well as the noun.
+           - Enumerate rather than summarise.
+           - Lighting gets its own sentence: source, direction, quality, and the shadows or highlights it produces.
+           - Close with exactly one whole-frame sentence covering composition, palette, style and mood.
+        6. APPEARANCE IS GIVEN, NEVER INFERRED: render the character data exactly as supplied. Never derive skin tone, hair colour or hair style from a race, nationality or ethnicity, and never correct a combination you believe is unusual. If a trait is absent, omit it rather than inventing one.
+        7. AGE IS A LIFE STAGE, NEVER A NUMBER, and never a word that could read as a minor: use young adult, middle-aged, mature or elderly.
+        8. NO QUALITY BOOSTERS AND NO SDXL STYLE TAIL: never write masterpiece, best quality, high quality, 8K, award-winning, highly detailed, 35mm, natural skin texture, shallow depth of field, sharp focus, or any equivalent.
+        9. NO RESOLUTION, ASPECT RATIO OR PIXEL COUNT in the description - those travel in the image settings, never in the prose.
+        10. CLOTHING OR NUDITY: name each person's clothing or nudity from the depicted content. When clothing changes, stay in the same category.
+        11. EXPLICITNESS FROM THE DEPICTED CONTENT: describe what the scene shows - explicit sexual acts or visible genitals in concrete anatomical language, suggestive content or partial nudity as questionable, non-sexual content as safe. Base it on the scene, not on narrative phase or a user toggle.
+        12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
+        13. Hedge what you cannot see the way an observer would ("appears to be", "likely"). The description is always in English; only in-image text keeps its own script.
+        14. Keep the whole prompt between 300 and 1600 characters, written as one continuous paragraph.
+        Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
+        """;
+
+    /// <summary>
     /// The compiler instruction text for a checkpoint's family. Both builders and the profile seed read through here,
     /// so a profile row's <c>SystemPrompt</c> and the beat path's system prompt cannot drift apart.
     /// </summary>
@@ -160,7 +242,7 @@ public static class SceneImageCompilerSystemPrompts
         SceneImageModelFamily.Pony => canonical ? PonyTagsCanonical : PonyTagsBeat,
         SceneImageModelFamily.Sdxl => canonical ? NaturalLanguageCanonical : NaturalLanguageBeat,
         SceneImageModelFamily.Flux => canonical ? NaturalLanguageCanonical : NaturalLanguageBeat,
-        SceneImageModelFamily.QwenImage21 => canonical ? NaturalLanguageCanonical : NaturalLanguageBeat,
+        SceneImageModelFamily.QwenImage21 => canonical ? Qwen21Canonical : Qwen21Beat,
         SceneImageModelFamily.Api => canonical ? NaturalLanguageCanonical : NaturalLanguageBeat,
         _ => throw new InvalidOperationException(
             $"No compiler instruction text exists for model family '{family}'. A checkpoint whose family is unknown "

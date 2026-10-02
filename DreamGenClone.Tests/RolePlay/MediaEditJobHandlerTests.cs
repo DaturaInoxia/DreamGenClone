@@ -285,12 +285,12 @@ public sealed class MediaEditJobHandlerTests
             var completion = new StubCompletion(completionResponse);
             var debug = new RecordingDebugSink();
             var modelResolver = new StubMultimodalResolver();
-            var compiler = new QwenSceneImageEditPromptCompiler();
+            var compilers = new SceneImageEditPromptCompilerResolver(new QwenSceneImageEditPromptCompiler(), new QwenImage21EditPromptCompiler());
             var service = new MediaEditCompilationService(
-                editRepository, sources, modelResolver, compiler, queue, new StubDurableSettings(), TimeProvider.System,
+                editRepository, sources, modelResolver, compilers, queue, new StubDurableSettings(), TimeProvider.System,
                 new StubEditorModels(), new StubEndpointReadiness());
             var compileHandler = new MediaEditCompilationJobHandler(
-                editRepository, sources, modelResolver, completion, compiler,
+                editRepository, sources, modelResolver, completion, compilers,
                 NullLogger<MediaEditCompilationJobHandler>.Instance, debug);
             var descriptionHandler = new MediaEditDescriptionJobHandler(
                 editRepository, sources, modelResolver, completion,
@@ -412,17 +412,26 @@ public sealed class MediaEditJobHandlerTests
         }
     }
 
-    /// <summary>The compile flow never picks an editor model; a call here would be a real defect.</summary>
+    /// <summary>
+    /// The compile flow resolves the editor model for its graph kind (B135-008 N2); the default fixture is a merged
+    /// (2511) editor, so a compile without an explicit editor model id compiles the 2511 dialect.
+    /// </summary>
     private sealed class StubEditorModels : IImageEditorModelResolver
     {
         public Task<ResolvedImageEditorModel> ResolveAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult(MergedEditor());
 
         public Task<ResolvedImageEditorModel> ResolveByIdAsync(string modelId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult(MergedEditor());
 
         public Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult<IReadOnlyList<SceneImageModelChoice>>([]);
+
+        private static ResolvedImageEditorModel MergedEditor() => new(
+            "http://localhost:8188", 120, null, "Qwen-Rapid-AIO-NSFW-v23.safetensors", "Local ComfyUI",
+            ImageContentPolicy.AdultAllowed, "diffusion.safetensors", "text_encoder.safetensors", "vae.safetensors",
+            8, 1.0, "euler_ancestral", "beta", 1.0, 3.1, 1.0,
+            GraphKind: ImageEditorGraphKind.MergedCheckpoint);
     }
 
     /// <summary>Only serverless admission probes warmth; a call here for a local model would be a defect.</summary>

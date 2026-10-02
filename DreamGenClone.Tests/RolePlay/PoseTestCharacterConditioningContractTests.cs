@@ -1,3 +1,5 @@
+using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay;
 using Xunit;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -59,22 +61,48 @@ public sealed class PoseTestCharacterConditioningContractTests
         Assert.Contains("ListPackOwnersAsync", Page, StringComparison.Ordinal);
         Assert.Contains("IdentityPackReferenceResolver.ResolveFace", Page, StringComparison.Ordinal);
         Assert.Contains("IdentityPackReferenceResolver.ResolveBody", Page, StringComparison.Ordinal);
-        Assert.Contains("SceneImageReferenceBodyState.Clothed", Page, StringComparison.Ordinal);
 
-        // The state is not a constant on the page: it comes from the pose's rating through the plan.
+        // The state is not a constant in the CONDITIONING path: it comes from the pose's rating through the plan. (The
+        // page names Clothed elsewhere — a fallback second-preference and a label — which is why this pins the plan
+        // check rather than the absence of the word.)
         Assert.Contains("plan.BodyState is not { } bodyState", Page, StringComparison.Ordinal);
 
-        Assert.Contains(
-            "has no APPROVED {PoseMetadataLabels.Direction(pose.Direction)} face",
-            Page,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "has no APPROVED {state} {PoseMetadataLabels.Direction(pose.Direction)} body",
-            Page,
-            StringComparison.Ordinal);
+        // The refusals come from the ONE owner of that wording, which a pose SUITE run also refuses through — so the page
+        // and a run cannot explain the same missing angle two different ways.
+        Assert.Contains("PoseReferenceRequirement.MissingFace", Page, StringComparison.Ordinal);
+        Assert.Contains("PoseReferenceRequirement.MissingBody", Page, StringComparison.Ordinal);
+        Assert.Contains("PoseReferenceRequirement.Unplannable", Page, StringComparison.Ordinal);
 
         // And the test refuses to run until those resolved, rather than running unconditioned.
         Assert.Contains("CharacterIsReady", Page, StringComparison.Ordinal);
+
+        // What that one owner says, asserted directly rather than by grepping the page for interpolated source text: the
+        // refusal NAMES the angle and the state it wanted, which is what tells the operator which reference to shoot.
+        var owner = new IdentityPackOwner(
+            "character-1", "Becky", "pack-1", 9, CharacterImageIdentityPackScope.BodyComplete, []);
+
+        var face = PoseReferenceRequirement.MissingFace(owner, "on_stomach 04", PoseFacingDirection.Back);
+        Assert.Contains("Becky", face, StringComparison.Ordinal);
+        Assert.Contains("back", face, StringComparison.Ordinal);
+        Assert.Contains("on_stomach 04", face, StringComparison.Ordinal);
+
+        var body = PoseReferenceRequirement.MissingBody(
+            owner,
+            "standing 01",
+            PoseFacingDirection.ThreeQuarterLeft,
+            PoseContentRating.Nsfw,
+            SceneImageReferenceBodyState.Unclothed);
+        Assert.Contains("unclothed", body, StringComparison.Ordinal);
+        Assert.Contains("3/4 left", body, StringComparison.Ordinal);
+        Assert.Contains("NSFW", body, StringComparison.Ordinal);
+
+        // A pose whose metadata cannot justify an angle refuses with the PLAN's own reason, never a defaulted front.
+        var unplannable = PoseReferenceRequirement.Unplannable(
+            "undeclared 01",
+            PoseMetadataPrompt.ReferencePlan(new PoseMetadata(
+                PoseStance.Standing, PoseFacingDirection.Unknown, PoseCameraAngle.EyeLevel,
+                PoseContentRating.Sfw, "prompt")));
+        Assert.Contains("direction is not declared", unplannable!, StringComparison.Ordinal);
     }
 
     /// <summary>

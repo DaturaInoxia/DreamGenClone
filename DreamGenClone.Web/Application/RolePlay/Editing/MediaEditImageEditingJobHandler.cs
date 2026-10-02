@@ -93,10 +93,12 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
                 return;
             }
 
-            // ---- Operations (crop, enhance) share this job, lane, retry budget and failure marking. Each is
+            // ---- Operations (crop, enhance, mirror) share this job, lane, retry budget and failure marking. Each is
             // executed by its own executor, so the job never learns what an operation does and an operation
             // never relearns how to be queued, retried, timed or failed.
-            if (plan.Operation.Kind != MediaEditOperationKind.Edit)
+            // A MaskedRegion is NOT one of them: it is an EDIT that also carries a mask, so it runs the editor path
+            // below (the mask is built and passed there) and never resolves a deterministic-operation executor.
+            if (plan.Operation.Kind is not MediaEditOperationKind.Edit and not MediaEditOperationKind.MaskedRegion)
             {
                 // Parameter validation happens inside the failure scope: an unusable operation is a failure
                 // of the queued row, so the row is marked failed rather than left looking pending.

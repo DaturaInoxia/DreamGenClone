@@ -13,6 +13,16 @@ public sealed class EnqueueSceneAssetImageEditCompilationRequest
     public string EditSessionId { get; set; } = string.Empty;
     public string RawIntent { get; set; } = string.Empty;
     public IReadOnlyList<string> ClarificationHistory { get; set; } = [];
+
+    /// <summary>
+    /// The image editor model the instruction will be compiled FOR, so the compiler can match the editor's graph
+    /// kind. Null falls back to the function-default editor.
+    /// </summary>
+    public string? EditorModelId { get; set; }
+
+    /// <summary>The REGION this edit is confined to, or null to edit the whole frame. A set region adds the
+    /// confinement clause to the compiled prompt (B135-008 N5).</summary>
+    public MediaEditRegionOperation? Region { get; set; }
 }
 
 public sealed class AppendSceneAssetImageEditPromptRevisionRequest

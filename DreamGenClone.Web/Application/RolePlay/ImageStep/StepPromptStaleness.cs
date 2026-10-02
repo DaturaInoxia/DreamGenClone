@@ -122,7 +122,11 @@ public static class StepPromptStaleness
         var kind = binding.Kind ?? binding.ElementKey;
         var actor = string.IsNullOrWhiteSpace(binding.ActorKey) ? string.Empty : $" for '{binding.ActorKey}'";
         var ordinal = binding.Ordinal is { } value ? $"#{value} " : string.Empty;
-        var image = string.IsNullOrWhiteSpace(binding.SceneAssetImageId) ? string.Empty : $" ({binding.SceneAssetImageId})";
+        // The image is named when the binding knows its name, and its id otherwise: a staleness line that shows only
+        // "(3f9a…)" tells the operator a reference changed without telling them which one it was.
+        var image = !string.IsNullOrWhiteSpace(binding.ReferenceLabel)
+            ? $" ({binding.ReferenceLabel})"
+            : string.IsNullOrWhiteSpace(binding.SceneAssetImageId) ? string.Empty : $" ({binding.SceneAssetImageId})";
         return $"{ordinal}{kind}{actor} via {binding.Strategy}{image}";
     }
 }

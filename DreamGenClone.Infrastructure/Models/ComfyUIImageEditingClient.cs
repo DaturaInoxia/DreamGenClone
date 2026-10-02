@@ -343,24 +343,10 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                 ["inputs"] = new JsonObject { ["image"] = maskImageName, ["channel"] = "red" }
             };
 
-            JsonArray maskSource = new("40", 0);
-            if (mask.FeatherPixels > 0)
-            {
-                wf["41"] = new JsonObject
-                {
-                    ["class_type"] = "FeatherMask",
-                    ["inputs"] = new JsonObject
-                    {
-                        ["mask"] = new JsonArray("40", 0),
-                        ["left"] = mask.FeatherPixels,
-                        ["top"] = mask.FeatherPixels,
-                        ["right"] = mask.FeatherPixels,
-                        ["bottom"] = mask.FeatherPixels
-                    }
-                };
-                maskSource = new JsonArray("41", 0);
-            }
-
+            // The mask is grown and feathered when it is BUILT (the region engine bakes both), so the graph reads it
+            // as-is: grow_mask_by stays 0 and no FeatherMask node is emitted. The host FeatherMask node feathers the
+            // mask tensor's FRAME border, not a region drawn inside it, so it cannot soften an interior rectangle's
+            // edge (the measured visible-seam defect).
             wf["42"] = new JsonObject
             {
                 ["class_type"] = "VAEEncodeForInpaint",
@@ -368,8 +354,8 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                 {
                     ["pixels"] = new JsonArray("1", 0),
                     ["vae"] = new JsonArray("4", 0),
-                    ["mask"] = maskSource,
-                    ["grow_mask_by"] = mask.GrowMaskBy
+                    ["mask"] = new JsonArray("40", 0),
+                    ["grow_mask_by"] = 0
                 }
             };
 

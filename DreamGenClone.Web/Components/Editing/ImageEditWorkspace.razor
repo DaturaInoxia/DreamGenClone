@@ -1375,7 +1375,7 @@ else
         await RunAsync(async () =>
         {
             await StartNewSessionIfCompletedAsync();
-            _attempt = await _service.PrepareAsync(_session.Id, _rawIntent.Trim(), _clarificationHistory.ToList());
+            _attempt = await _service.PrepareAsync(_session.Id, _rawIntent.Trim(), _clarificationHistory.ToList(), _selectedEditorModelId, BuildRegionOperation());
             _preparedIntent = _rawIntent.Trim();
             _compilationResult = null;
             _identityTargetSelections.Clear();
@@ -2071,7 +2071,7 @@ else
         await RunAsync(async () =>
         {
             await StartNewSessionIfCompletedAsync();
-            _attempt = await _service.PrepareAsync(_session.Id, IdentityAnalysisIntent, []);
+            _attempt = await _service.PrepareAsync(_session.Id, IdentityAnalysisIntent, [], _selectedEditorModelId, null);
             _preparedIntent = IdentityAnalysisIntent;
             _compilationResult = null;
             _identityTargetSelections.Clear();

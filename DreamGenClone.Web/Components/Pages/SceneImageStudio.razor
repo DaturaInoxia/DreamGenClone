@@ -1112,7 +1112,7 @@
                                                                 <select class="form-select form-select-sm mt-1" @bind="selection.SelectedAssetId" disabled="@(!selection.Selected)" aria-label="Face reference angle for @selection.CharacterName">
                                                                     @foreach (var asset in selection.FaceAssets)
                                                                     {
-                                                                        <option value="@asset.Id">@asset.FaceView</option>
+                                                                        <option value="@asset.Id">@IdentityPackReferenceLabels.Describe(asset)</option>
                                                                     }
                                                                 </select>
                                                             </div>

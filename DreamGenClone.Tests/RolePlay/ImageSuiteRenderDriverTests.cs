@@ -361,6 +361,311 @@ public sealed class ImageSuiteRenderDriverTests
         return (driver, assets);
     }
 
+    // ---- the pose library as a suite ------------------------------------------------------------------
+
+    [Fact]
+    public async Task RenderAsync_PoseSuite_SendsThePoseSkeletonAndTheAnglesThePoseItselfDeclares()
+    {
+        var preset = Pose("standing 01", PoseStance.Standing, PoseFacingDirection.Front, PoseContentRating.Nsfw);
+        var cells = new[] { PoseCell(0, "standing 01", preset.Id, prompt: preset.MetadataPrompt) };
+        var (driver, assets) = BuildPose(
+            cells,
+            preset,
+            Character(SceneImageReferenceFaceView.Front, (SceneImageReferenceBodyView.Front, SceneImageReferenceBodyState.Unclothed)));
+
+        var report = await driver.RenderAsync(new ImageSuiteRenderRequest(
+            SuiteId,
+            [cells[0].Id],
+            // No variant key: a pose cell names a POSE, and its wording is the pose's own stored prompt.
+            VariantKey: string.Empty,
+            ModelId: "qwen-2.1",
+            ImageSize: "1024x1024",
+            SeedSource: ImageSeedSource.Declared,
+            RunName: "poses · standing 01",
+            CharacterProfileId: "character-1"));
+
+        Assert.Equal(1, report.EnqueuedCount);
+        Assert.Equal(0, report.SkippedCount);
+
+        // The pose's own prompt, sent as written and attributed to the pose library rather than to a compiler.
+        Assert.Equal(preset.MetadataPrompt, Assert.Single(assets.Prompts));
+        var options = Assert.Single(assets.Options)!;
+        Assert.Equal(ImageSuiteRenderDriver.PoseLibraryPromptCompilerId, options.PromptCompilerId);
+
+        // The pose travels as a REFERENCE: the render reads the skeleton bytes BY ID, so a stale path cannot make it
+        // read a different file than the pose it names.
+        Assert.Equal(preset.Id, options.PosePresetId);
+        Assert.Equal(preset.SkeletonPngPath, options.PoseSkeletonRelativePath);
+
+        // The angles come from the POSE's declared direction and rating, resolved against the run's character.
+        Assert.Equal("pack-1", options.Identity!.PackId);
+        Assert.Equal("face-Front", options.Identity.FaceAssetId);
+        Assert.Equal("pack-1", options.BodyReference!.PackId);
+        Assert.Equal("body-Front-Unclothed", options.BodyReference.BodyAssetId);
+
+        Assert.Equal("Becky", report.CharacterLabel);
+        Assert.Equal(60200, JsonDocument.Parse(Assert.Single(cells).SettingsJson).RootElement.GetProperty("seed").GetInt64());
+    }
+
+    [Fact]
+    public async Task RenderAsync_PoseSuite_BackFacingPose_SendsNoFaceReferenceAtAll()
+    {
+        var preset = Pose("on_stomach 04", PoseStance.Lying, PoseFacingDirection.Back, PoseContentRating.Nsfw);
+        var cells = new[] { PoseCell(0, "on_stomach 04", preset.Id, prompt: preset.MetadataPrompt) };
+        var (driver, assets) = BuildPose(
+            cells,
+            preset,
+            Character(SceneImageReferenceFaceView.Front, (SceneImageReferenceBodyView.Back, SceneImageReferenceBodyState.Unclothed)));
+
+        await driver.RenderAsync(new ImageSuiteRenderRequest(
+            SuiteId,
+            [cells[0].Id],
+            string.Empty,
+            "qwen-2.1",
+            "1024x1024",
+            ImageSeedSource.Declared,
+            "poses · back",
+            CharacterProfileId: "character-1"));
+
+        var options = Assert.Single(assets.Options)!;
+
+        // A back-facing pose shows no face, so no face reference is sent. Substituting the front here is the failure
+        // this route exists to avoid: it would assert a face where the pose has none.
+        Assert.Null(options.Identity);
+        Assert.Equal("body-Back-Unclothed", options.BodyReference!.BodyAssetId);
+    }
+
+    [Fact]
+    public async Task RenderAsync_PoseSuite_SkipsAPoseTheCharacterHasNotApprovedTheAngleFor_AndNamesIt()
+    {
+        // The character has an approved FRONT face and FRONT unclothed body, so the front-facing pose renders and the
+        // back-facing one cannot: one unapproved angle must refuse THAT cell by name without cancelling the run.
+        var unservable = Pose("on_stomach 04", PoseStance.Lying, PoseFacingDirection.Back, PoseContentRating.Nsfw);
+        var servable = Pose("standing 01", PoseStance.Standing, PoseFacingDirection.Front, PoseContentRating.Nsfw);
+        var cells = new[]
+        {
+            PoseCell(0, "on_stomach 04", unservable.Id, prompt: unservable.MetadataPrompt),
+            PoseCell(1, "standing 01", servable.Id, prompt: servable.MetadataPrompt)
+        };
+        var (driver, assets) = BuildPose(
+            cells,
+            unservable,
+            Character(SceneImageReferenceFaceView.Front, (SceneImageReferenceBodyView.Front, SceneImageReferenceBodyState.Unclothed)),
+            extraPresets: [servable]);
+
+        var report = await driver.RenderAsync(new ImageSuiteRenderRequest(
+            SuiteId,
+            [.. cells.Select(cell => cell.Id)],
+            string.Empty,
+            "qwen-2.1",
+            "1024x1024",
+            ImageSeedSource.Declared,
+            "poses · partial",
+            CharacterProfileId: "character-1"));
+
+        Assert.Equal(1, report.EnqueuedCount);
+        var skip = Assert.Single(report.Skipped);
+        Assert.Equal("on_stomach 04", skip.CellName);
+        Assert.Contains("Becky", skip.Reason);
+        Assert.Contains("unclothed back body", skip.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Approve one in Character Studio", skip.Reason);
+
+        // The pose that the character CAN serve still rendered, with the angle the pose declares.
+        Assert.Equal(servable.MetadataPrompt, Assert.Single(assets.Prompts));
+        Assert.Equal("body-Front-Unclothed", Assert.Single(assets.Options)!.BodyReference!.BodyAssetId);
+    }
+
+    [Fact]
+    public async Task RenderAsync_PoseSuite_WithNoCharacter_RendersFromTheSkeletonAlone()
+    {
+        var preset = Pose("standing 01", PoseStance.Standing, PoseFacingDirection.Front, PoseContentRating.Nsfw);
+        var cells = new[] { PoseCell(0, "standing 01", preset.Id, prompt: preset.MetadataPrompt) };
+        var (driver, assets) = BuildPose(cells, preset, character: null);
+
+        var report = await driver.RenderAsync(new ImageSuiteRenderRequest(
+            SuiteId,
+            [cells[0].Id],
+            string.Empty,
+            "qwen-2.1",
+            "1024x1024",
+            ImageSeedSource.Random,
+            "poses · skeleton only"));
+
+        Assert.Equal(1, report.EnqueuedCount);
+        Assert.False(report.HasCharacter);
+        var options = Assert.Single(assets.Options)!;
+        Assert.Equal(preset.Id, options.PosePresetId);
+        Assert.Null(options.Identity);
+        Assert.Null(options.BodyReference);
+    }
+
+    [Fact]
+    public async Task RenderAsync_PoseSuite_SkipsAPoseThatIsNoLongerInTheLibrary()
+    {
+        var preset = Pose("standing 01", PoseStance.Standing, PoseFacingDirection.Front, PoseContentRating.Sfw);
+        var cells = new[] { PoseCell(0, "standing 01", "preset-deleted") };
+        var (driver, _) = BuildPose(cells, preset, character: null);
+
+        var report = await driver.RenderAsync(new ImageSuiteRenderRequest(
+            SuiteId,
+            [cells[0].Id],
+            string.Empty,
+            "qwen-2.1",
+            "1024x1024",
+            ImageSeedSource.Random,
+            "poses · stale"));
+
+        var skip = Assert.Single(report.Skipped);
+        Assert.Contains("preset-deleted", skip.Reason);
+        Assert.Contains("Rebuild the suite", skip.Reason);
+    }
+
+    [Fact]
+    public async Task RenderAsync_PoseSuite_SkipsAPoseWithNoStoredPromptRatherThanRenderingNothing()
+    {
+        // An unrated pose has no stored prompt: a prompt cannot be written without knowing whether the subject is
+        // clothed. Rendering it would produce an image from an empty prompt that looks like a successful cell.
+        var preset = Pose("unrated 01", PoseStance.Standing, PoseFacingDirection.Front, PoseContentRating.Unrated);
+        var cells = new[] { PoseCell(0, "unrated 01", preset.Id, prompt: string.Empty) };
+        var (driver, assets) = BuildPose(cells, preset, character: null);
+
+        var report = await driver.RenderAsync(new ImageSuiteRenderRequest(
+            SuiteId,
+            [cells[0].Id],
+            string.Empty,
+            "qwen-2.1",
+            "1024x1024",
+            ImageSeedSource.Random,
+            "poses · unrated"));
+
+        Assert.Contains("declares no content rating", Assert.Single(report.Skipped).Reason);
+        Assert.Empty(assets.Prompts);
+    }
+
+    private static (ImageSuiteRenderDriver Driver, RecordingAssetService Assets) BuildPose(
+        IReadOnlyList<ImageSuiteCell> cells,
+        PosePreset preset,
+        IdentityPackOwner? character,
+        IReadOnlyList<PosePreset>? extraPresets = null)
+    {
+        var suite = new ImageSuite
+        {
+            Id = SuiteId,
+            Name = PoseLibrarySuiteBuilder.SuiteNamePrefix + "OpenPose NSFW pack",
+            Kind = ImageSuiteKind.PoseLibrary,
+            Status = ImageSuiteStatus.Draft,
+            Provenance = "test fixture"
+        };
+
+        var library = new StubPoseLibraryService();
+        library.Presets.Add(preset);
+        foreach (var extra in extraPresets ?? [])
+        {
+            library.Presets.Add(extra);
+        }
+
+        var roster = new RecordingIdentityRoster();
+        if (character is not null)
+        {
+            roster.Owners.Add(character);
+        }
+
+        var assets = new RecordingAssetService();
+        var driver = new ImageSuiteRenderDriver(
+            new StubSuites(suite, cells),
+            assets,
+            NullLogger<ImageSuiteRenderDriver>.Instance,
+            library,
+            roster);
+
+        return (driver, assets);
+    }
+
+    /// <summary>One pose cell, in the shape the pose-library builder writes: the pose id is the binding.</summary>
+    private static ImageSuiteCell PoseCell(int ordinal, string name, string presetId, string? prompt = null)
+    {
+        var binding = new ReferenceApplicationSelection
+        {
+            ElementKey = "Pose",
+            Kind = "Pose",
+            SemanticRole = $"pose reference ({name} library skeleton)",
+            Source = "PoseLibrarySkeleton",
+            Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+            PosePresetId = presetId,
+            SkeletonRelativePath = $"poses/{name.Replace(' ', '_')}.png",
+            Ordinal = 1
+        };
+
+        return new ImageSuiteCell
+        {
+            Id = $"cell-{ordinal}",
+            SuiteId = SuiteId,
+            Ordinal = ordinal,
+            Name = name,
+            ExpectedPrompt = prompt ?? $"A full-body photograph of a naked woman, {name}, 85mm.",
+            BindingsJson = JsonSerializer.Serialize(new[] { binding }),
+            VariantsJson = "{}",
+            SettingsJson = JsonSerializer.Serialize(new { seed = 60200 + ordinal, steps = 30 })
+        };
+    }
+
+    private static PosePreset Pose(
+        string name,
+        PoseStance stance,
+        PoseFacingDirection direction,
+        PoseContentRating rating) => new()
+    {
+        Id = $"preset-{name.Replace(' ', '-')}",
+        Name = name,
+        Category = "standing",
+        SkeletonPngPath = $"poses/{name.Replace(' ', '_')}.png",
+        Stance = stance,
+        Direction = direction,
+        CameraAngle = PoseCameraAngle.EyeLevel,
+        ContentRating = rating,
+        MetadataPrompt = rating == PoseContentRating.Unrated
+            ? string.Empty
+            : $"A full-body photograph of a {(rating == PoseContentRating.Nsfw ? "naked" : "clothed")} woman, "
+                + $"{name}, natural skin texture, photorealistic, plain studio background, 85mm."
+    };
+
+    /// <summary>A character with an approved pack holding exactly one face angle and one body angle/state.</summary>
+    private static IdentityPackOwner Character(
+        SceneImageReferenceFaceView ownerFace,
+        (SceneImageReferenceBodyView View, SceneImageReferenceBodyState State) ownerBody) => new(
+        "character-1",
+        "Becky",
+        "pack-1",
+        9,
+        CharacterImageIdentityPackScope.BodyComplete,
+        [
+            new SceneImageReferenceAsset
+            {
+                Id = $"face-{ownerFace}",
+                IdentityPackId = "pack-1",
+                AssetKind = SceneImageReferenceAssetKind.Face,
+                FaceView = ownerFace,
+                IsApproved = true
+            },
+            new SceneImageReferenceAsset
+            {
+                Id = $"body-{ownerBody.View}-{ownerBody.State}",
+                IdentityPackId = "pack-1",
+                AssetKind = SceneImageReferenceAssetKind.FullBody,
+                BodyView = ownerBody.View,
+                BodyState = ownerBody.State,
+                IsApproved = true
+            }
+        ]);
+
+    private const SceneImageReferenceFaceView Front = SceneImageReferenceFaceView.Front;
+
+    private const SceneImageReferenceBodyView FrontBody = SceneImageReferenceBodyView.Front;
+
+    private const SceneImageReferenceBodyView BackBody = SceneImageReferenceBodyView.Back;
+
+    private const SceneImageReferenceBodyState Unclothed = SceneImageReferenceBodyState.Unclothed;
+
     private static ImageSuiteCell Cell(
         int ordinal,
         string name,
@@ -507,6 +812,7 @@ public sealed class ImageSuiteRenderDriverTests
         public Task<IReadOnlyList<SceneAsset>> ListAssetsByPackAsync(string identityPackId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<SceneAsset> ApproveForProductionAsync(string assetId, string sourceProvenanceJson, SceneAssetConsentState consentState, SceneAssetLicenseState licenseState, string licenseLabel, SceneAssetApprovedUseScope approvedUseScope, string contentPolicyKey, string compatibilityMetadataJson, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<(SceneAsset Asset, Stream Stream)> OpenForDownloadAsync(string assetId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<SceneAsset> RenameAssetAsync(string assetId, string name, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task DeleteAssetAsync(string assetId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

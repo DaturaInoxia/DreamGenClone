@@ -8,6 +8,7 @@ using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -19,7 +20,7 @@ public sealed class SceneImageEditCompilationJobHandler : IBackgroundJobHandler
     private readonly ISceneImageStorageService _storage;
     private readonly IMultimodalModelResolutionService _modelResolver;
     private readonly IMultimodalCompletionClient _completionClient;
-    private readonly ISceneImageEditPromptCompiler _compiler;
+    private readonly ISceneImageEditPromptCompilerResolver _compilers;
     private readonly IRolePlayDebugEventSink _debugEvents;
 
     public SceneImageEditCompilationJobHandler(
@@ -28,7 +29,7 @@ public sealed class SceneImageEditCompilationJobHandler : IBackgroundJobHandler
         ISceneImageStorageService storage,
         IMultimodalModelResolutionService modelResolver,
         IMultimodalCompletionClient completionClient,
-        ISceneImageEditPromptCompiler compiler,
+        ISceneImageEditPromptCompilerResolver compilers,
         IRolePlayDebugEventSink debugEvents)
     {
         _editRepository = editRepository;
@@ -36,7 +37,7 @@ public sealed class SceneImageEditCompilationJobHandler : IBackgroundJobHandler
         _storage = storage;
         _modelResolver = modelResolver;
         _completionClient = completionClient;
-        _compiler = compiler;
+        _compilers = compilers;
         _debugEvents = debugEvents;
     }
 
@@ -88,7 +89,12 @@ public sealed class SceneImageEditCompilationJobHandler : IBackgroundJobHandler
                 ? Array.Empty<string>()
                 : JsonSerializer.Deserialize<string[]>(attempt.ClarificationContextJson, JsonOptions)
                     ?? throw new InvalidOperationException("The compilation clarification snapshot is invalid.");
-            var messages = _compiler.BuildMessages(new SceneImageEditCompilerContext(attempt.RawIntent, clarificationHistory));
+            var region = string.IsNullOrWhiteSpace(attempt.RegionJson)
+                ? null
+                : JsonSerializer.Deserialize<MediaEditRegionOperation>(attempt.RegionJson, JsonOptions)
+                    ?? throw new InvalidOperationException("The compilation region snapshot is invalid.");
+            var compiler = _compilers.ResolveByVersion(attempt.SystemPromptVersion);
+            var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(attempt.RawIntent, clarificationHistory, region));
             if (messages.SchemaVersion != attempt.CompilerSchemaVersion || messages.SystemPromptVersion != attempt.SystemPromptVersion)
                 throw new InvalidOperationException("The compiler prompt contract changed after this attempt was queued.");
 
@@ -105,7 +111,7 @@ public sealed class SceneImageEditCompilationJobHandler : IBackgroundJobHandler
                 cancellationToken);
 
             attempt.RawModelResponse = completion.Content;
-            var result = _compiler.Parse(completion.Content, input.Width, input.Height);
+            var result = compiler.Parse(completion.Content, input.Width, input.Height);
             attempt.ParsedResultJson = JsonSerializer.Serialize(result, JsonOptions);
             attempt.Status = result.Status switch
             {

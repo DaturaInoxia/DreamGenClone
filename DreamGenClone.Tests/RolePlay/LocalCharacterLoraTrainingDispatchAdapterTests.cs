@@ -230,6 +230,7 @@ public sealed class LocalCharacterLoraTrainingDispatchAdapterTests
         public Task UpdateCandidateFieldsAsync(string assetId, string? candidateBatchId, SceneAssetCandidateDecision? candidateDecision, string? candidateNotes, string? candidateSourceAssetId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<SceneAsset> ApproveForProductionAsync(string assetId, string sourceProvenanceJson, SceneAssetConsentState consentState, SceneAssetLicenseState licenseState, string licenseLabel, SceneAssetApprovedUseScope approvedUseScope, string contentPolicyKey, string compatibilityMetadataJson, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task CreatePromotedAsync(SceneAsset asset, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task RenameAsync(string assetId, string name, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task DeleteAsync(string assetId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<int> CountByFilePathAsync(string fileRelativePath, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }

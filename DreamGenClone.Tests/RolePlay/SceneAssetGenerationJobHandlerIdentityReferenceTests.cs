@@ -536,6 +536,9 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
         public Task CreatePromotedAsync(SceneAsset value, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task RenameAsync(string assetId, string name, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task DeleteAsync(string assetId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

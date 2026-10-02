@@ -7,6 +7,7 @@ using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.ModelManager;
 using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -18,7 +19,8 @@ public sealed class SceneImageEditCompilationService : ISceneImageEditCompilatio
     private readonly ISceneImageEditRepository _editRepository;
     private readonly ISceneImageStorageService _storage;
     private readonly IMultimodalModelResolutionService _modelResolver;
-    private readonly ISceneImageEditPromptCompiler _compiler;
+    private readonly ISceneImageEditPromptCompilerResolver _compilers;
+    private readonly IImageEditorModelResolver _editorModels;
     private readonly IBackgroundJobQueue _queue;
 
     public SceneImageEditCompilationService(
@@ -26,14 +28,16 @@ public sealed class SceneImageEditCompilationService : ISceneImageEditCompilatio
         ISceneImageEditRepository editRepository,
         ISceneImageStorageService storage,
         IMultimodalModelResolutionService modelResolver,
-        ISceneImageEditPromptCompiler compiler,
+        ISceneImageEditPromptCompilerResolver compilers,
+        IImageEditorModelResolver editorModels,
         IBackgroundJobQueue queue)
     {
         _imageRepository = imageRepository;
         _editRepository = editRepository;
         _storage = storage;
         _modelResolver = modelResolver;
-        _compiler = compiler;
+        _compilers = compilers;
+        _editorModels = editorModels;
         _queue = queue;
     }
 
@@ -73,7 +77,11 @@ public sealed class SceneImageEditCompilationService : ISceneImageEditCompilatio
         if (!string.Equals(input.Sha256, editSession.SourceImageSha256, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The source image checksum changed after the edit session was created.");
 
-        var messages = _compiler.BuildMessages(new SceneImageEditCompilerContext(request.RawIntent.Trim(), request.ClarificationHistory));
+        var editorModel = string.IsNullOrWhiteSpace(request.EditorModelId)
+            ? await _editorModels.ResolveAsync(cancellationToken)
+            : await _editorModels.ResolveByIdAsync(request.EditorModelId, cancellationToken);
+        var compiler = _compilers.Resolve(editorModel);
+        var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(request.RawIntent.Trim(), request.ClarificationHistory, request.Region));
         var latest = await _editRepository.GetLatestAttemptAsync(editSession.Id, cancellationToken);
         var attempt = new SceneImageEditCompilationAttempt
         {
@@ -81,6 +89,7 @@ public sealed class SceneImageEditCompilationService : ISceneImageEditCompilatio
             Ordinal = latest is null ? 0 : latest.Ordinal + 1,
             RawIntent = request.RawIntent.Trim(),
             ClarificationContextJson = request.ClarificationHistory.Count == 0 ? null : JsonSerializer.Serialize(request.ClarificationHistory, JsonOptions),
+            RegionJson = request.Region is null ? null : JsonSerializer.Serialize(request.Region, JsonOptions),
             SourceImageSha256 = input.Sha256,
             Status = SceneImageEditCompilationAttemptStatus.Pending,
             ResolvedModelSnapshotJson = SceneImageMultimodalInput.SerializeResolutionSnapshot(resolved),

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 
 namespace DreamGenClone.Tests.RolePlay;
 
@@ -53,6 +54,31 @@ public sealed class QwenSceneImageEditPromptCompilerTests
     public void BuildMessages_EmptyIntent_Fails()
     {
         Assert.Throws<ArgumentException>(() => _compiler.BuildMessages(new SceneImageEditCompilerContext(" ", [])));
+    }
+
+    /// <summary>N5: a region run's compiled prompt carries the confinement clause and the rectangle geometry.</summary>
+    [Fact]
+    public void BuildMessages_WithARegion_AddsTheConfinementClause()
+    {
+        var region = new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 8, FeatherPixels: 24);
+
+        var messages = _compiler.BuildMessages(new SceneImageEditCompilerContext(
+            "Change the shirt to red.", [], region));
+
+        Assert.Contains("confined to a rectangular region", messages.UserMessage, StringComparison.Ordinal);
+        Assert.Contains("Change only what is inside that rectangle", messages.UserMessage, StringComparison.Ordinal);
+        Assert.Contains("from 10% to 40% of the frame's width", messages.UserMessage, StringComparison.Ordinal);
+        Assert.Contains("from 20% to 60% of the frame's height", messages.UserMessage, StringComparison.Ordinal);
+    }
+
+    /// <summary>N5: a non-region run's compiled prompt carries no confinement clause.</summary>
+    [Fact]
+    public void BuildMessages_WithoutARegion_HasNoConfinementClause()
+    {
+        var messages = _compiler.BuildMessages(new SceneImageEditCompilerContext("Change the shirt to red.", []));
+
+        Assert.DoesNotContain("confined to a rectangular region", messages.UserMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("Change only what is inside that rectangle", messages.UserMessage, StringComparison.Ordinal);
     }
 
     [Fact]

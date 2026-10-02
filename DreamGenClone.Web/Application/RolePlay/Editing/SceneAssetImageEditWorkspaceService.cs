@@ -113,13 +113,15 @@ public sealed class SceneAssetImageEditWorkspaceService : IImageEditWorkspaceSer
     }
 
     public async Task<ImageEditAttemptView> PrepareAsync(
-        string sessionId, string rawIntent, IReadOnlyList<string> clarificationHistory, CancellationToken cancellationToken = default)
+        string sessionId, string rawIntent, IReadOnlyList<string> clarificationHistory, string? editorModelId, MediaEditRegionOperation? region, CancellationToken cancellationToken = default)
     {
         var attempt = await _compilations.EnqueueCompilationAsync(new EnqueueSceneAssetImageEditCompilationRequest
         {
             EditSessionId = sessionId,
             RawIntent = rawIntent,
-            ClarificationHistory = clarificationHistory
+            ClarificationHistory = clarificationHistory,
+            EditorModelId = editorModelId,
+            Region = region
         }, cancellationToken);
         return ToAttempt(attempt);
     }

@@ -44,9 +44,10 @@ public sealed record ImageEditingReference(
 /// regenerates the whole frame - which is why naming a region in the instruction cannot contain an edit, however
 /// clearly it is named (measured: CASE-23). Selecting a region and containing it are different mechanisms.
 /// </summary>
-/// <param name="GrowMaskBy">Pixels to grow the mask by at encode time. The host's own node accepts 0-64. A bare
-/// rectangle edge leaves a visible seam (CASE-21), so this is an operator-set value and never invented here.</param>
-/// <param name="FeatherPixels">Pixels of softening at the mask edge; 0 emits no feather node at all.</param>
+/// <param name="GrowMaskBy">Pixels the mask is grown by when it is BUILT (baked into the mask). A bare rectangle
+/// edge leaves a visible seam (CASE-21), so this is an operator-set value and never invented here.</param>
+/// <param name="FeatherPixels">Pixels of softening baked into the mask edge when it is built; 0 means a hard edge.
+/// The softening is a blur of the mask itself, not the host FeatherMask node, which feathers only the frame border.</param>
 /// <remarks>
 /// The record OWNS <see cref="Mask"/>: a mask is built for one run, and whoever puts a stream in here hands over the
 /// job of disposing it, so a caller must not pass a stream it still needs.

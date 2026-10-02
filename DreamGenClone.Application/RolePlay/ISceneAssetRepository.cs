@@ -78,6 +78,12 @@ public interface ISceneAssetRepository
         string? candidateSourceAssetId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Renames an asset. The name is the ONLY field the asset workspace lets an operator set directly: everything else
+    /// about an asset is produced by a render or set by an approval, and a delete is irreversible.
+    /// </summary>
+    Task RenameAsync(string assetId, string name, CancellationToken cancellationToken = default);
+
     Task<SceneAsset> ApproveForProductionAsync(
         string assetId,
         string sourceProvenanceJson,

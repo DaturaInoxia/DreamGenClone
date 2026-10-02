@@ -67,30 +67,30 @@ public sealed class PoseMetadataAnalyzerTests
     }
 
     [Fact]
-    public void ADeclarationContradictedByTheKeypointsIsKeptAndFlaggedWithItsEvidence()
+    public void AMeasuredFacingOutranksADeclarationThatSaysFront()
     {
-        // Declared front-facing, measured back-facing. The DECLARED value is still what a render uses — the pack knows
-        // what its poses are and the keypoints only have one reading of the shoulder order — but the disagreement is
-        // recorded rather than averaged away.
+        // Declared front-facing, measured back-facing. The MEASUREMENT is what a render uses on this axis, and the
+        // reason is factual rather than a preference: a pack declares per CATEGORY, and one category holds many views
+        // — `standing` alone spans the whole range of turns — so a single per-category word cannot be right for every
+        // pose filed under it. Nothing else about the row moves.
         var metadata = PoseMetadataAnalyzer.Classify(
             Upright(rightShoulderX: 140, leftShoulderX: 60),
             Declared(PoseStance.Standing, PoseFacingDirection.Front, PoseCameraAngle.EyeLevel, PoseContentRating.Nsfw));
 
-        Assert.Equal(PoseFacingDirection.Front, metadata.Direction);
-        Assert.True(metadata.NeedsReview);
-        Assert.Contains("declared front", metadata.ReviewNote, StringComparison.Ordinal);
-        Assert.Contains("shoulders read back", metadata.ReviewNote, StringComparison.Ordinal);
-        Assert.Contains("shoulder-order", metadata.ReviewNote, StringComparison.Ordinal);
+        Assert.Equal(PoseFacingDirection.Back, metadata.Direction);
+        Assert.Equal(PoseStance.Standing, metadata.Stance);
+        Assert.False(metadata.NeedsReview);
     }
 
     [Fact]
-    public void TheMeasurementDoesNotContradictAFoldedDeclarationTheOrderingCannotRead()
+    public void AStanceTheMeasurementDoesNotCoverKeepsItsDeclarationWithoutAFlag()
     {
-        // No flag, because the measurement is not decisive here: flagging would put half of the all-fours category
-        // into review over noise that has nothing to do with facing.
+        // A LYING body is not measured: turning it about the vertical axis rotates it within the picture rather than
+        // foreshortening its shoulder line, so the span carries no facing there. Nothing is flagged, because the
+        // measurement has no opinion here — as opposed to all fours, which IS measured and does flag a disagreement.
         var metadata = PoseMetadataAnalyzer.Classify(
             Folded(),
-            Declared(PoseStance.AllFours, PoseFacingDirection.Front, PoseCameraAngle.Unknown, PoseContentRating.Sfw));
+            Declared(PoseStance.Lying, PoseFacingDirection.Front, PoseCameraAngle.Unknown, PoseContentRating.Sfw));
 
         Assert.Equal(PoseFacingDirection.Front, metadata.Direction);
         Assert.False(metadata.NeedsReview);
@@ -158,33 +158,49 @@ public sealed class PoseMetadataAnalyzerTests
     }
 
     /// <summary>
-    /// An upright figure with a full COCO-18 body. The default shoulder positions are far enough apart to be
-    /// decisive (|order| = 0.186 of the figure's height, above the 0.08 floor).
+    /// An upright figure with a full COCO-18 body.
+    ///
+    /// The torso is sized FROM the shoulder span so the figure's proportions match the rig's, because that is what the
+    /// turn measurement is calibrated against: the rig measures the shoulder line at 0.67 of the torso when square to
+    /// the camera. A synthetic figure with a longer, thinner torso than that reads as TURNED for a span the figure does
+    /// not have — which is exactly the false positive the measurement guards against by requiring the head to agree,
+    /// so a fixture that trips it would be testing the guard rather than the facing.
+    ///
+    /// The shoulders stay far enough apart to be decisive: |order| is 0.186 of the figure's height, above the 0.08
+    /// floor.
     /// </summary>
-    private static PosePerson Upright(double rightShoulderX, double leftShoulderX) => new()
+    private static PosePerson Upright(double rightShoulderX, double leftShoulderX)
     {
-        Body =
-        [
-            new PoseKeypoint(100, 80, 1),            // nose
-            new PoseKeypoint(100, 100, 1),           // neck
-            new PoseKeypoint(rightShoulderX, 110, 1),
-            new PoseKeypoint(rightShoulderX - 5, 180, 1),
-            new PoseKeypoint(rightShoulderX - 10, 250, 1),
-            new PoseKeypoint(leftShoulderX, 110, 1),
-            new PoseKeypoint(leftShoulderX + 5, 180, 1),
-            new PoseKeypoint(leftShoulderX + 10, 250, 1),
-            new PoseKeypoint(85, 300, 1),            // right hip
-            new PoseKeypoint(85, 400, 1),
-            new PoseKeypoint(85, 500, 1),            // right ankle
-            new PoseKeypoint(115, 300, 1),           // left hip
-            new PoseKeypoint(115, 400, 1),
-            new PoseKeypoint(115, 500, 1),           // left ankle
-            new PoseKeypoint(95, 70, 1),             // right eye
-            new PoseKeypoint(105, 70, 1),            // left eye
-            new PoseKeypoint(85, 75, 1),             // right ear
-            new PoseKeypoint(115, 75, 1)             // left ear
-        ]
-    };
+        // The rig's own square-on reading, so this figure is square to the camera in the same proportions the cuts
+        // were derived from.
+        const double rigSquareOnSpanOverTorso = 0.67;
+        var hipY = 100 + Math.Abs(leftShoulderX - rightShoulderX) / rigSquareOnSpanOverTorso;
+
+        return new PosePerson
+        {
+            Body =
+            [
+                new PoseKeypoint(100, 80, 1),            // nose
+                new PoseKeypoint(100, 100, 1),           // neck
+                new PoseKeypoint(rightShoulderX, 110, 1),
+                new PoseKeypoint(rightShoulderX - 5, 180, 1),
+                new PoseKeypoint(rightShoulderX - 10, 250, 1),
+                new PoseKeypoint(leftShoulderX, 110, 1),
+                new PoseKeypoint(leftShoulderX + 5, 180, 1),
+                new PoseKeypoint(leftShoulderX + 10, 250, 1),
+                new PoseKeypoint(85, hipY, 1),           // right hip
+                new PoseKeypoint(85, hipY + 100, 1),
+                new PoseKeypoint(85, hipY + 200, 1),     // right ankle
+                new PoseKeypoint(115, hipY, 1),          // left hip
+                new PoseKeypoint(115, hipY + 100, 1),
+                new PoseKeypoint(115, hipY + 200, 1),    // left ankle
+                new PoseKeypoint(95, 70, 1),             // right eye
+                new PoseKeypoint(105, 70, 1),            // left eye
+                new PoseKeypoint(85, 75, 1),             // right ear
+                new PoseKeypoint(115, 75, 1)             // left ear
+            ]
+        };
+    }
 
     /// <summary>
     /// The same figure with the torso folded out to the side, which is what an all-fours pose measures like: the
