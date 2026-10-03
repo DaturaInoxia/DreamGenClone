@@ -211,9 +211,17 @@
                         }
                         else
                         {
-                            <label class="form-label small" for="artifact-evidence">Decision evidence JSON</label>
-                            <textarea id="artifact-evidence" class="form-control form-control-sm font-monospace" rows="4" @bind="_artifactDecisionEvidenceJson"></textarea>
-                            <div class="form-text mb-3">Record the frozen evaluation run, prompts, seeds, held-out cells, scores, and pass/fail result used for this decision.</div>
+                            <label class="form-label small" for="artifact-evidence">Decision evidence</label>
+                            <select id="artifact-evidence" class="form-select form-select-sm" @bind="_artifactDecisionEvidenceKey">
+                                @foreach (var kind in LoraArtifactDecisionEvidence.All)
+                                {
+                                    <option value="@kind.Key">@kind.Label</option>
+                                }
+                            </select>
+                            @if (LoraArtifactDecisionEvidence.Find(_artifactDecisionEvidenceKey) is { } evidence)
+                            {
+                                <div class="form-text mb-3">@evidence.Meaning</div>
+                            }
                             <fieldset class="mb-3">
                                 <legend class="fs-6">Render models this LoRA may be loaded under</legend>
                                 <div class="form-text mb-2">
@@ -300,7 +308,7 @@
     private string _adapterKey = CharacterLoraTrainingAdapters.DefaultFor(null).AdapterKey;
     private long _seed = 1;
     private int _artifactVersion;
-    private string _artifactDecisionEvidenceJson = string.Empty;
+    private string _artifactDecisionEvidenceKey = LoraArtifactDecisionEvidence.Default.Key;
     private List<(string Identifier, string Display)> _renderModelChoices = [];
     private readonly HashSet<string> _artifactRenderModels = [];
     private bool _busy;
@@ -508,44 +516,19 @@
     {
         await RunAsync(async () =>
         {
-            // The evidence box starts EMPTY, so an unguarded Parse threw "'' is an invalid start of a value" (or the
-            // same complaint about whatever had been typed) at an operator who had done nothing wrong except not
-            // guess the format. The format is named here instead, and it is deliberately NOT prefilled: a seeded
-            // {"passed":true} would be an invented record of an evaluation that nobody ran.
-            if (string.IsNullOrWhiteSpace(_artifactDecisionEvidenceJson))
-            {
-                throw new InvalidOperationException(
-                    "Decision evidence is required before a LoRA artifact can be qualified or rejected. Record the "
-                    + "evaluation run, prompts, seeds, held-out cells, scores and the pass/fail result as a JSON "
-                    + "object, for example {\"evaluationRunId\":\"lora-eval-1\",\"passed\":true}.");
-            }
+            // A pick list, not a text box. Qualifying a profile used to end in a free-text JSON field and that was
+            // deliberately replaced with these kinds, for the same reason: the last step of the chain must not be a
+            // typing exercise, and an empty box inviting a hand-written blob says nothing. Typing a pass/fail onto a
+            // trained LoRA is a claim nobody measured; naming the KIND of evidence is a claim the operator can stand
+            // behind. Nothing is defaulted - the chosen kind IS the record, and it is stored verbatim.
+            var evidence = LoraArtifactDecisionEvidence.Find(_artifactDecisionEvidenceKey)
+                ?? throw new InvalidOperationException(
+                    $"'{_artifactDecisionEvidenceKey}' is not a kind of artifact evidence. Pick one from the list.");
 
-            JsonDocument evidence;
-            try
-            {
-                evidence = JsonDocument.Parse(_artifactDecisionEvidenceJson);
-            }
-            catch (JsonException exception)
-            {
-                throw new InvalidOperationException(
-                    $"Decision evidence is not valid JSON ({exception.Message}) It must be a JSON object, for example "
-                    + "{\"evaluationRunId\":\"lora-eval-1\",\"passed\":true}.", exception);
-            }
-
-            using (evidence)
-            {
-                if (evidence.RootElement.ValueKind != JsonValueKind.Object)
-                {
-                    throw new InvalidOperationException(
-                        "Artifact decision evidence must be a JSON object, not a bare value or an array.");
-                }
-
-                await LoraRepository.SetArtifactStatusAsync(
-                    artifactId, status, evidence.RootElement.GetRawText(),
-                    _artifactRenderModels.OrderBy(value => value, StringComparer.Ordinal).ToList(), DateTime.UtcNow);
-            }
-
-            _status = $"Artifact {artifactId} marked {status}.";
+            await LoraRepository.SetArtifactStatusAsync(
+                artifactId, status, evidence.Json,
+                _artifactRenderModels.OrderBy(value => value, StringComparer.Ordinal).ToList(), DateTime.UtcNow);
+            _status = $"Artifact {artifactId} marked {status}, on evidence: {evidence.Label}.";
         });
     }
 
