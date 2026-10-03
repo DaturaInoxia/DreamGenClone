@@ -132,8 +132,20 @@
         else if (_members.Count > 0)
         {
             <div class="alert alert-primary">
-                Every cell that has an accepted image is registered. Accept the members below, then press
-                <strong>Freeze Exact Manifest</strong>.
+                @if (AllMembersAccepted)
+                {
+                    <span>
+                        All @_members.Count member(s) are registered and already accepted, so the only step left is the
+                        freeze. Press <strong>Freeze Exact Manifest</strong> below.
+                    </span>
+                }
+                else
+                {
+                    <span>
+                        Every cell that has an accepted image is registered. Accept the members below, then press
+                        <strong>Freeze Exact Manifest</strong>.
+                    </span>
+                }
             </div>
         }
         else
@@ -469,6 +481,15 @@
     private string? _error;
     private string? _status;
     private bool IsFrozen => _dataset?.Status != CharacterLoraDatasetStatus.Draft;
+
+    /// <summary>
+    /// True when every member is already accepted, which is the normal state of a DERIVED set: its members arrive
+    /// carrying the source's curation, so there is nothing to accept and the freeze is the only step left. Saying
+    /// "accept the members below" to an operator looking at 36 green badges is how a page teaches people to ignore it.
+    /// </summary>
+    private bool AllMembersAccepted =>
+        _members.Count > 0
+        && _members.All(editor => editor.Member.CurationStatus == CharacterLoraCurationStatus.Accepted);
 
     /// <summary>The flags the operator has ticked, as one bitmask. Empty means nothing has been granted yet.</summary>
     private SceneAssetApprovedUseScope RegistrationUseScope =>
