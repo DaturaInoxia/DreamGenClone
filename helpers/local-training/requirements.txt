@@ -2,3 +2,8 @@
 fastapi==0.115.6
 uvicorn==0.34.0
 python-multipart==0.0.20
+
+# Serverless (Krea 2) dispatch only: uploads the dataset to the RunPod network volume and pulls the trained LoRA
+# back. Imported lazily inside the serverless path, so a local-only host that never installs it still starts.
+# Pinned to the version verified against the RunPod EU-RO-1 S3 endpoint on 2026-10-03.
+boto3==1.43.83

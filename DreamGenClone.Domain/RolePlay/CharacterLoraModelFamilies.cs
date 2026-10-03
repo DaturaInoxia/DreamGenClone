@@ -32,7 +32,11 @@ public static class CharacterLoraModelFamilies
         nameof(SceneImageModelFamily.QwenImage21),
         nameof(SceneImageModelFamily.Sdxl),
         nameof(SceneImageModelFamily.Pony),
-        nameof(SceneImageModelFamily.Flux)
+        nameof(SceneImageModelFamily.Flux),
+        // Krea 2 trains with musubi-tuner, NOT kohya, so a Krea 2 dataset can only be trained by a profile whose
+        // trainer id dispatches to the RunPod Serverless worker. Listed last because it is the newest family;
+        // the order here is the order the UI offers them.
+        nameof(SceneImageModelFamily.Krea2)
     ];
 
     /// <summary>

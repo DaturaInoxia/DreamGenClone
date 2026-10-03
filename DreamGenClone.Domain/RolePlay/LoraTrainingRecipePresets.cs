@@ -137,6 +137,40 @@ public static class LoraTrainingRecipePresets
             Epochs: 8,
             CaptionDropout: 0.05,
             PriorPreservation: false,
+            Precision: "bf16"),
+
+        // Krea 2 does NOT train with kohya. These numbers are the musubi-tuner recipe proven on the local 16 GB
+        // RTX 5080 (2026-09-27/28), dispatched to RunPod Serverless by lora_train_service.py.
+        //
+        // Two fields cannot express "not applied" and are therefore carried as INERT values, called out in the
+        // Detail string so an operator sees it exactly where the recipe is chosen:
+        //   TextEncoderLearningRate - the recipe type REQUIRES a rate in [1e-6, 1e-3] (asserted by
+        //     LoraTrainingRecipePresetsTests, because kohya and the repository both demand one), yet the Krea 2
+        //     path trains the LoRA network only. The value is never sent to the worker.
+        //   CaptionDropout 0 - musubi's krea2 trainer is given no caption-dropout argument.
+        //
+        // Flow shift (2.5), fp8_base/fp8_scaled and blocks_to_swap are deliberately NOT fields here: they are
+        // properties of how the worker invokes musubi, not of the app's training profile, and recording them at
+        // this level would claim the app controls something it does not.
+        //
+        // Steps are deliberately conservative (576). The endpoint enforces a 4h execution timeout and the real
+        // serverless s/step is not yet measured - raise this once a run has been timed.
+        new LoraTrainingRecipePreset(
+            Name: "Krea 2 character — serverless (musubi-tuner)",
+            Detail: "36 images, rank 32, alpha 32, 576 steps. Trains on RunPod Serverless, not on this host. "
+                + "The text-encoder rate and caption dropout are carried for the profile contract but are NOT "
+                + "applied on this family.",
+            ImageCount: 36,
+            ResolutionBuckets: [1024],
+            Repeats: 2,
+            Rank: 32,
+            Alpha: 32,
+            UnetLearningRate: 1e-4,
+            TextEncoderLearningRate: 1e-5,
+            Steps: 36 * 2 * 8,
+            Epochs: 8,
+            CaptionDropout: 0,
+            PriorPreservation: false,
             Precision: "bf16")
     ];
 

@@ -292,6 +292,38 @@
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// The trainer a model family is trained by. Krea 2 is the exception and the reason this is derived rather
+    /// than typed: it has no kohya network module, so it can only be musubi-tuner, and the only musubi runtime
+    /// here is the RunPod Serverless worker.
+    /// </summary>
+    private static string TrainerIdForFamily(string family) =>
+        string.Equals(family, nameof(SceneImageModelFamily.Krea2), StringComparison.Ordinal)
+            ? CharacterLoraTrainingAdapters.Krea2ServerlessTrainerId
+            : "sd-scripts";
+
+    /// <summary>
+    /// The trainer's own version. Krea 2 names the WORKER IMAGE it runs in; every other family names this host's
+    /// torch, because that is the interpreter that will actually execute kohya.
+    /// </summary>
+    private string TrainerVersionForFamily(string family) =>
+        string.Equals(family, nameof(SceneImageModelFamily.Krea2), StringComparison.Ordinal)
+            ? CharacterLoraTrainingAdapters.Krea2ServerlessTrainerVersion
+            : $"torch {_inventory.TrainerStack["torch"]}";
+
+    /// <summary>
+    /// What the run needs. A Krea 2 job trains on the worker image and never touches this host's stack, so
+    /// recording the host's torch/diffusers versions would describe a machine the run never used.
+    /// </summary>
+    private string EnvironmentRequirementsForFamily(string family) =>
+        string.Equals(family, nameof(SceneImageModelFamily.Krea2), StringComparison.Ordinal)
+            ? JsonSerializer.Serialize(new
+            {
+                trainer = CharacterLoraTrainingAdapters.Krea2ServerlessTrainerId,
+                runtime = CharacterLoraTrainingAdapters.Krea2ServerlessTrainerVersion
+            })
+            : JsonSerializer.Serialize(_inventory.TrainerStack);
+
     private async Task CreateProfileAsync()
     {
         await RunAsync(async () =>
@@ -320,10 +352,13 @@
                 BaseModelVersion = _targetModelFamily.Trim(),
                 BaseModelSha256 = checkpoint.Sha256,
 
-                TrainerId = "sd-scripts",
-                TrainerVersion = $"torch {_inventory.TrainerStack["torch"]}",
+                // The FAMILY decides the trainer: Krea 2 is musubi-tuner on RunPod Serverless, every other family is
+                // kohya sd-scripts on this host. Deriving it here means the two can never be paired wrongly by hand
+                // - a Krea 2 profile pointed at kohya fails at submission, and no family has both trainers.
+                TrainerId = TrainerIdForFamily(_targetModelFamily.Trim()),
+                TrainerVersion = TrainerVersionForFamily(_targetModelFamily.Trim()),
                 RecipeJson = preset.ToRecipeJson(),
-                EnvironmentRequirementsJson = JsonSerializer.Serialize(_inventory.TrainerStack),
+                EnvironmentRequirementsJson = EnvironmentRequirementsForFamily(_targetModelFamily.Trim()),
                 CheckpointCadenceJson = JsonSerializer.Serialize(new { everySteps = preset.CheckpointEverySteps }),
                 SampleCadenceJson = JsonSerializer.Serialize(new { everySteps = preset.SampleEverySteps }),
                 CreatedUtc = DateTime.UtcNow

@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "updatedUtc": "2026-10-02",
+  "updatedUtc": "2026-10-03",
   "purpose": "Registry for RunPod Serverless endpoints (B-101 migration). One entry per endpoint = one worker image + one endpoint config + one Model Manager provider mapping. Mirrors helpers/runpod/pod-registry.json for the old pods. Every image/endpoint change MUST be recorded here and reproducible from the Dockerfile + config.",
   "containerRegistry": "ghcr.io/daturoinoxia/dreamgenclone",
   "decommissioned": {
     "on": "2026-10-02",
-    "state": "The entire RunPod serverless image stack is TORN DOWN. NONE of the endpoint entries below are live.",
+    "state": "The 2026-08-28 image-GENERATION serverless stack is TORN DOWN: none of the IMAGE endpoints below are live. EXCEPTION (2026-10-03): krea2-training-serverless (h19lk2zv623y83) IS LIVE and smoked green. Training moved back to Serverless because the Krea 2 12B MMTDiT cannot fit the 16 GB ComfyUI host, and it uses its own new volume n5rainij0c (50 GB, EU-RO-1), not the deleted xkslgh6xo0.",
     "deletedEndpoints": [
       "tn5tkzhwws2mxw flux-controlnet",
       "94obyxje4z8vpd Flux-ControllNet",
@@ -352,17 +352,24 @@
         "endpointKey":  "krea2-training-serverless",
         "function":  "Krea 2 character LoRA training (musubi-tuner)",
         "capability":  "CharacterLoraTraining",
-        "status":  "worker-committed-not-yet-built",
-        "endpointId":  null,
+        "status":  "working-validated",
+        "endpointId":  "h19lk2zv623y83",
         "requestUrls":  {
-    
+                            "run":  "https://api.runpod.ai/v2/h19lk2zv623y83/run",
+                            "runSync":  "https://api.runpod.ai/v2/h19lk2zv623y83/runsync",
+                            "status":  "https://api.runpod.ai/v2/h19lk2zv623y83/status/{job_id}",
+                            "stream":  "https://api.runpod.ai/v2/h19lk2zv623y83/stream/{job_id}",
+                            "cancel":  "https://api.runpod.ai/v2/h19lk2zv623y83/cancel/{job_id}",
+                            "retry":  "https://api.runpod.ai/v2/h19lk2zv623y83/retry/{job_id}",
+                            "purgeQueue":  "https://api.runpod.ai/v2/h19lk2zv623y83/purge-queue",
+                            "health":  "https://api.runpod.ai/v2/h19lk2zv623y83/health"
                         },
-        "workerImage":  "registry.runpod.net/daturainoxia-dreamgenclone-development-helpers-runpod-serverless-krea2-training-worker-dockerfile:\u003ccommit-sha-pending-first-build\u003e",
+        "workerImage":  "ghcr.io/daturainoxia/dreamgenclone/dreamgen-krea2-training-worker:0.1.0",
         "workerDir":  "helpers/runpod/serverless/krea2-training-worker",
         "imageVerified":  {
-                              "built":  "NOT BUILT YET. Built on the Runpod side from the GitHub repo; the ref carries the pushed commit\u0027s short sha. NOTE: Runpod v2 API cannot create a GitHub-sourced endpoint (POST /v2/serverless takes only \u0027image\u0027, and unevaluatedProperties:false rejects anything else), so this endpoint must be created from the Runpod console \u0027Start from GitHub Repo\u0027 flow - create-endpoint.ps1 cannot build it. See also commit 8f18235, which removed the GHCR/GitHub-Actions worker pipelines as superseded.",
-                              "publicPullVerified":  "n/a - Runpod ephemeral registry, not GHCR",
-                              "smokeTest":  "NOT RUN"
+                              "built":  "2026-10-03 endpoint h19lk2zv623y83 created from run 37097615460 (GH Actions build-serverless-worker, 32.2 min). The first attempt, run 37097128803, FAILED at Build and push with 'error: externally-managed-environment' - the pytorch/pytorch base is Ubuntu 24.04 with distro Python 3.12, so PEP 668 marks the interpreter EXTERNALLY-MANAGED and a plain pip install is refused. Fixed with --break-system-packages, which is correct here because the base image's own torch already lives in that interpreter. The Dockerfile keeps an 'import torch, musubi_tuner, runpod' build-check as the guard against pip and python diverging.",
+                              "publicPullVerified":  "anonymous pull VERIFIED 2026-10-03 - the GHCR token endpoint issued a pull token with no credentials and the tag list returned [0.1.0]. Package visibility=public, so the endpoint needs NO registry credential. Manifest digest sha256:dc68a2909b855a66c740788c98cb52c074d86fdf0a9aab2c89146575819bebe1",
+                              "smokeTest":  "PASSED 2026-10-03. Job 016c2915-6984-4863-8206-0485acd725f8-u2 COMPLETED: executionTime 492571 ms, delayTime 488284 ms (cold start on a cold pool), on an NVIDIA A100 80GB PCIe. The cascade fell through BLACKWELL_96 to AMPERE_80, which is exactly why create-endpoint.ps1 had to be fixed to honour gpuPools instead of deriving a single pool from gpuTypeId - before that fix the endpoint would have had no A100 pool to fall back to. Artifact /runpod-volume/loras/krea2-endpoint-smoke.safetensors, 469315352 bytes, sha256 1302ab75a5f7a536452fc5a6a4c0a2a88eb39f4db191336540d2fb33595b3726 - downloaded and re-verified by the caller. 4.66/4.77/4.67/4.66 s/step against 47 s/step for the same recipe on the local 16 GB RTX 5080 = 10x. Losses 0.0568 -> 0.0476 -> 0.0693 -> 0.0721, matching the local curve, so the worker is training and not merely running."
                           },
         "minWorkers":  0,
         "maxWorkers":  1,
@@ -394,11 +401,19 @@
                          },
         "smokeTest":  {
                           "jobInput":  "{\"input\":{\"datasetVolumePath\":\"/runpod-volume/datasets/\u003cname\u003e\",\"outputName\":\"\u003cname\u003e-krea2-v1\",\"epochs\":1,\"maxTrainSteps\":3}}",
-                          "expectedOutput":  "result with status=ok, loraPath under /runpod-volume/loras, loraSha256, and stepSeconds; logs.train non-empty"
+                          "expectedOutput":  "result with status=ok, loraPath under /runpod-volume/loras, loraSha256, and stepSeconds; logs.train non-empty",
+                          "result":  "COMPLETED. Returned the app-shaped contract (artifact.fileRelativePath/loraName/sha256/byteLength + statusHistory + logs) that RunPodCharacterLoraTrainingDispatchAdapter requires, so the worker output is consumable by the app without a translation layer."
                       },
+        "hostDispatch":  {
+                             "path":  "app -> LocalCharacterLoraTrainingDispatchAdapter (local-kohya-training-v1) -> lora_train_service.py on WOOD-GAME-MAIN :8199 -> RunPod Serverless h19lk2zv623y83",
+                             "why":  "The app never talks to RunPod directly for training. The host service is the only component that can reach the network volume (boto3 + the volume S3 key pair) and it is already the training endpoint the app has a provider row for, so Krea 2 needs NO new provider row and NO app-side URL change.",
+                             "trainerId":  "musubi-krea2-serverless-v1 - the PROFILE'S trainer id decides which path the host service takes. It must match SERVERLESS_TRAINERS in lora_train_service.py, and the app derives it from the profile's model family in LoraTrainingProfiles.razor (TrainerIdForFamily), so a Krea 2 profile cannot be pointed at kohya by hand.",
+                             "hostConfig":  "helpers/local-training/start-service.bat holds the five non-secret values; the three credentials live in D:\\lora-training-service\\serverless-secrets.bat on the host only (template: serverless-secrets.bat.example) and are never committed.",
+                             "preflight":  "artifacts/tmp/krea2-serverless-preflight.py ran on the host 2026-10-03 and printed PREFLIGHT PASS: module import OK, all settings resolved, volume listable (19 objects: 3 models + 10 dataset files), RunPod API auth OK (workers ready=1 idle=1). This validates every part of the dispatch path short of the training run itself."
+                         },
         "persistence":  {
                             "standard":  "Training models and LoRA outputs live on network volume n5rainij0c. The worker image is immutable and rebuilt from the committed Dockerfile. Container disk (30 GB) is ephemeral and holds only the latent/TE caches.",
-                            "restartProof":  false
+                            "restartProof":  true
                         },
         "note":  "Recipe proven on the local 16 GB RTX 5080 (2026-09-27/28): ~47 s/step, peak VRAM 15,897/16,303 MiB, blocks_to_swap 26, fp8_base+fp8_scaled, bf16 weights REQUIRED because musubi rejects the ComfyUI fp8 repacks of both the DiT and the text encoder. A serverless worker mounts the volume at /runpod-volume; a pod mounts the same volume at /workspace. Endpoint is pinned to EU-RO-1 because a volume-mounted endpoint is restricted to that volume\u0027s data center."
     }

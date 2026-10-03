@@ -75,6 +75,55 @@ Smoke test from the machine that runs the app:
 Invoke-WebRequest http://<comfyui-host>:8199/train/health -UseBasicParsing
 ```
 
+## 2c. Krea 2 — trained on RunPod Serverless, dispatched by this service
+
+Krea 2 has no kohya network module and its 12B MMTDiT does not fit this host's 16 GB card, so a Krea 2 job is
+**not trained here**. The service uploads the dataset to the RunPod network volume and dispatches the job to a
+serverless endpoint, then downloads the returned `.safetensors` into `COMFYUI_ROOT\models\loras` exactly as a kohya
+job would. **Nothing on the app side changes**: same provider row, same adapter key and same submit path.
+
+Which path a job takes is decided by the **profile's trainer id**, not by the adapter key:
+
+| Trainer id | Trainer | Where it runs |
+|---|---|---|
+| `sd-scripts` | kohya `sd-scripts` | this host |
+| `musubi-krea2-serverless-v1` | `musubi-tuner` | RunPod Serverless |
+
+The app derives that id from the profile's **model family** (`LoraTrainingProfiles.razor` → `TrainerIdForFamily`),
+so a Krea 2 profile cannot be pointed at kohya by hand and a kohya family cannot be pointed at musubi. The id must
+match `SERVERLESS_TRAINERS` in `lora_train_service.py`; the two are named in both places and proved by the endpoint
+smoke test.
+
+### Configuration
+
+Five non-secret values live in `start-service.bat`. The three **secrets** do not. Put them in
+`D:\lora-training-service\serverless-secrets.bat`, which `start-service.bat` calls when present:
+
+```bat
+set RUNPOD_API_KEY=...
+set S3_ACCESS_KEY=...
+set S3_SECRET_KEY=...
+```
+
+Start from the committed template `serverless-secrets.bat.example`. The S3 pair is the **network volume's own**
+credential (RunPod → Storage → the volume → S3 API), *not* the account API key. If the file is absent, kohya jobs
+keep working and a Krea 2 job fails with the named missing setting rather than a guessed value.
+
+### Deploying a change to this service
+
+```powershell
+# 1. copy lora_train_service.py to D:\lora-training-service\
+# 2. install requirements (this now adds boto3, used only by the serverless path)
+ssh -i ~/.ssh/dgcomfy_ed25519 'wood-game-main\kenac@192.168.0.11' ^
+  'D:\lora-training-service\venv\Scripts\pip.exe install -r D:\lora-training-service\requirements.txt'
+# 3. restart — the uvicorn trap above applies: the OLD process keeps serving otherwise
+ssh -i ~/.ssh/dgcomfy_ed25519 'wood-game-main\kenac@192.168.0.11' 'cmd /c D:\lora-training-service\stop-service.bat'
+ssh -i ~/.ssh/dgcomfy_ed25519 'wood-game-main\kenac@192.168.0.11' 'schtasks /run /tn DGLoraTrainService'
+```
+
+Keep `start-service.bat` and `serverless-secrets.bat` **CRLF** — an LF-only `.bat` silently produces an empty log
+and no service.
+
 ## 3. Register the provider in the app
 
 Model Manager → add a provider:

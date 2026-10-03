@@ -38,6 +38,27 @@ Environment (all required - the service refuses to start without them rather tha
     COMFYUI_ROOT     the ComfyUI install; its models/checkpoints and models/loras are used
     LORA_TRAIN_ROOT  where run directories are written (images, captions, logs, checkpoints, artifacts)
     SD_PYTHON        python to run sd-scripts with (defaults to the interpreter running this service)
+
+Serverless training (required only by a job whose trainerId is in SERVERLESS_TRAINERS)
+------------------------------------------------------------------------------------
+Krea 2 cannot be trained by kohya: it needs musubi-tuner, which is not installed here and whose 12B MMTDiT does
+not fit the local card. Those jobs are therefore DISPATCHED to a RunPod Serverless endpoint running the
+`dreamgen-krea2-training-worker` image, and this service acts as the bridge:
+
+    images (staged here)  --S3-->  network volume  --train-->  LoRA on the volume  --S3-->  COMFYUI_ROOT/models/loras
+
+Why a bridge rather than letting the app call RunPod directly: the app's RunPod training adapter posts the
+canonical request alone, and that request carries dataset MEMBERSHIP, not image bytes - the worker would be told
+to train on cells it cannot obtain. The app's LOCAL adapter already uploads the members' bytes as a zip, and
+already accepts a host-absolute artifact path. Bridging here therefore needs NO app-side change: the same
+adapter, the same request, the same status contract, a different trainer.
+
+    RUNPOD_API_KEY              RunPod API key (submits and polls the training job)
+    RUNPOD_TRAIN_ENDPOINT_ID    serverless endpoint id, e.g. h19lk2zv623y83
+    RUNPOD_VOLUME_BUCKET        network volume id, e.g. n5rainij0c
+    RUNPOD_VOLUME_ENDPOINT      S3-compatible endpoint, e.g. https://s3api-eu-ro-1.runpod.io
+    S3_ACCESS_KEY / S3_SECRET_KEY
+  boto3 is imported lazily, so a local-only host without it still starts.
 """
 
 from __future__ import annotations
@@ -51,6 +72,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 import uuid
 import zipfile
 from dataclasses import dataclass, field
@@ -61,6 +84,15 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 app = FastAPI(title="DreamGenClone LoRA training", version="1")
+
+# Trainer ids this service DISPATCHES to RunPod Serverless instead of training on this host. The app's job carries
+# TrainerId as a free-form string (nothing in the app validates it), so registering a trainer is a service-side
+# concern - no app code change is needed to add one.
+SERVERLESS_TRAINERS = {"musubi-krea2-serverless-v1"}
+
+# Where a RunPod SERVERLESS worker sees the network volume. A pod mounts the same volume at /workspace; only the
+# prefix differs, and the worker reports its artifact path under this one.
+RUNPOD_VOLUME_MOUNT = "/runpod-volume"
 
 
 # --------------------------------------------------------------------------------------------------------------
@@ -97,6 +129,42 @@ class Settings:
 
 
 @dataclass
+class ServerlessSettings:
+    """What a serverless-dispatched job needs. Loaded PER JOB, not at startup.
+
+    Deliberately not required at startup: this service is also installed on hosts that only ever train locally,
+    and demanding a RunPod key from them would break a working deployment to enable a mode they never use. A
+    serverless job that finds this incomplete fails loudly with the missing variable named.
+    """
+
+    api_key: str
+    endpoint_id: str
+    bucket: str
+    endpoint: str
+    region: str
+    access_key: str
+    secret_key: str
+    job_timeout_seconds: int
+
+    @staticmethod
+    def load() -> "ServerlessSettings":
+        return ServerlessSettings(
+            api_key=required_env("RUNPOD_API_KEY"),
+            endpoint_id=required_env("RUNPOD_TRAIN_ENDPOINT_ID"),
+            bucket=required_env("RUNPOD_VOLUME_BUCKET"),
+            endpoint=required_env("RUNPOD_VOLUME_ENDPOINT"),
+            # boto3 requires SOME region name to sign with; the endpoint URL decides where the request actually
+            # goes. Defaulting it cannot silently address the wrong volume the way a defaulted endpoint could.
+            region=os.environ.get("RUNPOD_VOLUME_REGION", "eu-ro-1"),
+            access_key=required_env("S3_ACCESS_KEY"),
+            secret_key=required_env("S3_SECRET_KEY"),
+            # Mirrors the endpoint's own executionTimeout (4h). Client-side only, so that a wedged job surfaces
+            # as a failed run instead of polling until the heat death of the universe.
+            job_timeout_seconds=int(os.environ.get("RUNPOD_TRAIN_TIMEOUT_SECONDS", "14400")),
+        )
+
+
+@dataclass
 class RunState:
     run_id: str
     status: str = "IN_QUEUE"
@@ -104,6 +172,7 @@ class RunState:
     history: list[dict[str, Any]] = field(default_factory=list)
     samples: list[dict[str, Any]] = field(default_factory=list)
     checkpoints: list[dict[str, Any]] = field(default_factory=list)
+    logs: list[dict[str, Any]] = field(default_factory=lambda: [{"path": "train.log"}])
     artifact: dict[str, Any] | None = None
     process: subprocess.Popen | None = None
 
@@ -118,7 +187,7 @@ class RunState:
             "output": None if self.status != "COMPLETED" else {
                 "artifact": self.artifact,
                 "statusHistory": self.history,
-                "logs": [{"path": "train.log"}],
+                "logs": self.logs,
                 "samples": self.samples,
                 "checkpoints": self.checkpoints,
             },
@@ -352,8 +421,157 @@ def cancel(run_id: str) -> JSONResponse:
 # --------------------------------------------------------------------------------------------------------------
 # Training
 # --------------------------------------------------------------------------------------------------------------
+def _runpod_request(settings: "ServerlessSettings", method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """One call against the RunPod Serverless REST API, with the key in a header (never in a URL)."""
+    url = f"https://api.runpod.ai/v2/{settings.endpoint_id}{path}"
+    headers = {"Authorization": f"Bearer {settings.api_key}"}
+    data = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exception:
+        detail = exception.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"RunPod {method} {path} failed with HTTP {exception.code}: {detail}") from exception
+
+
+def _run_krea2_serverless(
+    state: RunState, directory: Path, payload: dict[str, Any], manifest: list[dict[str, Any]]
+) -> None:
+    """Dispatch a musubi/Krea 2 LoRA to RunPod Serverless, then publish it into this host's loras folder.
+
+    See the module docstring for why this is a bridge rather than app-side dispatch.
+    """
+    # Imported here so a local-only host without boto3 can still start and train.
+    import boto3
+
+    settings = ServerlessSettings.load()
+    output_name = _output_name(payload)
+    remote_prefix = f"datasets/{state.run_id}"
+    log_path = directory / "runpod.log"
+    client = boto3.client(
+        "s3",
+        aws_access_key_id=settings.access_key,
+        aws_secret_access_key=settings.secret_key,
+        region_name=settings.region,
+        endpoint_url=settings.endpoint,
+    )
+
+    # 1. Push the staged images to the volume. They go under the run id, so two runs can never collide, and the
+    #    worker is handed a directory rather than a manifest it would have to fetch from somewhere it cannot reach.
+    images = directory / "images"
+    uploaded = 0
+    for entry in sorted(images.iterdir()):
+        if not entry.is_file() or entry.name == "manifest.json":
+            continue
+        client.upload_file(str(entry), settings.bucket, f"{remote_prefix}/{entry.name}")
+        uploaded += 1
+    if uploaded == 0:
+        raise RuntimeError(
+            f"No dataset files were staged in {images} to upload. The uploaded dataset was empty, or its "
+            "manifest named files the zip did not contain.")
+
+    # 2. Submit. Every training value comes from the recipe the operator's profile carries, exactly as the kohya
+    #    path does, so the run stays reproducible from the app's record of it.
+    recipe = payload["recipe"]
+    submitted: dict[str, Any] = {
+        "datasetVolumePath": f"{RUNPOD_VOLUME_MOUNT}/{remote_prefix}",
+        "outputName": output_name,
+        "epochs": int(recipe["epochs"]),
+        "networkDim": int(recipe["rank"]),
+        "networkAlpha": int(recipe["alpha"]),
+        "learningRate": float(recipe["unetLearningRate"]),
+        "seed": int(payload["seed"]),
+    }
+    if int(recipe.get("steps", 0)) > 0:
+        submitted["maxTrainSteps"] = int(recipe["steps"])
+    (directory / "runpod-request.json").write_text(json.dumps(submitted, indent=2), encoding="utf-8")
+
+    submission = _runpod_request(settings, "POST", "/run", {"input": submitted})
+    remote_job = submission.get("id")
+    if not remote_job:
+        raise RuntimeError(f"RunPod accepted the job but returned no id: {submission}")
+    state.note("IN_PROGRESS")
+
+    # 3. Poll to a terminal state. `/runsync` is unusable here: it retains results for only a minute.
+    terminal = {"COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"}
+    deadline = time.monotonic() + settings.job_timeout_seconds
+    status: dict[str, Any] = {}
+    while True:
+        if time.monotonic() > deadline:
+            raise RuntimeError(
+                f"RunPod training job {remote_job} did not reach a terminal state within "
+                f"{settings.job_timeout_seconds}s (last status: {status.get('status')}).")
+        status = _runpod_request(settings, "GET", f"/status/{remote_job}")
+        if status.get("status") in terminal:
+            break
+        time.sleep(20)
+    (directory / "runpod-status.json").write_text(json.dumps(status), encoding="utf-8")
+
+    if status.get("status") != "COMPLETED":
+        raise RuntimeError(
+            f"RunPod training ended as {status.get('status')}: {status.get('error') or '(no diagnostic returned)'}")
+
+    output = status.get("output") or {}
+    artifact = output.get("artifact") or {}
+    remote_path = str(artifact.get("fileRelativePath") or "")
+    if not remote_path.startswith(f"{RUNPOD_VOLUME_MOUNT}/"):
+        raise RuntimeError(
+            f"The worker reported artifact path '{remote_path}', which is not under {RUNPOD_VOLUME_MOUNT}/, so it "
+            "cannot be mapped back to an object key on the volume.")
+    key = remote_path[len(RUNPOD_VOLUME_MOUNT) + 1 :]
+
+    # 4. Publish where THIS host's ComfyUI can load it. Krea 2 renders on this machine, so a LoRA that stayed on
+    #    the RunPod volume would be an artifact nobody could use.
+    loras_dir = SETTINGS.comfyui_root / "models" / "loras"
+    loras_dir.mkdir(parents=True, exist_ok=True)
+    published = loras_dir / Path(remote_path).name
+    client.download_file(settings.bucket, key, str(published))
+
+    actual = sha256_of(published)
+    expected = str(artifact.get("sha256") or "").upper()
+    if expected and actual != expected:
+        published.unlink(missing_ok=True)
+        raise RuntimeError(f"Downloaded LoRA checksum {actual} does not match the worker's {expected}; artifact removed.")
+
+    byte_length = published.stat().st_size
+    reported_bytes = int(artifact.get("byteLength") or 0)
+    if reported_bytes and byte_length != reported_bytes:
+        raise RuntimeError(f"Downloaded LoRA is {byte_length} bytes but the worker reported {reported_bytes}.")
+
+    state.artifact = {
+        "fileRelativePath": str(published),
+        "sha256": actual,
+        "byteLength": byte_length,
+        "loraName": published.name,
+    }
+    worker_logs = output.get("logs") or []
+    if isinstance(worker_logs, list) and worker_logs:
+        state.logs = [
+            {"path": f"{entry.get('name', 'log')}.log"} for entry in worker_logs if isinstance(entry, dict)
+        ]
+        (directory / "runpod-logs.json").write_text(json.dumps(worker_logs), encoding="utf-8")
+    state.note("COMPLETED")
+
+
 def _run_training(state: RunState, directory: Path, payload: dict[str, Any], manifest: list[dict[str, Any]]) -> None:
     assert SETTINGS is not None
+
+    # Trainer dispatch. A serverless trainer never touches kohya or this host's GPU; it stages here, trains on
+    # RunPod, and comes back through the same RunState the app already polls.
+    if str(payload.get("trainerId", "")).strip() in SERVERLESS_TRAINERS:
+        try:
+            _run_krea2_serverless(state, directory, payload, manifest)
+        except Exception as exception:  # the poll response is the only place the operator can see this
+            state.error = str(exception)
+            state.note("FAILED")
+        finally:
+            write_state(directory, state)
+        return
+
     log_path = directory / "train.log"
     try:
         recipe = payload["recipe"]
