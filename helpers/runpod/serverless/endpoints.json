@@ -347,6 +347,60 @@
         "outDir": "artifacts/tmp/proofs/qwen-edit",
         "reason": "PASSED 2026-08-29 (job completed, worker 9vmlz86z0yp75y, RTX PRO 6000 Blackwell). 'Change only the man's shirt from blue to solid red' -> output render_00001_.png saved artifacts/tmp/proofs/qwen-edit/img-qwen-edit-serverless_0.png, verified via view_image: man's shirt correctly turned red, woman/faces/pose/background preserved. AIO merged-checkpoint workflow (CheckpointLoaderSimple + 8 steps / 1 CFG / euler_ancestral / beta) works end-to-end on the serverless endpoint."
       }
+    },
+    {
+        "endpointKey":  "krea2-training-serverless",
+        "function":  "Krea 2 character LoRA training (musubi-tuner)",
+        "capability":  "CharacterLoraTraining",
+        "status":  "worker-committed-not-yet-built",
+        "endpointId":  null,
+        "requestUrls":  {
+    
+                        },
+        "workerImage":  "registry.runpod.net/daturainoxia-dreamgenclone-development-helpers-runpod-serverless-krea2-training-worker-dockerfile:\u003ccommit-sha-pending-first-build\u003e",
+        "workerDir":  "helpers/runpod/serverless/krea2-training-worker",
+        "imageVerified":  {
+                              "built":  "NOT BUILT YET. Built on the Runpod side from the GitHub repo; the ref carries the pushed commit\u0027s short sha. NOTE: Runpod v2 API cannot create a GitHub-sourced endpoint (POST /v2/serverless takes only \u0027image\u0027, and unevaluatedProperties:false rejects anything else), so this endpoint must be created from the Runpod console \u0027Start from GitHub Repo\u0027 flow - create-endpoint.ps1 cannot build it. See also commit 8f18235, which removed the GHCR/GitHub-Actions worker pipelines as superseded.",
+                              "publicPullVerified":  "n/a - Runpod ephemeral registry, not GHCR",
+                              "smokeTest":  "NOT RUN"
+                          },
+        "minWorkers":  0,
+        "maxWorkers":  1,
+        "idleTimeoutSec":  300,
+        "timeoutMs":  14400000,
+        "disk":  30,
+        "flashboot":  "FLASHBOOT",
+        "gpuPools":  [
+                         "BLACKWELL_96",
+                         "AMPERE_80",
+                         "ADA_24"
+                     ],
+        "gpuTypeId":  "RTX PRO 6000",
+        "minCudaVersion":  "12.8",
+        "networkVolumes":  [
+                               "n5rainij0c"
+                           ],
+        "dataCenterIds":  [
+                              "EU-RO-1"
+                          ],
+        "volumeModelPath":  "/runpod-volume/models/diffusion_models/krea2_raw_bf16.safetensors",
+        "env":  {
+                    "PYTHONUTF8":  "1",
+                    "PYTHONIOENCODING":  "utf-8"
+                },
+        "modelManager":  {
+                             "registered":  false,
+                             "providerName":  "Not an inference provider. Training worker driven by the app\u0027s Krea 2 LoRA trainer path, not by Model Manager image routing."
+                         },
+        "smokeTest":  {
+                          "jobInput":  "{\"input\":{\"datasetVolumePath\":\"/runpod-volume/datasets/\u003cname\u003e\",\"outputName\":\"\u003cname\u003e-krea2-v1\",\"epochs\":1,\"maxTrainSteps\":3}}",
+                          "expectedOutput":  "result with status=ok, loraPath under /runpod-volume/loras, loraSha256, and stepSeconds; logs.train non-empty"
+                      },
+        "persistence":  {
+                            "standard":  "Training models and LoRA outputs live on network volume n5rainij0c. The worker image is immutable and rebuilt from the committed Dockerfile. Container disk (30 GB) is ephemeral and holds only the latent/TE caches.",
+                            "restartProof":  false
+                        },
+        "note":  "Recipe proven on the local 16 GB RTX 5080 (2026-09-27/28): ~47 s/step, peak VRAM 15,897/16,303 MiB, blocks_to_swap 26, fp8_base+fp8_scaled, bf16 weights REQUIRED because musubi rejects the ComfyUI fp8 repacks of both the DiT and the text encoder. A serverless worker mounts the volume at /runpod-volume; a pod mounts the same volume at /workspace. Endpoint is pinned to EU-RO-1 because a volume-mounted endpoint is restricted to that volume\u0027s data center."
     }
   ]
 }
