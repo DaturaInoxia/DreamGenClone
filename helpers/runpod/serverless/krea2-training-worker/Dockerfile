@@ -50,11 +50,22 @@ RUN apt-get update \
 # accelerate==1.15.0, bitsandbytes, safetensors==0.8.0, ...) but NOT torch: torch is only an optional
 # extra in musubi's pyproject, and the base image already provides the matching cu128 build. That is
 # deliberate -- it keeps torch 2.11.0+cu128 exactly as proven and avoids a ~3 GB download.
+#
+# --break-system-packages IS REQUIRED, NOT LAZY. This base is Ubuntu 24.04 with the distro Python
+# 3.12 (the log path /usr/share/doc/python3.12/README.venv confirms it), so PEP 668 marks the
+# interpreter EXTERNALLY-MANAGED and a plain `pip install` aborts with `error:
+# externally-managed-environment`. That is what killed the first build (run 37097128803, 2026-10-03).
+# The flag is the correct answer here because the base image's own torch install is already in this
+# interpreter -- we are adding to the same environment the image ships, not fighting it. A venv would
+# also work but would then have to inherit system site-packages to see that torch, which is a more
+# fragile arrangement for no benefit in a single-purpose container.
+# The build-check line below is the real guard: if pip and `python` ever resolve to different
+# interpreters, it fails loudly here instead of at job runtime.
 ARG MUSUBI_REV=f8a1b03794a49239a3539015075f5123d6c07d66
 RUN git clone https://github.com/kohya-ss/musubi-tuner.git "$MUSUBI_DIR" \
  && git -C "$MUSUBI_DIR" checkout "$MUSUBI_REV" \
- && pip install "$MUSUBI_DIR" \
- && pip install "runpod==1.12.0" \
+ && pip install --break-system-packages "$MUSUBI_DIR" \
+ && pip install --break-system-packages "runpod==1.12.0" \
  && python -c "import torch, musubi_tuner, runpod; print('build check: torch', torch.__version__, '| cuda', torch.version.cuda)"
 
 # The Krea 2 CLI entry points are NOT console scripts -- they are loose files at the musubi repo root
