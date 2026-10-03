@@ -635,12 +635,22 @@ public sealed class ProductionMediaCompilationService : IProductionMediaCompilat
             {
                 var artifact = await _loraRepository.GetArtifactAsync(binding.LoraArtifactId!, cancellationToken)
                     ?? throw new InvalidOperationException($"LoRA artifact '{binding.LoraArtifactId}' was not found.");
+                // Trained against this profile's own model: the VERSION must match too, because another version of the
+                // same file is a different base. Declared loadable under it: there is no version to compare, because
+                // the profile describes a DIFFERENT model, and the declaration IS the operator's answer for it. Both
+                // branches go through LoadsUnder - the rule the picker filters by - so this path cannot refuse a LoRA
+                // the picker just offered.
+                var trainedAgainstProfileModel = string.Equals(
+                    artifact.BaseModelId, profile.ModelId, StringComparison.OrdinalIgnoreCase);
                 if (artifact.Status != CharacterLoraArtifactStatus.Qualified
                     || !string.Equals(artifact.Sha256, binding.LoraArtifactSha256, StringComparison.Ordinal)
-                    || !string.Equals(artifact.BaseModelId, profile.ModelId, StringComparison.Ordinal)
-                    || !string.Equals(artifact.BaseModelVersion, profile.ModelVersion, StringComparison.Ordinal))
+                    || !artifact.LoadsUnder(profile.ModelId)
+                    || (trainedAgainstProfileModel
+                        && !string.Equals(artifact.BaseModelVersion, profile.ModelVersion, StringComparison.Ordinal)))
                     throw new InvalidOperationException(
-                        "The selected LoRA artifact is not qualified for the exact model/version and checksum.");
+                        "The selected LoRA artifact does not satisfy this binding: it must be Qualified, match the "
+                        + "checksum the binding recorded, and be loadable under this model - either trained on it at "
+                        + "the bound version, or declaring it as a render model.");
             }
         }
     }

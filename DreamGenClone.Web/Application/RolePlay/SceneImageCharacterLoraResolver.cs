@@ -127,15 +127,17 @@ public sealed class SceneImageCharacterLoraResolver : ISceneImageCharacterLoraRe
                     + "rendered. Qualify it on that character's dataset training page first.");
             }
 
-            // The base-model match is what makes a LoRA base-model-agnostic without ever guessing: one dataset can
-            // hold N artifacts (one per trained model), and this render takes the one trained on the checkpoint it
-            // is about to use.
-            if (!string.Equals(artifact.BaseModelId, model.ModelIdentifier, StringComparison.OrdinalIgnoreCase))
+            // Whether this artifact may be loaded under the checkpoint about to be used is asked of the ARTIFACT,
+            // through the same rule the picker filters by. Asking it privately here is exactly what let the picker
+            // offer a LoRA this resolver then refused: one dataset can hold N artifacts (one per trained model), and a
+            // Krea 2 artifact trained on the raw DiT is DECLARED loadable under the Turbo repack by the operator.
+            if (!artifact.LoadsUnder(model.ModelIdentifier))
             {
                 throw new InvalidOperationException(
-                    $"The LoRA for {characterName} was trained on base model '{artifact.BaseModelId}', but this render "
-                    + $"uses '{model.ModelIdentifier}'. A LoRA only binds to the checkpoint it was trained against — "
-                    + "train a profile for this model, or select the model the LoRA was trained on.");
+                    $"The LoRA for {characterName} was trained on base model '{artifact.BaseModelId}' and is not "
+                    + $"declared loadable under '{model.ModelIdentifier}', which this render uses. A LoRA binds to the "
+                    + "checkpoint it was trained against, or to one declared for it on the artifact — train a profile "
+                    + "for this model, or declare this model on the artifact.");
             }
 
             if (string.IsNullOrWhiteSpace(artifact.TriggerToken))

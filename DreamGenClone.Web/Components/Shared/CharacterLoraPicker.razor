@@ -5,8 +5,10 @@
 @inject ICharacterLoraRepository LoraRepository
 
 @* THE character-LoRA picker. Every image surface renders through this component, so one rule is written once:
-   the MODEL decides what may be picked. A LoRA only binds to the checkpoint it was trained against, so the list
-   offered here comes from the qualified artifacts trained on the selected model's checkpoint and nothing else.
+   the MODEL decides what may be picked. A LoRA binds to the checkpoint it was trained against, so the list offered
+   here is the qualified artifacts for the selected model's checkpoint - which means trained on it OR declared loadable
+   under it, because Krea 2 trains on the raw bf16 DiT and renders with a Turbo repack, and a picker keyed on the
+   training file alone could never offer its LoRAs.
    No text is typed anywhere: the artifact is a pick list, the strength is a pick list, and the render records
    whichever values were visible here.
 
@@ -37,8 +39,8 @@
     else if (!_loading && _available.Count == 0)
     {
         <div class="form-text mt-1">
-            No qualified character LoRA is trained against
-            <span class="font-monospace">@ModelIdentifier</span>.
+            No qualified character LoRA binds to
+            <span class="font-monospace">@ModelIdentifier</span> — none was trained on it and none declares it.
             <a href="/asset-studio/lora-datasets" target="_blank" rel="noreferrer">Train or qualify one</a>
             — the render works without one.
         </div>
@@ -134,7 +136,7 @@
 @code {
     /// <summary>
     /// The checkpoint file name ComfyUI knows, e.g. <c>bigLust_v16.safetensors</c>. The picker lists exactly the
-    /// qualified artifacts trained against it.
+    /// qualified artifacts loadable under it — trained on it, or declaring it as a render model.
     /// </summary>
     [Parameter, EditorRequired]
     public string? ModelIdentifier { get; set; }

@@ -234,6 +234,34 @@ public sealed class CharacterLoraArtifact
     /// </summary>
     public List<string> RenderModelIdentifiers { get; set; } = [];
 
+    /// <summary>
+    /// Whether this artifact may be loaded under a render model. This is the ONE statement of the rule, so the picker
+    /// that OFFERS a LoRA and the render that LOADS it cannot disagree about it.
+    ///
+    /// <para>
+    /// The disagreement is not hypothetical, and cost a working LoRA both times it appeared: first the picker required
+    /// the training base while the artifact declared a render model, then - once the picker was fixed - this resolver
+    /// still required the training base, so the render refused a LoRA the operator had just been shown and selected.
+    /// </para>
+    ///
+    /// <para>
+    /// Two ways to qualify and no third: the LoRA was TRAINED against that model, or the operator DECLARED it loadable
+    /// under it. Nothing is inferred from the family, from the file name, or from a sibling artifact.
+    /// </para>
+    ///
+    /// <para>
+    /// Matched case-insensitively because the declaration is only ever a match KEY: the checkpoint file name sent to
+    /// the renderer comes from the model row, never from this list, so a difference in case here cannot load a
+    /// different file - it could only cause a spurious refusal.
+    /// </para>
+    /// </summary>
+    public bool LoadsUnder(string modelIdentifier)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelIdentifier);
+        return string.Equals(BaseModelId, modelIdentifier, StringComparison.OrdinalIgnoreCase)
+            || RenderModelIdentifiers.Contains(modelIdentifier, StringComparer.OrdinalIgnoreCase);
+    }
+
     public string TriggerToken { get; set; } = string.Empty;
     public string FileRelativePath { get; set; } = string.Empty;
     public string Sha256 { get; set; } = string.Empty;

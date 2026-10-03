@@ -980,10 +980,10 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
             "SELECT PayloadJson FROM CharacterLoraArtifacts WHERE Status = 'Qualified' "
             + "ORDER BY Version DESC, CreatedUtc DESC;";
         var qualified = await ReadPayloadsAsync<CharacterLoraArtifact>(command, cancellationToken);
+
+        // The rule itself belongs to the artifact, so this filter and the render's resolver ask the same question.
         return qualified
-            .Where(artifact =>
-                string.Equals(artifact.BaseModelId, requested, StringComparison.Ordinal)
-                || artifact.RenderModelIdentifiers.Contains(requested, StringComparer.Ordinal))
+            .Where(artifact => artifact.LoadsUnder(requested))
             .ToList();
     }
 
