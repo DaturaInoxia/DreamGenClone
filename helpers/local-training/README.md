@@ -121,6 +121,22 @@ ssh -i ~/.ssh/dgcomfy_ed25519 'wood-game-main\kenac@192.168.0.11' 'cmd /c D:\lor
 ssh -i ~/.ssh/dgcomfy_ed25519 'wood-game-main\kenac@192.168.0.11' 'schtasks /run /tn DGLoraTrainService'
 ```
 
+### Proving the dispatch path WITHOUT spending money
+
+`krea2-serverless-preflight.py` runs **on the host** and proves every part of the path short of the run itself: it
+imports the serverless dependencies, resolves every setting, lists the network volume with the configured S3
+credentials, and authenticates to the RunPod endpoint's API. Run it with the service's own interpreter:
+
+```powershell
+ssh -i ~/.ssh/dgcomfy_ed25519 'wood-game-main\kenac@192.168.0.11' ^
+  'D:\lora-training-service\venv\Scripts\python.exe D:\lora-training-service\krea2-serverless-preflight.py'
+```
+
+It reads its settings from `start-service.bat` and `serverless-secrets.bat` rather than taking them on a command
+line, so it also catches a `.bat` saved with LF-only endings — the documented trap. A real Krea 2 run costs about
+an hour and $3, so a wrong bucket or a mistyped key should fail here instead. Copy the script to the host alongside
+`lora_train_service.py`.
+
 Keep `start-service.bat` and `serverless-secrets.bat` **CRLF** — an LF-only `.bat` silently produces an empty log
 and no service.
 
