@@ -78,16 +78,33 @@ Do not "optimise" the volume by re-staging the fp8 files.
 
 ## Deploying
 
-**RunPod GitHub Integration** ("Start from GitHub Repo", repo `DaturaInoxia/DreamGenClone`, branch
-`development`) — RunPod clones the repo, builds this Dockerfile, and applies it to the endpoint.
-Images are **not** published to GHCR and there is **no** GitHub Actions worker workflow; that is the
-established decision on this repo, recorded in `dwpose-worker/Dockerfile`, and it is why
-`.github/workflows/` does not exist. The README at `serverless/README.md` still describes the older
-GHCR/Actions route and is out of date on this point.
+Built by the restored **`build-serverless-worker`** GitHub Actions workflow, pushing to:
 
-Because a worker mounts the volume at `/runpod-volume` (a pod mounts the *same* volume at
-`/workspace` — only the prefix differs), the endpoint must be pinned to **EU-RO-1**: a serverless
-endpoint mounting a network volume is restricted to that volume's data center.
+```
+ghcr.io/daturoinoxia/dreamgenclone/dreamgen-krea2-training-worker:<tag>
+```
+
+Run it from *Actions → build-serverless-worker → Run workflow* with worker `krea2-training`, **or**
+just push any change under this directory — the workflow carries a path-filtered `push` trigger for
+it, so the published image cannot silently drift from the committed Dockerfile.
+
+One-time setup: set the GHCR package visibility to **Public** (repo → Packages → package → Settings)
+so the endpoint pulls it without credentials. If it stays private, pass a fine-grained PAT with
+`read:packages` in the endpoint's container registry config.
+
+### Why GHCR is back after `8f18235` deleted it
+
+That commit removed the GHCR/Actions pipelines as *"superseded by RunPod GitHub Integration"*, and
+`dwpose-worker/Dockerfile` records the same reasoning. It holds only for **console-driven** deploys:
+the Runpod v2 API's `POST /v2/serverless` takes `image` and nothing else, and
+`unevaluatedProperties: false` rejects a GitHub-source field. So an Integration-built endpoint can
+neither be scripted nor recreated from this repository — which is exactly what broke the moment we
+needed a new worker. GHCR restores reproducibility. The other workers remain manual-only; only this
+one auto-builds.
+
+The endpoint must be pinned to **EU-RO-1**, because a serverless endpoint mounting a network volume
+is restricted to that volume's data center. A worker mounts the volume at `/runpod-volume`; a pod
+mounts the *same* volume at `/workspace` — only the prefix differs.
 
 ## GPU pools and the CUDA constraint
 
