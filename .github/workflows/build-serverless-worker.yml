@@ -120,3 +120,9 @@ jobs:
           context: helpers/runpod/serverless/${{ steps.resolve.outputs.worker }}-worker
           push: true
           tags: ${{ steps.meta.outputs.image_ref }}
+          # Layer cache in the Actions cache. Without it every build re-pulls the ~7 GB PyTorch base
+          # and re-runs the whole ~5 GB pip install - the first build took 32 minutes. With it, a
+          # handler.py edit only invalidates the final COPY layer, so iteration is ~1-2 minutes.
+          # mode=max caches intermediate layers too, which is what the pip layer needs.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

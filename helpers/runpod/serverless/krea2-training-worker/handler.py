@@ -44,6 +44,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import runpod
@@ -88,10 +89,12 @@ PROVEN = {
     "resolution": [1024, 1024],
 }
 
-# musubi's own defaults for these two are fine, but we pin them so the dtype can never drift with a
-# library upgrade.
-VAE_DTYPE = "bfloat16"
-TEXT_ENCODER_DTYPE = "bfloat16"
+# NO --vae_dtype / --text_encoder_dtype FLAGS. Both appear in musubi's `--help` for the Krea 2 cache
+# scripts, but any SUPPLIED value is rejected at runtime:
+#   ValueError: VAE dtype is not supported in Krea 2 (uses the Qwen-Image VAE default).
+# That is exactly how the first endpoint smoke test died (job c38e5b98, exit code 1 at cache_latents
+# after 6.2 s). Both options already default to bfloat16, so passing them added nothing and only
+# created a way to fail. Do not re-add them.
 
 NETWORK_MODULE = "networks.lora_krea2"
 
@@ -323,6 +326,7 @@ def handler(job: dict) -> dict:
     output_volume_dir = Path(_optional_str(job_input, "outputVolumeDir", PROVEN["output_volume_dir"]))
 
     started = time.monotonic()
+    started_iso = datetime.now(timezone.utc).isoformat()
     gpu = _gpu_description()
 
     _verify_environment()
@@ -350,8 +354,6 @@ def handler(job: dict) -> dict:
             str(dataset_toml),
             "--vae",
             str(models["vae"]),
-            "--vae_dtype",
-            VAE_DTYPE,
             "--skip_existing",
         ],
         work_dir / "cache_latents.log",
@@ -365,8 +367,6 @@ def handler(job: dict) -> dict:
             str(dataset_toml),
             "--text_encoder",
             str(models["text_encoder"]),
-            "--text_encoder_dtype",
-            TEXT_ENCODER_DTYPE,
             "--skip_existing",
         ],
         work_dir / "cache_text_encoder.log",
@@ -440,17 +440,43 @@ def handler(job: dict) -> dict:
     shutil.copyfile(produced, final_path)
 
     duration = time.monotonic() - started
+    sha256 = _sha256_of(final_path)
+
+    # The RunPod training contract the app's RunPodCharacterLoraTrainingDispatchAdapter REQUIRES:
+    #   output.artifact.{fileRelativePath, sha256, byteLength}  (>= 1 byte)
+    #   output.statusHistory / output.logs / output.samples / output.checkpoints  (all ARRAYS)
+    # RunPod wraps this dict as `output`, so the keys below are top-level here. Returning a flat
+    # {status, loraPath, ...} object instead makes the app throw
+    # "Completed RunPod LoRA training response did not contain output.artifact."
+    # `artifact.fileRelativePath` is the provider-side path to the artifact - the local adapter
+    # likewise reports an absolute host path (D:\ComfyUI\models\loras\...), not a true relative one.
     return {
-        "status": "ok",
-        "outputName": output_name,
-        "loraPath": str(final_path),
-        "loraBytes": final_path.stat().st_size,
-        "loraSha256": _sha256_of(final_path),
-        "datasetImages": len(images),
-        "datasetVolumePath": str(dataset_dir),
+        "artifact": {
+            "fileRelativePath": str(final_path),
+            "loraName": produced.name,
+            "sha256": sha256,
+            "byteLength": final_path.stat().st_size,
+        },
+        "statusHistory": [
+            {"state": "running", "at": started_iso},
+            {"state": "completed", "at": datetime.now(timezone.utc).isoformat()},
+        ],
+        "logs": [
+            {"name": "cache_latents", "text": _tail(work_dir / "cache_latents.log")},
+            {"name": "cache_text_encoder", "text": _tail(work_dir / "cache_text_encoder.log")},
+            {"name": "train", "text": _tail(work_dir / "train.log")},
+        ],
+        # No sample images and no intermediate checkpoints are produced yet. Emitted as empty ARRAYS
+        # rather than omitted, because the adapter reads them unconditionally.
+        "samples": [],
+        "checkpoints": [],
+        # Extra diagnostics. The adapter ignores unknown keys, and these are what make a job
+        # measurable (s/step on real hardware, which pool was used, what recipe actually ran).
         "gpu": gpu,
         "durationSec": round(duration, 1),
         "stepSeconds": {k: round(v, 1) for k, v in step_seconds.items()},
+        "datasetImages": len(images),
+        "datasetVolumePath": str(dataset_dir),
         "recipe": {
             "epochs": epochs,
             "maxTrainSteps": max_train_steps,
@@ -464,13 +490,6 @@ def handler(job: dict) -> dict:
             "mixedPrecision": PROVEN["mixed_precision"],
             "discreteFlowShift": PROVEN["discrete_flow_shift"],
             "networkModule": NETWORK_MODULE,
-            "vaeDtype": VAE_DTYPE,
-            "textEncoderDtype": TEXT_ENCODER_DTYPE,
-        },
-        "logs": {
-            "cacheLatents": _tail(work_dir / "cache_latents.log"),
-            "cacheTextEncoder": _tail(work_dir / "cache_text_encoder.log"),
-            "train": _tail(work_dir / "train.log"),
         },
     }
 
