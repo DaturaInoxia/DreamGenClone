@@ -19,7 +19,19 @@
             <h4 class="mb-1">Curate LoRA Dataset</h4>
             <div class="font-monospace small text-muted text-break">@DatasetId</div>
         </div>
-        <a href="/asset-studio" class="btn btn-outline-secondary btn-sm">Back to Asset Manager</a>
+        <div class="d-flex flex-wrap gap-2">
+            @* This page is where the shoot ENDS and nothing here led back to the cells that feed it, so landing on it
+               made the workspace reachable only by typing its URL. The section name is the tab CharacterStudio
+               already shows ("LoRA images"), and the section query is what opens it. *@
+            @if (_dataset is not null)
+            {
+                <a class="btn btn-outline-primary btn-sm"
+                   href="/characters/@Uri.EscapeDataString(_dataset.CharacterTemplateId)?section=LoRA%20images">
+                    <i class="bi bi-images me-1"></i>Shoot / approve cells
+                </a>
+            }
+            <a href="/asset-studio" class="btn btn-outline-secondary btn-sm">Back to Asset Manager</a>
+        </div>
     </div>
 
     @if (!string.IsNullOrWhiteSpace(_error))
@@ -86,6 +98,53 @@
                 }
             </div>
         </section>
+
+        @* Where the operator is, and what the next action is. Every control on this page is dead until the cells have
+           accepted images, and the page never said so: it showed four disabled controls and a badge whose meaning
+           ("pending" = no attempt of this cell has been accepted yet) lives only in the registration service. *@
+        @if (IsFrozen)
+        {
+            <div class="alert alert-success d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <span><strong>Frozen.</strong> The manifest is recorded, so this dataset is ready to train.</span>
+                <a class="btn btn-primary btn-sm" href="/asset-studio/lora-datasets/@DatasetId/training">Open Training Workflow</a>
+            </div>
+        }
+        else if (_preview is null)
+        {
+            <div class="alert alert-secondary">Reading this dataset's cells...</div>
+        }
+        else if (_preview.Refused.Count > 0)
+        {
+            <div class="alert alert-warning">
+                <strong>@_preview.Refused.Count cell(s) block registration.</strong> A cell contributes exactly one
+                training image, so revoke every accepted attempt but the one you want for each of those cells, then
+                come back. Registration cannot proceed while any cell has more than one.
+            </div>
+        }
+        else if (_preview.Ready.Count > 0)
+        {
+            <div class="alert alert-primary">
+                <strong>@_preview.Ready.Count cell(s) are ready.</strong> Record the approval facts below, press
+                <strong>Register</strong>, accept the members that appear, then freeze the manifest.
+            </div>
+        }
+        else if (_members.Count > 0)
+        {
+            <div class="alert alert-primary">
+                Every cell that has an accepted image is registered. Accept the members below, then press
+                <strong>Freeze Exact Manifest</strong>.
+            </div>
+        }
+        else
+        {
+            <div class="alert alert-secondary">
+                <strong>Nothing to register yet.</strong> None of the @_preview.Pending.Count cell(s) has an accepted
+                image, so no control on this page can do anything until some do.
+                <a class="alert-link"
+                   href="/characters/@Uri.EscapeDataString(_dataset.CharacterTemplateId)?section=LoRA%20images">Shoot the cells</a>
+                on the character's LoRA images tab and accept one attempt per cell there, then come back.
+            </div>
+        }
 
         @if (!IsFrozen)
         {
@@ -231,10 +290,8 @@
             </section>
         }
 
-        @if (_members.Count == 0)
-        {
-            <div class="alert alert-secondary">No generated candidates have been registered for this dataset yet.</div>
-        }
+        @* The "nothing has been registered yet" alert that stood here said what the state banner above now says,
+           with the reason and the next action. Two messages for one fact is how a page reads as noise. *@
         @foreach (var editor in _members)
         {
             <section class="card mb-3" aria-label="Dataset member @editor.Member.Ordinal">
