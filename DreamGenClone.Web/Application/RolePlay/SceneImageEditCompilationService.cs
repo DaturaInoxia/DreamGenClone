@@ -81,7 +81,7 @@ public sealed class SceneImageEditCompilationService : ISceneImageEditCompilatio
             ? await _editorModels.ResolveAsync(cancellationToken)
             : await _editorModels.ResolveByIdAsync(request.EditorModelId, cancellationToken);
         var compiler = _compilers.Resolve(editorModel);
-        var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(request.RawIntent.Trim(), request.ClarificationHistory, request.Region));
+        var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(request.RawIntent.Trim(), request.ClarificationHistory, request.Region, request.Outpaint));
         var latest = await _editRepository.GetLatestAttemptAsync(editSession.Id, cancellationToken);
         var attempt = new SceneImageEditCompilationAttempt
         {
@@ -90,6 +90,7 @@ public sealed class SceneImageEditCompilationService : ISceneImageEditCompilatio
             RawIntent = request.RawIntent.Trim(),
             ClarificationContextJson = request.ClarificationHistory.Count == 0 ? null : JsonSerializer.Serialize(request.ClarificationHistory, JsonOptions),
             RegionJson = request.Region is null ? null : JsonSerializer.Serialize(request.Region, JsonOptions),
+            OutpaintJson = request.Outpaint is null ? null : JsonSerializer.Serialize(request.Outpaint, JsonOptions),
             SourceImageSha256 = input.Sha256,
             Status = SceneImageEditCompilationAttemptStatus.Pending,
             ResolvedModelSnapshotJson = SceneImageMultimodalInput.SerializeResolutionSnapshot(resolved),

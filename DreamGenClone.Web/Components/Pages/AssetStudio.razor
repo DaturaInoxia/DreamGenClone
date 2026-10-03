@@ -7,6 +7,7 @@
 @implements IAsyncDisposable
 
 @inject ISceneAssetService AssetService
+@inject ISceneAssetImageTagService TagService
 @inject ISceneAssetTreeService AssetTree
 @inject ILogger<AssetStudio> Logger
 
@@ -25,6 +26,86 @@
     {
         <div class="alert alert-danger">@_error</div>
     }
+
+    @* B-140 FR-10: the reference-image search. Tags are what turn "show me every NSFW kneeling reference" into a query
+       instead of a walk through thumbnails, and it lives HERE because this is the page an operator looks for one on.
+       Read-only chips: the place to EDIT an image's tags is the image's own card, where the picture is bigger than a
+       thumbnail and the edit is unmistakably about that picture. *@
+    <div class="card mb-3">
+        <div class="card-header"><strong>Find reference images by tag</strong></div>
+        <div class="card-body border-bottom py-2">
+            <div class="row g-2 align-items-end">
+                <div class="col-sm-5">
+                    <label class="form-label small mb-1" for="tag-search">Tag</label>
+                    <input id="tag-search" type="search" class="form-control form-control-sm" @bind="_tagSearch"
+                           @bind:event="oninput" @onkeydown="OnTagSearchKeyDownAsync"
+                           placeholder="kneeling, nsfw, all fours, missionary, becky" />
+                </div>
+                <div class="col-sm-7 d-flex flex-wrap gap-2 align-items-center">
+                    <button type="button" class="btn btn-sm btn-primary"
+                            disabled="@(_tagSearchBusy || string.IsNullOrWhiteSpace(_tagSearch))" @onclick="SearchByTagAsync">
+                        Search
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_tagSearchBusy"
+                            @onclick="ClearTagSearch">
+                        Clear
+                    </button>
+                    <span class="text-muted small">Matches a tag's value, so "kneel" finds <code>stance:kneeling</code>.</span>
+                </div>
+            </div>
+            <div class="d-flex flex-wrap gap-3 align-items-center mt-2">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="tag-search-references-only"
+                           checked="@_tagSearchReferencesOnly" @onchange="OnReferencesOnlyChanged" />
+                    <label class="form-check-label small" for="tag-search-references-only">
+                        Only images approved as references
+                    </label>
+                </div>
+                <span class="text-muted small">
+                    An image becomes a reference when it is approved for production; that approval is what the reference
+                    pickers read, so this is the same bar they use.
+                </span>
+            </div>
+            @if (_tagSearchError is not null)
+            {
+                <div class="alert alert-warning py-1 px-2 small mt-2 mb-0">@_tagSearchError</div>
+            }
+            @if (_tagSearched && _tagResults.Count == 0 && _tagSearchError is null)
+            {
+                <div class="text-muted small mt-2">No image carries a tag matching "@_tagSearch".</div>
+            }
+        </div>
+        @if (_tagResults.Count > 0)
+        {
+            <div class="card-body">
+                <div class="text-muted small mb-2">
+                    @ShownTagResults.Count image(s), newest first@(_tagSearchReferencesOnly ? " (approved references only)" : string.Empty)
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    @foreach (var tagged in ShownTagResults)
+                    {
+                        <div class="card" style="width:210px;">
+                            @if (!string.IsNullOrWhiteSpace(tagged.FileRelativePath))
+                            {
+                                <img src="/scene-images/@tagged.FileRelativePath" class="card-img-top"
+                                     style="height:130px;object-fit:cover;background:#101010;" alt="Tagged reference image" />
+                            }
+                            <div class="card-body p-2 small">
+                                <div class="text-truncate fw-semibold" title="@OwnerLabel(tagged)">@OwnerLabel(tagged)</div>
+                                <div class="text-muted text-truncate" title="@tagged.Prompt">@tagged.Prompt</div>
+                                <div class="mt-1">
+                                    <ImageTags Image="tagged" />
+                                </div>
+                                <a class="btn btn-sm btn-outline-secondary py-0 mt-1" href="/asset-studio/@tagged.AssetId">
+                                    Open asset
+                                </a>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
 
     <div>
             <div class="card mb-3">
@@ -250,6 +331,33 @@
     private bool _hasInFlight;
     private string? _error;
 
+    /// <summary>The tag search box, its result set and whether a search has been run (so "nothing matches" is stated
+    /// only after a search rather than before the first one).</summary>
+    private string _tagSearch = string.Empty;
+    private List<SceneAssetImage> _tagResults = [];
+    private bool _tagSearchBusy;
+    private bool _tagSearched;
+    private string? _tagSearchError;
+
+    /// <summary>
+    /// True to show only images that are USABLE AS REFERENCES. Scoped by the production approval, because that approval
+    /// is what the reference pickers read: scoping by asset type or by a guess about the picture would answer a
+    /// different question than the one asked.
+    /// </summary>
+    private bool _tagSearchReferencesOnly;
+
+    /// <summary>
+    /// The results after the reference scope is applied. A DISPLAY scope over the returned rows rather than a second
+    /// query: the search already happened, and re-running it with a narrower WHERE would be a second definition of what
+    /// a tag search is.
+    /// </summary>
+    private IReadOnlyList<SceneAssetImage> ShownTagResults => _tagSearchReferencesOnly
+        ? _tagResults.Where(image => image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved).ToList()
+        : _tagResults;
+
+    private void OnReferencesOnlyChanged(ChangeEventArgs args)
+        => _tagSearchReferencesOnly = args.Value is true;
+
     private System.Threading.Timer? _timer;
     private readonly object _timerLock = new();
 
@@ -452,6 +560,57 @@
         {
             SelectAsset(item.AssetId);
         }
+    }
+
+    /// <summary>The asset a searched image belongs to, by its display name, falling back to the id only when the asset
+    /// is not in the loaded list — which would mean it was deleted between the search and the render.</summary>
+    private string OwnerLabel(SceneAssetImage image)
+        => _assets.FirstOrDefault(asset => string.Equals(asset.Id, image.AssetId, StringComparison.Ordinal))?.Name
+            ?? image.AssetId;
+
+    private async Task OnTagSearchKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (string.Equals(args.Key, "Enter", StringComparison.Ordinal))
+        {
+            await SearchByTagAsync();
+        }
+    }
+
+    private async Task SearchByTagAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_tagSearch))
+        {
+            return;
+        }
+
+        _tagSearchBusy = true;
+        _tagSearchError = null;
+        try
+        {
+            _tagResults = (await TagService.SearchImagesByTagAsync(_tagSearch)).ToList();
+            _tagSearched = true;
+        }
+        catch (Exception exception)
+        {
+            // A refused search (an unusable query) is stated rather than shown as an empty result set, which would
+            // look exactly like a search that found nothing.
+            _tagSearchError = exception.Message;
+            _tagResults = [];
+            _tagSearched = true;
+            Logger.LogWarning(exception, "Tag search failed for query '{Query}'.", _tagSearch);
+        }
+        finally
+        {
+            _tagSearchBusy = false;
+        }
+    }
+
+    private void ClearTagSearch()
+    {
+        _tagSearch = string.Empty;
+        _tagResults = [];
+        _tagSearched = false;
+        _tagSearchError = null;
     }
 
     private static int ItemCount(AssetTreeGroup group)

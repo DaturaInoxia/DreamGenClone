@@ -62,11 +62,24 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
     private readonly IdentityFaceReferenceResolver? _identityFaceResolver;
 
     /// <summary>
+    /// Optional: only a native-reference render whose step bound an identity-pack BODY reference needs it, and such a
+    /// render fails fast when it is absent rather than leaving the build to the model.
+    /// </summary>
+    private readonly IdentityBodyReferenceResolver? _identityBodyResolver;
+
+    /// <summary>
     /// Optional: only a render that SELECTED a character LoRA needs it, and such a render fails fast when it is
     /// absent rather than rendering the character without their identity (which would be indistinguishable from a
     /// render that applied it). A render that selected none never asks for it.
     /// </summary>
     private readonly ISceneImageCharacterLoraResolver? _characterLoraResolver;
+
+    /// <summary>
+    /// Optional: only a render that SELECTED a scene LoRA (unlock / act / anatomy / style) needs it, and such a
+    /// render fails fast when it is absent rather than rendering without the LoRA the operator picked (which would be
+    /// indistinguishable from a render that applied it). A render that selected none never asks for it.
+    /// </summary>
+    private readonly ISceneLoraResolver? _sceneLoraResolver;
 
     public SceneImageRenderingJobHandler(
         ISceneImageRepository repository,
@@ -87,7 +100,9 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         ICharacterImageAssetStorageService? identityStorage = null,
         IReferenceStrategyResolver? referenceStrategyResolver = null,
         IdentityFaceReferenceResolver? identityFaceResolver = null,
-        ISceneImageCharacterLoraResolver? characterLoraResolver = null)
+        IdentityBodyReferenceResolver? identityBodyResolver = null,
+        ISceneImageCharacterLoraResolver? characterLoraResolver = null,
+        ISceneLoraResolver? sceneLoraResolver = null)
     {
         _repository = repository;
         _storage = storage;
@@ -107,7 +122,9 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         _identityStorage = identityStorage;
         _referenceStrategyResolver = referenceStrategyResolver;
         _identityFaceResolver = identityFaceResolver;
+        _identityBodyResolver = identityBodyResolver;
         _characterLoraResolver = characterLoraResolver;
+        _sceneLoraResolver = sceneLoraResolver;
     }
 
     public string JobType => BackgroundJobTypes.SceneImageRendering;
@@ -173,6 +190,16 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                 injectedPrompt = CharacterLoraPromptTokens.Prepend(injectedPrompt, characterLoras);
             }
 
+            // Scene LoRAs (non-identity: unlock / act / anatomy / style), the operator's multi-select. Resolved from
+            // the catalog and filtered to this model's family; a render that selected none gets an empty list and its
+            // graph is byte-identical to one made before the catalog existed. Chained BEFORE the character LoRAs
+            // above (the graph builder orders them), so identity stays closest to the subject.
+            var sceneLoras = await ResolveSceneLorasAsync(resolved, image.SettingsJson, cancellationToken);
+            if (sceneLoras.Count > 0)
+            {
+                resolved = resolved with { SceneLoras = sceneLoras };
+            }
+
             // Permanent observability: record the EXACT payload the app submits to ComfyUI so the
             // submitted positive/negative/seed/checkpoint can be audited against the script or
             // provider results, and verified unchanged from the user's pasted prompt.
@@ -193,9 +220,16 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                 cfg = ResolveAuditedCfg(resolved, image.SettingsJson),
                 sampler = ResolveAuditedSampler(resolved, image.SettingsJson),
                 scheduler = ResolveAuditedScheduler(resolved, image.SettingsJson),
-                // The LoRA chain belongs in the audited request for the same reason the sampler recipe does: an
-                // image made with version 1 of a character's LoRA must be tellable apart from version 2, and the
-                // recorded checksum is what makes that comparison exact rather than eyeballed.
+                // The LoRA chains belong in the audited request for the same reason the sampler recipe does: an
+                // image made with version 1 of a character's LoRA must be tellable apart from version 2, the
+                // recorded checksum is what makes that comparison exact rather than eyeballed, and an image made
+                // with an unlock or an act LoKr in the stack must be tellable apart from one made without it.
+                sceneLoras = sceneLoras.Select(lora => new
+                {
+                    file = lora.FileName,
+                    strength = lora.Strength,
+                    purpose = lora.Purpose
+                }).ToArray(),
                 loras = characterLoras.Select(lora => new
                 {
                     artifactId = lora.ArtifactId,
@@ -451,6 +485,23 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
     /// composition — measured 2026-09-23), then the approved scene-asset references (location, pose,
     /// props). Order is request data, and the resolver revalidates every asset against its approved
     /// immutable selection, so a stale reference fails fast instead of being rendered anyway.
+    ///
+    /// <para>
+    /// Identity-pack bindings are resolved here too, and they are a DIFFERENT store from approved scene assets: a pack
+    /// image is a <c>SceneImageReferenceAsset</c> addressed by its own pack id, so it can never be handed to
+    /// <see cref="MediaEditReferenceResolver"/> (which reads approved <c>SceneAssets</c> and skips anything without an
+    /// asset id). The pack is where a character's approved faces and builds actually live, which is why a bound pack
+    /// face or build travels as its own reference image instead of being dropped on the floor — the silent drop the
+    /// reference rules forbid. The face and build resolvers re-read the pack, so a reference superseded or unapproved
+    /// between queueing and rendering fails the render rather than quietly producing a different person.
+    /// </para>
+    ///
+    /// <para>
+    /// Exactly one route brings in a pack FACE: the channel (<c>IdentityReferenceBindingsJson</c>) serves the
+    /// identity-controlled render — the pack dropdown's canonical face — while a step that BINDS a pack face serves the
+    /// native-reference render, where the operator's exact view is what travels. The composition host sends the channel
+    /// only on the identity-controlled route and never both, so the two cannot stack.
+    /// </para>
     /// </summary>
     private async Task<List<ReferenceConditionedImageInput>> BuildNativeReferencesAsync(
         SceneImageRecord image,
@@ -498,30 +549,125 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                     image.AppliedReferenceBindingsJson, JsonOptions)
                 ?? throw new InvalidOperationException("Applied reference bindings are invalid.");
 
-            var resolver = _referenceResolver
-                ?? throw new InvalidOperationException(
-                    "A native-reference render with scene-asset references requires the reference resolver.");
-
-            var assetReferences = await resolver.ResolveAsync(
-                resolved.RegisteredModelId ?? image.RequestedModelId,
-                applications,
-                qualifiedStrategy: "NativeMultiReference",
-                cancellationToken);
-
-            foreach (var reference in assetReferences)
+            var packBindings = applications.Where(IsIdentityPackBinding).ToList();
+            if (packBindings.Count > 0)
             {
-                await using var stream = await reference.OpenAsync(cancellationToken);
-                references.Add(new ReferenceConditionedImageInput
+                await AddIdentityPackReferencesAsync(packBindings, references, cancellationToken);
+            }
+
+            // Only the asset-backed bindings go to the asset resolver: a pack binding has no scene asset id to validate,
+            // and it is already resolved above, so nothing is left out by this split.
+            var assetBacked = applications.Where(application => !IsIdentityPackBinding(application)).ToList();
+            if (assetBacked.Count > 0)
+            {
+                var resolver = _referenceResolver
+                    ?? throw new InvalidOperationException(
+                        "A native-reference render with scene-asset references requires the reference resolver.");
+
+                var assetReferences = await resolver.ResolveAsync(
+                    resolved.RegisteredModelId ?? image.RequestedModelId,
+                    assetBacked,
+                    qualifiedStrategy: "NativeMultiReference",
+                    cancellationToken);
+
+                foreach (var reference in assetReferences)
                 {
-                    SemanticRole = reference.Description,
-                    FileName = reference.FileName,
-                    Content = await ReadAllBytesAsync(stream, cancellationToken)
-                });
+                    await using var stream = await reference.OpenAsync(cancellationToken);
+                    references.Add(new ReferenceConditionedImageInput
+                    {
+                        SemanticRole = reference.Description,
+                        FileName = reference.FileName,
+                        Content = await ReadAllBytesAsync(stream, cancellationToken)
+                    });
+                }
             }
         }
 
         return references;
     }
+
+    /// <summary>
+    /// Whether a binding supplies an image out of a character's approved identity PACK rather than an approved scene
+    /// asset. The two stores are not aliases: a pack image is a <c>SceneImageReferenceAsset</c> that only its own pack
+    /// can look up, so <c>SceneAssetImageId</c> is null on it and the asset resolver cannot serve it.
+    /// </summary>
+    private static bool IsIdentityPackBinding(ReferenceApplicationSelection application) =>
+        string.Equals(application.Source, nameof(ImageStepReferenceSourceKind.IdentityPackAsset), StringComparison.OrdinalIgnoreCase)
+        && !string.IsNullOrWhiteSpace(application.IdentityPackId)
+        && !string.IsNullOrWhiteSpace(application.ReferenceAssetId);
+
+    /// <summary>
+    /// Appends one reference image per bound pack FACE or BUILD, in the order the step planned them (the face first,
+    /// because the first reference anchors the frame). The slot kind decides which axis of the pack is read, and a pack
+    /// binding on any other element is refused by name rather than resolved as a guess: a pack carries faces and bodies
+    /// only, so a wardrobe or location binding that claims a pack is a blueprint bug, not a reference.
+    /// </summary>
+    private async Task AddIdentityPackReferencesAsync(
+        IReadOnlyList<ReferenceApplicationSelection> packBindings,
+        List<ReferenceConditionedImageInput> references,
+        CancellationToken cancellationToken)
+    {
+        var storage = _identityStorage
+            ?? throw new InvalidOperationException(
+                "A native-reference render with identity-pack references requires the identity asset storage service.");
+
+        foreach (var binding in packBindings
+            .OrderBy(binding => binding.Ordinal ?? int.MaxValue)
+            .ThenBy(binding => binding.ElementKey, StringComparer.Ordinal))
+        {
+            string semanticRole;
+            string fileName;
+            string relativePath;
+            if (string.Equals(binding.Kind, nameof(ImageStepSlotKind.Face), StringComparison.OrdinalIgnoreCase))
+            {
+                var resolver = _identityFaceResolver
+                    ?? throw new InvalidOperationException(
+                        "A native-reference render with a bound identity-pack face requires the identity face reference resolver.");
+                var face = await resolver.ResolveExactFaceAsync(
+                    binding.Ordinal ?? 0, binding.IdentityPackId!, binding.ReferenceAssetId!, cancellationToken);
+                semanticRole = $"approved identity face for {DescribePackOwner(binding)}"
+                    + (face.FaceView is { } faceView ? $" ({IdentityPackReferenceLabels.FaceView(faceView)})" : string.Empty);
+                fileName = $"{face.FaceAssetId}.png";
+                relativePath = face.FileRelativePath;
+            }
+            else if (string.Equals(binding.Kind, nameof(ImageStepSlotKind.Body), StringComparison.OrdinalIgnoreCase))
+            {
+                var resolver = _identityBodyResolver
+                    ?? throw new InvalidOperationException(
+                        "A native-reference render with a bound identity-pack build requires the identity body reference resolver.");
+                var body = await resolver.ResolveExactBodyAsync(
+                    binding.Ordinal ?? 0, binding.IdentityPackId!, binding.ReferenceAssetId!, cancellationToken);
+                var state = body.BodyView is { } bodyView && body.BodyState is { } bodyState
+                    ? $" ({IdentityPackReferenceLabels.BodyView(bodyView)} · {IdentityPackReferenceLabels.BodyState(bodyState)})"
+                    : string.Empty;
+                semanticRole = $"approved identity build for {DescribePackOwner(binding)}{state}";
+                fileName = $"{body.BodyAssetId}.png";
+                relativePath = body.FileRelativePath;
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"Reference '{binding.Kind ?? binding.ElementKey}' is bound to an identity-pack image, but a pack "
+                    + "carries faces and builds only. Bind it from an approved scene asset instead.");
+            }
+
+            await using var stream = await storage.OpenReadAsync(relativePath, cancellationToken);
+            references.Add(new ReferenceConditionedImageInput
+            {
+                SemanticRole = semanticRole,
+                FileName = fileName,
+                Content = await ReadAllBytesAsync(stream, cancellationToken)
+            });
+        }
+    }
+
+    /// <summary>
+    /// Whose pack image this is, for the reference's own name. The actor key is what a reference needs to carry so a
+    /// multi-character frame can be read back, and the binding's display label is deliberately NOT used here: the
+    /// resolved pack row names the same view authoritatively, and printing both reads as the same fact twice.
+    /// </summary>
+    private static string DescribePackOwner(ReferenceApplicationSelection binding) =>
+        string.IsNullOrWhiteSpace(binding.ActorKey) ? "character" : binding.ActorKey;
 
     private static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken cancellationToken)
     {
@@ -860,6 +1006,30 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
             ?? throw new InvalidOperationException(
                 "This render selects character LoRA(s), but the character LoRA resolver is not available, so the "
                 + "selected identity cannot be applied. Rendering without it would produce a different person.");
+        return await resolver.ResolveAsync(resolved, settings, cancellationToken);
+    }
+
+    /// <summary>
+    /// The NON-IDENTITY scene LoRAs this render applies (unlock / act / anatomy / style). No selection returns an
+    /// empty list without asking the catalog, so the common render costs nothing; a render that DID select one fails
+    /// fast when the resolver is not registered, because rendering without it would look exactly like success.
+    /// </summary>
+    private async Task<IReadOnlyList<ResolvedSceneLora>> ResolveSceneLorasAsync(
+        ResolvedImageModel resolved,
+        string settingsJson,
+        CancellationToken cancellationToken)
+    {
+        var settings = ReadStudioSettings(settingsJson);
+        if (settings?.SceneLoras is not { Count: > 0 })
+        {
+            return [];
+        }
+
+        var resolver = _sceneLoraResolver
+            ?? throw new InvalidOperationException(
+                "This render selects scene LoRA(s), but the scene-LoRA resolver is not available, so the selected "
+                + "LoRAs cannot be applied. Rendering without them would produce a different image from the one "
+                + "requested.");
         return await resolver.ResolveAsync(resolved, settings, cancellationToken);
     }
 

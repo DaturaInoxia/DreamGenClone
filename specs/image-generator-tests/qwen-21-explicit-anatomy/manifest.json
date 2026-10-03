@@ -1,0 +1,103 @@
+{
+  "status": "measured-but-not-production-usable-operator-rejected-most-outputs",
+  "operatorReview": {
+    "dateUtc": "2026-10-02",
+    "verdict": "going through most of the image, most of them are not good",
+    "consequence": "Per-image PASS/PARTIAL/FAIL grades in this package are STRUCTURAL presence checks assigned by the agent against a 'intended thing is in frame and not grossly broken' bar. They are NOT quality acceptance. The operator's bar (usable production still) governs, and on that bar the pipeline is not usable as configured.",
+    "stillLoadBearing": [
+      "negative prompt controls male erect state and size (requires cfg>1)",
+      "the envelope controls person count in 3+ person cells (cfg1/euler loses a participant)",
+      "the fused-organ coitus defect is fixed by naming the male body parts in frame",
+      "disembodied 'toy' close-ups are caused by our own framing wording and fixed by person anchors",
+      "the vulva LoRA removes pubic hair and body texture (measurable, not taste)"
+    ],
+    "notClaimed": "that any configuration in this package produces a good, shippable explicit image"
+  },
+  "area": "qwen-21-explicit-anatomy",
+  "completedUtc": "2026-10-02T00:00:00Z",
+  "model": {
+    "name": "Qwen-Image-2.1 (int8 convrot)",
+    "diffusionModel": "qwen_image_2.1_int8_convrot.safetensors",
+    "textEncoder": "qwen3vl_8b_int8_convrot.safetensors",
+    "vae": "qwen_image_2.1_vae_bf16.safetensors",
+    "host": "local ComfyUI WOOD-GAME-MAIN (RTX 5080 16 GB, ComfyUI 0.37.1)",
+    "note": "Text encoder is the 8B Qwen3-VL (hidden 4096). The 7B (hidden 3584) fails inside the DiT."
+  },
+  "envelopes": {
+    "envelope": {
+      "steps": 25, "cfg": 1.0, "sampler": "euler", "scheduler": "simple",
+      "note": "The app's currently-qualified 2.1 envelope. The negative branch is INERT at cfg 1."
+    },
+    "recipe": {
+      "steps": 30, "cfg": 3.0, "sampler": "er_sde", "scheduler": "beta",
+      "note": "Won the quality comparison and is what every LoRA author recommends; negative branch is LIVE."
+    }
+  },
+  "loras": {
+    "alpacas": {
+      "file": "NSFW Qwen by TheseAlpacas V2.safetensors",
+      "civitaiModel": 2958918, "civitaiVersion": 3357315, "bytes": 79744352,
+      "sha256": "83ABA822AD8EE10A1E836828F5088259D93BCE7B5F3419B46DBC0258C2BE46A9",
+      "verdict": "keep-conditional: act engagement only, 0.8-1.0, costs gloss"
+    },
+    "coachbate": {
+      "file": "qwen-image-2.1_penis_coachbate_preview1.safetensors",
+      "civitaiModel": 2952865, "civitaiVersion": 3344536, "bytes": 159436160,
+      "sha256": "0F79FAE880BA2B89960676E036DFEE1FEA6020F7ACBF6D1A333DC14B477CDEEB",
+      "verdict": "optional-looks-only: recurring notched/cleft glans; reduced person count in orgy"
+    },
+    "vulva": {
+      "file": "qwen21_v2_000002750.safetensors",
+      "civitaiModel": 2960871, "civitaiVersion": 3354330, "bytes": 79744256,
+      "sha256": "71D8EDBFBB693DA3B1ACDFE3A48C1C61942974CB1DFA864E5F0862630A0A3C4C",
+      "verdict": "do-not-ship-at-1.0: strips pubic hair + body texture, softens the vulva; base >= LoRA in all four distance rows"
+    }
+  },
+  "suites": {
+    "core":        { "cells": 4, "arms": 4, "renders": 16, "verdict": "base 7 PASS / 1 PARTIAL; LoRA arms 3 PASS / 5 PARTIAL; recipe envelope best in 3 of 4 cells" },
+    "multiperson": { "cells": 3, "arms": 4, "renders": 12, "verdict": "cfg1/euler renders 2 people for a 3-person DP; recipe renders 3 with both contacts; 4-person count never reliably held" },
+    "genital":     { "cells": 2, "arms": 3, "renders": 6,  "verdict": "chained LoRAs not better than base; macro point-of-penetration framing fails on all arms" },
+    "malestate":   { "cells": 4, "arms": 2, "renders": 8,  "verdict": "positive wording cannot set flaccid/semi/size" },
+    "maleneg":     { "cells": 2, "arms": 2, "renders": 4,  "verdict": "negative prompt DOES set flaccid and small-erect (requires cfg>1)" },
+    "female":      { "cells": 6, "arms": 2, "renders": 12, "verdict": "vulva legible only at hip-and-thighs or tighter; vulva LoRA is a regression at 1.0" },
+    "phantomfix":  { "cells": 2, "arms": 1, "renders": 2,  "verdict": "naming the male body parts in frame fixes the fused-organ coitus defect; the fusion negative adds nothing" },
+    "personframing": { "cells": 3, "arms": 2, "renders": 6, "verdict": "person anchors (face/chest/hands/thighs) remove the toy-like disembodied crop" },
+    "femaleneg":   { "cells": 6, "arms": 1, "renders": 0,  "verdict": "DEFINED BUT NOT RUN - no evidence in this package" }
+  },
+  "totals": { "renders": 66, "errors": 0, "viewed": 66 },
+  "app_findings": [
+    "The qualified 2.1 envelope (25/cfg1/euler/simple) must not be used for 3+ person cells: it silently drops a participant.",
+    "At cfg 1 the negative branch is inert, so male erect state/size control is unreachable in the app today.",
+    "The 2.1 graph hardcodes negative_prompt = '' - a configured, UI-backed negative text is required for state control.",
+    "Close-up prompts must require person anchors; 'the frame is filled by X' / 'alone in the frame' / 'only his lower torso and penis are in frame' produce a disembodied crop.",
+    "For coitus, name the male body parts present above the join.",
+    "Vulva legibility requires framing at hip-and-thighs or tighter; at full-length and medium-hip expect a slit."
+  ],
+  "correctionsSuperseded": [
+    "'the creampie close-up is the best male+female anatomy of the session' -> rejected frame: shaft grows from the woman's own pubic mound, no male body in frame.",
+    "'the vulva LoRA is a genuine win for female legibility' -> regression at 1.0.",
+    "'the base macro's opening is an unlit black void' -> the base macro is the most detailed vulva in the programme."
+  ],
+  "methodRule": "Judge anatomy on tools/contact-sheets output, never on a downscaled chat preview (all three wrong calls above happened at preview resolution).",
+  "runner": "helpers/local-comfyui-host/run-qwen21-nsfw-lora-proof.ps1",
+  "fetcher": "helpers/local-comfyui-host/fetch-qwen21-nsfw-lora.ps1",
+  "replay": {
+    "fetch": "fetch-qwen21-nsfw-lora.ps1 -ModelVersionId {3357315|3344536|3354330}",
+    "render": "run-qwen21-nsfw-lora-proof.ps1 -Suite {core|multiperson|genital|malestate|maleneg|female|phantomfix|personframing} [-DryRun]",
+    "sheets": "tools/contact-sheets/build_contact_sheet.py --spec artifacts/tmp/qwen21-nsfw-lora/sheet-spec.json --out-dir artifacts/tmp/qwen21-nsfw-lora/sheets"
+  },
+  "artifacts": {
+    "renders": "artifacts/tmp/qwen21-nsfw-lora/{r1-oral-intercourse,r2-solo-cum,s3-malestate,s4-multiperson,s5-genital,s6-maleneg,s7-female,s8-phantomfix,s9-personframing}/",
+    "sheets": "artifacts/tmp/qwen21-nsfw-lora/sheets/",
+    "committedSheets": "specs/image-generator-tests/qwen-21-explicit-anatomy/images/",
+    "note": "artifacts/ is git-ignored; every render is regenerable from the pinned seeds + prompts in the CASE files."
+  },
+  "notMeasured": [
+    "n = 1 seed per arm",
+    "LoRA strength sweep (all arms at 1.0); 0.4-0.5/0.7 untested",
+    "reliable 4-person composition",
+    "clitoris/minora/urethral and interior vaginal detail",
+    "the femaleneg suite; other published 2.1 anatomy LoRAs; LoRA + character-LoRA chaining"
+  ],
+  "appCodeChanged": false
+}

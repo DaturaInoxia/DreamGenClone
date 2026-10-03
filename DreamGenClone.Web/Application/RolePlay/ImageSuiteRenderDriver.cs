@@ -230,7 +230,15 @@ public sealed class ImageSuiteRenderDriver : IImageSuiteRenderDriver
                         BodyReference = poseCell?.Body,
                         // The run's character LoRAs, applied to EVERY image in the set so the whole run is one
                         // experiment. Null means no LoRA, which is a configured state: no LoRA node is emitted.
-                        CharacterLoras = request.CharacterLoras is { Count: > 0 } loras ? loras : null
+                        CharacterLoras = request.CharacterLoras is { Count: > 0 } loras ? loras : null,
+                        // Scene LoRAs (unlock / act / anatomy / style), the same channel as the character LoRAs. The
+                        // client owns the chain order: scene first, identity last.
+                        SceneLoras = request.SceneLoras is { Count: > 0 } sceneLoras ? sceneLoras : null,
+                        // The tags only THIS run knows: which position the image stands for, which variant of the
+                        // wording produced it, and which character was in it. The render adds what it resolved itself
+                        // (pose metadata, LoRAs, presets, model) and unions the two, so a set render is findable by
+                        // cell name, by character and by variant without the caller guessing any of those.
+                        DeclaredTags = DeclaredTagsFor(suite, cell, character, request.VariantKey)
                     });
 
                 rendered.Add(new ImageSuiteRenderItem(
@@ -257,6 +265,7 @@ public sealed class ImageSuiteRenderDriver : IImageSuiteRenderDriver
             rendered,
             skipped,
             request.CharacterLoras,
+            request.SceneLoras,
             character?.DisplayName);
 
         _logger.LogInformation(
@@ -383,6 +392,31 @@ public sealed class ImageSuiteRenderDriver : IImageSuiteRenderDriver
             face is null ? null : new SceneAssetIdentityConditioning(character.PackId, face.Id),
             new SceneAssetBodyReferenceConditioning(character.PackId, body.Id));
     }
+
+    /// <summary>
+    /// The tags a SUITE render can state about one cell and the render cannot: the position the image stands for (the
+    /// cell's own name), which variant of the wording was rendered, and which character was in it.
+    ///
+    /// <para>
+    /// Everything else is derived by the render from what it resolved — the pose's own metadata for a pose cell, the
+    /// LoRAs it chained, the presets that shaped the prompt — so this list is deliberately short. A tag invented here
+    /// that the render could have stated itself would be a second, drifting source for one fact.
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<string> DeclaredTagsFor(
+        ImageSuite suite,
+        ImageSuiteCell cell,
+        IdentityPackOwner? character,
+        string? variantKey)
+        => ImageTagCatalog.NormalizeAll(
+        [
+            ImageTagCatalog.Tag(ImageTagCatalog.Position, cell.Name),
+            // The variant is a fact about the WORDING, so it is declared beside the position rather than inferred from
+            // the prompt: nothing in the text says which per-model set it was authored for.
+            ImageTagCatalog.Tag(ImageTagCatalog.Variant, variantKey),
+            ImageTagCatalog.Tag(ImageTagCatalog.Source, suite.Kind == ImageSuiteKind.PoseLibrary ? "pose-suite" : "suite"),
+            character is null ? null : ImageTagCatalog.Tag(ImageTagCatalog.Character, character.DisplayName)
+        ]);
 
     /// <summary>
     /// The pose a cell stands for, read from its declared bindings. Kept as the POSE ID rather than a skeleton path:

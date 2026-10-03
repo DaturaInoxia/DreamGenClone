@@ -58,6 +58,13 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
     /// it, and such a render fails fast when it is absent rather than rendering the character without their identity.
     /// </summary>
     private readonly ISceneImageCharacterLoraResolver? _characterLoraResolver;
+
+    /// <summary>
+    /// Optional, exactly as <see cref="_characterLoraResolver"/> is: only a render that SELECTED a scene LoRA
+    /// (unlock / act / anatomy / style) needs it, and such a render fails fast when it is absent rather than rendering
+    /// without the LoRA the operator picked - which would look exactly like a render that applied it.
+    /// </summary>
+    private readonly ISceneLoraResolver? _sceneLoraResolver;
     private readonly ILogger<SceneAssetGenerationJobHandler> _logger;
 
     public SceneAssetGenerationJobHandler(
@@ -79,7 +86,8 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         IdentityFaceReferenceResolver? identityFaceResolver = null,
         IdentityBodyReferenceResolver? identityBodyReferenceResolver = null,
         IPoseLibraryService? poseLibrary = null,
-        ISceneImageCharacterLoraResolver? characterLoraResolver = null)
+        ISceneImageCharacterLoraResolver? characterLoraResolver = null,
+        ISceneLoraResolver? sceneLoraResolver = null)
     {
         _repository = repository;
         _storage = storage;
@@ -99,6 +107,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         _identityBodyReferenceResolver = identityBodyReferenceResolver;
         _poseLibrary = poseLibrary;
         _characterLoraResolver = characterLoraResolver;
+        _sceneLoraResolver = sceneLoraResolver;
         _logger = logger;
     }
 
@@ -204,6 +213,17 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
             model = loraApplication.Model;
             compiledPrompt = loraApplication.Prompt;
 
+            // Scene LoRAs (non-identity: unlock / act / anatomy / style), resolved from the catalog and filtered to
+            // THIS model's family. Applied to the resolved model beside the character LoRAs, which is the same channel
+            // the studio's render uses, so both paths build one chain in the one order the client owns (scene first,
+            // identity last). A selection that names a file the catalog does not carry, or one catalogued for another
+            // family, fails the render by name - the LoRA only binds to the family it was trained against.
+            var sceneLoras = await ResolveSceneLorasAsync(model, payload.SceneLoras, cancellationToken);
+            if (sceneLoras.Count > 0)
+            {
+                model = model with { SceneLoras = sceneLoras };
+            }
+
             image.AssociationMetadataJson = JsonSerializer.Serialize(new
             {
                 semanticDescription = image.Prompt,
@@ -214,7 +234,32 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 imageSize = payload.ImageSize,
                 negativePrompt,
                 seed,
-                referenceApplicationsJson = payload.ReferenceApplicationsJson
+                referenceApplicationsJson = payload.ReferenceApplicationsJson,
+                // The FULL input set, recorded beside the prompt so an image's own row answers "what made this" by
+                // itself. The pose, identity, body and LoRA ids travel on the payload and were being dropped here when
+                // the metadata was rewritten for the completed image - which is exactly the provenance gap: a completed
+                // image carried the prompt but no record of which pose, character or build it rendered. They are read
+                // back by SceneAssetImageGenerationDetails for the review surface and the round-trip.
+                posePresetId = payload.PosePresetId,
+                poseSkeletonRelativePath = payload.PoseSkeletonRelativePath,
+                poseStance = payload.PoseStance,
+                poseStrength = payload.PoseStrength,
+                identityPackId = payload.IdentityPackId,
+                identityFaceAssetId = payload.IdentityFaceAssetId,
+                bodyReferencePackId = payload.BodyReferencePackId,
+                bodyReferenceAssetId = payload.BodyReferenceAssetId,
+                bodyAngleView = payload.BodyAngleView,
+                bodyAngleSourceImageId = payload.BodyAngleSourceImageId,
+                characterLoras = payload.CharacterLoras,
+                // Recorded even when empty, so "this image carried no scene LoRA" is a stated fact rather than an
+                // absent field. An unlock or an act LoKr in the stack is part of what made the image, and the order
+                // they were chained in is part of the recipe. Serialized as the resolved record itself so the stored
+                // shape and the read-back type cannot drift.
+                sceneLoras,
+                // The lighting/expression presets that shaped this render, each with the clause it contributed. Both
+                // halves are kept: the clause is what rendered (and what a re-apply replaces), the key is what the
+                // picker reselects (B-140 D4).
+                appliedPresets = payload.AppliedPresets
             }, JsonOptions);
             await _repository.UpsertImageAsync(image, cancellationToken);
 
@@ -279,6 +324,15 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 compilerVersion
             }, JsonOptions);
             await CompleteWithBytesAsync(image, $"{image.Id}.png", bytes, cancellationToken);
+
+            // Tags are written once the image EXISTS to be found: a render that failed carries no tags, because a tag is
+            // a claim about a picture and a failed row has no picture. Collected by the one builder that decides which
+            // facts become tags, and ADDED rather than replaced so a tag an operator put on the row while it rendered
+            // survives (B-140 D2/FR-6).
+            await _repository.AddImageTagsAsync(
+                image.Id,
+                await BuildTagsAsync(payload, asset, sceneLoras, cancellationToken),
+                cancellationToken);
 
             _logger.LogInformation("Scene asset image generated: AssetId={AssetId}, ImageId={ImageId}, Model={Model}", asset.Id, image.Id, model.ModelIdentifier);
         }
@@ -845,6 +899,51 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
     /// Reads one approved pack reference's stored bytes. The label is what the failure names, so a missing file says
     /// which reference it was rather than "an image".
     /// </summary>
+    /// <summary>
+    /// The tags a completed image is stored with: what the caller DECLARED (character, position, wardrobe, location,
+    /// sex position — names only the caller has) merged with what the render DERIVED (pose metadata, scene LoRAs,
+    /// applied presets, model), through the one builder that owns that decision.
+    ///
+    /// <para>
+    /// The scene LoRAs are the list the render ALREADY resolved and chained, passed in rather than resolved again: a
+    /// second resolution could fail (a catalog row disabled in between) after the image was already saved, which would
+    /// turn a completed render into a failed job over its TAGS. The pose preset is re-read, which cannot fail the same
+    /// way: a preset that has been deleted reads as null and simply contributes no pose tags.
+    /// </para>
+    /// </summary>
+    private async Task<IReadOnlyList<string>> BuildTagsAsync(
+        SceneAssetGenerationJobPayload payload,
+        SceneAsset asset,
+        IReadOnlyList<ResolvedSceneLora> sceneLoras,
+        CancellationToken cancellationToken)
+    {
+        PosePreset? pose = null;
+        string? poseLibraryName = null;
+        if (!string.IsNullOrWhiteSpace(payload.PosePresetId) && _poseLibrary is { } library)
+        {
+            pose = await library.GetPresetAsync(payload.PosePresetId!.Trim(), cancellationToken);
+            if (pose is not null)
+            {
+                poseLibraryName = (await library.ListLibrariesAsync(cancellationToken))
+                    .FirstOrDefault(candidate => string.Equals(candidate.Id, pose.LibraryId, StringComparison.Ordinal))
+                    ?.Name;
+            }
+        }
+
+        return RenderTagBuilder.Build(new RenderTagRequest
+        {
+            DeclaredTags = payload.DeclaredTags,
+            AssetName = asset.Name,
+            AssetType = asset.Type,
+            ModelId = payload.ModelId,
+            Pose = pose,
+            PoseLibraryName = poseLibraryName,
+            PoseStance = payload.PoseStance,
+            SceneLoras = sceneLoras,
+            AppliedPresets = payload.AppliedPresets
+        });
+    }
+
     private async Task<byte[]> ReadIdentityReferenceBytesAsync(
         string fileRelativePath, string label, CancellationToken cancellationToken)
     {
@@ -878,5 +977,36 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         image.CompletedUtc = DateTime.UtcNow;
         image.UpdatedUtc = DateTime.UtcNow;
         await _repository.UpsertImageAsync(image, cancellationToken);
+    }
+
+    /// <summary>
+    /// The NON-IDENTITY scene LoRAs this render applies (unlock / act / anatomy / style), resolved from the catalog
+    /// and checked against the render model's family.
+    ///
+    /// <para>
+    /// The validation itself lives in <see cref="SceneLoraResolver"/>, whose raw-selection overload is the ONE owner of
+    /// what counts as a valid selection - this path and the studio's both reach it, so they cannot drift. What is owned
+    /// HERE is the fail-fast on an unregistered resolver, exactly as for the character-LoRA resolver: a render that
+    /// selected none never asks for it, and a render that DID select one must not proceed without it, because rendering
+    /// without the selected LoRA would look exactly like a render that applied it.
+    /// </para>
+    /// </summary>
+    private async Task<IReadOnlyList<ResolvedSceneLora>> ResolveSceneLorasAsync(
+        ResolvedImageModel model,
+        IReadOnlyList<Models.SceneImageLoraSelection>? selections,
+        CancellationToken cancellationToken)
+    {
+        if (selections is not { Count: > 0 })
+        {
+            return [];
+        }
+
+        var resolver = _sceneLoraResolver
+            ?? throw new InvalidOperationException(
+                "This render selects scene LoRA(s), but the scene-LoRA resolver is not available, so the selected "
+                + "LoRAs cannot be applied. Rendering without them would produce a different image from the one "
+                + "requested.");
+
+        return await resolver.ResolveAsync(model, selections, cancellationToken);
     }
 }

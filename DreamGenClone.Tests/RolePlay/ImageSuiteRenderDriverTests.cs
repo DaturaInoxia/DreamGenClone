@@ -185,6 +185,66 @@ public sealed class ImageSuiteRenderDriverTests
         Assert.Equal(1, report.LoraCount);
     }
 
+    /// <summary>
+    /// B-140 T1.3: the run's SCENE LoRAs (unlock / act / anatomy / style) reach every image in the set, and are
+    /// stated on the report. Without this the catalog path could not apply the unlock or the act LoKr a cell needs,
+    /// so an explicit cell would render weakly for a reason the operator could not fix from the surface.
+    ///
+    /// <para>
+    /// Counted SEPARATELY from the character LoRAs: a character LoRA says who is in the frame, a scene LoRA says what
+    /// the model was allowed or taught to render. One number for both would let a run that lost its unlock still read
+    /// as "1 LoRA applied".
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task RenderAsync_CarriesTheSceneLorasTheRunWasGiven()
+    {
+        var cells = new[] { Cell(0, "missionary", ("biglust", "A")), Cell(1, "doggy", ("biglust", "B")) };
+        var (driver, assets) = Build(cells);
+        var sceneLoras = new List<SceneImageLoraSelection>
+        {
+            new() { FileName = "krea2_nsfw_v4_v43exp.safetensors", Strength = 1.0 },
+            new() { FileName = "krea2_act_Cowgirl-POV-v1-step0800.safetensors", Strength = 1.0 }
+        };
+
+        var report = await driver.RenderAsync(new ImageSuiteRenderRequest(
+            SuiteId,
+            [cells[0].Id, cells[1].Id],
+            "biglust",
+            "model-1",
+            "1024x1024",
+            ImageSeedSource.Random,
+            "with the scene stack applied",
+            SceneLoras: sceneLoras));
+
+        // EVERY image in the run, and in the order given: the chain order is part of the recipe.
+        Assert.Equal(2, assets.Options.Count);
+        Assert.All(assets.Options, options =>
+        {
+            Assert.Equal(
+                ["krea2_nsfw_v4_v43exp.safetensors", "krea2_act_Cowgirl-POV-v1-step0800.safetensors"],
+                options!.SceneLoras!.Select(lora => lora.FileName));
+            Assert.All(options.SceneLoras!, lora => Assert.Equal(1.0, lora.Strength));
+        });
+
+        Assert.Equal(2, report.SceneLoraCount);
+        Assert.Equal(0, report.LoraCount);
+    }
+
+    [Fact]
+    public async Task RenderAsync_WithNoSceneLoras_AppliesNoneRatherThanAnEmptyChain()
+    {
+        var cells = new[] { Cell(0, "missionary", ("biglust", "A")) };
+        var (driver, assets) = Build(cells);
+
+        var report = await driver.RenderAsync(new ImageSuiteRenderRequest(
+            SuiteId, [cells[0].Id], "biglust", "model-1", "1024x1024", ImageSeedSource.Random, "no scene LoRAs"));
+
+        // Null, not an empty list: "no scene LoRA" is a configured state in which no loader node is emitted at all.
+        Assert.All(assets.Options, options => Assert.Null(options!.SceneLoras));
+        Assert.Equal(0, report.SceneLoraCount);
+    }
+
     [Fact]
     public async Task RenderAsync_WithNoLoras_AppliesNoneRatherThanAnEmptyChain()
     {

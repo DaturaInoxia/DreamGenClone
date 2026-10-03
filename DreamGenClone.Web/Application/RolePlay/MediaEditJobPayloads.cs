@@ -33,6 +33,13 @@ public sealed class MediaEditImageEditingJobPayload
     public string? EditorModelId { get; set; }
     public string? ReferenceApplicationsJson { get; set; }
 
+    /// <summary>
+    /// Serialized <c>SceneImageLoraSelection</c> list the operator picked for THIS edit (B-143), or null for no
+    /// scene LoRA. It travels on the queued payload so the run re-derives the same stack the operator saw when they
+    /// queued it - the same reason <see cref="ReferenceApplicationsJson"/> is carried rather than re-resolved.
+    /// </summary>
+    public string? SceneLorasJson { get; set; }
+
     /// <summary>The owning scope the run belongs to (a role-play session id when there is one).</summary>
     public string? ScopeId { get; set; }
 }

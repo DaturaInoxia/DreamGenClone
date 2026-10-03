@@ -165,7 +165,8 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
             GraphKind: graphKind,
             LoraName: loraName,
             LoraStrength: model.ImageEditorLoraStrength,
-            ResolutionBudget: resolutionBudget);
+            ResolutionBudget: resolutionBudget,
+            SceneImageModelFamily: model.SceneImageModelFamily);
     }
 
     public async Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(

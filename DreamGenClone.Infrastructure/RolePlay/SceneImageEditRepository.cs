@@ -137,11 +137,11 @@ public sealed class SceneImageEditRepository : ISceneImageEditRepository
             INSERT INTO SceneImageEditCompilationAttempts
                 (Id, EditSessionId, Ordinal, RawIntent, ClarificationContextJson, SourceImageSha256, Status,
                  ResolvedModelSnapshotJson, CompilerSchemaVersion, SystemPromptVersion, RawModelResponse,
-                 ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc, RegionJson)
+                 ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc, RegionJson, OutpaintJson)
             VALUES
                 ($id, $sessionId, $ordinal, $rawIntent, $clarification, $sourceSha, $status,
                  $modelSnapshot, $schemaVersion, $promptVersion, $rawResponse,
-                 $parsedResult, $error, $createdUtc, $startedUtc, $completedUtc, $region);
+                 $parsedResult, $error, $createdUtc, $startedUtc, $completedUtc, $region, $outpaint);
             """;
         AddAttemptParameters(command, attempt);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -160,6 +160,7 @@ public sealed class SceneImageEditRepository : ISceneImageEditRepository
             || existing.RawIntent != attempt.RawIntent
             || existing.ClarificationContextJson != attempt.ClarificationContextJson
             || existing.RegionJson != attempt.RegionJson
+            || existing.OutpaintJson != attempt.OutpaintJson
             || !ShaEquals(existing.SourceImageSha256, attempt.SourceImageSha256)
             || existing.ResolvedModelSnapshotJson != attempt.ResolvedModelSnapshotJson
             || existing.CompilerSchemaVersion != attempt.CompilerSchemaVersion
@@ -398,7 +399,7 @@ public sealed class SceneImageEditRepository : ISceneImageEditRepository
             CREATE INDEX IF NOT EXISTS IX_SceneImageEditSessions_Session ON SceneImageEditSessions (SessionId, UpdatedUtc DESC);
             CREATE TABLE IF NOT EXISTS SceneImageEditCompilationAttempts (
                 Id TEXT PRIMARY KEY, EditSessionId TEXT NOT NULL, Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
-                RawIntent TEXT NOT NULL, ClarificationContextJson TEXT NULL, RegionJson TEXT NULL, SourceImageSha256 TEXT NOT NULL,
+                RawIntent TEXT NOT NULL, ClarificationContextJson TEXT NULL, RegionJson TEXT NULL, OutpaintJson TEXT NULL, SourceImageSha256 TEXT NOT NULL,
                 Status TEXT NOT NULL, ResolvedModelSnapshotJson TEXT NOT NULL, CompilerSchemaVersion TEXT NOT NULL,
                 SystemPromptVersion TEXT NOT NULL, RawModelResponse TEXT NULL, ParsedResultJson TEXT NULL,
                 Error TEXT NULL, CreatedUtc TEXT NOT NULL, StartedUtc TEXT NULL, CompletedUtc TEXT NULL,
@@ -425,6 +426,15 @@ public sealed class SceneImageEditRepository : ISceneImageEditRepository
             var regionAlter = connection.CreateCommand();
             regionAlter.CommandText = "ALTER TABLE SceneImageEditCompilationAttempts ADD COLUMN RegionJson TEXT NULL";
             await regionAlter.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var outpaintCheck = connection.CreateCommand();
+        outpaintCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImageEditCompilationAttempts') WHERE name='OutpaintJson'";
+        if (Convert.ToInt64(await outpaintCheck.ExecuteScalarAsync(cancellationToken)) == 0)
+        {
+            var outpaintAlter = connection.CreateCommand();
+            outpaintAlter.CommandText = "ALTER TABLE SceneImageEditCompilationAttempts ADD COLUMN OutpaintJson TEXT NULL";
+            await outpaintAlter.ExecuteNonQueryAsync(cancellationToken);
         }
     }
 
@@ -471,7 +481,7 @@ public sealed class SceneImageEditRepository : ISceneImageEditRepository
     private const string AttemptSelect = """
         SELECT Id, EditSessionId, Ordinal, RawIntent, ClarificationContextJson, SourceImageSha256, Status,
                ResolvedModelSnapshotJson, CompilerSchemaVersion, SystemPromptVersion, RawModelResponse,
-               ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc, RegionJson
+               ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc, RegionJson, OutpaintJson
         FROM SceneImageEditCompilationAttempts
         """;
 
@@ -494,7 +504,8 @@ public sealed class SceneImageEditRepository : ISceneImageEditRepository
             CreatedUtc = ParseUtc(reader.GetString(13), "compilation attempt", id),
             StartedUtc = reader.IsDBNull(14) ? null : ParseUtc(reader.GetString(14), "compilation attempt", id),
             CompletedUtc = reader.IsDBNull(15) ? null : ParseUtc(reader.GetString(15), "compilation attempt", id),
-            RegionJson = reader.IsDBNull(16) ? null : reader.GetString(16)
+            RegionJson = reader.IsDBNull(16) ? null : reader.GetString(16),
+            OutpaintJson = reader.IsDBNull(17) ? null : reader.GetString(17)
         };
     }
 
@@ -528,6 +539,7 @@ public sealed class SceneImageEditRepository : ISceneImageEditRepository
         command.Parameters.AddWithValue("$startedUtc", attempt.StartedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$completedUtc", attempt.CompletedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$region", (object?)attempt.RegionJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$outpaint", (object?)attempt.OutpaintJson ?? DBNull.Value);
     }
 
     private static void ValidateAttempt(SceneImageEditCompilationAttempt attempt)

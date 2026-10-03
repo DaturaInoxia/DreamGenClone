@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Web.Application.RolePlay.ImageStep;
 
@@ -41,7 +42,32 @@ public sealed record ImageGenerationDraft(
     long? Seed,
 
     /// <summary>The references that were bound, so the composer's tabs show what the render actually carried.</summary>
-    IReadOnlyList<ReferenceApplicationSelection> Bindings)
+    IReadOnlyList<ReferenceApplicationSelection> Bindings,
+
+    /// <summary>
+    /// The pose library preset the render was conditioned on, when a preset was used, with the skeleton path that was
+    /// sent. Null means no library preset was recorded — which is a different fact from "no pose", because a render can
+    /// carry a bare STANCE instead, and that travels as a binding.
+    /// </summary>
+    string? PosePresetId,
+
+    string? PoseSkeletonRelativePath,
+
+    /// <summary>The character (identity) LoRAs that were applied, so the picker comes back showing them.</summary>
+    IReadOnlyList<SceneImageCharacterLoraSelection> CharacterLoras,
+
+    /// <summary>The non-identity scene LoRAs that were applied (unlock / act / anatomy / style), in chain order.</summary>
+    IReadOnlyList<SceneImageLoraSelection> SceneLoras,
+
+    /// <summary>
+    /// The lighting / expression presets that shaped the render, each with the clause that reached the prompt.
+    ///
+    /// <para>
+    /// Loaded with the CLAUSE seeded rather than re-applied: the prompt being restored already contains that wording,
+    /// so applying it again would insert it twice. Empty means the image recorded none.
+    /// </para>
+    /// </summary>
+    IReadOnlyList<AppliedImagePreset> AppliedPresets)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -64,7 +90,12 @@ public sealed record ImageGenerationDraft(
             ReadString(association, "negativePrompt"),
             // The COLUMN owns the seed that reached the sampler (the metadata copy is a duplicate of it).
             image.Seed,
-            ReadBindings(ReadString(association, "referenceApplicationsJson")));
+            ReadBindings(ReadString(association, "referenceApplicationsJson")),
+            ReadString(association, "posePresetId"),
+            ReadString(association, "poseSkeletonRelativePath"),
+            ReadList<SceneImageCharacterLoraSelection>(association, "characterLoras"),
+            ReadList<SceneImageLoraSelection>(association, "sceneLoras"),
+            ReadList<AppliedImagePreset>(association, "appliedPresets"));
     }
 
     /// <summary>True when this draft carries anything worth loading, so a caller can say so instead of doing nothing.</summary>
@@ -72,6 +103,10 @@ public sealed record ImageGenerationDraft(
         !string.IsNullOrWhiteSpace(UserInput)
         || !string.IsNullOrWhiteSpace(CompiledPrompt)
         || !string.IsNullOrWhiteSpace(ModelId)
+        || !string.IsNullOrWhiteSpace(PosePresetId)
+        || CharacterLoras.Count > 0
+        || SceneLoras.Count > 0
+        || AppliedPresets.Count > 0
         || Bindings.Count > 0;
 
     private static JsonDocument? ReadObject(string? json)
@@ -120,6 +155,31 @@ public sealed record ImageGenerationDraft(
         catch (JsonException)
         {
             // Same posture as a missing field: an unreadable binding set loads nothing, rather than half of itself.
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// One array property of the metadata, deserialized to the type the render STORED it as. Reading it as the same
+    /// record the handler serialized is what keeps the stored shape and the loaded shape from drifting into two
+    /// near-identical types — and a missing or unreadable array loads as NONE, because a partial load would reproduce a
+    /// different render while looking like a success.
+    /// </summary>
+    private static IReadOnlyList<T> ReadList<T>(JsonDocument? document, string property)
+    {
+        if (document is null
+            || !document.RootElement.TryGetProperty(property, out var element)
+            || element.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        try
+        {
+            return element.Deserialize<IReadOnlyList<T>>(JsonOptions) ?? [];
+        }
+        catch (JsonException)
+        {
             return [];
         }
     }

@@ -240,6 +240,18 @@ folded into this migration.
   `SdxlSceneImagePromptBuilderTests` ones (files unmodified). Three contract tests retargeted, each keeping its
   guarantee: the owner is still resolved before the pack store is touched, the roster still resolves through the ONE
   builder, and no composition surface owns a per-element strategy list (pinned as an ABSENCE, the stronger form).
+**B130-012 — the remaining step is now done (2026-10-02, debug record 081).** The pack moved from CHANNEL to SOURCE
+exactly as scoped here: `ForPackIdentityComposition` declares a per-character **Face** slot (first, so the identity
+anchors the frame) and a **Body** slot, both accepting `IdentityPackAsset`; the shared composer renders the pack picker
+above the approved-asset dropdown the empty-reason text refers to; and `SceneImageRenderingJobHandler` resolves a bound
+pack face/build into its own reference image (`IdentityFaceReferenceResolver.ResolveExactFaceAsync` /
+`IdentityBodyReferenceResolver.ResolveExactBodyAsync`), refusing a pack source on any other element by name. The channel
+is NOT retired — it is the graph route's mechanism, and the page now hands it packs only on the identity-controlled
+route, so one character never gets two faces; the two mechanisms are refused together at enqueue. Reason it could not be
+blueprint-only: `MediaEditReferenceResolver` reads approved scene assets by id, so without the handler change a bound
+pack build would have been dropped silently. Evidence: build 0 errors; 8/8 new tests by name; 117/117 and 77/77 targeted
+suites; RolePlay 3395 passed with the 4 remaining failures pre-existing from other in-flight worktree work.
+
 - **B130-013** `SceneImageCompose.razor` — ✅ DONE 2026-09-25, **resolved by deletion rather than migration**
 - **B130-014** `LoraDatasetWorkspace.razor` — ✅ DONE 2026-09-25 (the conditioning decision MOVED, not just the layout)
 - **B130-015** `PoseLibraryPage.razor` — ✅ DONE 2026-09-25 (step migration; persistence still `Throwaway`)

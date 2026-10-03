@@ -104,6 +104,33 @@ public sealed class SceneImageMediaEditSubjectWriterClaimTests
     private static MediaEditRunContext EditContext(string imageId)
         => new(imageId, MediaEditOperation.ForEdit);
 
+    /// <summary>
+    /// A confined edit is an EDIT that also carries geometry, so it claims like one (CASE-21 / CASE-24). An outpaint was
+    /// treated as a deterministic operation here instead, while the job runs it down the edit path and completes it
+    /// through the claim-guarded transition - so its finished render would have been thrown away and the row left
+    /// 'Pending' forever.
+    /// </summary>
+    [Theory]
+    [InlineData(MediaEditOperationKind.MaskedRegion)]
+    [InlineData(MediaEditOperationKind.Outpaint)]
+    public async Task ConfinedRun_ClaimsTheQueuedRow(MediaEditOperationKind kind)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        Assert.True(await fixture.Writer.ClaimAsync(new MediaEditRunContext(fixture.ImageId, ConfinedOperation(kind))));
+
+        var row = await fixture.Images.GetImageAsync(fixture.ImageId);
+        Assert.Equal(SceneImageStatus.Generating, row!.Status);
+        Assert.NotNull(row.StartedUtc);
+    }
+
+    private static MediaEditOperation ConfinedOperation(MediaEditOperationKind kind)
+        => kind == MediaEditOperationKind.Outpaint
+            ? MediaEditOperation.ForOutpaint(
+                new MediaEditOutpaintOperation(MediaEditOutpaintDirection.Right, 50, GrowMaskBy: 8, FeatherPixels: 32))
+            : MediaEditOperation.ForMaskedRegion(
+                new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 8, FeatherPixels: 32));
+
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly string _root;

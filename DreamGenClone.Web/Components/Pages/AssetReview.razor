@@ -8,7 +8,6 @@
 @inject ISceneAssetService AssetService
 
 <PageTitle>Review Asset - DreamGenClone</PageTitle>
-
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0">Production Review</h4>
@@ -36,10 +35,31 @@
                 </div></div>
             </div>
             <div class="col-lg-6">
+                <div class="card mb-3">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <span class="small fw-semibold">Tags</span>
+                        <a class="btn btn-sm btn-outline-secondary py-0"
+                           href="/asset-studio/@AssetId?loadImageId=@ImageId"
+                           title="Open the asset generator with this image's prompt, model, size, seed, pose, references and LoRAs restored">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>Reproduce this render
+                        </a>
+                    </div>
+                    <div class="card-body py-2">
+                        @* Editable HERE, at the moment an operator is deciding what the image is: a tag is a judgement
+                           about the picture, and the review surface is where that judgement is being made. *@
+                        <ImageTags Image="_image" Editable="true" />
+                    </div>
+                </div>
+                <div class="card mb-3">
+                    <div class="card-header py-2"><span class="small fw-semibold">How this image was generated</span></div>
+                    <div class="card-body py-2">
+                        <GenerationDetails Image="_image" />
+                    </div>
+                </div>
                 <div class="card">
                     <div class="card-header"><strong>Finalization</strong></div>
                     <div class="card-body">
-                        <ProductionApprovalForm Image="_image" />
+                        <ProductionApprovalForm Image="_image" AssetType="_asset.Type" />
                     </div>
                 </div>
             </div>

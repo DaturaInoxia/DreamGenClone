@@ -407,6 +407,47 @@ public sealed class ImageCompilerProfileRepository : IImageCompilerProfileReposi
         },
         new()
         {
+            Id = "profile-krea2-turbo",
+            CheckpointIdentifier = "krea2_turbo_fp8_scaled.safetensors",
+            DisplayName = "Krea 2 Turbo (local ComfyUI)",
+            Family = SceneImageModelFamily.Krea2,
+            PromptDialect = SceneImagePromptDialect.Krea2NaturalLanguage,
+            // A photographic BRIEF, not a long-form description and not tag soup. The budget matches the ceiling the
+            // compiler text itself states (SceneImageCompilerSystemPrompts.Krea2Beat ends with "keep the ENTIRE prompt
+            // under {OutputTargetChars} characters"): a budget written into the instruction text and a budget enforced
+            // by the profile that disagree is a cell that can never pass.
+            MinChars = 120,
+            MaxChars = 800,
+            // The text encoder is Qwen3-VL 4B, NOT CLIP: the SDXL-family 75-token CLIP window is a property of a
+            // different architecture and would be simply wrong here. 800 characters is roughly 200 tokens.
+            MaxTokens = 300,
+            RequiredComponentsJson = """["subject","action","setting","lighting","photographic-treatment"]""",
+            // The last three are this checkpoint's measured traps, spelled out so the categories are self-describing
+            // rather than needing the proof matrix to interpret: an explicit framing DEMAND never once worked, a body
+            // noun-list loses the head, and a face-facing clause on an act suppresses the act.
+            ForbiddenTokensJson = """["story-name","relationship","ownership","negation","pov-character-in-frame","pony-tag","framing-demand","body-noun-list","face-facing-clause"]""",
+            // Acts ARE described in text successfully on this checkpoint: the 59-cell matrix renders explicit
+            // penetration and oral from prose, including two people. That is the OPPOSITE of BigLust/Juggernaut/FLUX
+            // (Forbidden/SimpleOnly) and it is a measured property of the checkpoint, not a preference.
+            PoseInText = ImagePoseInText.Full,
+            // Krea-2 Turbo takes NO negative text at all: its graph feeds the sampler a ConditioningZeroOut of the
+            // POSITIVE, so a negative would have nowhere to go. Empty here is the architecture, not a style choice.
+            Negative = string.Empty,
+            NegativeSource = null,
+            // DOCUMENTATION ONLY. The render reads the envelope from the model's own TextToImage qualification
+            // (Krea2Refs: unet/clip/vae/steps/cfg/sampler/scheduler/denoise), which is the single source the graph
+            // builder consults. This copy is recorded here so the profile describes its checkpoint like every other
+            // row does - nothing reads it, and nothing should start to.
+            SettingsEnvelopeJson = """{"steps":8,"cfg":1.0,"sampler":"euler","scheduler":"simple","denoise":1.0,"resolution":"1024x1024"}""",
+            ResearchSource =
+                "helpers/local-comfyui-host/run-krea2-proof.ps1 - the 59-cell proof matrix on this checkpoint, reviewed "
+                + "2026-10-01 (specs/Planning/B-137-krea2-local-generation): stock weights + stock text encoder render full "
+                + "nudity with NO LoRA; the prompt SHAPE is the largest quality lever (a photographic brief returns a "
+                + "complete figure where a body noun-list returns a torso crop, and an explicit framing demand never "
+                + "worked in any cell). Envelope from the model's qualified TextToImage entry, NOT from this row.",
+        },
+        new()
+        {
             Id = "profile-flux2-pro",
             CheckpointIdentifier = "black-forest-labs/FLUX.2-pro",
             DisplayName = "FLUX.2-pro",

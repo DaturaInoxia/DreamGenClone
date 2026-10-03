@@ -7,7 +7,8 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed record SceneImageEditCompilerContext(
     string RawIntent,
     IReadOnlyList<string> ClarificationHistory,
-    MediaEditRegionOperation? Region = null);
+    MediaEditRegionOperation? Region = null,
+    MediaEditOutpaintOperation? Outpaint = null);
 
 public sealed record SceneImageEditCompilerMessages(
     string SchemaVersion,

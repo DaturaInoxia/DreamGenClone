@@ -46,7 +46,8 @@ else
                         <div class="d-flex flex-wrap gap-1 px-2 pb-2">
                             @if (DecisionChanged.HasDelegate)
                             {
-                                <button type="button" class="btn btn-sm btn-outline-success py-0 px-1" title="Accept"
+                                <button type="button" class="btn btn-sm btn-outline-success py-0 px-1"
+                                        title="Choose this as the batch's pick — this is NOT a production approval, so it will not become a usable reference until it is approved on the review page"
                                         disabled="@Busy" @onclick='() => DecideAsync(item.Id, "Accepted")'>
                                     <i class="bi bi-check2-circle"></i>
                                 </button>

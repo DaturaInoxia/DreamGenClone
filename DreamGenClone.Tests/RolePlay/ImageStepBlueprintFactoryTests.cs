@@ -388,4 +388,56 @@ public sealed class ImageStepBlueprintFactoryTests
         Assert.Equal(9, (int)SceneAssetType.CharacterPose);
         Assert.Equal(8, (int)SceneAssetType.Character);
     }
+
+    /// <summary>
+    /// The Composition step binds each character's face and build from that character's APPROVED identity PACK, which
+    /// is where those references actually live: measured in the dev store 2026-10-02, Becky holds an approved
+    /// BodyComplete pack with 5 faces and 12 builds, while ZERO character-owned face/body scene assets carry an
+    /// approved usable image. Declaring only <c>ApprovedSceneAsset</c> left the Body tab with a dropdown that lists
+    /// nothing, and no Face tab at all (reported live 2026-10-02: "2.1 should allow for picking becky face and body
+    /// but it says no approved build reference exists for this character yet"). Same defect the LoRA cell and the asset
+    /// creator were fixed for; this is the host that was still missing it.
+    /// </summary>
+    [Theory]
+    [InlineData(ImageStepSlotKind.Face)]
+    [InlineData(ImageStepSlotKind.Body)]
+    public void PackIdentityComposition_CanBindItsFaceAndBodyFromTheCharacterPack(ImageStepSlotKind slotKind)
+    {
+        var slot = ImageStepBlueprintFactory.ForPackIdentityComposition(Cast).Slots
+            .Single(candidate => candidate.SlotKind == slotKind && candidate.ActorKey == Becky.ActorKey);
+
+        Assert.Contains(ImageStepReferenceSourceKind.IdentityPackAsset, slot.AllowedSources);
+        Assert.Equal(Becky.ActorKey, slot.ActorKey);
+    }
+
+    /// <summary>
+    /// The face is declared before the build for every character: the ordinal is request data and the first reference
+    /// anchors the frame, so the identity is what the model places before the build that follows it.
+    /// </summary>
+    [Fact]
+    public void PackIdentityComposition_DeclaresTheFaceBeforeTheBuild()
+    {
+        var slots = ImageStepBlueprintFactory.ForPackIdentityComposition(Cast).Slots;
+
+        Assert.Equal(
+            [
+                ImageStepSlotKind.Face, ImageStepSlotKind.Body, ImageStepSlotKind.Wardrobe,
+                ImageStepSlotKind.Face, ImageStepSlotKind.Body, ImageStepSlotKind.Wardrobe,
+                ImageStepSlotKind.Location, ImageStepSlotKind.Pose
+            ],
+            slots.Select(slot => slot.SlotKind));
+    }
+
+    /// <summary>A pack carries faces and builds and nothing else, so the shared elements must not offer it.</summary>
+    [Theory]
+    [InlineData(ImageStepSlotKind.Wardrobe)]
+    [InlineData(ImageStepSlotKind.Location)]
+    [InlineData(ImageStepSlotKind.Pose)]
+    public void PackIdentityComposition_DoesNotOfferThePackForSharedElements(ImageStepSlotKind slotKind)
+    {
+        var slot = ImageStepBlueprintFactory.ForPackIdentityComposition(Cast).Slots
+            .First(candidate => candidate.SlotKind == slotKind);
+
+        Assert.DoesNotContain(ImageStepReferenceSourceKind.IdentityPackAsset, slot.AllowedSources);
+    }
 }

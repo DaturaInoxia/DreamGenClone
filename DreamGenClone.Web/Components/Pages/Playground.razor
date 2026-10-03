@@ -408,6 +408,18 @@
                                                  Disabled="_busy"
                                                  Scope="playground-run" />
                         </div>
+                        @* B-137 §4 / B-140 T1.3: the run's SCENE LoRAs (unlock / act / anatomy / style). Filtered to
+                           the selected model's FAMILY - a LoRA binds only to the family it was trained against - and it
+                           renders NOTHING when the catalog carries no rows for that family, so no control is ever
+                           offered that a render would have to refuse. They chain BEFORE the character LoRAs above, so
+                           identity stays closest to the subject. *@
+                        <div class="mb-2">
+                            <SceneLoraPicker Family="@RenderModelFamily"
+                                             Selections="_renderSceneLoras"
+                                             SelectionsChanged="OnRenderSceneLorasChanged"
+                                             Disabled="_busy"
+                                             Scope="playground-run-scene" />
+                        </div>
                         @* The run's CHARACTER, picked rather than pasted. A pose suite needs the character (not a face
                            asset id) because each pose's own direction decides which approved face and body angle that
                            cell conditions on; a catalog has no pose, so its face angle is chosen here explicitly. *@
@@ -785,6 +797,13 @@
     /// then emits no LoRA node and is identical to a render made before character LoRAs existed.
     /// </summary>
     private IReadOnlyList<SceneImageCharacterLoraSelection> _renderLoras = [];
+
+    /// <summary>
+    /// The NON-IDENTITY scene LoRAs (unlock / act / anatomy / style) the run renders with. Empty is a configured state:
+    /// the render then emits no loader node for them. The picker only offers what the selected model's family can
+    /// carry, and the render resolver refuses anything else by name.
+    /// </summary>
+    private IReadOnlyList<SceneImageLoraSelection> _renderSceneLoras = [];
 
     private readonly List<string> _manifests = [];
     private readonly List<ImageSuiteImportReport> _importReports = [];
@@ -1210,7 +1229,8 @@
                     ? null
                     : _renderIdentityFaceAssetId.Trim(),
                 CharacterProfileId: SelectedCharacter?.CharacterProfileId,
-                CharacterLoras: _renderLoras.Count > 0 ? _renderLoras : null);
+                CharacterLoras: _renderLoras.Count > 0 ? _renderLoras : null,
+                SceneLoras: _renderSceneLoras.Count > 0 ? _renderSceneLoras : null);
 
             _renderReport = await Renderer.RenderAsync(request);
             _notice = $"Enqueued {_renderReport.EnqueuedCount} image(s) into '{_renderReport.RunName}'. They render in "
@@ -1321,8 +1341,10 @@
 
         // A character LoRA binds to the checkpoint it was trained against, so changing the model invalidates the
         // choice: carrying it over would either refuse the render or, worse, apply an artifact trained on a different
-        // base. Cleared here, where the change happens, rather than filtered later.
+        // base. Cleared here, where the change happens, rather than filtered later. The scene LoRAs are cleared for
+        // the same reason - they bind to a model FAMILY, not to any checkpoint.
         _renderLoras = [];
+        _renderSceneLoras = [];
     }
 
     /// <summary>
@@ -1340,14 +1362,41 @@
         return Task.CompletedTask;
     }
 
+    private Task OnRenderSceneLorasChanged(IReadOnlyList<SceneImageLoraSelection> selections)
+    {
+        _renderSceneLoras = selections;
+        _renderReport = null;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The FAMILY of the selected render model, or Unknown when nothing is chosen. This is the one thing that decides
+    /// which scene LoRAs may be offered: a LoRA binds only to the family it was trained against, and the render refuses
+    /// a selection whose family does not match the model it is applied to.
+    /// </summary>
+    private SceneImageModelFamily RenderModelFamily => _models
+        .FirstOrDefault(candidate => string.Equals(candidate.ModelId, _renderModelId, StringComparison.Ordinal))
+        ?.Family ?? SceneImageModelFamily.Unknown;
+
     /// <summary>
     /// What the run was rendered with, in the report's own words. Stated even when nothing was applied: a set of images
     /// made with a character LoRA and a set made without look like two results of one experiment unless the run says
     /// which it was.
     /// </summary>
-    private static string DescribeLoras(ImageSuiteRenderReport report) => report.LoraCount > 0
-        ? $"{report.LoraCount} character LoRA(s) applied"
-        : "no LoRA";
+    private static string DescribeLoras(ImageSuiteRenderReport report)
+    {
+        // Counted separately because the two say different things: a character LoRA says WHO is in the frame, a scene
+        // LoRA says what the model was taught or allowed to render.
+        var scene = report.SceneLoraCount > 0 ? $"{report.SceneLoraCount} scene LoRA(s)" : null;
+        var character = report.LoraCount > 0 ? $"{report.LoraCount} character LoRA(s)" : null;
+        return (scene, character) switch
+        {
+            (null, null) => "no LoRA",
+            (not null, null) => $"{scene} applied",
+            (null, not null) => $"{character} applied",
+            _ => $"{scene} + {character} applied"
+        };
+    }
 
     private void OnRenderImageSize(ChangeEventArgs e) => _renderImageSize = e.Value?.ToString() ?? string.Empty;
 

@@ -189,7 +189,89 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
         Assert.Equal(0, fixture.PromptOnlyClient.Calls);
     }
 
+    /// <summary>
+    /// A native-reference render whose step BOUND the character's face and build from her approved pack carries both as
+    /// reference images, in the step's order (the face first, because the first reference anchors the frame).
+    ///
+    /// A pack image is a <c>SceneImageReferenceAsset</c> addressed by its own pack id and NOT an approved scene asset,
+    /// so it cannot travel through the scene-asset resolver: before this route existed the binding was filtered out
+    /// there and the build was dropped silently (reported live 2026-10-02 on the Composition Composer: "2.1 should allow
+    /// for picking becky face and body but it says no approved build reference exists for this character yet").
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_BoundPackFaceAndBuild_TravelAsTheirOwnReferenceImages()
+    {
+        await using var fixture = new Fixture();
+        var image = fixture.NewImage();
+        image.AppliedReferenceBindingsJson = """
+            [
+              {"elementKey":"Identity","kind":"Face","actorKey":"becky","source":"IdentityPackAsset",
+               "strategy":"NativeMultiReference","identityPackId":"pack-1","referenceAssetId":"face-1","ordinal":1},
+              {"elementKey":"Body","kind":"Body","actorKey":"becky","source":"IdentityPackAsset",
+               "strategy":"NativeMultiReference","identityPackId":"pack-1","referenceAssetId":"body-1","ordinal":2}
+            ]
+            """;
+        await fixture.Repository.InsertImageAsync(image);
+        var referenceClient = new RecordingReferenceClient();
+        var (pack, face, body) = ApprovedPackFaceAndBody();
+
+        var handler = fixture.CreatePackBindingHandler(
+            referenceClient, new StubReferenceStrategies(native: true), pack, face, body,
+            new PathKeyedIdentityStorage());
+
+        await handler.HandleAsync(fixture.JobFor(image), CancellationToken.None);
+
+        var request = Assert.Single(referenceClient.Requests);
+        Assert.Equal(2, request.References.Count);
+        Assert.Equal(FaceBytes, request.References[0].Content);
+        Assert.Equal("face-1.png", request.References[0].FileName);
+        Assert.Contains("approved identity face for becky", request.References[0].SemanticRole, StringComparison.Ordinal);
+        Assert.Contains("Profile Left", request.References[0].SemanticRole, StringComparison.Ordinal);
+        Assert.Equal(BuildBytes, request.References[1].Content);
+        Assert.Equal("body-1.png", request.References[1].FileName);
+        Assert.Contains("approved identity build for becky", request.References[1].SemanticRole, StringComparison.Ordinal);
+        Assert.Contains("Clothed", request.References[1].SemanticRole, StringComparison.Ordinal);
+        Assert.Equal(0, fixture.PromptOnlyClient.Calls);
+
+        var persisted = await fixture.Repository.GetImageAsync(image.Id);
+        Assert.Equal(SceneImageStatus.Complete, persisted!.Status);
+    }
+
+    /// <summary>
+    /// A pack binding on an element a pack cannot supply is refused BY NAME rather than dropped: a pack carries faces
+    /// and builds only, so a wardrobe reference that claims one is a blueprint bug — and rendering without it would be
+    /// the silent drop the reference rules forbid.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_PackBindingOnAnElementAPackCannotSupply_FailsFastByName()
+    {
+        await using var fixture = new Fixture();
+        var image = fixture.NewImage();
+        image.AppliedReferenceBindingsJson = """
+            [
+              {"elementKey":"Wardrobe","kind":"Wardrobe","actorKey":"becky","source":"IdentityPackAsset",
+               "strategy":"NativeMultiReference","identityPackId":"pack-1","referenceAssetId":"dress-1","ordinal":1}
+            ]
+            """;
+        await fixture.Repository.InsertImageAsync(image);
+        var referenceClient = new RecordingReferenceClient();
+        var (pack, face, body) = ApprovedPackFaceAndBody();
+
+        var handler = fixture.CreatePackBindingHandler(
+            referenceClient, new StubReferenceStrategies(native: true), pack, face, body,
+            new PathKeyedIdentityStorage());
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => handler.HandleAsync(fixture.JobFor(image), CancellationToken.None));
+
+        Assert.Contains("carries faces and builds only", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(0, referenceClient.Calls);
+        Assert.Equal(0, fixture.PromptOnlyClient.Calls);
+    }
+
     private static readonly byte[] FaceBytes = [9, 8, 7];
+
+    private static readonly byte[] BuildBytes = [4, 4, 4, 4, 4];
 
     private static readonly byte[] SkeletonBytes = [5, 5, 5, 5];
 
@@ -211,6 +293,42 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
             FaceView = SceneImageReferenceFaceView.Front,
             FileRelativePath = "identity/face-1.png",
             Sha256 = "FACEHASH"
+        });
+
+    /// <summary>
+    /// The BodyComplete pack the Composition host binds from: an approved face AND an approved build, which is what the
+    /// dev store holds for the character this defect was reported against.
+    /// </summary>
+    private static (CharacterImageIdentityPack Pack, SceneImageReferenceAsset Face, SceneImageReferenceAsset Body) ApprovedPackFaceAndBody()
+        => (new CharacterImageIdentityPack
+        {
+            Id = "pack-1",
+            CharacterTemplateId = "character-1",
+            Version = 3,
+            Status = CharacterImageIdentityPackStatus.Approved,
+            CanonicalFaceAssetId = "face-1",
+            CanonicalFullBodyAssetId = "body-1"
+        },
+        new SceneImageReferenceAsset
+        {
+            Id = "face-1",
+            IdentityPackId = "pack-1",
+            AssetKind = SceneImageReferenceAssetKind.Face,
+            IsApproved = true,
+            FaceView = SceneImageReferenceFaceView.ProfileLeft,
+            FileRelativePath = "identity/face-1.png",
+            Sha256 = "FACEHASH"
+        },
+        new SceneImageReferenceAsset
+        {
+            Id = "body-1",
+            IdentityPackId = "pack-1",
+            AssetKind = SceneImageReferenceAssetKind.FullBody,
+            IsApproved = true,
+            BodyView = SceneImageReferenceBodyView.Front,
+            BodyState = SceneImageReferenceBodyState.Clothed,
+            FileRelativePath = "identity/body-1.png",
+            Sha256 = "BODYHASH"
         });
 
     private sealed class Fixture : IAsyncDisposable
@@ -323,6 +441,40 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
                 identityStorage: new StubIdentityStorage(faceBytes),
                 referenceStrategyResolver: strategies,
                 identityFaceResolver: new IdentityFaceReferenceResolver(new StubIdentityRepository(pack, face)));
+        }
+
+        /// <summary>
+        /// The pack-binding fixture: the step's own bindings name a pack face and build, so both resolvers are wired
+        /// over the same stub repository and the render is expected to read both images out of the pack.
+        /// </summary>
+        public SceneImageRenderingJobHandler CreatePackBindingHandler(
+            IReferenceConditionedImageClient referenceClient,
+            IReferenceStrategyResolver strategies,
+            CharacterImageIdentityPack pack,
+            SceneImageReferenceAsset face,
+            SceneImageReferenceAsset body,
+            ICharacterImageAssetStorageService storage)
+        {
+            var identity = new StubIdentityRepository(pack, face, body);
+            return new SceneImageRenderingJobHandler(
+                Repository,
+                new StubSceneImageStorage(),
+                new StubModelResolution(),
+                PromptOnlyClient,
+                identityClient: null!,
+                identityRequestCompiler: null!,
+                poseClient: null!,
+                poseResolver: null!,
+                new SceneImagePromptCompilerRegistry([new StubCompiler()]),
+                new TestImageCompilerProfileResolver(),
+                new NullDebugEventSink(),
+                NullLogger<SceneImageRenderingJobHandler>.Instance,
+                ProducedImages,
+                referenceConditionedClient: referenceClient,
+                identityStorage: storage,
+                referenceStrategyResolver: strategies,
+                identityFaceResolver: new IdentityFaceReferenceResolver(identity),
+                identityBodyResolver: new IdentityBodyReferenceResolver(identity));
         }
 
         public ValueTask DisposeAsync()
@@ -514,13 +666,13 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
 
     private sealed class StubIdentityRepository(
         CharacterImageIdentityPack pack,
-        SceneImageReferenceAsset asset) : ICharacterImageIdentityRepository
+        params SceneImageReferenceAsset[] assets) : ICharacterImageIdentityRepository
     {
         public Task<CharacterImageIdentityPack?> GetPackAsync(string packId, CancellationToken cancellationToken = default)
             => Task.FromResult<CharacterImageIdentityPack?>(pack.Id == packId ? pack : null);
 
         public Task<SceneImageReferenceAsset?> GetAssetAsync(string assetId, CancellationToken cancellationToken = default)
-            => Task.FromResult<SceneImageReferenceAsset?>(asset.Id == assetId ? asset : null);
+            => Task.FromResult(assets.FirstOrDefault(asset => asset.Id == assetId));
 
         public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(
             string characterProfileId, CancellationToken cancellationToken = default)
@@ -574,6 +726,24 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
             => throw new NotSupportedException();
 
         public Task DeleteAssetAsync(string assetId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Hands back distinct bytes per stored path, so a render that carries a face AND a build can be told apart from
+    /// one that read the same image twice.
+    /// </summary>
+    private sealed class PathKeyedIdentityStorage : ICharacterImageAssetStorageService
+    {
+        public Task<Stream> OpenReadAsync(string relativePath, CancellationToken cancellationToken = default)
+            => Task.FromResult<Stream>(new MemoryStream(
+                relativePath.Contains("body", StringComparison.Ordinal) ? BuildBytes : FaceBytes));
+
+        public Task<StoredCharacterImageAsset> SaveAsync(
+            string characterProfileId, string fileName, Stream content, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task DeleteAsync(string relativePath, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 

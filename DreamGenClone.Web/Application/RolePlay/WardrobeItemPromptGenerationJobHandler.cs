@@ -176,6 +176,7 @@ public sealed class WardrobeItemPromptGenerationJobHandler : IDurableBackgroundJ
         var familySlug = family switch
         {
             SceneImageModelFamily.QwenImage21 => "qwen-image-21",
+            SceneImageModelFamily.Krea2 => "krea2",
             SceneImageModelFamily.Sdxl => "sdxl",
             SceneImageModelFamily.Flux => "flux",
             SceneImageModelFamily.Api => "api",
@@ -186,6 +187,7 @@ public sealed class WardrobeItemPromptGenerationJobHandler : IDurableBackgroundJ
         {
             SceneImagePromptDialect.NaturalLanguage => "natural-language",
             SceneImagePromptDialect.SdxlNaturalLanguage => "sdxl-natural-language",
+            SceneImagePromptDialect.Krea2NaturalLanguage => "krea2-natural-language",
             SceneImagePromptDialect.FluxNaturalLanguage => "flux-natural-language",
             _ => throw new InvalidOperationException($"Prompt dialect '{dialect}' has no wardrobe-item compiler id.")
         };

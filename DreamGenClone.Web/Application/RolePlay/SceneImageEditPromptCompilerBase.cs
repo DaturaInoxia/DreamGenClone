@@ -80,6 +80,12 @@ public abstract class SceneImageEditPromptCompilerBase : ISceneImageEditPromptCo
             user.AppendLine(RegionConfinementClause(region));
         }
 
+        if (context.Outpaint is { } outpaint)
+        {
+            user.AppendLine();
+            user.AppendLine(OutpaintClause(outpaint));
+        }
+
         return new SceneImageEditCompilerMessages(
             SchemaVersion,
             CompilerSystemPromptVersion,
@@ -99,6 +105,18 @@ public abstract class SceneImageEditPromptCompilerBase : ISceneImageEditPromptCo
             + $"from {region.LeftPercent:0.#}% to {region.LeftPercent + region.WidthPercent:0.#}% of the frame's width, "
             + $"and from {region.TopPercent:0.#}% to {region.TopPercent + region.HeightPercent:0.#}% of the frame's height. "
             + "Change only what is inside that rectangle; hold everything outside it at input fidelity.";
+
+    /// <summary>
+    /// The geometry clause an outpaint run's compiled prompt carries (CASE-24): the frame grows by the operator's
+    /// percent toward one edge and only the newly revealed strip is generated. An outpaint changes no existing
+    /// person or object, so the compiler is told to return ready with an EMPTY targets list.
+    /// </summary>
+    private static string OutpaintClause(MediaEditOutpaintOperation outpaint)
+        => $"This edit extends the canvas outward (an outpaint): the frame grows {outpaint.Percent:0.#}% toward the "
+            + $"{outpaint.Direction.ToString().ToLowerInvariant()}. Generate only the newly revealed strip and hold the "
+            + "existing area at input fidelity. An outpaint changes no existing person or object, so return status "
+            + "ready with an empty targets list, one requestedChanges entry naming the extension, and a preserve list "
+            + "naming what must stay continuous (background, lighting, style).";
 
     public SceneImageEditCompilationResult Parse(string rawResponse, int imageWidth = 0, int imageHeight = 0)
     {
@@ -218,9 +236,13 @@ public abstract class SceneImageEditPromptCompilerBase : ISceneImageEditPromptCo
         switch (result.Status)
         {
             case SceneImageEditCompilationResultStatus.Ready:
-                if (result.Targets.Count == 0 || result.RequestedChanges.Count == 0 || result.Preserve.Count == 0
+                // A whole-frame edit or an outpaint has no discrete target, so an empty targets list is valid; what
+                // makes the result executable is the named change, what to keep, and the compiled instruction.
+                if (result.RequestedChanges.Count == 0 || result.Preserve.Count == 0
                     || string.IsNullOrWhiteSpace(result.CompiledPrompt))
-                    throw new InvalidOperationException("A ready compiler result requires targets, changes, preservation, and a compiled prompt only.");
+                    throw new InvalidOperationException(
+                        "A ready compiler result requires changes, preservation, and a compiled prompt; "
+                        + "targets may be empty for a whole-frame or outpaint edit.");
                 result.ClarificationQuestion = null;
                 result.InvalidReason = null;
                 break;

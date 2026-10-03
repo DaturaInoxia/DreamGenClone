@@ -36,6 +36,7 @@ public sealed class SceneAssetImageEditCompilationAttempt
     public string RawIntent { get; set; } = string.Empty;
     public string? ClarificationContextJson { get; set; }
     public string? RegionJson { get; set; }
+    public string? OutpaintJson { get; set; }
     public string SourceImageSha256 { get; set; } = string.Empty;
     public SceneImageEditCompilationAttemptStatus Status { get; set; }
     public string ResolvedModelSnapshotJson { get; set; } = string.Empty;

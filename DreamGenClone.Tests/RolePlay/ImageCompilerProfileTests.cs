@@ -31,6 +31,7 @@ public sealed class ImageCompilerProfileTests
         "juggernautXL_ragnarok.safetensors",
         "flux1-dev-fp8.safetensors",
         "qwen_image_2.1_int8_convrot.safetensors",
+        "krea2_turbo_fp8_scaled.safetensors",
         "black-forest-labs/FLUX.2-pro",
         "ByteDance-Seed/Seedream-4.0",
         "black-forest-labs/FLUX.1.1-pro",
@@ -171,9 +172,44 @@ public sealed class ImageCompilerProfileTests
         Assert.Null(await repository.FindByCheckpointAsync("not-a-real-checkpoint.safetensors"));
     }
 
+    /// <summary>
+    /// B-137: Krea 2 has its OWN compiler text, not the shared natural-language one.
+    ///
+    /// <para>
+    /// The SDXL-family text tells the model to LEAD WITH FRAMING and permits a body-part vocabulary, and both are
+    /// measured DEFECTS on this checkpoint (an explicit framing demand never once worked across the 59-cell matrix, and
+    /// a body noun-list returns a torso crop with the head gone). A profile falling back to that text would compile
+    /// prompts that are wrong in a way nothing downstream can detect - the image still renders, it is just not the
+    /// render that was asked for.
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task Seed_KeepsOneProfilePerCheckpoint_EvenWhenTwoModelsShareIt()
+    public async Task AKrea2ProfileIsNotGivenTheSharedNaturalLanguageText()
     {
+        var repository = NewRepository(NewDbPath());
+
+        var krea2 = await repository.FindByCheckpointAsync("krea2_turbo_fp8_scaled.safetensors");
+
+        Assert.NotNull(krea2);
+        Assert.Equal(SceneImageModelFamily.Krea2, krea2!.Family);
+        Assert.Equal(SceneImagePromptDialect.Krea2NaturalLanguage, krea2.PromptDialect);
+        Assert.Equal(SceneImageCompilerSystemPrompts.Krea2Beat, krea2.SystemPrompt);
+        Assert.NotEqual(SceneImageCompilerSystemPrompts.NaturalLanguageBeat, krea2.SystemPrompt);
+
+        // Krea-2 Turbo takes NO negative text at all: its graph feeds the sampler a ConditioningZeroOut of the
+        // POSITIVE, so an empty negative here is the architecture rather than a style choice.
+        Assert.Equal(string.Empty, krea2.Negative);
+
+        // The three measured prompt traps are declared on the row, so it documents WHY a later edit must not undo
+        // them (they are category names, not patterns - the evaluator reports them rather than matching them).
+        Assert.Contains("framing-demand", krea2.ForbiddenTokensJson, StringComparison.Ordinal);
+        Assert.Contains("body-noun-list", krea2.ForbiddenTokensJson, StringComparison.Ordinal);
+        Assert.Contains("face-facing-clause", krea2.ForbiddenTokensJson, StringComparison.Ordinal);
+        Assert.Contains("photographic-treatment", krea2.RequiredComponentsJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Seed_KeepsOneProfilePerCheckpoint_EvenWhenTwoModelsShareIt()    {
         var repository = NewRepository(NewDbPath());
 
         var profiles = await repository.ListAsync();

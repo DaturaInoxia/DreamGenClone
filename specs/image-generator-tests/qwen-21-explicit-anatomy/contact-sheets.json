@@ -1,0 +1,100 @@
+{
+  "_comment": "Contact-sheet spec for the qwen-21-explicit-anatomy package. Paths point at the git-ignored render tree so the sheets are regenerable after re-running the proof; see ../RUNBOOK.md. Build with: tools/contact-sheets/build_contact_sheet.py --spec <this file> --out-dir <dir> [--format jpeg]",
+  "sheets": [
+    {
+      "name": "sheet-1-vulva-distance",
+      "title": "VULVA vs DISTANCE  (left = base-recipe, right = + vulva LoRA)",
+      "rows": [
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s7-female/01-female-vulva-full-base-recipe/01-female-vulva-full-base-recipe_0.png", "label": "FULL-LENGTH  base" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s7-female/02-female-vulva-full-vagina-recipe/02-female-vulva-full-vagina-recipe_0.png", "label": "FULL-LENGTH  +vulva LoRA (hair stripped)" }
+        ],
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s7-female/03-female-vulva-medium-base-recipe/03-female-vulva-medium-base-recipe_0.png", "label": "MEDIUM HIP  base" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s7-female/04-female-vulva-medium-vagina-recipe/04-female-vulva-medium-vagina-recipe_0.png", "label": "MEDIUM HIP  +vulva LoRA" }
+        ],
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s7-female/05-female-vulva-closeup-base-recipe/05-female-vulva-closeup-base-recipe_0.png", "label": "CLOSE-UP  base" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s7-female/06-female-vulva-closeup-vagina-recipe/06-female-vulva-closeup-vagina-recipe_0.png", "label": "CLOSE-UP  +vulva LoRA" }
+        ],
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s7-female/11-female-vulva-macro-base-recipe/11-female-vulva-macro-base-recipe_0.png", "label": "MACRO  base (most detailed of the programme)" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s7-female/12-female-vulva-macro-vagina-recipe/12-female-vulva-macro-vagina-recipe_0.png", "label": "MACRO  +vulva LoRA (softer)" }
+        ]
+      ]
+    },
+    {
+      "name": "sheet-2-vulva-person-anchored",
+      "title": "VULVA with the PERSON ANCHORED  (hands / stomach / thighs required in frame)",
+      "rows": [
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s9-personframing/03-female-closeup-person-base-recipe/03-female-closeup-person-base-recipe_0.png", "label": "CLOSE-UP anchored  base" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s9-personframing/04-female-closeup-person-vagina-recipe/04-female-closeup-person-vagina-recipe_0.png", "label": "CLOSE-UP anchored  +vulva LoRA" }
+        ],
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s9-personframing/05-female-macro-person-base-recipe/05-female-macro-person-base-recipe_0.png", "label": "TIGHT anchored (hand + stomach in frame)  base" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s9-personframing/06-female-macro-person-vagina-recipe/06-female-macro-person-vagina-recipe_0.png", "label": "TIGHT anchored  +vulva LoRA" }
+        ]
+      ]
+    },
+    {
+      "name": "sheet-3-coitus",
+      "title": "COITUS / the point where the bodies join  (the failure and its fix)",
+      "rows": [
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s5-genital/04-cumshot-creampie-base-recipe/04-cumshot-creampie-base-recipe_0.png", "label": "REJECTED old prompt: shaft from her own mound" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s8-phantomfix/01-coitus-anchored-posonly-base-recipe/01-coitus-anchored-posonly-base-recipe_0.png", "label": "anchored prompt, positive only" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s8-phantomfix/02-coitus-anchored-neg-base-recipe/02-coitus-anchored-neg-base-recipe_0.png", "label": "anchored + fusion negative (redundant)" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s9-personframing/01-coitus-person-base-recipe/01-coitus-person-base-recipe_0.png", "label": "PERSON-PRESENT framing  base" }
+        ],
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s9-personframing/02-coitus-person-vagina-recipe/02-coitus-person-vagina-recipe_0.png", "label": "PERSON-PRESENT framing  +vulva LoRA" }
+        ]
+      ]
+    },
+    {
+      "name": "sheet-4-penis-states",
+      "title": "PENIS STATES  (top row = positive wording only, bottom row = + negative prompt)",
+      "rows": [
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s3-malestate/01-male-flaccid-base-recipe/01-male-flaccid-base-recipe_0.png", "label": "flaccid asked in positive -> FAIL" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s3-malestate/03-male-semi-erect-base-recipe/03-male-semi-erect-base-recipe_0.png", "label": "semi asked in positive -> FAIL (+ cleft glans)" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s3-malestate/07-male-erect-large-base-recipe/07-male-erect-large-base-recipe_0.png", "label": "erect large (works)" }
+        ],
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s6-maleneg/01-male-flaccid-base-recipe/01-male-flaccid-base-recipe_0.png", "label": "flaccid + NEGATIVE -> works" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s6-maleneg/03-male-erect-small-base-recipe/03-male-erect-small-base-recipe_0.png", "label": "small erect + NEGATIVE -> works" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s3-malestate/08-male-erect-large-coachbate-recipe/08-male-erect-large-coachbate-recipe_0.png", "label": "CoachBate: notched glans" }
+        ]
+      ]
+    },
+    {
+      "name": "sheet-5-lora-arms",
+      "title": "ONE CELL, FOUR ARMS  (mmf-double-penetration, seed 20301) - person count is set by the envelope",
+      "rows": [
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s4-multiperson/01-mmf-double-penetration-base-envelope/01-mmf-double-penetration-base-envelope_0.png", "label": "envelope 25/cfg1/euler -> 2 people, no DP" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s4-multiperson/02-mmf-double-penetration-base-recipe/02-mmf-double-penetration-base-recipe_0.png", "label": "recipe 30/cfg3/er_sde -> 3 people, both contacts" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s4-multiperson/03-mmf-double-penetration-alpacas-recipe/03-mmf-double-penetration-alpacas-recipe_0.png", "label": "+alpacas (glossier)" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s4-multiperson/04-mmf-double-penetration-coachbate-recipe/04-mmf-double-penetration-coachbate-recipe_0.png", "label": "+coachbate (natural skin, hand defect)" }
+        ]
+      ]
+    },
+    {
+      "name": "sheet-6-missionary-size",
+      "title": "MISSIONARY: canvas size x main NSFW LoRA (TheseAlpacas v2) - 50 steps, cfg 3, er_sde/beta, seed 75001",
+      "rows": [
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s10-missionary/01-missionary-1024-base-50/01-missionary-1024-base-50_0.png", "label": "1024  base" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s10-missionary/03-missionary-1536-base-50/03-missionary-1536-base-50_0.png", "label": "1536  base" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s10-missionary/05-missionary-2048-base-50/05-missionary-2048-base-50_0.png", "label": "2048  base" }
+        ],
+        [
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s10-missionary/02-missionary-1024-alpacas-50/02-missionary-1024-alpacas-50_0.png", "label": "1024  +main NSFW LoRA" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s10-missionary/04-missionary-1536-alpacas-50/04-missionary-1536-alpacas-50_0.png", "label": "1536  +main NSFW LoRA" },
+          { "path": "artifacts/tmp/qwen21-nsfw-lora/s10-missionary/06-missionary-2048-alpacas-50/06-missionary-2048-alpacas-50_0.png", "label": "2048  +main NSFW LoRA" }
+        ]
+      ]
+    }
+  ]
+}

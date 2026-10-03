@@ -23,6 +23,10 @@ public sealed class EnqueueSceneAssetImageEditCompilationRequest
     /// <summary>The REGION this edit is confined to, or null to edit the whole frame. A set region adds the
     /// confinement clause to the compiled prompt (B135-008 N5).</summary>
     public MediaEditRegionOperation? Region { get; set; }
+
+    /// <summary>The OUTPAINT extension this edit is, or null for a whole-frame or region edit. An outpaint adds
+    /// the canvas-extension clause to the compiled prompt (CASE-24).</summary>
+    public MediaEditOutpaintOperation? Outpaint { get; set; }
 }
 
 public sealed class AppendSceneAssetImageEditPromptRevisionRequest
@@ -50,6 +54,15 @@ public sealed class EnqueueSceneAssetImageEditRequest
     /// <c>SceneImageEditRequest</c> carries the same field, so an asset edit and a scene edit stay one story.
     /// </summary>
     public MediaEditRegionOperation? Region { get; set; }
+
+    /// <summary>The outpaint extension this edit is confined to, or null to keep the frame (CASE-24).</summary>
+    public MediaEditOutpaintOperation? Outpaint { get; set; }
+
+    /// <summary>
+    /// The scene LoRAs the operator picked for this edit, or null for none. The asset store's twin of
+    /// <c>SceneImageEditRequest.SceneLoras</c>: the one workspace renders the picker for both stores, so both carry it.
+    /// </summary>
+    public IReadOnlyList<SceneImageLoraSelection>? SceneLoras { get; set; }
 }
 
 /// <summary>

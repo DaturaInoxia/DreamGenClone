@@ -27,6 +27,13 @@ public sealed record ResolvedImageModel(
     QwenImage21Refs? QwenImage21 = null,
 
     /// <summary>
+    /// Krea 2 artifacts and sampling envelope, resolved from the model's <c>CapabilityQualificationsJson</c> when
+    /// the family is <see cref="SceneImageModelFamily.Krea2"/>; null for every other family. The graph builder
+    /// REQUIRES it for that family and fails fast when it is missing.
+    /// </summary>
+    Krea2Refs? Krea2 = null,
+
+    /// <summary>
     /// The registered model row this resolution came from. Needed wherever a resolved value has to be
     /// checked against the model's own declared capabilities (reference strategies), and carried for
     /// provenance. Null when the caller resolved without a model row.
@@ -39,4 +46,18 @@ public sealed record ResolvedImageModel(
     /// a LoRA is identical to a pre-LoRA render. Populated by the render that knows the frame's cast; the
     /// resolution service itself cannot know it.
     /// </summary>
-    IReadOnlyList<ResolvedCharacterLora>? Loras = null);
+    IReadOnlyList<ResolvedCharacterLora>? Loras = null,
+
+    /// <summary>
+    /// The NON-IDENTITY LoRAs this render applies (unlock / act / anatomy / style), in the operator's chosen order.
+    /// Null/empty means NO scene LoRA: the graph then emits no loader node for them and the render is identical to
+    /// one made before the scene-LoRA catalog existed.
+    ///
+    /// <para>
+    /// Populated from the render request's multi-select (<c>SceneImageStudioSettings.SceneLoras</c>), resolved
+    /// against the <c>SceneLora</c> catalog and filtered to this model's family - NEVER from the model row, so no
+    /// configuration can force a LoRA onto a render. <see cref="Loras"/> (character identity) is appended AFTER
+    /// this list so identity stays closest to the subject.
+    /// </para>
+    /// </summary>
+    IReadOnlyList<ResolvedSceneLora>? SceneLoras = null);

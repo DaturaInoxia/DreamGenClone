@@ -132,7 +132,7 @@
                                 }
                             </div>
                             <div class="card-body py-2 small">
-                                <div class="d-flex justify-content-between gap-2">
+                                <div class="d-flex flex-wrap gap-2">
                                     <span class="badge @StatusBadge(image.Status)">@image.Status</span>
                                     @if (image.ProductionApprovalStatus is not null)
                                     {
@@ -140,11 +140,38 @@
                                     }
                                     @if (image.CandidateDecision is not null)
                                     {
-                                        <span class="badge @CandidateDecisionBadge(image.CandidateDecision.Value)">@image.CandidateDecision</span>
+                                        @* Deliberately NOT green and deliberately not just the verdict. A green "Accepted"
+                                           reads as approved-for-use, which it is not: it only says this attempt was the
+                                           batch's pick. The confusion cost an operator a working session (2026-10-02),
+                                           so the badge names the gate it is and the title says which gate it is not. *@
+                                        <span class="badge text-bg-secondary"
+                                              title="This attempt was the batch's pick. It is NOT approved for production, so it cannot be used as a reference until it is approved on the review page.">
+                                            picked: @image.CandidateDecision
+                                        </span>
                                     }
                                 </div>
                                 <div class="font-monospace text-truncate mt-2" title="@image.Id">@image.Id</div>
                                 <div class="text-muted">@image.Kind · @image.CreatedUtc.ToLocalTime().ToString("g")</div>
+                                @* The name is what a reference picker shows, so it is edited HERE, on the picture it
+                                   belongs to. Saved on change (blur or Enter) rather than by a button: there is one
+                                   field, and a Save button under every thumbnail would be a row of buttons for a
+                                   one-word label. A blank name is refused by the service, whose words are shown above
+                                   rather than swallowed, and the card then shows the stored value again. *@
+                                <div class="mt-2">
+                                    <input class="form-control form-control-sm" value="@image.DisplayName"
+                                           placeholder="Name this image (Front, Left side…)"
+                                           aria-label="Image name"
+                                           disabled="@_busy"
+                                           @onchange="args => RenameImageAsync(image, args.Value?.ToString())" />
+                                </div>
+                                @if (image.Status == SceneAssetStatus.Complete)
+                                {
+                                    @* Tags are edited only on a finished image: a tag is a claim about a picture, and
+                                       a pending or failed row has no picture to make a claim about. *@
+                                    <div class="mt-2">
+                                        <ImageTags Image="image" Editable="true" TagsChanged="LoadAsync" />
+                                    </div>
+                                }
                                 @if (!string.IsNullOrWhiteSpace(image.ErrorMessage))
                                 {
                                     <div class="text-danger mt-1">@image.ErrorMessage</div>
@@ -192,6 +219,18 @@
 
 @code {
     [Parameter] public string? AssetId { get; set; }
+
+    /// <summary>
+    /// An image whose recorded settings this page should load into the generator as soon as it is open (B-140 FR-12).
+    ///
+    /// <para>
+    /// Carried as a query parameter so the REVIEW page — where an operator decides an image is worth reproducing — can
+    /// hand the round-trip over in one click, instead of making them go back to the asset, find the same thumbnail and
+    /// press the same button. The load itself is the page's existing one, so there is a single implementation of
+    /// "restore what made this image".
+    /// </para>
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "loadImageId")] public string? LoadImageId { get; set; }
 
     private SceneAsset? _asset;
     private List<SceneAssetImage> _images = [];
@@ -296,9 +335,34 @@
     private void LoadIntoGenerator(SceneAssetImage image)
     {
         _draft = DreamGenClone.Web.Application.RolePlay.ImageStep.ImageGenerationDraft.FromImage(image);
+        _autoLoadedImageId = image.Id;
         _message = _draft.HasAnythingToLoad
             ? $"Loaded image {image.Id[..Math.Min(8, image.Id.Length)]}… into the generator."
             : $"Image {image.Id[..Math.Min(8, image.Id.Length)]}… recorded nothing that can be loaded.";
+    }
+
+    /// <summary>
+    /// The image a query-parameter load already applied, so the page's polling reload does not re-apply it and stomp on
+    /// edits the operator has since made in the generator.
+    /// </summary>
+    private string? _autoLoadedImageId;
+
+    /// <summary>
+    /// Applies the <c>loadImageId</c> request once, when the named image is actually among this asset's images. An id
+    /// that is not (a stale link, an image deleted since) loads nothing and is not silently reported as loaded.
+    /// </summary>
+    private void ApplyRequestedDraftLoad()
+    {
+        if (string.IsNullOrWhiteSpace(LoadImageId)
+            || string.Equals(_autoLoadedImageId, LoadImageId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (_images.FirstOrDefault(image => string.Equals(image.Id, LoadImageId, StringComparison.Ordinal)) is { } image)
+        {
+            LoadIntoGenerator(image);
+        }
     }
 
     /// <summary>
@@ -306,6 +370,38 @@
     /// verbatim: "stop using it first" is an instruction the operator can act on, and inventing a nicer sentence here
     /// would be a second, drifting copy of the rule.
     /// </summary>
+    /// <summary>
+    /// Names one image, or renames it. The name is the operator's label for THIS picture and what a reference picker
+    /// shows, so it is written through its own writer rather than through any image save.
+    ///
+    /// <para>
+    /// A blank name is refused by the service and its own words are shown: clearing the box is an instruction the
+    /// operator can act on ("a name is required"), and inventing a nicer sentence here would be a second, drifting
+    /// copy of the rule. The reload then puts the stored value back in the box, so the card always shows what is
+    /// actually recorded.
+    /// </para>
+    /// </summary>
+    private async Task RenameImageAsync(SceneAssetImage image, string? name)
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            var named = await AssetService.SetImageDisplayNameAsync(image.Id, name ?? string.Empty);
+            _message = $"This image is named '{named.DisplayName}'.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
     private async Task DeleteImageAsync(SceneAssetImage image)
     {
         _busy = true;
@@ -343,6 +439,9 @@
         _images = _asset is null
             ? []
             : (await AssetService.ListImagesAsync(_asset.Id)).ToList();
+
+        // After the image list is loaded, so a request to load one image's settings can be honoured for THIS asset.
+        ApplyRequestedDraftLoad();
 
         // Seeded ONCE per asset, not on every load. This page polls while an image is pending, and a poll that
         // re-seeded the box would delete a name the operator was halfway through typing.
@@ -392,14 +491,6 @@
     {
         SceneAssetStatus.Complete => "text-bg-success",
         SceneAssetStatus.Failed => "text-bg-danger",
-        _ => "text-bg-secondary"
-    };
-
-    private static string CandidateDecisionBadge(SceneAssetCandidateDecision decision) => decision switch
-    {
-        SceneAssetCandidateDecision.Accepted => "text-bg-success",
-        SceneAssetCandidateDecision.Shortlisted => "text-bg-info",
-        SceneAssetCandidateDecision.Rejected or SceneAssetCandidateDecision.Revoked => "text-bg-danger",
         _ => "text-bg-secondary"
     };
 

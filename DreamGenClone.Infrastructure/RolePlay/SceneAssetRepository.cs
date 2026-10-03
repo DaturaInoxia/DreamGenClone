@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
@@ -218,13 +219,13 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                 Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                 LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-                CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed)
+                CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed, TagsJson, DisplayName)
             VALUES (
                 $id, $assetId, $kind, $status, $prompt, $sourceImageId, $modelSnapshotJson,
                 $associationMetadataJson, $fileRelativePath, $mediaType, $width, $height, $byteLength,
                 $sha256, $errorMessage, $sourceProvenanceJson, $productionApprovalStatus, $consentState,
                 $licenseState, $licenseLabel, $approvedUseScope, $contentPolicyKey,
-                $compatibilityMetadataJson, $productionVersion, $candidateBatchId, $candidateDecision, $candidateNotes, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $validationResultJson, $pipelineStepsJson, $negativePrompt, $promptCompilerId, $seed)
+                $compatibilityMetadataJson, $productionVersion, $candidateBatchId, $candidateDecision, $candidateNotes, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $validationResultJson, $pipelineStepsJson, $negativePrompt, $promptCompilerId, $seed, $tagsJson, $displayName)
             ON CONFLICT(Id) DO UPDATE SET
                 Status = excluded.Status,
                 ModelSnapshotJson = excluded.ModelSnapshotJson,
@@ -281,6 +282,216 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.Parameters.AddWithValue("$id", imageId.Trim());
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             throw new InvalidOperationException($"Scene asset image '{imageId}' is not a candidate in a review batch.");
+    }
+
+    /// <summary>
+    /// Replaces an image's tags.
+    ///
+    /// <para>
+    /// Deliberately knows NOTHING about the vocabulary: it stores the list it is given (after a structural check that
+    /// every entry is <c>prefix:value</c>) and matches a query the caller already normalized. The vocabulary and its
+    /// normalization live in one place — <c>ImageTagCatalog</c>, which reuses the pose library's own label owner — so
+    /// the storage layer cannot become a second, drifting opinion about what a tag looks like.
+    /// </para>
+    /// </summary>
+    public async Task SetImageTagsAsync(
+        string imageId,
+        IReadOnlyList<string> tags,
+        CancellationToken cancellationToken = default)
+    {
+        Require(imageId, "Image id");
+        ArgumentNullException.ThrowIfNull(tags);
+        RequireTagShape(tags);
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "UPDATE SceneAssetImages SET TagsJson = $tagsJson, UpdatedUtc = $updatedUtc WHERE Id = $id;";
+        command.Parameters.AddWithValue("$tagsJson", JsonSerializer.Serialize(tags));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$id", imageId.Trim());
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException($"Scene asset image '{imageId}' does not exist, so it has no tags to set.");
+    }
+
+    /// <summary>
+    /// Sets the operator-entered <see cref="SceneAssetImage.DisplayName"/> — the label every reference picker shows.
+    ///
+    /// <para>
+    /// A blank name is REFUSED rather than treated as "clear it": an accepted location image with no name is exactly
+    /// the state this column exists to prevent (an operator who cannot tell the elevations apart), so there is no
+    /// path that produces one. Renaming to any other non-blank name is always allowed, and the dedicated writer is
+    /// what keeps the name out of the generic image upsert, so a re-render cannot erase it.
+    /// </para>
+    /// </summary>
+    public async Task<SceneAssetImage> SetImageDisplayNameAsync(
+        string imageId,
+        string displayName,
+        CancellationToken cancellationToken = default)
+    {
+        Require(imageId, "Image id");
+        if (string.IsNullOrWhiteSpace(displayName))
+            throw new InvalidOperationException("A scene asset image name is required.");
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "UPDATE SceneAssetImages SET DisplayName = $displayName, UpdatedUtc = $updatedUtc WHERE Id = $id;";
+        command.Parameters.AddWithValue("$displayName", displayName.Trim());
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$id", imageId.Trim());
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException($"Scene asset image '{imageId}' does not exist, so it cannot be named.");
+
+        return await GetImageAsync(imageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Scene asset image '{imageId}' was not found after being named.");
+    }
+
+    /// <summary>
+    /// Adds tags to an image, keeping the ones it already carries. Read and write happen on ONE connection so a tag
+    /// added by hand between the two cannot be lost: the union is computed against the row's current value, not
+    /// against a copy taken earlier.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> AddImageTagsAsync(
+        string imageId,
+        IReadOnlyList<string> tags,
+        CancellationToken cancellationToken = default)
+    {
+        Require(imageId, "Image id");
+        ArgumentNullException.ThrowIfNull(tags);
+        RequireTagShape(tags);
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+
+        await using var read = connection.CreateCommand();
+        read.CommandText = "SELECT TagsJson FROM SceneAssetImages WHERE Id = $id;";
+        read.Parameters.AddWithValue("$id", imageId.Trim());
+        var existing = await read.ExecuteScalarAsync(cancellationToken);
+        if (existing is null)
+        {
+            throw new InvalidOperationException(
+                $"Scene asset image '{imageId}' does not exist, so it has no tags to add to.");
+        }
+
+        var merged = ReadTagList(existing as string)
+            .Concat(tags)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        await using var write = connection.CreateCommand();
+        write.CommandText =
+            "UPDATE SceneAssetImages SET TagsJson = $tagsJson, UpdatedUtc = $updatedUtc WHERE Id = $id;";
+        write.Parameters.AddWithValue("$tagsJson", JsonSerializer.Serialize(merged));
+        write.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        write.Parameters.AddWithValue("$id", imageId.Trim());
+        await write.ExecuteNonQueryAsync(cancellationToken);
+
+        return merged;
+    }
+
+    /// <summary>
+    /// Every tag on an image row, or none when it carries nothing readable.
+    ///
+    /// <para>
+    /// Unreadable JSON reads as NO tags rather than throwing: this runs on a read of a list of images, where one row
+    /// with a corrupted tag column must not take out the whole list. Serialization is the only writer of the column,
+    /// so unreadable content means the row was edited outside the app.
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<string> ReadTagList(string? tagsJson)
+    {
+        if (string.IsNullOrWhiteSpace(tagsJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(tagsJson) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Refuses a tag that is not <c>prefix:value</c>. A structural check only — which PREFIXES exist is the catalog's
+    /// business, and this layer must not learn it.
+    /// </summary>
+    private static void RequireTagShape(IReadOnlyList<string> tags)
+    {
+        foreach (var tag in tags)
+        {
+            if (string.IsNullOrWhiteSpace(tag))
+            {
+                throw new InvalidOperationException("An image tag cannot be blank.");
+            }
+
+            var separator = tag.IndexOf(':');
+            if (separator <= 0 || separator == tag.Length - 1)
+            {
+                throw new InvalidOperationException(
+                    $"'{tag}' is not a tag: every tag is 'prefix:value' (for example 'stance:kneeling').");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Images whose tag list contains a tag VALUE matching the query. The match is done inside SQLite over the JSON
+    /// text, which is exact enough because a tag value can only contain <c>[a-z0-9-]</c> — the catalog's normalization
+    /// removed every character that could make one tag a substring of an unrelated one.
+    ///
+    /// <para>
+    /// <paramref name="tagQuery"/> must ALREADY be normalized by the caller, because the normalization rule is the
+    /// catalog's and duplicating it here is exactly how two spellings of one tag appear.
+    /// </para>
+    /// </summary>
+    public async Task<IReadOnlyList<SceneAssetImage>> SearchImagesByTagAsync(
+        string tagQuery,
+        int maxResults = 200,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(tagQuery))
+        {
+            // Nothing asked for is not the whole library: a search that silently returns everything when given a
+            // blank box is indistinguishable from one that ignored the query.
+            return [];
+        }
+
+        if (maxResults <= 0)
+            throw new InvalidOperationException($"A tag search needs a positive result limit; got {maxResults}.");
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+
+        // $value holds ':<normalized>' so the match is anchored to a tag's VALUE rather than its prefix: searching
+        // "lora" must not return every image whose list mentions a scene-lora.
+        command.CommandText = $"""
+            {ImageSelectSql}
+            WHERE TagsJson IS NOT NULL
+              AND EXISTS (
+                    SELECT 1 FROM json_each(SceneAssetImages.TagsJson) AS tag
+                    WHERE tag.value LIKE '%' || $value || '%'
+              )
+            ORDER BY CreatedUtc DESC, Id DESC
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$value", $":{tagQuery.Trim().ToLowerInvariant()}");
+        command.Parameters.AddWithValue("$limit", maxResults);
+
+        var images = new List<SceneAssetImage>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) images.Add(ReadImage(reader));
+        return images;
     }
 
     /// <summary>
@@ -460,6 +671,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         if (image.ProductionApprovalStatus is not null and not SceneAssetProductionApprovalStatus.Draft)
             throw new InvalidOperationException($"Scene asset image '{imageId}' is already {image.ProductionApprovalStatus} for production.");
 
+        await RequireLocationImageNamedAsync(image, cancellationToken);
+
         var approvedUtc = DateTime.UtcNow;
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -491,6 +704,44 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             throw new InvalidOperationException($"Scene asset image '{imageId}' changed before production approval completed.");
         return (await GetImageAsync(imageId, cancellationToken))!;
+    }
+
+    /// <summary>
+    /// Refuses production approval of an image inside a LOCATION container when it carries no operator-entered name.
+    ///
+    /// <para>
+    /// A location is a container of several accepted images — four elevations, an interior — and the name is how a
+    /// reference is RETRIEVED. Approving an unnamed one would create a row that cannot be told apart from its
+    /// siblings in every picker, which is the exact state the name column exists to prevent.
+    /// </para>
+    ///
+    /// <para>
+    /// The rule lives at the data boundary rather than in the form that happens to call it, so a second call site
+    /// cannot approve past it. It applies to location containers only: a face, body, wardrobe or pose image keeps
+    /// the contract it had. Nothing is substituted for a missing name.
+    /// </para>
+    /// </summary>
+    private async Task RequireLocationImageNamedAsync(SceneAssetImage image, CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Type FROM SceneAssets WHERE Id = $id;";
+        command.Parameters.AddWithValue("$id", image.AssetId.Trim());
+        var containerType = await command.ExecuteScalarAsync(cancellationToken);
+
+        if (!Enum.TryParse<SceneAssetType>(containerType as string, ignoreCase: false, out var parsed)
+            || !SceneAssetImageNaming.IsNameRequiredForApproval(parsed))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(image.DisplayName))
+            throw new InvalidOperationException(
+                $"Scene asset image '{image.Id}' belongs to the location '{image.AssetId}' and has no name, so it "
+                + "cannot be approved as a location reference. Name it first so a reference can be told apart from "
+                + "the location's other images.");
     }
 
     public async Task UpsertAsync(SceneAsset asset, CancellationToken cancellationToken = default)
@@ -782,7 +1033,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         }
 
         // Production provenance: rows that record this asset as the thing that was approved, bound or trained on.
-        // Named one at a time rather than as "in use", because "in use" leaves the operator with nowhere to look.
+        // Named one at a time BESIDE the fact that it is in use, because the generic phrase alone leaves the operator
+        // with nowhere to look — and the phrase itself is kept, because callers and tests already match on it.
         foreach (var (table, description) in new[]
         {
             ("CharacterBodyAssetBindings", "a character's body build"),
@@ -796,8 +1048,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             if (await CountAsync($"SELECT COUNT(*) FROM {table} WHERE SceneAssetId = $id;") > 0)
             {
                 throw new InvalidOperationException(
-                    $"Scene asset '{assetId}' is used by {description}, so it cannot be deleted. Remove it from there "
-                    + "first.");
+                    $"Scene asset '{assetId}' is in use by {description}, so it cannot be deleted. Remove it from "
+                    + "there first.");
             }
         }
 
@@ -963,7 +1215,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-               CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed
+               CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed, TagsJson, DisplayName
         FROM SceneAssetImages
         """;
 
@@ -1007,7 +1259,11 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             PipelineStepsJson = reader.IsDBNull(32) ? null : reader.GetString(32),
             NegativePrompt = reader.IsDBNull(33) ? null : reader.GetString(33),
             PromptCompilerId = reader.IsDBNull(34) ? null : reader.GetString(34),
-            Seed = reader.IsDBNull(35) ? null : reader.GetInt64(35)
+            Seed = reader.IsDBNull(35) ? null : reader.GetInt64(35),
+            // Appended LAST on purpose: this reader is ordinal, so a new column may only be added at the end of the
+            // SELECT list, or every field after it silently shifts onto the wrong property.
+            TagsJson = reader.IsDBNull(36) ? null : reader.GetString(36),
+            DisplayName = reader.IsDBNull(37) ? null : reader.GetString(37)
         };
     }
 
@@ -1049,6 +1305,13 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.Parameters.AddWithValue("$negativePrompt", (object?)image.NegativePrompt ?? DBNull.Value);
         command.Parameters.AddWithValue("$promptCompilerId", (object?)image.PromptCompilerId ?? DBNull.Value);
         command.Parameters.AddWithValue("$seed", (object?)image.Seed ?? DBNull.Value);
+        // Written on INSERT and deliberately absent from the ON CONFLICT update list: TagsJson is owned by the tag
+        // writer (SetImageTagsAsync, which the completion step and the tag editor call), so an ordinary save - an edit
+        // stage upserting the row it just produced - cannot erase tags an operator added by hand.
+        command.Parameters.AddWithValue("$tagsJson", (object?)image.TagsJson ?? DBNull.Value);
+        // Absent from the ON CONFLICT update list for the same reason: the NAME is owned by SetImageDisplayNameAsync,
+        // so a re-render or an edit stage upserting this row cannot erase the name an operator typed.
+        command.Parameters.AddWithValue("$displayName", (object?)image.DisplayName ?? DBNull.Value);
     }
 
     private static void AddPromotionParameters(SqliteCommand command, SceneAsset asset)
@@ -1317,7 +1580,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ("PipelineStepsJson", "ALTER TABLE SceneAssetImages ADD COLUMN PipelineStepsJson TEXT NULL"),
             ("NegativePrompt", "ALTER TABLE SceneAssetImages ADD COLUMN NegativePrompt TEXT NULL"),
             ("PromptCompilerId", "ALTER TABLE SceneAssetImages ADD COLUMN PromptCompilerId TEXT NULL"),
-            ("Seed", "ALTER TABLE SceneAssetImages ADD COLUMN Seed INTEGER NULL")
+            ("Seed", "ALTER TABLE SceneAssetImages ADD COLUMN Seed INTEGER NULL"),
+            ("TagsJson", "ALTER TABLE SceneAssetImages ADD COLUMN TagsJson TEXT NULL"),
+            ("DisplayName", "ALTER TABLE SceneAssetImages ADD COLUMN DisplayName TEXT NULL")
         })
         {
             await using var imageColumnCheck = connection.CreateCommand();

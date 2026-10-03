@@ -14,6 +14,21 @@ else
     {
         <div class="alert alert-danger">@_error</div>
     }
+    @* The name is the operator's own label for THIS image, and it is what a reference picker shows. It leads the
+       form because a location holds four elevations and an interior: naming the image is the first thing that makes
+       it findable, and the store refuses to approve a location image that has no name. *@
+    <label class="form-label" for="review-name">Name</label>
+    <input id="review-name" class="form-control" placeholder="Front, Left side, Interior…" @bind="_name" />
+    <div class="form-text mb-2">
+        @if (RequiresName)
+        {
+            <span>Required: a location's images are told apart by this name, so this image cannot be approved without one.</span>
+        }
+        else
+        {
+            <span>Optional. When set, this is the name shown wherever the image can be picked as a reference.</span>
+        }
+    </div>
     <label class="form-label" for="review-provenance">Source provenance JSON</label>
     <textarea id="review-provenance" class="form-control font-monospace" rows="3" @bind="_provenanceJson"></textarea>
     <div class="row g-2 mt-1">
@@ -67,6 +82,16 @@ else
     [Parameter, EditorRequired]
     public SceneAssetImage Image { get; set; } = null!;
 
+    /// <summary>
+    /// The type of the container this image belongs to, or null when the caller does not know it.
+    ///
+    /// Carried rather than looked up because this form holds no repository: what it needs to know is only whether a
+    /// name is required, and that answer belongs to the type. Null means "no type-specific requirement", which is the
+    /// honest reading for a host that did not declare one — the store still enforces the rule either way.
+    /// </summary>
+    [Parameter]
+    public SceneAssetType? AssetType { get; set; }
+
     private string _provenanceJson = string.Empty;
     private string _consent = string.Empty;
     private string _license = string.Empty;
@@ -74,11 +99,34 @@ else
     private string _useScope = string.Empty;
     private string _contentPolicyKey = string.Empty;
     private string _compatibilityJson = string.Empty;
+    private string _name = string.Empty;
     private SceneAssetImage? _approved;
     private bool _busy;
     private string? _error;
 
+    /// <summary>
+    /// Which image the name box was seeded from, so a re-render of the SAME image leaves what the operator typed
+    /// alone. Parameters are re-applied on every parent render, so seeding without this guard would erase a
+    /// half-typed name the moment anything else on the page changed.
+    /// </summary>
+    private string? _nameSeededFrom;
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(_nameSeededFrom, Image.Id, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _nameSeededFrom = Image.Id;
+        _name = Image.DisplayName ?? string.Empty;
+    }
+
+    /// <summary>Whether this image cannot be approved until it is named. The rule itself lives in the domain.</summary>
+    private bool RequiresName => AssetType is { } type && SceneAssetImageNaming.IsNameRequiredForApproval(type);
+
     private bool CanApprove => Image.Status == SceneAssetStatus.Complete
+        && (!RequiresName || !string.IsNullOrWhiteSpace(_name))
         && !string.IsNullOrWhiteSpace(_provenanceJson)
         && !string.IsNullOrWhiteSpace(_consent)
         && !string.IsNullOrWhiteSpace(_license)
@@ -95,6 +143,15 @@ else
         _error = null;
         try
         {
+            // The name is written FIRST, through its own writer: it is the operator's label for the image, and the
+            // approval that follows has to see it (the store refuses a location image that has none). Left alone when
+            // the box still holds the stored name, so approving cannot rewrite a label nobody touched.
+            var typedName = _name.Trim();
+            if (typedName.Length > 0 && !string.Equals(typedName, Image.DisplayName, StringComparison.Ordinal))
+            {
+                await AssetService.SetImageDisplayNameAsync(Image.Id, typedName);
+            }
+
             _approved = await AssetService.ApproveImageForProductionAsync(
                 Image.Id,
                 _provenanceJson,

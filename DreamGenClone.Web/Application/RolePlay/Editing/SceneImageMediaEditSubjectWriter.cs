@@ -55,10 +55,16 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
             return null;
 
         // An operation is not a render and has no production stage of its own: it is resolved on its own
-        // path so it never falls into a stage's compiler-provenance validation. A masked-region edit is an
-        // EDIT that also carries a region, so it stays on the compiled-edit path below.
-        if (context.Operation.Kind is not MediaEditOperationKind.Edit and not MediaEditOperationKind.MaskedRegion)
+        // path so it never falls into a stage's compiler-provenance validation. A masked-region edit - and
+        // an outpaint - are EDITs that also carry geometry, so they stay on the compiled-edit path below: the
+        // row holds the compiled prompt revision the run must resolve, and preparing them as operations built
+        // a plan with no prompt at all (CASE-24).
+        if (context.Operation.Kind is not MediaEditOperationKind.Edit
+            and not MediaEditOperationKind.MaskedRegion
+            and not MediaEditOperationKind.Outpaint)
+        {
             return await PrepareOperationAsync(image, context, cancellationToken);
+        }
 
         return image.ProductionStage switch
         {
@@ -81,10 +87,15 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
         MediaEditRunContext context, CancellationToken cancellationToken = default)
     {
         // An operation is never claimed: it is finished by the same job that picked it up and its
-        // completion accepts a row that is still 'Pending' (TryCompleteOperationImageAsync). A region edit
-        // IS an edit, so it claims like one.
-        if (context.Operation.Kind is not MediaEditOperationKind.Edit and not MediaEditOperationKind.MaskedRegion)
+        // completion accepts a row that is still 'Pending' (TryCompleteOperationImageAsync). A region edit -
+        // and an outpaint - ARE edits, so they claim like one: the job runs them down the edit path and
+        // completes them through the claim-guarded transition, which leaves an unclaimed row 'Pending' forever.
+        if (context.Operation.Kind is not MediaEditOperationKind.Edit
+            and not MediaEditOperationKind.MaskedRegion
+            and not MediaEditOperationKind.Outpaint)
+        {
             return true;
+        }
 
         if (await _images.TryClaimImageAsync(context.ImageId, DateTime.UtcNow, cancellationToken))
             return true;
@@ -144,6 +155,16 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
     private async Task<MediaEditRunPlan?> PrepareOperationAsync(
         SceneImageRecord image, MediaEditRunContext context, CancellationToken cancellationToken)
     {
+        // A confined edit is an EDIT that carries geometry: its plan needs the compiled prompt revision, the chosen
+        // editor model and a mask, and none of them are resolved here. PrepareAsync routes both confined kinds, and this
+        // guard keeps a future change to that routing from queueing a run that dies at the handler (CASE-24).
+        if (context.Operation.Kind is MediaEditOperationKind.MaskedRegion or MediaEditOperationKind.Outpaint)
+        {
+            throw new InvalidOperationException(
+                $"A {context.Operation.Kind} edit is not a deterministic operation: it must be prepared on the "
+                + "compiled-edit path, where its prompt revision, references and editor model are resolved.");
+        }
+
         if (string.IsNullOrWhiteSpace(image.SourceImageId))
             throw new InvalidOperationException(
                 $"A scene image {context.Operation.Kind} requires the queued image to name its source image.");

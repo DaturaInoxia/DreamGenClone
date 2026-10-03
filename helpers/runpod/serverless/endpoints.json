@@ -1,8 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedUtc": "2026-08-29",
+  "updatedUtc": "2026-10-02",
   "purpose": "Registry for RunPod Serverless endpoints (B-101 migration). One entry per endpoint = one worker image + one endpoint config + one Model Manager provider mapping. Mirrors helpers/runpod/pod-registry.json for the old pods. Every image/endpoint change MUST be recorded here and reproducible from the Dockerfile + config.",
   "containerRegistry": "ghcr.io/daturoinoxia/dreamgenclone",
+  "decommissioned": {
+    "on": "2026-10-02",
+    "state": "The entire RunPod serverless image stack is TORN DOWN. NONE of the endpoint entries below are live.",
+    "deletedEndpoints": [
+      "tn5tkzhwws2mxw flux-controlnet",
+      "94obyxje4z8vpd Flux-ControllNet",
+      "yhae6ihkabyb0o img-biglust-identity-serverless",
+      "ovwnwol2o30grn img-biglust-serverless",
+      "79wkn5jz5d5txx img-qwen-edit-serverless",
+      "n09tv90559x2cu compiler-qwen-vl-serverless",
+      "l2k5hyrxlhrbi0 img-juggernaut-identity-serverless",
+      "urls820tw26oew pose-dwpose-serverless-comfy"
+    ],
+    "deletedPod": "qxdko9fawp8xvi (flux-asset-staging, RTX 2000 Ada, EXITED since 2026-09-17)",
+    "deletedVolume": "xkslgh6xo0 (DreamGen_Models, 100 GB, EU-RO-1)",
+    "reason": "All image generation/editing moved to the local ComfyUI host (WOOD-GAME-MAIN 5080). The volume held models, venvs and config masters only - every item is reproduced by the provision scripts referenced below.",
+    "modelManager": "Providers 'RunPod Juggernaut Serverless', 'RunPod Qwen Image Edit', 'RunPod Serverless BigLust' and 'RunPod Identity Conditioning (IP-Adapter)' were all set IsEnabled=0 on 2026-10-02. 'Local ComfyUI (WOOD-GAME-MAIN 5080)' is IsDefault=1. The IP-Adapter provider pointed at pod ncsmze3anko7w2, which no longer existed - it had been enabled-but-dead before this teardown.",
+    "toRestore": "Re-creating any endpoint requires first re-creating a network volume in EU-RO-1. The entries below were deliberately KEPT: they are the reconstruction source of truth, not a description of live infrastructure."
+  },
   "notes": [
     "Docker is NOT installed on the dev host. DEPLOYMENT = RunPod GitHub Integration (Serverless -> + New Endpoint -> \"Start from GitHub Repo\"; docs/deployment.md Method 2): RunPod clones DaturaInoxia/DreamGenClone at the endpoint's explicitly configured working branch, builds the worker Dockerfile, and auto-updates that endpoint on pushes to that branch. New work must use the current working branch; do not assume master. NO GHCR / NO GitHub Actions (the old GHCR + build-serverless-worker.yml pipeline is SUPERSEDED 2026-08-28; containerRegistry field kept for reference only).",
     "Endpoint API field names (minWorkers/maxWorkers/idleTimeout/gpuIds) verified at P0 against the live RunPod serverless API/console before the first create.",

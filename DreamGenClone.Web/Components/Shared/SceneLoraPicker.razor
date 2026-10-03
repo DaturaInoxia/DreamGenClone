@@ -1,0 +1,289 @@
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Web.Application.RolePlay.Models
+
+@inject ISceneLoraRepository LoraCatalog
+
+@* THE scene-LoRA picker (B-137 §4). Non-identity LoRAs — unlock, act, anatomy, style — are picked here and
+   chained BEFORE the character identity LoRAs, so identity stays closest to the subject.
+
+   The MODEL's family decides what may be picked: a LoRA only binds to the checkpoint family it was trained
+   against, so the list comes from the catalog rows whose family matches the selected model. No text is typed
+   anywhere — the file is a pick list and the strength is a pick list.
+
+   NOTHING IS RENDERED when the selected family has no catalog rows (B-130's capability-formed rule: no control a
+   render would have to refuse). A family whose graph has no LoRA wiring therefore shows no picker at all, and a
+   family whose rows have not been seeded yet shows no picker either — the surface is formed by the catalog data,
+   not by a second hardcoded list of "which families support LoRAs".
+
+   Nothing is force-applied. Leaving this empty is a configured state ("no scene LoRA"): the render then emits no
+   loader node for them and is identical to a render made before the catalog existed. This picker never disables or
+   downgrades the model's reference route or its character-LoRA identity mechanism. *@
+
+@if (Family != SceneImageModelFamily.Unknown && (_loading || _error is not null || _available.Count > 0))
+{
+    <div class="border rounded p-2">
+        <div class="d-flex justify-content-between align-items-center gap-2">
+            <strong class="small">Scene LoRA</strong>
+            @if (_loading)
+            {
+                <span class="small text-muted">Checking the LoRA catalog…</span>
+            }
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-warning small mb-0 mt-1">@_error</div>
+        }
+        else if (!_loading)
+        {
+            <div class="row g-1 align-items-end mt-1">
+                <div class="col-12 col-md-6">
+                    <label class="form-label small mb-1" for="@Id("lora-file")">LoRA</label>
+                    <select id="@Id("lora-file")" class="form-select form-select-sm"
+                            value="@_addFileName" disabled="@(Disabled || Addable.Count == 0)"
+                            @onchange="OnAddFileChanged">
+                        @if (Addable.Count == 0)
+                        {
+                            <option value="">Every catalog LoRA for this family is already applied</option>
+                        }
+                        else
+                        {
+                            <option value="">Choose a scene LoRA…</option>
+                            @foreach (var lora in Addable)
+                            {
+                                <option value="@lora.FileName">@Describe(lora)</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small mb-1" for="@Id("lora-strength")">Strength</label>
+                    <select id="@Id("lora-strength")" class="form-select form-select-sm"
+                            value="@Display(_addStrength)" disabled="@Disabled" @onchange="OnAddStrengthChanged">
+                        @foreach (var option in StrengthOptions)
+                        {
+                            <option value="@Display(option)">@Display(option)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <button type="button" class="btn btn-sm btn-outline-primary w-100"
+                            disabled="@(Disabled || string.IsNullOrWhiteSpace(_addFileName))"
+                            @onclick="AddAsync">
+                        <i class="bi bi-plus-lg me-1"></i>Apply LoRA
+                    </button>
+                </div>
+            </div>
+            <div class="form-text">
+                Several scene LoRAs may be applied at once (for example an NSFW unlock plus one act LoKr). Each is chained
+                in the order shown, then the character identity LoRAs after them, and the render records every file and
+                strength it used.
+            </div>
+        }
+
+        @if (Selected.Count > 0)
+        {
+            <div class="d-flex flex-column gap-2 mt-2">
+                @foreach (var selection in Selected)
+                {
+                    var row = _available.FirstOrDefault(lora =>
+                        string.Equals(lora.FileName, selection.FileName, StringComparison.OrdinalIgnoreCase));
+                    <div class="d-flex align-items-end gap-2 border-top pt-2">
+                        <div class="flex-grow-1 small text-break">
+                            @if (row is null)
+                            {
+                                <span class="text-warning">
+                                    This LoRA is no longer catalogued for <span class="font-monospace">@Family</span>.
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="font-monospace">@row.FileName</span>
+                                <span class="text-muted"> · @row.Category · @row.DisplayName</span>
+                            }
+                        </div>
+                        <div style="width: 6rem;">
+                            <label class="form-label small mb-1" for="@Id("lora-strength-" + selection.FileName)">Strength</label>
+                            <select id="@Id("lora-strength-" + selection.FileName)" class="form-select form-select-sm"
+                                    value="@Display(selection.Strength)" disabled="@Disabled"
+                                    @onchange="args => ChangeStrengthAsync(selection.FileName, args)">
+                                @foreach (var option in OptionsFor(selection.Strength))
+                                {
+                                    <option value="@Display(option)">@Display(option)</option>
+                                }
+                            </select>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-danger" disabled="@Disabled"
+                                title="Remove this LoRA" @onclick="() => RemoveAsync(selection.FileName)">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// The selected model's family. The catalog lists exactly the LoRAs trained for this family, and the render
+    /// refuses a selection whose family does not match, so what is offered here can never be broader than what the
+    /// render will apply.
+    /// </summary>
+    [Parameter]
+    public SceneImageModelFamily Family { get; set; } = SceneImageModelFamily.Unknown;
+
+    /// <summary>The scene LoRAs to apply, in chain order. Null/empty means NO scene LoRA — the render is unchanged.</summary>
+    [Parameter]
+    public IReadOnlyList<SceneImageLoraSelection>? Selections { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<SceneImageLoraSelection>> SelectionsChanged { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Distinguishes two pickers on one page so their ids stay unique.</summary>
+    [Parameter]
+    public string Scope { get; set; } = "scene-lora";
+
+    /// <summary>
+    /// The strengths a scene LoRA is normally applied at, offered as a pick list so nothing is typed. A menu, not a
+    /// default: the value shown travels with the render and lands in the audit event, and the catalog row's own
+    /// DefaultStrength is what a NEW selection starts at.
+    /// </summary>
+    private static readonly double[] StrengthOptions = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+
+    private readonly List<SceneLora> _available = [];
+    private SceneImageModelFamily _loadedFor = SceneImageModelFamily.Unknown;
+    private string _addFileName = string.Empty;
+    private double _addStrength = 1.0;
+    private bool _loading;
+    private string? _error;
+
+    private IReadOnlyList<SceneImageLoraSelection> Selected => Selections ?? [];
+
+    /// <summary>Only LoRAs not already applied: applying the same one twice shifts it rather than strengthening it,
+    /// so the picker cannot express it and the render refuses it anyway.</summary>
+    private IReadOnlyList<SceneLora> Addable => _available
+        .Where(lora => Selected.All(selection =>
+            !string.Equals(selection.FileName, lora.FileName, StringComparison.OrdinalIgnoreCase)))
+        .ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Family == _loadedFor)
+        {
+            return;
+        }
+
+        _loadedFor = Family;
+        _available.Clear();
+        _error = null;
+        _addFileName = string.Empty;
+        if (Family == SceneImageModelFamily.Unknown)
+        {
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            _available.AddRange(await LoraCatalog.ListAsync(Family));
+        }
+        catch (Exception exception)
+        {
+            // The render refuses an unresolvable selection anyway; saying so here means the operator finds out
+            // before queueing one, and no catalog row is silently dropped from the list.
+            _error = $"The scene-LoRA catalog could not be read: {exception.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OnAddFileChanged(ChangeEventArgs args)
+    {
+        _addFileName = args.Value?.ToString() ?? string.Empty;
+        var row = _available.FirstOrDefault(lora =>
+            string.Equals(lora.FileName, _addFileName, StringComparison.OrdinalIgnoreCase));
+        if (row is not null && row.DefaultStrength > 0)
+        {
+            _addStrength = row.DefaultStrength;
+        }
+    }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_addFileName))
+        {
+            return;
+        }
+
+        var next = Selected.ToList();
+        next.Add(new SceneImageLoraSelection
+        {
+            FileName = _addFileName,
+            Strength = _addStrength
+        });
+        _addFileName = string.Empty;
+        await SelectionsChanged.InvokeAsync(next);
+    }
+
+    private async Task RemoveAsync(string fileName)
+    {
+        var next = Selected
+            .Where(selection => !string.Equals(selection.FileName, fileName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        await SelectionsChanged.InvokeAsync(next);
+    }
+
+    private async Task ChangeStrengthAsync(string fileName, ChangeEventArgs args)
+    {
+        if (!TryParseStrength(args.Value?.ToString(), out var strength))
+        {
+            return;
+        }
+
+        var next = Selected
+            .Select(selection => string.Equals(selection.FileName, fileName, StringComparison.OrdinalIgnoreCase)
+                ? new SceneImageLoraSelection { FileName = selection.FileName, Strength = strength }
+                : selection)
+            .ToList();
+        await SelectionsChanged.InvokeAsync(next);
+    }
+
+    private void OnAddStrengthChanged(ChangeEventArgs args)
+    {
+        if (TryParseStrength(args.Value?.ToString(), out var strength))
+        {
+            _addStrength = strength;
+        }
+    }
+
+    private static bool TryParseStrength(string? value, out double strength) =>
+        double.TryParse(value, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out strength) && strength > 0;
+
+    /// <summary>The standard menu, plus whatever this selection already carries, so a catalog strength set outside the
+    /// menu is never silently replaced by the nearest entry.</summary>
+    private static IReadOnlyList<double> OptionsFor(double? current)
+    {
+        if (current is not { } value || StrengthOptions.Any(option => Math.Abs(option - value) < 0.0001))
+        {
+            return StrengthOptions;
+        }
+
+        return StrengthOptions.Append(value).OrderBy(option => option).ToArray();
+    }
+
+    private static string Display(double? strength) =>
+        strength?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+
+    private static string Describe(SceneLora lora) =>
+        $"{lora.DisplayName} · {lora.Category} · {lora.FileName}";
+
+    private string Id(string suffix) => $"{Scope}-{suffix}";
+}

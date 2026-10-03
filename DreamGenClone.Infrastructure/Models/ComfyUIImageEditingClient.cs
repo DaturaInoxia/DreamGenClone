@@ -347,12 +347,34 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
             // as-is: grow_mask_by stays 0 and no FeatherMask node is emitted. The host FeatherMask node feathers the
             // mask tensor's FRAME border, not a region drawn inside it, so it cannot soften an interior rectangle's
             // edge (the measured visible-seam defect).
+            //
+            // Outpaint (CASE-24) carries non-zero pads: the mask is at the PADDED canvas size, so the source is padded
+            // to match before it is encoded and the sampler's latent then has the larger canvas the mask describes.
+            var pixels = new JsonArray("1", 0);
+            if (mask.LeftPad > 0 || mask.TopPad > 0 || mask.RightPad > 0 || mask.BottomPad > 0)
+            {
+                wf["43"] = new JsonObject
+                {
+                    ["class_type"] = "ImagePadForOutpaint",
+                    ["inputs"] = new JsonObject
+                    {
+                        ["image"] = new JsonArray("1", 0),
+                        ["left"] = mask.LeftPad,
+                        ["top"] = mask.TopPad,
+                        ["right"] = mask.RightPad,
+                        ["bottom"] = mask.BottomPad,
+                        ["feathering"] = 0
+                    }
+                };
+                pixels = new JsonArray("43", 0);
+            }
+
             wf["42"] = new JsonObject
             {
                 ["class_type"] = "VAEEncodeForInpaint",
                 ["inputs"] = new JsonObject
                 {
-                    ["pixels"] = new JsonArray("1", 0),
+                    ["pixels"] = pixels,
                     ["vae"] = new JsonArray("4", 0),
                     ["mask"] = new JsonArray("40", 0),
                     ["grow_mask_by"] = 0

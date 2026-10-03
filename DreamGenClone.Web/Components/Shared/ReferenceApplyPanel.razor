@@ -105,6 +105,9 @@
         selection.SceneAssetImageId = choice?.Image.Id;
         selection.SceneAssetVersion = choice?.Image.ProductionVersion;
         selection.SceneAssetSha256 = choice?.Image.Sha256;
+        // The operator's name for the image travels with the ids, so the resolved render can record "Left side"
+        // instead of a GUID, and a later rename cannot rewrite what this binding meant.
+        selection.ReferenceLabel = choice?.Name;
         await SelectionsChanged.InvokeAsync();
     }
 

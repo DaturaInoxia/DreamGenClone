@@ -1,0 +1,363 @@
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Models
+
+@inject ICharacterImageIdentityService IdentityService
+@inject IPoseLibraryService PoseLibrary
+@inject ICharacterLoraRepository LoraRepository
+@inject ISceneAssetService AssetService
+
+@* What an image was generated WITH, read from its own row and resolved to names. A field the image did not record is
+   omitted, never defaulted: showing "none" for a pose that was never sent would be a lie about what rendered. *@
+@if (Image is null)
+{
+    <span class="small text-muted">No image selected.</span>
+}
+else if (!_details.HasAnythingToShow)
+{
+    <span class="small text-muted">
+        This image recorded no generation inputs — it may be an upload, or a row written before generation metadata
+        existed. New renders record everything they were made with.
+    </span>
+}
+else
+{
+    <dl class="row small mb-0">
+        @if (!string.IsNullOrWhiteSpace(_details.SemanticDescription))
+        {
+            <dt class="col-sm-4 text-muted">Description</dt>
+            <dd class="col-sm-8 text-break font-monospace">@_details.SemanticDescription</dd>
+        }
+        @if (!string.IsNullOrWhiteSpace(_details.CompiledPrompt) && _details.CompiledPrompt != _details.SemanticDescription)
+        {
+            <dt class="col-sm-4 text-muted">Compiled prompt</dt>
+            <dd class="col-sm-8 text-break font-monospace">@_details.CompiledPrompt</dd>
+        }
+        @if (!string.IsNullOrWhiteSpace(_details.CompilerId))
+        {
+            <dt class="col-sm-4 text-muted">Prompt author</dt>
+            <dd class="col-sm-8 font-monospace">@_details.CompilerId</dd>
+        }
+        @if (!string.IsNullOrWhiteSpace(_details.ModelId))
+        {
+            <dt class="col-sm-4 text-muted">Model</dt>
+            <dd class="col-sm-8 font-monospace">@_details.ModelId</dd>
+        }
+        @if (!string.IsNullOrWhiteSpace(_details.ImageSize))
+        {
+            <dt class="col-sm-4 text-muted">Size</dt>
+            <dd class="col-sm-8">@_details.ImageSize</dd>
+        }
+        @if (_details.Seed is { } seed)
+        {
+            <dt class="col-sm-4 text-muted">Seed</dt>
+            <dd class="col-sm-8 font-monospace">@seed</dd>
+        }
+        @if (_details.NegativePrompt is { } negative)
+        {
+            <dt class="col-sm-4 text-muted">Negative</dt>
+            <dd class="col-sm-8 text-break font-monospace">@negative</dd>
+        }
+        @if (!string.IsNullOrWhiteSpace(_details.PoseStance) || !string.IsNullOrWhiteSpace(_poseLabel))
+        {
+            <dt class="col-sm-4 text-muted">Pose</dt>
+            <dd class="col-sm-8">@(_poseLabel ?? _details.PoseStance ?? "—")</dd>
+        }
+        @if (!string.IsNullOrWhiteSpace(_characterLabel))
+        {
+            <dt class="col-sm-4 text-muted">Character</dt>
+            <dd class="col-sm-8">@_characterLabel</dd>
+        }
+        @if (_referenceRows.Count > 0)
+        {
+            <dt class="col-sm-4 text-muted">References</dt>
+            <dd class="col-sm-8">
+                <ul class="list-unstyled mb-0">
+                    @foreach (var row in _referenceRows)
+                    {
+                        <li>@row</li>
+                    }
+                </ul>
+            </dd>
+        }
+        @if (_loraRows.Count > 0)
+        {
+            <dt class="col-sm-4 text-muted">Character LoRAs</dt>
+            <dd class="col-sm-8">
+                <ul class="list-unstyled mb-0">
+                    @foreach (var row in _loraRows)
+                    {
+                        <li>@row</li>
+                    }
+                </ul>
+            </dd>
+        }
+        @if (_sceneLoraRows.Count > 0)
+        {
+            <dt class="col-sm-4 text-muted">Scene LoRAs</dt>
+            <dd class="col-sm-8">
+                <ul class="list-unstyled mb-0">
+                    @foreach (var row in _sceneLoraRows)
+                    {
+                        <li>@row</li>
+                    }
+                </ul>
+            </dd>
+        }
+        @if (_details.AppliedPresets.Count > 0)
+        {
+            <dt class="col-sm-4 text-muted">Presets</dt>
+            <dd class="col-sm-8">
+                <ul class="list-unstyled mb-0">
+                    @foreach (var preset in _details.AppliedPresets)
+                    {
+                        <li>
+                            <span class="text-muted">@preset.Axis</span>
+                            <span class="font-monospace ms-1">@preset.Key</span>
+                            <div class="text-break font-monospace">@preset.Clause</div>
+                        </li>
+                    }
+                </ul>
+            </dd>
+        }
+    </dl>
+}
+
+@code {
+    [Parameter]
+    public SceneAssetImage? Image { get; set; }
+
+    private SceneAssetImageGenerationDetails _details = null!;
+    private readonly List<string> _referenceRows = [];
+    private readonly List<string> _loraRows = [];
+    private readonly List<string> _sceneLoraRows = [];
+    private string? _poseLabel;
+    private string? _characterLabel;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _details = Image is null
+            ? new SceneAssetImageGenerationDetails(string.Empty, null, null, null, null, null, null, null, [], null, null, null, null, null, null, null, null, null, null, [], [], [])
+            : SceneAssetImageGenerationDetails.FromImage(Image);
+
+        _referenceRows.Clear();
+        _loraRows.Clear();
+        _sceneLoraRows.Clear();
+        _poseLabel = null;
+        _characterLabel = null;
+
+        if (Image is null || !_details.HasAnythingToShow)
+        {
+            return;
+        }
+
+        var owners = await SafeOwnersAsync();
+
+        _poseLabel = await ResolvePoseAsync(_details, owners);
+        _characterLabel = await ResolveCharacterAsync(_details, owners);
+
+        foreach (var reference in _details.References)
+        {
+            var label = await ResolveReferenceAsync(reference, owners);
+            if (label is not null)
+            {
+                _referenceRows.Add(label);
+            }
+        }
+
+        foreach (var lora in _details.CharacterLoras)
+        {
+            var label = await ResolveLoraAsync(lora);
+            if (label is not null)
+            {
+                _loraRows.Add(label);
+            }
+        }
+
+        // A scene LoRA is self-describing: the catalog FILE NAME is what ComfyUI loads, and the resolver already
+        // carried the catalog's own purpose label through, so there is nothing to look up.
+        foreach (var lora in _details.SceneLoras)
+        {
+            var purpose = string.IsNullOrWhiteSpace(lora.Purpose) ? string.Empty : $" — {lora.Purpose}";
+            _sceneLoraRows.Add($"{lora.FileName} @ {lora.Strength:0.##}{purpose}");
+        }
+    }
+
+    private async Task<IReadOnlyList<IdentityPackOwner>> SafeOwnersAsync()
+    {
+        try
+        {
+            return await IdentityService.ListPackOwnersAsync();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private IdentityPackOwner? OwnerFor(IReadOnlyList<IdentityPackOwner> owners, string? packId) =>
+        string.IsNullOrWhiteSpace(packId)
+            ? null
+            : owners.FirstOrDefault(owner => string.Equals(owner.PackId, packId, StringComparison.Ordinal));
+
+    private static string? FaceLabel(IdentityPackOwner owner, string assetId)
+    {
+        var asset = owner.ApprovedAssets.FirstOrDefault(a =>
+            string.Equals(a.Id, assetId, StringComparison.Ordinal) && a.AssetKind == SceneImageReferenceAssetKind.Face);
+        return asset is null ? null : $"{owner.DisplayName} · {asset.FaceView} face";
+    }
+
+    private static string? BodyLabel(IdentityPackOwner owner, string assetId)
+    {
+        var asset = owner.ApprovedAssets.FirstOrDefault(a =>
+            string.Equals(a.Id, assetId, StringComparison.Ordinal) && a.AssetKind == SceneImageReferenceAssetKind.FullBody);
+        return asset is null
+            ? null
+            : $"{owner.DisplayName} · {asset.BodyView} body ({asset.BodyState})";
+    }
+
+    private async Task<string?> ResolvePoseAsync(
+        SceneAssetImageGenerationDetails details,
+        IReadOnlyList<IdentityPackOwner> owners)
+    {
+        if (!string.IsNullOrWhiteSpace(details.PosePresetId))
+        {
+            try
+            {
+                var preset = await PoseLibrary.GetPresetAsync(details.PosePresetId);
+                if (preset is not null)
+                {
+                    var library = (await PoseLibrary.ListLibrariesAsync())
+                        .FirstOrDefault(l => string.Equals(l.Id, preset.LibraryId, StringComparison.Ordinal));
+                    return library is null ? preset.Name : $"{preset.Name} ({library.Name})";
+                }
+            }
+            catch
+            {
+                // Fall through to the id.
+            }
+
+            return $"pose preset {details.PosePresetId}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(details.PoseStance))
+        {
+            return details.PoseStrength is { } strength
+                ? $"{details.PoseStance} (strength {strength:0.##})"
+                : details.PoseStance;
+        }
+
+        return null;
+    }
+
+    private async Task<string?> ResolveCharacterAsync(
+        SceneAssetImageGenerationDetails details,
+        IReadOnlyList<IdentityPackOwner> owners)
+    {
+        var packId = details.IdentityPackId ?? details.BodyReferencePackId;
+        if (string.IsNullOrWhiteSpace(packId))
+        {
+            return null;
+        }
+
+        var owner = OwnerFor(owners, packId);
+        if (owner is null)
+        {
+            return $"pack {packId}";
+        }
+
+        var parts = new List<string> { $"{owner.DisplayName} · pack v{owner.PackVersion}" };
+        if (!string.IsNullOrWhiteSpace(details.IdentityFaceAssetId))
+        {
+            parts.Add(FaceLabel(owner, details.IdentityFaceAssetId) ?? details.IdentityFaceAssetId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(details.BodyReferenceAssetId))
+        {
+            parts.Add(BodyLabel(owner, details.BodyReferenceAssetId) ?? details.BodyReferenceAssetId);
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    private async Task<string?> ResolveReferenceAsync(
+        ReferenceApplicationSelection reference,
+        IReadOnlyList<IdentityPackOwner> owners)
+    {
+        var slot = string.IsNullOrWhiteSpace(reference.Kind)
+            ? reference.ElementKey
+            : reference.Kind;
+
+        // A pose-library skeleton reference: the preset's own name is what the render read.
+        if (!string.IsNullOrWhiteSpace(reference.PosePresetId))
+        {
+            var pose = await ResolvePoseAsync(
+                new SceneAssetImageGenerationDetails(
+                    string.Empty, null, null, null, null, null, null, null, [],
+                    reference.PosePresetId, reference.SkeletonRelativePath, null, null,
+                    null, null, null, null, null, null, [], [], []),
+                owners);
+            return $"{slot}: {pose ?? reference.PosePresetId}";
+        }
+
+        // An identity-pack reference (face or body): the pack's own asset row names the angle and the state.
+        if (!string.IsNullOrWhiteSpace(reference.IdentityPackId))
+        {
+            var owner = OwnerFor(owners, reference.IdentityPackId);
+            if (owner is not null)
+            {
+                var label = FaceLabel(owner, reference.ReferenceAssetId ?? string.Empty)
+                    ?? BodyLabel(owner, reference.ReferenceAssetId ?? string.Empty);
+                if (label is not null)
+                {
+                    return $"{slot}: {label}";
+                }
+            }
+
+            return $"{slot}: pack asset {reference.ReferenceAssetId}";
+        }
+
+        // An approved scene-asset reference (wardrobe, location, ...): the asset's own name is the label.
+        if (!string.IsNullOrWhiteSpace(reference.SceneAssetId))
+        {
+            try
+            {
+                var asset = await AssetService.GetAssetAsync(reference.SceneAssetId);
+                if (asset is not null)
+                {
+                    return $"{slot}: {asset.Name}";
+                }
+            }
+            catch
+            {
+                // Fall through to the id.
+            }
+
+            return $"{slot}: asset {reference.SceneAssetId}";
+        }
+
+        return $"{slot}: {reference.Strategy}";
+    }
+
+    private async Task<string?> ResolveLoraAsync(SceneImageCharacterLoraSelection lora)
+    {
+        try
+        {
+            var artifact = await LoraRepository.GetArtifactAsync(lora.ArtifactId);
+            if (artifact is not null)
+            {
+                var strength = lora.Strength is { } value ? $" @ {value:0.##}" : string.Empty;
+                return $"{artifact.CharacterTemplateId} v{artifact.Version} · {artifact.TriggerToken}{strength}";
+            }
+        }
+        catch
+        {
+            // Fall through to the id.
+        }
+
+        return lora.Strength is { } fallbackStrength
+            ? $"{lora.ArtifactId} @ {fallbackStrength:0.##}"
+            : lora.ArtifactId;
+    }
+}

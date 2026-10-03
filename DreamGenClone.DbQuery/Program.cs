@@ -1,3 +1,5 @@
+using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.RolePlay;
 using Microsoft.Data.Sqlite;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -21,7 +23,7 @@ if (!File.Exists(databasePath))
 // connection level, not merely by convention.
 var rekeyApplies = string.Equals(commandName, "b127-identity-rekey", StringComparison.Ordinal)
     && args.Skip(1).Any(argument => string.Equals(argument, "apply", StringComparison.OrdinalIgnoreCase));
-var connectionMode = rekeyApplies || commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "qwen-edit-serverless-configure" or "qwen-edit-local-aio-configure" or "qwen-edit-local-aio-lora-configure" or "qwen-edit-remix-aio-configure" or "qwen-edit-remix-aio-lora-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "body-axes-migrate" or "local-comfyui-configure" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
+var connectionMode = rekeyApplies || commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "b137-krea2-configure" or "qwen21-lora-catalog-configure" or "qwen21-envelope-configure" or "image-editor-family-configure" or "qwen-edit-serverless-configure" or "qwen-edit-local-aio-configure" or "qwen-edit-local-aio-lora-configure" or "qwen-edit-remix-aio-configure" or "qwen-edit-remix-aio-lora-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "body-axes-migrate" or "local-comfyui-configure" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -69,6 +71,19 @@ try
         "b100-analyzer-configure" => await ConfigureB100AnalyzerAsync(connection),
         "b100-analyzer-openrouter-configure" => await ConfigureB100OpenRouterAnalyzerAsync(connection),
         "biglust-image-configure" => await ConfigureBigLustImageAsync(connection),
+        "b137-krea2-configure" => await ConfigureKrea2Async(connection),
+        "qwen21-lora-catalog-configure" => await ConfigureQwen21LoraCatalogAsync(connection),
+        "image-editor-family-configure" => await ConfigureImageEditorFamilyAsync(
+            connection,
+            RequireArgument(args, 1, "modelIdentifier"),
+            RequireArgument(args, 2, "sceneImageModelFamily"),
+            RequireArgument(args, 3, "promptDialect")),
+        "qwen21-envelope-configure" => await ConfigureQwen21EnvelopeAsync(
+            connection,
+            RequireArgument(args, 1, "steps"),
+            RequireArgument(args, 2, "cfg"),
+            RequireArgument(args, 3, "samplerName"),
+            RequireArgument(args, 4, "scheduler")),
         "qwen-edit-serverless-configure" => await ConfigureQwenEditServerlessAsync(connection),
         "qwen-edit-local-aio-configure" => await ConfigureQwenEditLocalAioAsync(connection),
         "qwen-edit-local-aio-lora-configure" => await ConfigureQwenEditLocalAioLoraAsync(
@@ -809,6 +824,553 @@ static async Task<int> ConfigureBigLustImageAsync(SqliteConnection connection)
 
     await transaction.CommitAsync();
     Console.WriteLine($"BigLust image configured: {functionName} | {providerName} | {modelIdentifier} (Sdxl / SdxlNaturalLanguage)");
+    return 0;
+}
+
+/// <summary>
+/// B-137: registers Krea 2 (Krea-2 Turbo) as a local ComfyUI scene-image generation model and seeds its
+/// scene-LoRA catalog.
+///
+/// This is the portable form of the B-137 seed. The repo has no snapshot-refresh command
+/// (<c>.github/instructions/db-snapshot-workflow.instructions.md</c>: "Share portable configuration as reviewed,
+/// idempotent named commands in DreamGenClone.DbQuery, then run those commands on each host"), so this command -
+/// not a copied .db - is how another machine gets Krea 2.
+///
+/// ADDITIVE ONLY. It never repoints a FunctionModelDefault, so nothing renders differently until an operator picks
+/// the model. It also never repoints the local ComfyUI provider: it looks that provider up BY NAME and fails fast
+/// if it is absent, because a Krea 2 model pointing at the wrong endpoint would fail at render time instead.
+///
+/// Deliberately NOT catalogued, and why:
+///   * krea2_style_reference - the style-reference path was rejected (B-137 D1: text-only).
+///   * krea2_filter_bypass3 - a 160-byte no-op proven useless in the proof matrix, and REMOVED from the host
+///     on 2026-10-02 (moved to D:\ComfyUI\models\_dead_loras\) so it cannot be mistaken for a usable LoRA.
+///   * krea2_nsfw_prompt_adherence - measured on 2026-10-02 and found to be a 268-byte empty stub, not a
+///     usable LoRA; also removed from the host. It was previously excluded only as "never rendered".
+///   * krea2_slider_detail / _realism / _weight - real weights staged on the host but never rendered, so no
+///     strength was ever measured. They stay out of the menu rather than carrying a guessed strength;
+///     a LoRA applied at a strength nobody chose is a different LoRA.
+///
+/// Idempotent: the model row is matched by model identifier and updated in place, and catalog rows are inserted
+/// with ON CONFLICT DO NOTHING against UNIQUE (SceneImageModelFamily, FileName). An existing operator-edited row
+/// is never overwritten.
+/// </summary>
+static async Task<int> ConfigureKrea2Async(SqliteConnection connection)
+{
+    const string providerName = "Local ComfyUI (WOOD-GAME-MAIN 5080)";
+    const string modelIdentifier = "krea2_turbo_fp8_scaled.safetensors";
+    const string modelDisplayName = "Krea 2 Turbo (Local ComfyUI)";
+    const int familyKrea2 = 6;              // SceneImageModelFamily.Krea2
+    const int dialectKrea2NaturalLanguage = 5; // SceneImagePromptDialect.Krea2NaturalLanguage
+
+    var now = DateTime.UtcNow.ToString("o");
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    string providerId;
+    await using (var selectProvider = connection.CreateCommand())
+    {
+        selectProvider.Transaction = transaction;
+        selectProvider.CommandText = "SELECT Id FROM Providers WHERE Name = $name;";
+        selectProvider.Parameters.AddWithValue("$name", providerName);
+        providerId = await selectProvider.ExecuteScalarAsync() as string
+            ?? throw new InvalidOperationException(
+                $"Provider '{providerName}' was not found, so there is nowhere to register the Krea 2 model. Run "
+                + "'local-comfyui-configure <baseUrl>' first. No database changes were made.");
+    }
+
+    // Krea-2 Turbo is cfg-1 distilled and takes no negative text: the graph zeroes the positive conditioning
+    // instead. The envelope is qualified here and is never read from the studio's SDXL-family controls.
+    const string qualificationNote =
+        "Text-to-image only: no reference conditioning, no edit path, no ControlNet. Krea-2 Turbo is cfg-1 "
+        + "distilled, so the graph zeroes the positive conditioning instead of taking a negative prompt - the "
+        + "sampler envelope is qualified here and is never read from the studio controls.";
+    var qualifications =
+        "[{\"Strategy\":\"TextToImage\",\"EndpointId\":\"" + providerId + "\",\"Qualified\":true,"
+        + "\"ProofId\":\"krea2-59-cell-matrix-2026-10-01\","
+        + "\"UnetName\":\"krea2_turbo_fp8_scaled.safetensors\","
+        + "\"ClipName\":\"qwen3vl_4b_fp8_scaled.safetensors\","
+        + "\"VaeName\":\"qwen_image_vae.safetensors\","
+        + "\"Steps\":8,\"Cfg\":1.0,\"SamplerName\":\"euler\",\"Scheduler\":\"simple\",\"Denoise\":1.0,"
+        + "\"Note\":\"" + qualificationNote.Replace("\"", "'") + "\"}]";
+
+    const string modelNotes =
+        "Krea-2 Turbo 12B DiT + Qwen3-VL 4B text encoder + Qwen Image VAE, local ComfyUI only. Text-to-image with "
+        + "no reference conditioning. Proof: 59-cell matrix in helpers/local-comfyui-host/run-krea2-proof.ps1 "
+        + "(specs/Planning/B-137-krea2-local-generation).";
+
+    string modelId;
+    await using (var selectModel = connection.CreateCommand())
+    {
+        selectModel.Transaction = transaction;
+        selectModel.CommandText = "SELECT Id FROM RegisteredModels WHERE ModelIdentifier = $modelIdentifier;";
+        selectModel.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
+        var existingModelId = await selectModel.ExecuteScalarAsync();
+        if (existingModelId is string foundModelId)
+        {
+            modelId = foundModelId;
+            await using var updateModel = connection.CreateCommand();
+            updateModel.Transaction = transaction;
+            updateModel.CommandText = """
+                UPDATE RegisteredModels
+                SET ProviderId = $providerId,
+                    DisplayName = $displayName,
+                    ModelKind = 1,
+                    SceneImageModelFamily = $family,
+                    PromptDialect = $dialect,
+                    SupportedIdentityStrategiesJson = '[]',
+                    SupportedVisualStrategiesJson = '["TextOnly"]',
+                    CapabilityQualificationsJson = $qualifications,
+                    Notes = $notes,
+                    IsEnabled = 1
+                WHERE Id = $modelId;
+                """;
+            updateModel.Parameters.AddWithValue("$providerId", providerId);
+            updateModel.Parameters.AddWithValue("$displayName", modelDisplayName);
+            updateModel.Parameters.AddWithValue("$family", familyKrea2);
+            updateModel.Parameters.AddWithValue("$dialect", dialectKrea2NaturalLanguage);
+            updateModel.Parameters.AddWithValue("$qualifications", qualifications);
+            updateModel.Parameters.AddWithValue("$notes", modelNotes);
+            updateModel.Parameters.AddWithValue("$modelId", modelId);
+            await updateModel.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            modelId = Guid.NewGuid().ToString();
+            await using var insertModel = connection.CreateCommand();
+            insertModel.Transaction = transaction;
+            insertModel.CommandText = """
+                INSERT INTO RegisteredModels (
+                    Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, CreatedUtc,
+                    ContextWindowSize, Quantization, ParameterCount, Notes, SupportsThinkingControl,
+                    ModelKind, SupportsImageInput, SceneImageModelFamily, PromptDialect,
+                    SupportsStructuredJsonSchema, StructuredOutputMode,
+                    SupportedIdentityStrategiesJson, SupportedVisualStrategiesJson,
+                    CapabilityQualificationsJson, IsDefault)
+                VALUES (
+                    $id, $providerId, $modelIdentifier, $displayName, 1, $now,
+                    0, 'fp8', '12B', $notes, 0,
+                    1, 0, $family, $dialect,
+                    0, 0,
+                    '[]', '["TextOnly"]',
+                    $qualifications, 0);
+                """;
+            insertModel.Parameters.AddWithValue("$id", modelId);
+            insertModel.Parameters.AddWithValue("$providerId", providerId);
+            insertModel.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
+            insertModel.Parameters.AddWithValue("$displayName", modelDisplayName);
+            insertModel.Parameters.AddWithValue("$family", familyKrea2);
+            insertModel.Parameters.AddWithValue("$dialect", dialectKrea2NaturalLanguage);
+            insertModel.Parameters.AddWithValue("$qualifications", qualifications);
+            insertModel.Parameters.AddWithValue("$notes", modelNotes);
+            insertModel.Parameters.AddWithValue("$now", now);
+            await insertModel.ExecuteNonQueryAsync();
+        }
+    }
+
+    // The catalog table itself. Byte-identical to SceneLoraRepository.SchemaSql, and the app also ensures it at
+    // startup; it is created here so this command works standalone on a fresh sanitized snapshot.
+    await using (var createCatalog = connection.CreateCommand())
+    {
+        createCatalog.Transaction = transaction;
+        createCatalog.CommandText = """
+            CREATE TABLE IF NOT EXISTS SceneLoras (
+                Id TEXT PRIMARY KEY,
+                FileName TEXT NOT NULL,
+                DisplayName TEXT NOT NULL,
+                SceneImageModelFamily TEXT NOT NULL,
+                Category TEXT NOT NULL,
+                DefaultStrength REAL NOT NULL CHECK (DefaultStrength > 0),
+                IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)),
+                Notes TEXT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UNIQUE (SceneImageModelFamily, FileName)
+            );
+            """;
+        await createCatalog.ExecuteNonQueryAsync();
+    }
+
+    await using (var createIndex = connection.CreateCommand())
+    {
+        createIndex.Transaction = transaction;
+        createIndex.CommandText = """
+            CREATE INDEX IF NOT EXISTS IX_SceneLoras_Family
+                ON SceneLoras (SceneImageModelFamily, IsEnabled, Category);
+            """;
+        await createIndex.ExecuteNonQueryAsync();
+    }
+
+    // Every DefaultStrength below is the strength that was ACTUALLY rendered in the proof matrix.
+    (string Id, string FileName, string DisplayName, string Category, double Strength, string Notes)[] loras =
+    [
+        ("krea2-lora-nsfw-v4", "krea2_nsfw_v4_v43exp.safetensors", "Krea2 NSFW V4", "Unlock", 1.0,
+            "Flagship unpaker. Cell 1: full frontal nudity on base weights + stock TE. Every explicit-act cell chains it at 1.0."),
+        ("krea2-lora-mystic-v3", "krea2_mysticxxx_v3.safetensors", "Krea2 Mystic XXX v3", "Unlock", 0.8,
+            "Cell 5 (nudity-mystic-0.8): nudes without the V4 stack. Rendered at 0.8."),
+        ("krea2-lora-act-deepthroat", "krea2_act_deepthroat_v2.safetensors", "Deepthroat (act)", "Act", 0.8,
+            "Cells 6 / 40: fellatio-class act. On BASE weights the act needs this LoKr - base+V4 alone renders an embrace."),
+        ("krea2-lora-act-cowgirl", "krea2_act_Cowgirl-POV-v1-step0800.safetensors", "Cowgirl POV (act LoKr)", "Act", 1.0,
+            "Cell 58 (lokr-cowgirl): explicit penetration rendered with V4 at 1.0 + this LoKr at 1.0."),
+        ("krea2-lora-act-missionary", "krea2_act_Missionary-POV-v1-step0700.safetensors", "Missionary POV (act LoKr)", "Act", 1.0,
+            "Cell 56 (lokr-missionary): explicit penetration rendered with V4 at 1.0 + this LoKr at 1.0."),
+        ("krea2-lora-act-rearentry", "krea2_act_RearEntry-POV-v1-step0800.safetensors", "Rear entry POV (act LoKr)", "Act", 1.0,
+            "Cell 57 (lokr-rearentry): explicit penetration rendered with V4 at 1.0 + this LoKr at 1.0."),
+        ("krea2-lora-act-lyingoral", "krea2_act_Lying-Oral-POV-v1-step0700.safetensors", "Lying oral POV (act LoKr)", "Act", 1.0,
+            "Cell 55 (lokr-lying-oral): explicit oral rendered with V4 at 1.0 + this LoKr at 1.0."),
+        ("krea2-lora-act-matingpress", "krea2_act_Mating-Press-v1-step0700.safetensors", "Mating press (act LoKr)", "Act", 1.0,
+            "Grounded per-act LoKr from the same training run as the other four. Strength 1.0 matches its siblings. Not individually cell-proven - verify before relying on it."),
+        ("krea2-lora-anatomy-pussyhm", "krea2_anatomy_pussyhm.safetensors", "Female anatomy helper", "Anatomy", 0.8,
+            "Cell 8 (female-anatomy): chained after V4 at 1.0, this at 0.8."),
+        ("krea2-lora-anatomy-dicktator", "krea2_anatomy_dicktator_male.safetensors", "Male anatomy helper", "Anatomy", 0.8,
+            "Cells 7 / 20: chained after V4 at 1.0 (or alone on the uncensored checkpoint), this at 0.8."),
+        ("krea2-lora-anatomy-breastshm", "krea2_anatomy_breastshm.safetensors", "Breast helper", "Anatomy", 0.8,
+            "Sibling of the pussyhm helper from the same author, seeded at the same proven strength (0.8). Not individually cell-proven."),
+        ("krea2-lora-ultrarealism", "krea2_bloomgirls_ultrarealism.safetensors", "Bloomgirls ultrarealism", "Style", 0.6,
+            "Cell 9 (stacked-realism): V4 at 1.0 + this at 0.6."),
+    ];
+
+    var catalogInserted = 0;
+    foreach (var lora in loras)
+    {
+        await using var insertLora = connection.CreateCommand();
+        insertLora.Transaction = transaction;
+        insertLora.CommandText = """
+            INSERT INTO SceneLoras
+                (Id, FileName, DisplayName, SceneImageModelFamily, Category, DefaultStrength, IsEnabled, Notes, CreatedUtc)
+            VALUES ($id, $fileName, $displayName, 'Krea2', $category, $strength, 1, $notes, $now)
+            ON CONFLICT (SceneImageModelFamily, FileName) DO NOTHING;
+            """;
+        insertLora.Parameters.AddWithValue("$id", lora.Id);
+        insertLora.Parameters.AddWithValue("$fileName", lora.FileName);
+        insertLora.Parameters.AddWithValue("$displayName", lora.DisplayName);
+        insertLora.Parameters.AddWithValue("$category", lora.Category);
+        insertLora.Parameters.AddWithValue("$strength", lora.Strength);
+        insertLora.Parameters.AddWithValue("$notes", lora.Notes);
+        insertLora.Parameters.AddWithValue("$now", now);
+        catalogInserted += await insertLora.ExecuteNonQueryAsync();
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine(
+        $"Krea 2 configured: {providerName} | {modelIdentifier} (Krea2 / Krea2NaturalLanguage, TextOnly) | "
+        + $"catalog rows inserted {catalogInserted}/{loras.Length} (existing rows left as they were)");
+    Console.WriteLine(
+        "Additive only: no function default was changed, so nothing renders differently until Krea 2 is picked.");
+    return 0;
+}
+
+/// <summary>
+/// Sets an IMAGE EDITOR model row's scene-image FAMILY and prompt DIALECT together.
+///
+/// Why both at once: the two are validated as a PAIR by <see cref="SceneImagePromptMetadata.IsCompatible"/>, and
+/// every other pair (including family-set/dialect-unknown) is refused. A scene-LoRA selection is checked against the
+/// row's family, so an editor row left at 'Unknown' refuses every selection instead of applying a LoRA trained for a
+/// different checkpoint - which is why an editor whose graph kind already says Qwen-Image-2.1 still needs this.
+///
+/// The compatible pairs come from that single owner; this command never re-states them, and it fails fast when the
+/// identifier does not resolve to exactly one editor row.
+/// </summary>
+static async Task<int> ConfigureImageEditorFamilyAsync(
+    SqliteConnection connection,
+    string modelIdentifier,
+    string familyArgument,
+    string dialectArgument)
+{
+    if (!Enum.TryParse<SceneImageModelFamily>(familyArgument, ignoreCase: true, out var family))
+    {
+        throw new ArgumentException(
+            $"'{familyArgument}' is not a scene-image family. Use one of: "
+            + $"{string.Join(", ", Enum.GetNames<SceneImageModelFamily>())}; no database changes were made.");
+    }
+
+    if (!Enum.TryParse<SceneImagePromptDialect>(dialectArgument, ignoreCase: true, out var dialect))
+    {
+        throw new ArgumentException(
+            $"'{dialectArgument}' is not a scene-image prompt dialect. Use one of: "
+            + $"{string.Join(", ", Enum.GetNames<SceneImagePromptDialect>())}; no database changes were made.");
+    }
+
+    if (!SceneImagePromptMetadata.IsCompatible(family, dialect))
+    {
+        throw new ArgumentException(
+            $"{family} is not compatible with {dialect}: the compatible pairs live in SceneImagePromptMetadata, so "
+            + "this pair would make the row unsaveable in Model Manager; no database changes were made.");
+    }
+
+    var rows = new List<(string Id, string DisplayName, int Family, int Dialect)>();
+    await using (var select = connection.CreateCommand())
+    {
+        select.CommandText =
+            """
+            SELECT Id, DisplayName, COALESCE(SceneImageModelFamily, 0), COALESCE(PromptDialect, 0)
+            FROM RegisteredModels
+            WHERE ModelIdentifier = $modelIdentifier AND ImageEditorGraphKind IS NOT NULL;
+            """;
+        select.Parameters.AddWithValue("$modelIdentifier", modelIdentifier.Trim());
+        await using var reader = await select.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add((reader.GetString(0), reader.GetString(1), reader.GetInt32(2), reader.GetInt32(3)));
+        }
+    }
+
+    if (rows.Count != 1)
+    {
+        throw new InvalidOperationException(
+            $"Expected exactly one image-editor row with model identifier '{modelIdentifier}', found {rows.Count}. "
+            + "Name the editor row's identifier exactly; no database changes were made.");
+    }
+
+    var row = rows[0];
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+    await using (var update = connection.CreateCommand())
+    {
+        update.Transaction = transaction;
+        update.CommandText =
+            """
+            UPDATE RegisteredModels
+            SET SceneImageModelFamily = $family, PromptDialect = $dialect
+            WHERE Id = $id;
+            """;
+        update.Parameters.AddWithValue("$family", (int)family);
+        update.Parameters.AddWithValue("$dialect", (int)dialect);
+        update.Parameters.AddWithValue("$id", row.Id);
+        if (await update.ExecuteNonQueryAsync() != 1)
+        {
+            throw new InvalidOperationException($"Expected exactly one row to change for '{row.DisplayName}'.");
+        }
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine(
+        $"{row.DisplayName}: family {row.Family} -> {(int)family} ({family}), "
+        + $"dialect {row.Dialect} -> {(int)dialect} ({dialect})");
+    Console.WriteLine(
+        "A scene-LoRA selection is now validated against this family instead of being refused as Unknown.");
+    return 0;
+}
+
+/// <summary>
+/// Rewrites the sampler envelope inside a Qwen-Image-2.1 model row's qualified capability record: steps, cfg,
+/// sampler and scheduler. Every value is an explicit argument - none of them is defaulted or guessed here.
+///
+/// Why this exists rather than an ad-hoc UPDATE: the envelope is the part of the qualification that the NSFW LoRA
+/// ecosystem says must change. The main 2.1 LoRA's author states euler "gives very bad results" and recommends
+/// 25+ steps, cfg 3-6, er_sde and beta; at cfg 1.0 the negative branch is also inert. The shipped row carried
+/// 25 / cfg 1.0 / euler / simple, and every 2.1 render in the token-aware proof programme that produced usable
+/// structure ran cfg 3.0 with er_sde/beta.
+///
+/// The artifacts (UnetName / TextEncoderName / VaeName), the reference ceiling and their notes are PRESERVED -
+/// only the four sampler values and a provenance note change. Fails fast when the family does not resolve to
+/// exactly one enabled model row, so it can never quietly patch the wrong thing.
+/// </summary>
+static async Task<int> ConfigureQwen21EnvelopeAsync(
+    SqliteConnection connection,
+    string stepsArg,
+    string cfgArg,
+    string samplerName,
+    string scheduler)
+{
+    if (!int.TryParse(stepsArg, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var steps) || steps <= 0)
+        throw new ArgumentException($"Steps '{stepsArg}' must be a positive integer; no database changes were made.");
+    if (!double.TryParse(cfgArg, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var cfg) || cfg <= 0)
+        throw new ArgumentException($"Cfg '{cfgArg}' must be a positive number; no database changes were made.");
+    if (string.IsNullOrWhiteSpace(samplerName))
+        throw new ArgumentException("Sampler name is required; no database changes were made.");
+    if (string.IsNullOrWhiteSpace(scheduler))
+        throw new ArgumentException("Scheduler is required; no database changes were made.");
+
+    const int qwenImage21Family = 5;
+
+    var rows = new List<(string Id, string DisplayName, string? Qualifications)>();
+    await using (var select = connection.CreateCommand())
+    {
+        select.CommandText =
+            """
+            SELECT Id, DisplayName, CapabilityQualificationsJson
+            FROM RegisteredModels
+            WHERE SceneImageModelFamily = $family AND IsEnabled = 1
+            ORDER BY IsDefault DESC, DisplayName;
+            """;
+        select.Parameters.AddWithValue("$family", qwenImage21Family);
+        await using var reader = await select.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add((reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2)));
+        }
+    }
+
+    if (rows.Count != 1)
+    {
+        throw new InvalidOperationException(
+            $"Expected exactly one enabled Qwen-Image-2.1 model row, found {rows.Count}. Repoint the model rows in "
+            + "Model Manager first; no database changes were made.");
+    }
+
+    var row = rows[0];
+    if (string.IsNullOrWhiteSpace(row.Qualifications))
+    {
+        throw new InvalidOperationException(
+            $"Model '{row.DisplayName}' has no capability qualifications to amend; no database changes were made.");
+    }
+
+    var qualifications = JsonNode.Parse(row.Qualifications) as JsonArray
+        ?? throw new InvalidOperationException(
+            $"Model '{row.DisplayName}' has malformed qualifications; no database changes were made.");
+
+    var qualified = qualifications
+        .OfType<JsonObject>()
+        .FirstOrDefault(entry => entry["Qualified"]?.GetValue<bool>() == true)
+        ?? throw new InvalidOperationException(
+            $"Model '{row.DisplayName}' has no qualified entry to amend; no database changes were made.");
+
+    var previous = $"{qualified["Steps"]?.GetValue<int>()} steps, cfg {qualified["Cfg"]?.GetValue<double>()}, "
+        + $"{qualified["SamplerName"]?.GetValue<string>()}/{qualified["Scheduler"]?.GetValue<string>()}";
+
+    qualified["Steps"] = steps;
+    qualified["Cfg"] = cfg;
+    qualified["SamplerName"] = samplerName;
+    qualified["Scheduler"] = scheduler;
+    qualified["EnvelopeNote"] =
+        "Envelope re-qualified 2026-10-02 on operator evidence: the shipped 25 / cfg 1.0 / euler / simple envelope "
+        + "rendered mangled bodies on the 49-cell baseline, and cfg 1.0 leaves the negative branch inert. The main "
+        + "Qwen-Image-2.1 NSFW LoRA's author states euler explicitly fails for him and recommends 25+ steps, cfg "
+        + "3-6, er_sde and beta; every arm of specs/image-generator-tests/qwen-21-explicit-anatomy that produced "
+        + "coherent two-body anatomy ran cfg 3.0 with er_sde/beta.";
+
+    var updated = qualifications.ToJsonString();
+
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+    await using (var update = connection.CreateCommand())
+    {
+        update.Transaction = transaction;
+        update.CommandText =
+            "UPDATE RegisteredModels SET CapabilityQualificationsJson = $qualifications WHERE Id = $id;";
+        update.Parameters.AddWithValue("$qualifications", updated);
+        update.Parameters.AddWithValue("$id", row.Id);
+        if (await update.ExecuteNonQueryAsync() != 1)
+        {
+            throw new InvalidOperationException($"Expected exactly one row to change for '{row.DisplayName}'.");
+        }
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine($"{row.DisplayName}: envelope {previous} -> {steps} steps, cfg {cfg}, {samplerName}/{scheduler}");
+    Console.WriteLine("Artifacts, reference ceiling and their notes were preserved.");
+    return 0;
+}
+
+/// <summary>
+/// Seeds the scene-LoRA catalog with the Qwen-Image-2.1 explicit adapters that are installed on the local
+/// ComfyUI host, so the studio's family-filtered picker can offer them for a Qwen-Image-2.1 model.
+///
+/// Additive and idempotent: it inserts catalog rows only (ON CONFLICT DO NOTHING), never repoints a function
+/// default, never touches a model row and never disables anything. Until a render selects one of these rows the
+/// graph emits no loader node at all, so an existing pipeline is unchanged.
+///
+/// Provenance: every strength recorded here is a strength that was ACTUALLY rendered in the qwen-21 explicit
+/// anatomy proof programme (specs/image-generator-tests/qwen-21-explicit-anatomy/). The v1 vulva specialist is
+/// inserted DISABLED because it regressed against the base model - the row is kept so its provenance and the
+/// reason are not lost.
+/// </summary>
+static async Task<int> ConfigureQwen21LoraCatalogAsync(SqliteConnection connection)
+{
+    var now = DateTime.UtcNow.ToString("o");
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    // The catalog table itself. Byte-identical to SceneLoraRepository.SchemaSql, and the app also ensures it at
+    // startup; it is created here so this command works standalone on a fresh sanitized snapshot.
+    await using (var createCatalog = connection.CreateCommand())
+    {
+        createCatalog.Transaction = transaction;
+        createCatalog.CommandText = """
+            CREATE TABLE IF NOT EXISTS SceneLoras (
+                Id TEXT PRIMARY KEY,
+                FileName TEXT NOT NULL,
+                DisplayName TEXT NOT NULL,
+                SceneImageModelFamily TEXT NOT NULL,
+                Category TEXT NOT NULL,
+                DefaultStrength REAL NOT NULL CHECK (DefaultStrength > 0),
+                IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)),
+                Notes TEXT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UNIQUE (SceneImageModelFamily, FileName)
+            );
+            """;
+        await createCatalog.ExecuteNonQueryAsync();
+    }
+
+    await using (var createIndex = connection.CreateCommand())
+    {
+        createIndex.Transaction = transaction;
+        createIndex.CommandText = """
+            CREATE INDEX IF NOT EXISTS IX_SceneLoras_Family
+                ON SceneLoras (SceneImageModelFamily, IsEnabled, Category);
+            """;
+        await createIndex.ExecuteNonQueryAsync();
+    }
+
+    (string Id, string FileName, string DisplayName, string Category, double Strength, bool Enabled, string Notes)[] loras =
+    [
+        ("qwen21-lora-thesealpacas-v2", "NSFW Qwen by TheseAlpacas V2.safetensors", "TheseAlpacas NSFW Qwen v2 (main)", "Unlock", 1.0, true,
+            "The main 2.1 explicit adapter: most-downloaded of any (21.6k) and the one both its author and the "
+            + "penetration LoRA's author say to pair with everything else. Rendered at 1.0 in the s10 size sweep and "
+            + "the s11 penetration suite and at 0.6 in s11/s12. Author's recipe: 25+ steps, cfg 3-6, strength 0.8-1.0, "
+            + "er_sde/beta, and euler explicitly fails for him. Known gap: vulva fidelity without penetration."),
+        ("qwen21-lora-penetration-v5", "translucent_penetration-V5+Qwen-Image-2.1.safetensors", "Translucent Penetration v5 (2.1)", "Act", 1.0, true,
+            "The only 2.1 penetration specialist that exists (4.3k dl). Rendered at 1.0 in s11 and at 0.6 in s12. It "
+            + "made the join READABLE (glans no longer visible, labia around the shaft) where the base model rendered "
+            + "the penis lying alongside - the single biggest structural gain of the programme - but it stretches the "
+            + "labia and does not reduce size. Author's constraints: 1.0-2.5 MP canvas (2048^2 = 4.2 MP is outside its "
+            + "trained range), cfg ~3.0, strength 1.0, and it expects a general NSFW LoRA beside it."),
+        ("qwen21-lora-penis-v01", "qwen2.1_penisV01_000004956.safetensors", "Perfect erect penis (2.1)", "Anatomy", 0.8, true,
+            "Male detail specialist, rendered alone at 0.8 in s11. Renders the largest, most veined and most detailed "
+            + "penis of every arm tested: it is a DETAIL specialist, not a proportion corrector. Pair with the size "
+            + "control below when normal proportions matter."),
+        ("qwen21-lora-penis-coachbate", "qwen-image-2.1_penis_coachbate_preview1.safetensors", "CoachBate penis (2.1)", "Anatomy", 1.0, true,
+            "Male anatomy specialist rendered at 1.0 across the malestate, maleneg, multiperson and genital suites. "
+            + "Recurring defect observed across arms: a notched / cleft glans."),
+        ("qwen21-lora-vagina-v2", "pussyV2.safetensors", "qwen 2.1 vagina v2.0", "Anatomy", 0.6, true,
+            "Female specialist v2.0 (published 2026-10-02). Rendered at 0.6 in s11/s12. It did not visibly repair the "
+            + "labial distortion the penetration LoRA introduces, so it is a candidate for a higher strength rather "
+            + "than a proven fix."),
+        ("qwen21-lora-penis-small", "Q21 make the penis small.safetensors", "Penis size control (small)", "Style", 0.6, true,
+            "The only size-control adapter that exists for 2.1. Rendered at 0.6 and 1.0 in s12 and it DOES reduce the "
+            + "drawn size, so size is steerable - the fix for the operator's 'abnormal penis size' rejection of the "
+            + "s11 arms. Categorised Style because it steers proportion rather than anatomical fidelity."),
+        ("qwen21-lora-vagina-v1", "qwen21_v2_000002750.safetensors", "qwen 2.1 vagina v1.0 (regressed)", "Anatomy", 1.0, false,
+            "DISABLED - kept for provenance. At 1.0 it stripped pubic hair and body texture and softened the vulva; "
+            + "the base model was equal or better in all four distance rows of the s7 female suite. Superseded by v2.0."),
+    ];
+
+    var inserted = 0;
+    foreach (var lora in loras)
+    {
+        await using var insertLora = connection.CreateCommand();
+        insertLora.Transaction = transaction;
+        insertLora.CommandText = """
+            INSERT INTO SceneLoras
+                (Id, FileName, DisplayName, SceneImageModelFamily, Category, DefaultStrength, IsEnabled, Notes, CreatedUtc)
+            VALUES ($id, $fileName, $displayName, 'QwenImage21', $category, $strength, $enabled, $notes, $now)
+            ON CONFLICT (SceneImageModelFamily, FileName) DO NOTHING;
+            """;
+        insertLora.Parameters.AddWithValue("$id", lora.Id);
+        insertLora.Parameters.AddWithValue("$fileName", lora.FileName);
+        insertLora.Parameters.AddWithValue("$displayName", lora.DisplayName);
+        insertLora.Parameters.AddWithValue("$category", lora.Category);
+        insertLora.Parameters.AddWithValue("$strength", lora.Strength);
+        insertLora.Parameters.AddWithValue("$enabled", lora.Enabled ? 1 : 0);
+        insertLora.Parameters.AddWithValue("$notes", lora.Notes);
+        insertLora.Parameters.AddWithValue("$now", now);
+        inserted += await insertLora.ExecuteNonQueryAsync();
+    }
+
+    await transaction.CommitAsync();
+    var enabled = loras.Count(l => l.Enabled);
+    Console.WriteLine(
+        $"Qwen-Image-2.1 scene-LoRA catalog: inserted {inserted}/{loras.Length} rows ({enabled} enabled, "
+        + $"{loras.Length - enabled} disabled), existing rows left as they were.");
+    Console.WriteLine(
+        "Additive only: no model row and no function default was changed, so nothing renders differently until a "
+        + "Qwen-Image-2.1 render selects one of these LoRAs.");
     return 0;
 }
 
@@ -2306,5 +2868,5 @@ static string FindDatabasePath()
 static void PrintUsage()
 {
     Console.Error.WriteLine("Usage: dotnet run --project DreamGenClone.DbQuery -- <command> [args]");
-    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, qwen-edit-serverless-configure, qwen-edit-local-aio-configure, qwen-edit-local-aio-lora-configure <loraName> <strength>, qwen-edit-remix-aio-configure, qwen-edit-remix-aio-lora-configure <loraName> <strength>, local-comfyui-configure <baseUrl>, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <bustSize> <buttSize>, body-axes-migrate, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
+    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, b137-krea2-configure, qwen-edit-serverless-configure, qwen-edit-local-aio-configure, qwen-edit-local-aio-lora-configure <loraName> <strength>, qwen-edit-remix-aio-configure, qwen-edit-remix-aio-lora-configure <loraName> <strength>, local-comfyui-configure <baseUrl>, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <bustSize> <buttSize>, body-axes-migrate, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
 }

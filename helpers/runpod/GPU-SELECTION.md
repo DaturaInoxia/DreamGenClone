@@ -5,6 +5,52 @@ cheapest GPU that still runs the workflow and is not too slow.** Selection is do
 `create-pod.ps1` passing an ordered candidate list (`gpuTypePriority=custom` → RunPod rents the
 first GPU with current capacity), or manually from a RunPod UI screenshot if the user prefers.
 
+## Live availability — READ IT, don't guess (added 2026-10-02)
+
+This doc used to say RunPod had no availability API. **It does now.**
+
+```powershell
+# Per-GPU availability, with per-data-center breakdown:
+powershell -ExecutionPolicy RemoteSigned -File helpers/runpod/get-available-gpus.ps1 -IncludeAvailability -Product SERVERLESS -MinVramGb 48
+powershell -ExecutionPolicy RemoteSigned -File helpers/runpod/get-available-gpus.ps1 -IncludeAvailability -Product SERVERLESS -DataCenter EU-RO-1
+```
+
+Under the hood:
+
+| Call | Returns |
+|---|---|
+| `GET https://api.runpod.io/v2/catalog/gpus?include=AVAILABILITY&product=<POD\|SERVERLESS\|CLUSTER>` | `availability` (NONE/LOW/MEDIUM/HIGH), `dataCenters[]` per-DC availability, `pool` (serverless pool id), `price.{secure,community,serverless}`, `cudaVersions[]{version,available}` |
+| `GET https://api.runpod.io/v2/catalog/datacenters?include=GPU_AVAILABILITY` | per-DC `gpuAvailability[]`, `region`, `networkVolumeTypes[]`, `globalNetwork`, `compliance` |
+
+Rules and gotchas:
+
+- **`include=AVAILABILITY` REQUIRES `product`** — 400 without it. Stock genuinely differs per product.
+- `LOW` is *not* unavailable; only **`NONE`** means currently full.
+- `maxCount` is a **ceiling, not a stock level** — never read it as capacity.
+- Availability **changes constantly**. Re-read it at the moment of creation; treat an ordered
+  candidate list as the durable hedge, not the snapshot.
+- Introspection is disabled on the GraphQL API (`__type`/`__schema` → 400), which is why the field
+  names above are not discoverable from the API itself.
+
+## Network volumes pin you to ONE data center — check the DC first
+
+A serverless endpoint that mounts a network volume is **restricted to that volume's data center**.
+So the DC must be chosen before storage is created. Two hard constraints:
+
+1. **Only 16 of 34 data centers support network volumes at all** (queried 2026-10-02). Always read
+   `networkVolumeTypes` — an empty array means the DC cannot host a volume.
+2. **Global Volumes are Pods-only: GPU Pods, NOT serverless** (verified in Runpod docs).
+   They are also explicitly "not a replacement for network volumes, which are better suited for
+   workloads with frequent writes such as training and checkpointing".
+
+DCs supporting network volumes (2026-10-02): AP-JP-1, CA-MTL-3, CA-MTL-4, EU-FR-1 (HP only),
+EUR-IS-1, EUR-IS-3, EUR-NO-1, EUR-NO-2 (HP only), EU-RO-1, US-CA-2 (HP only), US-CO-1, US-IL-1,
+US-MO-2, US-NC-2, US-NE-1, US-TX-3.
+
+**The trap:** the cheapest high-availability 48 GB serverless class (A40, `AMPERE_48`) is offered in
+CA-MTL-1 and EU-SE-1 — and **neither of those supports network volumes**. A40 + shared storage is
+not currently possible. Check the DC/volume intersection before designing around a GPU.
+
 ## Current catalog snapshot (2026-08-27, secure-cloud price/hr)
 
 | GPU | VRAM | Secure $/hr | Community $/hr | Notes |

@@ -332,6 +332,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
             (SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage) => true,
             (SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage) => true,
             (SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage) => true,
+            (SceneImageModelFamily.Krea2, SceneImagePromptDialect.Krea2NaturalLanguage) => true,
             _ => false
         };
 
@@ -340,7 +341,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
             throw new ArgumentException(
                 $"Image model family '{model.SceneImageModelFamily}' is incompatible with prompt dialect '{model.PromptDialect}'. " +
                 "Configure Pony with Pony V6 Tags, SDXL with SDXL Natural Language, FLUX with FLUX Natural Language, " +
-                "Qwen-Image-2.1 with Natural Language, or leave both unconfigured.",
+                "Qwen-Image-2.1 with Natural Language, Krea 2 with Krea2 Natural Language, or leave both unconfigured.",
                 nameof(model));
         }
     }

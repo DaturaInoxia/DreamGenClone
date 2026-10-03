@@ -15,7 +15,7 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// profile-pack generation onto the background job queue, and provides query/delete/download
 /// operations with the file-reference guard applied on deletion.
 /// </summary>
-public sealed class SceneAssetService : ISceneAssetService
+public sealed class SceneAssetService : ISceneAssetService, ISceneAssetImageTagService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -121,6 +121,12 @@ public sealed class SceneAssetService : ISceneAssetService
             Seed = options?.Seed,
             // Materialised into a List because the selection is queue payload, not a live reference to the UI's state.
             CharacterLoras = options?.CharacterLoras?.ToList(),
+            // Scene LoRAs travel the same way and for the same reason. They are NOT identity: the client chains them
+            // before the character LoRAs, so identity stays closest to the subject.
+            SceneLoras = options?.SceneLoras?.ToList(),
+            // Materialised for the same reason as the LoRA selections: this is queue payload, not a live reference.
+            AppliedPresets = options?.AppliedPresets?.ToList(),
+            DeclaredTags = options?.DeclaredTags?.ToList(),
             // Both are stated together or not at all: the stance names the skeleton, the strength says how hard to
             // push it, and a stance with no strength is not a usable request.
             PoseStance = hasStance ? options!.Pose!.Stance.ToString() : null,
@@ -381,9 +387,59 @@ public sealed class SceneAssetService : ISceneAssetService
         string assetId, CancellationToken cancellationToken = default)
         => _repository.ListImagesAsync(assetId, cancellationToken);
 
+    /// <summary>
+    /// Replaces an image's tags, refusing anything outside the catalog's vocabulary.
+    ///
+    /// <para>
+    /// The refusal is the point: a hand-typed tag with an invented prefix ("person:becky") would be stored, shown and
+    /// never matched by a search that knows the real axis, so it is rejected by name with the list of axes rather than
+    /// accepted as nearly-right metadata. Normalization is applied here as well, so "All Fours" and "all fours" are
+    /// the same tag.
+    /// </para>
+    /// </summary>
+    public async Task<IReadOnlyList<string>> SetImageTagsAsync(
+        string imageId,
+        IReadOnlyList<string> tags,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tags);
+        var normalized = ImageTagCatalog.NormalizeAll(tags);
+        await _repository.SetImageTagsAsync(imageId, normalized, cancellationToken);
+        _logger.LogInformation("Scene asset image tags set: ImageId={ImageId}, Count={Count}", imageId, normalized.Count);
+        return normalized;
+    }
+
+    /// <summary>
+    /// Images carrying a tag matching what the operator typed, matched on the tag's VALUE so a search for
+    /// "kneeling" cannot be satisfied by a character's name that happens to contain the word.
+    /// </summary>
+    public async Task<IReadOnlyList<SceneAssetImage>> SearchImagesByTagAsync(
+        string tagQuery,
+        int maxResults = 200,
+        CancellationToken cancellationToken = default)
+        => await _repository.SearchImagesByTagAsync(
+            ImageTagCatalog.Normalize(tagQuery), maxResults, cancellationToken);
+
     public Task<SceneAssetImage?> GetImageAsync(
         string imageId, CancellationToken cancellationToken = default)
         => _repository.GetImageAsync(imageId, cancellationToken);
+
+    /// <summary>
+    /// Names or renames an image. The name is what a reference picker shows, so a blank one is refused here as well
+    /// as at the data boundary: an unnamed accepted image of a location cannot be told apart from its siblings.
+    /// </summary>
+    public async Task<SceneAssetImage> SetImageDisplayNameAsync(
+        string imageId,
+        string displayName,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+            throw new InvalidOperationException("A name is required so this image can be told apart from the others.");
+
+        var named = await _repository.SetImageDisplayNameAsync(imageId, displayName, cancellationToken);
+        _logger.LogInformation("Scene asset image named: ImageId={ImageId}, Name={Name}", named.Id, named.DisplayName);
+        return named;
+    }
 
     public async Task<SceneAssetImage> ApproveImageForProductionAsync(
         string imageId,

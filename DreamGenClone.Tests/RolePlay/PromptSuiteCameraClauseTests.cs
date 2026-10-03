@@ -25,7 +25,10 @@ namespace DreamGenClone.Tests.RolePlay;
 /// <para>
 /// The vocabulary below is the standard set from
 /// <c>.github/instructions/scene-image-prompt-compiler-standards.instructions.md</c>. A new prompt phrased with a
-/// camera word that is not listed here should EXTEND this list rather than be excluded from the check.
+/// camera word that is not listed here should EXTEND this list rather than be excluded from the check — the graded
+/// forms of a listed word count as that word's statement ("slightly above" is "from above" said more precisely), and
+/// <c>tools/suite-camera-normalize/normalize_suite_camera.py</c> carries the same vocabulary so a newly authored field
+/// can be normalized rather than hand-edited.
 /// </para>
 /// </summary>
 public sealed class PromptSuiteCameraClauseTests
@@ -40,8 +43,9 @@ public sealed class PromptSuiteCameraClauseTests
     /// <summary>Where the camera is: its height, relative to the subject or to the room.</summary>
     private static readonly Regex Angle = new(
         @"eye level|camera angle|low camera|high camera|low angle|high angle|overhead|top[- ]down|bird'?s[- ]eye|" +
-        @"from above|from below|from floor|floor level|ground level|bed height|hip height|chest height|" +
-        @"shoulder height|waist height|table height|counter height|knee height|worm'?s[- ]eye|dutch angle",
+        @"from above|from below|slightly above|slightly below|from floor|floor level|ground level|bed height|" +
+        @"hip height|chest height|shoulder height|waist height|table height|counter height|knee height|" +
+        @"worm'?s[- ]eye|dutch angle",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>A change to an image that already has a camera, so framing is preserved rather than restated.</summary>

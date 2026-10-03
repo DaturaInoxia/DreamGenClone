@@ -1230,8 +1230,12 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
         }
 
         // The region mask's geometry, bounded by what the graph can honour: the host's encode node accepts a grow of
-        // 0-64, and a negative feather is not a softening but a mistake. Both are persisted configuration with no
-        // code default, so an unset or out-of-range value fails fast naming the key.
+        // 0-64, and a negative feather is not a softening but a mistake. Both are persisted configuration with no code
+        // default, so an unset or out-of-range value fails fast naming the key.
+        //
+        // A feather of ZERO is accepted HERE and refused by a confined edit (MediaEditRegionOperation.Validate). The
+        // row is shared with flows that never confine anything (front/body/capture settings round-trip it), and the
+        // defect CASE-25 fixed is in the edit, not in the row - so the refusal belongs where an edit is attempted.
         if (settings.RegionGrowMaskBy is not { } regionGrowMaskBy || regionGrowMaskBy is < 0 or > 64)
         {
             throw new InvalidOperationException(

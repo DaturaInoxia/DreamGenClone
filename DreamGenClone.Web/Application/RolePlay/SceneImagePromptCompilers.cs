@@ -113,9 +113,42 @@ public sealed class QwenImage21SceneImagePromptCompiler : ISceneImagePromptCompi
     public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
 }
 
-public sealed class SceneImagePromptCompilerRegistry : ISceneImagePromptCompilerRegistry
+/// <summary>
+/// Photographic-brief compiler for local Krea 2 (Krea-2 Turbo) scene images. Krea 2 is a 12B dense diffusion
+/// transformer with a Qwen3-VL 4B text encoder and the Qwen Image VAE, wired as plain text-to-image on the local
+/// ComfyUI host - no reference conditioning, no edit path, no ControlNet.
+///
+/// <para>
+/// It reads plain natural language, so its prompt shape is a photographer's brief. It has its OWN dialect
+/// (<see cref="SceneImagePromptDialect.Krea2NaturalLanguage"/>) and its own builder because the shared
+/// natural-language text tells the model to lead with framing and permits a body-part vocabulary - the two
+/// instructions measured to degrade Krea 2 (head cropped, figure lost) on the 59-cell proof matrix. The builder is
+/// <see cref="Krea2SceneImagePromptBuilder"/> by concrete type for the same reason the Qwen compiler names its own
+/// builder: two builders implement <see cref="ISceneImageLLMPromptBuilder"/>, so DI can bind that interface to only
+/// one dialect.
+/// </para>
+///
+/// <para>
+/// NO negative prompt: Krea 2 takes no negative text at all (its graph zeroes the positive), and the app's negative
+/// was already purged app-wide by B-135.
+/// </para>
+/// </summary>
+public sealed class Krea2SceneImagePromptCompiler : ISceneImagePromptCompiler
 {
-    private readonly IReadOnlyList<ISceneImagePromptCompiler> _compilers;
+    private readonly Krea2SceneImagePromptBuilder _builder;
+
+    public Krea2SceneImagePromptCompiler(Krea2SceneImagePromptBuilder builder)
+    {
+        _builder = builder;
+    }
+
+    public SceneImageModelFamily Family => SceneImageModelFamily.Krea2;
+    public SceneImagePromptDialect PromptDialect => SceneImagePromptDialect.Krea2NaturalLanguage;
+    public ISceneImageLLMPromptBuilder PromptBuilder => _builder;
+}
+
+public sealed class SceneImagePromptCompilerRegistry : ISceneImagePromptCompilerRegistry
+{    private readonly IReadOnlyList<ISceneImagePromptCompiler> _compilers;
 
     public SceneImagePromptCompilerRegistry(IEnumerable<ISceneImagePromptCompiler> compilers)
     {
@@ -199,6 +232,10 @@ public static class SceneAssetPromptCompiler
                 semanticDescription),
             (SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage) => new(
                 "scene-asset-qwen-image-21-natural-language",
+                "1",
+                semanticDescription),
+            (SceneImageModelFamily.Krea2, SceneImagePromptDialect.Krea2NaturalLanguage) => new(
+                "scene-asset-krea2-natural-language",
                 "1",
                 semanticDescription),
             _ => throw new InvalidOperationException(

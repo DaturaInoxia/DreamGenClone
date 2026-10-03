@@ -61,6 +61,7 @@ public interface IImageEditWorkspaceService
         IReadOnlyList<string> clarificationHistory,
         string? editorModelId,
         MediaEditRegionOperation? region,
+        MediaEditOutpaintOperation? outpaint,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ImageEditRevisionView>> ListRevisionsAsync(

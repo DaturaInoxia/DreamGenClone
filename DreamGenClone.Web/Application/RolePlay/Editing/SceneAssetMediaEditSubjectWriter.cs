@@ -44,9 +44,16 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
     {
         // An operation is not a render: it needs no editor model, no prompt revision and no references,
         // so it is prepared on its own path instead of being forced through the edit validation below. A
-        // masked-region edit is an EDIT that also carries a region, so it stays on the compiled-edit path.
-        if (context.Operation.Kind is not MediaEditOperationKind.Edit and not MediaEditOperationKind.MaskedRegion)
+        // masked-region edit - and an outpaint - are EDITs that also carry geometry, so they stay on the
+        // compiled-edit path: the row holds the prompt revision the run must resolve, and preparing them
+        // here built a plan with no prompt at all (CASE-24: "An edit run requires the compiled prompt its
+        // subject writer prepared").
+        if (context.Operation.Kind is not MediaEditOperationKind.Edit
+            and not MediaEditOperationKind.MaskedRegion
+            and not MediaEditOperationKind.Outpaint)
+        {
             return await PrepareOperationAsync(context, cancellationToken);
+        }
 
         if (string.IsNullOrWhiteSpace(context.ExplicitEditorModelId))
             throw new InvalidOperationException("An exact asset image editor model is required.");
@@ -288,6 +295,16 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
     private async Task<MediaEditRunPlan?> PrepareOperationAsync(
         MediaEditRunContext context, CancellationToken cancellationToken)
     {
+        // A confined edit is an EDIT that carries geometry: it needs the compiled prompt revision, the chosen editor
+        // model and a mask, and none of them are resolved here. PrepareAsync routes both confined kinds, and this guard
+        // is what keeps a future change to that routing from quietly queueing a run that dies at the handler.
+        if (context.Operation.Kind is MediaEditOperationKind.MaskedRegion or MediaEditOperationKind.Outpaint)
+        {
+            throw new InvalidOperationException(
+                $"A {context.Operation.Kind} edit is not a deterministic operation: it must be prepared on the "
+                + "compiled-edit path, where its prompt revision, references and editor model are resolved.");
+        }
+
         var image = await _assets.GetImageAsync(context.ImageId, cancellationToken)
             ?? throw new InvalidOperationException($"Asset edit image '{context.ImageId}' was not found.");
 

@@ -7,6 +7,10 @@ namespace DreamGenClone.Web.Application.RolePlay.Editing;
 /// What the editing step needs beyond the image row itself. The caller owns creating that row (it is
 /// subject-specific); this owns queueing it, so there is exactly one edit job type and one payload.
 /// </summary>
+/// <param name="SceneLorasJson">
+/// Serialized <c>SceneImageLoraSelection</c> list the operator picked for this edit, or null for none — the same wire
+/// shape the compose path uses (<c>SceneLoraSelectionWire</c>), so one reader serves both.
+/// </param>
 public sealed record MediaEditRunRequest(
     MediaEditSubjectKind SubjectKind,
     string ImageId,
@@ -14,7 +18,9 @@ public sealed record MediaEditRunRequest(
     int MaxAttempts,
     string? ReferenceApplicationsJson = null,
     string? ScopeId = null,
-    MediaEditRegionOperation? Region = null);
+    MediaEditRegionOperation? Region = null,
+    MediaEditOutpaintOperation? Outpaint = null,
+    string? SceneLorasJson = null);
 
 /// <summary>
 /// Queues a non-model <b>operation</b> run (a crop) for a subject image row the caller has already

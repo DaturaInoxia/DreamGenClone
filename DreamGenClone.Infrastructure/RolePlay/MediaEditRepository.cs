@@ -23,7 +23,7 @@ public sealed class MediaEditRepository : IMediaEditRepository
     private const string AttemptSelect = """
         SELECT Id, EditSessionId, Ordinal, RawIntent, ClarificationContextJson, SourceImageSha256, Status,
                ResolvedModelSnapshotJson, CompilerSchemaVersion, SystemPromptVersion, RawModelResponse,
-               ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc, RegionJson
+               ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc, RegionJson, OutpaintJson
         FROM MediaEditCompilationAttempts
         """;
 
@@ -176,10 +176,10 @@ public sealed class MediaEditRepository : IMediaEditRepository
             INSERT INTO MediaEditCompilationAttempts
                 (Id, EditSessionId, Ordinal, RawIntent, ClarificationContextJson, SourceImageSha256, Status,
                  ResolvedModelSnapshotJson, CompilerSchemaVersion, SystemPromptVersion, RawModelResponse,
-                 ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc, RegionJson)
+                 ParsedResultJson, Error, CreatedUtc, StartedUtc, CompletedUtc, RegionJson, OutpaintJson)
             VALUES ($id, $sessionId, $ordinal, $rawIntent, $clarification, $sourceSha, $status,
                     $modelSnapshot, $schemaVersion, $systemPromptVersion, $rawResponse,
-                    $parsedResult, $error, $createdUtc, $startedUtc, $completedUtc, $region);
+                    $parsedResult, $error, $createdUtc, $startedUtc, $completedUtc, $region, $outpaint);
             """;
         command.Parameters.AddWithValue("$id", attempt.Id.Trim());
         command.Parameters.AddWithValue("$sessionId", attempt.EditSessionId.Trim());
@@ -198,6 +198,7 @@ public sealed class MediaEditRepository : IMediaEditRepository
         command.Parameters.AddWithValue("$startedUtc", attempt.StartedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$completedUtc", attempt.CompletedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$region", (object?)attempt.RegionJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$outpaint", (object?)attempt.OutpaintJson ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -217,7 +218,7 @@ public sealed class MediaEditRepository : IMediaEditRepository
                 Status = $status, ResolvedModelSnapshotJson = $modelSnapshot, CompilerSchemaVersion = $schemaVersion,
                 SystemPromptVersion = $systemPromptVersion, RawModelResponse = $rawResponse,
                 ParsedResultJson = $parsedResult, Error = $error, StartedUtc = $startedUtc, CompletedUtc = $completedUtc,
-                RegionJson = $region
+                RegionJson = $region, OutpaintJson = $outpaint
             WHERE Id = $id;
             """;
         command.Parameters.AddWithValue("$id", attempt.Id.Trim());
@@ -234,6 +235,7 @@ public sealed class MediaEditRepository : IMediaEditRepository
         command.Parameters.AddWithValue("$startedUtc", attempt.StartedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$completedUtc", attempt.CompletedUtc?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$region", (object?)attempt.RegionJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$outpaint", (object?)attempt.OutpaintJson ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -474,7 +476,8 @@ public sealed class MediaEditRepository : IMediaEditRepository
         CreatedUtc = ParseUtc(reader.GetString(13), reader.GetString(0)),
         StartedUtc = reader.IsDBNull(14) ? null : ParseUtc(reader.GetString(14), reader.GetString(0)),
         CompletedUtc = reader.IsDBNull(15) ? null : ParseUtc(reader.GetString(15), reader.GetString(0)),
-        RegionJson = reader.IsDBNull(16) ? null : reader.GetString(16)
+        RegionJson = reader.IsDBNull(16) ? null : reader.GetString(16),
+        OutpaintJson = reader.IsDBNull(17) ? null : reader.GetString(17)
     };
 
     private static MediaEditPromptRevision ReadRevision(SqliteDataReader reader) => new()

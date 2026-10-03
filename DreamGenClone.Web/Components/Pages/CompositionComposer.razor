@@ -191,50 +191,77 @@
                                 <div class="mt-2">
                                     <ResolvedRenderBadge ModelLabel="@SelectedModelLabel()" Selections="_referenceBindings" />
                                 </div>
+                                @* B-137 §4 item 4c: the composition's SCENE LoRAs (unlock / act / anatomy / style).
+                                   Filtered to the selected model's FAMILY - a LoRA binds only to the family it was
+                                   trained against - and it renders NOTHING when the catalog carries no rows for that
+                                   family, so no control is offered that the render would have to refuse. The client
+                                   chains these BEFORE the character LoRAs the composer above supplies, so identity
+                                   stays closest to the subject. *@
+                                <div class="mt-2">
+                                    <SceneLoraPicker Family="@SelectedCompositionModelFamily"
+                                                     Selections="_sceneLoras"
+                                                     SelectionsChanged="OnSceneLorasChanged"
+                                                     Disabled="_busy"
+                                                     Scope="composition-scene-lora" />
+                                </div>
                             }
                         </div>
 
+                        @* Collapsed by default. This is an INSPECTOR - the payload the compiler received, with overrides -
+                           and expanded it is the longest block on the page, which pushed the things the operator
+                           actually came here to do (the prompt, the generate action) below the fold. Collapsed, the
+                           header still says what it is and how to open it. *@
                         <div class="border-top mt-3 pt-3" aria-label="Prompt input inspector">
-                            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-                                <div>
-                                    <strong>Prompt input (what the compiler receives)</strong>
-                                    <span class="d-block small text-muted">The real payload fields from the compiled brief. Edit a value to override it, or tick remove to drop it. Overrides replace the field in the payload (no duplicates); removing a character drops them, their appearance line, and their identity/reference conditioning from the render.</span>
-                                </div>
-                            </div>
-                            @if (!string.IsNullOrWhiteSpace(_castReferenceError))
+                            <button type="button" class="btn btn-link p-0 w-100 text-start text-decoration-none"
+                                    aria-expanded="@PromptInputExpanded" @onclick="TogglePromptInput">
+                                <span class="d-flex justify-content-between align-items-start gap-2">
+                                    <span>
+                                        <strong class="text-body">Prompt input (what the compiler receives)</strong>
+                                        <span class="d-block small text-muted">The real payload fields from the compiled brief. Edit a value to override it, or tick remove to drop it. Overrides replace the field in the payload (no duplicates); removing a character drops them, their appearance line, and their identity/reference conditioning from the render.</span>
+                                    </span>
+                                    <span class="small text-nowrap">
+                                        <i class="bi @(_showPromptInput ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                                        @(_showPromptInput ? "Hide" : "Show")
+                                    </span>
+                                </span>
+                            </button>
+                            @if (_showPromptInput)
                             {
-                                <div class="alert alert-warning py-1 small mb-2">@_castReferenceError</div>
-                            }
-                            @if (!_promptRowsInitialized)
-                            {
-                                <span class="text-muted small">Loading the compiled brief payload...</span>
-                            }
-                            else
-                            {
-                                @foreach (var group in _promptGroups)
+                                @if (!string.IsNullOrWhiteSpace(_castReferenceError))
                                 {
-                                    <div class="fw-semibold small mt-3 mb-1 d-flex justify-content-between align-items-center gap-2">
-                                        <span>@PromptGroupHeader(group)</span>
-                                        @if (group.CharacterKey is not null)
-                                        {
-                                            <label class="form-check-label small">
-                                                <input class="form-check-input me-1" type="checkbox" @bind="group.Removed" />
-                                                remove character
-                                            </label>
-                                        }
-                                    </div>
-                                    @foreach (var row in group.Rows)
+                                    <div class="alert alert-warning py-1 small mb-2 mt-2">@_castReferenceError</div>
+                                }
+                                @if (!_promptRowsInitialized)
+                                {
+                                    <span class="text-muted small">Loading the compiled brief payload...</span>
+                                }
+                                else
+                                {
+                                    @foreach (var group in _promptGroups)
                                     {
-                                        <div class="border rounded p-2 mb-2 @(row.Removed ? "opacity-50" : "")">
-                                            <div class="d-flex justify-content-between align-items-baseline gap-2 mb-1">
-                                                <strong class="small">@row.Label</strong>
+                                        <div class="fw-semibold small mt-3 mb-1 d-flex justify-content-between align-items-center gap-2">
+                                            <span>@PromptGroupHeader(group)</span>
+                                            @if (group.CharacterKey is not null)
+                                            {
                                                 <label class="form-check-label small">
-                                                    <input class="form-check-input me-1" type="checkbox" @bind="row.Removed" />
-                                                    remove
+                                                    <input class="form-check-input me-1" type="checkbox" @bind="group.Removed" />
+                                                    remove character
                                                 </label>
-                                            </div>
-                                            <textarea class="form-control form-control-sm font-monospace" rows="2" value="@row.Value" @oninput="args => SetPromptRowValue(row, args.Value?.ToString())" disabled="@row.Removed"></textarea>
+                                            }
                                         </div>
+                                        @foreach (var row in group.Rows)
+                                        {
+                                            <div class="border rounded p-2 mb-2 @(row.Removed ? "opacity-50" : "")">
+                                                <div class="d-flex justify-content-between align-items-baseline gap-2 mb-1">
+                                                    <strong class="small">@row.Label</strong>
+                                                    <label class="form-check-label small">
+                                                        <input class="form-check-input me-1" type="checkbox" @bind="row.Removed" />
+                                                        remove
+                                                    </label>
+                                                </div>
+                                                <textarea class="form-control form-control-sm font-monospace" rows="2" value="@row.Value" @oninput="args => SetPromptRowValue(row, args.Value?.ToString())" disabled="@row.Removed"></textarea>
+                                            </div>
+                                        }
                                     }
                                 }
                             }
@@ -541,6 +568,17 @@
     }
 
     /// <summary>
+    /// The composition's scene-LoRA selection. Empty clears it back to the configured "no scene LoRA" state, in
+    /// which the render emits no loader node for them at all.
+    /// </summary>
+    private Task OnSceneLorasChanged(IReadOnlyList<SceneImageLoraSelection> selections)
+    {
+        _sceneLoras = selections;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// A model change runs the page's own model logic AND drops the step's bindings: the slots a step offers depend on
     /// the selected model's capability, so keeping them would leave the plan describing a model no longer chosen. The
     /// composer's per-slot menu resolves strategies from that same capability, so the page no longer resets them.
@@ -549,6 +587,10 @@
     {
         _selectedModelId = modelId;
         _referenceBindings = [];
+        // A scene LoRA binds to a model FAMILY, so changing the model invalidates the choice: carrying it over would
+        // either refuse the render or apply a LoRA trained against a different family. Cleared here, where the change
+        // happens, rather than filtered later.
+        _sceneLoras = [];
         await OnModelChangedAsync();
     }
     private CancellationTokenSource? _pollingCts;
@@ -564,6 +606,17 @@
     private readonly List<PromptFieldRow> _promptRows = [];
     private List<PromptGroup> _promptGroups = [];
     private bool _promptRowsInitialized;
+
+    /// <summary>
+    /// Whether the prompt-input inspector is open. Closed by default: it is a debugging and override surface, and left
+    /// open it is the tallest block on the page.
+    /// </summary>
+    private bool _showPromptInput;
+
+    /// <summary>The inspector's disclosure state as ARIA spells it, so the markup holds no nested conditional quotes.</summary>
+    private string PromptInputExpanded => _showPromptInput ? "true" : "false";
+
+    private void TogglePromptInput() => _showPromptInput = !_showPromptInput;
     private IReadOnlyList<DreamGenClone.Web.Domain.Scenarios.Character>? _scenarioCharacters;
     private string? _castReferenceError;
     private HashSet<string> _approvedAttemptIds = [];
@@ -590,6 +643,18 @@
     /// disable the references this page binds.
     /// </summary>
     private IReadOnlyList<SceneImageCharacterLoraSelection> _characterLoras = [];
+
+    /// <summary>
+    /// The NON-IDENTITY scene LoRAs this composition render applies (unlock / act / anatomy / style), in the
+    /// operator's chosen order. Empty is the configured "no scene LoRA" state: the render then emits no loader node
+    /// for them and is exactly what it was before the scene-LoRA catalog existed.
+    ///
+    /// <para>
+    /// A sibling of <see cref="_characterLoras"/>, not a replacement: the character LoRAs name WHO is in the frame,
+    /// these say what the model was allowed or taught to render. The ComfyUI client chains these first.
+    /// </para>
+    /// </summary>
+    private IReadOnlyList<SceneImageLoraSelection> _sceneLoras = [];
 
     /// <summary>
     /// The library preset the attached skeleton came from, or null when the operator uploaded one. It is what tells
@@ -808,12 +873,13 @@
                 }
             }
             // A NATIVE reference render is decided by the step's BINDINGS, not by a second checkbox: a face bound from
-            // an identity pack IS the request, and the packs it names are what the render path builds the faces from
-            // (SceneImageService.ResolveNativeReferenceIdentityBindingsAsync binds only the packs the caller names, so
-            // without this a native create arrives with no face at all).
+            // an identity pack IS the request, and the render builds that exact view into a reference image
+            // (SceneImageRenderingJobHandler.BuildNativeReferencesAsync resolves pack bindings; the pack's own face
+            // resolver re-reads the pack, so a superseded reference fails the render instead of rendering a stranger).
             //
-            // 'Identity on create' stays the GRAPH route (IP-Adapter/PuLID) and keeps its own control. The two are
-            // different mechanisms on different models, and the page asks for whichever the operator actually set up.
+            // 'Identity on create' is the other route: the model's configured IP-Adapter/PuLID mechanism, which
+            // resolves each selected pack's CANONICAL face. Binding a pack face as well would send that character two
+            // faces by two mechanisms, so the two are refused together rather than quietly stacked.
             var nativePacks = _referenceBindings
                 .Where(binding => string.Equals(binding.Kind, nameof(ImageStepSlotKind.Face), StringComparison.OrdinalIgnoreCase)
                     && !string.IsNullOrWhiteSpace(binding.IdentityPackId)
@@ -830,6 +896,14 @@
                 })
                 .ToList();
 
+            if (_applyIdentityOnCreate && nativePacks.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "This Composition applies identity through 'Identity on create' and also binds the character's face "
+                    + "from an identity pack, which is two identity mechanisms for one frame. Clear the Face slot, or "
+                    + "untick 'Apply identity while creating this composition'.");
+            }
+
             var renderMode = _applyIdentityOnCreate
                 ? SceneImageRenderMode.IdentityControlled
                 : nativePacks.Count > 0
@@ -843,6 +917,12 @@
             if (_characterLoras.Count > 0)
             {
                 renderSettings.CharacterLoras = _characterLoras.ToList();
+            }
+            // Scene LoRAs travel beside the character LoRAs on the SAME settings object, which is what the render
+            // path resolves them from. Empty stays null for the same reason.
+            if (_sceneLoras.Count > 0)
+            {
+                renderSettings.SceneLoras = _sceneLoras.ToList();
             }
             if (!string.IsNullOrWhiteSpace(_poseStoragePath))
             {
@@ -867,7 +947,11 @@
                 Pov = _productionGroup.Pov,
                 RenderMode = renderMode,
                 IdentityPackId = firstPackId,
-                IdentityPacks = identityPacks ?? nativePacks,
+                // The CHANNEL carries packs only for the identity-controlled route. On the native route the packs
+                // travel as the step's own bindings (ReferenceApplications), which is what makes the operator's
+                // EXACT face view and build reach the render; sending them here as well would add the pack's
+                // canonical face beside the bound one.
+                IdentityPacks = identityPacks,
                 ReferenceApplications = _referenceBindings
             });
             _statusMessage = regenerateOfId is null ? "Composition queued." : "Sibling Composition queued.";
@@ -918,6 +1002,15 @@
         => _pendingPrompt is null
             ? SceneImagePromptStyle.NaturalLanguage
             : SceneImagePromptStyleResolver.Effective(_pendingPrompt.PromptStyle);
+
+    /// <summary>
+    /// The FAMILY of the composition's selected render model, or Unknown when nothing is chosen. This is the one thing
+    /// that decides which scene LoRAs may be offered: a LoRA binds only to the model family it was trained against, and
+    /// the render refuses a selection whose family does not match the model it is applied to.
+    /// </summary>
+    private SceneImageModelFamily SelectedCompositionModelFamily => _modelChoices
+        .FirstOrDefault(model => model.ModelId == _selectedModelId)
+        ?.Family ?? SceneImageModelFamily.Unknown;
 
     private bool IsPromptPending => _pendingPrompt?.Status == SceneImagePromptStatus.Pending;
 

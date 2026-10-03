@@ -74,6 +74,22 @@ public sealed class RunPodServerlessImageClient : IImageGenerationClient
             // instruction files); Pony keeps its short guard set. A provided per-scene negative
             // still takes precedence.
             ValidatePromptMetadata(model);
+
+            // Krea 2 is LOCAL-ONLY (B-137 D7). Its graph, its artifacts and its qualification proof live on the
+            // local ComfyUI host; nothing in the serverless deployment carries the 12B transformer, the Qwen3-VL
+            // text encoder or the act LoKrs. A Krea 2 model routed here is refused by name rather than emitting a
+            // payload no serverless worker can satisfy - and refused BEFORE the family switch, so the operator is
+            // told the real reason (local-only) instead of "unsupported family".
+            if (model.SceneImageModelFamily == SceneImageModelFamily.Krea2)
+            {
+                throw new ImageGenerationException(
+                    $"Model '{model.ModelIdentifier}' declares scene-image family 'Krea2', which is supported on the "
+                    + "local ComfyUI host only. Serverless Krea 2 is not implemented. Point this model at a local "
+                    + "ComfyUI provider, or select a different model for serverless rendering.",
+                    model.ProviderName,
+                    reasonCode: "krea2_local_only");
+            }
+
             var baselineNegative = model.SceneImageModelFamily switch
             {
                 SceneImageModelFamily.Pony => "extra penis, multiple penises, two penises, duplicate anatomy, blurry, low quality, ugly, deformed, extra limbs, bad anatomy, watermark, text, censored, mosaic, airbrushed, plastic skin",

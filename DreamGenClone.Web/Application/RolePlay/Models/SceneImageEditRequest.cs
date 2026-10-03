@@ -26,6 +26,17 @@ public sealed class SceneImageEditRequest
     /// </summary>
     public MediaEditRegionOperation? Region { get; set; }
 
+    /// <summary>The outpaint extension this edit is confined to, or null to keep the frame (CASE-24). Mutually
+    /// exclusive with <see cref="Region"/>: the newly exposed strip is generated and the original preserved.</summary>
+    public MediaEditOutpaintOperation? Outpaint { get; set; }
+
+    /// <summary>
+    /// The scene LoRAs (unlock / act / anatomy / style) the operator picked for THIS edit, or null for none. It is
+    /// carried onto the queued run rather than left on the page for the same reason the references are: the stack that
+    /// renders the edit has to be the stack the operator saw when they queued it.
+    /// </summary>
+    public IReadOnlyList<SceneImageLoraSelection>? SceneLoras { get; set; }
+
     [Obsolete("Use the compiled prompt revision identifiers and checksums. Raw instructions are never executed.")]
     public string Instruction { get; set; } = string.Empty;
 }

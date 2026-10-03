@@ -70,6 +70,30 @@ public enum SceneAssetType
     Playground = 10
 }
 
+/// <summary>
+/// Which image-naming rules an asset container's TYPE carries.
+///
+/// <para>
+/// The predicate lives here, in the domain, so the approval gate and the form that submits to it cannot disagree
+/// about whether a name is required: two copies of "is this a location?" is precisely how a form ends up offering
+/// an action the store then refuses.
+/// </para>
+/// </summary>
+public static class SceneAssetImageNaming
+{
+    /// <summary>
+    /// Whether an image must carry an operator-entered name before it can be approved for production.
+    ///
+    /// <para>
+    /// True for a LOCATION and nothing else. A location is a container of several accepted images — four elevations,
+    /// an interior — and the name is the only thing that tells them apart in a reference picker, so an unnamed one
+    /// cannot be retrieved and must not be approvable. A face, a build or a wardrobe item has its own identifying
+    /// contract already, so the rule does not apply to it and nothing about those flows changes.
+    /// </para>
+    /// </summary>
+    public static bool IsNameRequiredForApproval(SceneAssetType type) => type == SceneAssetType.Location;
+}
+
 public enum SceneAssetCandidateDecision
 {
     Undecided = 0,
@@ -230,6 +254,24 @@ public sealed class SceneAssetImage
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string AssetId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// What the operator calls this image, in their own words — "Front", "Left side", "Interior".
+    ///
+    /// <para>
+    /// This is how a reference is RETRIEVED, not a note about it. A location container holds several accepted
+    /// images (four elevations, an interior), and an id is no way to tell them apart in a dropdown, so the name is
+    /// the label every picker shows. It is required before a location image may be approved for production, which
+    /// is why there is no derived default: a name nobody typed would be a label nobody can act on.
+    /// </para>
+    ///
+    /// <para>
+    /// Null on rows written before naming existed, and on non-location images that were never named. Such an image
+    /// keeps the older labelling rather than being given an invented one.
+    /// </para>
+    /// </summary>
+    public string? DisplayName { get; set; }
+
     public SceneAssetKind Kind { get; set; }
     public SceneAssetStatus Status { get; set; }
     public string Prompt { get; set; } = string.Empty;
@@ -286,6 +328,19 @@ public sealed class SceneAssetImage
     /// and so a compiled prompt is never compiled twice.
     /// </summary>
     public string? PromptCompilerId { get; set; }
+
+    /// <summary>
+    /// The image's searchable tags, as a JSON array of catalog strings (<c>prefix:value</c>, e.g. <c>stance:kneeling</c>),
+    /// or null for a row written before tags existed.
+    ///
+    /// <para>
+    /// Tags live on the image and NOT in <see cref="AssociationMetadataJson"/> because they are edited by hand:
+    /// metadata is the record of what the render DID, and an operator adding "sex:missionary" to a picture is a
+    /// statement about the picture that a re-render must not overwrite. The column is written only by the tag writer
+    /// (the completion step and the tag editor), so an ordinary save cannot erase it.
+    /// </para>
+    /// </summary>
+    public string? TagsJson { get; set; }
 
     /// <summary>
     /// The sampler seed this render ACTUALLY used, or null for a row written before the seed was recorded.

@@ -515,6 +515,33 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
             string imageId, SceneAssetCandidateDecision decision, string? notes, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        /// <summary>
+        /// The handler ADDS the tags it derived when the render completes, so this double has to accept them: a throw
+        /// here would fail a render that succeeded, over its tags. The union is returned the way the real repository
+        /// returns it, and the merged list is written back onto the row the test can read.
+        /// </summary>
+        public Task<IReadOnlyList<string>> AddImageTagsAsync(
+            string imageId, IReadOnlyList<string> tags, CancellationToken cancellationToken = default)
+        {
+            var image = images.FirstOrDefault(candidate => candidate.Id == imageId)
+                ?? throw new InvalidOperationException($"Image '{imageId}' was not seeded into this double.");
+            var merged = DreamGenClone.Web.Application.RolePlay.ImageTagCatalog
+                .Parse(image.TagsJson)
+                .Concat(tags)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            image.TagsJson = DreamGenClone.Web.Application.RolePlay.ImageTagCatalog.Serialize(merged);
+            return Task.FromResult<IReadOnlyList<string>>(merged);
+        }
+
+        public Task SetImageTagsAsync(
+            string imageId, IReadOnlyList<string> tags, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneAssetImage>> SearchImagesByTagAsync(
+            string tagQuery, int maxResults = 200, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

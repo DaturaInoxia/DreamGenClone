@@ -12,4 +12,10 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
   </ItemGroup>
 
+  <!-- Domain only (no infrastructure): the scene-image family/dialect pair is validated by its single owner,
+       SceneImagePromptMetadata.IsCompatible, instead of the command re-stating the compatible pairs. -->
+  <ItemGroup>
+    <ProjectReference Include="..\DreamGenClone.Domain\DreamGenClone.Domain.csproj" />
+  </ItemGroup>
+
 </Project>

@@ -16,6 +16,9 @@ using DreamGenClone.Web.Application.RolePlay.Editing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace DreamGenClone.Tests.RolePlay;
 
@@ -351,7 +354,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
         public string EditSessionId { get; private set; } = string.Empty;
         public string _editorStorageRoot => Path.Combine(_root, "assets");
 
-        public static async Task<Fixture> CreateAsync()
+        public static async Task<Fixture> CreateAsync(int sourceWidth = 8, int sourceHeight = 6, Rgb24? sourceColour = null)
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"media-edit-image-{Guid.NewGuid():N}.db");
             var root = Path.Combine(Path.GetTempPath(), $"media-edit-image-files-{Guid.NewGuid():N}");
@@ -379,7 +382,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
 
             // A real, decodable PNG: the editor client never decodes the source, but the region-mask engine
             // (exercised by the region-edit test) does measure it.
-            var png = MakeDecodablePng(8, 6);
+            var png = MakeDecodablePng(sourceWidth, sourceHeight, sourceColour);
             await using (var sourceContent = new MemoryStream(png))
             {
                 var stored = await storage.SaveAsync("asset-source.png", sourceContent);
@@ -517,6 +520,24 @@ public sealed class MediaEditImageEditingJobHandlerTests
                 editor,
                 new ImageRegionMaskEngine(),
                 NullLogger<MediaEditImageEditingJobHandler>.Instance);
+        }
+
+        /// <summary>
+        /// The bytes of a frame the run produced, straight out of the editor storage the writer saves into - so a test
+        /// can compare what the host rendered with what the run decided to keep.
+        /// </summary>
+        public async Task<byte[]> ReadStoredImageAsync(SceneAssetImage image)
+        {
+            var options = Options.Create(new PersistenceOptions
+            {
+                ConnectionString = $"Data Source={_dbPath};Pooling=False",
+                SceneImageRoot = Path.Combine(_root, "scene-images")
+            });
+            var storage = new SceneAssetStorageService(options, NullLogger<SceneAssetStorageService>.Instance);
+            await using var stream = await storage.OpenReadAsync(image.FileRelativePath!, CancellationToken.None);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            return buffer.ToArray();
         }
 
         /// <summary>
@@ -879,16 +900,198 @@ public sealed class MediaEditImageEditingJobHandlerTests
         Assert.True(editor.LastEditMaskPresent, "A region edit must resolve its compiled prompt and pass a mask.");
     }
 
-    private static DurableBackgroundJob JobForMaskedRegion(string imageId)
+    /// <summary>
+    /// The outpaint half of the same dispatch fix (CASE-24). An outpaint carries a compiled prompt revision exactly as a
+    /// region does, so the writer must resolve it on the compiled-edit path: preparing it as a deterministic operation
+    /// built a plan with no prompt at all, and the run died at the handler with "An edit run requires the compiled
+    /// prompt its subject writer prepared" - which is what the operator hit when extending an Asset Studio image.
+    /// </summary>
+    [Fact]
+    public async Task OutpaintRun_ThroughTheRealWriter_ResolvesTheCompiledPrompt()
     {
-        var operation = MediaEditOperation.ForMaskedRegion(
-            new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 3));
+        await using var fixture = await Fixture.CreateAsync();
+        var editor = new RecordingImageEditor();
+        var handler = fixture.BuildRegionHandler(editor);
+
+        await handler.HandleAsync(JobForOutpaint(fixture.EditedImageId, MediaEditSubjectKind.AssetImage));
+
+        var edited = await fixture.Assets.GetImageAsync(fixture.EditedImageId);
+        Assert.Equal(SceneAssetStatus.Complete, edited!.Status);
+        Assert.Equal(1, editor.Calls);
+
+        // The compiled revision AND the geometry sentence the run appends to it: proof that the instruction came from
+        // the compiler output rather than from nowhere.
+        var instruction = Assert.Single(editor.Instructions);
+        Assert.Contains("Change the shirt to red.", instruction, StringComparison.Ordinal);
+        Assert.Contains("Extend the image to the right", instruction, StringComparison.Ordinal);
+        Assert.True(editor.LastEditMaskPresent, "An outpaint must pass a padded mask.");
+    }
+
+    /// <summary>
+    /// An outpaint is an EDIT with a padded mask (CASE-24): it must run the editor path, build a mask at the padded
+    /// canvas size, and carry the pads on the mask so the client can pad the source to match.
+    /// </summary>
+    [Fact]
+    public async Task OutpaintRun_RoutesThroughTheEditorPath_WithAPaddedMask()
+    {
+        var writer = new OutpaintSubjectWriter();
+        var editor = new RecordingImageEditor();
+        var handler = new MediaEditImageEditingJobHandler(
+            new MediaEditSubjectWriterResolver([writer]),
+            new MediaEditOperationExecutorResolver([]),
+            new Qwen21ImageEditorResolver(),
+            editor,
+            new ImageRegionMaskEngine(),
+            NullLogger<MediaEditImageEditingJobHandler>.Instance);
+
+        await handler.HandleAsync(JobForOutpaint(writer.ImageId));
+
+        Assert.Equal(["claim", "complete"], writer.Order);
+        Assert.Equal(1, editor.Calls);
+        Assert.True(editor.LastEditMaskPresent, "An outpaint must pass a mask to the editor.");
+    }
+
+    /// <summary>
+    /// CASE-25: the host confines with a mask it rounds to 0/1, so what it confines is a HARD rectangle - the region
+    /// minus the feather that never reached it - and that edge used to survive into the render as a visible outline.
+    /// A confined run now blends the render back over the frame it started from through the region's feather: the
+    /// source comes back untouched everywhere outside the fade, the render owns everything inside it, and the two are
+    /// mixed across the feather. This test reads the produced .png pixel by pixel, because "no outline" is exactly the
+    /// kind of claim that has to be measured.
+    /// </summary>
+    [Fact]
+    public async Task ConfinedRun_BlendsTheRenderBackOverTheSourceThroughTheFeather()
+    {
+        var source = new Rgb24(0, 0, 255);
+        var rendered = new Rgb24(255, 0, 0);
+        await using var fixture = await Fixture.CreateAsync(64, 64, source);
+        var editor = new RecordingImageEditor { RenderColour = rendered };
+        var handler = fixture.BuildRegionHandler(editor);
+
+        // Drawn 16..48 on a 64px frame; the host may change 12..52 and the mask is white over 4..60.
+        await handler.HandleAsync(JobForMaskedRegion(
+            fixture.EditedImageId,
+            new MediaEditRegionOperation(25, 25, 50, 50, GrowMaskBy: 4, FeatherPixels: 8),
+            MediaEditSubjectKind.AssetImage));
+
+        var edited = await fixture.Assets.GetImageAsync(fixture.EditedImageId);
+        Assert.Equal(SceneAssetStatus.Complete, edited!.Status);
+        using var result = Image.Load<Rgb24>(await fixture.ReadStoredImageAsync(edited));
+
+        Assert.Equal(64, result.Width);
+        Assert.Equal(rendered, result[32, 32]);    // deep inside the region: the render, untouched
+        Assert.Equal(rendered, result[12, 32]);    // the last fully opaque pixel
+        Assert.Equal(new Rgb24(223, 0, 32), result[11, 32]);   // one pixel into the fade: 255/8 of the render
+        Assert.Equal(new Rgb24(128, 0, 127), result[8, 32]);   // halfway through the fade
+        Assert.Equal(source, result[4, 32]);       // the mask's white edge: the source, byte for byte
+        Assert.Equal(source, result[0, 0]);        // and everywhere outside it
+
+        // Nothing outside the fade may differ from the source at all - that is what "confined to a region" means, and
+        // it is also what removes the faint halo a VAE round trip leaves over the whole frame.
+        for (var y = 0; y < result.Height; y++)
+        {
+            for (var x = 0; x < result.Width; x++)
+            {
+                if (x < 4 || x >= 60 || y < 4 || y >= 60)
+                {
+                    Assert.Equal(source, result[x, y]);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// An outpaint blends the same way, over the padded canvas the host renders: the newly exposed strip is kept whole,
+    /// the original comes back untouched, and the seam between them fades instead of stepping.
+    /// </summary>
+    [Fact]
+    public async Task OutpaintRun_KeepsTheNewStripAndFadesIntoTheOriginal()
+    {
+        var source = new Rgb24(0, 0, 255);
+        var rendered = new Rgb24(255, 0, 0);
+        var writer = new OutpaintSubjectWriter();
+        var editor = new RecordingImageEditor { RenderColour = rendered };
+        var handler = new MediaEditImageEditingJobHandler(
+            new MediaEditSubjectWriterResolver([writer]),
+            new MediaEditOperationExecutorResolver([]),
+            new Qwen21ImageEditorResolver(),
+            editor,
+            new ImageRegionMaskEngine(),
+            NullLogger<MediaEditImageEditingJobHandler>.Instance);
+
+        // 50% of 8 = 4px added on the right: a 12x6 canvas, with the strip starting at x=8.
+        await handler.HandleAsync(JobForOutpaint(writer.ImageId));
+
+        Assert.Equal(["claim", "complete"], writer.Order);
+        using var result = Image.Load<Rgb24>(writer.OutputBytes);
+
+        Assert.Equal(12, result.Width);
+        Assert.Equal(6, result.Height);
+        Assert.Equal(rendered, result[11, 3]);     // the new strip: the render, kept whole
+        Assert.Equal(rendered, result[6, 3]);      // the last fully opaque pixel of the seam (strip 8, grown by 2)
+        Assert.Equal(new Rgb24(170, 0, 85), result[5, 3]);   // one pixel into the fade (feather 3)
+        Assert.Equal(source, result[3, 3]);        // the mask's white edge: the source again
+        Assert.Equal(source, result[0, 3]);        // and the far side of the original, untouched
+    }
+
+    /// <summary>
+    /// A confined run without a feather is refused before a render is paid for, naming the persisted setting, and the
+    /// queued row is marked failed rather than left looking pending. The host rounds the mask it confines with to 0/1,
+    /// so a zero feather is a hard-edged rectangle whose edge shows in the picture as an outline (CASE-25).
+    /// </summary>
+    [Fact]
+    public async Task ConfinedRun_WithoutAFeather_IsRefusedByNameAndMarksTheRow()
+    {
+        await using var fixture = await Fixture.CreateAsync(64, 64, new Rgb24(0, 0, 255));
+        var editor = new RecordingImageEditor();
+        var handler = fixture.BuildRegionHandler(editor);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => handler.HandleAsync(
+            JobForMaskedRegion(
+                fixture.EditedImageId,
+                new MediaEditRegionOperation(25, 25, 50, 50, GrowMaskBy: 4, FeatherPixels: 0),
+                MediaEditSubjectKind.AssetImage)));
+
+        Assert.Contains("RegionFeatherPixels", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(0, editor.Calls);
+
+        var edited = await fixture.Assets.GetImageAsync(fixture.EditedImageId);
+        Assert.Equal(SceneAssetStatus.Failed, edited!.Status);
+        Assert.Contains("RegionFeatherPixels", edited.ErrorMessage, StringComparison.Ordinal);
+    }
+
+    private static DurableBackgroundJob JobForOutpaint(
+        string imageId, MediaEditSubjectKind subjectKind = MediaEditSubjectKind.SceneImage)
+    {
+        var operation = MediaEditOperation.ForOutpaint(
+            new MediaEditOutpaintOperation(MediaEditOutpaintDirection.Right, 50, GrowMaskBy: 2, FeatherPixels: 3));
         return new DurableBackgroundJob
         {
             JobType = BackgroundJobTypes.MediaEditImageEditing,
             PayloadJson = JsonSerializer.Serialize(new MediaEditImageEditingJobPayload
             {
-                SubjectKind = MediaEditSubjectKind.SceneImage,
+                SubjectKind = subjectKind,
+                ImageId = imageId,
+                OperationKind = MediaEditOperationKind.Outpaint,
+                OperationJson = JsonSerializer.Serialize(operation, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+                EditorModelId = Fixture.EditorModelId
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+        };
+    }
+
+    private static DurableBackgroundJob JobForMaskedRegion(
+        string imageId,
+        MediaEditRegionOperation? region = null,
+        MediaEditSubjectKind subjectKind = MediaEditSubjectKind.SceneImage)
+    {
+        var operation = MediaEditOperation.ForMaskedRegion(
+            region ?? new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 3));
+        return new DurableBackgroundJob
+        {
+            JobType = BackgroundJobTypes.MediaEditImageEditing,
+            PayloadJson = JsonSerializer.Serialize(new MediaEditImageEditingJobPayload
+            {
+                SubjectKind = subjectKind,
                 ImageId = imageId,
                 OperationKind = MediaEditOperationKind.MaskedRegion,
                 OperationJson = JsonSerializer.Serialize(operation, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
@@ -926,7 +1129,9 @@ public sealed class MediaEditImageEditingJobHandlerTests
     /// </summary>
     private sealed class RecordingSubjectWriter : IMediaEditSubjectWriter
     {
-        private static readonly byte[] SourceBytes = CreatePng(4, 3);
+        // A real PNG, not a header: the run hands this same stream to the editor, and the frame's size has to be
+        // readable from it (the region engine identifies it, and a confined run decodes it to blend the render back).
+        private static readonly byte[] SourceBytes = MakeDecodablePng(4, 3);
 
         public string ImageId { get; } = "scene-image-1";
         public bool Claimable { get; init; } = true;
@@ -980,6 +1185,13 @@ public sealed class MediaEditImageEditingJobHandlerTests
 
         public Exception? ThrowOnEdit { get; init; }
 
+        /// <summary>
+        /// The colour the stub renders, at the size of the source it was handed - which is what the real host does
+        /// (it renders the frame it was given). A confined run blends that render back over the source, so a test can
+        /// tell the two apart pixel by pixel and see exactly where the blend gave the source back.
+        /// </summary>
+        public Rgb24 RenderColour { get; init; } = new(0, 10, 20);
+
         public Task<byte[]> EditAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, CancellationToken cancellationToken = default, ImageEditingMask? mask = null)
         {
             Calls++;
@@ -987,7 +1199,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
             LastEditMaskPresent = mask is not null;
             if (ThrowOnEdit is not null)
                 throw ThrowOnEdit;
-            return Task.FromResult(CreatePng(4, 3));
+            return Task.FromResult(Render(sourceImage, mask));
         }
 
         public Task<byte[]> EditWithReferencesAsync(ResolvedImageEditorModel model, Stream sourceImage, string sourceFileName, string instruction, IReadOnlyList<ImageEditingReference> references, CancellationToken cancellationToken = default, ImageEditingMask? mask = null)
@@ -997,7 +1209,29 @@ public sealed class MediaEditImageEditingJobHandlerTests
             LastEditMaskPresent = mask is not null;
             if (ThrowOnEdit is not null)
                 throw ThrowOnEdit;
-            return Task.FromResult(CreatePng(4, 3));
+            return Task.FromResult(Render(sourceImage, mask));
+        }
+
+        private byte[] Render(Stream sourceImage, ImageEditingMask? mask)
+        {
+            // The host only needs the frame's SIZE to render a frame of its own, and several writers in this file hand
+            // over a header-only PNG as their source: identifying it keeps the stub honest about the size without
+            // demanding real pixels the run never needed.
+            sourceImage.Position = 0;
+            var info = Image.Identify(sourceImage)
+                ?? throw new InvalidOperationException("The stub editor could not read the size of the frame it was handed.");
+            sourceImage.Position = 0;
+
+            // An outpaint hands the host pads with the mask, and the host extends the canvas before it renders (its own
+            // pad node fills the new area with mid-grey). Reproduced here so an outpaint test renders the canvas the
+            // composite has to place the result back on - and renders it at the padded size, as the host does.
+            using var render = new Image<Rgb24>(
+                info.Width + (mask?.LeftPad ?? 0) + (mask?.RightPad ?? 0),
+                info.Height + (mask?.TopPad ?? 0) + (mask?.BottomPad ?? 0),
+                RenderColour);
+            using var buffer = new MemoryStream();
+            render.SaveAsPng(buffer);
+            return buffer.ToArray();
         }
     }
 
@@ -1215,6 +1449,58 @@ public sealed class MediaEditImageEditingJobHandlerTests
         }
     }
 
+    /// <summary>
+    /// A subject writer whose plan is an OUTPAINT (an edit that also carries a direction + percent), with a decodable
+    /// source so the region-mask engine can build the strip mask at the padded size.
+    /// </summary>
+    private sealed class OutpaintSubjectWriter : IMediaEditSubjectWriter
+    {
+        private static readonly byte[] SourceBytes = MakeDecodablePng(8, 6, new Rgb24(0, 0, 255));
+
+        public string ImageId { get; } = "scene-outpaint-1";
+        public List<string> Order { get; } = [];
+
+        /// <summary>The bytes the run decided to keep, so a test can read what the composite produced.</summary>
+        public byte[]? OutputBytes { get; private set; }
+
+        public MediaEditSubjectKind Kind => MediaEditSubjectKind.SceneImage;
+
+        public Task<MediaEditRunPlan?> PrepareAsync(
+            MediaEditRunContext context, CancellationToken cancellationToken = default)
+            => Task.FromResult<MediaEditRunPlan?>(new MediaEditRunPlan(
+                ImageId,
+                "source-1",
+                _ => Task.FromResult<Stream>(new MemoryStream(SourceBytes)),
+                Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(SourceBytes)),
+                MediaEditOperation.ForOutpaint(
+                    new MediaEditOutpaintOperation(MediaEditOutpaintDirection.Right, 50, GrowMaskBy: 2, FeatherPixels: 3)),
+                Prompt: "extend the image to the right",
+                References: [],
+                Editor: new MediaEditEditorResolution(Fixture.EditorModelId, RequiresAdultContentPolicy: false),
+                LogScope: "test"));
+
+        public Task<bool> ClaimAsync(MediaEditRunContext context, CancellationToken cancellationToken = default)
+        {
+            Order.Add("claim");
+            return Task.FromResult(true);
+        }
+
+        public Task CompleteAsync(
+            MediaEditRunPlan plan, MediaEditRunOutput output, CancellationToken cancellationToken = default)
+        {
+            Order.Add("complete");
+            OutputBytes = output.Bytes;
+            return Task.CompletedTask;
+        }
+
+        public Task FailAsync(
+            MediaEditRunContext context, string error, CancellationToken cancellationToken = default)
+        {
+            Order.Add("fail");
+            return Task.CompletedTask;
+        }
+    }
+
     /// <summary>A region edit needs the 2.1 native graph; the shared stub resolves a merged checkpoint.</summary>
     private sealed class Qwen21ImageEditorResolver : IImageEditorModelResolver
     {
@@ -1236,11 +1522,12 @@ public sealed class MediaEditImageEditingJobHandlerTests
             GraphKind: ImageEditorGraphKind.QwenImage21Native);
     }
 
-    private static byte[] MakeDecodablePng(int width, int height)
+    private static byte[] MakeDecodablePng(int width, int height, Rgb24? colour = null)
     {
-        using var image = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(width, height);
+        var fill = colour is { } chosen ? new Rgba32(chosen.R, chosen.G, chosen.B, 255) : new Rgba32(0, 0, 0, 0);
+        using var image = new Image<Rgba32>(width, height, fill);
         using var content = new MemoryStream();
-        image.Save(content, new SixLabors.ImageSharp.Formats.Png.PngEncoder());
+        image.Save(content, new PngEncoder());
         return content.ToArray();
     }
 

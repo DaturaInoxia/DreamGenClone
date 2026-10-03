@@ -323,15 +323,91 @@ public sealed class SceneImageStudioUiContractTests
     public void SceneImageEditor_RunsEditsInPlaceInsteadOfReturningToTheStudio()
     {
         Assert.DoesNotContain("Nav.NavigateTo($\"/roleplay/studio/{sessionId}/{interactionId}\"", SceneImageEditorSource, StringComparison.Ordinal);
-        Assert.Contains("_statusMessage = \"Image edit queued.\";", SceneImageEditorSource, StringComparison.Ordinal);
+        // The edit action's message names the stage it is actually in. It became "Edit compilation queued." when the
+        // two-stage flow landed (prepare/compile first, then run): the workspace queues a COMPILATION here, not the
+        // edit itself, and a status line that still said "Image edit queued." would describe a step that had not
+        // started. What this test is about is unchanged - the action stays IN PLACE and keeps polling.
+        Assert.Contains("_statusMessage = \"Edit compilation queued.\";", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("_statusMessage = \"Identity correction queued.\";", SceneImageEditorSource, StringComparison.Ordinal);
         // Both run actions must keep the workspace polling so the result renders in the in-place lineage.
-        Assert.Matches("_statusMessage = \"Image edit queued\\.\";\\s*EnsurePolling\\(\\);", SceneImageEditorSource);
+        Assert.Matches("_statusMessage = \"Edit compilation queued\\.\";\\s*EnsurePolling\\(\\);", SceneImageEditorSource);
         Assert.Matches("_statusMessage = \"Identity correction queued\\.\";\\s*EnsurePolling\\(\\);", SceneImageEditorSource);
         // The tracked result stays visible while it progresses, and the session's newest image seeds the first render.
         Assert.Contains("_result = await _service.ResolveResultAsync(Subject, _session.Id, _result?.ImageId);", SceneImageEditorSource, StringComparison.Ordinal);
         Assert.Contains("if (!string.IsNullOrWhiteSpace(trackedResultId))", SceneImageEditAdapterSource, StringComparison.Ordinal);
         Assert.Contains("OrderByDescending(image => image.CreatedUtc)", SceneImageEditAdapterSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// B-137: the Krea 2 branch in Image Settings, and the scene-LoRA picker.
+    ///
+    /// <para>
+    /// Krea 2 runs its own qualified sampler envelope (8 steps / cfg 1 / euler / simple) exactly like Qwen-Image-2.1,
+    /// so the SDXL-family controls must be HIDDEN for it too - showing them as if they applied is the defect that
+    /// produced the blown-out 2.1 render of 2026-09-24. The picker must be driven by the selected model's FAMILY
+    /// (a LoRA only binds to the checkpoint family it was trained against) and must reach the page's settings object,
+    /// or the operator's choice would be picked on screen and absent at render time.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void SceneImageStudio_Krea2HidesTheSdxlEnvelopeAndOffersTheSceneLoraPicker()
+    {
+        Assert.Contains(
+            "SelectedGenericModelFamily is SceneImageModelFamily.QwenImage21 or SceneImageModelFamily.Krea2",
+            Source,
+            StringComparison.Ordinal);
+
+        Assert.Contains("SceneLoraPicker Family=\"@SelectedGenericModelFamily\"", Source, StringComparison.Ordinal);
+        Assert.Contains("Selections=\"_settings.SceneLoras\"", Source, StringComparison.Ordinal);
+        Assert.Contains("SelectionsChanged=\"OnSceneLorasChanged\"", Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "_settings.SceneLoras = selections.Count == 0 ? null : selections.ToList();",
+            Source,
+            StringComparison.Ordinal);
+
+        // No negative-prompt control exists on this page for any family: B-135 purged it, and Krea 2's graph has no
+        // input for one at all (its negative is a ConditioningZeroOut of the positive).
+        Assert.DoesNotContain("NegativePrompt", Source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// B-137 §4 item 4c: the COMPOSITION render path carries scene LoRAs too.
+    ///
+    /// <para>
+    /// It renders through the same <c>SceneImageStudioSettings</c> the studio does, so the render path resolves
+    /// <c>SceneLoras</c> for it already - but with no control on the page the operator could never set one, and a
+    /// composition could not apply an unlock or an act LoKr at all. This is a PRODUCTION surface, not a test one, so
+    /// the gap was a real capability hole rather than a missing convenience.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void CompositionComposer_CarriesSceneLorasOnTheRender()
+    {
+        Assert.Contains(
+            "SceneLoraPicker Family=\"@SelectedCompositionModelFamily\"",
+            CompositionComposerSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SelectionsChanged=\"OnSceneLorasChanged\"",
+            CompositionComposerSource,
+            StringComparison.Ordinal);
+
+        // The selection has to reach the settings object the render is queued with, or it would be picked on screen
+        // and absent from the render.
+        Assert.Contains(
+            "renderSettings.SceneLoras = _sceneLoras.ToList();",
+            CompositionComposerSource,
+            StringComparison.Ordinal);
+
+        // The family filter is derived from the SELECTED model, never a constant.
+        Assert.Contains(
+            "?.Family ?? SceneImageModelFamily.Unknown;",
+            CompositionComposerSource,
+            StringComparison.Ordinal);
+
+        // A scene LoRA binds to a model FAMILY, so changing the model must drop the selection rather than carry it to
+        // a family it was not trained against.
+        Assert.Contains("_sceneLoras = [];", CompositionComposerSource, StringComparison.Ordinal);
     }
 
     [Fact]

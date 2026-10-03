@@ -229,6 +229,84 @@ public static class SceneImageCompilerSystemPrompts
         """;
 
     /// <summary>
+    /// Krea 2 (Krea-2 Turbo) photographic-brief dialect, beat-shaped.
+    ///
+    /// <para>
+    /// <b>Every rule below is a measured finding from the 59-cell proof matrix</b>
+    /// (<c>helpers/local-comfyui-host/run-krea2-proof.ps1</c>, reviewed 2026-10-01), not a style preference:
+    /// </para>
+    /// <list type="number">
+    /// <item>Krea 2 renders what it is TOLD, not tag soup: a comma list of body nouns fills the frame with that body
+    /// and loses the head and the scene, while a photographic brief producing a complete figure. Explicit framing
+    /// DEMANDS ("full body shot", "wide shot") never worked and are the worst offender - the model crops instead of
+    /// obeying. These two rules are the single largest quality lever on this model.</item>
+    /// <item>An ambiguous act clause mis-parses: "the woman kneeling in front of the man performing fellatio on him"
+    /// reads as the MAN performing it. Both actors and who does what to whom must be explicit.</item>
+    /// <item>A face-direction clause on an act ("both turning their heads toward the window light") suppresses the
+    /// act - the model renders the faces instead.</item>
+    /// </list>
+    ///
+    /// <para>
+    /// This is deliberately a SEPARATE text from <see cref="NaturalLanguageBeat"/>, which instructs the model to lead
+    /// with framing and allows an SDXL-family body vocabulary: those two instructions are the two defects above.
+    /// </para>
+    /// </summary>
+    public static readonly string Krea2Beat = $"""
+        Convert story prose into ONE photographic brief for Krea 2 (Krea-2 Turbo), a photorealistic text-to-image model that reads plain natural language. Write it the way a photographer describes a shot: what the picture is, who is in it, what they are doing, the lens, and the depth of field.
+
+        Facts about this model that shape the prompt:
+        - It reads ordinary sentences. It does not read tag lists, danbooru tokens, or attribute metadata blocks.
+        - An explicit framing DEMAND is unreliable on this model and usually makes it worse: "full body shot", "wide shot", "close-up", "head to toe" and similar instructions make it crop the figure or drop the head instead of obeying. Describe what is in the picture and let the shot follow from that.
+        - A list of body nouns ("large breasts, thick thighs, narrow waist") makes it fill the frame with that body and lose the head and the surroundings. Describe a person DOING something in a place, and let the body be part of that.
+        - It does not know character names, relationships or ownership. Describe each person by appearance only.
+
+        Rules:
+        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint - show only what that character sees, and never include the POV character in the frame. If the POV is Omniscient, show the full scene with all characters visible.
+        2. NAME BOTH PEOPLE AND SAY WHO IS DOING WHAT TO WHOM. State each person's gender explicitly so the model never merges or miscounts people, and when two people are in contact write the sentence so the actor of the act is unambiguous: "a woman kneels in front of a man and takes his penis in her mouth" - never "the woman kneeling in front of the man performing fellatio on him", which reads as the man performing it.
+        3. ONE CLAUSE PER PERSON: describe each person as one self-contained clause (appearance plus clothing plus action). Never interleave one person's attributes into another person's clause.
+        4. NO FRAMING DEMANDS: never write full body shot, wide shot, close-up, macro, head to toe, or any other instruction about how much of the subject to include. Describe the scene; the shot follows from it.
+        5. NO BODY NOUN-LISTS: never describe a person as a comma-separated inventory of body parts or measurements. Fold the body into what is happening ("her hips rock against his"), never into a list.
+        6. NO FACE-FACING CLAUSE ON AN ACT: when the scene is a sexual act, do not add a sentence about which way anyone's face is turned or what anyone is looking at. That clause competes with the act and the model renders the faces instead of the act.
+        7. APPEARANCE IS GIVEN, NEVER INFERRED: render the character data exactly as supplied. Never derive skin tone, hair colour or hair style from a race, nationality or ethnicity, and never correct a combination you believe is unusual. If a trait is absent, omit it rather than inventing one.
+        8. AGE IS A LIFE STAGE, NEVER A NUMBER, and never a word that could read as a minor: use young adult, middle-aged, mature or elderly.
+        9. CLOTHING OR NUDITY from the depicted content. When clothing changes, stay in the same category (a dress becomes another dress, never trousers).
+        10. EXPLICITNESS FROM THE DEPICTED CONTENT: describe explicit sexual acts and visible genitals in concrete anatomical language, suggestive content or partial nudity plainly, non-sexual content plainly. Base it on the scene, never on narrative phase or a user setting.
+        11. PHOTOREALISTIC BY DEFAULT: close the brief with the photographic facts that carry realism - photorealistic, editorial photograph, 35mm, shallow depth of field, natural skin texture. Never add praise words: no masterpiece, best quality, high quality, 8K, award-winning.
+        12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
+        13. Keep the ENTIRE prompt under {OutputTargetChars} characters: one short paragraph in plain sentences. Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
+        """;
+
+    /// <summary>
+    /// Krea 2 photographic-brief dialect, canonical-brief-shaped (B-104/B-103 part B). The same measured rules as
+    /// <see cref="Krea2Beat"/> - most importantly: expand the brief, never turn it into a body noun-list, and never
+    /// add a framing demand the brief did not state.
+    /// </summary>
+    public static readonly string Krea2Canonical = $"""
+        Convert the canonical Still brief below into ONE photographic brief for Krea 2 (Krea-2 Turbo), a photorealistic text-to-image model that reads plain natural language.
+
+        Facts about this model that shape the prompt:
+        - It reads ordinary sentences. It does not read tag lists, danbooru tokens, or attribute metadata blocks.
+        - An explicit framing DEMAND is unreliable on this model: "full body shot", "wide shot", "close-up" and similar instructions make it crop the figure or drop the head instead of obeying. Describe what is in the picture and let the shot follow from it.
+        - A list of body nouns makes it fill the frame with that body and lose the head and the surroundings. Describe a person DOING something in a place.
+        - It does not know character names, relationships or ownership. Describe every person by appearance only.
+
+        Rules:
+        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint - show only what that character sees, and never include the POV character in the frame. If the POV is Omniscient, show the full scene with all characters visible.
+        2. NAME BOTH PEOPLE AND SAY WHO IS DOING WHAT TO WHOM. State each person's gender explicitly, and when two people are in contact write the sentence so the actor of the act is unambiguous. Never emit a clause that can be read as the wrong person performing the act.
+        3. ONE CLAUSE PER PERSON: appearance plus clothing plus action together, one self-contained clause each. Never interleave one person's attributes into another's clause.
+        4. NO FRAMING DEMANDS: never add an instruction about how much of the subject to include. Render the brief's framing only as a description of what is visible.
+        5. NO BODY NOUN-LISTS: never turn the brief into a comma-separated inventory of body parts or measurements.
+        6. NO FACE-FACING CLAUSE ON AN ACT: when the scene is a sexual act, do not add a sentence about which way anyone's face is turned. It competes with the act and the model renders the faces instead.
+        7. APPEARANCE IS GIVEN, NEVER INFERRED: render the character data exactly as supplied, and omit a trait that is absent rather than inventing one.
+        8. AGE IS A LIFE STAGE, NEVER A NUMBER, and never a word that could read as a minor (young adult, middle-aged, mature, elderly).
+        9. CLOTHING OR NUDITY from the depicted content; a changed garment stays in its own category (a dress becomes another dress, never trousers).
+        10. EXPLICITNESS FROM THE DEPICTED CONTENT: explicit sexual acts and visible genitals in concrete anatomical language, suggestive content or partial nudity plainly, non-sexual content plainly.
+        11. PHOTOREALISTIC BY DEFAULT: carry the photographic facts the brief states, and close with the medium - photorealistic, editorial photograph, 35mm, shallow depth of field, natural skin texture. Never add praise words: no masterpiece, best quality, high quality, 8K, award-winning. No resolution, aspect ratio or pixel count in the prose.
+        12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
+        13. Keep the ENTIRE prompt under {OutputTargetChars} characters: one short paragraph in plain sentences. Expand the brief - do not invent or rediscover story facts, and do not add to what the brief states. Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
+        """;
+
+    /// <summary>
     /// The compiler instruction text for a checkpoint's family. Both builders and the profile seed read through here,
     /// so a profile row's <c>SystemPrompt</c> and the beat path's system prompt cannot drift apart.
     /// </summary>
@@ -243,6 +321,7 @@ public static class SceneImageCompilerSystemPrompts
         SceneImageModelFamily.Sdxl => canonical ? NaturalLanguageCanonical : NaturalLanguageBeat,
         SceneImageModelFamily.Flux => canonical ? NaturalLanguageCanonical : NaturalLanguageBeat,
         SceneImageModelFamily.QwenImage21 => canonical ? Qwen21Canonical : Qwen21Beat,
+        SceneImageModelFamily.Krea2 => canonical ? Krea2Canonical : Krea2Beat,
         SceneImageModelFamily.Api => canonical ? NaturalLanguageCanonical : NaturalLanguageBeat,
         _ => throw new InvalidOperationException(
             $"No compiler instruction text exists for model family '{family}'. A checkpoint whose family is unknown "

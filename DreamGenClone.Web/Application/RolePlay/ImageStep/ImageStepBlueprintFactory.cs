@@ -245,17 +245,39 @@ public static class ImageStepBlueprintFactory
     }
 
     /// <summary>
-    /// A Composition whose character identity travels as approved identity PACKS - the pack channel the Composition
-    /// Composer already uses, which the render resolves into face references itself.
+    /// A Composition whose character identity travels as approved identity PACKS, picked as the step's SOURCE: the
+    /// character's own approved face and build references are bound here, per character, and the render resolves each
+    /// binding into a reference image of the exact view the operator picked.
     ///
-    /// No face slot is declared, and that is the point: the pack IS the identity mechanism here, so a face slot would
-    /// give each character two mechanisms in one render. What this step adds is the elements the pack cannot carry -
-    /// a pack binds FACES only (see how the native-reference identity bindings are written) - addressed per character,
-    /// because a body or wardrobe reference must name whose it is, plus the frame-wide location slot.
+    /// The pack used to be a CHANNEL on this page instead — a dropdown beside the step, which the render resolved into
+    /// the pack's CANONICAL FACE and nothing else. That left the body unpickable (a pack body reference had no route to
+    /// a scene render at all) and the face unpickable by view, while the Body slot's own approved-asset dropdown was
+    /// legitimately empty: measured in the dev store 2026-10-02, Becky holds an approved BodyComplete pack with 5 faces
+    /// and 12 builds, and ZERO character-owned face/body scene assets carry an approved usable image. The step then
+    /// advised binding "one of the character's approved identity-pack references" — a control it never rendered. This is
+    /// the same defect the LoRA cell (see <see cref="ForLoraCell"/>) and the asset creator (see
+    /// <see cref="ForAssetCreate"/>) were both fixed for; the Composition host was the one still missing it.
+    ///
+    /// A wardrobe item and a location stay SHARED library entries: a pack carries faces and bodies only.
     /// </summary>
     public static ImageStepBlueprint ForPackIdentityComposition(IReadOnlyList<ImageStepActor>? cast)
     {
-        ImageStepReferenceSourceKind[] sources =
+        // Face and build come from either store: an approved scene asset, or an image out of the character's approved
+        // identity PACK. A pack image is a SceneImageReferenceAsset addressed by its own pack id, so it is NOT an
+        // approved scene asset and the two are not aliases.
+        ImageStepReferenceSourceKind[] characterSources =
+        [
+            ImageStepReferenceSourceKind.ApprovedSceneAsset,
+            ImageStepReferenceSourceKind.IdentityPackAsset,
+            ImageStepReferenceSourceKind.ScratchImage
+        ];
+
+        // Build too, but without Scratch: the build reference is what the render conditions the BODY on, so a scratch
+        // frame of the scene belongs on the face, not here.
+        ImageStepReferenceSourceKind[] buildSources =
+            [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.IdentityPackAsset];
+
+        ImageStepReferenceSourceKind[] sharedSources =
             [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.ScratchImage];
 
         var slots = new List<ImageStepSlotBlueprint>();
@@ -266,11 +288,14 @@ public static class ImageStepBlueprintFactory
                 continue;
             }
 
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, sources, actor.ActorKey, ActorDisplayName: actor.DisplayName));
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, actor.ActorKey, AllowsMultiple: true, ActorDisplayName: actor.DisplayName));
+            // The face is declared FIRST for every character: the ordinal is request data and the first reference
+            // anchors the frame, so the identity is placed before the build that follows it.
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.None, characterSources, actor.ActorKey, ActorDisplayName: actor.DisplayName));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, buildSources, actor.ActorKey, ActorDisplayName: actor.DisplayName));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sharedSources, actor.ActorKey, AllowsMultiple: true, ActorDisplayName: actor.DisplayName));
         }
 
-        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sources));
+        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sharedSources));
 
         // The pose is FRAME-WIDE and comes from the pose library's own skeletons, never from an asset: what the render
         // conditions on is an OpenPose skeleton, and a library preset is the artifact the pose proofs used. NOT

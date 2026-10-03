@@ -4,9 +4,9 @@ namespace DreamGenClone.Tests.RolePlay;
 
 /// <summary>
 /// The region an operator draws is REQUEST DATA (CASE-21 / CASE-23). These tests are about refusing geometry the graph
-/// cannot honour, loudly: a rectangle that runs off the frame or a grow value the host node rejects must be reported,
-/// because a quietly clamped region edits a different area than the one that was drawn - and the render still looks
-/// like a success.
+/// cannot honour, loudly: a rectangle that runs off the frame, a grow value the host node rejects, or the zero feather
+/// that leaves a visible rectangle edge must all be reported, because a quietly clamped region edits a different area
+/// than the one that was drawn - and the render still looks like a success.
 /// </summary>
 public sealed class MediaEditRegionOperationTests
 {
@@ -24,9 +24,26 @@ public sealed class MediaEditRegionOperationTests
     [Fact]
     public void ARegionFlushWithTwoEdgesIsAccepted()
     {
-        var region = new MediaEditRegionOperation(0, 0, 100, 40, GrowMaskBy: 0, FeatherPixels: 0);
+        var region = new MediaEditRegionOperation(0, 0, 100, 40, GrowMaskBy: 0, FeatherPixels: 16);
 
         region.Validate();
+    }
+
+    /// <summary>
+    /// A confined edit needs a feather, and the refusal names the setting: the host rounds the mask it confines with to
+    /// 0/1, so a zero feather IS a hard-edged rectangle - the edit is confined correctly and the edge stays visible in
+    /// the render as an outline (CASE-25). Fail fast here, not in the picture.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void AConfinedEditWithoutAPositiveFeatherIsRefusedByName(int featherPixels)
+    {
+        var region = new MediaEditRegionOperation(10, 10, 10, 10, GrowMaskBy: 8, featherPixels);
+
+        var exception = Assert.Throws<InvalidOperationException>(region.Validate);
+
+        Assert.Contains("RegionFeatherPixels", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -38,7 +55,7 @@ public sealed class MediaEditRegionOperationTests
     [InlineData(10, 80, 10, 30, "inside the frame")]
     public void GeometryTheGraphCannotHonourIsRefused(double left, double top, double width, double height, string expected)
     {
-        var region = new MediaEditRegionOperation(left, top, width, height, GrowMaskBy: 0, FeatherPixels: 0);
+        var region = new MediaEditRegionOperation(left, top, width, height, GrowMaskBy: 0, FeatherPixels: 8);
 
         var exception = Assert.Throws<InvalidOperationException>(region.Validate);
 
@@ -54,21 +71,11 @@ public sealed class MediaEditRegionOperationTests
     [InlineData(65)]
     public void AGrowValueOutsideTheHostsOwnBoundIsRefused(int growMaskBy)
     {
-        var region = new MediaEditRegionOperation(10, 10, 10, 10, growMaskBy, FeatherPixels: 0);
+        var region = new MediaEditRegionOperation(10, 10, 10, 10, growMaskBy, FeatherPixels: 8);
 
         var exception = Assert.Throws<InvalidOperationException>(region.Validate);
 
         Assert.Contains("between 0 and 64", exception.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void ANegativeFeatherIsRefused()
-    {
-        var region = new MediaEditRegionOperation(10, 10, 10, 10, GrowMaskBy: 0, FeatherPixels: -1);
-
-        var exception = Assert.Throws<InvalidOperationException>(region.Validate);
-
-        Assert.Contains("feather", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -102,7 +109,7 @@ public sealed class MediaEditRegionOperationTests
     public void RegionParametersOnAnotherKindAreRefused()
     {
         var operation = new MediaEditOperation(
-            MediaEditOperationKind.Mirror, null, null, new MediaEditRegionOperation(10, 10, 10, 10, GrowMaskBy: 0, FeatherPixels: 0));
+            MediaEditOperationKind.Mirror, null, null, new MediaEditRegionOperation(10, 10, 10, 10, GrowMaskBy: 0, FeatherPixels: 8));
 
         var exception = Assert.Throws<InvalidOperationException>(operation.Validate);
 

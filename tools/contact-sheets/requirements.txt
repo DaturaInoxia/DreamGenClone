@@ -1,0 +1,3 @@
+# Pin matters: Pillow 12.x is what the repo venv has; Image.LANCZOS + ImageFont.truetype(name, size)
+# behaviour (used for tile resizing and captions) is verified on this line.
+Pillow==12.3.0

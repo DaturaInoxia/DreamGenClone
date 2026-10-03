@@ -352,6 +352,9 @@ public static class BodyReferencePromptCompiler
         SceneImageModelFamily.Flux => BodyPromptFamily.Sdxl,
         SceneImageModelFamily.Api => BodyPromptFamily.Sdxl,
         SceneImageModelFamily.QwenImage21 => BodyPromptFamily.Sdxl,
+        // Krea 2 reads plain natural language and has no reference conditioning, so a reference-sheet brief is
+        // compiled for it as text (B-137 §3). It is a natural-language family here, not a tag family.
+        SceneImageModelFamily.Krea2 => BodyPromptFamily.Sdxl,
         SceneImageModelFamily.Unknown => throw new InvalidOperationException(
             $"Model '{model.ModelIdentifier}' has no scene-image family set in Model Manager, so its prompt dialect "
             + "is unknown and no body-reference prompt can be compiled for it. Set the model's family in Model "

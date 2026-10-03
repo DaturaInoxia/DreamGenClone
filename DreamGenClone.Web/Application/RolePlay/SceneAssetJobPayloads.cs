@@ -27,6 +27,24 @@ public sealed class SceneAssetGenerationJobPayload
     public List<DreamGenClone.Web.Application.RolePlay.Models.SceneImageCharacterLoraSelection>? CharacterLoras { get; set; }
 
     /// <summary>
+    /// The NON-IDENTITY scene LoRA(s) this render selects (unlock / act / anatomy / style), or null for none.
+    /// Carried on the payload for the same reason <see cref="CharacterLoras"/> is: the selection has to survive the
+    /// queue, or it is lost before anything renders. Resolved and family-checked by <c>SceneLoraResolver</c> in the
+    /// handler, so an unknown file or a LoRA from another family fails by name instead of being dropped.
+    /// </summary>
+    public List<DreamGenClone.Web.Application.RolePlay.Models.SceneImageLoraSelection>? SceneLoras { get; set; }
+
+    /// <summary>
+    /// The lighting / expression presets this render applied, with the clause each one contributed. Carried on the
+    /// payload so the completion step records the operator's actual choice rather than re-deriving it from the prompt
+    /// (B-140 D4).
+    /// </summary>
+    public List<DreamGenClone.Web.Application.RolePlay.Models.AppliedImagePreset>? AppliedPresets { get; set; }
+
+    /// <summary>The caller-declared tags (character / position / wardrobe / location / sex position) for this render.</summary>
+    public List<string>? DeclaredTags { get; set; }
+
+    /// <summary>
     /// The verified stance whose OpenPose skeleton conditions this render, or null for a plain text-to-image call.
     /// Null means "no pose was asked for" — never "use a default pose".
     /// </summary>

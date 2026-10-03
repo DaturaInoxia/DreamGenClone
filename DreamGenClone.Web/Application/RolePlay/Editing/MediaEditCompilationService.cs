@@ -100,7 +100,7 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
             ? await _editorModels.ResolveAsync(cancellationToken)
             : await _editorModels.ResolveByIdAsync(request.EditorModelId, cancellationToken);
         var compiler = _compilers.Resolve(editorModel);
-        var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(request.RawIntent.Trim(), request.ClarificationHistory, request.Region));
+        var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(request.RawIntent.Trim(), request.ClarificationHistory, request.Region, request.Outpaint));
         var latest = await _editRepository.GetLatestAttemptAsync(session.Id, cancellationToken);
         var attempt = new MediaEditCompilationAttempt
         {
@@ -111,6 +111,7 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
                 ? null
                 : JsonSerializer.Serialize(request.ClarificationHistory, JsonOptions),
             RegionJson = request.Region is null ? null : JsonSerializer.Serialize(request.Region, JsonOptions),
+            OutpaintJson = request.Outpaint is null ? null : JsonSerializer.Serialize(request.Outpaint, JsonOptions),
             SourceImageSha256 = input.Sha256,
             Status = SceneImageEditCompilationAttemptStatus.Pending,
             ResolvedModelSnapshotJson = SceneImageMultimodalInput.SerializeResolutionSnapshot(resolved),
@@ -170,9 +171,15 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
         if (request.MaxAttempts < 1)
             throw new InvalidOperationException("A media edit run requires an explicit attempt budget of at least one.");
 
-        // A region is validated HERE, while the operator's own numbers are still in hand: the worker would refuse them
-        // too, but an unusable rectangle should not cost a queued render first.
+        // A region (or outpaint) is validated HERE, while the operator's own numbers are still in hand: the worker would
+        // refuse them too, but an unusable geometry should not cost a queued render first. They are mutually exclusive.
         request.Region?.Validate();
+        request.Outpaint?.Validate();
+        if (request.Region is not null && request.Outpaint is not null)
+        {
+            throw new InvalidOperationException(
+                "A media edit run must not carry both a region and an outpaint; they are different geometries.");
+        }
 
         var imageId = request.ImageId.Trim();
         var editorModelId = request.EditorModelId.Trim();
@@ -191,12 +198,18 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
             {
                 SubjectKind = request.SubjectKind,
                 ImageId = imageId,
-                // A region edit is an EDIT that carries one more thing: the rectangle that confines it (CASE-21). The kind
-                // records which pixels were allowed to change, and its parameters travel the same way a crop's do.
-                OperationKind = request.Region is null ? MediaEditOperationKind.Edit : MediaEditOperationKind.MaskedRegion,
-                OperationJson = request.Region is null
+                // A region edit (and an outpaint) are EDITs that carry one more thing: the geometry that confines them
+                // (CASE-21 / CASE-24). The kind records which pixels were allowed to change, and its parameters travel
+                // the same way a crop's do.
+                OperationKind = request.Region is null && request.Outpaint is null
+                    ? MediaEditOperationKind.Edit
+                    : request.Region is not null ? MediaEditOperationKind.MaskedRegion : MediaEditOperationKind.Outpaint,
+                OperationJson = request.Region is null && request.Outpaint is null
                     ? null
-                    : JsonSerializer.Serialize(MediaEditOperation.ForMaskedRegion(request.Region), JsonOptions),
+                    : JsonSerializer.Serialize(
+                        request.Region is not null
+                            ? MediaEditOperation.ForMaskedRegion(request.Region)
+                            : MediaEditOperation.ForOutpaint(request.Outpaint!), JsonOptions),
                 EditorModelId = editorModelId,
                 ReferenceApplicationsJson = request.ReferenceApplicationsJson,
                 ScopeId = string.IsNullOrWhiteSpace(request.ScopeId) ? null : request.ScopeId.Trim()
@@ -224,11 +237,13 @@ public sealed class MediaEditCompilationService : IMediaEditCompilationService
 
         // A REGION edit is an edit too. It needs a chosen editor model, and this path deliberately resolves no model and
         // checks no endpoint - so queued here it would reach the worker with no editor and fail where the operator cannot
-        // see why. Region edits take the edit path, which is also where the prompt revision and references are prepared.
-        if (request.Operation.Kind == MediaEditOperationKind.MaskedRegion)
+        // see why. Region edits (and outpaints) take the edit path, which is also where the prompt revision and
+        // references are prepared.
+        if (request.Operation.Kind is MediaEditOperationKind.MaskedRegion or MediaEditOperationKind.Outpaint)
             throw new InvalidOperationException(
-                "A media edit operation run must not carry a region edit; region edits go through EnqueueRunAsync with "
-                + "their chosen editor model, because confining an edit needs a model whose graph can support it.");
+                $"A media edit operation run must not carry a {request.Operation.Kind} edit; confined edits go through "
+                + "EnqueueRunAsync with their chosen editor model, because confining an edit needs a model whose graph "
+                + "can support it.");
         if (request.MaxAttempts < 1)
             throw new InvalidOperationException(
                 "A media edit operation run requires an explicit attempt budget of at least one.");

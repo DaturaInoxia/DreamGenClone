@@ -1636,17 +1636,18 @@
                             </div>
                         </div>
                         <div class="row g-2 mt-2">
-                            @if (SelectedGenericModelFamily == SceneImageModelFamily.QwenImage21)
+                            @if (SelectedGenericModelFamily is SceneImageModelFamily.QwenImage21 or SceneImageModelFamily.Krea2)
                             {
-                                @* These controls are SDXL-family values and are NOT applied to Qwen-Image-2.1, whose
-                                   sampler envelope (cfg 1, euler/simple, 25-50 steps) is qualified per model in Model
-                                   Manager. Showing them as if they applied produced a cfg-5/dpmpp_2m_sde/karras render on
-                                   a cfg-1-distilled model and a blown-out image (2026-09-24). *@
+                                @* These controls are SDXL-family values and are NOT applied to Qwen-Image-2.1 or
+                                   Krea 2, whose sampler envelopes (cfg 1 euler/simple; 2.1 at 25-50 steps, Krea 2 at
+                                   8) are qualified per model in Model Manager. Showing them as if they applied
+                                   produced a cfg-5/dpmpp_2m_sde/karras render on a cfg-1-distilled model and a
+                                   blown-out image (2026-09-24). *@
                                 <div class="col-12">
                                     <div class="form-text">
                                         This model runs its own qualified sampler envelope (cfg, steps, sampler and
-                                        scheduler are recorded on the model's Qwen-Image-2.1 capability in Model Manager),
-                                        so the CFG / steps / sampler / scheduler / clip-skip controls below apply to
+                                        scheduler are recorded on the model's capability in Model Manager), so the
+                                        CFG / steps / sampler / scheduler / clip-skip controls below apply to
                                         SDXL-family and FLUX models only and are hidden here.
                                     </div>
                                 </div>
@@ -1704,6 +1705,16 @@
                                     </div>
                                 }
                             }
+                            @* B-137 §4: scene LoRAs (unlock / act / anatomy / style). Filtered to the selected
+                               model's family and rendered ONLY when the catalog actually carries rows for it, so a
+                               family with no scene LoRAs shows no control at all. They chain BEFORE the character
+                               identity LoRAs above. *@
+                            <div class="col-12">
+                                <SceneLoraPicker Family="@SelectedGenericModelFamily"
+                                                 Selections="_settings.SceneLoras"
+                                                 SelectionsChanged="OnSceneLorasChanged"
+                                                 Scope="studio-scene-lora" />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2250,6 +2261,14 @@
         // Empty is the configured "no LoRA" state, not a null to be repaired: the render then emits no LoraLoader
         // node and behaves exactly as it did before LoRA identity existed.
         _settings.CharacterLoras = selections.Count == 0 ? null : selections.ToList();
+        return Task.CompletedTask;
+    }
+
+    private Task OnSceneLorasChanged(IReadOnlyList<SceneImageLoraSelection> selections)
+    {
+        // Empty is the configured "no scene LoRA" state, not a null to be repaired: the render then emits no loader
+        // node for them and behaves exactly as it did before the scene-LoRA catalog existed.
+        _settings.SceneLoras = selections.Count == 0 ? null : selections.ToList();
         return Task.CompletedTask;
     }
     private string? _selectedIdentityModelId;

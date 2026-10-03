@@ -1,3 +1,4 @@
+using System.Globalization;
 using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -49,10 +50,32 @@ public static class ReferenceApplicationSelectionValidation
                 $"Every {label.ToLowerInvariant()} application requires an element key, semantic role, and strategy.");
         }
 
-        if (applications.Select(application => application.ElementKey.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase).Count() != applications.Count)
+        // A binding is addressed by its ELEMENT, the CHARACTER it belongs to, and its POSITION in the ordered list, and
+        // all three are needed. The same element legitimately appears once per character - a frame with two characters,
+        // each with their own face and build - and once per IMAGE on an element that carries several, which is what a
+        // wardrobe's dress and shoes are. Those differ by actor, by ordinal, or both. What cannot happen is two
+        // references holding one address at one position.
+        //
+        // Requiring the element key ALONE to be unique refused every multi-character composition and every two-garment
+        // wardrobe (reported live 2026-10-02: a Composition that bound one character's face and build refused to queue
+        // with "Reference application element keys must be unique."). The complementary rule - a single-valued slot is
+        // filled once - belongs to ReferenceSlotPlanner, which is the only producer of these bindings and already
+        // refuses a second image on any slot that does not declare AllowsMultiple.
+        var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var application in applications)
         {
-            throw new InvalidOperationException($"{label} application element keys must be unique.");
+            var address = string.Join(
+                '|',
+                application.ElementKey.Trim(),
+                (application.ActorKey ?? string.Empty).Trim(),
+                application.Ordinal?.ToString(CultureInfo.InvariantCulture) ?? "-");
+            if (!addresses.Add(address))
+            {
+                throw new InvalidOperationException(
+                    $"{label} application element keys must be unique per character and position: "
+                    + $"'{application.ElementKey.Trim()}' is declared twice with the same character and ordinal, so two "
+                    + "references would occupy one address.");
+            }
         }
 
         foreach (var application in applications)

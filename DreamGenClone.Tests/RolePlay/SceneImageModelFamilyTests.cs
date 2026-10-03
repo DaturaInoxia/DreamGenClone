@@ -10,6 +10,7 @@ public sealed class SceneImageModelFamilyTests
     [InlineData(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage)]
     [InlineData(SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage)]
     [InlineData(SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage)]
+    [InlineData(SceneImageModelFamily.Krea2, SceneImagePromptDialect.Krea2NaturalLanguage)]
     public void IsCompatible_RegisteredPair_ReturnsTrue(
         SceneImageModelFamily family,
         SceneImagePromptDialect dialect)
@@ -24,6 +25,12 @@ public sealed class SceneImageModelFamilyTests
     [InlineData(SceneImageModelFamily.Pony, SceneImagePromptDialect.Unknown)]
     [InlineData(SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.FluxNaturalLanguage)]
     [InlineData(SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.PonyV6Tags)]
+    [InlineData(SceneImageModelFamily.Krea2, SceneImagePromptDialect.PonyV6Tags)]
+    [InlineData(SceneImageModelFamily.Krea2, SceneImagePromptDialect.NaturalLanguage)]
+    [InlineData(SceneImageModelFamily.Krea2, SceneImagePromptDialect.SdxlNaturalLanguage)]
+    [InlineData(SceneImageModelFamily.Krea2, SceneImagePromptDialect.FluxNaturalLanguage)]
+    [InlineData(SceneImageModelFamily.Krea2, SceneImagePromptDialect.Unknown)]
+    [InlineData(SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.Krea2NaturalLanguage)]
     public void IsCompatible_UnregisteredPair_ReturnsFalse(
         SceneImageModelFamily family,
         SceneImagePromptDialect dialect)
@@ -45,6 +52,7 @@ public sealed class SceneImageModelFamilyTests
     [InlineData(SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
     [InlineData(SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
     [InlineData(SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
+    [InlineData(SceneImageModelFamily.Krea2, SceneImagePromptDialect.Krea2NaturalLanguage, SceneImagePromptStyle.NaturalLanguage)]
     public void PromptStyleResolver_MapsFamilyDialectToStyle(
         SceneImageModelFamily family,
         SceneImagePromptDialect dialect,

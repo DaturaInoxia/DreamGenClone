@@ -38,7 +38,14 @@ public enum MediaEditOperationKind
     /// in persisted settings rather than only inside a browser canvas - which is also what lets a proof reproduce a
     /// region an operator drew.
     /// </summary>
-    MaskedRegion = 5
+    MaskedRegion = 5,
+
+    /// <summary>
+    /// Extends the canvas in one direction and regenerates only the newly exposed strip (CASE-24): the original area is
+    /// preserved by the mask and the new strip is generated. Like a region edit it is an EDIT that also carries
+    /// geometry — here the direction and amount of the extension — so it runs the editor path with a mask.
+    /// </summary>
+    Outpaint = 6
 }
 
 /// <summary>
@@ -48,7 +55,9 @@ public enum MediaEditOperationKind
 /// </summary>
 /// <param name="GrowMaskBy">Pixels to grow the mask by at encode time. The host's own node accepts 0-64, and a seam
 /// shows at a bare rectangle edge, so this is the operator's value rather than one invented here.</param>
-/// <param name="FeatherPixels">Pixels of softening at the region edge; 0 emits no feather node at all.</param>
+/// <param name="FeatherPixels">Pixels of softening at the region edge. Required and positive: the host rounds the mask
+/// to 0/1 before it is used, so a zero feather IS a hard-edged rectangle and that edge shows in the render as an
+/// outline (CASE-25). The fade is applied after the render by the composite the region engine builds.</param>
 public sealed record MediaEditRegionOperation(
     double LeftPercent,
     double TopPercent,
@@ -76,13 +85,56 @@ public sealed record MediaEditRegionOperation(
         if (GrowMaskBy is < 0 or > 64)
             throw new InvalidOperationException(
                 $"A region 'grow' value must be between 0 and 64 pixels (the host node's own bound), but was {GrowMaskBy}.");
-        if (FeatherPixels < 0)
-            throw new InvalidOperationException($"A region feather must not be negative, but was {FeatherPixels} pixels.");
+        if (FeatherPixels <= 0)
+            throw new InvalidOperationException(
+                $"A confined edit needs a positive region feather, but 'RegionFeatherPixels' is {FeatherPixels}. The host "
+                + "rounds the mask it confines with to 0/1, so a zero feather confines the edit to a hard-edged rectangle "
+                + "whose edge shows in the render as an outline. Set 'RegionFeatherPixels' in the reference workflow "
+                + "settings before confining an edit.");
     }
 
     /// <summary>The provenance recorded with the produced image - an operation record, not a compiler revision.</summary>
     public string Describe()
         => $"region rect={LeftPercent},{TopPercent} {WidthPercent}x{HeightPercent}% grow={GrowMaskBy} feather={FeatherPixels}";
+}
+
+/// <summary>The direction an outpaint extends the frame.</summary>
+public enum MediaEditOutpaintDirection
+{
+    Left,
+    Right,
+    Top,
+    Bottom
+}
+
+/// <summary>
+/// The parameters of one outpaint run (CASE-24): extend the frame in <see cref="Direction"/> by <see cref="Percent"/>
+/// of the source's own width (Left/Right) or height (Top/Bottom), generating the newly exposed strip and preserving
+/// the original. <see cref="GrowMaskBy"/> and <see cref="FeatherPixels"/> soften the strip's inner seam exactly like a
+/// region's, so the extension does not leave a hard line where the source ends.
+/// </summary>
+public sealed record MediaEditOutpaintOperation(
+    MediaEditOutpaintDirection Direction,
+    double Percent,
+    int GrowMaskBy,
+    int FeatherPixels)
+{
+    public void Validate()
+    {
+        if (Direction is < MediaEditOutpaintDirection.Left or > MediaEditOutpaintDirection.Bottom)
+            throw new InvalidOperationException($"An outpaint needs an explicit direction, but got '{Direction}'.");
+        if (Percent <= 0 || Percent > 200)
+            throw new InvalidOperationException($"An outpaint percent must be between 0 and 200, but was {Percent}.");
+        if (GrowMaskBy is < 0 or > 64)
+            throw new InvalidOperationException($"An outpaint 'grow' value must be between 0 and 64 pixels, but was {GrowMaskBy}.");
+        if (FeatherPixels <= 0)
+            throw new InvalidOperationException(
+                $"An outpaint needs a positive feather, but 'RegionFeatherPixels' is {FeatherPixels}. The host rounds the "
+                + "mask it confines with to 0/1, so a zero feather leaves a hard line where the source ends. Set "
+                + "'RegionFeatherPixels' in the reference workflow settings before extending an image.");
+    }
+
+    public string Describe() => $"outpaint direction={Direction} percent={Percent} grow={GrowMaskBy} feather={FeatherPixels}";
 }
 
 /// <summary>
@@ -219,7 +271,8 @@ public sealed record MediaEditOperation(
     MediaEditOperationKind Kind,
     MediaEditCropOperation? Crop,
     MediaEditEnhanceOperation? Enhance = null,
-    MediaEditRegionOperation? Region = null)
+    MediaEditRegionOperation? Region = null,
+    MediaEditOutpaintOperation? Outpaint = null)
 {
     /// <summary>The editor-model operation.</summary>
     public static MediaEditOperation ForEdit { get; } = new(MediaEditOperationKind.Edit, null);
@@ -239,6 +292,10 @@ public sealed record MediaEditOperation(
     public static MediaEditOperation ForMaskedRegion(MediaEditRegionOperation region)
         => new(MediaEditOperationKind.MaskedRegion, null, null, region ?? throw new ArgumentNullException(nameof(region)));
 
+    /// <summary>The canvas-extending edit: the editor path, with the newly exposed strip masked.</summary>
+    public static MediaEditOperation ForOutpaint(MediaEditOutpaintOperation outpaint)
+        => new(MediaEditOperationKind.Outpaint, null, null, null, outpaint ?? throw new ArgumentNullException(nameof(outpaint)));
+
     /// <summary>Fails fast when the operation is unnamed or when its parameters do not match its kind.</summary>
     public void Validate()
     {
@@ -248,6 +305,8 @@ public sealed record MediaEditOperation(
             throw new InvalidOperationException($"A {Kind} operation must not carry enhance parameters.");
         if (Kind != MediaEditOperationKind.MaskedRegion && Region is not null)
             throw new InvalidOperationException($"A {Kind} operation must not carry region parameters.");
+        if (Kind != MediaEditOperationKind.Outpaint && Outpaint is not null)
+            throw new InvalidOperationException($"A {Kind} operation must not carry outpaint parameters.");
 
         switch (Kind)
         {
@@ -262,6 +321,15 @@ public sealed record MediaEditOperation(
                 }
 
                 Region.Validate();
+                break;
+
+            case MediaEditOperationKind.Outpaint:
+                if (Outpaint is null)
+                {
+                    throw new InvalidOperationException("An outpaint operation requires its outpaint parameters.");
+                }
+
+                Outpaint.Validate();
                 break;
 
             case MediaEditOperationKind.Crop:
@@ -287,6 +355,7 @@ public sealed record MediaEditOperation(
         MediaEditOperationKind.Crop => Crop!.Describe(),
         MediaEditOperationKind.Enhance => Enhance!.Describe(),
         MediaEditOperationKind.MaskedRegion => Region!.Describe(),
+        MediaEditOperationKind.Outpaint => Outpaint!.Describe(),
         _ => "edit"
     };
 }

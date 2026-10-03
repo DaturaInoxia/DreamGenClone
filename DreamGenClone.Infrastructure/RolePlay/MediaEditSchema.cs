@@ -32,7 +32,7 @@ public static class MediaEditSchema
 
         CREATE TABLE IF NOT EXISTS MediaEditCompilationAttempts (
             Id TEXT PRIMARY KEY, EditSessionId TEXT NOT NULL, Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0),
-            RawIntent TEXT NOT NULL, ClarificationContextJson TEXT NULL, RegionJson TEXT NULL, SourceImageSha256 TEXT NOT NULL,
+            RawIntent TEXT NOT NULL, ClarificationContextJson TEXT NULL, RegionJson TEXT NULL, OutpaintJson TEXT NULL, SourceImageSha256 TEXT NOT NULL,
             Status TEXT NOT NULL, ResolvedModelSnapshotJson TEXT NOT NULL, CompilerSchemaVersion TEXT NOT NULL,
             SystemPromptVersion TEXT NOT NULL, RawModelResponse TEXT NULL, ParsedResultJson TEXT NULL,
             Error TEXT NULL, CreatedUtc TEXT NOT NULL, StartedUtc TEXT NULL, CompletedUtc TEXT NULL,
@@ -76,6 +76,17 @@ public static class MediaEditSchema
                 await using var regionAlter = connection.CreateCommand();
                 regionAlter.CommandText = "ALTER TABLE MediaEditCompilationAttempts ADD COLUMN RegionJson TEXT NULL";
                 await regionAlter.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        await using (var outpaintCheck = connection.CreateCommand())
+        {
+            outpaintCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('MediaEditCompilationAttempts') WHERE name='OutpaintJson'";
+            if (Convert.ToInt64(await outpaintCheck.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                await using var outpaintAlter = connection.CreateCommand();
+                outpaintAlter.CommandText = "ALTER TABLE MediaEditCompilationAttempts ADD COLUMN OutpaintJson TEXT NULL";
+                await outpaintAlter.ExecuteNonQueryAsync(cancellationToken);
             }
         }
 

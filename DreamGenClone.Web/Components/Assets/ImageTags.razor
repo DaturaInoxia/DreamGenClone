@@ -1,0 +1,147 @@
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@inject ISceneAssetImageTagService TagService
+@inject ILogger<ImageTags> Logger
+
+@*
+    An image's tags, as chips, with the controls to change them.
+
+    Editing is offered only for an image that EXISTS and is finished: a tag is a claim about a picture, and offering to
+    tag a row that is still rendering (or that failed) invites a claim about nothing.
+
+    The vocabulary is not this component's to invent. The axis is picked from the catalog's own prefix list and the
+    value is normalized by the catalog, so what lands in the row is always a tag a search can find. A refusal from the
+    service (an unknown prefix, a blank value) is shown in the service's words rather than swallowed, because a tag
+    edit that quietly did nothing is the failure mode nobody notices.
+*@
+
+@if (_tags.Count > 0 || Editable)
+{
+    <div class="d-flex flex-wrap gap-1 align-items-center" title="Tags used to find this image">
+        @foreach (var tag in _tags)
+        {
+            <span class="badge rounded-pill text-bg-secondary d-inline-flex align-items-center gap-1">
+                <span class="text-white-50">@ImageTagCatalog.PrefixOf(tag)</span>
+                <span>@ImageTagCatalog.Describe(tag)</span>
+                @if (Editable)
+                {
+                    <button type="button" class="btn-close btn-close-white" style="font-size:.5rem;"
+                            aria-label="Remove tag @tag" disabled="@_busy" @onclick="() => RemoveAsync(tag)"></button>
+                }
+            </span>
+        }
+
+        @if (_tags.Count == 0)
+        {
+            <span class="text-muted small">No tags recorded.</span>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-warning py-1 px-2 small mt-1 mb-0">@_error</div>
+    }
+
+    @if (Editable)
+    {
+        <div class="input-group input-group-sm mt-1">
+            <select class="form-select" style="max-width:11rem;" @bind="_axis" title="Tag axis">
+                @foreach (var prefix in ImageTagCatalog.Prefixes)
+                {
+                    <option value="@prefix">@prefix</option>
+                }
+            </select>
+            <input class="form-control" placeholder="value" @bind="_value" @bind:event="oninput"
+                   @onkeydown="OnKeyDownAsync" />
+            <button class="btn btn-outline-secondary" type="button" disabled="@(_busy || string.IsNullOrWhiteSpace(_value))"
+                    @onclick="AddAsync">
+                Add
+            </button>
+        </div>
+        <div class="text-muted" style="font-size:.75rem;">
+            Stored as <code>@_preview</code> — axes are fixed so a search can find them.
+        </div>
+    }
+}
+
+@code {
+    /// <summary>The image whose tags these are.</summary>
+    [Parameter, EditorRequired] public SceneAssetImage Image { get; set; } = null!;
+
+    /// <summary>True to offer add/remove. A read-only surface (a search result) leaves this false.</summary>
+    [Parameter] public bool Editable { get; set; }
+
+    /// <summary>Raised after a successful write, so the host can reload the row it is showing.</summary>
+    [Parameter] public EventCallback TagsChanged { get; set; }
+
+    private List<string> _tags = [];
+    private string _axis = ImageTagCatalog.Stance;
+    private string _value = string.Empty;
+    private bool _busy;
+    private string? _error;
+
+    protected override void OnParametersSet()
+    {
+        _tags = ImageTagCatalog.Parse(Image.TagsJson).ToList();
+    }
+
+    /// <summary>The exact tag the current entry would store, shown so the operator sees what they are about to write.</summary>
+    private string _preview => ImageTagCatalog.Tag(_axis, _value) ?? $"{_axis}:…";
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (string.Equals(args.Key, "Enter", StringComparison.Ordinal))
+        {
+            await AddAsync();
+        }
+    }
+
+    private async Task AddAsync()
+    {
+        var tag = ImageTagCatalog.Tag(_axis, _value);
+        if (tag is null)
+        {
+            _error = "A tag needs a value; letters and digits only.";
+            return;
+        }
+
+        if (_tags.Contains(tag, StringComparer.Ordinal))
+        {
+            _error = $"'{tag}' is already on this image.";
+            return;
+        }
+
+        await WriteAsync([.. _tags, tag]);
+    }
+
+    private async Task RemoveAsync(string tag)
+    {
+        await WriteAsync(_tags.Where(existing => !string.Equals(existing, tag, StringComparison.Ordinal)).ToList());
+    }
+
+    private async Task WriteAsync(List<string> next)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var stored = await TagService.SetImageTagsAsync(Image.Id, next);
+            _tags = stored.ToList();
+
+            // The row this component was handed is now stale. Updating it keeps a host that re-renders without
+            // reloading (a chip list beside a cached image list) from showing the tags it had a moment ago.
+            Image.TagsJson = ImageTagCatalog.Serialize(stored);
+            _value = string.Empty;
+            await TagsChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Tagging asset image {ImageId} failed.", Image.Id);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -881,6 +881,16 @@ public sealed class WardrobeItemServiceTests
         public Task SetImageCandidateDecisionAsync(string imageId, SceneAssetCandidateDecision decision, string? notes, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        // Tags are not what this double is for: it stands in for the asset store on the wardrobe-item path.
+        public Task SetImageTagsAsync(string imageId, IReadOnlyList<string> tags, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<string>> AddImageTagsAsync(string imageId, IReadOnlyList<string> tags, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneAssetImage>> SearchImagesByTagAsync(string tagQuery, int maxResults = 200, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task UpdateCandidateFieldsAsync(string assetId, string? candidateBatchId, SceneAssetCandidateDecision? candidateDecision, string? candidateNotes, string? candidateSourceAssetId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

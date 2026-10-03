@@ -86,9 +86,13 @@
                 index.TryGetValue(choice.Asset.Id, out var seen);
                 seen++;
                 index[choice.Asset.Id] = seen;
-                var label = string.IsNullOrWhiteSpace(choice.Image.CandidateNotes)
-                    ? byAsset[choice.Asset.Id] > 1 ? $"image {seen}" : null
-                    : choice.Image.CandidateNotes!.Trim();
+                // The operator's own name for the image wins, because that is how a reference is retrieved: a location
+                // holds four elevations and an interior, and "image 3" is not a way to tell them apart. Only when
+                // nothing is named does the older labelling stand in - the candidate's own note, then the ordinal.
+                var label = choice.Name
+                    ?? (string.IsNullOrWhiteSpace(choice.Image.CandidateNotes)
+                        ? byAsset[choice.Asset.Id] > 1 ? $"image {seen}" : null
+                        : choice.Image.CandidateNotes!.Trim());
                 return (choice, label is null ? choice.Asset.Name : $"{choice.Asset.Name} — {label}");
             }).ToList();
 

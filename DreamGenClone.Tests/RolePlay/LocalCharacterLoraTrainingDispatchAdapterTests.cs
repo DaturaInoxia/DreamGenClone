@@ -224,6 +224,10 @@ public sealed class LocalCharacterLoraTrainingDispatchAdapterTests
         public Task UpsertImageAsync(SceneAssetImage image, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task SetImagePromptAsync(string imageId, string prompt, string promptCompilerId, string? negativePrompt, string? associationMetadataJson, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task SetImageCandidateDecisionAsync(string imageId, SceneAssetCandidateDecision decision, string? notes, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        // Tags are not what this double is for: it stands in for the asset store on a LoRA-dataset path.
+        public Task SetImageTagsAsync(string imageId, IReadOnlyList<string> tags, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<string>> AddImageTagsAsync(string imageId, IReadOnlyList<string> tags, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<SceneAssetImage>> SearchImagesByTagAsync(string tagQuery, int maxResults = 200, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<SceneAssetImage> ApproveImageForProductionAsync(string imageId, string sourceProvenanceJson, SceneAssetConsentState consentState, SceneAssetLicenseState licenseState, string licenseLabel, SceneAssetApprovedUseScope approvedUseScope, string contentPolicyKey, string compatibilityMetadataJson, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task UpsertAsync(SceneAsset asset, CancellationToken cancellationToken = default) => throw new NotSupportedException();

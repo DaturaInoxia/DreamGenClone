@@ -68,6 +68,43 @@ public sealed class SceneImageStudioSettings
     /// which still applies to every render that selects no LoRA.
     /// </summary>
     public List<SceneImageCharacterLoraSelection>? CharacterLoras { get; set; }
+
+    /// <summary>
+    /// The NON-IDENTITY LoRAs this render applies (unlock / act / anatomy / style), in the operator's chosen order.
+    /// Null/empty means NO scene LoRA: the graph then emits no loader node for them and the render is identical to
+    /// one made before the scene-LoRA catalog existed.
+    ///
+    /// <para>
+    /// This is the OPERATOR's multi-select, resolved against the <c>SceneLora</c> catalog and filtered to the
+    /// selected model's family (B-137 §4). The model row carries no LoRA stack, so nothing here can be
+    /// force-applied: the render applies exactly what was picked, and character identity LoRAs are chained AFTER
+    /// these so identity stays closest to the subject.
+    /// </para>
+    /// </summary>
+    public List<SceneImageLoraSelection>? SceneLoras { get; set; }
+}
+
+/// <summary>
+/// One scene LoRA the operator selected for a render: which catalog file, and at what strength.
+///
+/// <para>
+/// Keyed by FILE NAME rather than by a catalog row id: the file name is what ComfyUI loads and what the audit
+/// event records, so a stored selection stays readable (and reproducible) even if the catalog row is later
+/// re-created. The row is still resolved at render time, so a selection naming a file that is not in the catalog,
+/// or that belongs to another family, fails the render instead of being dropped quietly.
+/// </para>
+/// </summary>
+public sealed class SceneImageLoraSelection
+{
+    /// <summary>The catalog row's ComfyUI file name, e.g. <c>krea2_nsfw_v4_v43exp.safetensors</c>.</summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Model and clip strength for this LoRA. Required and positive whenever a file is named: a LoRA applied at a
+    /// strength nobody chose is a different LoRA, so an unstated strength is refused at resolution time rather
+    /// than guessed (the same rule the character-LoRA selection follows).
+    /// </summary>
+    public double? Strength { get; set; }
 }
 
 /// <summary>

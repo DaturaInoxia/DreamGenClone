@@ -167,7 +167,10 @@ public sealed class ImageWorkflowTemplateServiceTests
     /// <summary>
     /// The region mask's geometry is persisted configuration exactly as the crop's is: it has a seeded starting value,
     /// it survives a round trip, and a row missing it fails fast by key. The bounds match what the graph can honour -
-    /// the encode node takes a grow of 0-64, and a negative feather is a mistake rather than a softening.
+    /// the encode node takes a grow of 0-64, and a negative feather is a mistake rather than a softening. A feather of
+    /// zero is a legal ROW (the row is shared with flows that never confine anything) and is refused by a confined edit
+    /// instead, because the host rounds the mask it confines with to 0/1 and a zero feather therefore leaves a visible
+    /// rectangle edge (CASE-25).
     /// </summary>
     [Fact]
     public async Task Settings_RegionMaskGeometry_IsSeededRoundTripsAndFailsFastWhenMissing()

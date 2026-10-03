@@ -546,7 +546,7 @@ public sealed class MediaEditCompilationServiceTests
                 "image-11",
                 "22222222-2222-2222-2222-222222222222",
                 MaxAttempts: 1,
-                Region: new MediaEditRegionOperation(90, 0, 30, 30, GrowMaskBy: 0, FeatherPixels: 0))));
+                Region: new MediaEditRegionOperation(90, 0, 30, 30, GrowMaskBy: 0, FeatherPixels: 8))));
 
         Assert.Contains("run past its edge", error.Message, StringComparison.Ordinal);
         Assert.Empty(fixture.Queue.Jobs);

@@ -57,6 +57,47 @@ public sealed class SceneAssetImageEditRunCutoverTests
         Assert.Contains(fixture.RevisionId, persisted.SourceProvenanceJson!, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// B-143: the operator's scene-LoRA pick reaches the shared run from the ASSET store too. The picker is rendered
+    /// by the one workspace both stores share, so an asset edit that dropped the selection would leave a control that
+    /// silently does nothing - the defect this test holds shut.
+    /// </summary>
+    [Fact]
+    public async Task EnqueueEditAsync_CarriesThePickedSceneLorasOntoTheSharedRun()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var recorder = new RecordingMediaEditCompilationService();
+        var service = fixture.BuildService(recorder, new CapturingDurableQueue());
+
+        var request = fixture.BuildRunRequest();
+        request.SceneLoras =
+        [
+            new SceneImageLoraSelection { FileName = "thesealpacas_qwen21_nsfw.safetensors", Strength = 0.8 }
+        ];
+
+        await service.EnqueueEditAsync(request);
+
+        // Read back through the SAME owner the worker reads with, so the shape is proven end to end rather than by
+        // a substring that a renamed property would still satisfy.
+        var run = Assert.Single(recorder.Runs);
+        var selection = Assert.Single(SceneLoraSelectionWire.Read(run.SceneLorasJson));
+        Assert.Equal("thesealpacas_qwen21_nsfw.safetensors", selection.FileName);
+        Assert.Equal(0.8, selection.Strength!.Value);
+    }
+
+    /// <summary>No pick is a configured state: the run carries no stack at all rather than an empty one.</summary>
+    [Fact]
+    public async Task EnqueueEditAsync_WithoutASceneLoraPick_CarriesNoStack()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var recorder = new RecordingMediaEditCompilationService();
+        var service = fixture.BuildService(recorder, new CapturingDurableQueue());
+
+        await service.EnqueueEditAsync(fixture.BuildRunRequest());
+
+        Assert.Null(Assert.Single(recorder.Runs).SceneLorasJson);
+    }
+
     [Fact]
     public async Task EnqueueEditAsync_RefusesAStaleSourceChecksum()
     {

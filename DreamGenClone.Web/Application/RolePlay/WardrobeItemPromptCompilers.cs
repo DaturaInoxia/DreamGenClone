@@ -75,7 +75,8 @@ public sealed class NaturalLanguageWardrobeItemPromptCompiler : IWardrobeItemPro
 
         if (promptDialect != SceneImagePromptDialect.NaturalLanguage
             && promptDialect != SceneImagePromptDialect.SdxlNaturalLanguage
-            && promptDialect != SceneImagePromptDialect.FluxNaturalLanguage)
+            && promptDialect != SceneImagePromptDialect.FluxNaturalLanguage
+            && promptDialect != SceneImagePromptDialect.Krea2NaturalLanguage)
         {
             throw new ArgumentException(
                 $"Dialect '{promptDialect}' is not a natural-language dialect, so this compiler cannot serve it.",

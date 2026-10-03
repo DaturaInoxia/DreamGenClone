@@ -288,6 +288,8 @@ public sealed class SceneImageService : ISceneImageService
             resolvedEditorModel,
             // A finish pass re-renders the whole frame: it confines nothing.
             region: null,
+            // ...and it is not an outpaint pass, so it asks for no canvas extension either.
+            outpaint: null,
             cancellationToken);
     }
 
@@ -381,6 +383,7 @@ public sealed class SceneImageService : ISceneImageService
             resolvedEditorModel,
             // Face-only identity passes the whole frame to the writer: the writers place faces, not the sampler.
             region: null,
+            outpaint: null,
             cancellationToken);
     }
 
@@ -492,6 +495,7 @@ public sealed class SceneImageService : ISceneImageService
             resolvedEditorModel,
             // Editor identity is the same face-only pass with the editor's own model: whole frame, no rectangle.
             region: null,
+            outpaint: null,
             cancellationToken);
     }
 
@@ -1028,12 +1032,14 @@ public sealed class SceneImageService : ISceneImageService
                 SessionId = session.Id,
                 InteractionId = interaction.Id,
                 ImageRecordId = record.Id,
-                EditorModelId = request.EditorModelId.Trim()
+                EditorModelId = request.EditorModelId.Trim(),
+                SceneLorasJson = SceneLoraSelectionWire.Serialize(request.SceneLoras)
             },
             resolvedEditorModel.ImageProtocol,
             resolvedEditorModel,
             // A compiled edit takes the operator's rectangle when they drew one; null is the whole frame.
             region: request.Region,
+            outpaint: request.Outpaint,
             cancellationToken);
     }
 
@@ -1138,6 +1144,7 @@ public sealed class SceneImageService : ISceneImageService
             // A preset edit is confined to the operator's rectangle when they drew one: a relight of one part of
             // the frame is the same instruction as a relight of the whole frame, plus the rectangle.
             region: request.Region,
+            outpaint: null,
             cancellationToken);
     }
 
@@ -1462,6 +1469,7 @@ public sealed class SceneImageService : ISceneImageService
         ImageProtocol protocol,
         ResolvedImageEditorModel? editorModel,
         MediaEditRegionOperation? region,
+        MediaEditOutpaintOperation? outpaint,
         CancellationToken cancellationToken)
     {
         var mediaEdits = _mediaEdits
@@ -1483,7 +1491,9 @@ public sealed class SceneImageService : ISceneImageService
                 editorModelId,
                 MaxAttempts: 1,
                 ScopeId: payload.SessionId,
-                Region: region),
+                Region: region,
+                Outpaint: outpaint,
+                SceneLorasJson: payload.SceneLorasJson),
             cancellationToken);
         return record;
     }

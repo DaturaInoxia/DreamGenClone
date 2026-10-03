@@ -11,6 +11,12 @@ Operator report 2026-10-01: *"i feel like the suite prompts are missing the came
 |---|---|---|
 | `baseline` (45) | 13 `expected` fields named no camera at all; 27/45 Pony variants had no angle tag; biglust 4 / juggernaut 3 / qwen 1 variants named no camera | 0 gaps |
 | `sfw-baseline` (36) | complete | complete (3 Pony variants lacked a framing tag) |
+| `baseline` second pass (2026-10-02) | the new `cunnilingus-closeup` cell (5 fields, no camera anywhere) + the new `krea2` variants on 3 positions (a position but no height) | 7 fields; `krea2` added to the prose dialects and the two bed acts to the angle table |
+
+**Keep the vocabulary in step with the guard.** `ANGLE` / `FRAMING` here and `PromptSuiteCameraClauseTests` carry the
+same standard set; the guard's doc says a prompt phrased with a camera word it does not list should EXTEND the list,
+and a graded form of a listed word counts as that word's statement (`slightly above` is `from above` said more
+precisely — that is what the author of the `krea2` briefs wrote, so it is accepted rather than rewritten).
 
 The camera is a **required component** in every family this app targets, not a stylistic extra:
 

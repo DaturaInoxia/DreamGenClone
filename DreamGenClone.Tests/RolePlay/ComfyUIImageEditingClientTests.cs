@@ -90,6 +90,29 @@ public sealed class ComfyUIImageEditingClientTests
         Assert.DoesNotContain("FeatherMask", json, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Outpaint (CASE-24) carries non-zero pads: the source is padded with ImagePadForOutpaint before it is encoded,
+    /// so the sampler's latent has the larger canvas the mask (built at the padded size) describes.
+    /// </summary>
+    [Fact]
+    public void BuildResolvedWorkflow_Qwen21WithOutpaint_PadsTheSourceAndUsesTheMask()
+    {
+        var mask = new ImageEditingMask(Stream.Null, "outpaint.png", "sha256-outpaint", GrowMaskBy: 0, FeatherPixels: 32, RightPad: 608);
+
+        var json = ComfyUIImageEditingClient.BuildResolvedWorkflow(
+            Resolve(ImageEditorGraphKind.QwenImage21Native) with { ResolutionBudget = 1024 },
+            "source.png",
+            "Extend the image to the right.",
+            referenceImageNames: null,
+            maskImageName: "outpaint.png",
+            mask: mask).ToJsonString();
+
+        Assert.Contains("\"ImagePadForOutpaint\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"pixels\":[\"43\",0]", json, StringComparison.Ordinal);
+        Assert.Contains("\"right\":608", json, StringComparison.Ordinal);
+        Assert.Contains("\"mask\":[\"40\",0]", json, StringComparison.Ordinal);
+    }
+
     /// <summary>No region means the proven whole-frame edit, byte for byte.</summary>
     [Fact]
     public void BuildResolvedWorkflow_Qwen21WithoutARegion_KeepsTheEncoderLatent()

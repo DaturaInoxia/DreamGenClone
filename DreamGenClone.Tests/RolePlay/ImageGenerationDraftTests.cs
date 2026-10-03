@@ -105,6 +105,8 @@ public sealed class ImageGenerationDraftTests
         Assert.Null(draft.ImageSize);
         Assert.Null(draft.Seed);
         Assert.Empty(draft.Bindings);
+        Assert.Empty(draft.SceneLoras);
+        Assert.Empty(draft.AppliedPresets);
         Assert.False(draft.HasAnythingToLoad);
     }
 
@@ -149,6 +151,100 @@ public sealed class ImageGenerationDraftTests
 
         Assert.Empty(draft.Bindings);
         Assert.Equal("a prompt", draft.CompiledPrompt);
+    }
+
+    /// <summary>
+    /// The conditioning comes back too, not just the prompt (B-140 FR-11). "Load this image's settings" used to restore
+    /// the text and the references while dropping the pose, both LoRA kinds and the presets that shaped the render — so
+    /// the reproduction it promised was of a different image.
+    /// </summary>
+    [Fact]
+    public void FromImage_ReadsBackThePoseBothLoraKindsAndTheAppliedPresets()
+    {
+        var image = new SceneAssetImage
+        {
+            Id = "image-6",
+            AssetId = "asset-1",
+            Prompt = "kneeling on a bed",
+            AssociationMetadataJson = JsonSerializer.Serialize(new
+            {
+                semanticDescription = "kneeling on a bed",
+                compiledPrompt = "a photorealistic scene of a woman kneeling on a bed",
+                requestedModelId = "qwen-image-2.1",
+                imageSize = "1024x1024",
+                posePresetId = "preset-kneel-1",
+                poseSkeletonRelativePath = "poses/kneel-1.png",
+                characterLoras = new[]
+                {
+                    new DreamGenClone.Web.Application.RolePlay.Models.SceneImageCharacterLoraSelection
+                    {
+                        ArtifactId = "artifact-becky-v3",
+                        Strength = 0.85
+                    }
+                },
+                sceneLoras = new[]
+                {
+                    new DreamGenClone.Domain.ModelManager.ResolvedSceneLora(
+                        "krea2_nsfw_v4_v43exp.safetensors", 0.7, "Krea2 NSFW unlock")
+                },
+                appliedPresets = new[]
+                {
+                    new DreamGenClone.Web.Application.RolePlay.Models.AppliedImagePreset(
+                        ImagePresetAxis.Expression,
+                        "image.preset.expression.laughing",
+                        "She is laughing, eyes crinkled.")
+                }
+            }, WebJson)
+        };
+
+        var draft = ImageGenerationDraft.FromImage(image);
+
+        Assert.Equal("preset-kneel-1", draft.PosePresetId);
+        Assert.Equal("poses/kneel-1.png", draft.PoseSkeletonRelativePath);
+
+        var characterLora = Assert.Single(draft.CharacterLoras);
+        Assert.Equal("artifact-becky-v3", characterLora.ArtifactId);
+        Assert.Equal(0.85, characterLora.Strength);
+
+        var sceneLora = Assert.Single(draft.SceneLoras);
+        Assert.Equal("krea2_nsfw_v4_v43exp.safetensors", sceneLora.FileName);
+        Assert.Equal(0.7, sceneLora.Strength);
+
+        var preset = Assert.Single(draft.AppliedPresets);
+        Assert.Equal(ImagePresetAxis.Expression, preset.Axis);
+        Assert.Equal("image.preset.expression.laughing", preset.Key);
+        Assert.Equal("She is laughing, eyes crinkled.", preset.Clause);
+        Assert.True(preset.IsComplete);
+    }
+
+    /// <summary>
+    /// A row that recorded no conditioning loads as EMPTY collections and no pose, which is a distinguishable fact from
+    /// a population: the panel then leaves those pickers as the operator left them rather than clearing a character LoRA
+    /// somebody had just chosen.
+    /// </summary>
+    [Fact]
+    public void FromImage_WithNoConditioningRecorded_ReadsEmptyCollections()
+    {
+        var image = new SceneAssetImage
+        {
+            Id = "image-7",
+            AssetId = "asset-1",
+            Prompt = "a woman",
+            AssociationMetadataJson = HandlerMetadata(
+                compiledPrompt: null,
+                requestedModelId: "biglust",
+                imageSize: null,
+                negativePrompt: null,
+                referenceApplicationsJson: null)
+        };
+
+        var draft = ImageGenerationDraft.FromImage(image);
+
+        Assert.Null(draft.PosePresetId);
+        Assert.Null(draft.PoseSkeletonRelativePath);
+        Assert.Empty(draft.CharacterLoras);
+        Assert.Empty(draft.SceneLoras);
+        Assert.Empty(draft.AppliedPresets);
     }
 
     /// <summary>

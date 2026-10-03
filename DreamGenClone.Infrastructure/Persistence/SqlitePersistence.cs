@@ -1684,6 +1684,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 RawIntent TEXT NOT NULL,
                 ClarificationContextJson TEXT NULL,
                 RegionJson TEXT NULL,
+                OutpaintJson TEXT NULL,
                 SourceImageSha256 TEXT NOT NULL,
                 Status TEXT NOT NULL,
                 ResolvedModelSnapshotJson TEXT NOT NULL,
@@ -1726,6 +1727,16 @@ public sealed class SqlitePersistence : ISqlitePersistence
             alterSceneImageEditRegion.CommandText = "ALTER TABLE SceneImageEditCompilationAttempts ADD COLUMN RegionJson TEXT NULL";
             await alterSceneImageEditRegion.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated SceneImageEditCompilationAttempts table: added RegionJson column");
+        }
+
+        var checkSceneImageEditOutpaintColumn = connection.CreateCommand();
+        checkSceneImageEditOutpaintColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneImageEditCompilationAttempts') WHERE name='OutpaintJson'";
+        if (Convert.ToInt64(await checkSceneImageEditOutpaintColumn.ExecuteScalarAsync(cancellationToken)) == 0)
+        {
+            var alterSceneImageEditOutpaint = connection.CreateCommand();
+            alterSceneImageEditOutpaint.CommandText = "ALTER TABLE SceneImageEditCompilationAttempts ADD COLUMN OutpaintJson TEXT NULL";
+            await alterSceneImageEditOutpaint.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated SceneImageEditCompilationAttempts table: added OutpaintJson column");
         }
 
         var checkSceneImageEditDescriptionColumn = connection.CreateCommand();

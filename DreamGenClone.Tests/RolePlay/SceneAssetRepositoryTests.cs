@@ -1,6 +1,7 @@
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
+using DreamGenClone.Web.Application.RolePlay;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 
@@ -562,6 +563,181 @@ public sealed class SceneAssetRepositoryTests
         {
             try { File.Delete(dbPath + suffix); } catch { /* best effort */ }
         }
+    }
+
+    // ------------------------------------------------------------------ image tags (B-140 D2)
+
+    /// <summary>
+    /// The tag writer is the ONLY writer of the column, and an ordinary upsert cannot erase what it wrote. That split is
+    /// the whole point: tags are edited by hand, so a save from an edit stage that happens to carry no tags must not
+    /// silently delete the ones an operator added — a fact nobody notices going missing.
+    /// </summary>
+    [Fact]
+    public async Task SetImageTags_WritesThem_AndAnOrdinaryUpsertCannotEraseThem()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await SeedTaggedImageAsync(repo);
+
+            await repo.SetImageTagsAsync("img-1", ["stance:kneeling", "rating:nsfw", "character:becky"]);
+
+            var loaded = (await repo.GetImageAsync("img-1"))!;
+            Assert.Equal(["stance:kneeling", "rating:nsfw", "character:becky"], ImageTagCatalog.Parse(loaded.TagsJson));
+
+            // An ordinary save of the row (an edit stage upserting what it just produced) carries no tags in memory.
+            loaded.TagsJson = null;
+            await repo.UpsertImageAsync(loaded);
+
+            var afterUpsert = (await repo.GetImageAsync("img-1"))!;
+            Assert.Equal(["stance:kneeling", "rating:nsfw", "character:becky"], ImageTagCatalog.Parse(afterUpsert.TagsJson));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// A completed render ADDS its tags rather than replacing the list, because the image row exists (and is visible)
+    /// while it renders: overwriting would delete a tag added in the meantime.
+    /// </summary>
+    [Fact]
+    public async Task AddImageTags_KeepsWhatTheRowAlreadyCarried()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await SeedTaggedImageAsync(repo);
+            await repo.SetImageTagsAsync("img-1", ["sex:missionary"]);
+
+            var merged = await repo.AddImageTagsAsync("img-1", ["stance:kneeling", "sex:missionary"]);
+
+            Assert.Equal(["sex:missionary", "stance:kneeling"], merged);
+            Assert.Equal(merged, ImageTagCatalog.Parse((await repo.GetImageAsync("img-1"))!.TagsJson));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task SetImageTags_OnAnImageThatDoesNotExist_IsRefusedByName()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => repo.SetImageTagsAsync("missing", ["stance:kneeling"]));
+
+            Assert.Contains("missing", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// A tag that is not <c>prefix:value</c> is refused at the storage boundary. A tag stored in a shape no search can
+    /// match looks like metadata while being useless, which is worse than a rejected write.
+    /// </summary>
+    [Fact]
+    public async Task SetImageTags_RefusesATagWithNoPrefix()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await SeedTaggedImageAsync(repo);
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => repo.SetImageTagsAsync("img-1", ["kneeling"]));
+
+            Assert.Contains("prefix:value", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// The reference-image search matches a tag's VALUE, so searching a word cannot be satisfied by the same letters
+    /// sitting inside an unrelated axis — which is what makes "find every kneeling reference" a trustworthy answer.
+    /// </summary>
+    [Fact]
+    public async Task SearchImagesByTag_MatchesTheValueNotTheWholeTag()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await SeedTaggedImageAsync(repo, imageId: "img-kneel");
+            await repo.SetImageTagsAsync("img-kneel", ["stance:kneeling", "rating:sfw", "character:becky"]);
+
+            await SeedTaggedImageAsync(repo, imageId: "img-standing");
+            await repo.SetImageTagsAsync("img-standing", ["stance:standing", "character:standing-stone"]);
+
+            var kneeling = await repo.SearchImagesByTagAsync("kneel");
+            var byCharacter = await repo.SearchImagesByTagAsync("becky");
+
+            Assert.Equal(["img-kneel"], kneeling.Select(image => image.Id));
+            Assert.Equal(["img-kneel"], byCharacter.Select(image => image.Id));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>An empty query yields NOTHING rather than the whole library: a search that returns everything when given
+    /// a blank box is indistinguishable from one that ignored the query.</summary>
+    [Fact]
+    public async Task SearchImagesByTag_OfAnEmptyQuery_ReturnsNothing()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await SeedTaggedImageAsync(repo);
+            await repo.SetImageTagsAsync("img-1", ["stance:kneeling"]);
+
+            Assert.Empty(await repo.SearchImagesByTagAsync("   "));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>An untagged image (a row written before tags existed) is never a tag-search result.</summary>
+    [Fact]
+    public async Task SearchImagesByTag_DoesNotReturnImagesWithNoTags()
+    {
+        var repo = CreateRepoAsync(out var dbPath);
+        try
+        {
+            await SeedTaggedImageAsync(repo, imageId: "img-untagged");
+
+            Assert.Empty(await repo.SearchImagesByTagAsync("kneeling"));
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    private static async Task SeedTaggedImageAsync(SceneAssetRepository repo, string imageId = "img-1")
+    {
+        await repo.UpsertAsync(new SceneAsset
+        {
+            Id = "a1", Name = "Becky", Kind = SceneAssetKind.PromptGenerated,
+            Status = SceneAssetStatus.Complete, Type = SceneAssetType.Character
+        });
+        await repo.UpsertImageAsync(new SceneAssetImage
+        {
+            Id = imageId, AssetId = "a1", Kind = SceneAssetKind.PromptGenerated,
+            Status = SceneAssetStatus.Complete, Prompt = "becky kneeling", MediaType = "image/png"
+        });
     }
 
     // ------------------------------------------------------------------ character pose assets (B-130 §D8)

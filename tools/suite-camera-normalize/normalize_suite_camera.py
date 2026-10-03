@@ -12,7 +12,7 @@ Rules, applied per position:
   * direction: never invented. Naming a camera direction re-composes the shot, so it is only ever left as written.
   * Pony takes the danbooru `eye level` tag beside its other view tags — its documented failure mode is silently
     defaulting to overhead/top-down when no angle tag is given.
-  * prose dialects (`expected`, `neutralScene`, biglust/juggernaut/flux/qwen) take the phrase "<framing> at <height>",
+  * prose dialects (`expected`, `neutralScene`, biglust/juggernaut/flux/qwen/krea2) take the phrase "<framing> at <height>",
     placed at the end of the prompt's own camera phrase when it has one, inside FLUX's labelled `Camera:` sentence,
     and otherwise in front of the optics tail (`35mm`, `sharp focus`).
   * EDIT variants (`qwen-edit-2511`, `qwen-image-2.1-edit`) are untouched: an edit instruction preserves the
@@ -25,6 +25,9 @@ Usage:
 
 The guard is `DreamGenClone.Tests/RolePlay/PromptSuiteCameraClauseTests.cs`: it fails if any catalog prompt names no
 framing and/or angle, so this script is a one-time (or new-position) pass rather than something the catalogs depend on.
+Its `FRAMING`/`ANGLE` patterns are the same standard set the guard carries — when a prompt is phrased with a camera word
+neither list has, EXTEND both (a graded form of a listed word counts as that word's statement: "slightly above" is "from
+above" said more precisely) rather than rewriting the author's wording.
 """
 import json
 import re
@@ -33,7 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SUITES = ["baseline", "sfw-baseline"]
-PROSE_FIELDS = ("expected", "neutralScene", "biglust", "juggernaut", "flux", "qwen-image-2.1")
+PROSE_FIELDS = ("expected", "neutralScene", "biglust", "juggernaut", "flux", "qwen-image-2.1", "krea2")
 EDIT_VARIANTS = {"qwen-edit-2511", "qwen-image-2.1-edit"}
 
 FRAMING = re.compile(
@@ -43,8 +46,7 @@ FRAMING = re.compile(
     re.I,
 )
 ANGLE = re.compile(
-    r"eye level|camera angle|low camera|high camera|low angle|high angle|overhead|top[- ]down|from above|"
-    r"from below|from floor|floor level|ground level|bed height|hip height|chest height|shoulder height|"
+    r"eye level|camera angle|low camera|high camera|low angle|high angle|overhead|top[- ]down|from above|"    r"slightly above|slightly below|"    r"from below|from floor|floor level|ground level|bed height|hip height|chest height|shoulder height|"
     r"waist height|table height|counter height|knee height|worm|bird",
     re.I,
 )
@@ -101,6 +103,8 @@ ANGLE_BY_POSITION = {
     "spooning-penetration-closeup": "at bed height",
     "standing-penetration-closeup": "at hip height",
     "erotic-masturbating-on-back": "at bed height",
+    "erotic-legs-spread": "at bed height",
+    "erotic-hands-and-knees": "at bed height",
     "flash-upskirt-sitting": "at hip height",
 }
 DEFAULT_ANGLE = "at eye level"

@@ -61,8 +61,9 @@ public sealed class SceneAssetImageEditCompilationJobHandler : IDurableBackgroun
             RequireChecksum(input.Sha256, session, attempt);
             var history = string.IsNullOrWhiteSpace(attempt.ClarificationContextJson) ? Array.Empty<string>() : JsonSerializer.Deserialize<string[]>(attempt.ClarificationContextJson, JsonOptions) ?? throw new InvalidOperationException("The asset compilation clarification snapshot is invalid.");
             var region = string.IsNullOrWhiteSpace(attempt.RegionJson) ? null : JsonSerializer.Deserialize<MediaEditRegionOperation>(attempt.RegionJson, JsonOptions) ?? throw new InvalidOperationException("The asset compilation region snapshot is invalid.");
+            var outpaint = string.IsNullOrWhiteSpace(attempt.OutpaintJson) ? null : JsonSerializer.Deserialize<MediaEditOutpaintOperation>(attempt.OutpaintJson, JsonOptions) ?? throw new InvalidOperationException("The asset compilation outpaint snapshot is invalid.");
             var compiler = _compilers.ResolveByVersion(attempt.SystemPromptVersion);
-            var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(attempt.RawIntent, history, region));
+            var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(attempt.RawIntent, history, region, outpaint));
             if (messages.SchemaVersion != attempt.CompilerSchemaVersion || messages.SystemPromptVersion != attempt.SystemPromptVersion) throw new InvalidOperationException("The compiler prompt contract changed after this asset attempt was queued.");
             await _completionClient.CheckHealthAsync(resolved, cancellationToken);
             var completion = await _completionClient.GenerateAsync(resolved, new MultimodalCompletionRequest(messages.SystemMessage, messages.UserMessage, new MultimodalImageInput(input.MediaType, input.Bytes, input.Width, input.Height, input.Sha256), messages.ResponseSchemaName, messages.ResponseSchema), cancellationToken);

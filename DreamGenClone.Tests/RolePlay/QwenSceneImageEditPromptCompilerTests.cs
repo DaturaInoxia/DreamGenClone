@@ -81,6 +81,20 @@ public sealed class QwenSceneImageEditPromptCompilerTests
         Assert.DoesNotContain("Change only what is inside that rectangle", messages.UserMessage, StringComparison.Ordinal);
     }
 
+    /// <summary>CASE-24: an outpaint run's compiled prompt carries the canvas-extension clause and the geometry.</summary>
+    [Fact]
+    public void BuildMessages_WithAnOutpaint_AddsTheOutpaintClause()
+    {
+        var outpaint = new MediaEditOutpaintOperation(MediaEditOutpaintDirection.Right, 50, GrowMaskBy: 2, FeatherPixels: 3);
+
+        var messages = _compiler.BuildMessages(new SceneImageEditCompilerContext(
+            "Seamlessly extend the scene.", [], null, outpaint));
+
+        Assert.Contains("extends the canvas outward", messages.UserMessage, StringComparison.Ordinal);
+        Assert.Contains("50% toward the right", messages.UserMessage, StringComparison.Ordinal);
+        Assert.Contains("empty targets list", messages.UserMessage, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Parse_ReadyResult_ReturnsExecutableGroundedContract()
     {
@@ -156,9 +170,37 @@ public sealed class QwenSceneImageEditPromptCompilerTests
     }
 
     [Fact]
-    public void Parse_ReadyWithoutVisibleTarget_Fails()
+    public void Parse_ReadyWithoutChangesOrPreserve_Fails()
     {
         Assert.Throws<InvalidOperationException>(() => _compiler.Parse(ResultJson("ready", null, null, "Change it.")));
+    }
+
+    /// <summary>
+    /// A whole-frame or outpaint edit has no discrete target, so a ready result with an empty targets list is valid
+    /// as long as it still names its change, what to keep, and the compiled instruction.
+    /// </summary>
+    [Fact]
+    public void Parse_ReadyWithEmptyTargets_ReturnsReady()
+    {
+        var json = """
+            {
+              "schemaVersion":"scene-image-edit-compiler-v1",
+              "status":"ready",
+              "sourceSummary":"A person lying on a bench in a workshop.",
+              "targets":[],
+              "requestedChanges":["seamlessly extend the scene"],
+              "preserve":["background","lighting","style"],
+              "clarificationQuestion":null,
+              "invalidReason":null,
+              "compiledPrompt":"Seamlessly extend the scene, continuing the background, lighting and style."
+            }
+            """;
+
+        var result = _compiler.Parse(json);
+
+        Assert.Equal(SceneImageEditCompilationResultStatus.Ready, result.Status);
+        Assert.Empty(result.Targets);
+        Assert.Equal("Seamlessly extend the scene, continuing the background, lighting and style.", result.CompiledPrompt);
     }
 
     [Fact]

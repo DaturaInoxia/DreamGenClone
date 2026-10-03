@@ -16,12 +16,14 @@ public sealed class SceneImagePromptCompilerRegistryTests
         var sdxl = new SdxlSceneImagePromptCompiler(new SdxlSceneImagePromptBuilder());
         var flux = new FluxSceneImagePromptCompiler(new SdxlSceneImagePromptBuilder());
         var qwen21 = new QwenImage21SceneImagePromptCompiler(new QwenSceneImagePromptBuilder());
-        var registry = new SceneImagePromptCompilerRegistry([pony, sdxl, flux, qwen21]);
+        var krea2 = new Krea2SceneImagePromptCompiler(new Krea2SceneImagePromptBuilder());
+        var registry = new SceneImagePromptCompilerRegistry([pony, sdxl, flux, qwen21, krea2]);
 
         Assert.Same(pony, registry.Resolve(SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags));
         Assert.Same(sdxl, registry.Resolve(SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage));
         Assert.Same(flux, registry.Resolve(SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage));
         Assert.Same(qwen21, registry.Resolve(SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage));
+        Assert.Same(krea2, registry.Resolve(SceneImageModelFamily.Krea2, SceneImagePromptDialect.Krea2NaturalLanguage));
     }
 
     [Fact]

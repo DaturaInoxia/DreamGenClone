@@ -54,7 +54,9 @@
             }
             else
             {
-                <span class="small"><strong>@Owner.DisplayName</strong> · pack v@Owner.PackVersion</span>
+                @* The explicit @() matters: "v@Owner.PackVersion" reads to the Razor parser as an email address and is
+                   emitted literally, which is how this label told the operator the pack was "v@Owner.PackVersion". *@
+                <span class="small"><strong>@Owner.DisplayName</strong> · pack v@(Owner.PackVersion)</span>
             }
         </div>
 

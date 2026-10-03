@@ -101,6 +101,45 @@ public sealed record SceneAssetImageGenerationOptions
     /// paths cannot disagree about which LoRAs a render carried.
     /// </summary>
     public IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageCharacterLoraSelection>? CharacterLoras { get; init; }
+
+    /// <summary>
+    /// The NON-IDENTITY scene LoRA(s) this render selects (unlock / act / anatomy / style), or null for none.
+    ///
+    /// <para>
+    /// Siblings of <see cref="CharacterLoras"/>, not a replacement, and applied through the same channel: they travel
+    /// on the resolved MODEL, so the ComfyUI client chains scene LoRAs FIRST and character identity LoRAs last
+    /// whatever surface asked for them. This is the asset/Playground path's counterpart of
+    /// <c>SceneImageStudioSettings.SceneLoras</c> — without it, a catalog run could not apply the unlock or the act
+    /// LoKr a cell needs, and the operator had no way to say so (B-140 T1.3).
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageLoraSelection>? SceneLoras { get; init; }
+
+    /// <summary>
+    /// The lighting / expression presets this render applied, each with the clause that reached the prompt, or null
+    /// for a render that applied none.
+    ///
+    /// <para>
+    /// Recorded so the image's own row answers "which preset lit this, and what did it say" (B-140 D4), and so the
+    /// round-trip can RESELECT the preset in the picker instead of leaving the panel showing none for an image that was
+    /// visibly lit by one. Empty is the configured "no preset" state and is recorded as such.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.AppliedImagePreset>? AppliedPresets { get; init; }
+
+    /// <summary>
+    /// Tags the CALLER states about this render, in catalog shape (<c>prefix:value</c>) — the character's display name,
+    /// the suite cell or catalog position it stands for, the wardrobe and location that were picked, a sex position the
+    /// operator typed.
+    ///
+    /// <para>
+    /// These travel from the caller because they are facts only the caller has: the render knows the ids it was given,
+    /// not the names the operator chose from a picker. The render DERIVES the rest of the tags from what it resolved
+    /// (pose metadata, scene LoRAs, applied presets, model) and unions the two lists, so nothing is tagged twice and
+    /// nothing the caller stated is lost.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string>? DeclaredTags { get; init; }
 }
 
 /// <summary>/// Orchestration surface for the app-wide asset library (Asset Studio). Creates assets by prompt or
@@ -161,6 +200,28 @@ public interface ISceneAssetService
 
     Task<SceneAssetImage?> GetImageAsync(
         string imageId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Names an image, or renames one. Returns the updated row.
+    ///
+    /// <para>
+    /// The name is what a reference picker shows, so it is how an operator tells one accepted image of a location
+    /// from another. Required before a location image can be approved for production; a blank name is refused here
+    /// and again at the data boundary.
+    /// </para>
+    ///
+    /// <para>
+    /// Implemented by <c>SceneAssetService</c>. The default REFUSES loudly rather than doing nothing, so an
+    /// implementer that cannot honour a naming request says so instead of appearing to succeed: a silent no-op here
+    /// would leave an operator believing an image was named when it was not.
+    /// </para>
+    /// </summary>
+    Task<SceneAssetImage> SetImageDisplayNameAsync(
+        string imageId,
+        string displayName,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            $"'{nameof(SetImageDisplayNameAsync)}' is not implemented by {GetType().Name}, so this image cannot be named.");
 
     Task<IReadOnlyList<SceneAssetImage>> ListImagesByCandidateBatchAsync(
         string candidateBatchId, CancellationToken cancellationToken = default);

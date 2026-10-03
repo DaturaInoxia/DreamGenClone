@@ -17,6 +17,8 @@ public sealed class AssetStudioUiContractTests
         Root, "DreamGenClone.Web", "Components", "Editing", "ImageEditWorkspace.razor"));
     private static readonly string PromptCreatorSource = File.ReadAllText(Path.Combine(
         Root, "DreamGenClone.Web", "Components", "Assets", "PromptAssetCreator.razor"));
+    private static readonly string ApprovalFormSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "Assets", "ProductionApprovalForm.razor"));
     [Fact]
     public void Manager_ListsAssetsAndLinksDedicatedManagementWorkflows()
     {
@@ -55,7 +57,12 @@ public sealed class AssetStudioUiContractTests
         Assert.Contains("EditImageUrlFactory=\"EditImageUrl\"", EditSource, StringComparison.Ordinal);
         Assert.Contains("<EditIterateWorkbench", EditComponentSource, StringComparison.Ordinal);
         Assert.Contains("@page \"/assets/{AssetId}/images/{ImageId}/review\"", ReviewSource, StringComparison.Ordinal);
-        Assert.Contains("<ProductionApprovalForm Image=\"_image\" />", ReviewSource, StringComparison.Ordinal);
+        Assert.Contains("<ProductionApprovalForm Image=\"_image\" AssetType=\"_asset.Type\" />", ReviewSource, StringComparison.Ordinal);
+        // Naming is part of the workflow rather than a side feature: an image is named where it is LOOKED at (its own
+        // card) and where it is ACCEPTED (this form), and the form has to know the container's type to require a name
+        // for a location. The rule itself is read from the domain, so the form and the store cannot disagree.
+        Assert.Contains("SetImageDisplayNameAsync", DetailSource, StringComparison.Ordinal);
+        Assert.Contains("SceneAssetImageNaming.IsNameRequiredForApproval", ApprovalFormSource, StringComparison.Ordinal);
         Assert.Contains("/assets/@_asset.Id/images/@image.Id/edit", DetailSource, StringComparison.Ordinal);
         Assert.Contains("/assets/@_asset.Id/images/@image.Id/review", DetailSource, StringComparison.Ordinal);
         Assert.Contains("await InvokeAsync(async () =>", DetailSource, StringComparison.Ordinal);

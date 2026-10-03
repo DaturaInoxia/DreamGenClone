@@ -291,6 +291,9 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             QwenImage21: model.SceneImageModelFamily == SceneImageModelFamily.QwenImage21
                 ? QwenImage21ModelSettings.Resolve(model)
                 : null,
+            Krea2: model.SceneImageModelFamily == SceneImageModelFamily.Krea2
+                ? Krea2ModelSettings.Resolve(model)
+                : null,
             RegisteredModelId: model.Id);
     }
 
@@ -614,6 +617,7 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
         {
             (SceneImageModelFamily.Pony, SceneImagePromptDialect.PonyV6Tags) => true,
             (SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage) => true,
+            (SceneImageModelFamily.Krea2, SceneImagePromptDialect.Krea2NaturalLanguage) => true,
             (SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage) => true,
             (SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage) => true,
             (SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage) => true,

@@ -63,6 +63,38 @@ else
                         Confine this edit to a region
                     </label>
                 </div>
+                <div class="form-check form-switch px-4 pt-2">
+                    <input class="form-check-input" type="checkbox" id="@OutpaintToggleId"
+                           checked="@_outpaintEnabled" disabled="@_busy" @onchange="OnOutpaintEnabledChanged" />
+                    <label class="form-check-label small" for="@OutpaintToggleId">
+                        Extend this image (outpaint)
+                    </label>
+                </div>
+                @if (_outpaintEnabled)
+                {
+                    <div class="d-flex gap-2 px-4 pb-2 align-items-end flex-wrap">
+                        <div>
+                            <label class="form-label small mb-1" for="@OutpaintDirectionSelectId">Extend toward</label>
+                            <select id="@OutpaintDirectionSelectId" class="form-select form-select-sm"
+                                    @bind="_outpaintDirection" disabled="@_busy">
+                                <option value="Left">Left</option>
+                                <option value="Right">Right</option>
+                                <option value="Top">Top</option>
+                                <option value="Bottom">Bottom</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label small mb-1" for="@OutpaintPercentInputId">By (% of frame)</label>
+                            <input id="@OutpaintPercentInputId" type="number" step="5" min="1" max="200" class="form-control form-control-sm"
+                                   @bind="_outpaintPercent" disabled="@_busy" />
+                        </div>
+                    </div>
+                    <div class="form-text px-4 pb-2">
+                        The intent box describes what should fill the new area — leave the direction and size to the
+                        controls above. It is pre-filled with a natural continuation; edit it only if you want something
+                        specific there (for example, "a window on the wall").
+                    </div>
+                }
                 <div class="scene-edit-image-stage">
                     @if (_regionEnabled)
                     {
@@ -754,6 +786,14 @@ else
     private const string IdentityAnalysisIntent =
         "Apply the approved face identity to the visible people only. List every visible person as a target with a distinct image-relative key and locator and a normalized face region. Do not propose any content, clothing, pose, expression, or background change.";
 
+    /// <summary>
+    /// Pre-fills the intent box when outpaint (CASE-24) is switched on. Deliberately direction-agnostic: the
+    /// direction and size are owned by the outpaint controls and the worker appends the geometry itself, so this
+    /// says only what should fill the new strip.
+    /// </summary>
+    private const string OutpaintDefaultIntent =
+        "Seamlessly extend the scene, continuing the background, lighting and style already in the frame.";
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>The image being edited. Changing it re-opens the workspace.</summary>
@@ -926,6 +966,12 @@ else
     private string _regionSettingsError = string.Empty;
     private int? _regionGrowMaskBy;
     private int? _regionFeatherPixels;
+
+    // Outpaint state (B-135 N6 / CASE-24). Direction + percent extend the frame one way; grow and feather are the
+    // same persisted settings the region uses, so the strip's inner seam is softened the same way.
+    private bool _outpaintEnabled;
+    private MediaEditOutpaintDirection _outpaintDirection = MediaEditOutpaintDirection.Right;
+    private int _outpaintPercent = 50;
     private string? _regionDragHandle;
     private string? _regionDragInitializedStage;
 
@@ -959,6 +1005,9 @@ else
     private string EnhanceTargetEdgeInputId => $"image-enhance-edge-{StableId}";
     private string RegionGrowInputId => $"image-region-grow-{StableId}";
     private string RegionFeatherInputId => $"image-region-feather-{StableId}";
+    private string OutpaintToggleId => $"image-outpaint-toggle-{StableId}";
+    private string OutpaintDirectionSelectId => $"image-outpaint-direction-{StableId}";
+    private string OutpaintPercentInputId => $"image-outpaint-percent-{StableId}";
 
     /// <summary>The grow value in force for the next region run, seeded from persisted settings and editable here.</summary>
     private int? RegionGrowInput
@@ -1375,7 +1424,7 @@ else
         await RunAsync(async () =>
         {
             await StartNewSessionIfCompletedAsync();
-            _attempt = await _service.PrepareAsync(_session.Id, _rawIntent.Trim(), _clarificationHistory.ToList(), _selectedEditorModelId, BuildRegionOperation());
+            _attempt = await _service.PrepareAsync(_session.Id, _rawIntent.Trim(), _clarificationHistory.ToList(), _selectedEditorModelId, BuildRegionOperation(), BuildOutpaintOperation());
             _preparedIntent = _rawIntent.Trim();
             _compilationResult = null;
             _identityTargetSelections.Clear();
@@ -1529,6 +1578,21 @@ else
             throw new InvalidOperationException("A region feather that is not negative is required.");
 
         return region with { GrowMaskBy = grow, FeatherPixels = feather };
+    }
+
+    /// <summary>The outpaint extension the run is queued with, or null for a whole-frame edit. Grow and feather are
+    /// the same persisted settings the region uses, applied here so what the run records is what the panel showed.</summary>
+    private MediaEditOutpaintOperation? BuildOutpaintOperation()
+    {
+        if (!_outpaintEnabled)
+            return null;
+
+        if (_regionGrowMaskBy is not { } grow || grow is < 0 or > 64)
+            throw new InvalidOperationException("An outpaint grow value between 0 and 64 is required.");
+        if (_regionFeatherPixels is not { } feather || feather < 0)
+            throw new InvalidOperationException("An outpaint feather that is not negative is required.");
+
+        return new MediaEditOutpaintOperation(_outpaintDirection, _outpaintPercent, grow, feather);
     }
 
     private MediaEditEnhanceOperation BuildEnhanceOperation()
@@ -1778,7 +1842,35 @@ else
         // The properties live on the Region tab, so turning the region on takes the operator there: the switch and
         // the numbers it feeds are one decision, and leaving them on a tab nobody opened would hide half of it.
         if (_regionEnabled)
+        {
+            _outpaintEnabled = false;
             _activeTab = EditorTab.Region;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task OnOutpaintEnabledChanged(ChangeEventArgs args)
+    {
+        _outpaintEnabled = args.Value is bool enabled && enabled;
+
+        // A run is a region edit, an outpaint, or a whole-frame edit - never both, so turning one on turns the other off.
+        if (_outpaintEnabled)
+        {
+            _regionEnabled = false;
+
+            // The intent box is still required to run, but the operator should not have to invent what an outpaint
+            // "means" - the direction and size already say that. Seed it with a natural continuation they can keep or
+            // replace, and never overwrite an intent they have already typed.
+            if (string.IsNullOrWhiteSpace(_rawIntent))
+                _rawIntent = OutpaintDefaultIntent;
+        }
+        else if (string.Equals(_rawIntent.Trim(), OutpaintDefaultIntent, StringComparison.Ordinal))
+        {
+            // Turning the outpaint back off takes the auto-filled continuation with it - what remains would be a
+            // whole-frame edit whose instruction still says "extend the scene", which no longer has a direction.
+            _rawIntent = string.Empty;
+        }
 
         return Task.CompletedTask;
     }
@@ -1861,6 +1953,7 @@ else
             }
 
             var region = BuildRegionOperation();
+            var outpaint = BuildOutpaintOperation();
             _result = await _service.RunAsync(new ImageEditRunRequest(
                 Subject,
                 _session.Id,
@@ -1870,10 +1963,13 @@ else
                 revision.PromptSha256,
                 _selectedEditorModelId!,
                 _bindings.ToList(),
-                region));
-            _statusMessage = region is null
-                ? "Image edit queued."
-                : "Region edit queued: only the box you drew is left open to change.";
+                region,
+                Outpaint: outpaint));
+            _statusMessage = outpaint is not null
+                ? $"Outpaint queued: extending {outpaint.Direction.ToString().ToLowerInvariant()} by {outpaint.Percent:0.#}%."
+                : region is not null
+                    ? "Region edit queued: only the box you drew is left open to change."
+                    : "Image edit queued.";
             EnsurePolling();
         });
     }
@@ -2071,7 +2167,7 @@ else
         await RunAsync(async () =>
         {
             await StartNewSessionIfCompletedAsync();
-            _attempt = await _service.PrepareAsync(_session.Id, IdentityAnalysisIntent, [], _selectedEditorModelId, null);
+            _attempt = await _service.PrepareAsync(_session.Id, IdentityAnalysisIntent, [], _selectedEditorModelId, null, null);
             _preparedIntent = IdentityAnalysisIntent;
             _compilationResult = null;
             _identityTargetSelections.Clear();

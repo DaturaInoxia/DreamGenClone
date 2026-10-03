@@ -98,7 +98,19 @@ public sealed record ImageSuiteRenderRequest(
     /// the choice travels beside <see cref="ModelId"/> rather than being resolved later.
     /// </para>
     /// </summary>
-    IReadOnlyList<SceneImageCharacterLoraSelection>? CharacterLoras = null);
+    IReadOnlyList<SceneImageCharacterLoraSelection>? CharacterLoras = null,
+
+    /// <summary>
+    /// The NON-IDENTITY scene LoRAs applied to every render in the run (unlock / act / anatomy / style), in chain
+    /// order. Same contract as <see cref="CharacterLoras"/>, and the same reason it travels beside <see cref="ModelId"/>:
+    /// a LoRA binds only to the family it was trained against, so what may be offered depends on the chosen model.
+    ///
+    /// <para>
+    /// The client chains these BEFORE the character LoRAs, so identity stays closest to the subject whichever surface
+    /// asked for the run.
+    /// </para>
+    /// </summary>
+    IReadOnlyList<SceneImageLoraSelection>? SceneLoras = null);
 
 /// <summary>One render enqueued with the exact prompt it was given, so the report is readable without opening the DB.</summary>
 public sealed record ImageSuiteRenderItem(
@@ -131,6 +143,13 @@ public sealed record ImageSuiteRenderReport(
     IReadOnlyList<SceneImageCharacterLoraSelection>? CharacterLoras = null,
 
     /// <summary>
+    /// The NON-IDENTITY scene LoRAs the run was rendered WITH, in chain order. Stated for the same reason as the
+    /// character LoRAs: a set of images made with an unlock or an act LoKr in the stack and a set made without look
+    /// like two results of one experiment unless the run says which it was.
+    /// </summary>
+    IReadOnlyList<SceneImageLoraSelection>? SceneLoras = null,
+
+    /// <summary>
     /// The character every image in this run was conditioned on, or null for a run with no character. Stated for the
     /// same reason as the LoRAs: a pose suite rendered on a character and one rendered from skeletons alone produce two
     /// sets of images that mean different things.
@@ -143,6 +162,13 @@ public sealed record ImageSuiteRenderReport(
 
     /// <summary>How many character LoRAs conditioned every image in this run; zero means none were applied.</summary>
     public int LoraCount => CharacterLoras?.Count ?? 0;
+
+    /// <summary>
+    /// How many NON-IDENTITY scene LoRAs (unlock / act / anatomy / style) every image in this run carried; zero means
+    /// none. Counted separately from <see cref="LoraCount"/> because the two mean different things: a character LoRA
+    /// says WHO is in the frame, a scene LoRA says what the model was allowed or taught to render.
+    /// </summary>
+    public int SceneLoraCount => SceneLoras?.Count ?? 0;
 
     /// <summary>True when the run conditioned on a character, which every image in it shares.</summary>
     public bool HasCharacter => !string.IsNullOrWhiteSpace(CharacterLabel);

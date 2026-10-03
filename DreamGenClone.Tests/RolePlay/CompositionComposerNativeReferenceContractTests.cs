@@ -1,13 +1,18 @@
 namespace DreamGenClone.Tests.RolePlay;
 
 /// <summary>
-/// The composition page must ask for the render the operator actually set up (2026-09-28).
+/// The composition page must ask for the render the operator actually set up (2026-09-28), and it must send the pack
+/// reference through exactly ONE route (2026-10-02).
 ///
-/// A native-reference create arrives with NO face at all unless the caller names the packs: the render path binds
-/// exactly the packs it is given (<c>SceneImageService.ResolveNativeReferenceIdentityBindingsAsync</c>). So the mode
-/// is derived from the step's own BINDINGS - a face bound from an identity pack IS the request - rather than from a
-/// second control the operator would have to find and set, which is how the native path stayed unreachable from the
-/// studio while the engine behind it was finished.
+/// A native-reference create arrives with NO face at all unless the caller names the references: the render path binds
+/// exactly what it is given. So the mode is derived from the step's own BINDINGS - a face bound from an identity pack IS
+/// the request - rather than from a second control the operator would have to find and set, which is how the native
+/// path stayed unreachable from the studio while the engine behind it was finished.
+///
+/// The reference itself then travels as that same binding, because a binding carries the EXACT view the operator picked
+/// (their Profile Left face, their clothed build) while the pack channel resolves the pack's CANONICAL face. Two routes
+/// for one face is two faces, so the channel is handed packs only for the graph route and the native route keeps the
+/// bindings.
 ///
 /// 'Identity on create' is a DIFFERENT mechanism (a configured IP-Adapter/PuLID graph) on a different model, so it
 /// keeps its own control and still wins when the operator turned it on.
@@ -17,7 +22,7 @@ public sealed class CompositionComposerNativeReferenceContractTests
     private static string Page => File.ReadAllText(Path.Combine(
         FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "CompositionComposer.razor"));
 
-    /// <summary>The bindings decide the mode, and the packs they name travel as the render's identity packs.</summary>
+    /// <summary>The bindings decide the mode, and the bindings are what the native render receives.</summary>
     [Fact]
     public void TheNativeReferenceModeIsDerivedFromTheBoundPacks()
     {
@@ -27,7 +32,21 @@ public sealed class CompositionComposerNativeReferenceContractTests
         Assert.Contains("binding.ReferenceAssetId", Page, StringComparison.Ordinal);
         Assert.Contains("SceneImageRenderMode.NativeReference", Page, StringComparison.Ordinal);
         Assert.Contains("RenderMode = renderMode", Page, StringComparison.Ordinal);
-        Assert.Contains("IdentityPacks = identityPacks ?? nativePacks", Page, StringComparison.Ordinal);
+        Assert.Contains("ReferenceApplications = _referenceBindings", Page, StringComparison.Ordinal);
+        // The channel carries the packs for the GRAPH route only. Handing it the packs the bindings already name would
+        // send the pack's canonical face beside the bound one - one character, two faces, two mechanisms.
+        Assert.Contains("IdentityPacks = identityPacks,", Page, StringComparison.Ordinal);
+        Assert.DoesNotContain("IdentityPacks = identityPacks ?? nativePacks", Page, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The two mechanisms are refused together rather than quietly stacked: a frame that applies identity through
+    /// 'Identity on create' AND binds a pack face would condition on two faces of the same character.
+    /// </summary>
+    [Fact]
+    public void TheTwoIdentityMechanismsAreRefusedTogether()
+    {
+        Assert.Contains("two identity mechanisms for one frame", Page, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -58,18 +58,21 @@ $runner = Join-Path $PSScriptRoot 'run-local-proof.ps1'
 $stamp = if ($RunStamp) { $RunStamp } else { Get-Date -Format 'yyyyMMdd-HHmmss' }
 
 # --- LoRA files staged on the host (ComfyUI/models/loras) -------------------------------
+# Only the files referenced by a cell matter. `krea2_slider_*` are real weights staged on the host but no
+# cell uses them yet. The two empty stubs (`krea2_nsfw_prompt_adherence`, 268 bytes, and
+# `krea2_filter_bypass3`, 160 bytes) were moved off the host on 2026-10-02 - see the retired-arms note
+# further down.
 $L = @{
     NsfwV4     = 'krea2_nsfw_v4_v43exp.safetensors'          # Krea 2 NSFW V4 v4.3_EXP  (99k dl, the flagship unpaker)
     Mystic     = 'krea2_mysticxxx_v3.safetensors'            # Mystic XXX v3            (51k dl)
-    Adherence  = 'krea2_nsfw_prompt_adherence.safetensors'   # projector-scale adherence fix
     UltraReal  = 'krea2_bloomgirls_ultrarealism.safetensors' # realism layer            (25k dl)
     AnatomyF   = 'krea2_anatomy_pussyhm.safetensors'         # female anatomy detail
     AnatomyB   = 'krea2_anatomy_breastshm.safetensors'       # breast helper
     AnatomyM   = 'krea2_anatomy_dicktator_male.safetensors'  # male anatomy
     ActD33P    = 'krea2_act_deepthroat_v2.safetensors'       # act-specific
-    SDetail    = 'krea2_slider_detail.safetensors'
-    SRealism   = 'krea2_slider_realism.safetensors'
-    SWeight    = 'krea2_slider_weight.safetensors'
+    SDetail    = 'krea2_slider_detail.safetensors'           # staged, no cell references it yet
+    SRealism   = 'krea2_slider_realism.safetensors'          # staged, no cell references it yet
+    SWeight    = 'krea2_slider_weight.safetensors'           # staged, no cell references it yet
 }
 
 # Uncensored/abliterated arms - the two censorship levers. Defined BEFORE the matrix because
@@ -221,22 +224,18 @@ $matrix += @(
         Prompt = 'Full-body photograph of a woman fully dressed in a long grey dress standing in a sunlit bedroom, arms relaxed at her sides, entire figure head to toe in frame, natural skin texture, soft morning light, 35mm photograph, photorealistic' }
 )
 
-# --- FILTER-BYPASS MICRO-LORA vs THE CENSOR ------------------------------------------------
-# Established earlier: the Qwen3-VL text encoder is the censor, and swapping it for a community
-# abliteration is what unlocks nudity. `krea2_filter_bypass3.safetensors` is a 160-byte LoRA whose
-# ONLY tensor is `diffusion_model.txtfusion.projector.diff` (F32, shape [1,12]) - a direct patch to
-# the projection that carries text conditioning into the DiT. If it neutralises the censor bias,
-# we get the unlock on FULLY STOCK weights + FULLY STOCK text encoder, which is the cleanest
-# possible configuration for the app (no community-modified LLM in the model path).
-$L.Bypass = 'krea2_filter_bypass3.safetensors'
-$matrix += @(
-    [pscustomobject]@{ Id = 27; Label = 'bypass-micro-stock'; W = 1024; H = 1024; Loras = @(@{ File = $L.Bypass; Str = 1.0 }); Clip = $Clip
-        Intent = 'Is the 160-byte projector patch enough on its own? Stock weights + STOCK text encoder + bypass micro-LoRA only, no NSFW LoRA. Compare directly against cell 2 (same config without it).'
-        Prompt = $nudityText }
-    [pscustomobject]@{ Id = 28; Label = 'bypass-micro+v4'; W = 1024; H = 1024; Loras = @(@{ File = $L.Bypass; Str = 1.0 }, @{ File = $L.NsfwV4; Str = 1.0 }); Clip = $Clip
-        Intent = 'Bypass micro-LoRA stacked with NSFW V4, stock weights and stock TE. If this matches cell 4, the app can ship Krea 2 with no community-modified text encoder at all.'
-        Prompt = $nudityText }
-)
+# --- FILTER-BYPASS MICRO-LORA: RETIRED 2026-10-02 (cells 27/28 removed) ---------------------
+# `krea2_filter_bypass3.safetensors` was a 160-byte LoRA whose ONLY tensor is
+# `diffusion_model.txtfusion.projector.diff` (F32, shape [1,12]) - a direct patch to the projection that
+# carries text conditioning into the DiT. The hope was that it would neutralise the censor bias and give
+# the unlock on FULLY STOCK weights + FULLY STOCK text encoder (the cleanest config for the app: no
+# community-modified LLM anywhere in the model path).
+#
+# RESULT (NEGATIVE): cell 27 (bypass alone) and cell 28 (bypass + NSFW V4) did NOT unlock against the stock
+# text encoder. The Qwen3-VL text encoder remains the censor and a community abliteration is still required.
+# At 160 bytes with a single 12-element tensor the file is a no-op, so it was moved OFF the host on
+# 2026-10-02 (now in D:\ComfyUI\models\_dead_loras\) to stop it looking like a usable LoRA. Cells 27/28 are
+# therefore no longer rendered here; do not re-add it without new evidence.
 
 # --- WHY CELL 1 FRAMES AND EVERYTHING ELSE DOES NOT ---------------------------------------
 # Cell 1 (stock TE, no LoRA) returned a PERFECT head-to-toe figure - face, dress, bare feet,

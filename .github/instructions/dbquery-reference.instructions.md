@@ -99,6 +99,7 @@ Three tasks in `.vscode/tasks.json` also call the scripts (for manual runs):
 | `theme-profiles` | — | RPThemeProfiles + all theme assignments |
 | `rp-themes <profileId>` | profileId | Themes assigned to a profile |
 | `b100-analyzer-configure` | — | Idempotently assign direct DeepSeek Flash and complete settings to the B-100 scene-beat analyzer |
+| `b137-krea2-configure` | — | Idempotently register Krea 2 (Krea-2 Turbo) as a local ComfyUI TextOnly generation model (family 6 / dialect 5) and seed its 12-row scene-LoRA catalog. Looks the local ComfyUI provider up by name and fails fast if absent. Additive only: never repoints a FunctionModelDefault, never enables/binds the model as the default |
 | `sql <file> [id]` | file path, optional id | Run a single-statement SQL file (dev DB ReadWrite); `{{id}}` → arg. SELECT/WITH/PRAGMA prints rows; UPDATE/INSERT/DELETE runs transactionally and reports rows affected |
 
 ## Key Tables & Columns

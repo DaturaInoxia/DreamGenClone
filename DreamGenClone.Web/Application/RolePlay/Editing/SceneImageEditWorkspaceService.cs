@@ -120,7 +120,7 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
     }
 
     public async Task<ImageEditAttemptView> PrepareAsync(
-        string sessionId, string rawIntent, IReadOnlyList<string> clarificationHistory, string? editorModelId, MediaEditRegionOperation? region, CancellationToken cancellationToken = default)
+        string sessionId, string rawIntent, IReadOnlyList<string> clarificationHistory, string? editorModelId, MediaEditRegionOperation? region, MediaEditOutpaintOperation? outpaint, CancellationToken cancellationToken = default)
     {
         var attempt = await _compilations.EnqueueCompilationAsync(new EnqueueSceneImageEditCompilationRequest
         {
@@ -128,7 +128,8 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
             RawIntent = rawIntent,
             ClarificationHistory = clarificationHistory,
             EditorModelId = editorModelId,
-            Region = region
+            Region = region,
+            Outpaint = outpaint
         }, cancellationToken);
         return ToAttempt(attempt);
     }
@@ -176,7 +177,8 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
             PromptSha256 = request.PromptSha256,
             EditorModelId = request.EditorModelId,
             ReferenceApplications = request.ReferenceApplications.ToList(),
-            Region = request.Region
+            Region = request.Region,
+            Outpaint = request.Outpaint
         }, cancellationToken);
         return ToResult(image);
     }

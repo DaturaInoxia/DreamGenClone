@@ -134,6 +134,14 @@
             <div class="mt-2">
                 <ResolvedRenderBadge ModelLabel="@SelectedModelLabel()" Selections="_bindings" />
             </div>
+
+            @* The scene-LoRA picker (B-140 FR-5), the same control the Studio and the Playground render. It appears
+               only when the selected model's family has catalog rows, because the component itself renders nothing for
+               a family with none — no control a render would have to refuse. *@
+            <div class="mt-2">
+                <SceneLoraPicker Family="@SelectedModelFamily()" Selections="_sceneLoras"
+                                 SelectionsChanged="OnSceneLorasChanged" Disabled="_busy" Scope="asset-scene-lora" />
+            </div>
         }
         @if (_results.Count > 0)
         {
@@ -219,6 +227,25 @@
     /// </summary>
     private readonly Dictionary<ImagePresetAxis, string> _appliedPresetClauses = [];
 
+    /// <summary>
+    /// The preset KEY the operator picked for each axis, carried beside the clause it produced.
+    ///
+    /// <para>
+    /// Both halves are needed and neither substitutes for the other. The clause is what the prompt received, so it is
+    /// what a later pick replaces and what the render records as having rendered. The key is what the PICKER shows and
+    /// what a loaded draft reselects: recording only the clause would leave the panel showing "no preset" for an image
+    /// that was visibly lit by one.
+    /// </para>
+    /// </summary>
+    private readonly Dictionary<ImagePresetAxis, string> _appliedPresetKeys = [];
+
+    /// <summary>
+    /// The non-identity scene LoRA(s) this step selects (unlock / act / anatomy / style), carried into the render's
+    /// options on the same channel the Studio's picker uses, so the picker is a real control rather than one that looks
+    /// usable and loses its value.
+    /// </summary>
+    private IReadOnlyList<SceneImageLoraSelection> _sceneLoras = [];
+
     /// <summary>Every character with an APPROVED identity pack, so the picker can only offer a bindable identity.</summary>
     private IReadOnlyList<IdentityPackOwner> _characters = [];
 
@@ -289,6 +316,15 @@
         => _models.FirstOrDefault(choice => choice.ModelId == _modelId)?.DisplayName
             ?? throw new InvalidOperationException("The selected image model is no longer enabled.");
 
+    /// <summary>
+    /// The selected model's family, which is what decides WHICH scene LoRAs may be picked: a LoRA binds only to the
+    /// family it was trained against. Unknown when no model is selected, and the picker then offers nothing — the
+    /// honest answer, since no family means no knowledge of what would bind.
+    /// </summary>
+    private SceneImageModelFamily SelectedModelFamily()
+        => _models.FirstOrDefault(choice => choice.ModelId == _modelId)?.Family
+            ?? SceneImageModelFamily.Unknown;
+
     private Task OnModelChanged(string? modelId)
     {
         _modelId = modelId;
@@ -297,6 +333,10 @@
         // under the previous capability. Keeping the bindings would leave the plan describing a model that is no
         // longer selected.
         _bindings = [];
+
+        // The scene LoRAs follow the same rule for a stronger reason: a LoRA binds only to the family it was trained
+        // against and the render refuses a mismatch, so a selection made under the previous model would fail this one.
+        _sceneLoras = [];
         return Task.CompletedTask;
     }
 
@@ -336,6 +376,17 @@
     private Task OnCharacterLorasChanged(IReadOnlyList<SceneImageCharacterLoraSelection> selections)
     {
         _characterLoras = selections;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The scene LoRAs as the picker reports them. Selections made for one model's family do not survive a model
+    /// change, for the same reason bindings do not: a LoRA only binds to the family it was trained against, and the
+    /// render refuses a mismatch — carrying the old selection forward would present a plan the render will not take.
+    /// </summary>
+    private Task OnSceneLorasChanged(IReadOnlyList<SceneImageLoraSelection> selections)
+    {
+        _sceneLoras = selections;
         return Task.CompletedTask;
     }
 
@@ -516,7 +567,7 @@
                     + "looking like it had.");
             }
 
-            ApplyPresetClause(choice.Axis, clause, choice.ShortName);
+            ApplyPresetClause(choice.Axis, _presetKey, clause, choice.ShortName);
         }
         catch (Exception ex)
         {
@@ -526,7 +577,7 @@
         }
     }
 
-    private void ApplyPresetClause(ImagePresetAxis axis, string clause, string shortName)
+    private void ApplyPresetClause(ImagePresetAxis axis, string presetKey, string clause, string shortName)
     {
         _appliedPresetClauses.TryGetValue(axis, out var previous);
 
@@ -534,7 +585,39 @@
         // method inside a component cannot be tested at all.
         _prompt = ImagePresetClauseEditor.Apply(_prompt, previous, clause, axis);
         _appliedPresetClauses[axis] = clause;
+        _appliedPresetKeys[axis] = presetKey;
         _presetNote = $"{shortName} is the {axis} condition in this prompt.";
+    }
+
+    /// <summary>
+    /// The presets this render applied, each with the clause that reached the prompt — the record the image is stored
+    /// with, so the review panel can say which preset lit the image and the round-trip can reselect it.
+    /// </summary>
+    private IReadOnlyList<AppliedImagePreset>? AppliedPresetRecords()
+        => _appliedPresetClauses.Count == 0
+            ? null
+            : _appliedPresetClauses
+                .Select(applied => new AppliedImagePreset(
+                    applied.Key,
+                    _appliedPresetKeys.TryGetValue(applied.Key, out var key) ? key : string.Empty,
+                    applied.Value))
+                .ToList();
+
+    /// <summary>
+    /// The tags only THIS panel can state: the character the operator picked, and the axis words of the presets they
+    /// picked. Everything else about the render is derived by <see cref="RenderTagBuilder"/> from what the render
+    /// actually resolved, so nothing here guesses.
+    /// </summary>
+    private List<string> DeclaredTags()
+    {
+        var tags = new List<string>();
+        if (StepSubject is { } subject)
+        {
+            tags.Add(ImageTagCatalog.Tag(ImageTagCatalog.Character, subject.DisplayName)!);
+        }
+
+        tags.Add(ImageTagCatalog.Tag(ImageTagCatalog.Source, "composer")!);
+        return tags;
     }
 
     /// <summary>Removes every clause this panel inserted, leaving the operator's and the compiler's text untouched.</summary>
@@ -546,6 +629,7 @@
         }
 
         _appliedPresetClauses.Clear();
+        _appliedPresetKeys.Clear();
     }
 
     /// <summary>
@@ -567,7 +651,16 @@
         // submitted text WAS the user input - so that is the honest value to put back, not a guess.
         _prompt = draft.CompiledPrompt ?? draft.UserInput ?? string.Empty;
         _seedText = draft.Seed?.ToString() ?? string.Empty;
-        _bindings = draft.Bindings;
+        _bindings = WithPoseBinding(draft);
+
+        // The pose, the LoRAs and the applied presets come back too, or "load this image's settings" would reproduce a
+        // prompt while dropping the conditioning that gave it its shape (B-140 FR-11). Each is restored only when the
+        // image RECORDED it: a row written before a field existed loads with the picker as the operator left it, which
+        // is what the notice below says.
+        _characterLoras = draft.CharacterLoras;
+        _sceneLoras = draft.SceneLoras;
+        RestoreAppliedPresets(draft.AppliedPresets);
+
         _results = [];
         _candidateBatchId = null;
         _error = null;
@@ -592,12 +685,127 @@
         }
 
         _loadedNotice = missing.Count == 0
-            ? $"Loaded image {draft.ImageId}: prompt, model, size, seed and {_bindings.Count} reference(s)."
+            ? $"Loaded image {draft.ImageId}: {RestoredSummary(draft)}"
             : $"Loaded image {draft.ImageId}, but it did not record its {string.Join(" or ", missing)}, so that control "
-                + "was left as it was. Everything else was restored.";
+                + $"was left as it was. Restored: {RestoredSummary(draft)}";
+    }
+
+    /// <summary>
+    /// What a load actually put back, named rather than counted: "restored everything" is exactly the claim an operator
+    /// cannot check, and the difference between a half-loaded image and a full one is the difference between a
+    /// reproduction and a near-miss.
+    /// </summary>
+    private static string RestoredSummary(ImageGenerationDraft draft)
+    {
+        var parts = new List<string>
+        {
+            $"prompt, model, size{(draft.Seed is null ? string.Empty : ", seed")}, {draft.Bindings.Count} reference(s)"
+        };
+
+        if (!string.IsNullOrWhiteSpace(draft.PosePresetId))
+        {
+            parts.Add("the pose");
+        }
+
+        if (draft.AppliedPresets.Count > 0)
+        {
+            parts.Add($"{draft.AppliedPresets.Count} preset(s)");
+        }
+
+        if (draft.CharacterLoras.Count > 0)
+        {
+            parts.Add($"{draft.CharacterLoras.Count} character LoRA(s)");
+        }
+
+        if (draft.SceneLoras.Count > 0)
+        {
+            parts.Add($"{draft.SceneLoras.Count} scene LoRA(s)");
+        }
+
+        return string.Join(", ", parts) + ".";
+    }
+
+    /// <summary>
+    /// The draft's own bindings, plus the POSE the image recorded when they do not already carry one.
+    ///
+    /// <para>
+    /// The pose travels as a binding because that is the only channel a step's pose has (the composer's Pose slot), and
+    /// a render that resolved its pose in the HANDLER — a suite cell, or any host that passes no bindings — records the
+    /// preset id in its metadata but no pose binding. Without this the pose tab would come back empty on exactly the
+    /// images whose pose mattered most, and the re-render would quietly produce an unposed image.
+    /// </para>
+    ///
+    /// <para>
+    /// The strategy is the composer's own for a <c>PoseLibrarySkeleton</c> source, not a guess: the render resolves the
+    /// real capability at dispatch, but a binding has to state one, and a second opinion here would be a second rule.
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<ReferenceApplicationSelection> WithPoseBinding(ImageGenerationDraft draft)
+    {
+        if (string.IsNullOrWhiteSpace(draft.PosePresetId))
+        {
+            return draft.Bindings;
+        }
+
+        var poseAlreadyBound = draft.Bindings.Any(binding =>
+            string.Equals(binding.Kind, ImageStepSlotKind.Pose.ToString(), StringComparison.OrdinalIgnoreCase));
+        if (poseAlreadyBound)
+        {
+            return draft.Bindings;
+        }
+
+        return
+        [
+            .. draft.Bindings,
+            new ReferenceApplicationSelection
+            {
+                ElementKey = ReferenceStrategyCatalogue.ElementKeyForSlot(ImageStepSlotKind.Pose),
+                SemanticRole = "pose skeleton",
+                Kind = ImageStepSlotKind.Pose.ToString(),
+                Source = ImageStepReferenceSourceKind.PoseLibrarySkeleton.ToString(),
+                Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+                PosePresetId = draft.PosePresetId,
+                SkeletonRelativePath = draft.PoseSkeletonRelativePath
+            }
+        ];
     }
 
     private string? _loadedNotice;
+
+    /// <summary>
+    /// Puts a loaded image's presets back into the picker WITHOUT touching the prompt.
+    ///
+    /// <para>
+    /// The clause map is seeded rather than re-applied, because the prompt being restored ALREADY contains those
+    /// clauses (it is the text that rendered). Re-applying them would insert each one a second time — the exact
+    /// double-condition failure the map exists to prevent — while leaving the picker empty would let the next preset
+    /// pick fail to replace the old wording, stranding two lighting clauses in one prompt.
+    /// </para>
+    /// </summary>
+    private void RestoreAppliedPresets(IReadOnlyList<AppliedImagePreset> presets)
+    {
+        _appliedPresetClauses.Clear();
+        _appliedPresetKeys.Clear();
+        _presetKey = null;
+        _presetNote = null;
+
+        foreach (var preset in presets)
+        {
+            if (!preset.IsComplete)
+            {
+                continue;
+            }
+
+            _appliedPresetClauses[preset.Axis] = preset.Clause;
+            _appliedPresetKeys[preset.Axis] = preset.Key;
+            _presetKey ??= preset.Key;
+        }
+
+        if (_appliedPresetClauses.Count > 0)
+        {
+            _presetNote = $"Restored from the image: {string.Join(", ", _appliedPresetKeys.Values)}.";
+        }
+    }
 
     /// <summary>
     /// The seed to render with, or null for a new one. A non-numeric entry is REFUSED rather than ignored: rendering a
@@ -675,6 +883,9 @@
                         PromptCompilerId = _promptAuthoredByCompiler ? AssetPromptCompilerId : null,
                         Seed = seed,
                         CharacterLoras = _characterLoras.Count > 0 ? _characterLoras : null,
+                        SceneLoras = _sceneLoras.Count > 0 ? _sceneLoras : null,
+                        AppliedPresets = AppliedPresetRecords(),
+                        DeclaredTags = DeclaredTags(),
                         Identity = identity,
                         BodyReference = bodyReference,
                         PosePresetId = pose?.PresetId,

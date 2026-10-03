@@ -48,6 +48,11 @@ public sealed record ImageEditingReference(
 /// edge leaves a visible seam (CASE-21), so this is an operator-set value and never invented here.</param>
 /// <param name="FeatherPixels">Pixels of softening baked into the mask edge when it is built; 0 means a hard edge.
 /// The softening is a blur of the mask itself, not the host FeatherMask node, which feathers only the frame border.</param>
+/// <param name="LeftPad">Outpaint only: pixels the source is padded on the left (CASE-24). Non-zero pads mean the mask
+/// is at the PADDED canvas size and the client must pad the source to match before encoding.</param>
+/// <param name="TopPad">Outpaint only: pixels the source is padded on the top.</param>
+/// <param name="RightPad">Outpaint only: pixels the source is padded on the right.</param>
+/// <param name="BottomPad">Outpaint only: pixels the source is padded on the bottom.</param>
 /// <remarks>
 /// The record OWNS <see cref="Mask"/>: a mask is built for one run, and whoever puts a stream in here hands over the
 /// job of disposing it, so a caller must not pass a stream it still needs.
@@ -57,7 +62,11 @@ public sealed record ImageEditingMask(
     string FileName,
     string Checksum,
     int GrowMaskBy,
-    int FeatherPixels) : IDisposable
+    int FeatherPixels,
+    int LeftPad = 0,
+    int TopPad = 0,
+    int RightPad = 0,
+    int BottomPad = 0) : IDisposable
 {
     public void Dispose() => Mask.Dispose();
 }

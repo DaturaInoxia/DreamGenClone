@@ -28,7 +28,11 @@ The committed `snapshot.db` is a separate point-in-time copy, NOT the live DB. `
 ## Refreshing the snapshot
 There is currently no supported snapshot-refresh command. Do not copy `dev.db` over `snapshot.db`: the live database contains encrypted provider keys and session/debug data.
 
-Share portable configuration as reviewed, idempotent named commands in `DreamGenClone.DbQuery`, then run those commands on each host after copying the sanitized base snapshot. For B-100, run `helpers/dbq.ps1 b100-analyzer-configure`.
+Share portable configuration as reviewed, idempotent named commands in `DreamGenClone.DbQuery`, then run those commands on each host after copying the sanitized base snapshot. Named commands that must be run on every host after a clone:
+- `helpers/dbq.ps1 b100-analyzer-configure` (B-100 scene-beat analyzer model)
+- `helpers/dbq.ps1 b137-krea2-configure` (B-137 Krea 2 model row + scene-LoRA catalog)
+
+Commands like these exist because an ad-hoc `.sql` seed is not portable: it is not in git, it is not reviewed, and it cannot be re-run safely. When a feature needs data on every host, add a named idempotent command rather than a query file.
 
 ## Pruning the dev DB (only when explicitly asked)
 - Stop the web app first (it locks the DB).

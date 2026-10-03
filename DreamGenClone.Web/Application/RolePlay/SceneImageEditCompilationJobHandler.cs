@@ -93,8 +93,12 @@ public sealed class SceneImageEditCompilationJobHandler : IBackgroundJobHandler
                 ? null
                 : JsonSerializer.Deserialize<MediaEditRegionOperation>(attempt.RegionJson, JsonOptions)
                     ?? throw new InvalidOperationException("The compilation region snapshot is invalid.");
+            var outpaint = string.IsNullOrWhiteSpace(attempt.OutpaintJson)
+                ? null
+                : JsonSerializer.Deserialize<MediaEditOutpaintOperation>(attempt.OutpaintJson, JsonOptions)
+                    ?? throw new InvalidOperationException("The compilation outpaint snapshot is invalid.");
             var compiler = _compilers.ResolveByVersion(attempt.SystemPromptVersion);
-            var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(attempt.RawIntent, clarificationHistory, region));
+            var messages = compiler.BuildMessages(new SceneImageEditCompilerContext(attempt.RawIntent, clarificationHistory, region, outpaint));
             if (messages.SchemaVersion != attempt.CompilerSchemaVersion || messages.SystemPromptVersion != attempt.SystemPromptVersion)
                 throw new InvalidOperationException("The compiler prompt contract changed after this attempt was queued.");
 

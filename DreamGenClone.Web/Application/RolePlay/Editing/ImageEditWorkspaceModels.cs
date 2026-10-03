@@ -92,7 +92,10 @@ public sealed record ImageEditRunRequest(
     /// <see cref="MediaEditRegionOperation"/> the run is queued with, in percent of the frame, so what was drawn and what the
     /// sampler confines cannot drift apart.
     /// </summary>
-    MediaEditRegionOperation? Region = null);
+    MediaEditRegionOperation? Region = null,
+    /// <summary>The outpaint extension the operator asked for, or null to keep the frame. Mutually exclusive
+    /// with <see cref="Region"/>: a run is a region edit, an outpaint, or a whole-frame edit.</summary>
+    MediaEditOutpaintOperation? Outpaint = null);
 
 /// <summary>Current workspace state, raised to hosts after every refresh.</summary>
 public sealed record ImageEditWorkspaceSnapshot(

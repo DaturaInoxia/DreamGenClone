@@ -17,7 +17,10 @@ namespace DreamGenClone.Tests.RolePlay;
 /// </summary>
 public sealed class ComfyUIImageClientQwenImage21Tests
 {
-    private static ResolvedImageModel Resolve(bool withQualification = true) => new(
+    private static ResolvedImageModel Resolve(
+        bool withQualification = true,
+        IReadOnlyList<ResolvedSceneLora>? sceneLoras = null,
+        IReadOnlyList<ResolvedCharacterLora>? characterLoras = null) => new(
         ProviderBaseUrl: "http://192.168.0.11:8188",
         ImageGenerationPath: "/v1/images/generations",
         ProviderTimeoutSeconds: 300,
@@ -41,7 +44,9 @@ public sealed class ComfyUIImageClientQwenImage21Tests
                 Cfg: 1.0,
                 SamplerName: "euler",
                 Scheduler: "simple")
-            : null);
+            : null,
+        Loras: characterLoras,
+        SceneLoras: sceneLoras);
 
     private static JsonObject EncoderInputs(JsonObject workflow) =>
         workflow["4"]!["inputs"]!.AsObject();
@@ -176,6 +181,189 @@ public sealed class ComfyUIImageClientQwenImage21Tests
         Assert.Equal("missing_qwen_image_21_qualification", exception.ReasonCode);
         // The guard must fire BEFORE any ComfyUI call - not after a failed submission.
         Assert.Empty(factory.Requests);
+    }
+
+    /// <summary>
+    /// Scene LoRAs on a 2.1 render. Two things here were previously impossible or silently wrong:
+    /// the family had NO LoRA wiring at all (a selection raised <c>unsupported_lora_family</c>), and once wiring
+    /// exists the chain must start ABOVE the reference LoadImage ids rather than at the hardcoded 20.
+    ///
+    /// <para>
+    /// The chain is model-only by construction (every 2.1 scene LoRA is a 384-tensor model-only safetensors), so the
+    /// conditioning node keeps reading CLIPLoader - and the sampler samples the LAST node of the chain, with scene
+    /// LoRAs first and the identity LoRA last.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task GenerateAsync_SceneLorasThenCharacterLora_ChainsModelOnlyLoadersAndRepointsTheSampler()
+    {
+        var graph = await SubmitAsync(Resolve(
+            sceneLoras:
+            [
+                new ResolvedSceneLora("NSFW Qwen by TheseAlpacas V2.safetensors", 1.0, "TheseAlpacas NSFW Qwen v2"),
+                new ResolvedSceneLora("translucent_penetration-V5+Qwen-Image-2.1.safetensors", 0.6, "Penetration v5")
+            ],
+            characterLoras:
+            [
+                new ResolvedCharacterLora(
+                    ArtifactId: "artifact-ada",
+                    CharacterProfileId: "profile-ada",
+                    CharacterName: "Ada",
+                    TriggerToken: "ohwx-ada",
+                    FileName: "dgc_lora_ada.safetensors",
+                    Strength: 0.8,
+                    Sha256: "AA")
+            ]));
+
+        Assert.Equal("LoraLoaderModelOnly", graph["20"]!["class_type"]!.GetValue<string>());
+        Assert.Equal(
+            "NSFW Qwen by TheseAlpacas V2.safetensors",
+            graph["20"]!["inputs"]!["lora_name"]!.GetValue<string>());
+        Assert.Equal(1.0, graph["20"]!["inputs"]!["strength_model"]!.GetValue<double>());
+        Assert.Equal("1", graph["20"]!["inputs"]!["model"]!.AsArray()[0]!.GetValue<string>());
+        Assert.False(
+            graph["20"]!["inputs"]!.AsObject().ContainsKey("clip"),
+            "2.1 scene LoRAs are model-only files, so the chain must not claim a clip input");
+
+        Assert.Equal(
+            "translucent_penetration-V5+Qwen-Image-2.1.safetensors",
+            graph["21"]!["inputs"]!["lora_name"]!.GetValue<string>());
+        Assert.Equal(0.6, graph["21"]!["inputs"]!["strength_model"]!.GetValue<double>());
+        Assert.Equal("20", graph["21"]!["inputs"]!["model"]!.AsArray()[0]!.GetValue<string>());
+
+        // Identity last, so it sits closest to the prompt.
+        Assert.Equal("dgc_lora_ada.safetensors", graph["22"]!["inputs"]!["lora_name"]!.GetValue<string>());
+        Assert.Equal(0.8, graph["22"]!["inputs"]!["strength_model"]!.GetValue<double>());
+        Assert.Equal("21", graph["22"]!["inputs"]!["model"]!.AsArray()[0]!.GetValue<string>());
+
+        // The sampler samples the end of the chain...
+        Assert.Equal("22", graph["6"]!["inputs"]!["model"]!.AsArray()[0]!.GetValue<string>());
+        // ...and the conditioning still reads CLIPLoader (node 2), untouched by the model-only chain.
+        Assert.Equal("2", graph["4"]!["inputs"]!["clip"]!.AsArray()[0]!.GetValue<string>());
+
+        // The qualified envelope is a model property and a LoRA selection must not change it.
+        var sampler = graph["6"]!["inputs"]!.AsObject();
+        Assert.Equal(25, sampler["steps"]!.GetValue<int>());
+        Assert.Equal(1.0, sampler["cfg"]!.GetValue<double>());
+        Assert.Equal("euler", sampler["sampler_name"]!.GetValue<string>());
+        Assert.Equal("simple", sampler["scheduler"]!.GetValue<string>());
+    }
+
+    /// <summary>
+    /// The reference-conditioned path is the one 2.1 exists for, and it used to apply NO LoRAs at all. It must now
+    /// apply them - and its chain has to start past the LoadImage nodes (20, 21, ...) or it would overwrite the
+    /// reference slots and swap the identity inputs for LoRA loaders without any error.
+    /// </summary>
+    [Fact]
+    public async Task GenerateWithReferences_AppliesSceneLoras_PastTheReferenceNodeIds()
+    {
+        var request = new ReferenceConditionedImageRequest
+        {
+            PositivePrompt = "the woman from <image1> in a kitchen",
+            NegativePrompt = string.Empty,
+            Size = "1024x1024",
+            Seed = 7L,
+            References =
+            [
+                new ReferenceConditionedImageInput { FileName = "ref-1.png", Content = [1, 2, 3], SemanticRole = "identity face" },
+                new ReferenceConditionedImageInput { FileName = "ref-2.png", Content = [4, 5, 6], SemanticRole = "location continuity" }
+            ]
+        };
+
+        var graph = await SubmitReferencesAsync(
+            Resolve(sceneLoras: [new ResolvedSceneLora("NSFW Qwen by TheseAlpacas V2.safetensors", 1.0, "main")]),
+            request);
+
+        // Reference nodes survive: the chain starts at 22, clear of 20 and 21.
+        Assert.Equal("LoadImage", graph["20"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("LoadImage", graph["21"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("20", graph["4"]!["inputs"]!["images.image_1"]!.AsArray()[0]!.GetValue<string>());
+        Assert.Equal("21", graph["4"]!["inputs"]!["images.image_2"]!.AsArray()[0]!.GetValue<string>());
+
+        Assert.Equal("LoraLoaderModelOnly", graph["22"]!["class_type"]!.GetValue<string>());
+        Assert.Equal(
+            "NSFW Qwen by TheseAlpacas V2.safetensors",
+            graph["22"]!["inputs"]!["lora_name"]!.GetValue<string>());
+        Assert.Equal("1", graph["22"]!["inputs"]!["model"]!.AsArray()[0]!.GetValue<string>());
+        Assert.Equal("22", graph["6"]!["inputs"]!["model"]!.AsArray()[0]!.GetValue<string>());
+    }
+
+    private static async Task<JsonNode> SubmitAsync(ResolvedImageModel model) =>
+        await SubmitAndCaptureAsync(
+            model,
+            client => client.GenerateAsync(model, "a photograph", "1024x1024", null, 42L, CancellationToken.None));
+
+    private static async Task<JsonNode> SubmitReferencesAsync(
+        ResolvedImageModel model,
+        ReferenceConditionedImageRequest request) =>
+        await SubmitAndCaptureAsync(model, client => client.GenerateWithReferencesAsync(model, request));
+
+    /// <summary>
+    /// Drives a real submission against a stubbed host and returns the graph that was sent, so the assertions are
+    /// about what ComfyUI would actually receive rather than about a builder called in isolation.
+    /// </summary>
+    private static async Task<JsonNode> SubmitAndCaptureAsync(
+        ResolvedImageModel model,
+        Func<ComfyUIImageClient, Task<byte[]>> submit)
+    {
+        const string promptId = "prompt-qwen21";
+        HttpRequestMessage? captured = null;
+
+        var client = new ComfyUIImageClient(
+            new StubHttpClientFactory(request =>
+            {
+                var path = request.RequestUri!.AbsolutePath;
+                if (path.EndsWith("/prompt", StringComparison.Ordinal))
+                {
+                    captured = request;
+                    return Ok($"{{\"prompt_id\":\"{promptId}\"}}");
+                }
+                if (path.Contains($"/history/{promptId}", StringComparison.Ordinal))
+                {
+                    return Ok($"{{\"{promptId}\":{{\"status\":{{\"status_str\":\"success\"}},"
+                        + "\"outputs\":{\"8\":{\"images\":[{\"filename\":\"out.png\",\"subfolder\":\"\",\"type\":\"output\"}]}}}}");
+                }
+                if (path.EndsWith("/upload/image", StringComparison.Ordinal))
+                {
+                    return Ok("{\"name\":\"uploaded.png\",\"subfolder\":\"\",\"type\":\"input\"}");
+                }
+                if (path.EndsWith("/view", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1, 2, 3]) };
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            }),
+            new FakeEncryption(),
+            NullLogger<ComfyUIImageClient>.Instance);
+
+        await submit(client);
+
+        Assert.NotNull(captured);
+        var body = await captured!.Content!.ReadAsStringAsync();
+        return JsonNode.Parse(body)!["prompt"]!;
+    }
+
+    private static HttpResponseMessage Ok(string json) =>
+        new(HttpStatusCode.OK) { Content = new StringContent(json) };
+
+    private sealed class StubHttpClientFactory : IHttpClientFactory
+    {
+        private readonly Func<HttpRequestMessage, HttpResponseMessage> _handler;
+
+        public StubHttpClientFactory(Func<HttpRequestMessage, HttpResponseMessage> handler) => _handler = handler;
+
+        public HttpClient CreateClient(string name) => new(new StubHandler(_handler));
+
+        private sealed class StubHandler : HttpMessageHandler
+        {
+            private readonly Func<HttpRequestMessage, HttpResponseMessage> _handler;
+
+            public StubHandler(Func<HttpRequestMessage, HttpResponseMessage> handler) => _handler = handler;
+
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken) => Task.FromResult(_handler(request));
+        }
     }
 
     private sealed class RecordingHttpClientFactory : IHttpClientFactory

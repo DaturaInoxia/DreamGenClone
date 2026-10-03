@@ -1,7 +1,21 @@
 # RunPod Connections and Model Manager
 
-This runbook identifies each dedicated RunPod deployment, connects through RunPod's
-dynamic SSH-over-TCP mapping, and records the application configuration boundary.
+> **DECOMMISSIONED 2026-10-02 — the deployment inventory below is HISTORICAL.**
+> Every pod and volume named in this runbook has been torn down. The RunPod account now holds
+> **0 pods, 0 serverless endpoints and 0 network volumes**. All image generation and editing runs
+> on the local ComfyUI host (WOOD-GAME-MAIN 5080), and `Local ComfyUI (WOOD-GAME-MAIN 5080)` is the
+> Model Manager default provider.
+>
+> Deleted in this teardown: **8 serverless endpoints**, pod `qxdko9fawp8xvi` (`flux-asset-staging`),
+> and network volume `xkslgh6xo0` (`DreamGen_Models`, 100 GB, EU-RO-1) — which had been mounted by
+> 7 of those endpoints. The Model Manager RunPod providers were set `IsEnabled=0`.
+> The specifications in `serverless/endpoints.json` and `pod-registry.json` were **kept on purpose**:
+> they are the reconstruction source of truth, not a description of anything live. Full record in
+> `serverless/endpoints.json` → `decommissioned`.
+
+The runbook below is kept for reconstruction reference. It identifies each dedicated RunPod
+deployment, connects through RunPod's dynamic SSH-over-TCP mapping, and records the application
+configuration boundary.
 
 ## Safety Rules
 

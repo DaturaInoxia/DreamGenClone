@@ -390,6 +390,113 @@ public sealed class ComfyUIImageClient : IImageGenerationClient, IReferenceCondi
         return wf;
     }
 
+    /// <summary>
+    /// Krea 2 (Krea-2 Turbo) text-to-image workflow, mirroring the verified local proof graph
+    /// (<c>helpers/local-comfyui-host/run-krea2-proof.ps1</c>, 59 cells, reviewed 2026-10-01).
+    ///
+    /// <para>
+    /// Krea 2 is a SPLIT model: a 12B dense diffusion transformer (<c>UNETLoader</c>), a Qwen3-VL 4B text encoder
+    /// (<c>CLIPLoader</c> type <c>krea2</c>) and the Qwen Image VAE. None of those names is derivable from the model
+    /// identifier, so all three arrive on <see cref="Krea2Refs"/> from the model's qualified Model Manager
+    /// configuration.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>There is NO negative prompt.</b> Krea-2 Turbo is cfg-1 distilled and takes no negative text at all: the
+    /// sampler's negative input is a <c>ConditioningZeroOut</c> of the positive. The app's negative was already
+    /// purged app-wide (B-135), so nothing is passed in and nothing is emitted - the argument is not even accepted
+    /// here, which makes reintroducing one a compile error rather than a silent quality regression.
+    /// </para>
+    ///
+    /// <para>
+    /// The sampler envelope (steps/cfg/sampler/scheduler/denoise) comes from <see cref="Krea2Refs"/>, NOT from the
+    /// studio's sampler controls: those are SDXL-family values, and running this cfg-1-distilled model at cfg 5 /
+    /// dpmpp_2m_sde / karras is the same class of out-of-distribution failure that produced the 2.1 blown-out render
+    /// of 2026-09-24. Only the canvas size comes from the request.
+    /// </para>
+    ///
+    /// <para>
+    /// Node ids: 1 UNETLoader, 2 CLIPLoader, 3 VAELoader, 4 CLIPTextEncode, 5 ConditioningZeroOut,
+    /// 6 EmptyLatentImage, 7 KSampler, 8 VAEDecode, 9 SaveImage. The LoRA chain is inserted by
+    /// <c>ApplyLoras</c> at ids 20+, between node 1 and the sampler.
+    /// </para>
+    /// </summary>
+    internal static JsonObject BuildKrea2Workflow(
+        string unetName,
+        Krea2Refs refs,
+        string prompt,
+        string? size,
+        long? seed)
+    {
+        var (width, height) = ParseSize(size);
+
+        return new JsonObject
+        {
+            ["1"] = new JsonObject
+            {
+                ["class_type"] = "UNETLoader",
+                ["inputs"] = new JsonObject { ["unet_name"] = unetName, ["weight_dtype"] = "default" }
+            },
+            ["2"] = new JsonObject
+            {
+                ["class_type"] = "CLIPLoader",
+                ["inputs"] = new JsonObject
+                {
+                    ["clip_name"] = refs.ClipName,
+                    ["type"] = "krea2",
+                    ["device"] = "default"
+                }
+            },
+            ["3"] = new JsonObject
+            {
+                ["class_type"] = "VAELoader",
+                ["inputs"] = new JsonObject { ["vae_name"] = refs.VaeName }
+            },
+            ["4"] = new JsonObject
+            {
+                ["class_type"] = "CLIPTextEncode",
+                ["inputs"] = new JsonObject { ["text"] = prompt, ["clip"] = new JsonArray("2", 0) }
+            },
+            ["5"] = new JsonObject
+            {
+                ["class_type"] = "ConditioningZeroOut",
+                ["inputs"] = new JsonObject { ["conditioning"] = new JsonArray("4", 0) }
+            },
+            ["6"] = new JsonObject
+            {
+                ["class_type"] = "EmptyLatentImage",
+                ["inputs"] = new JsonObject { ["width"] = width, ["height"] = height, ["batch_size"] = 1 }
+            },
+            ["7"] = new JsonObject
+            {
+                ["class_type"] = "KSampler",
+                ["inputs"] = new JsonObject
+                {
+                    ["seed"] = seed ?? Random.Shared.Next(0, int.MaxValue),
+                    ["steps"] = refs.Steps,
+                    ["cfg"] = refs.Cfg,
+                    ["sampler_name"] = refs.SamplerName,
+                    ["scheduler"] = refs.Scheduler,
+                    ["denoise"] = refs.Denoise,
+                    ["model"] = new JsonArray("1", 0),
+                    ["positive"] = new JsonArray("4", 0),
+                    ["negative"] = new JsonArray("5", 0),
+                    ["latent_image"] = new JsonArray("6", 0)
+                }
+            },
+            ["8"] = new JsonObject
+            {
+                ["class_type"] = "VAEDecode",
+                ["inputs"] = new JsonObject { ["samples"] = new JsonArray("7", 0), ["vae"] = new JsonArray("3", 0) }
+            },
+            ["9"] = new JsonObject
+            {
+                ["class_type"] = "SaveImage",
+                ["inputs"] = new JsonObject { ["filename_prefix"] = "dreamgen_app", ["images"] = new JsonArray("8", 0) }
+            }
+        };
+    }
+
     private static (int Width, int Height) ParseSize(string? size)
     {
         if (!string.IsNullOrWhiteSpace(size))
@@ -468,6 +575,19 @@ public sealed class ComfyUIImageClient : IImageGenerationClient, IReferenceCondi
                     reasonCode: "missing_qwen_image_21_qualification");
             }
 
+            // Krea 2 is likewise a SPLIT model: the model identifier is the diffusion transformer, while the text
+            // encoder, the VAE and the sampler envelope come from the model's TextToImage qualification. Missing
+            // configuration fails fast; no artifact name and no sampler value is ever guessed.
+            var krea2 = model.Krea2;
+            if (model.SceneImageModelFamily == SceneImageModelFamily.Krea2 && krea2 is null)
+            {
+                throw new ImageGenerationException(
+                    $"Krea 2 model '{model.ModelIdentifier}' has no resolved text encoder / VAE / sampler envelope "
+                    + "qualification. Configure its TextToImage qualification in Model Manager.",
+                    model.ProviderName,
+                    reasonCode: "missing_krea2_qualification");
+            }
+
             // Select the workflow by model family: Pony keeps its CLIP-skip workflow; SDXL/Juggernaut
             // uses the no-CLIP-skip workflow. Unknown families fail fast (no fallback model).
             var workflow = model.SceneImageModelFamily switch
@@ -477,19 +597,25 @@ public sealed class ComfyUIImageClient : IImageGenerationClient, IReferenceCondi
                 SceneImageModelFamily.Flux => BuildFluxWorkflow(checkpoint, prompt, size, seed),
                 SceneImageModelFamily.QwenImage21 => BuildQwenImage21Workflow(
                     checkpoint, qwenImage21!, prompt, effectiveNegative, size, seed),
+                SceneImageModelFamily.Krea2 => BuildKrea2Workflow(checkpoint, krea2!, prompt, size, seed),
                 _ => throw new ImageGenerationException(
                         $"Unsupported scene-image family '{model.SceneImageModelFamily}'. Configure the model family and prompt dialect in Model Manager.",
                     model.ProviderName,
                         reasonCode: "unsupported_image_family")
             };
 
-            // Character LoRA identity. Siblings of the reference strategies, never a replacement: a render whose
-            // characters have no qualified LoRA arrives here with an empty list and its graph is left EXACTLY as
-            // the family builder above produced it. A family with no LoRA wiring fails fast inside the call rather
-            // than dropping the LoRA quietly.
-            if (model.Loras is { Count: > 0 } characterLoras)
+            // ONE LoRA chain, scene LoRAs first and character identity LoRAs last. A render that selected neither
+            // arrives here with both lists empty and its graph is left EXACTLY as the family builder above produced
+            // it, so a no-LoRA render is byte-identical to a pre-LoRA render. A family with no LoRA wiring fails
+            // fast inside the call rather than dropping a selected LoRA quietly.
+            if (model.SceneLoras is { Count: > 0 } || model.Loras is { Count: > 0 })
             {
-                ApplyCharacterLoras(workflow, model.SceneImageModelFamily, model.ProviderName, characterLoras);
+                ApplyLoras(
+                    workflow,
+                    model.SceneImageModelFamily,
+                    model.ProviderName,
+                    model.SceneLoras,
+                    model.Loras);
             }
 
             var payload = new JsonObject
@@ -514,68 +640,166 @@ public sealed class ComfyUIImageClient : IImageGenerationClient, IReferenceCondi
     }
 
     /// <summary>
-    /// Insert the character LoRA chain after the checkpoint and re-wire EVERY consumer of model and clip.
+    /// Insert ONE LoRA chain after the diffusion-model loader and re-wire EVERY consumer of model and clip:
+    /// scene LoRAs (non-identity: unlock / act / anatomy / style) first, then character identity LoRAs last, so
+    /// identity sits closest to the subject.
     ///
-    /// A LoRA alters both the diffusion model and the CLIP, so the sampler's model branch AND both text encodes
-    /// must be re-wired. Wiring only the model branch silently applies the LoRA to the image path alone — the trap
-    /// already documented for the Qwen source-image edit path.
+    /// <para>
+    /// A LoRA alters both the diffusion model and the CLIP where the family has a separate CLIP conditioning path,
+    /// so the sampler's model branch AND both text encodes must be re-wired. Wiring only the model branch silently
+    /// applies the LoRA to the image path alone - the trap already documented for the Qwen source-image edit path.
+    /// Krea 2 is the exception by construction: it loads its text encoder through <c>CLIPLoader</c> and chains LoRAs
+    /// with <c>LoraLoaderModelOnly</c> (no clip input or output), so its text-encode wiring is deliberately left
+    /// alone - which is exactly what the verified proof graph does.
+    /// </para>
     ///
+    /// <para>
     /// The consumer nodes are graph facts of the family builders: Pony (node 10 <c>CLIPSetLastLayer</c> feeds both
-    /// text encodes; node 3 samples) and SDXL (node 13 when CLIP skip is set, otherwise nodes 6 and 7; node 3
-    /// samples). A family whose graph has not been wired for LoRAs FAILS FAST rather than dropping the LoRA
-    /// quietly: a render that ignored an identity LoRA would look exactly like one that applied it.
+    /// text encodes; node 3 samples), SDXL (node 13 when CLIP skip is set, otherwise nodes 6 and 7; node 3 samples)
+    /// and Krea 2 (node 1 loads the model, node 7 samples, no clip consumer). Qwen-Image-2.1 is included for the
+    /// same reason: node 1 loads the model, node 6 samples, and node 4 (<c>TextEncodeQwenImage21</c>) is left on
+    /// <c>CLIPLoader</c> because its scene LoRAs are model-only files. A family whose graph has not been
+    /// wired for LoRAs FAILS FAST rather than dropping the LoRA quietly: a render that ignored a selected LoRA would
+    /// look exactly like one that applied it.
+    /// </para>
     /// </summary>
-    private static void ApplyCharacterLoras(
+    private static void ApplyLoras(
         JsonObject workflow,
         SceneImageModelFamily family,
         string providerName,
-        IReadOnlyList<ResolvedCharacterLora> loras)
+        IReadOnlyList<ResolvedSceneLora>? sceneLoras,
+        IReadOnlyList<ResolvedCharacterLora>? characterLoras)
     {
-        var clipConsumerNode = family switch
+        var sceneCount = sceneLoras?.Count ?? 0;
+        var characterCount = characterLoras?.Count ?? 0;
+        if (sceneCount == 0 && characterCount == 0)
         {
-            SceneImageModelFamily.Pony => "10",
-            SceneImageModelFamily.Sdxl => workflow.ContainsKey("13") ? "13" : string.Empty,
+            return;
+        }
+
+        var wiring = family switch
+        {
+            SceneImageModelFamily.Pony => new LoraWiring(
+                ModelSourceNode: "4",
+                ModelConsumerNode: "3",
+                ClipConsumerNodes: ["10"],
+                LoaderClassType: "LoraLoader"),
+            SceneImageModelFamily.Sdxl => new LoraWiring(
+                ModelSourceNode: "4",
+                ModelConsumerNode: "3",
+                ClipConsumerNodes: workflow.ContainsKey("13") ? ["13"] : ["6", "7"],
+                LoaderClassType: "LoraLoader"),
+            SceneImageModelFamily.Krea2 => new LoraWiring(
+                ModelSourceNode: "1",
+                ModelConsumerNode: "7",
+                ClipConsumerNodes: [],
+                LoaderClassType: "LoraLoaderModelOnly"),
+            // Qwen-Image-2.1: node 1 loads the model, node 6 samples, node 4 is TextEncodeQwenImage21 (the clip
+            // consumer). The chain is deliberately MODEL-ONLY: every 2.1 scene LoRA is a 384-tensor model-only
+            // safetensors (the same tensor set as the file verified in
+            // helpers/local-comfyui-host/run-qwen21-nsfw-lora-proof.ps1), so there are no text-encoder weights to
+            // apply and node 4 keeps reading CLIPLoader directly. LoraLoader would patch the 8B Qwen3-VL text
+            // encoder with nothing and report "lora key not loaded" for its clip half.
+            SceneImageModelFamily.QwenImage21 => new LoraWiring(
+                ModelSourceNode: "1",
+                ModelConsumerNode: "6",
+                ClipConsumerNodes: [],
+                LoaderClassType: "LoraLoaderModelOnly"),
             _ => throw new ImageGenerationException(
-                    $"This render selected {loras.Count} character LoRA(s), but the {family} graph builder has no LoRA "
-                    + "wiring. LoRA identity is implemented for the Pony and SDXL families; select a model of those "
-                    + "families, or carry this character with the reference-conditioning identity strategy instead.",
+                    $"This render selected {sceneCount + characterCount} LoRA(s) ({sceneCount} scene, "
+                    + $"{characterCount} character), but the {family} graph builder has no LoRA wiring. LoRA support "
+                    + "is implemented for the Pony, SDXL, Krea 2 and Qwen-Image-2.1 families; select a model of those "
+                    + "families, or carry the character with the reference-conditioning identity strategy instead.",
                     providerName,
                     reasonCode: "unsupported_lora_family")
         };
 
-        // One LoraLoader per bound actor, chained: each node takes model+clip from the previous one. Node ids start
-        // clear of every builder's own ids (3/4/5/6/7/8/9/10/13/16/17).
-        var previous = "4";
-        var nextNodeNumber = 20;
-        foreach (var lora in loras)
+        // One loader per LoRA, chained: each node takes the model from the previous one. The first free node id is
+        // derived from the graph that was already built rather than assumed: Pony/SDXL/Krea 2 top out at node 13,
+        // but the Qwen-Image-2.1 reference path has ALREADY claimed 20..(20+references-1) for its LoadImage nodes.
+        // A hardcoded 20 would overwrite those reference nodes, replacing the identity inputs with LoRA loaders.
+        var previous = wiring.ModelSourceNode;
+        var nextNodeNumber = Math.Max(20, HighestNodeNumber(workflow) + 1);
+
+        foreach (var lora in sceneLoras ?? [])
         {
-            var nodeId = nextNodeNumber++.ToString(CultureInfo.InvariantCulture);
-            workflow[nodeId] = new JsonObject
-            {
-                ["class_type"] = "LoraLoader",
-                ["inputs"] = new JsonObject
-                {
-                    ["lora_name"] = lora.FileName,
-                    ["strength_model"] = lora.Strength,
-                    ["strength_clip"] = lora.Strength,
-                    ["model"] = new JsonArray(previous, 0),
-                    ["clip"] = new JsonArray(previous, 1)
-                }
-            };
-            previous = nodeId;
+            previous = AppendLoraNode(workflow, wiring, previous, nextNodeNumber++, lora.FileName, lora.Strength);
         }
 
-        workflow["3"]!["inputs"]!["model"] = new JsonArray(previous, 0);
-        if (clipConsumerNode.Length > 0)
+        foreach (var lora in characterLoras ?? [])
+        {
+            previous = AppendLoraNode(workflow, wiring, previous, nextNodeNumber++, lora.FileName, lora.Strength);
+        }
+
+        workflow[wiring.ModelConsumerNode]!["inputs"]!["model"] = new JsonArray(previous, 0);
+        foreach (var clipConsumerNode in wiring.ClipConsumerNodes)
         {
             workflow[clipConsumerNode]!["inputs"]!["clip"] = new JsonArray(previous, 1);
         }
-        else
-        {
-            workflow["6"]!["inputs"]!["clip"] = new JsonArray(previous, 1);
-            workflow["7"]!["inputs"]!["clip"] = new JsonArray(previous, 1);
-        }
     }
+
+    /// <summary>
+    /// Highest numeric node id already present in a graph, so an appended chain can never overwrite an existing
+    /// node. Only numeric keys count; every builder in this client uses numeric ids.
+    /// </summary>
+    private static int HighestNodeNumber(JsonObject workflow)
+    {
+        var highest = 0;
+        foreach (var node in workflow)
+        {
+            if (int.TryParse(node.Key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) && id > highest)
+            {
+                highest = id;
+            }
+        }
+        return highest;
+    }
+
+    /// <summary>
+    /// Append one loader to the chain and return its node id. <c>LoraLoader</c> takes model AND clip from the
+    /// previous node and exposes both (slot 1 is the clip); <c>LoraLoaderModelOnly</c> takes and exposes the model
+    /// alone, which is why Krea 2 needs no text-encode re-wiring.
+    /// </summary>
+    private static string AppendLoraNode(
+        JsonObject workflow,
+        LoraWiring wiring,
+        string previous,
+        int nodeNumber,
+        string fileName,
+        double strength)
+    {
+        var nodeId = nodeNumber.ToString(CultureInfo.InvariantCulture);
+        var inputs = new JsonObject
+        {
+            ["lora_name"] = fileName,
+            ["strength_model"] = strength,
+            ["model"] = new JsonArray(previous, 0)
+        };
+
+        if (wiring.LoaderClassType == "LoraLoader")
+        {
+            inputs["strength_clip"] = strength;
+            inputs["clip"] = new JsonArray(previous, 1);
+        }
+
+        workflow[nodeId] = new JsonObject
+        {
+            ["class_type"] = wiring.LoaderClassType,
+            ["inputs"] = inputs
+        };
+        return nodeId;
+    }
+
+    /// <summary>
+    /// Where a family's LoRA chain attaches: the node that loads the diffusion model, the node whose <c>model</c>
+    /// input samples, and every node whose <c>clip</c> input must be re-pointed (empty when the chain is
+    /// model-only, as for Krea 2).
+    /// </summary>
+    private sealed record LoraWiring(
+        string ModelSourceNode,
+        string ModelConsumerNode,
+        IReadOnlyList<string> ClipConsumerNodes,
+        string LoaderClassType);
 
     /// <summary>
     /// Reference-conditioned generation (Qwen-Image-2.1 native multi-reference): uploads each
@@ -661,6 +885,20 @@ public sealed class ComfyUIImageClient : IImageGenerationClient, IReferenceCondi
                 request.Size,
                 request.Seed,
                 uploadedNames);
+
+            // Same posture as the plain generation path: a selected LoRA is either applied or the render fails, so
+            // the reference-conditioned path cannot quietly ignore one. It applied none before this - scene and
+            // character LoRAs were dropped on every reference-conditioned render because only the plain path had a
+            // wiring call, and the chain's node ids collided with the LoadImage nodes anyway.
+            if (model.SceneLoras is { Count: > 0 } || model.Loras is { Count: > 0 })
+            {
+                ApplyLoras(
+                    workflow,
+                    model.SceneImageModelFamily,
+                    model.ProviderName,
+                    model.SceneLoras,
+                    model.Loras);
+            }
 
             var payload = new JsonObject
             {

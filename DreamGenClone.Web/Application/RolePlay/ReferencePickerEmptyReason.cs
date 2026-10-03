@@ -60,9 +60,20 @@ public static class ReferencePickerEmptyReason
 
         // A pack carries faces and bodies, so only those two can be filled from one. Appended to BOTH causes rather than
         // only the second: "nothing exists yet" is precisely the state where the pack is the working alternative.
-        return IsPackFillable(assetType)
-            ? reason + " Or bind one of the character's approved identity-pack references, above."
-            : reason;
+        if (IsPackFillable(assetType))
+        {
+            reason += " Or bind one of the character's approved identity-pack references, above.";
+        }
+
+        // A location holds several accepted images (four elevations, an interior) and the name an operator types is
+        // the only thing that tells them apart in this dropdown, so approval refuses an unnamed one. Saying so HERE is
+        // what stops "Approve one in the Asset Manager" from sending an operator to a form that then refuses them.
+        if (assetType == SceneAssetType.Location)
+        {
+            reason += " A location image must be named before it can be approved — that name is what this dropdown shows.";
+        }
+
+        return reason;
     }
 
     /// <summary>Whether a slot of this element kind can be filled from a character's identity pack.</summary>

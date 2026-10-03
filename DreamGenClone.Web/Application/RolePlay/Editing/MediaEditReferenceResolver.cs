@@ -82,13 +82,36 @@ public sealed class MediaEditReferenceResolver
             var relativePath = assetImage.FileRelativePath;
             references.Add(new MediaEditReference(
                 index + 1,
-                application.SemanticRole,
+                DescribeReference(application.SemanticRole, assetImage.DisplayName),
                 $"{assetImage.Id}.png",
                 assetImage.Sha256,
                 token => _storage.OpenReadAsync(relativePath, token)));
         }
 
         return references;
+    }
+
+    /// <summary>
+    /// What one reference IS, for the render's own provenance record — "location continuity (Left side)".
+    ///
+    /// <para>
+    /// The name is read from the RESOLVED image row rather than from the binding's snapshot of it, because this
+    /// method already holds the authoritative row and a location's accepted images are told apart only by the name an
+    /// operator typed. Without it a multi-image location renders as several references all called "location
+    /// continuity", which is the same unusable record the picker had before names existed.
+    /// </para>
+    ///
+    /// <para>
+    /// An unnamed image degrades to the element's own role, exactly as it read before names existed: nothing is
+    /// invented to fill the gap.
+    /// </para>
+    /// </summary>
+    private static string DescribeReference(string semanticRole, string? displayName)
+    {
+        var role = semanticRole?.Trim() ?? string.Empty;
+        var name = displayName?.Trim() ?? string.Empty;
+        if (name.Length == 0) return role;
+        return role.Length == 0 ? name : $"{role} ({name})";
     }
 
     /// <summary>

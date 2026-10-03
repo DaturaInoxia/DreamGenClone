@@ -14,7 +14,18 @@ public enum SceneImageModelFamily
     /// instead of a LoRA / IP-Adapter identity mechanism. Appended, never renumbered - the enum
     /// integer is persisted and the DbQuery transfer table indexes names by value.
     /// </summary>
-    QwenImage21 = 5
+    QwenImage21 = 5,
+
+    /// <summary>
+    /// Krea 2 (Krea-2 Turbo): a 12B dense diffusion transformer trained from scratch, with a Qwen3-VL 4B
+    /// text encoder and the Qwen Image VAE. Plain text-to-image with no reference conditioning, no edit
+    /// path and no ControlNet - the only conditioning is text plus LoRAs. Its graph is split
+    /// (UNETLoader + CLIPLoader type <c>krea2</c> + VAELoader), its sampler envelope is a cfg-1 distilled
+    /// 8-step recipe, and its negative is a <c>ConditioningZeroOut</c> of the positive (it takes no
+    /// negative text at all). Appended, never renumbered - the enum integer is persisted and the DbQuery
+    /// transfer table indexes names by value.
+    /// </summary>
+    Krea2 = 6
 }
 
 public enum SceneImagePromptDialect
@@ -23,7 +34,15 @@ public enum SceneImagePromptDialect
     PonyV6Tags = 1,
     SdxlNaturalLanguage = 2,
     NaturalLanguage = 3,
-    FluxNaturalLanguage = 4
+    FluxNaturalLanguage = 4,
+
+    /// <summary>
+    /// Krea 2's own dialect. It reads the same photographic-brief shape as the natural-language families, but it
+    /// is a DISTINCT value because its compiler carries rules the others do not (a photographic brief, never a
+    /// body noun-list; no framing demands; no face-facing clause on act prompts; both actors of an act named).
+    /// Appended, never renumbered.
+    /// </summary>
+    Krea2NaturalLanguage = 5
 }
 
 public static class SceneImagePromptMetadata
@@ -34,7 +53,8 @@ public static class SceneImagePromptMetadata
             or (SceneImageModelFamily.Sdxl, SceneImagePromptDialect.SdxlNaturalLanguage)
             or (SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage)
             or (SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage)
-            or (SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage);
+            or (SceneImageModelFamily.QwenImage21, SceneImagePromptDialect.NaturalLanguage)
+            or (SceneImageModelFamily.Krea2, SceneImagePromptDialect.Krea2NaturalLanguage);
 
     public static bool IsUnconfigured(SceneImageModelFamily family, SceneImagePromptDialect dialect) =>
         family == SceneImageModelFamily.Unknown && dialect == SceneImagePromptDialect.Unknown;

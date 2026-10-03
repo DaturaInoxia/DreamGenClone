@@ -228,6 +228,10 @@ builder.Services.AddScoped<StoryAnalysisFacade>();
 // Model Manager services
 builder.Services.AddSingleton<IProviderRepository, ProviderRepository>();
 builder.Services.AddSingleton<IRegisteredModelRepository, RegisteredModelRepository>();
+// B-137 §4: the scene-LoRA catalog. The persisted store of NON-IDENTITY LoRAs (unlock / act / anatomy / style)
+// per model family, read by the studio's multi-select picker and by the render resolver. Separate from
+// ICharacterLoraRepository, which owns identity LoRAs (they carry a character, a trigger token and a checksum).
+builder.Services.AddSingleton<ISceneLoraRepository, SceneLoraRepository>();
 builder.Services.AddSingleton<IReferenceStrategyResolver, ReferenceStrategyResolver>();
 builder.Services.AddSingleton<IdentityFaceReferenceResolver>();
 builder.Services.AddSingleton<IdentityBodyReferenceResolver>();
@@ -274,6 +278,9 @@ builder.Services.AddScoped<IBackgroundJobHandler, LocationDetectionJobHandler>()
 builder.Services.AddScoped<IBackgroundJobHandler, SteerGenerationJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler, SceneImagePromptGenerationJobHandler>();
 builder.Services.AddScoped<ISceneImageCharacterLoraResolver, SceneImageCharacterLoraResolver>();
+// B-137 §4: the scene-LoRA resolver (non-identity LoRAs). Sibling of the character-LoRA resolver above; only asked
+// when a render actually selected a scene LoRA.
+builder.Services.AddScoped<ISceneLoraResolver, SceneLoraResolver>();
 builder.Services.AddScoped<SceneImageRenderingJobHandler>();
 builder.Services.AddScoped<IBackgroundJobHandler>(serviceProvider => serviceProvider.GetRequiredService<SceneImageRenderingJobHandler>());
 builder.Services.AddScoped<SceneImageEditingJobHandler>();
@@ -539,6 +546,10 @@ builder.Services.AddScoped<IProductionWorkloadService, ProductionWorkloadService
 builder.Services.AddScoped<IProductionStudioService, ProductionStudioService>();
 builder.Services.AddSingleton<ISceneAssetStorageService, SceneAssetStorageService>();
 builder.Services.AddScoped<ISceneAssetService, SceneAssetService>();
+// The image-tag surface of the same service (B-140 D2): a narrow interface so a tag editor or a tag search does not
+// have to depend on - or stub - the whole asset lifecycle to read and write the tags on one image.
+builder.Services.AddScoped<ISceneAssetImageTagService>(provider =>
+    (SceneAssetService)provider.GetRequiredService<ISceneAssetService>());
 builder.Services.AddScoped<IWardrobeItemService, WardrobeItemService>();
 builder.Services.AddScoped<ISceneAssetTreeService, SceneAssetTreeService>();
 builder.Services.AddScoped<ICharacterAssetCatalogService, CharacterAssetCatalogService>();
@@ -601,11 +612,16 @@ builder.Services.AddSingleton<ISdxlSceneImagePromptBuilder>(sp => sp.GetRequired
 // brief), registered by concrete type for the same reason as the SDXL builder above.
 builder.Services.AddSingleton<QwenSceneImagePromptBuilder>();
 builder.Services.AddSingleton<IQwenSceneImagePromptBuilder>(sp => sp.GetRequiredService<QwenSceneImagePromptBuilder>());
+// B-137: Krea 2 has its own photographic-brief builder, registered by concrete type for the same reason as the SDXL
+// and Qwen builders above - two builders implement ISceneImageLLMPromptBuilder and only one binding can be right.
+builder.Services.AddSingleton<Krea2SceneImagePromptBuilder>();
+builder.Services.AddSingleton<IKrea2SceneImagePromptBuilder>(sp => sp.GetRequiredService<Krea2SceneImagePromptBuilder>());
 builder.Services.AddSingleton<ISceneImagePromptCompiler, PonySceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, SdxlSceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, ApiSceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, FluxSceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompiler, QwenImage21SceneImagePromptCompiler>();
+builder.Services.AddSingleton<ISceneImagePromptCompiler, Krea2SceneImagePromptCompiler>();
 builder.Services.AddSingleton<ISceneImagePromptCompilerRegistry, SceneImagePromptCompilerRegistry>();
 // B-135: checkpoint -> compiler profile, resolved from the checkpoint the render actually landed on. A checkpoint
 // with no profile is refused by name; there is no family-level fallback profile.
@@ -623,6 +639,10 @@ builder.Services.AddSingleton<IWardrobeItemPromptCompiler>(_ => new NaturalLangu
     SceneImageModelFamily.Flux, SceneImagePromptDialect.FluxNaturalLanguage));
 builder.Services.AddSingleton<IWardrobeItemPromptCompiler>(_ => new NaturalLanguageWardrobeItemPromptCompiler(
     SceneImageModelFamily.Api, SceneImagePromptDialect.NaturalLanguage));
+// B-137: Krea 2 is a natural-language family with NO reference conditioning, so a garment reference is compiled as
+// a text-only brief like the other natural-language families. No reference-image strategy is offered for it.
+builder.Services.AddSingleton<IWardrobeItemPromptCompiler>(_ => new NaturalLanguageWardrobeItemPromptCompiler(
+    SceneImageModelFamily.Krea2, SceneImagePromptDialect.Krea2NaturalLanguage));
 builder.Services.AddSingleton<IWardrobeItemPromptCompilerRegistry, WardrobeItemPromptCompilerRegistry>();
 
 // Prompt-queue navigation resilience (B-027)
@@ -690,6 +710,11 @@ using (var scope = app.Services.CreateScope())
     // The identity build store owns the shipped step plans (Face and, since B-122 Phase 0, Body). Ensuring it at
     // startup keeps the seeded plans in the database from the moment the app is up, instead of on first use.
     await scope.ServiceProvider.GetRequiredService<ICharacterIdentityBuildRepository>().EnsureSchemaAsync();
+
+    // B-137: the scene-LoRA catalog (non-identity LoRAs per model family). Ensured at startup so the table exists
+    // from boot - a catalog read must never be the thing that creates its own store (the B-122 LoRA-policy defect
+    // was exactly that: a public EnsureSchemaAsync nobody called, so the first read died on a missing row).
+    await scope.ServiceProvider.GetRequiredService<ISceneLoraRepository>().EnsureSchemaAsync();
 
     var themeCatalogService = scope.ServiceProvider.GetRequiredService<IThemeCatalogService>();
     await themeCatalogService.SeedDefaultsAsync();

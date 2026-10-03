@@ -207,15 +207,10 @@
                                             <i class="bi bi-grid-3x3-gap me-1"></i>Choose a skeleton
                                         </button>
                                     }
-                                    @if (OffersApprovedAsset(slot))
-                                    {
-                                        <div style="min-width: 260px;">
-                                            <ReferencePicker AssetType="@AssetTypeFor(slot.SlotKind)"
-                                                             CharacterProfileId="@slot.ActorKey"
-                                                             SelectedAssetImageId="null"
-                                                             SelectedAssetChanged="choice => SetAssetAsync(slot, choice)" />
-                                        </div>
-                                    }
+                                    @* The PACK comes before the approved-asset dropdown, and not merely for looks: when no
+                                       scene asset of this kind exists the dropdown's own reason says "bind one of the
+                                       character's approved identity-pack references, above" (ReferencePickerEmptyReason),
+                                       so the pack control has to be the thing above it or the advice points at nothing. *@
                                     @if (OffersIdentityPack(slot))
                                     {
                                         <div style="min-width: 300px;">
@@ -223,6 +218,15 @@
                                                                 ActorKey="@slot.ActorKey"
                                                                 Busy="@Busy"
                                                                 OnSelected="choice => SetPackAssetAsync(slot, choice)" />
+                                        </div>
+                                    }
+                                    @if (OffersApprovedAsset(slot))
+                                    {
+                                        <div style="min-width: 260px;">
+                                            <ReferencePicker AssetType="@AssetTypeFor(slot.SlotKind)"
+                                                             CharacterProfileId="@slot.ActorKey"
+                                                             SelectedAssetImageId="null"
+                                                             SelectedAssetChanged="choice => SetAssetAsync(slot, choice)" />
                                         </div>
                                     }
                                     <span class="form-text">Pre-fill only - binding one is optional unless marked required.</span>
@@ -887,7 +891,10 @@
             SceneAssetId: choice.Asset.Id,
             SceneAssetImageId: choice.Image.Id,
             SceneAssetVersion: choice.Image.ProductionVersion,
-            SceneAssetSha256: choice.Image.Sha256));
+            SceneAssetSha256: choice.Image.Sha256,
+            // The operator's name for the image travels with the ids, so the binding can say "Left side" rather than
+            // naming a GUID. Snapshot rather than lookup: a later rename must not rewrite what a past render meant.
+            ReferenceLabel: choice.Name));
     }
 
     private void OpenPosePicker(ImageStepSlotBlueprint slot) => _posePickerSlot = slot;
@@ -984,7 +991,10 @@
             SceneAssetId: choice.Asset.Id,
             SceneAssetImageId: choice.Image.Id,
             SceneAssetVersion: choice.Image.ProductionVersion,
-            SceneAssetSha256: choice.Image.Sha256)));
+            SceneAssetSha256: choice.Image.Sha256,
+            // Same name-travels-with-the-ids rule as SetAssetAsync: an added image is named on the card too, and
+            // without this the multi-image list would name one of them and show ids for the rest.
+            ReferenceLabel: choice.Name)));
 
         var planned = ReferenceSlotPlanner.Plan(Blueprint, assignments, ModelReferenceLimit);
         await BindingsChanged.InvokeAsync(planned);
