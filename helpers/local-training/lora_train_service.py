@@ -35,7 +35,7 @@ Run
 
 Environment (all required - the service refuses to start without them rather than guessing a path)
     SD_SCRIPTS_DIR   checkout of kohya's sd-scripts (must contain sdxl_train_network.py)
-    COMFYUI_ROOT     the ComfyUI install; its models/checkpoints and models/loras are used
+    COMFYUI_ROOT     the ComfyUI install; its models/checkpoints, models/diffusion_models and models/loras are used
     LORA_TRAIN_ROOT  where run directories are written (images, captions, logs, checkpoints, artifacts)
     SD_PYTHON        python to run sd-scripts with (defaults to the interpreter running this service)
 
@@ -330,37 +330,66 @@ async def train(request: str = Form(...), dataset: UploadFile = File(...)) -> JS
     return JSONResponse({"id": run_id})
 
 
+# The folders a base model can live in, because the families disagree. kohya/sd-scripts load SDXL and Pony bases
+# from models/checkpoints; musubi loads a Krea 2 (or Flux) base from models/diffusion_models. Reading only the first
+# is why a Krea 2 base could not be picked at all - it was on the disk, in a folder nobody looked in.
+CHECKPOINT_FOLDERS = ("checkpoints", "diffusion_models")
+
+
 @app.get("/checkpoints")
 def checkpoints() -> JSONResponse:
-    """The checkpoints this host can actually train against, with the checksum a profile must record.
+    """The base models this host can train against, with the checksum a profile must record.
 
     This exists so an operator never types a model file name or a SHA-256: both are facts of THIS machine, and a
     typed checksum is a checksum that can be wrong. Hashing a 7 GB checkpoint takes about a minute, so the result is
     cached next to the service and keyed on the file's byte length — the file changing its size invalidates it.
+
+    Every entry carries the FOLDER it came from, and the name stays bare, because the name is the id the trainer
+    joins with its own folder (a profile's baseModelId goes straight into that join). Without the folder, two files
+    with the same name in different folders would be indistinguishable in the pick list.
     """
     if SETTINGS is None:
         raise HTTPException(status_code=503, detail="The service is not configured yet.")
 
-    directory = SETTINGS.comfyui_root / "models" / "checkpoints"
+    models_root = SETTINGS.comfyui_root / "models"
     cache_path = SETTINGS.train_root / "checkpoints.json"
     cache: dict[str, dict[str, Any]] = {}
     if cache_path.is_file():
         try:
-            cache = {entry["name"]: entry for entry in json.loads(cache_path.read_text(encoding="utf-8"))}
+            # Keyed on folder AND name. A cache written before the folder was recorded has no 'folder', so it raises
+            # KeyError and the whole cache is discarded and rebuilt - a one-time rehash, rather than an entry matched
+            # against the WRONG folder.
+            cache = {
+                f"{entry['folder']}/{entry['name']}": entry
+                for entry in json.loads(cache_path.read_text(encoding="utf-8"))
+            }
         except (OSError, ValueError, KeyError):
             cache = {}
 
     entries: list[dict[str, Any]] = []
-    for path in sorted(directory.glob("*.safetensors")):
-        known = cache.get(path.name)
-        if known is not None and known.get("byteLength") == path.stat().st_size:
-            entries.append(known)
+    for folder in CHECKPOINT_FOLDERS:
+        directory = models_root / folder
+        if not directory.is_dir():
             continue
-        entries.append({"name": path.name, "byteLength": path.stat().st_size, "sha256": sha256_of(path)})
+        for path in sorted(directory.glob("*.safetensors")):
+            known = cache.get(f"{folder}/{path.name}")
+            if known is not None and known.get("byteLength") == path.stat().st_size:
+                entries.append(known)
+                continue
+            entries.append({
+                "name": path.name,
+                "folder": folder,
+                "byteLength": path.stat().st_size,
+                "sha256": sha256_of(path),
+            })
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(entries), encoding="utf-8")
-    return JSONResponse({"checkpointsRoot": str(directory), "checkpoints": entries})
+    return JSONResponse({
+        "checkpointsRoot": str(models_root),
+        "checkpointFolders": list(CHECKPOINT_FOLDERS),
+        "checkpoints": entries,
+    })
 
 
 @app.get("/train/health")

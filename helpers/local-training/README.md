@@ -137,6 +137,20 @@ line, so it also catches a `.bat` saved with LF-only endings — the documented 
 an hour and $3, so a wrong bucket or a mistyped key should fail here instead. Copy the script to the host alongside
 `lora_train_service.py`.
 
+### Rehearsing the bridge itself, for free
+
+`krea2-serverless-rehearsal.py` runs the **real** `_run_krea2_serverless` and stubs only RunPod's `/run` and
+`/status` responses, so the upload, the payload, the download, the checksum verification and the publish into this
+host's loras folder all genuinely execute. It downloads an artifact the endpoint already produced and verifies it
+against the worker's reported SHA-256 and byte length, publishes into a SANDBOX loras folder rather than the real
+one, and deletes what it uploaded to the volume afterwards. Use it whenever the dispatch path changes; it costs
+nothing.
+
+```powershell
+ssh -i ~/.ssh/dgcomfy_ed25519 'wood-game-main\kenac@192.168.0.11' ^
+  'D:\lora-training-service\venv\Scripts\python.exe D:\lora-training-service\krea2-serverless-rehearsal.py'
+```
+
 Keep `start-service.bat` and `serverless-secrets.bat` **CRLF** — an LF-only `.bat` silently produces an empty log
 and no service.
 

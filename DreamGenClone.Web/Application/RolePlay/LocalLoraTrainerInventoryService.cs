@@ -4,11 +4,17 @@ using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
-/// <summary>One checkpoint the training host can train against, as the host measured it.</summary>
-public sealed record LoraTrainerCheckpoint(string Name, long ByteLength, string Sha256)
+/// <summary>One base model the training host can train against, as the host measured it.</summary>
+public sealed record LoraTrainerCheckpoint(string Name, long ByteLength, string Sha256, string Folder)
 {
-    /// <summary>Shown in the pick list, because a name alone does not say whether it is the 7 GB or the 28 GB model.</summary>
-    public string Display => $"{Name}  ({ByteLength / 1024d / 1024d / 1024d:0.0} GB)";
+    /// <summary>
+    /// Shown in the pick list: the size, because a name alone does not say whether it is the 7 GB or the 28 GB
+    /// model, and the FOLDER, because the families disagree about where a base model lives - kohya loads SDXL and
+    /// Pony bases from <c>checkpoints</c> and musubi loads a Krea 2 base from <c>diffusion_models</c>, so the folder
+    /// is what tells two similarly named files apart. <see cref="Name"/> stays BARE on purpose: it is the id the
+    /// trainer joins with its own folder, so folding the folder into it would produce a path that does not exist.
+    /// </summary>
+    public string Display => $"{Name}  ({ByteLength / 1024d / 1024d / 1024d:0.0} GB)  ·  {Folder}";
 }
 
 /// <summary>
@@ -112,18 +118,20 @@ public sealed class LocalLoraTrainerInventoryService : ILocalLoraTrainerInventor
         {
             var name = entry.TryGetProperty("name", out var nameValue) ? nameValue.GetString() : null;
             var sha = entry.TryGetProperty("sha256", out var shaValue) ? shaValue.GetString() : null;
+            var folder = entry.TryGetProperty("folder", out var folderValue) ? folderValue.GetString() : null;
             var length = entry.TryGetProperty("byteLength", out var lengthValue)
                 && lengthValue.TryGetInt64(out var parsed)
                     ? parsed
                     : 0;
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(sha) || length <= 0)
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(sha) || length <= 0
+                || string.IsNullOrWhiteSpace(folder))
             {
                 throw new InvalidOperationException(
-                    "A checkpoint from the training host was missing its name, size or checksum; "
+                    "A base model from the training host was missing its name, folder, size or checksum; "
                     + "a profile cannot be created from a partially described model.");
             }
 
-            checkpoints.Add(new LoraTrainerCheckpoint(name, length, sha));
+            checkpoints.Add(new LoraTrainerCheckpoint(name, length, sha, folder));
         }
 
         return checkpoints;
