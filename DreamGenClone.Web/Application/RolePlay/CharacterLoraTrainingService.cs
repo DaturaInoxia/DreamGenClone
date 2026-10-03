@@ -245,6 +245,12 @@ public sealed class CharacterLoraTrainingService : ICharacterLoraTrainingService
                 ?? throw new InvalidOperationException($"LoRA training job '{attempt.TrainingJobId}' was not found.");
             var dataset = await _repository.GetDatasetAsync(job.DatasetId, cancellationToken)
                 ?? throw new InvalidOperationException($"LoRA dataset '{job.DatasetId}' was not found.");
+
+            // The render models the profile was QUALIFIED with are carried onto the artifact. Declaring them on the
+            // profile is what makes them stick: stated once, and every artifact it produces is offerable under the
+            // model the operator actually renders with. A profile that declares none (every SDXL-family case, where
+            // the training base IS the render checkpoint) leaves this empty and changes nothing.
+            var trainedBy = DeserializeProfileSnapshot(job.TrainingProfileSnapshotJson);
             await _repository.CreateArtifactAsync(new CharacterLoraArtifact
             {
                 Id = artifactId,
@@ -255,6 +261,7 @@ public sealed class CharacterLoraTrainingService : ICharacterLoraTrainingService
                 BaseModelId = job.BaseModelId,
                 BaseModelVersion = job.BaseModelVersion,
                 BaseModelSha256 = job.BaseModelSha256,
+                RenderModelIdentifiers = trainedBy.RenderModelIdentifiers.ToList(),
                 TriggerToken = dataset.TriggerToken,
                 FileRelativePath = Required(attempt.OutputFileRelativePath, "LoRA artifact file path"),
                 Sha256 = Required(attempt.OutputSha256, "LoRA artifact checksum"),
@@ -285,6 +292,15 @@ public sealed class CharacterLoraTrainingService : ICharacterLoraTrainingService
     private static CharacterLoraTrainingRequest DeserializeRequest(string json) =>
         JsonSerializer.Deserialize<CharacterLoraTrainingRequest>(json, JsonOptions)
         ?? throw new InvalidOperationException("LoRA training request snapshot was invalid.");
+
+    /// <summary>
+    /// The profile as it was when the job was created. The SNAPSHOT is read rather than the live profile because the
+    /// artifact has to record what the run was actually qualified against - a profile edited afterwards must not
+    /// retroactively change what an already-trained artifact claims it loads under.
+    /// </summary>
+    private static CharacterLoraTrainingProfile DeserializeProfileSnapshot(string json) =>
+        JsonSerializer.Deserialize<CharacterLoraTrainingProfile>(json, JsonOptions)
+        ?? throw new InvalidOperationException("LoRA training profile snapshot was invalid.");
 
     private static void ValidateEndpoint(CharacterLoraTrainingEndpoint endpoint)
     {

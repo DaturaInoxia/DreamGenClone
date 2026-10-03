@@ -970,21 +970,28 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         string baseModelId, CancellationToken cancellationToken = default)
     {
         Require(baseModelId, "Base model id");
+        var requested = baseModelId.Trim();
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT PayloadJson FROM CharacterLoraArtifacts
-            WHERE BaseModelId = $model AND Status = 'Qualified'
-            ORDER BY Version DESC, CreatedUtc DESC;
-            """;
-        command.Parameters.AddWithValue("$model", baseModelId.Trim());
-        return await ReadPayloadsAsync<CharacterLoraArtifact>(command, cancellationToken);
+        // Filtered here rather than in SQL. An artifact is offered when it was trained against this model OR when the
+        // operator declared it loadable under it, and that declaration lives in PayloadJson. The table holds a
+        // handful of rows, so the scan costs nothing and no column has to be kept in step with the JSON.
+        command.CommandText =
+            "SELECT PayloadJson FROM CharacterLoraArtifacts WHERE Status = 'Qualified' "
+            + "ORDER BY Version DESC, CreatedUtc DESC;";
+        var qualified = await ReadPayloadsAsync<CharacterLoraArtifact>(command, cancellationToken);
+        return qualified
+            .Where(artifact =>
+                string.Equals(artifact.BaseModelId, requested, StringComparison.Ordinal)
+                || artifact.RenderModelIdentifiers.Contains(requested, StringComparer.Ordinal))
+            .ToList();
     }
 
     public async Task<CharacterLoraArtifact> SetArtifactStatusAsync(
         string artifactId,
         CharacterLoraArtifactStatus status,
         string decisionEvidenceJson,
+        IReadOnlyList<string> renderModelIdentifiers,
         DateTime decidedUtc,
         CancellationToken cancellationToken = default)
     {
@@ -998,6 +1005,17 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
             ?? throw new InvalidOperationException($"LoRA artifact '{artifactId}' was not found.");
         if (artifact.Status != CharacterLoraArtifactStatus.Candidate)
             throw new InvalidOperationException($"LoRA artifact '{artifactId}' is {artifact.Status}; only candidates can be decided.");
+
+        // A blank identifier would be a row the picker could never match, so it is refused rather than stored. An
+        // EMPTY LIST is legal and means "only the base it was trained against", which is every SDXL-family case.
+        if (renderModelIdentifiers.Any(identifier => string.IsNullOrWhiteSpace(identifier)))
+            throw new InvalidOperationException(
+                "A declared render model identifier cannot be blank; leave the list empty when the training base is "
+                + "the model this LoRA loads under.");
+        artifact.RenderModelIdentifiers = renderModelIdentifiers
+            .Select(identifier => identifier.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
         artifact.Status = status;
         artifact.DecisionEvidenceJson = decisionEvidenceJson;
         artifact.QualifiedUtc = status == CharacterLoraArtifactStatus.Qualified ? decidedUtc : null;

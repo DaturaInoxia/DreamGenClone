@@ -15,6 +15,13 @@ public sealed class CharacterLoraRepositoryTests
     private const string ModelSha256 = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
     private const string OutputSha256 = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
 
+    /// <summary>
+    /// A render model identifier that is NOT the base anything is trained against. Krea 2 trains on the raw bf16 DiT
+    /// and renders with a Turbo repack of that same DiT, which is the case that makes declaring a render model
+    /// necessary at all.
+    /// </summary>
+    private const string DeclaredRenderModel = "krea2_turbo_fp8_scaled.safetensors";
+
     [Fact]
     public async Task TrainingProfile_RequiresCompleteConfigurationAndQualifiesImmutably()
     {
@@ -407,7 +414,7 @@ public sealed class CharacterLoraRepositoryTests
         await fixture.Repository.CreateArtifactAsync(artifact);
         var qualified = await fixture.Repository.SetArtifactStatusAsync(
             artifact.Id, CharacterLoraArtifactStatus.Qualified,
-            "{\"evaluationRunId\":\"lora-eval-1\",\"passed\":true}", DateTime.UtcNow);
+            "{\"evaluationRunId\":\"lora-eval-1\",\"passed\":true}", [], DateTime.UtcNow);
 
         Assert.Equal(CharacterLoraArtifactStatus.Qualified, qualified.Status);
         Assert.Contains("lora-eval-1", qualified.DecisionEvidenceJson, StringComparison.Ordinal);
@@ -416,7 +423,61 @@ public sealed class CharacterLoraRepositoryTests
             await fixture.Repository.ListArtifactsAsync(dataset.CharacterTemplateId)).Id);
         Assert.Empty(await fixture.Repository.ListArtifactsAsync("other-character"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Repository.SetArtifactStatusAsync(
-            artifact.Id, CharacterLoraArtifactStatus.Rejected, "{\"passed\":false}", DateTime.UtcNow));
+            artifact.Id, CharacterLoraArtifactStatus.Rejected, "{\"passed\":false}", [], DateTime.UtcNow));
+    }
+
+    [Fact]
+    public async Task QualifiedArtifact_IsOfferedUnderItsTrainingBaseOrADeclaredRenderModel()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var dataset = await fixture.CreateFrozenDatasetAsync();
+        await fixture.CreateQualifiedTrainingProfileAsync();
+        var job = fixture.Job(dataset.Id);
+        await fixture.Repository.CreateTrainingJobAsync(job);
+        await fixture.Repository.TransitionTrainingJobAsync(
+            job.Id, CharacterLoraTrainingJobStatus.Draft, CharacterLoraTrainingJobStatus.Ready, 1);
+        await fixture.Repository.TransitionTrainingJobAsync(
+            job.Id, CharacterLoraTrainingJobStatus.Ready, CharacterLoraTrainingJobStatus.Queued, 2);
+        await fixture.Repository.TransitionTrainingJobAsync(
+            job.Id, CharacterLoraTrainingJobStatus.Queued, CharacterLoraTrainingJobStatus.Running, 3);
+        var attempt = fixture.Attempt(job.Id);
+        await fixture.Repository.CreateTrainingAttemptAsync(attempt);
+        var submitted = await fixture.Repository.RecordTrainingSubmissionAsync(
+            attempt.Id, "trainer-provider", "provider-job-1", "https://provider.invalid/jobs/1", 1);
+        var running = await fixture.Repository.TransitionTrainingAttemptAsync(
+            attempt.Id, CharacterLoraTrainingAttemptStatus.Submitted,
+            CharacterLoraTrainingAttemptStatus.Running, submitted.ConcurrencyVersion);
+        var succeeded = await fixture.Repository.RecordTrainingResultAsync(
+            attempt.Id, "lora/output.safetensors", OutputSha256, 1024,
+            "[]", "{}", "{}", "{}", running.ConcurrencyVersion);
+        var artifact = fixture.Artifact(dataset, succeeded);
+        await fixture.Repository.CreateArtifactAsync(artifact);
+
+        // A candidate is never offered, however it is declared.
+        Assert.Empty(await fixture.Repository.ListQualifiedArtifactsForBaseModelAsync(job.BaseModelId));
+        Assert.Empty(await fixture.Repository.ListQualifiedArtifactsForBaseModelAsync(DeclaredRenderModel));
+
+        // A blank identifier would be a row no render could ever match, so it is refused and nothing is written.
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Repository.SetArtifactStatusAsync(
+                artifact.Id, CharacterLoraArtifactStatus.Qualified, "{\"passed\":true}", ["  "], DateTime.UtcNow));
+        Assert.Equal(CharacterLoraArtifactStatus.Candidate,
+            (await fixture.Repository.GetArtifactAsync(artifact.Id))!.Status);
+
+        await fixture.Repository.SetArtifactStatusAsync(
+            artifact.Id, CharacterLoraArtifactStatus.Qualified,
+            "{\"passed\":true}", [DeclaredRenderModel], DateTime.UtcNow);
+
+        // Offered under the base it was TRAINED against...
+        Assert.Equal(artifact.Id,
+            Assert.Single(await fixture.Repository.ListQualifiedArtifactsForBaseModelAsync(job.BaseModelId)).Id);
+        // ...and under the model the operator DECLARED it loadable under. This is the whole point: Krea 2 trains on
+        // the raw bf16 DiT and renders with a Turbo repack of it, so without a declaration the LoRA could never be
+        // picked at all - the two identifiers differ by design.
+        Assert.Equal(artifact.Id,
+            Assert.Single(await fixture.Repository.ListQualifiedArtifactsForBaseModelAsync(DeclaredRenderModel)).Id);
+        // But not under a model nobody declared.
+        Assert.Empty(await fixture.Repository.ListQualifiedArtifactsForBaseModelAsync("juggernautXL_ragnarok.safetensors"));
     }
 
     [Fact]

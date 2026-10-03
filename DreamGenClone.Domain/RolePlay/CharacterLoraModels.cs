@@ -153,6 +153,20 @@ public sealed class CharacterLoraTrainingProfile
     public string BaseModelId { get; set; } = string.Empty;
     public string BaseModelVersion { get; set; } = string.Empty;
     public string BaseModelSha256 { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The Model Manager model identifiers a LoRA trained by this profile may be LOADED UNDER, declared here so the
+    /// operator states it ONCE, at qualification, instead of re-declaring it on every artifact the profile produces.
+    ///
+    /// <para>
+    /// It is not always the file the profile trains against. Krea 2 trains on the raw bf16 DiT and renders with a
+    /// Turbo repack of that same DiT, so a render picker keyed on <see cref="BaseModelId"/> alone could never offer
+    /// the result. For a family where the training base and the render checkpoint ARE the same file this stays empty
+    /// and <see cref="BaseModelId"/> is the whole answer.
+    /// </para>
+    /// </summary>
+    public List<string> RenderModelIdentifiers { get; set; } = [];
+
     public string TrainerId { get; set; } = string.Empty;
     public string TrainerVersion { get; set; } = string.Empty;
     public string RecipeJson { get; set; } = string.Empty;
@@ -200,6 +214,26 @@ public sealed class CharacterLoraArtifact
     public string BaseModelId { get; set; } = string.Empty;
     public string BaseModelVersion { get; set; } = string.Empty;
     public string BaseModelSha256 { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The Model Manager model identifiers this artifact may be LOADED UNDER, which is not always the file it was
+    /// trained against.
+    ///
+    /// <para>
+    /// Krea 2 is trained on the raw bf16 DiT and inferred with a Turbo repack of that same DiT, so a render picker
+    /// keyed on <see cref="BaseModelId"/> alone could never offer the LoRA - the two identifiers differ BY DESIGN.
+    /// For every family where the training base and the render checkpoint ARE the same file this stays empty and
+    /// <see cref="BaseModelId"/> is the whole answer, which is why it costs the working families nothing.
+    /// </para>
+    ///
+    /// <para>
+    /// Declared by the operator when the artifact is decided, because "this LoRA loads under this model" is part of
+    /// the same claim as "this LoRA is good" - and it is a fact the person who checked the renders knows and nothing
+    /// in this system can infer.
+    /// </para>
+    /// </summary>
+    public List<string> RenderModelIdentifiers { get; set; } = [];
+
     public string TriggerToken { get; set; } = string.Empty;
     public string FileRelativePath { get; set; } = string.Empty;
     public string Sha256 { get; set; } = string.Empty;

@@ -12,6 +12,7 @@
 @inject ICharacterLoraRepository LoraRepository
 @inject IProviderRepository ProviderRepository
 @inject ILocalLoraTrainerInventoryService TrainerInventory
+@inject IRegisteredModelRepository ModelRepository
 @inject ILogger<LoraTrainingProfiles> Logger
 
 <PageTitle>LoRA Training Profiles - DreamGenClone</PageTitle>
@@ -77,6 +78,37 @@
                                     <option value="@preset.Name">@preset.Name</option>
                                 }
                             </select>
+                        </div>
+                        <div class="col-12">
+                            <fieldset>
+                                <legend class="fs-6">Render models this LoRA will be loaded under</legend>
+                                <div class="form-text mb-2">
+                                    A qualified LoRA is offered for a render model when it was trained against that
+                                    model <strong>or</strong> when it is declared here. Krea 2 trains on the raw DiT
+                                    and renders with a Turbo repack, so declaring it is what makes the LoRA pickable
+                                    at all. Leave every box clear when the training base is what you render with.
+                                </div>
+                                @if (_renderModelChoices.Count == 0)
+                                {
+                                    <div class="text-muted small">Pick a model family to see its registered models.</div>
+                                }
+                                else
+                                {
+                                    <div class="d-flex flex-wrap gap-3">
+                                        @foreach (var choice in _renderModelChoices)
+                                        {
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="prof-render-@choice.Identifier"
+                                                       checked="@_profileRenderModels.Contains(choice.Identifier)"
+                                                       @onchange="args => ToggleProfileRenderModel(choice.Identifier, args)" />
+                                                <label class="form-check-label small" for="prof-render-@choice.Identifier">
+                                                    @choice.Display <span class="text-muted font-monospace">@choice.Identifier</span>
+                                                </label>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </fieldset>
                         </div>
                         <div class="col-md-7">
                             <label class="form-label small" for="lora-profile-name">Profile name</label>
@@ -179,6 +211,8 @@
     private string _providerId = string.Empty;
     private string _checkpointName = string.Empty;
     private string _presetName = LoraTrainingRecipePresets.Default.Name;
+    private List<(string Identifier, string Display)> _renderModelChoices = [];
+    private readonly HashSet<string> _profileRenderModels = [];
     private string _name = string.Empty;
     private string _targetModelFamily = string.Empty;
     private string _qualificationEvidenceKey = LoraTrainingQualificationEvidence.Default.Key;
@@ -281,7 +315,7 @@
     /// hand still wins - until the checkpoint changes again, which is the point at which "which model is this"
     /// changed too.
     /// </summary>
-    private Task DeriveNameAsync()
+    private async Task DeriveNameAsync()
     {
         var stem = SelectedCheckpoint is { } checkpoint
             ? Path.GetFileNameWithoutExtension(checkpoint.Name)
@@ -289,7 +323,34 @@
         _name = string.IsNullOrWhiteSpace(stem)
             ? string.Empty
             : string.IsNullOrEmpty(_targetModelFamily) ? stem : $"{stem} {_targetModelFamily}";
-        return Task.CompletedTask;
+
+        // The models a LoRA of THIS family could be loaded under. Declared on the profile so the operator states it
+        // once, at qualification, instead of re-declaring it on every artifact the profile produces. Family-filtered:
+        // a Krea 2 profile must not be able to claim its LoRA loads under an SDXL checkpoint.
+        _renderModelChoices = string.IsNullOrWhiteSpace(_targetModelFamily)
+            ? []
+            : (await ModelRepository.GetAllEnabledAsync())
+                .Where(model => string.Equals(
+                    model.SceneImageModelFamily.ToString(), _targetModelFamily, StringComparison.Ordinal))
+                .Select(model => (Identifier: model.ModelIdentifier, Display: model.DisplayName))
+                .OrderBy(choice => choice.Identifier, StringComparer.Ordinal)
+                .ToList();
+
+        // A family change invalidates the ticks: the previous family's models are no longer on the list, and keeping
+        // the selection would declare a model this profile cannot use.
+        _profileRenderModels.Clear();
+    }
+
+    private void ToggleProfileRenderModel(string identifier, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            _profileRenderModels.Add(identifier);
+        }
+        else
+        {
+            _profileRenderModels.Remove(identifier);
+        }
     }
 
     /// <summary>
@@ -358,6 +419,7 @@
                 TrainerId = TrainerIdForFamily(_targetModelFamily.Trim()),
                 TrainerVersion = TrainerVersionForFamily(_targetModelFamily.Trim()),
                 RecipeJson = preset.ToRecipeJson(),
+                RenderModelIdentifiers = _profileRenderModels.OrderBy(value => value, StringComparer.Ordinal).ToList(),
                 EnvironmentRequirementsJson = EnvironmentRequirementsForFamily(_targetModelFamily.Trim()),
                 CheckpointCadenceJson = JsonSerializer.Serialize(new { everySteps = preset.CheckpointEverySteps }),
                 SampleCadenceJson = JsonSerializer.Serialize(new { everySteps = preset.SampleEverySteps }),

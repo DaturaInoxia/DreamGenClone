@@ -806,7 +806,7 @@ public sealed class CharacterLoraCellServiceTests
         public Task<IReadOnlyList<CharacterLoraArtifact>> ListArtifactsAsync(string characterProfileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<IReadOnlyList<CharacterLoraArtifact>> ListQualifiedArtifactsForBaseModelAsync(string baseModelId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<CharacterLoraArtifact> SetArtifactStatusAsync(string artifactId, CharacterLoraArtifactStatus status, string decisionEvidenceJson, DateTime decidedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CharacterLoraArtifact> SetArtifactStatusAsync(string artifactId, CharacterLoraArtifactStatus status, string decisionEvidenceJson, IReadOnlyList<string> renderModelIdentifiers, DateTime decidedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task CreateIdentityStrategyBindingAsync(IdentityStrategyBinding binding, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<IdentityStrategyBinding>> ListIdentityStrategyBindingsAsync(string compiledRequestId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }

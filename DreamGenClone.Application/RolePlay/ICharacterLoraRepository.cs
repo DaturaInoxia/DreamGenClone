@@ -183,16 +183,28 @@ public interface ICharacterLoraRepository
     /// characters and versions, newest version first.
     ///
     /// This is what a render's LoRA picker offers. The MODEL decides which artifacts are selectable at all, because
-    /// a LoRA only binds to the checkpoint it was trained against — so one dataset trained for several models
-    /// simply yields one artifact per model here, and a candidate/rejected/superseded artifact is never offered.
+    /// A LoRA binds to the base it was trained against, so one dataset trained for several models simply yields
+    /// one artifact per model here, and a candidate/rejected/superseded artifact is never offered.
+    ///
+    /// <para>
+    /// "Trained against" is not always "loadable under": Krea 2 trains on the raw bf16 DiT and infers with a Turbo
+    /// repack of it. An artifact is therefore offered when the requested model is its training base OR one the
+    /// operator DECLARED it loadable under (see <c>CharacterLoraArtifact.RenderModelIdentifiers</c>).
+    /// </para>
     /// </summary>
     Task<IReadOnlyList<CharacterLoraArtifact>> ListQualifiedArtifactsForBaseModelAsync(
         string baseModelId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Qualify or reject a candidate artifact with the evidence that decided it, and record the render models it may
+    /// be loaded under. The identifiers are required here rather than defaulted from the training base: for a family
+    /// whose render checkpoint differs from its training base, guessing would silently leave the LoRA unofferable.
+    /// </summary>
     Task<CharacterLoraArtifact> SetArtifactStatusAsync(
         string artifactId,
         CharacterLoraArtifactStatus status,
         string decisionEvidenceJson,
+        IReadOnlyList<string> renderModelIdentifiers,
         DateTime decidedUtc,
         CancellationToken cancellationToken = default);
 
