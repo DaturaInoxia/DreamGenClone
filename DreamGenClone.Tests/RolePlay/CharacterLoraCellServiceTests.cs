@@ -773,6 +773,9 @@ public sealed class CharacterLoraCellServiceTests
             return Task.FromResult(_dataset);
         }
 
+        public Task<CharacterLoraDataset> DeriveDatasetAsync(string sourceDatasetId, string targetModelFamily, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteDatasetAsync(string datasetId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public Task EnsureSchemaAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterLoraTrainingProfile> CreateTrainingProfileAsync(CharacterLoraTrainingProfile profile, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<CharacterLoraTrainingProfile?> GetTrainingProfileAsync(string profileId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

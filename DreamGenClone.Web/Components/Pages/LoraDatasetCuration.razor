@@ -9,6 +9,7 @@
 @inject ICharacterLoraRepository LoraRepository
 @inject ICharacterLoraDatasetRegistrationService RegistrationService
 @inject ISceneAssetRepository AssetRepository
+@inject NavigationManager Navigation
 @inject ILogger<LoraDatasetCuration> Logger
 
 <PageTitle>Curate LoRA Dataset - DreamGenClone</PageTitle>
@@ -365,6 +366,72 @@
                 <button type="button" class="btn btn-primary btn-sm mt-3" disabled="@(_busy || IsFrozen || _members.Count == 0)" @onclick="FreezeAsync">Freeze Exact Manifest</button>
             </div>
         </section>
+
+        @* The images ARE the character; the family is only what they are trained for. Shooting 36 cells again to
+           train the same character against a second checkpoint buys nothing, and that is what this is for. *@
+        <section class="card mb-4" aria-label="Derive a version for another family">
+            <div class="card-header"><strong>Derive a version for another family</strong></div>
+            <div class="card-body small">
+                <p class="text-muted">
+                    Copies this set's plan, trigger token and every member — including the curation already recorded —
+                    into a new DRAFT aimed at the family you pick. No image is re-rendered and no asset is duplicated:
+                    the new version references the SAME promoted assets, and this dataset is left untouched. Pick the
+                    family it already is to take an updated set forward instead.
+                </p>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label small" for="derive-family">Family to train for</label>
+                        <select id="derive-family" class="form-select form-select-sm" disabled="@_busy" @bind="_deriveFamily">
+                            @foreach (var family in CharacterLoraModelFamilies.All)
+                            {
+                                <option value="@family">@family</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="button" class="btn btn-outline-primary btn-sm"
+                                disabled="@(_busy || _members.Count == 0)"
+                                @onclick="DeriveAsync">
+                            Derive @_members.Count member(s) for @_deriveFamily
+                        </button>
+                    </div>
+                </div>
+                <div class="form-text">
+                    @(_members.Count == 0
+                        ? "This dataset has no members to carry across yet."
+                        : "The new version opens as a Draft, ready to freeze, or to add images to first.")
+                </div>
+            </div>
+        </section>
+
+        <section class="card mb-4" aria-label="Remove dataset">
+            <div class="card-header"><strong>Remove this dataset</strong></div>
+            <div class="card-body small">
+                <p class="text-muted mb-2">
+                    Removes this dataset and its member list. It does <strong>not</strong> delete any image: a promoted
+                    asset is its own record and may be shared with other datasets. Refused if this dataset has training
+                    jobs, or if another dataset was derived from it.
+                </p>
+                @if (!_confirmRemove)
+                {
+                    <button type="button" class="btn btn-outline-danger btn-sm" disabled="@_busy"
+                            @onclick="() => _confirmRemove = true">
+                        Remove dataset v@_dataset.Version
+                    </button>
+                }
+                else
+                {
+                    <div class="alert alert-danger py-2 d-flex flex-wrap align-items-center gap-2 mb-0">
+                        <span>Remove <strong>v@_dataset.Version</strong> (@_dataset.TargetModelFamily) permanently?</span>
+                        <button type="button" class="btn btn-danger btn-sm" disabled="@_busy" @onclick="RemoveAsync">Yes, remove it</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@_busy"
+                                @onclick="() => _confirmRemove = false">
+                            Cancel
+                        </button>
+                    </div>
+                }
+            </div>
+        </section>
     }
 </div>
 
@@ -396,6 +463,8 @@
     private string _registrationCompatibility = string.Empty;
     private readonly HashSet<SceneAssetApprovedUseScope> _registrationScopes = [];
     private string _reviewedBy = string.Empty;
+    private string _deriveFamily = string.Empty;
+    private bool _confirmRemove;
     private bool _busy;
     private string? _error;
     private string? _status;
@@ -455,6 +524,11 @@
         _familyDraft = CharacterLoraModelFamilies.IsKnown(_dataset.TargetModelFamily)
             ? _dataset.TargetModelFamily
             : CharacterLoraModelFamilies.All[0];
+
+        // Defaults to a family this dataset is NOT: deriving into the family it already is would produce a second
+        // identical version, which is legal (that is how an updated set is taken forward) but a surprising default.
+        _deriveFamily = CharacterLoraModelFamilies.All
+            .First(family => !string.Equals(family, _dataset.TargetModelFamily, StringComparison.Ordinal));
 
         if (_dataset.Status == CharacterLoraDatasetStatus.Draft)
         {
@@ -578,6 +652,39 @@
             editor.Member.ReviewedUtc = DateTime.UtcNow;
             await LoraRepository.CurateDatasetMemberAsync(editor.Member, expectedRevision);
             _status = $"Candidate {editor.Member.Ordinal + 1} saved as {status}.";
+        });
+    }
+
+    /// <summary>
+    /// Carries this dataset's members into a new Draft aimed at another family, then opens it.
+    ///
+    /// <para>
+    /// Nothing is re-rendered and no asset is duplicated: the derived set references the SAME promoted Scene
+    /// Assets, because their approval (consent, licence, scope, version, checksum) is what freezing verifies and
+    /// none of it is family-specific.
+    /// </para>
+    /// </summary>
+    private async Task DeriveAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var derived = await LoraRepository.DeriveDatasetAsync(DatasetId, _deriveFamily);
+            Navigation.NavigateTo($"/asset-studio/lora-datasets/{derived.Id}");
+        });
+    }
+
+    /// <summary>
+    /// Removes this dataset. The character is captured FIRST: once the row is gone a reload cannot read it, and the
+    /// operator would be left on a page whose subject no longer exists.
+    /// </summary>
+    private async Task RemoveAsync()
+    {
+        var characterId = _dataset?.CharacterTemplateId ?? string.Empty;
+        await RunAsync(async () =>
+        {
+            await LoraRepository.DeleteDatasetAsync(DatasetId);
+            _confirmRemove = false;
+            Navigation.NavigateTo($"/characters/{Uri.EscapeDataString(characterId)}?section=LoRA%20images");
         });
     }
 

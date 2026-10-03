@@ -63,6 +63,39 @@ public interface ICharacterLoraRepository
     Task<CharacterLoraDataset> SetDatasetTargetFamilyAsync(
         string datasetId, string targetModelFamily, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Derive a NEW draft dataset for <paramref name="targetModelFamily"/> from an existing one.
+    ///
+    /// <para>
+    /// The members ARE the character; the family is only what the set is trained for. Re-shooting 36 cells to train
+    /// the same character against a second checkpoint therefore buys nothing, so this copies the plan, the trigger
+    /// token and every member VERBATIM - including the curation already done, because those images have been
+    /// reviewed and the family they are now aimed at is not what was reviewed. The member assets are SHARED, not
+    /// re-promoted: their approval (consent, licence, scope, version, checksum) is what freezing verifies, and none
+    /// of it is family-specific. That is why a derived set can be frozen without re-registering anything.
+    /// </para>
+    ///
+    /// <para>
+    /// The copy deliberately carries NO container asset. A cell's attempts are keyed on the dataset id
+    /// (<c>CellBatchIdFor</c>), so the source's renders belong to the source and could never be re-registered here.
+    /// A derived set starts from members, not from cells.
+    /// </para>
+    ///
+    /// <para>
+    /// The SAME family is allowed, which is how an updated set is taken forward: add or remove images, freeze
+    /// again, train again.
+    /// </para>
+    /// </summary>
+    Task<CharacterLoraDataset> DeriveDatasetAsync(
+        string sourceDatasetId, string targetModelFamily, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Remove a dataset that has produced nothing. Files on disk are NOT touched: a promoted member asset is its own
+    /// record and may be shared with other datasets. A dataset that has training jobs, or that another dataset was
+    /// derived from, is refused - it is evidence, and something points at it.
+    /// </summary>
+    Task DeleteDatasetAsync(string datasetId, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<CharacterLoraDatasetMember>> ListDatasetMembersAsync(
         string datasetId, CancellationToken cancellationToken = default);
 

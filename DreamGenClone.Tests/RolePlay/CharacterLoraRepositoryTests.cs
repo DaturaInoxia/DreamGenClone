@@ -137,6 +137,125 @@ public sealed class CharacterLoraRepositoryTests
     }
 
     [Fact]
+    public async Task Derive_CarriesEveryMemberIncludingCurationIntoANewDraftForTheTargetFamily()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var frozen = await fixture.CreateFrozenDatasetAsync();
+        var sourceMembers = await fixture.Repository.ListDatasetMembersAsync(frozen.Id);
+
+        var derived = await fixture.Repository.DeriveDatasetAsync(
+            frozen.Id, nameof(SceneImageModelFamily.Krea2));
+
+        Assert.Equal(nameof(SceneImageModelFamily.Krea2), derived.TargetModelFamily);
+        Assert.Equal(CharacterLoraDatasetStatus.Draft, derived.Status);
+        Assert.Equal(frozen.Id, derived.SupersedesId);
+        Assert.Null(derived.ManifestSha256);
+        // The version is scoped to the FAMILY, so the first Krea 2 set for this character is v1 even though the SDXL
+        // set it came from is not. Counting across the character would imply a lineage of versions that does not exist.
+        Assert.Equal(1, derived.Version);
+        // No container: a cell's attempts are keyed on the dataset id, so the source's renders belong to the source
+        // and could never be re-registered here. A derived set starts from members.
+        Assert.Null(derived.ContainerAssetId);
+
+        var copied = await fixture.Repository.ListDatasetMembersAsync(derived.Id);
+        Assert.Equal(sourceMembers.Count, copied.Count);
+        Assert.Equal(
+            sourceMembers.Select(m => (m.Ordinal, m.SceneAssetId, m.SceneAssetVersion, m.AssetSha256,
+                m.Role, m.Split, m.Caption, m.CurationStatus, m.CurationFindingsJson, m.ReviewedBy)),
+            copied.Select(m => (m.Ordinal, m.SceneAssetId, m.SceneAssetVersion, m.AssetSha256,
+                m.Role, m.Split, m.Caption, m.CurationStatus, m.CurationFindingsJson, m.ReviewedBy)));
+        // New rows in a new list, sharing the ASSETS rather than duplicating them.
+        Assert.Empty(sourceMembers.Select(m => m.Id).Intersect(copied.Select(m => m.Id)));
+        Assert.Equal(CharacterLoraDatasetStatus.Frozen,
+            (await fixture.Repository.GetDatasetAsync(frozen.Id))!.Status);
+    }
+
+    [Fact]
+    public async Task Derive_ProducesASetThatFreezesWithoutReRegisteringAnything()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var frozen = await fixture.CreateFrozenDatasetAsync();
+
+        var derived = await fixture.Repository.DeriveDatasetAsync(
+            frozen.Id, nameof(SceneImageModelFamily.Krea2));
+
+        // This is the whole point. Freezing verifies each member's Scene Asset - status, checksum, approval scope,
+        // production version, provenance, consent, licence - and NONE of that is family-specific, so a set aimed at
+        // a different family freezes on the same assets with no re-promotion and no re-render.
+        var refrozen = await fixture.Repository.FreezeDatasetAsync(derived.Id, "curator-1", DateTime.UtcNow);
+
+        Assert.Equal(CharacterLoraDatasetStatus.Frozen, refrozen.Status);
+        Assert.NotNull(refrozen.ManifestSha256);
+        Assert.Equal(64, refrozen.ManifestSha256!.Length);
+    }
+
+    [Fact]
+    public async Task Derive_AllowsTheSameFamilySoAnUpdatedSetCanBeTakenForward()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var frozen = await fixture.CreateFrozenDatasetAsync();
+
+        var derived = await fixture.Repository.DeriveDatasetAsync(frozen.Id, frozen.TargetModelFamily);
+
+        Assert.Equal(frozen.TargetModelFamily, derived.TargetModelFamily);
+        Assert.Equal(frozen.Version + 1, derived.Version);
+    }
+
+    [Fact]
+    public async Task Derive_RefusesAFamilyNothingCanTrainAndWritesNothing()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var frozen = await fixture.CreateFrozenDatasetAsync();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Repository.DeriveDatasetAsync(frozen.Id, "krea2"));
+
+        Assert.Contains("krea2", exception.Message, StringComparison.Ordinal);
+        Assert.Single(await fixture.Repository.ListDatasetsAsync(frozen.CharacterTemplateId));
+    }
+
+    [Fact]
+    public async Task Delete_RemovesADatasetAndItsMembers()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var dataset = await fixture.Repository.CreateDatasetAsync(fixture.Dataset());
+
+        await fixture.Repository.DeleteDatasetAsync(dataset.Id);
+
+        Assert.Null(await fixture.Repository.GetDatasetAsync(dataset.Id));
+        Assert.Empty(await fixture.Repository.ListDatasetMembersAsync(dataset.Id));
+    }
+
+    [Fact]
+    public async Task Delete_RefusesADatasetThatTrainedSomething()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var frozen = await fixture.CreateFrozenDatasetAsync();
+        await fixture.CreateQualifiedTrainingProfileAsync();
+        await fixture.Repository.CreateTrainingJobAsync(fixture.Job(frozen.Id));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Repository.DeleteDatasetAsync(frozen.Id));
+
+        Assert.Contains("training job", exception.Message, StringComparison.Ordinal);
+        Assert.NotNull(await fixture.Repository.GetDatasetAsync(frozen.Id));
+    }
+
+    [Fact]
+    public async Task Delete_RefusesADatasetSomethingWasDerivedFrom()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var frozen = await fixture.CreateFrozenDatasetAsync();
+        await fixture.Repository.DeriveDatasetAsync(frozen.Id, nameof(SceneImageModelFamily.Krea2));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Repository.DeleteDatasetAsync(frozen.Id));
+
+        Assert.Contains("lineage", exception.Message, StringComparison.Ordinal);
+        Assert.NotNull(await fixture.Repository.GetDatasetAsync(frozen.Id));
+    }
+
+    [Fact]
     public async Task Freeze_RequiresExactApprovedAssetsAndCreatesImmutableManifest()
     {
         await using var fixture = await Fixture.CreateAsync();

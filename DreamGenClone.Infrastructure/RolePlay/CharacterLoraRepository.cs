@@ -343,6 +343,179 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         return dataset;
     }
 
+    public async Task<CharacterLoraDataset> DeriveDatasetAsync(
+        string sourceDatasetId, string targetModelFamily, CancellationToken cancellationToken = default)
+    {
+        Require(sourceDatasetId, "LoRA dataset id");
+        if (!CharacterLoraModelFamilies.IsKnown(targetModelFamily))
+            throw new InvalidOperationException(
+                CharacterLoraModelFamilies.DescribeRefusal(targetModelFamily, "LoRA dataset target"));
+
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var source = await GetDatasetAsync(connection, transaction, sourceDatasetId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"LoRA dataset '{sourceDatasetId}' was not found.");
+        var members = await ListMembersAsync(connection, transaction, source.Id, cancellationToken);
+
+        // The version is scoped to the FAMILY (UNIQUE (CharacterProfileId, TargetModelFamily, Version)), so a copy
+        // aimed at Krea 2 is v1 even when the SDXL set it came from is v2. Counting versions across the character
+        // instead would skip numbers and imply a lineage of versions that does not exist for this family.
+        int nextVersion;
+        await using (var version = connection.CreateCommand())
+        {
+            version.Transaction = transaction;
+            version.CommandText =
+                "SELECT COALESCE(MAX(Version), 0) FROM CharacterLoraDatasets "
+                + "WHERE CharacterProfileId = $character AND TargetModelFamily = $family;";
+            version.Parameters.AddWithValue("$character", source.CharacterTemplateId.Trim());
+            version.Parameters.AddWithValue("$family", targetModelFamily.Trim());
+            nextVersion = Convert.ToInt32(await version.ExecuteScalarAsync(cancellationToken)) + 1;
+        }
+
+        var derived = new CharacterLoraDataset
+        {
+            CharacterTemplateId = source.CharacterTemplateId,
+            IdentityPackId = source.IdentityPackId,
+            Version = nextVersion,
+            Status = CharacterLoraDatasetStatus.Draft,
+            TriggerToken = source.TriggerToken,
+            TargetModelFamily = targetModelFamily.Trim(),
+            CoveragePlanJson = source.CoveragePlanJson,
+            CurationPolicyJson = source.CurationPolicyJson,
+            SupersedesId = source.Id,
+            // No container asset: a cell's attempts are keyed on the dataset id, so the source's renders belong to
+            // the source. This set is built from the source's MEMBERS, which are dataset-independent.
+            ContainerAssetId = null,
+            CreatedUtc = DateTime.UtcNow
+        };
+        ValidateNewDataset(derived);
+
+        await using (var insert = connection.CreateCommand())
+        {
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO CharacterLoraDatasets
+                    (Id, CharacterProfileId, IdentityPackId, Version, Status, TargetModelFamily,
+                     ManifestSha256, SupersedesId, PayloadJson, CreatedUtc, FrozenUtc)
+                VALUES ($id, $character, $pack, $version, $status, $family,
+                        NULL, $supersedes, $payload, $created, NULL);
+                """;
+            insert.Parameters.AddWithValue("$id", derived.Id.Trim());
+            insert.Parameters.AddWithValue("$character", derived.CharacterTemplateId.Trim());
+            insert.Parameters.AddWithValue("$pack", derived.IdentityPackId.Trim());
+            insert.Parameters.AddWithValue("$version", derived.Version);
+            insert.Parameters.AddWithValue("$status", derived.Status.ToString());
+            insert.Parameters.AddWithValue("$family", derived.TargetModelFamily.Trim());
+            insert.Parameters.AddWithValue("$supersedes", DbValue(derived.SupersedesId));
+            insert.Parameters.AddWithValue("$payload", Serialize(derived));
+            insert.Parameters.AddWithValue("$created", FormatUtc(derived.CreatedUtc));
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var member in members)
+        {
+            // Curation is copied, including the accepted decisions and the findings the reviewer recorded. Those
+            // images have been reviewed; the family they are aimed at is not what was reviewed, so re-reviewing
+            // them would be ceremony. Id and DatasetId are the ONLY fields that change.
+            var copy = new CharacterLoraDatasetMember
+            {
+                DatasetId = derived.Id,
+                Ordinal = member.Ordinal,
+                SceneAssetId = member.SceneAssetId,
+                SceneAssetVersion = member.SceneAssetVersion,
+                AssetSha256 = member.AssetSha256,
+                Role = member.Role,
+                Split = member.Split,
+                Caption = member.Caption,
+                CaptionRevision = member.CaptionRevision,
+                CoverageJson = member.CoverageJson,
+                GenerationAttemptId = member.GenerationAttemptId,
+                CurationStatus = member.CurationStatus,
+                CurationFindingsJson = member.CurationFindingsJson,
+                ReviewedBy = member.ReviewedBy,
+                ReviewedUtc = member.ReviewedUtc
+            };
+            ValidateMember(copy);
+            await using var insertMember = connection.CreateCommand();
+            insertMember.Transaction = transaction;
+            insertMember.CommandText = """
+                INSERT INTO CharacterLoraDatasetMembers
+                    (Id, DatasetId, Ordinal, SceneAssetId, SceneAssetVersion, AssetSha256,
+                     Role, Split, CurationStatus, PayloadJson)
+                VALUES ($id, $dataset, $ordinal, $asset, $assetVersion, $sha,
+                        $role, $split, $curation, $payload);
+                """;
+            insertMember.Parameters.AddWithValue("$id", copy.Id.Trim());
+            insertMember.Parameters.AddWithValue("$dataset", copy.DatasetId.Trim());
+            insertMember.Parameters.AddWithValue("$ordinal", copy.Ordinal);
+            insertMember.Parameters.AddWithValue("$asset", copy.SceneAssetId.Trim());
+            insertMember.Parameters.AddWithValue("$assetVersion", copy.SceneAssetVersion);
+            insertMember.Parameters.AddWithValue("$sha", copy.AssetSha256.Trim());
+            insertMember.Parameters.AddWithValue("$role", copy.Role.ToString());
+            insertMember.Parameters.AddWithValue("$split", copy.Split.ToString());
+            insertMember.Parameters.AddWithValue("$curation", copy.CurationStatus.ToString());
+            insertMember.Parameters.AddWithValue("$payload", Serialize(copy));
+            await insertMember.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return derived;
+    }
+
+    public async Task DeleteDatasetAsync(string datasetId, CancellationToken cancellationToken = default)
+    {
+        Require(datasetId, "LoRA dataset id");
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var dataset = await GetDatasetAsync(connection, transaction, datasetId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"LoRA dataset '{datasetId}' was not found.");
+
+        // A dataset that trained something is EVIDENCE, not clutter: its id and manifest are recorded on the job and
+        // on the artifacts that came out of it. Refused here with a readable reason rather than left to the foreign
+        // key, which would say the same thing in SQLITE_CONSTRAINT.
+        await using (var jobs = connection.CreateCommand())
+        {
+            jobs.Transaction = transaction;
+            jobs.CommandText = "SELECT COUNT(*) FROM CharacterLoraTrainingJobs WHERE DatasetId = $id;";
+            jobs.Parameters.AddWithValue("$id", dataset.Id);
+            var jobCount = Convert.ToInt32(await jobs.ExecuteScalarAsync(cancellationToken));
+            if (jobCount > 0)
+                throw new InvalidOperationException(
+                    $"LoRA dataset '{dataset.Id}' has {jobCount} training job(s), so it records a run that happened "
+                    + "and cannot be removed. Derive a new version instead.");
+        }
+
+        // SupersedesId is ON DELETE RESTRICT, so removing a dataset another one was derived from would either fail
+        // or orphan that lineage. Say it in words.
+        await using (var derived = connection.CreateCommand())
+        {
+            derived.Transaction = transaction;
+            derived.CommandText = "SELECT COUNT(*) FROM CharacterLoraDatasets WHERE SupersedesId = $id;";
+            derived.Parameters.AddWithValue("$id", dataset.Id);
+            var derivedCount = Convert.ToInt32(await derived.ExecuteScalarAsync(cancellationToken));
+            if (derivedCount > 0)
+                throw new InvalidOperationException(
+                    $"LoRA dataset '{dataset.Id}' is the source of {derivedCount} other dataset(s), so removing it "
+                    + "would break their lineage. Remove those first.");
+        }
+
+        await using (var members = connection.CreateCommand())
+        {
+            members.Transaction = transaction;
+            members.CommandText = "DELETE FROM CharacterLoraDatasetMembers WHERE DatasetId = $id;";
+            members.Parameters.AddWithValue("$id", dataset.Id);
+            await members.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var remove = connection.CreateCommand())
+        {
+            remove.Transaction = transaction;
+            remove.CommandText = "DELETE FROM CharacterLoraDatasets WHERE Id = $id;";
+            remove.Parameters.AddWithValue("$id", dataset.Id);
+            EnsureChanged(await remove.ExecuteNonQueryAsync(cancellationToken), "LoRA dataset", dataset.Id);
+        }
+        await transaction.CommitAsync(cancellationToken);
+    }
+
     public async Task<CharacterLoraDataset> SetDatasetContainerAsync(
         string datasetId, string containerAssetId, CancellationToken cancellationToken = default)
     {
