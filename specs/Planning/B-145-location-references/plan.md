@@ -214,16 +214,36 @@ change. `ReferencePicker` labels each choice `<container> — <name>`, falling b
 
 **No prompt change** — D5 held. `StepPromptElementPlan` and `ReferenceBindingPromptRemoval` tests are untouched.
 
+**Follow-up, same day: the approval form's ceremony removed.** The operator's response to the finished form was blunt —
+*"I dont need any of these fields? ceremony i do not need"*, with the fields filled in as `adfs` / `BA`. That is the
+correct verdict on them: nothing in the app parses `SourceProvenanceJson` or `CompatibilityMetadataJson` (verified by
+search — they are written, displayed in the Asset Studio provenance panel, and read by nothing), and the use scope
+merely restates the container the image already belongs to. Making an operator type them per image produced junk, not
+governance.
+
+So `SceneAssetApprovalDefaults` (domain) now supplies the recorded values — consent/licence `NotApplicable`, licence
+label `NA`, policy `general`, compatibility `{}`, provenance `{"source":"operator-approved"}` — and the use scope is
+derived from the container type **only where the type settles it** (`Location`, `Wardrobe`, `CharacterFace`,
+`CharacterBody`); it is left empty for a prop, style, playground, character, production frame or character pose, so the
+form still asks for a real answer instead of inventing one. The fields moved into a collapsed
+*"Recorded with this approval"* disclosure with a one-line summary of exactly what will be written, so the record stays
+visible without being a wall of inputs.
+
+Approving a location image is now: **type the name → click Approve.** The button's disabled state also names its own
+reason instead of just greying out — the trap that made this step unfindable twice. Pinned by
+`SceneAssetApprovalDefaultsTests` (the defaults are non-blank, the JSON defaults parse as objects, the consent/licence
+defaults are not the refused `Unknown` state, and the scope is derived only for the types that settle it).
+
 **The badge that caused the report.** The operator's original "nothing shows in the location list" was **not** a bug:
 they had used the review deck's **Accept**, which writes `CandidateDecision = Accepted` (this batch's pick) and not
 `ProductionApprovalStatus`. Asset Studio rendered that as a green badge that read as approval. It is now
 `picked: Accepted` in a neutral colour with a title saying it is not a production approval, and the Accept button's
 tooltip says the same at the moment of the click.
 
-**Evidence.** `dotnet build DreamGenClone.Tests` → 0 errors. Full suite: **3781 passed / 4 failed**, and all four
+**Evidence.** `dotnet build DreamGenClone.Tests` → 0 errors. Full suite: **3794 passed / 4 failed**, and all four
 failures are pre-existing and unrelated — 3 × `SdxlSceneImagePromptBuilderTests` (B-135, already documented) and
 1 × `SceneLoraSelectionWireTests.Read_WithAMalformedStack_Throws`, whose file and test are **untracked** new files
 from in-flight B-143 work. New tests: `LocationImageNamingTests` (10 cases: the predicate per type, the narrow writer
 vs an ordinary upsert, blank refusal, approval refusal, approval of a named image, a non-location image unchanged, and
-the empty-picker wording). `AssetStudioUiContractTests` updated for the changed review-form markup and extended to
-assert the naming contract.
+the empty-picker wording) and `SceneAssetApprovalDefaultsTests` (5 cases). `AssetStudioUiContractTests` updated for the
+changed review-form markup and extended to assert the naming contract.

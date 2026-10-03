@@ -29,47 +29,64 @@ else
             <span>Optional. When set, this is the name shown wherever the image can be picked as a reference.</span>
         }
     </div>
-    <label class="form-label" for="review-provenance">Source provenance JSON</label>
-    <textarea id="review-provenance" class="form-control font-monospace" rows="3" @bind="_provenanceJson"></textarea>
-    <div class="row g-2 mt-1">
-        <div class="col-sm-6">
-            <label class="form-label" for="review-consent">Consent</label>
-            <select id="review-consent" class="form-select" @bind="_consent">
-                <option value="">Select consent</option>
-                <option value="Confirmed">Confirmed</option>
-                <option value="NotApplicable">Not applicable</option>
-            </select>
-        </div>
-        <div class="col-sm-6">
-            <label class="form-label" for="review-license">License</label>
-            <select id="review-license" class="form-select" @bind="_license">
-                <option value="">Select license</option>
-                <option value="Confirmed">Confirmed</option>
-                <option value="NotApplicable">Not applicable</option>
-            </select>
-        </div>
-        <div class="col-sm-6">
-            <label class="form-label" for="review-license-label">License label</label>
-            <input id="review-license-label" class="form-control" @bind="_licenseLabel" />
-        </div>
-        <div class="col-sm-6">
-            <label class="form-label" for="review-use-scope">Use scope</label>
-            <select id="review-use-scope" class="form-select" @bind="_useScope">
-                <option value="">Select scope</option>
-                @foreach (var scope in Enum.GetValues<SceneAssetApprovedUseScope>())
+    @* The governance record is FILLED IN, not typed. Nothing in the app parses the provenance or compatibility JSON,
+       and the use scope restates the container the image already belongs to, so making an operator type them for every
+       elevation of one shed produced junk ("adfs", "BA") rather than governance. The record is still written, still
+       honest, and still editable here — it just no longer stands between the operator and one click. *@
+    <details class="mb-2">
+        <summary class="small text-muted">Recorded with this approval</summary>
+        <div class="form-text">@RecordedSummary</div>
+        <label class="form-label" for="review-provenance">Source provenance JSON</label>
+        <textarea id="review-provenance" class="form-control font-monospace" rows="2" @bind="_provenanceJson"></textarea>
+        <div class="row g-2 mt-1">
+            <div class="col-sm-6">
+                <label class="form-label" for="review-consent">Consent</label>
+                <select id="review-consent" class="form-select" @bind="_consent">
+                    <option value="">Select consent</option>
+                    <option value="Confirmed">Confirmed</option>
+                    <option value="NotApplicable">Not applicable</option>
+                </select>
+            </div>
+            <div class="col-sm-6">
+                <label class="form-label" for="review-license">License</label>
+                <select id="review-license" class="form-select" @bind="_license">
+                    <option value="">Select license</option>
+                    <option value="Confirmed">Confirmed</option>
+                    <option value="NotApplicable">Not applicable</option>
+                </select>
+            </div>
+            <div class="col-sm-6">
+                <label class="form-label" for="review-license-label">License label</label>
+                <input id="review-license-label" class="form-control" @bind="_licenseLabel" />
+            </div>
+            <div class="col-sm-6">
+                <label class="form-label" for="review-use-scope">Use scope</label>
+                <select id="review-use-scope" class="form-select" @bind="_useScope">
+                    <option value="">Select scope</option>
+                    @foreach (var scope in Enum.GetValues<SceneAssetApprovedUseScope>())
+                    {
+                        <option value="@scope">@scope</option>
+                    }
+                </select>
+                @if (string.IsNullOrWhiteSpace(_useScope))
                 {
-                    <option value="@scope">@scope</option>
+                    <div class="form-text text-warning">This container type does not settle a scope, so choose one.</div>
                 }
-            </select>
+            </div>
         </div>
-    </div>
-    <label class="form-label mt-2" for="review-policy">Content policy key</label>
-    <input id="review-policy" class="form-control" @bind="_contentPolicyKey" />
-    <label class="form-label mt-2" for="review-compatibility">Compatibility metadata JSON</label>
-    <textarea id="review-compatibility" class="form-control font-monospace" rows="3" @bind="_compatibilityJson"></textarea>
-    <button class="btn btn-success mt-3" type="button" disabled="@(_busy || !CanApprove)" @onclick="ApproveAsync">
+        <label class="form-label mt-2" for="review-policy">Content policy key</label>
+        <input id="review-policy" class="form-control" @bind="_contentPolicyKey" />
+        <label class="form-label mt-2" for="review-compatibility">Compatibility metadata JSON</label>
+        <textarea id="review-compatibility" class="form-control font-monospace" rows="2" @bind="_compatibilityJson"></textarea>
+    </details>
+    <button class="btn btn-success" type="button" disabled="@(_busy || !CanApprove)" @onclick="ApproveAsync">
         <i class="bi bi-check2-circle me-1"></i> Approve Exact Image
     </button>
+    @if (!CanApprove && !_busy)
+    {
+        @* A greyed-out button with no explanation is what made this step unfindable twice. Say what is missing. *@
+        <div class="form-text text-warning mt-2">@MissingReason</div>
+    }
     @if (_approved is not null)
     {
         <div class="alert alert-success mt-3 mb-0">
@@ -120,10 +137,65 @@ else
 
         _nameSeededFrom = Image.Id;
         _name = Image.DisplayName ?? string.Empty;
+
+        // The governance record is filled from the domain's defaults (SceneAssetApprovalDefaults) — recorded in full,
+        // typed by nobody. A container type that does not settle a scope leaves the box EMPTY on purpose, so the form
+        // still asks for a real answer instead of inventing one.
+        _provenanceJson = SceneAssetApprovalDefaults.ProvenanceJson;
+        _consent = SceneAssetApprovalDefaults.Consent;
+        _license = SceneAssetApprovalDefaults.License;
+        _licenseLabel = SceneAssetApprovalDefaults.LicenseLabel;
+        _contentPolicyKey = SceneAssetApprovalDefaults.ContentPolicyKey;
+        _compatibilityJson = SceneAssetApprovalDefaults.CompatibilityJson;
+        _useScope = AssetType is { } type && SceneAssetApprovalDefaults.UseScopeFor(type) is { } scope
+            ? scope.ToString()
+            : string.Empty;
     }
 
     /// <summary>Whether this image cannot be approved until it is named. The rule itself lives in the domain.</summary>
     private bool RequiresName => AssetType is { } type && SceneAssetImageNaming.IsNameRequiredForApproval(type);
+
+    /// <summary>
+    /// What this approval will record, in one line, so the collapsed details never have to be opened just to find out
+    /// what is about to be written down.
+    /// </summary>
+    private string RecordedSummary =>
+        $"Consent {(_consent.Length == 0 ? "(choose)" : _consent)}"
+        + $" · License {(_license.Length == 0 ? "(choose)" : _license)} ({(_licenseLabel.Length == 0 ? "-" : _licenseLabel)})"
+        + $" · Scope {(_useScope.Length == 0 ? "(choose)" : _useScope)}"
+        + $" · Policy {(_contentPolicyKey.Length == 0 ? "(blank)" : _contentPolicyKey)}";
+
+    /// <summary>
+    /// What is still missing, in the button's own words. A greyed-out button with no explanation is what made this
+    /// step unfindable twice over; naming the gap costs nothing and removes the guess.
+    /// </summary>
+    private string MissingReason
+    {
+        get
+        {
+            if (Image.Status != SceneAssetStatus.Complete)
+            {
+                return "This image has to finish processing before it can be approved.";
+            }
+
+            if (RequiresName && string.IsNullOrWhiteSpace(_name))
+            {
+                return "Give this image a name — a location's images are told apart by it.";
+            }
+
+            if (string.IsNullOrWhiteSpace(_useScope))
+            {
+                return "Choose a use scope.";
+            }
+
+            if (string.IsNullOrWhiteSpace(_consent) || string.IsNullOrWhiteSpace(_license))
+            {
+                return "Set consent and licence to Confirmed or Not applicable.";
+            }
+
+            return "Open 'Recorded with this approval' and fill in the blank details.";
+        }
+    }
 
     private bool CanApprove => Image.Status == SceneAssetStatus.Complete
         && (!RequiresName || !string.IsNullOrWhiteSpace(_name))

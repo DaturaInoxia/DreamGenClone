@@ -94,6 +94,64 @@ public static class SceneAssetImageNaming
     public static bool IsNameRequiredForApproval(SceneAssetType type) => type == SceneAssetType.Location;
 }
 
+/// <summary>
+/// What an image's production-approval record is filled with when the operator does not fill it in.
+///
+/// <para>
+/// These fields are BOOKKEEPING, not a decision: nothing in the app parses the provenance or compatibility JSON, and
+/// the use scope is a statement about the container the image already belongs to. Requiring an operator to type them
+/// for every picture — four elevations and an interior of one shed — is ceremony that produced junk values ("adfs",
+/// "BA") rather than governance, which is worse than a truthful default.
+/// </para>
+///
+/// <para>
+/// The defaults are explicit and visible in the form, and every one of them can be changed before approving. Nothing
+/// here is a substitute for a value the operator was asked to supply: the use scope is derived ONLY where the type
+/// makes it unambiguous, and left empty where it does not, so the form still requires a real choice rather than
+/// inventing one.
+/// </para>
+/// </summary>
+public static class SceneAssetApprovalDefaults
+{
+    /// <summary>
+    /// The provenance recorded for an image approved straight from the review form. It says what actually happened —
+    /// an operator approved it in the app — rather than claiming a source that was never supplied.
+    /// </summary>
+    public const string ProvenanceJson = "{\"source\":\"operator-approved\"}";
+
+    /// <summary>No consent claim is made or needed for an image the operator rendered themselves.</summary>
+    public const string Consent = nameof(SceneAssetConsentState.NotApplicable);
+
+    /// <summary>No licence claim is made or needed for an image the operator rendered themselves.</summary>
+    public const string License = nameof(SceneAssetLicenseState.NotApplicable);
+
+    /// <summary>The licence label that goes with <see cref="License"/>.</summary>
+    public const string LicenseLabel = "NA";
+
+    /// <summary>An unclassified content policy. Editable, and recorded rather than implied.</summary>
+    public const string ContentPolicyKey = "general";
+
+    /// <summary>An empty compatibility map: this image has no declared compatibility constraints.</summary>
+    public const string CompatibilityJson = "{}";
+
+    /// <summary>
+    /// The use scope an image of this container type is approved for, or null when the type does not settle it.
+    ///
+    /// <para>
+    /// Null is the honest answer for a prop, a style or a playground container: there is no single scope those exist
+    /// to serve, so the form asks instead of guessing — and an approval cannot proceed until it is answered.
+    /// </para>
+    /// </summary>
+    public static SceneAssetApprovedUseScope? UseScopeFor(SceneAssetType type) => type switch
+    {
+        SceneAssetType.Location => SceneAssetApprovedUseScope.Location,
+        SceneAssetType.Wardrobe => SceneAssetApprovedUseScope.CharacterWardrobe,
+        SceneAssetType.CharacterFace => SceneAssetApprovedUseScope.CharacterIdentity,
+        SceneAssetType.CharacterBody => SceneAssetApprovedUseScope.CharacterBody,
+        _ => null
+    };
+}
+
 public enum SceneAssetCandidateDecision
 {
     Undecided = 0,
