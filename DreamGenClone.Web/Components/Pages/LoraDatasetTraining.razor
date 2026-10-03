@@ -222,40 +222,6 @@
                             {
                                 <div class="form-text mb-3">@evidence.Meaning</div>
                             }
-                            <fieldset class="mb-3">
-                                <legend class="fs-6">Render models this LoRA may be loaded under</legend>
-                                <div class="form-text mb-2">
-                                    A qualified LoRA is offered for a render model when it was trained against that
-                                    model <strong>or</strong> when it is declared here. Krea 2 is trained on the raw
-                                    DiT and rendered with a Turbo repack, so its LoRAs must be declared or they can
-                                    never be picked. Leave every box clear when the training base is what you render
-                                    with.
-                                </div>
-                                @if (_renderModelChoices.Count == 0)
-                                {
-                                    <div class="text-muted small">
-                                        No enabled @_dataset.TargetModelFamily model is registered, so there is nothing
-                                        to declare. The artifact is then offered only under the base it was trained
-                                        against.
-                                    </div>
-                                }
-                                else
-                                {
-                                    <div class="d-flex flex-wrap gap-3">
-                                        @foreach (var choice in _renderModelChoices)
-                                        {
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" id="render-@choice.Identifier"
-                                                       checked="@_artifactRenderModels.Contains(choice.Identifier)"
-                                                       @onchange="args => ToggleRenderModel(choice.Identifier, args)" />
-                                                <label class="form-check-label small" for="render-@choice.Identifier">
-                                                    @choice.Display <span class="text-muted font-monospace">@choice.Identifier</span>
-                                                </label>
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                            </fieldset>
                             <div class="table-responsive">
                                 <table class="table table-sm align-middle mb-0">
                                     <thead><tr><th>Version</th><th>Base model</th><th>Trigger</th><th>Checksum</th><th>Status</th><th class="text-end">Decision</th></tr></thead>
@@ -273,6 +239,50 @@
                                                     {
                                                         <button type="button" class="btn btn-success btn-sm" disabled="@_busy" @onclick="() => DecideArtifactAsync(artifact.Id, CharacterLoraArtifactStatus.Qualified)">Qualify</button>
                                                         <button type="button" class="btn btn-outline-danger btn-sm" disabled="@_busy" @onclick="() => DecideArtifactAsync(artifact.Id, CharacterLoraArtifactStatus.Rejected)">Reject</button>
+                                                    }
+                                                </td>
+                                            </tr>
+                                            <tr class="table-group-divider">
+                                                <td colspan="6" class="small">
+                                                    <div class="fw-semibold">Render models this LoRA may be loaded under</div>
+                                                    <div class="form-text mb-2">
+                                                        A qualified LoRA is offered for a render model when it was trained against
+                                                        that model <strong>or</strong> when it is declared here. Krea 2 trains on the raw
+                                                        DiT and renders with a Turbo repack, so its LoRAs must be declared or they can
+                                                        never be picked. Leave every box clear when the training base is what you render
+                                                        with.
+                                                    </div>
+                                                    @if (_renderModelChoices.Count == 0)
+                                                    {
+                                                        <div class="text-muted">
+                                                            No enabled @_dataset.TargetModelFamily model is registered, so there is nothing
+                                                            to declare. This artifact is then offered only under the base it was trained
+                                                            against.
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="d-flex flex-wrap gap-3">
+                                                            @foreach (var choice in _renderModelChoices)
+                                                            {
+                                                                var boxId = $"render-{artifact.Id}-{choice.Identifier}";
+                                                                <div class="form-check">
+                                                                    <input class="form-check-input" type="checkbox" id="@boxId"
+                                                                           checked="@artifact.RenderModelIdentifiers.Contains(choice.Identifier)"
+                                                                           disabled="@_busy"
+                                                                           @onchange="args => ToggleArtifactRenderModelAsync(artifact, choice.Identifier, args)" />
+                                                                    <label class="form-check-label" for="@boxId">
+                                                                        @choice.Display <span class="text-muted font-monospace">@choice.Identifier</span>
+                                                                    </label>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                        <div class="form-text">
+                                                            Saved the moment a box is ticked: the declaration is a fact about the file, so
+                                                            it stays correctable after the decision instead of being written once and
+                                                            frozen. Ticking nothing is a valid answer - "this LoRA loads under the base
+                                                            it was trained against".
+                                                        </div>
                                                     }
                                                 </td>
                                             </tr>
@@ -310,7 +320,6 @@
     private int _artifactVersion;
     private string _artifactDecisionEvidenceKey = LoraArtifactDecisionEvidence.Default.Key;
     private List<(string Identifier, string Display)> _renderModelChoices = [];
-    private readonly HashSet<string> _artifactRenderModels = [];
     private bool _busy;
     private bool _loaded;
     private string? _error;
@@ -497,19 +506,39 @@
     }
 
     /// <summary>
-    /// Records which render models this artifact may be loaded under, alongside the qualification itself. The list is
-    /// sorted so the stored record does not depend on the order the boxes happened to be ticked in.
+    /// Records which render models THIS artifact may be loaded under, the moment a box is ticked.
+    ///
+    /// Saved straight away rather than staged behind a Save button, and saved through
+    /// <see cref="ICharacterLoraRepository.SetArtifactRenderModelsAsync"/> rather than through the decision, because
+    /// the declaration is a fact about the FILE and not part of the judgement. Folding it into the decision is what
+    /// made it write-once and left a qualified Krea 2 LoRA permanently unpickable - the operator knew the answer and
+    /// the app had no way to accept it.
     /// </summary>
-    private void ToggleRenderModel(string identifier, ChangeEventArgs args)
+    private async Task ToggleArtifactRenderModelAsync(
+        CharacterLoraArtifact artifact, string identifier, ChangeEventArgs args)
     {
+        var declared = artifact.RenderModelIdentifiers.ToList();
         if (args.Value is true)
         {
-            _artifactRenderModels.Add(identifier);
+            if (!declared.Contains(identifier, StringComparer.Ordinal))
+            {
+                declared.Add(identifier);
+            }
         }
         else
         {
-            _artifactRenderModels.Remove(identifier);
+            declared.RemoveAll(value => string.Equals(value, identifier, StringComparison.Ordinal));
         }
+
+        // Sorted so the stored record does not depend on the order the boxes happened to be ticked in.
+        declared.Sort(StringComparer.Ordinal);
+        await RunAsync(async () =>
+        {
+            await LoraRepository.SetArtifactRenderModelsAsync(artifact.Id, declared);
+            _status = declared.Count == 0
+                ? $"Artifact {artifact.Id} may be loaded under its training base only."
+                : $"Artifact {artifact.Id} may be loaded under {string.Join(", ", declared)}.";
+        });
     }
 
     private async Task DecideArtifactAsync(string artifactId, CharacterLoraArtifactStatus status)
@@ -525,9 +554,17 @@
                 ?? throw new InvalidOperationException(
                     $"'{_artifactDecisionEvidenceKey}' is not a kind of artifact evidence. Pick one from the list.");
 
+            // The declaration is read from the ARTIFACT rather than from form state, because it is saved the moment a
+            // box is ticked. A decision therefore records exactly what the artifact declares - including a
+            // declaration made in an earlier visit, or one carried onto it from its training profile - instead of
+            // whatever boxes happened to be ticked in this page session.
+            var artifact = _artifacts.SingleOrDefault(value => string.Equals(value.Id, artifactId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"LoRA artifact '{artifactId}' is not on this page.");
+
             await LoraRepository.SetArtifactStatusAsync(
                 artifactId, status, evidence.Json,
-                _artifactRenderModels.OrderBy(value => value, StringComparer.Ordinal).ToList(), DateTime.UtcNow);
+                artifact.RenderModelIdentifiers.OrderBy(value => value, StringComparer.Ordinal).ToList(),
+                DateTime.UtcNow);
             _status = $"Artifact {artifactId} marked {status}, on evidence: {evidence.Label}.";
         });
     }

@@ -828,8 +828,14 @@ static async Task<int> ConfigureBigLustImageAsync(SqliteConnection connection)
 }
 
 /// <summary>
-/// B-137: registers Krea 2 (Krea-2 Turbo) as a local ComfyUI scene-image generation model and seeds its
-/// scene-LoRA catalog.
+/// B-137: registers Krea 2 (Krea-2 Turbo) as a local ComfyUI scene-image generation model, declares the Character
+/// LoRA identity it can carry, and seeds its scene-LoRA catalog.
+///
+/// The LoRA declaration is not cosmetic. A render surface offers the Character LoRA picker only when the selected
+/// model's qualified strategies include Lora, so a model registered without it shows NO picker anywhere - which is
+/// exactly how a trained Krea 2 character LoRA became unreachable on 2026-10-03. Both declaration fields are written
+/// (visual for the render surfaces, identity for the production-media compilers) plus the qualification entry that
+/// makes the declaration usable.
 ///
 /// This is the portable form of the B-137 seed. The repo has no snapshot-refresh command
 /// (<c>.github/instructions/db-snapshot-workflow.instructions.md</c>: "Share portable configuration as reviewed,
@@ -880,9 +886,21 @@ static async Task<int> ConfigureKrea2Async(SqliteConnection connection)
     // Krea-2 Turbo is cfg-1 distilled and takes no negative text: the graph zeroes the positive conditioning
     // instead. The envelope is qualified here and is never read from the studio's SDXL-family controls.
     const string qualificationNote =
-        "Text-to-image only: no reference conditioning, no edit path, no ControlNet. Krea-2 Turbo is cfg-1 "
+        "No reference conditioning, no edit path, no ControlNet. Krea-2 Turbo is cfg-1 "
         + "distilled, so the graph zeroes the positive conditioning instead of taking a negative prompt - the "
-        + "sampler envelope is qualified here and is never read from the studio controls.";
+        + "sampler envelope is qualified here and is never read from the studio controls. Character LoRA identity "
+        + "IS carried, through the entry below, and an artifact that declares no LoRA changes nothing here.";
+
+    // LoRA identity. This entry is what makes the render's Character LoRA picker EXIST: ImageStepComposer and
+    // SceneImageStudio ask the selected model's qualified strategies before they offer the control at all, so a
+    // model without this entry shows no picker rather than an empty one. The Krea 2 graph re-points the sampler's
+    // MODEL branch at a LoraLoaderModelOnly node and has no separate CLIP conditioning to re-point, which is the
+    // same chain the seeded scene-LoRA catalog already renders through, so the capability is not new machinery.
+    const string loraNote =
+        "Krea-2 Turbo loads a LoRA through LoraLoaderModelOnly - the chain the scene-LoRA catalog already renders "
+        + "through - and only the model branch is re-pointed, because this graph has no separate CLIP conditioning. "
+        + "ProofId names the 2026-10-03 character-LoRA render on this model. No LoRA-free render changes: a LoRA is "
+        + "loaded only when a render's picker actually selected one.";
     var qualifications =
         "[{\"Strategy\":\"TextToImage\",\"EndpointId\":\"" + providerId + "\",\"Qualified\":true,"
         + "\"ProofId\":\"krea2-59-cell-matrix-2026-10-01\","
@@ -890,12 +908,22 @@ static async Task<int> ConfigureKrea2Async(SqliteConnection connection)
         + "\"ClipName\":\"qwen3vl_4b_fp8_scaled.safetensors\","
         + "\"VaeName\":\"qwen_image_vae.safetensors\","
         + "\"Steps\":8,\"Cfg\":1.0,\"SamplerName\":\"euler\",\"Scheduler\":\"simple\",\"Denoise\":1.0,"
-        + "\"Note\":\"" + qualificationNote.Replace("\"", "'") + "\"}]";
+        + "\"Note\":\"" + qualificationNote.Replace("\"", "'") + "\"},"
+        + "{\"Strategy\":\"Lora\",\"EndpointId\":\"" + providerId + "\",\"Qualified\":true,"
+        + "\"ProofId\":\"krea2-turbo-becky-lora-2026-10-03\","
+        + "\"Note\":\"" + loraNote.Replace("\"", "'") + "\"}]";
+
+    // TWO different declarations, and the difference is load-bearing. The render surfaces' LoRA picker asks
+    // ReferenceStrategyResolver.ListAvailableStrategies, which reads SupportedVisualStrategiesJson; the
+    // production-media compilers read SupportedIdentityStrategiesJson. Declaring Lora in only one of them would
+    // leave the picker absent on exactly the surfaces the operator uses.
+    const string supportedIdentityStrategies = "[\"Lora\"]";
+    const string supportedVisualStrategies = "[\"TextOnly\",\"Lora\"]";
 
     const string modelNotes =
         "Krea-2 Turbo 12B DiT + Qwen3-VL 4B text encoder + Qwen Image VAE, local ComfyUI only. Text-to-image with "
-        + "no reference conditioning. Proof: 59-cell matrix in helpers/local-comfyui-host/run-krea2-proof.ps1 "
-        + "(specs/Planning/B-137-krea2-local-generation).";
+        + "no reference conditioning, plus Character LoRA identity (LoraLoaderModelOnly). Proof: 59-cell matrix in "
+        + "helpers/local-comfyui-host/run-krea2-proof.ps1 (specs/Planning/B-137-krea2-local-generation).";
 
     string modelId;
     await using (var selectModel = connection.CreateCommand())
@@ -916,8 +944,8 @@ static async Task<int> ConfigureKrea2Async(SqliteConnection connection)
                     ModelKind = 1,
                     SceneImageModelFamily = $family,
                     PromptDialect = $dialect,
-                    SupportedIdentityStrategiesJson = '[]',
-                    SupportedVisualStrategiesJson = '["TextOnly"]',
+                    SupportedIdentityStrategiesJson = $identityStrategies,
+                    SupportedVisualStrategiesJson = $visualStrategies,
                     CapabilityQualificationsJson = $qualifications,
                     Notes = $notes,
                     IsEnabled = 1
@@ -927,6 +955,8 @@ static async Task<int> ConfigureKrea2Async(SqliteConnection connection)
             updateModel.Parameters.AddWithValue("$displayName", modelDisplayName);
             updateModel.Parameters.AddWithValue("$family", familyKrea2);
             updateModel.Parameters.AddWithValue("$dialect", dialectKrea2NaturalLanguage);
+            updateModel.Parameters.AddWithValue("$identityStrategies", supportedIdentityStrategies);
+            updateModel.Parameters.AddWithValue("$visualStrategies", supportedVisualStrategies);
             updateModel.Parameters.AddWithValue("$qualifications", qualifications);
             updateModel.Parameters.AddWithValue("$notes", modelNotes);
             updateModel.Parameters.AddWithValue("$modelId", modelId);
@@ -950,7 +980,7 @@ static async Task<int> ConfigureKrea2Async(SqliteConnection connection)
                     0, 'fp8', '12B', $notes, 0,
                     1, 0, $family, $dialect,
                     0, 0,
-                    '[]', '["TextOnly"]',
+                    $identityStrategies, $visualStrategies,
                     $qualifications, 0);
                 """;
             insertModel.Parameters.AddWithValue("$id", modelId);
@@ -959,6 +989,8 @@ static async Task<int> ConfigureKrea2Async(SqliteConnection connection)
             insertModel.Parameters.AddWithValue("$displayName", modelDisplayName);
             insertModel.Parameters.AddWithValue("$family", familyKrea2);
             insertModel.Parameters.AddWithValue("$dialect", dialectKrea2NaturalLanguage);
+            insertModel.Parameters.AddWithValue("$identityStrategies", supportedIdentityStrategies);
+            insertModel.Parameters.AddWithValue("$visualStrategies", supportedVisualStrategies);
             insertModel.Parameters.AddWithValue("$qualifications", qualifications);
             insertModel.Parameters.AddWithValue("$notes", modelNotes);
             insertModel.Parameters.AddWithValue("$now", now);
@@ -1050,7 +1082,7 @@ static async Task<int> ConfigureKrea2Async(SqliteConnection connection)
 
     await transaction.CommitAsync();
     Console.WriteLine(
-        $"Krea 2 configured: {providerName} | {modelIdentifier} (Krea2 / Krea2NaturalLanguage, TextOnly) | "
+        $"Krea 2 configured: {providerName} | {modelIdentifier} (Krea2 / Krea2NaturalLanguage, TextOnly + Lora) | "
         + $"catalog rows inserted {catalogInserted}/{loras.Length} (existing rows left as they were)");
     Console.WriteLine(
         "Additive only: no function default was changed, so nothing renders differently until Krea 2 is picked.");

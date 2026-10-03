@@ -208,6 +208,22 @@ public interface ICharacterLoraRepository
         DateTime decidedUtc,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Record the render models an artifact may be loaded under, WITHOUT touching its decision.
+    ///
+    /// This exists because the declaration is a fact about the FILE - which checkpoints can load it - and not part of
+    /// the quality judgement, so it must stay correctable after the decision is made. Folding it into
+    /// <see cref="SetArtifactStatusAsync"/> made it write-once: an artifact qualified with the declaration left empty
+    /// could never be corrected, and the LoRA stayed unofferable even though the answer was known.
+    ///
+    /// The DECISION is still write-once, which is what keeps a rejected artifact rejected: only a candidate can be
+    /// qualified or rejected. This changes nothing but the declaration.
+    /// </summary>
+    Task<CharacterLoraArtifact> SetArtifactRenderModelsAsync(
+        string artifactId,
+        IReadOnlyList<string> renderModelIdentifiers,
+        CancellationToken cancellationToken = default);
+
     Task CreateIdentityStrategyBindingAsync(
         IdentityStrategyBinding binding, CancellationToken cancellationToken = default);
 

@@ -1006,16 +1006,7 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         if (artifact.Status != CharacterLoraArtifactStatus.Candidate)
             throw new InvalidOperationException($"LoRA artifact '{artifactId}' is {artifact.Status}; only candidates can be decided.");
 
-        // A blank identifier would be a row the picker could never match, so it is refused rather than stored. An
-        // EMPTY LIST is legal and means "only the base it was trained against", which is every SDXL-family case.
-        if (renderModelIdentifiers.Any(identifier => string.IsNullOrWhiteSpace(identifier)))
-            throw new InvalidOperationException(
-                "A declared render model identifier cannot be blank; leave the list empty when the training base is "
-                + "the model this LoRA loads under.");
-        artifact.RenderModelIdentifiers = renderModelIdentifiers
-            .Select(identifier => identifier.Trim())
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        artifact.RenderModelIdentifiers = NormalizeRenderModelIdentifiers(renderModelIdentifiers);
         artifact.Status = status;
         artifact.DecisionEvidenceJson = decisionEvidenceJson;
         artifact.QualifiedUtc = status == CharacterLoraArtifactStatus.Qualified ? decidedUtc : null;
@@ -1029,6 +1020,50 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         command.Parameters.AddWithValue("$id", artifact.Id);
         EnsureChanged(await command.ExecuteNonQueryAsync(cancellationToken), "LoRA artifact", artifact.Id);
         return artifact;
+    }
+
+    /// <summary>
+    /// Record the render models this artifact may be loaded under, leaving its decision alone.
+    ///
+    /// The declaration is separate from the decision on purpose, and this method is what keeps it correctable: an
+    /// operator who qualified a Krea 2 LoRA without declaring the Turbo checkpoint can fix the declaration here
+    /// instead of being told the answer is now permanent. Nothing about the decision moves - the status, its evidence
+    /// and its timestamp are untouched - and a rejected artifact stays rejected.
+    /// </summary>
+    public async Task<CharacterLoraArtifact> SetArtifactRenderModelsAsync(
+        string artifactId,
+        IReadOnlyList<string> renderModelIdentifiers,
+        CancellationToken cancellationToken = default)
+    {
+        Require(artifactId, "LoRA artifact id");
+        var declared = NormalizeRenderModelIdentifiers(renderModelIdentifiers);
+        await using var connection = await OpenAsync(cancellationToken);
+        var artifact = await ReadArtifactAsync(connection, artifactId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"LoRA artifact '{artifactId}' was not found.");
+        artifact.RenderModelIdentifiers = declared;
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE CharacterLoraArtifacts SET PayloadJson = $payload WHERE Id = $id;";
+        command.Parameters.AddWithValue("$payload", Serialize(artifact));
+        command.Parameters.AddWithValue("$id", artifact.Id);
+        EnsureChanged(await command.ExecuteNonQueryAsync(cancellationToken), "LoRA artifact", artifact.Id);
+        return artifact;
+    }
+
+    /// <summary>
+    /// The ONE rule for a render-model declaration, shared by the decision and the correction so the two can never
+    /// disagree. A blank identifier is refused because it is a value no picker could ever match; an EMPTY LIST is
+    /// legal and means "only the base it was trained against", which is every SDXL-family case.
+    /// </summary>
+    private static List<string> NormalizeRenderModelIdentifiers(IReadOnlyList<string> renderModelIdentifiers)
+    {
+        if (renderModelIdentifiers.Any(identifier => string.IsNullOrWhiteSpace(identifier)))
+            throw new InvalidOperationException(
+                "A declared render model identifier cannot be blank; leave the list empty when the training base is "
+                + "the model this LoRA loads under.");
+        return renderModelIdentifiers
+            .Select(identifier => identifier.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
     public async Task CreateIdentityStrategyBindingAsync(

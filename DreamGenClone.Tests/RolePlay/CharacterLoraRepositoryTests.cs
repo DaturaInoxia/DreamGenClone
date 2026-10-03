@@ -480,6 +480,71 @@ public sealed class CharacterLoraRepositoryTests
         Assert.Empty(await fixture.Repository.ListQualifiedArtifactsForBaseModelAsync("juggernautXL_ragnarok.safetensors"));
     }
 
+    /// <summary>
+    /// The declaration is a fact about the FILE, not part of the judgement, so it has to stay correctable after the
+    /// decision. Before this, it was written once inside <c>SetArtifactStatusAsync</c> and an artifact qualified with
+    /// nothing declared could never be fixed - which is exactly how a trained Krea 2 character LoRA became permanently
+    /// unpickable even though the operator knew which checkpoint renders it.
+    /// </summary>
+    [Fact]
+    public async Task DeclaredRenderModels_AreCorrectableAfterTheDecisionWithoutMovingIt()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var dataset = await fixture.CreateFrozenDatasetAsync();
+        await fixture.CreateQualifiedTrainingProfileAsync();
+        var job = fixture.Job(dataset.Id);
+        await fixture.Repository.CreateTrainingJobAsync(job);
+        await fixture.Repository.TransitionTrainingJobAsync(
+            job.Id, CharacterLoraTrainingJobStatus.Draft, CharacterLoraTrainingJobStatus.Ready, 1);
+        await fixture.Repository.TransitionTrainingJobAsync(
+            job.Id, CharacterLoraTrainingJobStatus.Ready, CharacterLoraTrainingJobStatus.Queued, 2);
+        await fixture.Repository.TransitionTrainingJobAsync(
+            job.Id, CharacterLoraTrainingJobStatus.Queued, CharacterLoraTrainingJobStatus.Running, 3);
+        var attempt = fixture.Attempt(job.Id);
+        await fixture.Repository.CreateTrainingAttemptAsync(attempt);
+        var submitted = await fixture.Repository.RecordTrainingSubmissionAsync(
+            attempt.Id, "trainer-provider", "provider-job-1", "https://provider.invalid/jobs/1", 1);
+        var running = await fixture.Repository.TransitionTrainingAttemptAsync(
+            attempt.Id, CharacterLoraTrainingAttemptStatus.Submitted,
+            CharacterLoraTrainingAttemptStatus.Running, submitted.ConcurrencyVersion);
+        var succeeded = await fixture.Repository.RecordTrainingResultAsync(
+            attempt.Id, "lora/output.safetensors", OutputSha256, 1024,
+            "[]", "{}", "{}", "{}", running.ConcurrencyVersion);
+        var artifact = fixture.Artifact(dataset, succeeded);
+        await fixture.Repository.CreateArtifactAsync(artifact);
+
+        // Qualified with NOTHING declared: the LoRA renders under the Turbo repack, but the decision recorded no such
+        // thing, so it is offered under the training base alone.
+        await fixture.Repository.SetArtifactStatusAsync(
+            artifact.Id, CharacterLoraArtifactStatus.Qualified, "{\"passed\":true}", [], DateTime.UtcNow);
+        var decided = (await fixture.Repository.GetArtifactAsync(artifact.Id))!;
+        Assert.Empty(decided.RenderModelIdentifiers);
+        Assert.Empty(await fixture.Repository.ListQualifiedArtifactsForBaseModelAsync(DeclaredRenderModel));
+
+        // A blank identifier is refused by the CORRECTION as well, and nothing is written.
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Repository.SetArtifactRenderModelsAsync(artifact.Id, ["  "]));
+        Assert.Empty((await fixture.Repository.GetArtifactAsync(artifact.Id))!.RenderModelIdentifiers);
+
+        var corrected = await fixture.Repository.SetArtifactRenderModelsAsync(artifact.Id, [DeclaredRenderModel]);
+
+        Assert.Equal([DeclaredRenderModel], corrected.RenderModelIdentifiers);
+        // The DECISION does not move: correcting a declaration must never read as re-qualifying, so the status, its
+        // evidence and the moment it was taken all survive untouched.
+        Assert.Equal(CharacterLoraArtifactStatus.Qualified, corrected.Status);
+        Assert.Equal(decided.DecisionEvidenceJson, corrected.DecisionEvidenceJson);
+        Assert.Equal(decided.QualifiedUtc, corrected.QualifiedUtc);
+        // And the LoRA is now offerable under the model the operator actually renders with.
+        Assert.Equal(artifact.Id,
+            Assert.Single(await fixture.Repository.ListQualifiedArtifactsForBaseModelAsync(DeclaredRenderModel)).Id);
+
+        // Clearing it again is a valid answer - "this one loads under the base it was trained against" - not an error.
+        var cleared = await fixture.Repository.SetArtifactRenderModelsAsync(artifact.Id, []);
+        Assert.Empty(cleared.RenderModelIdentifiers);
+        Assert.Equal(CharacterLoraArtifactStatus.Qualified, cleared.Status);
+        Assert.Empty(await fixture.Repository.ListQualifiedArtifactsForBaseModelAsync(DeclaredRenderModel));
+    }
+
     [Fact]
     public async Task TrainingJob_RejectsSecretBearingRecipe()
     {

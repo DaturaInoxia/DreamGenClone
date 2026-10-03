@@ -1,3 +1,4 @@
+@using System.Text.Json
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Web.Application.ModelManager
 
@@ -228,9 +229,110 @@
                     </div>
                 </div>
                 <div class="col-12">
-                    <label class="form-label">Capability Qualification Evidence (JSON)</label>
-                    <textarea class="form-control font-monospace" rows="4" @bind="Model.CapabilityQualificationsJson" placeholder="[{&quot;strategy&quot;:&quot;ReferenceConditioning&quot;,&quot;endpointId&quot;:&quot;...&quot;,&quot;qualified&quot;:true,&quot;proofId&quot;:&quot;...&quot;}]"></textarea>
-                    <div class="form-text">Record passing proof per strategy and endpoint. A declared strategy without a qualified entry remains unavailable.</div>
+                    <label class="form-label">Capability Qualification Evidence</label>
+                    @if (_qualificationError is not null)
+                    {
+                        <div class="alert alert-warning py-2 small mb-2">
+                            @_qualificationError Nothing was changed: the stored record is left exactly as it was, and
+                            this list cannot be edited until it can be read.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="form-text mb-2">
+                            One row per strategy on this model's endpoint, each naming the proof it rests on. A
+                            declared strategy with no qualified row stays unavailable, so a tick with nothing named as
+                            its proof is refused - an unchecked claim is worse than no claim.
+                        </div>
+                    }
+                    @if (_qualifications.Count == 0)
+                    {
+                        <div class="text-muted small mb-2">No capability has a recorded proof for this model.</div>
+                    }
+                    else
+                    {
+                        @for (var index = 0; index < _qualifications.Count; index++)
+                        {
+                            var rowIndex = index;
+                            var row = _qualifications[rowIndex];
+                            <div class="border rounded p-2 mb-2 @(row.Editable ? "" : "bg-body-tertiary")">
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-3">
+                                        <label class="form-label small mb-0">Strategy</label>
+                                        @if (row.Editable)
+                                        {
+                                            <select class="form-select form-select-sm" value="@row.Strategy"
+                                                    @onchange="args => row.Strategy = args.Value?.ToString() ?? string.Empty">
+                                                @foreach (var strategy in QualificationStrategyChoices(row.Strategy))
+                                                {
+                                                    <option value="@strategy">@strategy</option>
+                                                }
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <div class="form-control form-control-sm">@row.Strategy</div>
+                                        }
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small mb-0">Endpoint</label>
+                                        <div class="form-control form-control-sm font-monospace text-break">
+                                            @(row.Editable ? Model.ProviderName : row.EndpointId)
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small mb-0">Proof</label>
+                                        @if (row.Editable)
+                                        {
+                                            <input class="form-control form-control-sm" value="@row.ProofId"
+                                                   placeholder="local-sdxl-lora-biglust-becky-2026-09-29"
+                                                   @onchange="args => row.ProofId = args.Value?.ToString() ?? string.Empty" />
+                                        }
+                                        else
+                                        {
+                                            <div class="form-control form-control-sm text-break">@row.ProofId</div>
+                                        }
+                                    </div>
+                                    <div class="col-md-1">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox"
+                                                   id="@("qualification-qualified-" + rowIndex)"
+                                                   checked="@row.Qualified" disabled="@(!row.Editable)"
+                                                   @onchange="args => row.Qualified = args.Value is true" />
+                                            <label class="form-check-label small" for="@("qualification-qualified-" + rowIndex)">Passed</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                @if (row.Editable)
+                                {
+                                    <button type="button" class="btn btn-outline-danger btn-sm mt-2"
+                                            @onclick="() => RemoveQualification(rowIndex)">
+                                        Remove
+                                    </button>
+                                }
+                                @if (row.Preserved.Count > 0)
+                                {
+                                    <div class="form-text mt-2">
+                                        Also carries, kept exactly as written:
+                                        <span class="font-monospace">@string.Join(", ", row.Preserved.Keys.OrderBy(key => key, StringComparer.Ordinal))</span>
+                                    </div>
+                                }
+                                @if (!row.Editable)
+                                {
+                                    <div class="form-text mt-2">
+                                        This row belongs to a different endpoint, so it is shown as it stands and written
+                                        back unchanged.
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                    @if (_qualificationError is null)
+                    {
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="AddQualification">
+                            Add a strategy
+                        </button>
+                    }
                 </div>
                 <div class="col-12"><div class="form-text">These declarations make the model selectable for compatible visual work. Every request still requires an exact qualified capability cell; unavailable combinations fail without changing model or strategy.</div></div>
             }
@@ -502,6 +604,7 @@
             || identityStrategies.Contains("Combined", StringComparer.OrdinalIgnoreCase);
         _supportsControlNet = visualStrategies.Contains("ControlNet", StringComparer.OrdinalIgnoreCase);
         _supportsWardrobeTryOn = visualStrategies.Contains("WardrobeTryOn", StringComparer.OrdinalIgnoreCase);
+        LoadQualifications();
         _formError = null;
         _analysisError = null;
     }
@@ -512,6 +615,11 @@
         if (string.IsNullOrWhiteSpace(_modelIdentifier))
         {
             _formError = "Model identifier is required.";
+            return;
+        }
+        if (!ValidateQualifications(out var qualificationError))
+        {
+            _formError = qualificationError;
             return;
         }
         if (string.IsNullOrWhiteSpace(_displayName))
@@ -560,6 +668,11 @@
             _analysisError = imagePromptError;
             return;
         }
+        if (!ValidateQualifications(out var qualificationValidationError))
+        {
+            _analysisError = qualificationValidationError;
+            return;
+        }
 
         _isAnalysing = true;
         _analysisError = null;
@@ -596,7 +709,203 @@
         Model.Notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim();
         ApplyIdentityCapabilities();
         ApplyVisualCapabilities();
+        ApplyQualifications();
     }
+
+    /// <summary>
+    /// The strategies an operator can pick. A value already stored that is NOT on this list is offered as well, so a
+    /// strategy written by a named command can never be silently swapped for a neighbour by opening a dropdown.
+    /// </summary>
+    private static readonly string[] KnownQualificationStrategies =
+    [
+        "TextToImage", "TextOnly", "ReferenceConditioning", "NativeMultiReference", "Lora", "Combined",
+        "ControlNet", "PoseControlNet", "WardrobeTryOn"
+    ];
+
+    /// <summary>
+    /// One qualification entry, split into the four fields this screen DECIDES and everything else, kept verbatim.
+    ///
+    /// A qualification record is not only evidence: it also carries real model settings written by named commands -
+    /// UNet / CLIP / VAE names, steps, cfg, the sampler envelope, adapter references. Rebuilding the JSON from the four
+    /// decided fields alone would silently delete those, so anything this screen does not own round-trips untouched.
+    /// </summary>
+    private sealed class QualificationRow
+    {
+        public string Strategy { get; set; } = string.Empty;
+        public string EndpointId { get; set; } = string.Empty;
+        public bool Qualified { get; set; }
+        public string ProofId { get; set; } = string.Empty;
+        public bool Editable { get; set; }
+        public Dictionary<string, JsonElement> Preserved { get; } = new(StringComparer.Ordinal);
+    }
+
+    private List<QualificationRow> _qualifications = [];
+    private string? _qualificationError;
+
+    /// <summary>
+    /// Reads the stored record into rows. This is the only place the record is parsed, and a record it cannot read is
+    /// reported and then LEFT ALONE - an unparseable value is never replaced by an empty list, because replacing it
+    /// would destroy the very thing the operator came here to correct.
+    /// </summary>
+    private void LoadQualifications()
+    {
+        _qualifications = [];
+        _qualificationError = null;
+        if (string.IsNullOrWhiteSpace(Model.CapabilityQualificationsJson))
+        {
+            return;
+        }
+
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(Model.CapabilityQualificationsJson);
+        }
+        catch (JsonException)
+        {
+            _qualificationError = "Capability qualifications could not be read: the stored value is not valid JSON.";
+            return;
+        }
+
+        using (document)
+        {
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                _qualificationError = "Capability qualifications could not be read: the stored value is not a JSON array.";
+                return;
+            }
+
+            foreach (var entry in document.RootElement.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.Object)
+                {
+                    _qualificationError = "Capability qualifications could not be read: every entry must be a JSON object.";
+                    _qualifications = [];
+                    return;
+                }
+
+                var row = new QualificationRow();
+                foreach (var property in entry.EnumerateObject())
+                {
+                    // Matched case-insensitively because records in this database are authored both ways: this editor
+                    // and SQL write PascalCase, unit fixtures write camelCase.
+                    if (property.Name.Equals("Strategy", StringComparison.OrdinalIgnoreCase))
+                    {
+                        row.Strategy = property.Value.GetString() ?? string.Empty;
+                    }
+                    else if (property.Name.Equals("EndpointId", StringComparison.OrdinalIgnoreCase))
+                    {
+                        row.EndpointId = property.Value.GetString() ?? string.Empty;
+                    }
+                    else if (property.Name.Equals("Qualified", StringComparison.OrdinalIgnoreCase))
+                    {
+                        row.Qualified = property.Value.ValueKind == JsonValueKind.True;
+                    }
+                    else if (property.Name.Equals("ProofId", StringComparison.OrdinalIgnoreCase))
+                    {
+                        row.ProofId = property.Value.GetString() ?? string.Empty;
+                    }
+                    else
+                    {
+                        row.Preserved[property.Name] = property.Value.Clone();
+                    }
+                }
+
+                // Only this model's OWN endpoint is editable. This screen lives inside one model's editor, so it has
+                // no business rewriting a qualification that was made on another endpoint.
+                row.Editable = string.Equals(row.EndpointId, Model.ProviderId, StringComparison.Ordinal);
+                _qualifications.Add(row);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the stored JSON from the rows. Returns false WITHOUT touching the model when the record could not be
+    /// read in the first place, so an unreadable value is preserved rather than replaced by an empty list.
+    /// </summary>
+    private bool ApplyQualifications()
+    {
+        if (_qualificationError is not null)
+        {
+            return false;
+        }
+
+        var entries = new List<Dictionary<string, object?>>();
+        foreach (var row in _qualifications)
+        {
+            var entry = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var preserved in row.Preserved)
+            {
+                entry[preserved.Key] = preserved.Value;
+            }
+
+            entry["Strategy"] = row.Strategy.Trim();
+            // An entry this screen edits is written against the model's own endpoint, so a qualification can never be
+            // saved pointing at a host the model is not reached through.
+            entry["EndpointId"] = row.Editable ? Model.ProviderId : row.EndpointId;
+            entry["Qualified"] = row.Qualified;
+            entry["ProofId"] = row.ProofId.Trim();
+            entries.Add(entry);
+        }
+
+        Model.CapabilityQualificationsJson = JsonSerializer.Serialize(entries);
+        return true;
+    }
+
+    /// <summary>
+    /// A qualified row must name the evidence it rests on. The render path already treats a blank proof as
+    /// unqualified, so saving one produces a capability that LOOKS configured, is never available, and explains
+    /// nothing - which is the silent failure this turns into a sentence at the point the operator can fix it.
+    /// </summary>
+    private bool ValidateQualifications(out string? error)
+    {
+        error = null;
+        var unnamed = _qualifications
+            .Where(row => row.Qualified && string.IsNullOrWhiteSpace(row.ProofId))
+            .Select(row => row.Strategy)
+            .ToList();
+        if (unnamed.Count > 0)
+        {
+            error = $"These capabilities are marked Qualified but name no proof: {string.Join(", ", unnamed)}. "
+                + "Name the run that proved each one, or clear the tick.";
+            return false;
+        }
+
+        if (_qualifications.Any(row => string.IsNullOrWhiteSpace(row.Strategy)))
+        {
+            error = "A capability qualification must name a strategy.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private void AddQualification()
+    {
+        _qualifications.Add(new QualificationRow
+        {
+            Strategy = KnownQualificationStrategies[0],
+            EndpointId = Model.ProviderId,
+            // Ticked on purpose, so the missing piece is the PROOF and the validation above says so in words - an
+            // added row that does nothing at all would be the silent version of the same mistake.
+            Qualified = true,
+            Editable = true
+        });
+    }
+
+    private void RemoveQualification(int index)
+    {
+        if (index >= 0 && index < _qualifications.Count)
+        {
+            _qualifications.RemoveAt(index);
+        }
+    }
+
+    private static IEnumerable<string> QualificationStrategyChoices(string current) =>
+        !string.IsNullOrWhiteSpace(current)
+        && !KnownQualificationStrategies.Contains(current, StringComparer.Ordinal)
+            ? KnownQualificationStrategies.Concat([current])
+            : KnownQualificationStrategies;
 
     private async Task AutoDetectMetadata()
     {
