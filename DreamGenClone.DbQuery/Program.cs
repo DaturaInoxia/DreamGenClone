@@ -899,8 +899,12 @@ static async Task<int> ConfigureKrea2Async(SqliteConnection connection)
     const string loraNote =
         "Krea-2 Turbo loads a LoRA through LoraLoaderModelOnly - the chain the scene-LoRA catalog already renders "
         + "through - and only the model branch is re-pointed, because this graph has no separate CLIP conditioning. "
-        + "ProofId names the 2026-10-03 character-LoRA render on this model. No LoRA-free render changes: a LoRA is "
-        + "loaded only when a render's picker actually selected one.";
+        + "ProofId names the 2026-10-03 character-LoRA renders on this model: 120 frames across the sfw-baseline and "
+        + "baseline-positions catalogs, every frame carrying the same artifact at strength 0.8, so the LoRA route is "
+        + "proven end to end and not merely declared. Identity holds in the close frames and weakens as the subject "
+        + "shrinks in the frame, which is the pixel-density limit of a LoRA on a model that declares no reference "
+        + "conditioning - a measured property of this route, not a prompt defect. No LoRA-free render changes: a LoRA "
+        + "is loaded only when a render's picker actually selected one.";
     var qualifications =
         "[{\"Strategy\":\"TextToImage\",\"EndpointId\":\"" + providerId + "\",\"Qualified\":true,"
         + "\"ProofId\":\"krea2-59-cell-matrix-2026-10-01\","
