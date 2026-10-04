@@ -1,12 +1,13 @@
 {
   "suite": "sfw-baseline",
-  "purpose": "Everyday-life location and character catalog. Twelve campground locations from the Campground Intimacy scenario, each rendered with three casts (1F, 1F1M, 1F2M) doing an ordinary activity at a stated time of day. The question it answers is which model can hold a PLACE, and people in it, without the location drifting between frames or the person count collapsing. Same seven-model legend and dialect rules as baseline-positions.",
+  "purpose": "Everyday-life location and character catalog. Twelve campground locations from the Campground Intimacy scenario, each rendered with three casts (1F, 1F1M, 1F2M) doing an ordinary activity at a stated time of day. The question it answers is which model can hold a PLACE, and people in it, without the location drifting between frames or the person count collapsing. Same model legend and dialect rules as baseline-positions, plus the krea2 photographic-brief variants added 2026-10-03 for all 36 cells, so the suite can run on Krea 2 Turbo with a character LoRA applied. Note that the krea2 briefs name a MEDIUM shot where the older prose variants say full body: the Krea 2 rule is that a framing demand is counterproductive, and a medium brief both holds the location and leaves the face enough pixels for a character LoRA to bind to.",
   "models": [
     { "key": "biglust", "checkpoint": "bigLust_v16.safetensors", "kind": "Generate", "displayName": "BigLust v1.6" },
     { "key": "juggernaut", "checkpoint": "juggernautXL_ragnarok.safetensors", "kind": "Generate", "displayName": "Juggernaut XL Ragnarok" },
     { "key": "pony", "checkpoint": "ponyDiffusionV6XL_v6.safetensors", "kind": "Generate", "displayName": "Pony V6 XL" },
     { "key": "qwen-image-2.1", "checkpoint": "qwen_image_2.1_int8_convrot.safetensors", "kind": "Generate", "displayName": "Qwen Image 2.1" },
     { "key": "flux", "checkpoint": "flux1-dev-fp8.safetensors", "kind": "Generate", "displayName": "FLUX.1 dev (fp8)" },
+    { "key": "krea2", "checkpoint": "krea2_turbo_fp8_scaled.safetensors", "kind": "Generate", "displayName": "Krea 2 Turbo (local ComfyUI)" },
     { "key": "qwen-edit-2511", "checkpoint": "Qwen-Rapid-AIO-NSFW-v23.safetensors", "kind": "Edit", "displayName": "Qwen Edit 2511" },
     { "key": "qwen-image-2.1-edit", "checkpoint": "Qwen-Rapid-AIO-NSFW-v23.safetensors", "kind": "Edit", "displayName": "Qwen Image 2.1 (edit)" }
   ],

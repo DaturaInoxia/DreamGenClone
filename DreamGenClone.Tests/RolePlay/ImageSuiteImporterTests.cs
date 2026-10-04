@@ -281,7 +281,7 @@ public sealed class ImageSuiteImporterTests
     }
 
     /// <summary>The repo's own catalog folder, found from the test output directory.</summary>
-    private static string RealCatalogRoot()
+    private static string RealCatalogRoot(string catalog = "baseline")
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "DreamGenClone.sln")))
@@ -291,6 +291,49 @@ public sealed class ImageSuiteImporterTests
 
         var root = directory?.FullName
             ?? throw new InvalidOperationException("Repository root (DreamGenClone.sln) not found above the test output directory.");
-        return Path.Combine(root, "specs", "image-generator-tests", "baseline");
+        return Path.Combine(root, "specs", "image-generator-tests", catalog);
+    }
+
+    /// <summary>
+    /// The station suite is run on Krea 2 Turbo with a character LoRA applied, so a cell with no <c>krea2</c> brief is
+    /// a cell that cannot be run on the model the runs are for.
+    ///
+    /// <para>
+    /// The 36 cells and their briefs were authored together, and this is what says so: the variant key has to be
+    /// present on every cell, and the legend has to map it to the checkpoint the app actually registers. Without this,
+    /// a 37th cell added later would import cleanly, render nothing on Krea 2, and report the gap only at run time -
+    /// which is exactly the "the dropdown simply does not offer it and there is no hint why" failure the operator hit
+    /// on 2026-10-02.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task TheRealSfwBaselineCatalogCarriesAKrea2BriefForEveryCell()
+    {
+        var db = NewDbPath();
+        var root = RealCatalogRoot("sfw-baseline");
+        var manifestPath = Path.Combine(root, "manifest.json");
+        Assert.True(File.Exists(manifestPath), $"Expected the real catalog at '{manifestPath}'.");
+
+        var report = await NewImporter(db, root).ImportAsync(manifestPath);
+
+        Assert.Equal("sfw-baseline", report.SuiteName);
+        Assert.Equal(36, report.CellCount);
+
+        var cells = await NewSuiteRepo(db).ListCellsAsync(report.SuiteId);
+        Assert.All(cells, cell =>
+        {
+            var variants = JsonSerializer.Deserialize<Dictionary<string, string>>(cell.VariantsJson)!;
+            Assert.True(
+                variants.TryGetValue("krea2", out var brief) && !string.IsNullOrWhiteSpace(brief),
+                $"Cell '{cell.Name}' carries no krea2 brief, so it cannot be run on Krea 2.");
+        });
+
+        // The legend is what maps the variant key to a checkpoint, so a brief with no legend entry would be
+        // unrunnable for the same reason stated the other way round.
+        var manifest = PromptSuiteManifestValidation.ParseManifest(
+            File.ReadAllText(manifestPath),
+            relativePath => File.ReadAllText(
+                Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar))));
+        Assert.Equal("krea2_turbo_fp8_scaled.safetensors", manifest.Model("krea2")!.Checkpoint);
     }
 }
