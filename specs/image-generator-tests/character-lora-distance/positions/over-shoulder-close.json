@@ -1,0 +1,23 @@
+{
+  "id": "over-shoulder-close",
+  "title": "Distance ladder — over the shoulder, close",
+  "actors": "1F",
+  "closeup": true,
+  "userInput": "Her turned away, looking back over her shoulder at the camera, close shot",
+  "expected": "A photorealistic photograph of one adult woman standing still in a plainly furnished room in a plain t-shirt and jeans, turned away from the camera with her head turned back over her shoulder to look into the lens, framed from the head to the shoulders close to the camera. Soft daylight from a window behind the camera, bare wooden floor, natural body proportions and skin texture, 35mm, sharp focus.",
+  "neutralScene": "One adult woman standing still in a plainly furnished room with a bare wooden floor and a window, in a plain t-shirt and jeans, turned away from the camera with her head turned back over her shoulder to look into the lens, framed head and shoulders close to the lens, soft daylight from the window, natural body proportions and skin texture, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman standing still in a plainly furnished room with a bare wooden floor, wearing a plain t-shirt and jeans with her weight settled, turned away from the camera with her head turned back over her shoulder to look into the lens. She has natural body proportions and unretouched skin. This is a close head-and-shoulders framing at eye level, taken from a step away from her. Soft daylight from a window behind the camera, 35mm lens, sharp focus.",
+    "krea2": "Photorealistic editorial photograph of one adult woman standing still in a plainly furnished room with a bare wooden floor, in a plain t-shirt and jeans with her weight settled, turned away from the camera with her head turned back over her shoulder to look into the lens. Head-and-shoulders framing at eye level, close to her. Soft daylight from a window behind the camera, natural body proportions and skin texture, 35mm photograph, shallow depth of field."
+  },
+  "settings": {
+    "seed": 51004,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1152
+  }
+}

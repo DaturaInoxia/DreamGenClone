@@ -336,4 +336,40 @@ public sealed class ImageSuiteImporterTests
                 Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar))));
         Assert.Equal("krea2_turbo_fp8_scaled.safetensors", manifest.Model("krea2")!.Checkpoint);
     }
+
+    /// <summary>
+    /// The distance ladder is only a ladder if every rung renders on BOTH models that can hold a character LoRA.
+    ///
+    /// <para>
+    /// Krea 2 Turbo and BigLust v1.6 are the only two models with a character LoRA trained for them, and the point of
+    /// the catalog is the comparison between them. A rung missing one of the two variants would quietly reduce it to a
+    /// single model, which is the one thing the ladder exists to avoid - so the variant keys are asserted rather than
+    /// assumed, and the cell count is asserted because a rung that never imported is a rung nobody can run.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task TheRealDistanceLadderCarriesBothModelsOnEveryRung()
+    {
+        var db = NewDbPath();
+        var root = RealCatalogRoot("character-lora-distance");
+        var manifestPath = Path.Combine(root, "manifest.json");
+        Assert.True(File.Exists(manifestPath), $"Expected the real catalog at '{manifestPath}'.");
+
+        var report = await NewImporter(db, root).ImportAsync(manifestPath);
+
+        Assert.Equal("character-lora-distance", report.SuiteName);
+        Assert.Equal(8, report.CellCount);
+
+        var cells = await NewSuiteRepo(db).ListCellsAsync(report.SuiteId);
+        Assert.All(cells, cell =>
+        {
+            var variants = JsonSerializer.Deserialize<Dictionary<string, string>>(cell.VariantsJson)!;
+            foreach (var key in new[] { "krea2", "biglust" })
+            {
+                Assert.True(
+                    variants.TryGetValue(key, out var prompt) && !string.IsNullOrWhiteSpace(prompt),
+                    $"Cell '{cell.Name}' carries no {key} prompt, so the ladder loses a rung on that model.");
+            }
+        });
+    }
 }

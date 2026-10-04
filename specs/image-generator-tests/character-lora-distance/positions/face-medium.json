@@ -1,0 +1,23 @@
+{
+  "id": "face-medium",
+  "title": "Distance ladder — face, medium",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Her standing still, chest-up medium shot",
+  "expected": "A photorealistic photograph of one adult woman standing still in a plainly furnished room in a plain t-shirt and jeans, framed from the head to the chest at eye level from a few steps back, her head up and looking into the lens, weight settled and hands loose at her sides. Soft daylight from a window behind the camera, natural body proportions and skin texture, 35mm, sharp focus.",
+  "neutralScene": "One adult woman standing still in a plainly furnished room with a bare wooden floor and a window, in a plain t-shirt and jeans, head up and facing the camera, framed from the head to the chest from a few steps back, weight settled and hands loose, soft daylight from the window, natural body proportions and skin texture, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman standing still in a plainly furnished room with a bare wooden floor, wearing a plain t-shirt and jeans with her weight settled on one hip and her hands loose at her sides. She has natural body proportions and unretouched skin. She is framed to the chest at eye level from a few steps back. Soft daylight from a window behind the camera, 35mm lens, sharp focus.",
+    "krea2": "Photorealistic editorial photograph of one adult woman standing still in a plainly furnished room with a bare wooden floor, in a plain t-shirt and jeans with her weight settled and her hands loose at her sides. Chest-up framing at eye level, a few steps back from her. Soft daylight from a window behind the camera, natural body proportions and skin texture, 35mm photograph, shallow depth of field."
+  },
+  "settings": {
+    "seed": 51002,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1152
+  }
+}

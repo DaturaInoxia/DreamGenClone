@@ -1,0 +1,23 @@
+{
+  "id": "three-far",
+  "title": "Distance ladder — three people, far (the reported case)",
+  "actors": "1F2M",
+  "closeup": false,
+  "userInput": "Her and two men standing in the room, seen from across it",
+  "expected": "A photorealistic photograph of three separate people standing in a plainly furnished room: one adult woman in a plain t-shirt and jeans with her weight settled, and two adult men in shirts and jeans standing either side of her, all three clearly separate with space between them. Seen from the far side of the room so the whole room is in the frame and the three of them are small standing figures in it. Soft daylight from a window behind the camera, bare wooden floor, natural body proportions and skin texture, 35mm, sharp focus.",
+  "neutralScene": "Three separate people standing in a plainly furnished room with a bare wooden floor and a window: one adult woman in a plain t-shirt and jeans and two adult men in shirts and jeans, standing either side of her with clear space between all three, seen from the far side of the room with the whole room in the frame and the three of them small standing figures inside it, soft daylight from the window, natural body proportions and skin texture, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of three separate people standing in a plainly furnished room with a bare wooden floor: one adult woman in a plain t-shirt and jeans with her weight settled, and two adult men in shirts and jeans standing either side of her, all three clearly separate with space between them. The camera stands on the far side of the room, so the whole room is in the frame and the three of them are small standing figures in it. Soft daylight from a window behind the camera, 35mm lens, sharp focus.",
+    "krea2": "Photorealistic editorial photograph of three separate people standing in a plainly furnished room with a bare wooden floor: one adult woman in a plain t-shirt and jeans with her weight settled, and two adult men in shirts and jeans standing either side of her with clear space between all three. Seen from the far side of the room, the whole room in the frame with the three of them standing small in it at eye level. Soft daylight from a window behind the camera, natural body proportions and skin texture, 35mm photograph, shallow depth of field."
+  },
+  "settings": {
+    "seed": 51008,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1152
+  }
+}

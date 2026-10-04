@@ -1,0 +1,23 @@
+{
+  "id": "face-far",
+  "title": "Distance ladder — face, far",
+  "actors": "1F",
+  "closeup": false,
+  "userInput": "Her standing still, seen from across the whole room",
+  "expected": "A photorealistic photograph of one adult woman standing still in a plainly furnished room in a plain t-shirt and jeans, seen from the far side of the room so the whole room is in the frame and she is a small standing figure in the middle of it, looking toward the camera. Soft daylight from a window behind the camera, bare wooden floor, natural body proportions and skin texture, 35mm, sharp focus on her.",
+  "neutralScene": "One adult woman standing still in a plainly furnished room with a bare wooden floor and a window, in a plain t-shirt and jeans, seen from the far side of the room with the whole room in the frame and her a small standing figure inside it, soft daylight from the window, natural body proportions and skin texture, sharp focus on her.",
+  "variants": {
+    "biglust": "Photorealistic photograph of one adult woman standing still in a plainly furnished room with a bare wooden floor, wearing a plain t-shirt and jeans with her weight settled on one hip and her hands loose at her sides. She has natural body proportions and unretouched skin. The camera stands on the far side of the room, so the whole room is in the frame and she is a small standing figure in it. Soft daylight from a window behind the camera, 35mm lens, sharp focus on her.",
+    "krea2": "Photorealistic editorial photograph of one adult woman standing still in a plainly furnished room with a bare wooden floor, in a plain t-shirt and jeans with her weight settled and her hands loose at her sides. Seen from the far side of the room, the whole room in the frame with her standing small in it at eye level. Soft daylight from a window behind the camera, natural body proportions and skin texture, 35mm photograph, shallow depth of field."
+  },
+  "settings": {
+    "seed": 51003,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1152
+  }
+}
