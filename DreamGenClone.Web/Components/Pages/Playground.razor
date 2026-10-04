@@ -189,7 +189,7 @@
                                                     <button type="button"
                                                             class="btn btn-sm w-100 text-start @(IsSelectedCell(cell.Id) ? "btn-secondary" : "btn-outline-secondary")"
                                                             @onclick="@(() => SelectCell(cell.Id))">
-                                                        <span class="text-muted">@cell.Ordinal.</span> @cell.Name
+                                                        <span class="text-muted">@(cell.Ordinal + 1).</span> @cell.Name
                                                         @if (StatusForCell(cell.Ordinal) is { } status)
                                                         {
                                                             <span class="badge @StatusBadgeClass(status) ms-1">@status</span>
@@ -494,7 +494,10 @@
                                            checked="@_renderCells.Contains(cell.Id)"
                                            @onchange="@((ChangeEventArgs args) => ToggleRenderCell(cell.Id, args))" />
                                     <label class="form-check-label small" for="@($"render-cell-{cell.Id}")">
-                                        <span class="text-muted">@cell.Ordinal.</span> @cell.Name
+                                        @* Displayed 1-based. The stored ordinal is a 0-based IDENTITY (cells are matched on
+                                           SuiteId + Ordinal), so it stays as it is and only the label moves: an 11-cell suite
+                                           whose last row read "10." was reported as a suite that had lost a cell. *@
+                                        <span class="text-muted">@(cell.Ordinal + 1).</span> @cell.Name
                                         @if (HasVariant(cell))
                                         {
                                             <span class="badge bg-success ms-1">@(SelectedSuiteIsPoseLibrary ? "pose" : _renderVariantKey)</span>
@@ -601,7 +604,7 @@
                                 <div class="border rounded p-2 mb-2">
                                     <div class="d-flex justify-content-between align-items-center mb-1">
                                         <span class="small fw-semibold">
-                                            <span class="text-muted">@row.Cell.Ordinal.</span> @row.Cell.Name
+                                            <span class="text-muted">@(row.Cell.Ordinal + 1).</span> @row.Cell.Name
                                         </span>
                                         <span class="badge @StatusBadgeClass(row.Cell.Status)">@row.Cell.Status</span>
                                     </div>

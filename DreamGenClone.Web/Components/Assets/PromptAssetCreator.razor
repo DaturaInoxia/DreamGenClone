@@ -647,9 +647,13 @@
         _appliedDraftImageId = draft.ImageId;
         _userInput = draft.UserInput ?? string.Empty;
 
-        // Prefer the prompt that actually rendered. When the image recorded none, no compiler authored one and the
-        // submitted text WAS the user input - so that is the honest value to put back, not a guess.
-        _prompt = draft.CompiledPrompt ?? draft.UserInput ?? string.Empty;
+        // The description, NOT the compiled prompt. A compiled prompt carries the character LoRA trigger tokens at its
+        // front, and those tokens come back as a LoRA SELECTION just below and are applied from there - so restoring
+        // the compiled text as well stated them twice, which is how a round-trip rendered
+        // "ohwx-becky, ohwx-becky, ...". The compiled text is also the text a compiler is FED, so re-submitting it
+        // added a second format preamble (Pony's quality string) for exactly the same reason. What actually rendered
+        // stays readable in the image's own details, where it is a record rather than an input.
+        _prompt = draft.UserInput ?? draft.CompiledPrompt ?? string.Empty;
         _seedText = draft.Seed?.ToString() ?? string.Empty;
         _bindings = WithPoseBinding(draft);
 

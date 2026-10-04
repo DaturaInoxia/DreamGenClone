@@ -47,13 +47,42 @@ public static class CharacterLoraPromptTokens
     /// <summary>
     /// States each character's trigger token at the FRONT of the prompt. Order follows the chain, so a
     /// multi-character frame names each character in the order its LoRA is applied.
+    ///
+    /// <para>
+    /// A prompt that already opens with the token of a LoRA this render is applying is REFUSED rather than quietly
+    /// de-duplicated. The token is stated here and nowhere else, so its presence in the description means the token
+    /// has been applied twice - which is what a round-trip used to do, by restoring the compiled prompt (token
+    /// included) beside the LoRA selection that put the token there. Skipping the second one silently would leave the
+    /// real question unanswered - which text owns the token - and the render would still not be the one that was
+    /// asked for.
+    /// </para>
     /// </summary>
     public static string Prepend(string prompt, IReadOnlyList<ResolvedCharacterLora> loras)
     {
         ArgumentNullException.ThrowIfNull(loras);
 
-        var tokens = string.Join(", ", loras.Select(lora => lora.TriggerToken.Trim()));
-        return tokens.Length == 0 ? prompt : $"{tokens}, {prompt}";
+        var tokens = loras
+            .Select(lora => lora.TriggerToken.Trim())
+            .Where(token => token.Length > 0)
+            .ToList();
+        if (tokens.Count == 0)
+        {
+            return prompt;
+        }
+
+        var trimmed = prompt.TrimStart();
+        var repeated = tokens.FirstOrDefault(token =>
+            trimmed.StartsWith($"{token},", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals(token, StringComparison.OrdinalIgnoreCase));
+        if (repeated is not null)
+        {
+            throw new InvalidOperationException(
+                $"The prompt already begins with the trigger token '{repeated}' for a LoRA this render is applying, so "
+                + "the token would be stated twice. Remove the trigger token from the description: it is added from "
+                + "the selected LoRA, so the text must not carry it.");
+        }
+
+        return $"{string.Join(", ", tokens)}, {prompt}";
     }
 }
 

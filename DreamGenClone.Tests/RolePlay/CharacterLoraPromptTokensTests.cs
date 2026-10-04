@@ -44,6 +44,34 @@ public sealed class CharacterLoraPromptTokensTests
         Assert.Equal("a woman on a bed", CharacterLoraPromptTokens.Prepend("a woman on a bed", []));
     }
 
+    /// <summary>
+    /// The token is stated by this method and nowhere else, so a description that already opens with it has had the
+    /// token applied twice. That is exactly what a round-trip used to do - it restored the compiled prompt (token
+    /// included) beside the LoRA selection that put the token there - and the doubled token reached the model, which
+    /// is why this refuses instead of de-duplicating in silence.
+    /// </summary>
+    [Fact]
+    public void Prepend_RefusesAPromptThatAlreadyOpensWithTheTokenBeingApplied()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            CharacterLoraPromptTokens.Prepend("ohwx-becky, a woman on a bed", [Lora("ohwx-becky")]));
+
+        Assert.Contains("ohwx-becky", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("twice", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A DIFFERENT character's token ahead of the text is legitimate - that is a multi-character frame - so only the
+    /// token being applied is refused, and only at the front.
+    /// </summary>
+    [Fact]
+    public void Prepend_StillStatesADifferentTokenAheadOfAnExistingOne()
+    {
+        Assert.Equal(
+            "dean, becky, a woman on a bed",
+            CharacterLoraPromptTokens.Prepend("becky, a woman on a bed", [Lora("dean")]));
+    }
+
     private static ResolvedCharacterLora Lora(string token) => new(
         ArtifactId: $"artifact-{token.Trim()}",
         CharacterProfileId: "character-1",

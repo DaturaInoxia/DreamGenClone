@@ -1,8 +1,9 @@
 """Give every prompt-catalog field a standard camera clause (framing + angle).
 
 Scope: the prompt catalogs under `specs/image-generator-tests` whose manifests declare `positions` — i.e. the catalogs
-whose files carry per-model prompt text (`baseline`, `sfw-baseline`). Evidence/ComfyUI payload suites are NOT touched:
-they are frozen records of a run, not prompts to author.
+whose files carry per-model prompt text (`baseline`, `sfw-baseline`, `character-lora-distance`). Evidence/ComfyUI payload
+suites are NOT touched: they are frozen records of a run, not prompts to author. A new authoring catalog is added to
+SUITES below, because the guard discovers catalogs dynamically and this script does not.
 
 Rules, applied per position:
   * framing: kept when the text already names one; otherwise taken from the position's own `closeup` flag
@@ -35,14 +36,14 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SUITES = ["baseline", "sfw-baseline"]
+SUITES = ["baseline", "sfw-baseline", "character-lora-distance"]
 PROSE_FIELDS = ("expected", "neutralScene", "biglust", "juggernaut", "flux", "qwen-image-2.1", "krea2")
 EDIT_VARIANTS = {"qwen-edit-2511", "qwen-image-2.1-edit"}
 
 FRAMING = re.compile(
     r"extreme close-?up|close-?up|close shot|macro shot|macro|medium close[- ]?up|medium close shot|"
     r"medium full shot|medium shot|full[- ]body|full shot|wide shot|cowboy shot|upper body|knees[- ]up|"
-    r"headshot|portrait",
+    r"headshot|portrait|framed (?:close|tight|tightly|on|at|between|from|across)",
     re.I,
 )
 ANGLE = re.compile(
@@ -238,7 +239,11 @@ def main() -> int:
             path = base / entry["path"]
             raw = path.read_text(encoding="utf-8")
             data = json.loads(raw)
-            closeup = bool(entry.get("closeup"))
+            # From the POSITION FILE, which is where the flag actually lives and the file the importer reads. Reading it
+            # off the manifest entry gave every close-up position in a manifest that does not repeat the flag a "medium
+            # shot" framing - a close rung handed a medium framing is the opposite of its own intent, and the manifest
+            # is not the record of it (nothing keeps a duplicated flag in step).
+            closeup = bool(data.get("closeup"))
             edits = []
             for field in PROSE_FIELDS:
                 old = data.get(field) if field in ("expected", "neutralScene") else (data.get("variants") or {}).get(field)
