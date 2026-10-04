@@ -1,0 +1,23 @@
+{
+  "id": "two-far",
+  "title": "Distance ladder — two people, far",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Her and one man, both facing the camera, seen from across the whole room",
+  "expected": "A photorealistic photograph of two separate people standing in a plainly furnished room: an adult woman in a plain t-shirt and jeans and an adult man in a shirt and jeans, a few steps apart with clear space between them, both facing the camera and looking into the lens. Seen from the far side of the room so the whole room is in the frame and the two of them are small standing figures in it. Soft daylight from a window behind the camera, bare wooden floor, natural body proportions and skin texture, 35mm, sharp focus.",
+  "neutralScene": "Two separate people standing in a plainly furnished room with a bare wooden floor and a window: an adult woman in a plain t-shirt and jeans and an adult man in a shirt and jeans, a few steps apart with clear space between them, both facing the camera, seen from the far side of the room with the whole room in the frame and the two of them small standing figures inside it, soft daylight from the window, natural body proportions and skin texture, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of two separate people standing in a plainly furnished room with a bare wooden floor: an adult woman in a plain t-shirt and jeans and an adult man in a shirt and jeans, a few steps apart with clear space between them and both facing the camera and looking into the lens. They have natural body proportions and unretouched skin. The camera stands on the far side of the room, so the whole room is in the frame and the two of them are small standing figures in it. Soft daylight from a window behind the camera, 35mm lens, sharp focus.",
+    "krea2": "Photorealistic editorial photograph of two separate people standing in a plainly furnished room with a bare wooden floor: an adult woman in a plain t-shirt and jeans and an adult man in a shirt and jeans, standing a few steps apart with clear space between them and both facing the camera and looking into the lens. Seen from the far side of the room, the whole room in the frame with the two of them standing small in it at eye level. Soft daylight from a window behind the camera, natural body proportions and skin texture, 35mm photograph, shallow depth of field."
+  },
+  "settings": {
+    "seed": 51011,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1152
+  }
+}

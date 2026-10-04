@@ -358,7 +358,7 @@ public sealed class ImageSuiteImporterTests
         var report = await NewImporter(db, root).ImportAsync(manifestPath);
 
         Assert.Equal("character-lora-distance", report.SuiteName);
-        Assert.Equal(8, report.CellCount);
+        Assert.Equal(11, report.CellCount);
 
         var cells = await NewSuiteRepo(db).ListCellsAsync(report.SuiteId);
         Assert.All(cells, cell =>

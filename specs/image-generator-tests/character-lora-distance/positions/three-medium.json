@@ -1,0 +1,23 @@
+{
+  "id": "three-medium",
+  "title": "Distance ladder — three people, medium",
+  "actors": "1F2M",
+  "closeup": false,
+  "userInput": "Her with two men, all facing the camera, medium shot",
+  "expected": "A photorealistic photograph of three separate people standing in a plainly furnished room: one adult woman in a plain t-shirt and jeans with her weight settled, and two adult men in shirts and jeans standing either side of her, all three facing the camera and looking into the lens with clear space between them. Framed from the waist up at eye level. Soft daylight from a window behind the camera, bare wooden floor, natural body proportions and skin texture, 35mm, sharp focus.",
+  "neutralScene": "Three separate people standing in a plainly furnished room with a bare wooden floor and a window: one adult woman in a plain t-shirt and jeans and two adult men in shirts and jeans standing either side of her, clear space between all three, all facing the camera, framed from the waist up at eye level, soft daylight from the window, natural body proportions and skin texture, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of three separate people standing in a plainly furnished room with a bare wooden floor: one adult woman in a plain t-shirt and jeans with her weight settled, and two adult men in shirts and jeans standing either side of her, all three facing the camera and looking into the lens with clear space between them. They have natural body proportions and unretouched skin. They are framed from the waist up at eye level. Soft daylight from a window behind the camera, 35mm lens, sharp focus.",
+    "krea2": "Photorealistic editorial photograph of three separate people standing in a plainly furnished room with a bare wooden floor: one adult woman in a plain t-shirt and jeans with her weight settled and her face toward the camera, and two adult men in shirts and jeans standing either side of her turned toward the lens, clear space between all three. Medium shot at eye level, all three from the waist up. Soft daylight from a window behind the camera, natural body proportions and skin texture, 35mm photograph, shallow depth of field."
+  },
+  "settings": {
+    "seed": 51010,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1152
+  }
+}

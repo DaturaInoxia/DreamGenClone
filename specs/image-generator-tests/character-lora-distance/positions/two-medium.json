@@ -1,0 +1,23 @@
+{
+  "id": "two-medium",
+  "title": "Distance ladder — two people, medium (the reported 'far')",
+  "actors": "1F1M",
+  "closeup": false,
+  "userInput": "Her and one man standing a few steps apart, both facing the camera, medium shot",
+  "expected": "A photorealistic photograph of two separate people standing in a plainly furnished room: an adult woman in a plain t-shirt and jeans and an adult man in a shirt and jeans, standing a few steps apart with clear space between them, both facing the camera and looking into the lens. Framed from the waist up at eye level. Soft daylight from a window behind the camera, bare wooden floor, natural body proportions and skin texture, 35mm, sharp focus.",
+  "neutralScene": "Two separate people standing in a plainly furnished room with a bare wooden floor and a window: an adult woman in a plain t-shirt and jeans and an adult man in a shirt and jeans, a few steps apart with clear space between them, both facing the camera, framed from the waist up at eye level, soft daylight from the window, natural body proportions and skin texture, sharp focus.",
+  "variants": {
+    "biglust": "Photorealistic photograph of two separate people standing in a plainly furnished room with a bare wooden floor: an adult woman in a plain t-shirt and jeans and an adult man in a shirt and jeans, standing a few steps apart with clear space between them and both facing the camera and looking into the lens. They have natural body proportions and unretouched skin. They are framed from the waist up at eye level. Soft daylight from a window behind the camera, 35mm lens, sharp focus.",
+    "krea2": "Photorealistic editorial photograph of two separate people standing in a plainly furnished room with a bare wooden floor: an adult woman in a plain t-shirt and jeans and an adult man in a shirt and jeans, standing a few steps apart with clear space between them and both facing the camera and looking into the lens. Medium shot at eye level, the two of them from the waist up. Soft daylight from a window behind the camera, natural body proportions and skin texture, 35mm photograph, shallow depth of field."
+  },
+  "settings": {
+    "seed": 51009,
+    "steps": 30,
+    "cfg": 5.0,
+    "sampler": "dpmpp_2m_sde",
+    "scheduler": "karras",
+    "denoise": 1.0,
+    "width": 1024,
+    "height": 1152
+  }
+}
