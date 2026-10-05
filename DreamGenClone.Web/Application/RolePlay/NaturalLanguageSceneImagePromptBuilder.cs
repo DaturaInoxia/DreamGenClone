@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
@@ -29,6 +30,23 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
     /// <summary>Kept as the builder's name for the shared target so no caller has to know where it lives (B-135).</summary>
     public const int OutputPromptTargetChars = SceneImageCompilerSystemPrompts.OutputTargetChars;
 
+    /// <summary>
+    /// The standing rules appended to every natural-language family's canonical system prompt.
+    ///
+    /// <para>
+    /// They live here, not in each family's text, because they are facts about how the COMPILER is driven rather than
+    /// about any checkpoint family — and because four copies of a rule is four chances for one of them to be lost in
+    /// an edit. This rule states what the accompanying USER REMOVALS notice means; without it the notice is a claim
+    /// the model has not been told to honour.
+    /// </para>
+    /// </summary>
+    internal static readonly string CanonicalAuthorityRules = """
+
+        USER REMOVALS ARE AUTHORITATIVE: when this request carries a USER REMOVALS notice, those elements were removed
+        deliberately. Never render, describe, mention, infer or re-derive a removed element, and never substitute an
+        equivalent taken from another element.
+        """;
+
     /// <summary>The beat-path system prompt for this builder's family (story prose in).</summary>
     protected abstract string BuildSystemPrompt();
 
@@ -51,7 +69,9 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
         string? refineInstruction,
         IReadOnlyList<Character>? characters,
         IReadOnlyDictionary<string, string>? appearanceOverrides = null,
-        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null,
+        ScenePromptOverrides? effectiveOverrides = null,
+        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null)
     {
         CompiledMediaContractValidator.ValidateBrief(brief);
         if (brief.MediaKind != MediaProductionKind.StillImage || brief.Status != MediaCompilerStatus.Complete)
@@ -59,8 +79,8 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
         if (string.IsNullOrWhiteSpace(pov))
             throw new InvalidOperationException("Canonical scene-image prompt generation requires the production group POV.");
 
-        var systemPrompt = BuildCanonicalSystemPrompt();
-        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides, canonicalAppearance);
+        var systemPrompt = BuildCanonicalSystemPrompt() + CanonicalAuthorityRules;
+        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides, canonicalAppearance, effectiveOverrides, referenceBindings);
         return (systemPrompt, userPrompt);
     }
 
@@ -182,13 +202,16 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
         string? refineInstruction,
         IReadOnlyList<Character>? characters,
         IReadOnlyDictionary<string, string>? appearanceOverrides,
-        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null,
+        ScenePromptOverrides? effectiveOverrides = null,
+        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("CANONICAL STILL BRIEF (immutable; this is the complete semantic source):");
+        // The brief is the SINGLE semantic source. The provider-request snapshot restates it and used to hand back
+        // every element an override had removed, which is why it is not sent (debug 052); the DB record keeps it for
+        // provenance. Only the brief reaches the pre-processor.
+        sb.AppendLine("CANONICAL STILL BRIEF (the complete semantic source for this request):");
         sb.AppendLine(brief.SemanticInputSnapshotJson);
-        sb.AppendLine("CANONICAL PROVIDER REQUEST SNAPSHOT (immutable):");
-        sb.AppendLine(brief.ProviderRequestSnapshotJson);
         var appearanceBlock = BuildCanonicalCharacterAppearanceBlock(brief, pov, characters, appearanceOverrides, canonicalAppearance);
         if (!string.IsNullOrWhiteSpace(appearanceBlock))
         {
@@ -199,6 +222,25 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
         sb.AppendLine($"IMAGE SETTINGS: style={settings.Style}; size={settings.ImageSize}; aspect={settings.AspectRatio}; policy={policy}");
         if (!string.IsNullOrWhiteSpace(refineInstruction))
             sb.AppendLine($"REFINE INSTRUCTION: {refineInstruction.Trim()}");
+
+        // Prompt adaptation is TWO halves and both have to reach the pre-processor. The removal notice stops it
+        // re-deriving an element an override deliberately took out (the brief's neighbours often restate the same
+        // instant). The role clause says what each reference IMAGE is, which is the only thing that binds a
+        // description to one image rather than to another.
+        var removalNotice = ScenePromptRemovalNotice.Build(effectiveOverrides ?? settings.PromptOverrides, characters);
+        if (!string.IsNullOrWhiteSpace(removalNotice))
+        {
+            sb.AppendLine();
+            sb.AppendLine(removalNotice);
+        }
+
+        var roleClause = ReferenceRoleClauses.ForPreprocessor(referenceBindings);
+        if (!string.IsNullOrWhiteSpace(roleClause))
+        {
+            sb.AppendLine();
+            sb.AppendLine(roleClause);
+        }
+
         return sb.ToString();
     }
 

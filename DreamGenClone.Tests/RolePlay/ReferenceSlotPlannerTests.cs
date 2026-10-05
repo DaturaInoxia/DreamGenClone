@@ -20,8 +20,9 @@ public sealed class ReferenceSlotPlannerTests
     private static ImageStepSlotBlueprint FaceSlot(string actorKey = "p-becky", bool required = false) =>
         new(ImageStepSlotKind.Face, ImageStepSlotPrefill.None, [ImageStepReferenceSourceKind.ApprovedSceneAsset], actorKey, required);
 
-    private static ImageStepSlotBlueprint LocationSlot(bool required = false) =>
-        new(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, [ImageStepReferenceSourceKind.ApprovedSceneAsset], null, required);
+    private static ImageStepSlotBlueprint LocationSlot(bool required = false, bool allowsMultiple = true) =>
+        new(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, [ImageStepReferenceSourceKind.ApprovedSceneAsset],
+            null, required, AllowsMultiple: allowsMultiple);
 
     private static ImageStepSlotBlueprint PoseSlot() =>
         new(ImageStepSlotKind.Pose, ImageStepSlotPrefill.None, [ImageStepReferenceSourceKind.PoseLibrarySkeleton], null);
@@ -321,5 +322,27 @@ public sealed class ReferenceSlotPlannerTests
             maxReferences: 10));
 
         Assert.Contains("CASE-22", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A location is a CONTAINER of accepted views — four elevations and an interior of one shed — so its slot carries
+    /// a list as well. Binding Front AND Left together is how the same building reads as the same building from two
+    /// angles, and the order the operator bound them in is the order the model sees.
+    /// </summary>
+    [Fact]
+    public void Plan_LocationKeepsEveryViewInOrder()
+    {
+        var bindings = ReferenceSlotPlanner.Plan(
+            Blueprint(LocationSlot()),
+            [
+                new ImageStepSlotAssignment(ImageStepSlotKind.Location, null, Source()),
+                new ImageStepSlotAssignment(ImageStepSlotKind.Location, null, Source())
+            ],
+            maxReferences: 10);
+
+        Assert.Equal(2, bindings.Count);
+        Assert.All(bindings, binding => Assert.Equal("Location", binding.ElementKey));
+        Assert.All(bindings, binding => Assert.Null(binding.ActorKey));
+        Assert.Equal([1, 2], bindings.Select(binding => binding.Ordinal));
     }
 }

@@ -50,6 +50,31 @@ public sealed class CompositionComposerNativeReferenceContractTests
     }
 
     /// <summary>
+    /// The bindings must reach the PROMPT GENERATOR too, not only the render. A prompt drafted with no bindings
+    /// pre-describes everything the images are supposed to supply — the room, its lighting, the person — and the
+    /// appended role clause then has to argue with a body that is longer, earlier and more specific than it. Measured
+    /// 2026-10-03 on a prompt drafted before its references were bound: mean brightness 43.5 against its reference's
+    /// 72.0, and outer-ring L1 2.094 from its own bound room — as far as two different views of that shed are from
+    /// each other (2.141). The generator already derives removals from these bindings and states them to the model as
+    /// a USER REMOVALS notice; the page simply never handed them over.
+    ///
+    /// <para>
+    /// Asserted by COUNT as well, because <c>ReferenceApplications = _referenceBindings</c> legitimately appears in
+    /// both the prompt enqueue and the render enqueue, and this guard is about the prompt one existing at all.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TheBoundReferencesAlsoReachThePromptGenerator()
+    {
+        var occurrences = Page.Split("ReferenceApplications = _referenceBindings").Length - 1;
+
+        Assert.True(
+            occurrences >= 2,
+            $"The composition page must hand its bindings to the prompt generator as well as the render, but "
+            + $"'ReferenceApplications = _referenceBindings' appears {occurrences} time(s).");
+    }
+
+    /// <summary>
     /// The flag can no longer pick the mode on its own: with it off the page used to hardcode <c>PromptOnly</c>, which
     /// is what threw the bound face away.
     /// </summary>

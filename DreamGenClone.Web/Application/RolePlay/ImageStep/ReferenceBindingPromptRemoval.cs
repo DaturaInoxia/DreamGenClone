@@ -83,7 +83,7 @@ public static class ReferenceBindingPromptRemoval
                 continue;
             }
 
-            if (!TryResolveSlotKind(binding, out var slotKind))
+            if (ReferenceBindingShape.SlotKindOf(binding) is not { } slotKind)
             {
                 continue;
             }
@@ -110,32 +110,5 @@ public static class ReferenceBindingPromptRemoval
         }
 
         return fields;
-    }
-
-    /// <summary>
-    /// The slot a binding describes: its explicit <c>Kind</c> when set, otherwise the legacy element key it was
-    /// created with. An unrecognised binding contributes nothing - it is not an error, because the element map is
-    /// a legacy surface that predates slots and a value the applier cannot address would fail later anyway.
-    /// </summary>
-    private static bool TryResolveSlotKind(ReferenceApplicationSelection binding, out ImageStepSlotKind slotKind)
-    {
-        if (!string.IsNullOrWhiteSpace(binding.Kind)
-            && Enum.TryParse(binding.Kind, ignoreCase: true, out slotKind))
-        {
-            return true;
-        }
-
-        slotKind = binding.ElementKey?.Trim() switch
-        {
-            "Identity" => ImageStepSlotKind.Face,
-            "Body" => ImageStepSlotKind.Body,
-            "Wardrobe" => ImageStepSlotKind.Wardrobe,
-            "Location" => ImageStepSlotKind.Location,
-            "Pose" => ImageStepSlotKind.Pose,
-            "CharacterPose" => ImageStepSlotKind.CharacterPose,
-            _ => default
-        };
-
-        return slotKind != default;
     }
 }

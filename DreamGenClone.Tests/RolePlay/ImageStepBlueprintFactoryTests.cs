@@ -340,6 +340,61 @@ public sealed class ImageStepBlueprintFactoryTests
     }
 
     /// <summary>
+    /// The edit workspace's STEP can bind a character's BUILD from that character's approved identity pack. The pack is
+    /// where a character's curated builds actually live, so offering only approved scene assets left the edit surface
+    /// unable to condition a build on the character's own pack — reported live 2026-10-03 as "make the edit behave
+    /// just the composition … face, body, wardrobe, location".
+    ///
+    /// <para>
+    /// The FACE stays absent from this blueprint ON PURPOSE, and that is not the defect: this workspace binds each
+    /// detected person to a pack face through its own Identity tab and runs a face-only correction there, so a face
+    /// slot would give each person two mechanisms in one render.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void EditElements_TakesTheBuildFromTheCharactersIdentityPack_AndStillDeclaresNoFaceSlot()
+    {
+        var blueprint = ImageStepBlueprintFactory.ForEditElements(Cast);
+
+        var bodies = blueprint.Slots.Where(slot => slot.SlotKind == ImageStepSlotKind.Body).ToList();
+        Assert.NotEmpty(bodies);
+        Assert.All(bodies, body => Assert.Contains(ImageStepReferenceSourceKind.IdentityPackAsset, body.AllowedSources));
+
+        // …and the pack is NOT offered where it cannot supply anything: a pack carries faces and builds only.
+        Assert.All(
+            blueprint.Slots.Where(slot => slot.SlotKind == ImageStepSlotKind.Wardrobe),
+            wardrobe => Assert.DoesNotContain(ImageStepReferenceSourceKind.IdentityPackAsset, wardrobe.AllowedSources));
+
+        // The face slot's absence is deliberate (the workspace's own Identity tab owns face conditioning here).
+        Assert.DoesNotContain(blueprint.Slots, slot => slot.SlotKind == ImageStepSlotKind.Face);
+    }
+
+    /// <summary>
+    /// A location is a container of accepted views (four elevations, an interior), so its slot carries a LIST: binding
+    /// Front and Left together is how one building stays the same building across angles. EVERY blueprint that declares
+    /// a location slot opts in — a host that offered one view while another offered several would be the drift this
+    /// factory exists to prevent.
+    /// </summary>
+    [Fact]
+    public void EveryBlueprintWithALocationSlot_AcceptsMoreThanOneView()
+    {
+        var blueprints = new (string Name, ImageStepBlueprint Blueprint)[]
+        {
+            ("ProductionStudio", ImageStepBlueprintFactory.ForProductionStudio(Cast)),
+            ("AssetCreate", ImageStepBlueprintFactory.ForAssetCreate(Becky)),
+            ("PackIdentityComposition", ImageStepBlueprintFactory.ForPackIdentityComposition(Cast)),
+            ("EditElements", ImageStepBlueprintFactory.ForEditElements(Cast))
+        };
+
+        foreach (var (name, blueprint) in blueprints)
+        {
+            var slot = blueprint.Slots.Single(candidate => candidate.SlotKind == ImageStepSlotKind.Location);
+
+            Assert.True(slot.AllowsMultiple, $"{name} declares a single-valued location slot.");
+        }
+    }
+
+    /// <summary>
     /// With no character picked there is nobody to take a face or build from, so the asset creator declares only the
     /// frame-wide elements. Picking a character is what DECLARES the per-character tabs, which is why the selector sits
     /// above them rather than beside them.

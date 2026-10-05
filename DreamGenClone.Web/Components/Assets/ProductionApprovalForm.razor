@@ -7,6 +7,24 @@
 @if (Image.ProductionApprovalStatus is not null and not SceneAssetProductionApprovalStatus.Draft)
 {
     <div class="alert alert-info">This image is already @Image.ProductionApprovalStatus.</div>
+    @if (Image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved)
+    {
+        @* Approval is what a reference picker reads and what makes the image undeletable. Without this the page said
+           "already Approved" and offered nothing at all, so an image approved by mistake could be neither withdrawn
+           nor deleted: the app told an operator to stop using it while giving them no way to (2026-10-03). It returns
+           to Draft rather than Revoked — see SceneAssetRepository.RevokeImageApprovalAsync for why. *@
+        <button class="btn btn-outline-warning" type="button" disabled="@_busy" @onclick="RevokeAsync">
+            <i class="bi bi-slash-circle me-1"></i> Stop using this image
+        </button>
+        <div class="form-text">
+            Takes it out of production so it is no longer offered as a reference and can be deleted. Nothing is
+            destroyed: the approval can be given again from this form afterwards.
+        </div>
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert alert-danger mt-2 mb-0">@_error</div>
+        }
+    }
 }
 else
 {
@@ -108,6 +126,14 @@ else
     /// </summary>
     [Parameter]
     public SceneAssetType? AssetType { get; set; }
+
+    /// <summary>
+    /// Raised after this image's production state changes, so the host can re-read it. The form is handed an image
+    /// rather than holding one, so only the host can fetch the new state — without this the page would keep rendering
+    /// "already Approved" over an image that had just been taken out of production.
+    /// </summary>
+    [Parameter]
+    public EventCallback ApprovalChanged { get; set; }
 
     private string _provenanceJson = string.Empty;
     private string _consent = string.Empty;
@@ -238,6 +264,30 @@ else
         {
             _error = ex.Message;
             Logger.LogWarning(ex, "Asset production approval failed.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Takes this image back out of production. Nothing is deleted and no bytes move: the approval is withdrawn, which
+    /// is what stops the reference pickers offering it and what lets the image be deleted afterwards.
+    /// </summary>
+    private async Task RevokeAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await AssetService.RevokeImageApprovalAsync(Image.Id);
+            await ApprovalChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogWarning(ex, "Taking an asset image out of production failed.");
         }
         finally
         {

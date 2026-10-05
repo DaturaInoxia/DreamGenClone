@@ -26,6 +26,56 @@ public static class ReferenceStrategyCatalogue
     public const string Lora = "Lora";
     public const string WardrobeTryOn = "WardrobeTryOn";
 
+    /// <summary>
+    /// A surface that renders an image from a prompt and a set of references. It exists so "which strategies does
+    /// this code path implement?" is ANSWERED here rather than spelled as a string literal at each call site, which
+    /// is how one surface ended up asking for a strategy no graph of its owns.
+    /// </summary>
+    public enum ReferenceImageSurface
+    {
+        /// <summary>Prompt-to-image: the scene render and the asset generation.</summary>
+        Generate = 1,
+
+        /// <summary>Source-image editing: the media-edit pipeline and the asset edit handler.</summary>
+        Edit = 2
+    }
+
+    /// <summary>
+    /// The strategies an image surface actually IMPLEMENTS — every one of them carried as a reference IMAGE.
+    ///
+    /// <para>
+    /// <b>Generate</b> carries references through <c>ComfyUIImageClient.BuildQwenImage21Workflow</c> (reference *i*
+    /// wired to <c>TextEncodeQwenImage21.images.image_{i+1}</c>). <b>Edit</b> carries them through
+    /// <c>ComfyUIImageEditingClient</c>, whose every graph kind (split-UNET, merged checkpoint, Qwen-2.1 native)
+    /// accepts reference images — the source occupies <c>image_1</c> and reference *i* occupies
+    /// <c>image_{i+2}</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// <c>ReferenceConditioning</c> is deliberately NOT in the edit set: that is the IP-Adapter/PuLID identity
+    /// MECHANISM, which conditions the sampler's model input, and no editor graph implements it — the identity
+    /// mechanism is a scene-render concept (<c>IIdentityConditionedImageClient</c>). Demanding it on an edit is what
+    /// failed every reference-carrying asset edit with "qualified but has no implemented graph in this editor"
+    /// (reported live 2026-10-03), because the editor model declares only <c>NativeMultiReference</c>.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<string> ImplementedReferenceStrategiesFor(ReferenceImageSurface surface) => surface switch
+    {
+        ReferenceImageSurface.Generate => [NativeMultiReference],
+        ReferenceImageSurface.Edit => [NativeMultiReference],
+        _ => throw new InvalidOperationException(
+            $"Reference image surface '{surface}' has no implemented-strategy set, so no reference can be proven "
+            + "carryable on it. Add it deliberately rather than letting a caller assume one.")
+    };
+
+    /// <summary>The surface's own name, for a refusal that says which code path refused.</summary>
+    public static string Label(ReferenceImageSurface surface) => surface switch
+    {
+        ReferenceImageSurface.Generate => "generation",
+        ReferenceImageSurface.Edit => "editor",
+        _ => surface.ToString()
+    };
+
     private static readonly IReadOnlyList<string> FaceStrategies =
         [TextOnly, ReferenceConditioning, NativeMultiReference, Lora];
 

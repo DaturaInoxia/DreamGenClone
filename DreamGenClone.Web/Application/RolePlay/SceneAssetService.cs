@@ -201,15 +201,15 @@ public sealed class SceneAssetService : ISceneAssetService, ISceneAssetImageTagS
         var image = await _repository.GetImageAsync(imageId, cancellationToken)
             ?? throw new InvalidOperationException($"Scene asset image '{imageId}' was not found.");
 
-        // An image that is IN USE as a reference image is not deletable HERE, at the one place every asset-image
-        // delete goes through, so the asset pages and the wardrobe tab cannot answer "may I delete this?"
-        // differently. Its approval is what the reference pickers read and what the render pins, so removing the
-        // bytes behind it would leave bindings naming an image that no longer exists. Stopping it first is one click
-        // on the same card, and that is what makes the delete legal.
+        // An APPROVED image is not deletable HERE, at the one place every asset-image delete goes through, so the asset
+        // pages and the wardrobe tab cannot answer "may I delete this?" differently. Approval is what the reference
+        // pickers read, so it is what pins the bytes: removing them would leave a picker offering an image that no
+        // longer exists. Taking it out of production first is one click on the same card — and advising that step is
+        // only honest while that click exists, which it did not until RevokeImageApprovalAsync (2026-10-03).
         if (image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved)
         {
             throw new InvalidOperationException(
-                $"Scene asset image '{imageId}' is in use as a reference image. Stop using it first, then delete it.");
+                $"Scene asset image '{imageId}' is approved for production, so it is still offered as a reference. Use 'Stop using' on the image, then delete it.");
         }
 
         await _repository.DeleteImageAsync(image.Id, cancellationToken);
@@ -459,6 +459,22 @@ public sealed class SceneAssetService : ISceneAssetService, ISceneAssetImageTagS
             "Approved scene asset image for production: AssetId={AssetId}, ImageId={ImageId}",
             approved.AssetId, approved.Id);
         return approved;
+    }
+
+    /// <summary>
+    /// Takes an approved image back out of production. This is the step that has to exist for the delete guard to be
+    /// actionable: while an image is approved the reference pickers offer it, and the delete is refused with advice to
+    /// stop using it first. The state it returns to, and why it is Draft rather than Revoked, belongs to the store.
+    /// </summary>
+    public async Task<SceneAssetImage> RevokeImageApprovalAsync(
+        string imageId,
+        CancellationToken cancellationToken = default)
+    {
+        var revoked = await _repository.RevokeImageApprovalAsync(imageId, cancellationToken);
+        _logger.LogInformation(
+            "Took scene asset image out of production: AssetId={AssetId}, ImageId={ImageId}",
+            revoked.AssetId, revoked.Id);
+        return revoked;
     }
 
     public async Task<(SceneAsset Asset, SceneAssetImage Image, Stream Stream)> OpenImageForDownloadAsync(

@@ -91,3 +91,24 @@ faces in the render and compare that count with the expected count.
 The sanitisation metric is a conservative skin-fraction screen with a named
 threshold. It is a heuristic, not ground truth, and the human verdict overrides
 it.
+
+### C# port (B-135 P3, B135-019) — ✅ qualified 2026-10-04
+
+`DreamGenClone.Web/Application/RolePlay/Evaluation/Gates/SanitisationGate.cs` is a
+pixel-exact port of `scoring/sanitisation.py`. The YCbCr step reproduces PIL's
+`convert("YCbCr")` exactly — the JPEG/JFIF fixed-point conversion in `ConvertYCbCr.c`
+(round-half-up at scale 64, summed, `>> 6`, `+128` for Cb/Cr). The first port used the
+BT.601 video-range matrix (a `+16` Y offset) and was wrong; the qualification caught it.
+
+Qualification: the gate was run on the SAME render files as `score_sanitisation` and
+reproduces the skin fraction to the tool's full float precision (identical pixel
+classification):
+
+| Render | Python `skin_fraction` | C# `SkinFraction` |
+|---|---|---|
+| `artifacts/tmp/qwen-2-1/p0Base/result_0.png` | `0.10614585876464844` | identical |
+| `artifacts/tmp/qwen-2-1/p0RegionInpaint/result_0.png` | `0.12604236602783203` | identical |
+| `artifacts/tmp/qwen-2-1/p0RegionControl/result_0.png` | `0.12873172760009766` | identical |
+
+The arithmetic is also pinned on hand-computable solid images by
+`DreamGenClone.Tests/RolePlay/SanitisationGateTests.cs`.

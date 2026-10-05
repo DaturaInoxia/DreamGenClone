@@ -42,7 +42,9 @@ public interface ISceneImageLLMPromptBuilder
         string? refineInstruction,
         IReadOnlyList<Character>? characters,
         IReadOnlyDictionary<string, string>? appearanceOverrides = null,
-        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null,
+        ScenePromptOverrides? effectiveOverrides = null,
+        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null)
         => BuildMessages(brief, pov, settings, resolvedPolicy, refineInstruction);
 
     /// <summary>Compose the system + user messages for the pre-processor model.</summary>

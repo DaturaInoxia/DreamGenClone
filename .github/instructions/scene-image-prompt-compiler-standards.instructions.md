@@ -53,6 +53,38 @@ These are hard rules. A compiler change that violates them is a bug, not a fix.
    model family's official/authoritative guides (primary). Internal references are secondary, and
    only allowed when they demonstrate a rule the external examples do not cover (e.g. POV
    exclusion), and only if they align with the externally-researched anatomy in §2.5.
+10. **Every reference image must be NAMED in the prompt, by index, or the model guesses.** A render
+    carrying two or more reference images MUST refer to them with Qwen's `<image1>`, `<image2>` … tags
+    and state what each image IS. The tagging is not this project's convention: `QwenLM/Qwen-Image-2.1`
+    `prompt_rewrite/prompts/system_prompt_edit.txt` calls it "mandatory and non-negotiable" for
+    multi-image input, requires each image's role to be stated, and explicitly forbids "the first image"
+    phrasing. One reference is the OPPOSITE case — that same rule says to use no tags at N = 1. A bound
+    reference that is left unnamed is not "working anyway": it is a coin flip on which image the model
+    reproduces. Evidence: **CASE-25** — measured 2026-10-03 on the app's own three reference files at one
+    pinned seed, only the prompt differing, outer-ring histogram L1 against the bound shed **1.574
+    unnamed → 0.887 named**, better than the shed-alone control (0.936).
+
+    **Where the block is composed — the rule a future change must not break.** The tags are numbered
+    over the images a route actually SENDS, so the block has to be built where the reference list is
+    built, not from the planned bindings: the send order puts pack-supplied images first and the
+    approved-asset bindings after, which is not the order the bindings are stored in
+    (`ReferenceBindingShape.InSendOrder` owns that). `ReferenceRoleClauses` owns the wording and the
+    numbering and every route calls `AppendToImagePrompt`; a route that composes its own list of
+    references must build its roles beside it, in the same order. All four native-reference routes do
+    this today: the scene render path (`SceneImageRenderingJobHandler.RenderNativeReferenceAsync` and
+    `RenderNativeIdentityAsync`) and the asset-create path
+    (`SceneAssetGenerationJobHandler.RenderAssetReferencesAsync`, `RenderNativePoseAsync`,
+    `RenderIdentityConditionedAsync`). The pre-processor prompt gets the same roles through
+    `ForPreprocessor` so the LLM that drafts the image prompt is told which image is which too.
+
+    **Which bindings go to the approved-asset resolver is `ReferenceBindingShape.IsAssetBacked` — not
+    "everything that is not a pack binding".** There are three exclusive channels: a pack image from the
+    pack store, a pose skeleton from the pose library, and only what is left from the approved-asset
+    resolver. Counting the resolver's input with a different rule than the resolver selects by made a
+    bound POSE look like an image the resolver had dropped, and failed a render that was about to be
+    correct ("the reference resolver returned 1 images for 2 approved bindings", reported live
+    2026-10-03). The resolver, the asset-create path and the scene render path all select through that
+    one helper so the rules cannot drift again.
 
 ---
 
@@ -340,6 +372,11 @@ repeat mature-age tokens because the model's faces skew young; the short guard n
 
 | Source | What it provides |
 |---|---|
+| **Qwen — `QwenLM/Qwen-Image-2.1` `prompt_rewrite/prompts/system_prompt_edit.txt`** (fetched 2026-10-03) | The `<imageN>` multi-image tagging rule and its exceptions, that each image's ROLE must be stated, the canvas-selection table for compositing/swap/edit tasks, and the "point at the image rather than describing features in words" identity rule. Basis of HARD RULE 10. |
+| **Qwen — `QwenLM/Qwen-Image-2.1` `prompt_rewrite/README.md` + `data/edit_example.jsonl` + `README.md`** (fetched 2026-10-03) | Worked `<image1>`/`<image2>` examples ("Place `<image1>`'s subject into `<image2>`'s scene"); "up to 10 reference images"; `ratio_follow`; and the images-are-sent-in-order warning that reordering silently re-points every reference. |
+| **Qwen — HF model cards `Qwen-Image-Edit-2509`, `Qwen-Image-Edit-2511`** (fetched 2026-10-03) | That 2509/2511 document NO user-facing placeholder — official examples use natural language ("the bear on the left") and the framework auto-prepends `"Picture N:"`. Also the only official count guidance: "optimal performance is currently achieved with 1 to 3 input images". |
+| **Comfy-Org — `workflow_templates: templates/image_qwen_image_2_1_image_edit.json`; `docs.comfy.org/tutorials/image/qwen/qwen-image-2-1`; `comfyanonymous/ComfyUI: comfy_extras/nodes_qwen.py`** (fetched 2026-10-03) | The node-level truth: "Mention them in the prompt as `<image1>`, `<image2>`"; "image_1 is the edit target"; and that `TextEncodeQwenImage21` tokenizes the user prompt UNCHANGED while `TextEncodeQwenImageEditPlus` generates `Picture N:` labels itself. This is why ordering alone cannot bind an image to a description on 2.1. |
+| **HuggingFace `diffusers` — `pipelines/qwenimage21/pipeline_qwenimage21.py`, `pipelines/qwenimage/pipeline_qwenimage_edit_plus.py`** (fetched 2026-10-03) | The reference implementation: the 2.1 template builds literal `<imageN><|vision_start|>…` slots with the user prompt appended after them; the edit-plus pipeline builds `"Picture {}: …"`. Canvas "derived from the condition image's aspect ratio if omitted". |
 | **RunDiffusion — Juggernaut XIII Ragnarok Prompt Guide** (Team Juggernaut / Adam) — `https://www.rundiffusion.com/prompt-guide-for-juggernaut-xiii-ragnarok-by-rundiffusion` | The 17 prompt components, settings table (DPM++ 2M SDE, 30–40 steps, CFG 3–6, 832×1216, VAE baked in, HiRes recipe), token budget ≤75, first-sentence rule, NSFW-trained-model clothing anchor, SFW best practices, BOORU-token handling. |
 | **Civitai — Juggernaut XL model page (author: Kandoo/Team Juggernaut)** — `https://civitai.com/models/133005/juggernaut-xl` | Author's recommended settings (identical to the guide) and the explicit SDXL limitation note ("faces at a distance", weak text). Model identity: `JuggernautXL_Ragnarok_ByRunDiffusion.safetensors`, RAIL++-M, Overwhelmingly Positive. |
 | **Civitai — Big Lust model page + API** — `https://civitai.com/models/575395/big-lust` and `/api/v1/models?query=biglust` | Big Lust = bigASP × LUSTIFY merge, SDXL 1.0, non-Pony NSFW checkpoint; `bigLust_v16.safetensors` (v1.6 = bigASP 2, 2024-11-20, fp16; v1.5 = LUSTIFY 4.0, darker); **no author prompt guide, no trigger words**; community settings DPM++ 2M (DPM2 A) / CFG 3.5–5 + hires-fix; Sunburned companion LoRA 0.25–0.4. |

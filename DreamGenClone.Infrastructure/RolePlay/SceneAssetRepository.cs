@@ -219,13 +219,13 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                 Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                 LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-                CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed, TagsJson, DisplayName)
+                CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed, TagsJson, DisplayName, GateResultsJson)
             VALUES (
                 $id, $assetId, $kind, $status, $prompt, $sourceImageId, $modelSnapshotJson,
                 $associationMetadataJson, $fileRelativePath, $mediaType, $width, $height, $byteLength,
                 $sha256, $errorMessage, $sourceProvenanceJson, $productionApprovalStatus, $consentState,
                 $licenseState, $licenseLabel, $approvedUseScope, $contentPolicyKey,
-                $compatibilityMetadataJson, $productionVersion, $candidateBatchId, $candidateDecision, $candidateNotes, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $validationResultJson, $pipelineStepsJson, $negativePrompt, $promptCompilerId, $seed, $tagsJson, $displayName)
+                $compatibilityMetadataJson, $productionVersion, $candidateBatchId, $candidateDecision, $candidateNotes, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $validationResultJson, $pipelineStepsJson, $negativePrompt, $promptCompilerId, $seed, $tagsJson, $displayName, $gateResultsJson)
             ON CONFLICT(Id) DO UPDATE SET
                 Status = excluded.Status,
                 ModelSnapshotJson = excluded.ModelSnapshotJson,
@@ -256,7 +256,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 PipelineStepsJson = excluded.PipelineStepsJson,
                 NegativePrompt = excluded.NegativePrompt,
                 PromptCompilerId = excluded.PromptCompilerId,
-                Seed = excluded.Seed
+                Seed = excluded.Seed,
+                GateResultsJson = excluded.GateResultsJson
             """;
         AddImageParameters(command, image);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -349,6 +350,55 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
 
         return await GetImageAsync(imageId, cancellationToken)
             ?? throw new InvalidOperationException($"Scene asset image '{imageId}' was not found after being named.");
+    }
+
+    /// <summary>
+    /// Takes an image back OUT of production, so it stops being offered as a reference and becomes deletable again.
+    ///
+    /// <para>
+    /// The state it returns to is <see cref="SceneAssetProductionApprovalStatus.Draft"/>, deliberately not
+    /// <see cref="SceneAssetProductionApprovalStatus.Revoked"/>: approval refuses any row that "is not null and not
+    /// Draft", so moving an image to Revoked would make it permanently un-approvable — a worse trap than the one this
+    /// exists to close. Draft is the one state that is both un-pickable and re-approvable.
+    /// </para>
+    ///
+    /// <para>
+    /// The UPDATE names <c>Approved</c> in its WHERE clause and the affected count is checked, so a second click or a
+    /// concurrent change is reported rather than silently overwriting a state this call did not put there.
+    /// </para>
+    /// </summary>
+    public async Task<SceneAssetImage> RevokeImageApprovalAsync(
+        string imageId,
+        CancellationToken cancellationToken = default)
+    {
+        Require(imageId, "Image id");
+
+        var image = await GetImageAsync(imageId, cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Scene asset image '{imageId}' was not found, so it cannot be taken out of production.");
+        if (image.ProductionApprovalStatus != SceneAssetProductionApprovalStatus.Approved)
+            throw new InvalidOperationException(
+                $"Scene asset image '{imageId}' is not approved for production, so there is nothing to take out of production.");
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneAssetImages
+            SET ProductionApprovalStatus = 'Draft',
+                UpdatedUtc = $updatedUtc
+            WHERE Id = $id AND ProductionApprovalStatus = 'Approved';
+            """;
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$id", image.Id);
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException(
+                $"Scene asset image '{imageId}' changed while it was being taken out of production; check its state and try again.");
+
+        return await GetImageAsync(image.Id, cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Scene asset image '{imageId}' was not found after being taken out of production.");
     }
 
     /// <summary>
@@ -1215,7 +1265,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-               CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed, TagsJson, DisplayName
+               CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed, TagsJson, DisplayName, GateResultsJson
         FROM SceneAssetImages
         """;
 
@@ -1263,7 +1313,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             // Appended LAST on purpose: this reader is ordinal, so a new column may only be added at the end of the
             // SELECT list, or every field after it silently shifts onto the wrong property.
             TagsJson = reader.IsDBNull(36) ? null : reader.GetString(36),
-            DisplayName = reader.IsDBNull(37) ? null : reader.GetString(37)
+            DisplayName = reader.IsDBNull(37) ? null : reader.GetString(37),
+            GateResultsJson = reader.IsDBNull(38) ? null : reader.GetString(38)
         };
     }
 
@@ -1312,6 +1363,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         // Absent from the ON CONFLICT update list for the same reason: the NAME is owned by SetImageDisplayNameAsync,
         // so a re-render or an edit stage upserting this row cannot erase the name an operator typed.
         command.Parameters.AddWithValue("$displayName", (object?)image.DisplayName ?? DBNull.Value);
+        command.Parameters.AddWithValue("$gateResultsJson", (object?)image.GateResultsJson ?? DBNull.Value);
     }
 
     private static void AddPromotionParameters(SqliteCommand command, SceneAsset asset)
@@ -1560,6 +1612,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 NegativePrompt TEXT NULL,
                 PromptCompilerId TEXT NULL,
                 Seed INTEGER NULL,
+                GateResultsJson TEXT NULL,
                 FOREIGN KEY (AssetId) REFERENCES SceneAssets(Id),
                 FOREIGN KEY (SourceImageId) REFERENCES SceneAssetImages(Id)
             );
@@ -1582,7 +1635,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ("PromptCompilerId", "ALTER TABLE SceneAssetImages ADD COLUMN PromptCompilerId TEXT NULL"),
             ("Seed", "ALTER TABLE SceneAssetImages ADD COLUMN Seed INTEGER NULL"),
             ("TagsJson", "ALTER TABLE SceneAssetImages ADD COLUMN TagsJson TEXT NULL"),
-            ("DisplayName", "ALTER TABLE SceneAssetImages ADD COLUMN DisplayName TEXT NULL")
+            ("DisplayName", "ALTER TABLE SceneAssetImages ADD COLUMN DisplayName TEXT NULL"),
+            ("GateResultsJson", "ALTER TABLE SceneAssetImages ADD COLUMN GateResultsJson TEXT NULL")
         })
         {
             await using var imageColumnCheck = connection.CreateCommand();

@@ -157,8 +157,10 @@ public sealed record ImageStepActor(string ActorKey, string DisplayName);
 /// <param name="AllowsMultiple">
 /// Whether this slot may carry MORE THAN ONE reference image. Defaults to false, and that default is load-bearing:
 /// for every other slot a second binding is refused loudly, because a render that used the first and dropped the
-/// rest would be invisible in the UI. A wardrobe opts in, because a look genuinely can be two garments (a dress and
-/// the shoes that go with it) and each is its own reference image.
+/// rest would be invisible in the UI. TWO slots opt in, because each has a genuine reason to be several images:
+/// a wardrobe, where a look can be a dress AND the shoes that go with it; and a location, where one place is several
+/// accepted views (four elevations, an interior) and handing the render more than one of them is what keeps the same
+/// building the same building from every angle. Both are lists of independent references, never alternates for one.
 /// </param>
 /// <param name="ActorDisplayName">
 /// The name of <see cref="ActorKey"/>'s character, as the operator sees it — carried here because the composer shows

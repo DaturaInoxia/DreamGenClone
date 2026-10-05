@@ -249,8 +249,20 @@ public sealed class WardrobeItemServiceTests
     /// asset-image delete goes through. Its approval is what a reference picker reads and what a render pinned, so
     /// deleting the bytes behind it would leave bound references naming an image that no longer exists.
     /// </summary>
+    /// <summary>
+    /// An APPROVED image is refused, and the refusal names the action that clears it. The guard reads approval rather
+    /// than asking whether anything actually references the image: approval is exactly what the reference pickers read,
+    /// so it is the condition that decides both whether an image can be picked and whether it can be destroyed.
+    ///
+    /// <para>
+    /// Renamed from "RefusesAnImageThatIsInUse" on 2026-10-03, when the message it asserted — "in use as a reference
+    /// image. Stop using it first" — was reported as a dead end by an operator who had approved the wrong image: the
+    /// app named a step it gave them no way to take. The assertion follows the message to the button that now exists,
+    /// so it pins the way OUT and not only the refusal.
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task DeleteImageAsync_RefusesAnImageThatIsInUse()
+    public async Task DeleteImageAsync_RefusesAnApprovedImage_AndNamesTheWayOut()
     {
         var image = CompleteImage();
         image.ProductionApprovalStatus = SceneAssetProductionApprovalStatus.Approved;
@@ -260,7 +272,8 @@ public sealed class WardrobeItemServiceTests
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
             () => world.Wardrobe.DeleteImageAsync(image.Id));
 
-        Assert.Contains("in use", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("approved for production", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Stop using", exception.Message, StringComparison.Ordinal);
         Assert.Empty(repository.DeletedImages);
     }
 

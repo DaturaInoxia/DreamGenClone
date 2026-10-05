@@ -44,9 +44,10 @@ public sealed class CharacterLoraCoveragePlanGenerator : ICharacterLoraCoverageP
         SceneImageReferenceBodyView BodySlot,
         int CloseUp,
         int HalfBody,
-        int FullBody)
+        int FullBody,
+        int Far)
     {
-        public int Total => CloseUp + HalfBody + FullBody;
+        public int Total => CloseUp + HalfBody + FullBody + Far;
 
         public bool IsHeldOut => !FaceVisible;
 
@@ -57,17 +58,25 @@ public sealed class CharacterLoraCoveragePlanGenerator : ICharacterLoraCoverageP
     private static readonly AngleAxis[] Matrix =
     [
         new("front", LoraCoverageAngleFamily.Front, 0, true,
-            SceneImageReferenceFaceView.Front, SceneImageReferenceBodyView.Front, 2, 2, 2) { Offset = 0 },
+            SceneImageReferenceFaceView.Front, SceneImageReferenceBodyView.Front, 2, 2, 2, 1) { Offset = 0 },
         new("34l", LoraCoverageAngleFamily.ThreeQuarter, -45, true,
-            SceneImageReferenceFaceView.ThreeQuarterLeft, SceneImageReferenceBodyView.ThreeQuarterLeft, 1, 2, 2) { Offset = 1 },
+            SceneImageReferenceFaceView.ThreeQuarterLeft, SceneImageReferenceBodyView.ThreeQuarterLeft, 1, 2, 2, 0) { Offset = 1 },
         new("34r", LoraCoverageAngleFamily.ThreeQuarter, 45, true,
-            SceneImageReferenceFaceView.ThreeQuarterRight, SceneImageReferenceBodyView.ThreeQuarterRight, 1, 2, 2) { Offset = 2 },
+            SceneImageReferenceFaceView.ThreeQuarterRight, SceneImageReferenceBodyView.ThreeQuarterRight, 1, 2, 2, 0) { Offset = 2 },
         new("pl", LoraCoverageAngleFamily.Profile, -90, true,
-            SceneImageReferenceFaceView.ProfileLeft, SceneImageReferenceBodyView.ProfileLeft, 2, 2, 2) { Offset = 3 },
+            SceneImageReferenceFaceView.ProfileLeft, SceneImageReferenceBodyView.ProfileLeft, 2, 2, 2, 1) { Offset = 3 },
         new("pr", LoraCoverageAngleFamily.Profile, 90, true,
-            SceneImageReferenceFaceView.ProfileRight, SceneImageReferenceBodyView.ProfileRight, 2, 2, 2) { Offset = 4 },
+            SceneImageReferenceFaceView.ProfileRight, SceneImageReferenceBodyView.ProfileRight, 2, 2, 2, 1) { Offset = 4 },
         new("behind", LoraCoverageAngleFamily.Behind, 180, false,
-            null, SceneImageReferenceBodyView.Back, 0, 1, 1) { Offset = 5 }
+            null, SceneImageReferenceBodyView.Back, 0, 1, 1, 1) { Offset = 5 },
+
+        // Over the shoulder, added 2026-10-04. ONE axis, not a mirrored pair, because the shot is the same picture
+        // whichever shoulder the head turns over - the sign of the yaw names which shoulder, not a different framing.
+        // The BODY slot is the back view and the FACE slot is a three-quarter, because that is what the camera
+        // actually sees: her back to us and her face turned back into view. That combination is the whole reason the
+        // cell exists - it is the only cell in the set that shows a face while the body is turned away.
+        new("os", LoraCoverageAngleFamily.OverShoulder, 135, true,
+            SceneImageReferenceFaceView.ThreeQuarterRight, SceneImageReferenceBodyView.Back, 1, 1, 1, 0) { Offset = 6 }
     ];
 
     /// <summary>
@@ -196,6 +205,28 @@ public sealed class CharacterLoraCoveragePlanGenerator : ICharacterLoraCoverageP
                 + "seeds, and a seed is used once.");
         }
 
+        // The matrix and the policy have to agree about how big the set is. Checking only the seed range let a matrix
+        // that had outgrown its policy pass silently: the extra cells still drew seeds from a range with room in it, so
+        // nothing failed, and the policy went on describing a set that no longer existed - the counts an operator
+        // reads, and the diversity minima derived from them, quietly stopped being true. Compare the totals directly.
+        var matrixCoreTotal = Matrix.Sum(axis => axis.Total);
+        if (matrixCoreTotal != policy.ExpectedCoreCellCount)
+        {
+            throw new InvalidOperationException(
+                $"The coverage matrix generates {matrixCoreTotal} core cells but the curation policy expects "
+                + $"{policy.ExpectedCoreCellCount}. The policy's seed allocation and diversity minima describe the set "
+                + $"it was written for, so the two are not interchangeable. Set the policy's core cell count to "
+                + $"{matrixCoreTotal} in the LoRA dataset workspace, or restore the matrix it was written for.");
+        }
+
+        if (Variations.Length != policy.ExpectedVariationCellCount)
+        {
+            throw new InvalidOperationException(
+                $"The coverage matrix generates {Variations.Length} variation cells but the curation policy expects "
+                + $"{policy.ExpectedVariationCellCount}. Set the policy's variation cell count to {Variations.Length} "
+                + "in the LoRA dataset workspace, or restore the matrix it was written for.");
+        }
+
         var plan = new CoveragePlan
         {
             CharacterProfileId = request.CharacterProfileId.Trim(),
@@ -258,7 +289,8 @@ public sealed class CharacterLoraCoveragePlanGenerator : ICharacterLoraCoverageP
                      {
                          (LoraCoverageDistance.CloseUp, axis.CloseUp),
                          (LoraCoverageDistance.HalfBody, axis.HalfBody),
-                         (LoraCoverageDistance.FullBody, axis.FullBody)
+                         (LoraCoverageDistance.FullBody, axis.FullBody),
+                         (LoraCoverageDistance.Far, axis.Far)
                      })
             {
                 var seriesKey = $"{axis.Key}|{DistanceKey(distance)}";
@@ -447,13 +479,21 @@ public sealed class CharacterLoraCoveragePlanGenerator : ICharacterLoraCoverageP
             : SceneImageReferenceBodyState.Unclothed;
 
     private static string AspectFor(CurationPolicy policy, LoraCoverageDistance distance)
-        => distance == LoraCoverageDistance.CloseUp ? policy.CloseUpAspect : policy.PortraitAspect;
+        => distance switch
+        {
+            LoraCoverageDistance.CloseUp => policy.CloseUpAspect,
+            // Far is the one framing whose size is not a portrait shape: what makes it far is the amount of scene
+            // around the subject, and that is a policy value rather than a constant in this method.
+            LoraCoverageDistance.Far => policy.FarAspect,
+            _ => policy.PortraitAspect
+        };
 
     private static string DistanceKey(LoraCoverageDistance distance) => distance switch
     {
         LoraCoverageDistance.CloseUp => "cu",
         LoraCoverageDistance.HalfBody => "hb",
         LoraCoverageDistance.FullBody => "fb",
+        LoraCoverageDistance.Far => "far",
         _ => throw new InvalidOperationException($"Unsupported distance '{distance}'.")
     };
 
@@ -476,6 +516,9 @@ public sealed class CharacterLoraCoveragePlanGenerator : ICharacterLoraCoverageP
             LoraCoverageDistance.CloseUp => null,
             LoraCoverageDistance.HalfBody => LoraCellWorkflowKeys.HalfBodyOutfitKeys,
             LoraCoverageDistance.FullBody => LoraCellWorkflowKeys.FullBodyOutfitKeys,
+            // A far frame shows the whole figure, so it rotates the same garments a full-body frame does and tells
+            // them apart the same way. Distance changes how much scene surrounds her, not how much outfit is visible.
+            LoraCoverageDistance.Far => LoraCellWorkflowKeys.FullBodyOutfitKeys,
             _ => throw new InvalidOperationException($"Unsupported distance '{distance}'.")
         };
 

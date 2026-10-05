@@ -21,6 +21,21 @@ public static class LoraCellWorkflowKeys
     public const string RenderBehindHalf = "lora.cell.render.behind.half";
     public const string RenderBehindFull = "lora.cell.render.behind.full";
 
+    // ---- The two axes added 2026-10-04: FAR cells and OVER-SHOULDER cells. ---------------------------------
+    //
+    // FAR: a whole scene with the subject small in it. It is a distance, not a variant of full body, because the
+    // face occupies roughly half the pixels - which is what the cell exists to measure.
+    //
+    // OVER-SHOULDER: the body turned away with the head looked back, so the face IS visible. It is a family of its
+    // own rather than a face-visible Behind, because the angle phrase is keyed per family and a look-back wearing
+    // the back-view wording renders the back of her head.
+    public const string RenderFrontFar = "lora.cell.render.front.far";
+    public const string RenderProfileFar = "lora.cell.render.profile.far";
+    public const string RenderBehindFar = "lora.cell.render.behind.far";
+    public const string RenderOverShoulderClose = "lora.cell.render.overshoulder.close";
+    public const string RenderOverShoulderHalf = "lora.cell.render.overshoulder.half";
+    public const string RenderOverShoulderFull = "lora.cell.render.overshoulder.full";
+
     // ---- The cell's other single-purpose prompts. -----------------------------------------------------
     //
     // There is deliberately no negative-prompt key. The families this pipeline renders carry no negative:
@@ -90,11 +105,13 @@ public static class LoraCellWorkflowKeys
     public const string VocabularyDistanceClose = "lora.vocabulary.distance.close";
     public const string VocabularyDistanceHalf = "lora.vocabulary.distance.half";
     public const string VocabularyDistanceFull = "lora.vocabulary.distance.full";
+    public const string VocabularyDistanceFar = "lora.vocabulary.distance.far";
 
     public const string VocabularyAngleFront = "lora.vocabulary.angle.front";
     public const string VocabularyAngleThreeQuarter = "lora.vocabulary.angle.threequarter";
     public const string VocabularyAngleProfile = "lora.vocabulary.angle.profile";
     public const string VocabularyAngleBehind = "lora.vocabulary.angle.behind";
+    public const string VocabularyAngleOverShoulder = "lora.vocabulary.angle.overshoulder";
 
     // Which way the subject faces relative to the camera. Separate from the angle family because a
     // three-quarter and a profile can both face the same way, and the family sentence supplies the amount
@@ -113,7 +130,9 @@ public static class LoraCellWorkflowKeys
         RenderFrontClose, RenderFrontHalf, RenderFrontFull,
         RenderThreeQuarterClose, RenderThreeQuarterHalf, RenderThreeQuarterFull,
         RenderProfileClose, RenderProfileHalf, RenderProfileFull,
-        RenderBehindClose, RenderBehindHalf, RenderBehindFull
+        RenderBehindClose, RenderBehindHalf, RenderBehindFull,
+        RenderFrontFar, RenderProfileFar, RenderBehindFar,
+        RenderOverShoulderClose, RenderOverShoulderHalf, RenderOverShoulderFull
     ];
 
     /// <summary>The garments a FULL-BODY frame shows, in rotation order. Its index order is the waist-up order.</summary>
@@ -150,8 +169,9 @@ public static class LoraCellWorkflowKeys
         VocabularyOutfitLoungewear, VocabularyOutfitSleepwear, VocabularyOutfitUnclothed,
         VocabularyOutfitCasualHalf, VocabularyOutfitFormalHalf, VocabularyOutfitAthleticHalf,
         VocabularyOutfitLoungewearHalf, VocabularyOutfitSleepwearHalf, VocabularyOutfitUnclothedHalf,
-        VocabularyDistanceClose, VocabularyDistanceHalf, VocabularyDistanceFull,
+        VocabularyDistanceClose, VocabularyDistanceHalf, VocabularyDistanceFull, VocabularyDistanceFar,
         VocabularyAngleFront, VocabularyAngleThreeQuarter, VocabularyAngleProfile, VocabularyAngleBehind,
+        VocabularyAngleOverShoulder,
         VocabularyFacingCamera, VocabularyFacingLeft, VocabularyFacingRight, VocabularyFacingAway,
         VocabularySplitTrain, VocabularySplitValidation
     ];
@@ -188,6 +208,7 @@ public static class LoraCellWorkflowKeys
         LoraCoverageDistance.CloseUp => VocabularyDistanceClose,
         LoraCoverageDistance.HalfBody => VocabularyDistanceHalf,
         LoraCoverageDistance.FullBody => VocabularyDistanceFull,
+        LoraCoverageDistance.Far => VocabularyDistanceFar,
         _ => throw new InvalidOperationException($"Unsupported distance '{distance}'.")
     };
 
@@ -211,6 +232,7 @@ public static class LoraCellWorkflowKeys
         LoraCoverageDistance.CloseUp => false,
         LoraCoverageDistance.HalfBody => true,
         LoraCoverageDistance.FullBody => true,
+        LoraCoverageDistance.Far => true,
         _ => throw new InvalidOperationException($"Unsupported distance '{distance}'.")
     };
 
@@ -224,6 +246,13 @@ public static class LoraCellWorkflowKeys
         LoraCoverageDistance.CloseUp => [],
         LoraCoverageDistance.HalfBody => [LoraCoveragePoseClass.Standing, LoraCoveragePoseClass.Sitting],
         LoraCoverageDistance.FullBody =>
+        [
+            LoraCoveragePoseClass.Standing, LoraCoveragePoseClass.Sitting, LoraCoveragePoseClass.Kneeling,
+            LoraCoveragePoseClass.Lying, LoraCoveragePoseClass.AllFours, LoraCoveragePoseClass.HandsRaised
+        ],
+        // A far frame shows the whole figure in a whole scene, so nothing about the stance is hidden by the frame -
+        // it can tell apart everything a full-body frame can, including more, not less.
+        LoraCoverageDistance.Far =>
         [
             LoraCoveragePoseClass.Standing, LoraCoveragePoseClass.Sitting, LoraCoveragePoseClass.Kneeling,
             LoraCoveragePoseClass.Lying, LoraCoveragePoseClass.AllFours, LoraCoveragePoseClass.HandsRaised
@@ -258,6 +287,9 @@ public static class LoraCellWorkflowKeys
                 ? VocabularyOutfitUnclothedHalf
                 : HalfBodyPhraseFor[declaredOutfitKey],
             LoraCoverageDistance.FullBody => declaredOutfitKey,
+            // A far frame shows the whole figure, so the garment is named exactly as the full-body frame names it.
+            // The distance changes how MUCH of the scene surrounds her, not how much of her outfit is in frame.
+            LoraCoverageDistance.Far => declaredOutfitKey,
             _ => throw new InvalidOperationException($"Unsupported distance '{distance}'.")
         };
     }
@@ -269,6 +301,7 @@ public static class LoraCellWorkflowKeys
         LoraCoverageAngleFamily.ThreeQuarter => VocabularyAngleThreeQuarter,
         LoraCoverageAngleFamily.Profile => VocabularyAngleProfile,
         LoraCoverageAngleFamily.Behind => VocabularyAngleBehind,
+        LoraCoverageAngleFamily.OverShoulder => VocabularyAngleOverShoulder,
         _ => throw new InvalidOperationException($"Unsupported angle family '{family}'.")
     };
 
@@ -329,6 +362,7 @@ public static class LoraCellWorkflowKeys
             LoraCoverageDistance.CloseUp => "close",
             LoraCoverageDistance.HalfBody => "half",
             LoraCoverageDistance.FullBody => "full",
+            LoraCoverageDistance.Far => "far",
             _ => throw new InvalidOperationException($"Unsupported distance '{distance}'.")
         };
 
@@ -338,6 +372,7 @@ public static class LoraCellWorkflowKeys
             LoraCoverageAngleFamily.ThreeQuarter => "threequarter",
             LoraCoverageAngleFamily.Profile => "profile",
             LoraCoverageAngleFamily.Behind => "behind",
+            LoraCoverageAngleFamily.OverShoulder => "overshoulder",
             _ => throw new InvalidOperationException($"Unsupported angle family '{family}'.")
         };
 

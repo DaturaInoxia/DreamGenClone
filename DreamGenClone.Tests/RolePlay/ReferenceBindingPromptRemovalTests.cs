@@ -30,13 +30,29 @@ public sealed class ReferenceBindingPromptRemovalTests
         SceneAssetSha256 = withReference ? "SHA" : null
     };
 
+    /// <summary>
+    /// A bound location removes the room's prose AND its lighting. Lighting is the one that was measured: the
+    /// pre-processor is REQUIRED to give lighting its own sentence, so before this a bound location image was always
+    /// fighting a prompt that had already decided the light (reported live 2026-10-03 — brief lighting
+    /// "Thinning blue light from the last of the day; dim inside the shed." transcribed verbatim into the prompt, and
+    /// the render landed at mean brightness 43.5 against its reference's 72.0 without reproducing the room).
+    ///
+    /// <para>
+    /// TIME OF DAY and MOOD are deliberately NOT removed: time of day is a narrative anchor ("the last of the day")
+    /// rather than a visual claim the image duplicates, and mood makes no claim about what the image owns at all.
+    /// </para>
+    /// </summary>
     [Fact]
-    public void Derive_LocationBinding_RemovesTheLocationAndEnvironmentProse()
+    public void Derive_LocationBinding_RemovesTheLocationEnvironmentAndLightingProse()
     {
         var fields = ReferenceBindingPromptRemoval.Derive([Binding("Location")]);
 
-        Assert.Equal(["frozenState.location", "frozenState.environment"], fields.Select(field => field.ElementKey));
+        Assert.Equal(
+            ["frozenState.location", "frozenState.environment", "frozenState.lighting"],
+            fields.Select(field => field.ElementKey));
         Assert.All(fields, field => Assert.True(field.Removed));
+        Assert.DoesNotContain(fields, field => field.ElementKey == "frozenState.timeOfDay");
+        Assert.DoesNotContain(fields, field => field.ElementKey == "frozenState.mood");
     }
 
     [Fact]
@@ -134,6 +150,7 @@ public sealed class ReferenceBindingPromptRemovalTests
         Assert.False(kept.Removed);
         // ...while the element the operator said nothing about is still removed by the binding.
         Assert.Contains(merged.Fields, field => field.ElementKey == "frozenState.environment" && field.Removed);
+        Assert.Contains(merged.Fields, field => field.ElementKey == "frozenState.lighting" && field.Removed);
     }
 
     [Fact]

@@ -12,12 +12,26 @@ namespace DreamGenClone.Tests.RolePlay;
 /// </summary>
 public sealed class StepPromptElementPlanTests
 {
+    /// <summary>
+    /// A bound location removes the room's prose AND the lighting, because the image carries both. Lighting is the one
+    /// that was measured: the pre-processor is required to give lighting its own sentence, so a bound location image
+    /// was always fighting a prompt that had already decided the light. Reported live 2026-10-03 — the brief read
+    /// "Thinning blue light from the last of the day; dim inside the shed.", the prompt transcribed it verbatim, and
+    /// the render came out at mean brightness 43.5 against its reference's 72.0 without reproducing the room.
+    ///
+    /// <para>
+    /// TIME OF DAY is deliberately NOT removed: it is a narrative anchor ("the last of the day"), not a visual claim
+    /// the image duplicates — and mood stays for the same reason.
+    /// </para>
+    /// </summary>
     [Fact]
-    public void ScopesFor_Location_RemovesLocationAndEnvironmentProse()
+    public void ScopesFor_Location_RemovesLocationEnvironmentAndLightingProse()
     {
         var scopes = StepPromptElementPlan.ScopesFor(ImageStepSlotKind.Location, null);
 
-        Assert.Equal(["frozenState.location", "frozenState.environment"], scopes);
+        Assert.Equal(["frozenState.location", "frozenState.environment", "frozenState.lighting"], scopes);
+        Assert.DoesNotContain("frozenState.timeOfDay", scopes);
+        Assert.DoesNotContain("frozenState.mood", scopes);
     }
 
     [Fact]
@@ -119,6 +133,7 @@ public sealed class StepPromptElementPlanTests
                 "character:p-becky.position",
                 "frozenState.location",
                 "frozenState.environment",
+                "frozenState.lighting",
                 "character:p-dean.clothing"
             ],
             scopes);

@@ -57,6 +57,26 @@ d:/src/DreamGenClone/.venv/Scripts/python.exe tools/qwen-region-proof/measure_re
 
 Exit code 0 = contained, 1 = not contained, so it can gate a proof run.
 
+## The C# port (B-135 P3, B135-017)
+
+`DreamGenClone.Web/Application/RolePlay/Evaluation/Gates/RegionContainmentGate.cs` is a pixel-exact
+port of this tool's measurement, so a region edit can be gated in-app with no Python at runtime. The
+verdict is the tool's own `contained` boolean (`outMasked * 2 < outControl AND inMasked > outMasked`).
+
+- The arithmetic is pinned by `DreamGenClone.Tests/RolePlay/RegionContainmentGateTests.cs` on
+  hand-computable synthetic images (contained / not-contained / per-channel vs max-channel).
+- **Qualification (before the gate is used to judge anything):** run `measure_region.py` and the C#
+  gate on the SAME three renders of one source and record the agreement here — the numbers must agree
+  to the tool's 3-decimal rounding.
+- **✅ Qualified 2026-10-04.** The C# gate was run on the SAME three renders the Python tool measured
+  (`p0Base`, `p0RegionInpaint`, `p0RegionControl`, rect `32,55,35,33` %, blur 8, band 24) and
+  reproduces every recorded number to the tool's 3-decimal rounding:
+  - margin 105 px (band 24 + blur 8 % of 1024)
+  - outside source-vs-masked `0.319` (tool: `0.319`)
+  - outside source-vs-control `19.86` (tool: `19.860`)
+  - inside source-vs-masked `125.252` (tool: `125.252`)
+  - verdict `CONTAINED` (tool: contained)
+
 `--rect-pct` is `x,y,width,height` in **percent of the frame** — the unit `MaskRectArea` itself takes
 (its schema caps all four at 100). A pixel rectangle is rejected by the host.
 

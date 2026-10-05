@@ -157,4 +157,86 @@ public sealed class PonySceneImagePromptBuilderTests
 
         Assert.DoesNotContain("DEPICTED CHARACTER APPEARANCE", user, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The Pony canonical path carries the same two halves of prompt adaptation the SDXL path carries. Pony is the
+    /// family that renders through ComfyUI's NATIVE reference slots, so it needs the reference-role clause MORE than
+    /// SDXL does: the encoder passes the prompt through unchanged, so nothing else names the images.
+    /// </summary>
+    [Fact]
+    public void BuildMessages_NamesEveryReferenceImageAndCarriesTheAuthorityRule()
+    {
+        var face = PackFace(ordinal: 1, label: "Front");
+        var location = ApprovedAsset("Location", ordinal: 2, label: "Workbench Back");
+
+        var (system, user) = _preprocessor.BuildMessages(
+            MakeCanonicalStillBrief(), "Dean",
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.AdultAllowed, null,
+            new List<Character> { MakeBecky(), MakeDean() },
+            null, null, null, [face, location]);
+
+        Assert.Contains("<image1> (Front)", user, StringComparison.Ordinal);
+        Assert.Contains("<image2> (Workbench Back)", user, StringComparison.Ordinal);
+        Assert.Contains("USER REMOVALS ARE AUTHORITATIVE", system, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The provider-request snapshot restates the brief and hands back elements an override removed — it must not be
+    /// sent (debug 052). The DB record keeps it for provenance; only the brief reaches the pre-processor.
+    /// </summary>
+    [Fact]
+    public void BuildMessages_NeverSendsTheProviderRequestSnapshot()
+    {
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeCanonicalStillBrief(), "Dean",
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.AdultAllowed, null);
+
+        Assert.DoesNotContain("CANONICAL PROVIDER REQUEST SNAPSHOT", user, StringComparison.Ordinal);
+        Assert.Contains("CANONICAL STILL BRIEF", user, StringComparison.Ordinal);
+    }
+
+    /// <summary>One reference is not tagged: that is 2.1's own rule for N = 1, and it is also the only case Pony's
+    /// reference path had ever rendered.</summary>
+    [Fact]
+    public void BuildMessages_OneReference_AddsNoRoleClause()
+    {
+        var location = ApprovedAsset("Location", ordinal: 1, label: "Workbench Back");
+
+        var (_, user) = _preprocessor.BuildMessages(
+            MakeCanonicalStillBrief(), "Dean",
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.AdultAllowed, null,
+            null, null, null, null, [location]);
+
+        Assert.DoesNotContain("<image1>", user, StringComparison.Ordinal);
+    }
+
+    private static ReferenceApplicationSelection ApprovedAsset(string elementKey, int ordinal, string label) => new()
+    {
+        ElementKey = elementKey,
+        Ordinal = ordinal,
+        SemanticRole = "location continuity",
+        Strategy = "NativeMultiReference",
+        SceneAssetId = "6dd275caf4fc47bb9532c66ab2243727",
+        SceneAssetImageId = "4371dc7fd21d4344994ea533eca6a33a",
+        SceneAssetVersion = 1,
+        SceneAssetSha256 = "87B4001C66EEF105CEE7A4D260219A4942814A98D7186F846DE167B5D1E56B6C",
+        ReferenceLabel = label
+    };
+
+    private static ReferenceApplicationSelection PackFace(int ordinal, string label) => new()
+    {
+        ElementKey = "Identity",
+        Kind = nameof(ImageStepSlotKind.Face),
+        Ordinal = ordinal,
+        ActorKey = "de351eb3-69d3-421a-a762-79ae8ee183ed",
+        SemanticRole = "character identity",
+        Strategy = "NativeMultiReference",
+        Source = nameof(ImageStepReferenceSourceKind.IdentityPackAsset),
+        IdentityPackId = "2d13c667-a690-4b5a-992a-93359591aa41",
+        ReferenceAssetId = "282f5b91ba7d4dba85140ae006aa06ee",
+        ReferenceLabel = label
+    };
 }

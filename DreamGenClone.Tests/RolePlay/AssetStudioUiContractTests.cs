@@ -57,7 +57,7 @@ public sealed class AssetStudioUiContractTests
         Assert.Contains("EditImageUrlFactory=\"EditImageUrl\"", EditSource, StringComparison.Ordinal);
         Assert.Contains("<EditIterateWorkbench", EditComponentSource, StringComparison.Ordinal);
         Assert.Contains("@page \"/assets/{AssetId}/images/{ImageId}/review\"", ReviewSource, StringComparison.Ordinal);
-        Assert.Contains("<ProductionApprovalForm Image=\"_image\" AssetType=\"_asset.Type\" />", ReviewSource, StringComparison.Ordinal);
+        Assert.Contains("<ProductionApprovalForm Image=\"_image\" AssetType=\"_asset.Type\" ApprovalChanged=\"ReloadAsync\" />", ReviewSource, StringComparison.Ordinal);
         // Naming is part of the workflow rather than a side feature: an image is named where it is LOOKED at (its own
         // card) and where it is ACCEPTED (this form), and the form has to know the container's type to require a name
         // for a location. The rule itself is read from the domain, so the form and the store cannot disagree.
@@ -69,6 +69,25 @@ public sealed class AssetStudioUiContractTests
         Assert.DoesNotContain("EnqueueEditAsync", DetailSource, StringComparison.Ordinal);
         Assert.DoesNotContain("ApproveForProductionAsync", DetailSource, StringComparison.Ordinal);
         Assert.Contains("Math.Clamp(_outputCount, 1, 8)", PromptCreatorSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The delete guard refuses an approved image and tells the operator to stop using it first, so the action that
+    /// clears that refusal has to be reachable from where the refusal is read: the review page (which is where an
+    /// image gets approved in the first place) and the image's own card. The review page also has to re-read the
+    /// image, or it keeps rendering "already Approved" over one that was just withdrawn.
+    ///
+    /// Reported live 2026-10-03: "i approved the wrong image and now want to delete it but it wont let me, how do i
+    /// stop using it as referenced images."
+    /// </summary>
+    [Fact]
+    public void AnApprovedImageCanBeTakenOutOfProduction_FromWhereItsDeletionIsRefused()
+    {
+        Assert.Contains("RevokeImageApprovalAsync", ApprovalFormSource, StringComparison.Ordinal);
+        Assert.Contains("Stop using this image", ApprovalFormSource, StringComparison.Ordinal);
+        Assert.Contains("RevokeImageApprovalAsync", DetailSource, StringComparison.Ordinal);
+        Assert.Contains("ApprovalChanged=\"ReloadAsync\"", ReviewSource, StringComparison.Ordinal);
+        Assert.Contains("private async Task ReloadAsync()", ReviewSource, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

@@ -189,6 +189,26 @@ public sealed class ScenePromptOverridesApplierTests
             () => ScenePromptOverridesApplier.ApplySnapshot(Snapshot, overrides));
     }
 
+    /// <summary>
+    /// The exemption a bound LOCATION needs: the room's lighting is in the image, so the prose must go with it —
+    /// while time of day (a narrative anchor) and mood (not a claim about what the image owns) stay. This is the
+    /// element map's <c>frozenState.lighting</c> removal proven against a real snapshot, not just against the map.
+    /// </summary>
+    [Fact]
+    public void ApplySnapshot_RemovesTheLightingButKeepsTimeOfDayAndMood()
+    {
+        var overrides = new ScenePromptOverrides
+        {
+            Fields = [new ScenePromptFieldOverride { ElementKey = "frozenState.lighting", Removed = true }]
+        };
+
+        var root = JsonNode.Parse(ScenePromptOverridesApplier.ApplySnapshot(Snapshot, overrides).SnapshotJson)!.AsObject();
+
+        Assert.Null(root["frozenState"]!["lighting"]);
+        Assert.NotNull(root["frozenState"]!["timeOfDay"]);
+        Assert.NotNull(root["frozenState"]!["mood"]);
+    }
+
     [Fact]
     public void ApplySnapshot_RemovesContinuityBlockElement()
     {

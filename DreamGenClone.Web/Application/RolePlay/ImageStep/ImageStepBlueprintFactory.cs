@@ -28,8 +28,10 @@ public static class ImageStepBlueprintFactory
                 [ImageStepReferenceSourceKind.ApprovedSceneAsset], actor.ActorKey, ActorDisplayName: actor.DisplayName));
         }
 
+        // A place is several views — four elevations, an interior — and each view is its own reference image, so the
+        // location slot carries a list rather than one image.
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.RecordRule,
-            [ImageStepReferenceSourceKind.ApprovedSceneAsset]));
+            [ImageStepReferenceSourceKind.ApprovedSceneAsset], AllowsMultiple: true));
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Pose, ImageStepSlotPrefill.None,
             [ImageStepReferenceSourceKind.PoseLibrarySkeleton]));
 
@@ -211,7 +213,9 @@ public static class ImageStepBlueprintFactory
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sharedSources, resolved.ActorKey, AllowsMultiple: true, ActorDisplayName: resolved.DisplayName));
         }
 
-        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sharedSources));
+        // Multi-valued: a shed bound as Front AND Left is two references to the same place, which is what keeps it
+        // recognisably the same building across views. A single binding behaves exactly as it did.
+        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sharedSources, AllowsMultiple: true));
 
         // The pose comes from the pose library's own skeletons, never from an asset: the skeleton IS the reference the
         // model conditions on, and a preset is addressed by ID so a stale path cannot make the render read a different
@@ -295,7 +299,9 @@ public static class ImageStepBlueprintFactory
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sharedSources, actor.ActorKey, AllowsMultiple: true, ActorDisplayName: actor.DisplayName));
         }
 
-        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sharedSources));
+        // Multi-valued, for the same reason as the asset creator's location slot: several views of one place are
+        // several references, not alternates for one.
+        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sharedSources, AllowsMultiple: true));
 
         // The pose is FRAME-WIDE and comes from the pose library's own skeletons, never from an asset: what the render
         // conditions on is an OpenPose skeleton, and a library preset is the artifact the pose proofs used. NOT
@@ -312,13 +318,24 @@ public static class ImageStepBlueprintFactory
     }
 
     /// <summary>
-    /// The edit WORKSPACE's step: one body slot and one wardrobe slot per character the operator has identified, plus
+    /// The edit WORKSPACE's step: per character the operator has identified, a build slot and a wardrobe slot, plus
     /// the frame-wide location slot.
     ///
-    /// The faces are deliberately absent. That workspace picks one face per detected person through its own target flow,
-    /// so a face slot here would give each person two mechanisms in one render - the duplicate path the reference rules
-    /// forbid. The per-character slots ARE addressed, because the model requires an owner for them: an unaddressed
-    /// "body" reference is how a frame-wide scope ends up written as <c>character:.body</c>, which addresses nobody.
+    /// The faces are deliberately absent. That workspace picks one face per detected person through its own target flow
+    /// — the Identity tab binds each detected person to an approved identity pack and runs a face-only identity
+    /// correction, which is the SAME pack-source mechanism a face slot would offer — so a face slot here would give
+    /// each person two mechanisms in one render, the duplicate path the reference rules forbid. (The OPERATOR asked for
+    /// face parity on 2026-10-03; the answer is that this surface already has it, by its own route, and the change that
+    /// would look like parity is the one that must not be made.) The per-character slots ARE addressed, because the
+    /// model requires an owner for them: an unaddressed "body" reference is how a frame-wide scope ends up written as
+    /// <c>character:.body</c>, which addresses nobody.
+    ///
+    /// The BUILD slot accepts the character's approved identity pack, which is where a character's curated builds
+    /// actually live — measured 2026-09-30: two characters hold approved packs carrying 5 faces and up to 12 bodies,
+    /// while ZERO character-owned face/body scene assets carry an approved usable image. Offering only
+    /// [ApprovedSceneAsset, ScratchImage] here left the edit surface unable to condition a build on the character's own
+    /// pack at all — the same defect composition (debug 081), the asset creator (75ac3d4) and the LoRA cell (6e57549)
+    /// were each fixed for.
     ///
     /// An empty cast is not an error here, unlike <see cref="ForEdit"/>: an edit of an image whose people the operator
     /// has not identified yet still has its frame-wide elements, and refusing the step outright would remove the very
@@ -326,8 +343,14 @@ public static class ImageStepBlueprintFactory
     /// </summary>
     public static ImageStepBlueprint ForEditElements(IReadOnlyList<ImageStepActor>? cast)
     {
+        // Wardrobe and location are SHARED library entries, never pack images: a pack carries faces and bodies.
         ImageStepReferenceSourceKind[] sources =
             [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.ScratchImage];
+
+        // The build is what the render conditions the BODY on, so a scratch frame of the scene does not belong here —
+        // the same split ForPackIdentityComposition makes.
+        ImageStepReferenceSourceKind[] buildSources =
+            [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.IdentityPackAsset];
 
         var slots = new List<ImageStepSlotBlueprint>();
         foreach (var actor in cast ?? [])
@@ -337,11 +360,12 @@ public static class ImageStepBlueprintFactory
                 continue;
             }
 
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, sources, actor.ActorKey, ActorDisplayName: actor.DisplayName));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, buildSources, actor.ActorKey, ActorDisplayName: actor.DisplayName));
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, actor.ActorKey, AllowsMultiple: true, ActorDisplayName: actor.DisplayName));
         }
 
-        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sources));
+        // Multi-valued: an edit that has to hold a place steady can bind more than one approved view of it.
+        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sources, AllowsMultiple: true));
 
         return Build(new ImageStepBlueprint(
             ImageStepKind.Edit, "Describe the change", ImageStepSourceMode.ProducedImage, slots,

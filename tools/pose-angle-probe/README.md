@@ -155,3 +155,24 @@ horizontally and lengthens it vertically — the probe would then report a proje
 Agreement between a projection and an extraction is evidence that the angle renders and reads back as asked. It
 is not evidence that an angle *looks right* to a person, and it does not validate the model's taste. Eyeball the
 plates too.
+
+## C# port (B-135 P3, B135-018) — ✅ qualified 2026-10-04
+
+`DreamGenClone.Web/Application/RolePlay/Evaluation/Gates/PoseAgreementGate.cs` is a pixel-exact port of this
+tool's `compare` (normalise by figure height, centre on the bounding box, per-joint error as % of height,
+mean/p95/max/worst joint, shoulder span, caller-declared bar). Qualification: the gate was run on the SAME two
+OpenPose person JSONs as `probe_pose_angle.py` and reproduces every number to the tool's 3-decimal rounding:
+
+| | Python | C# |
+|---|---|---|
+| joints compared | 18 | 18 |
+| mean error (% height) | 9.566 | 9.566 |
+| p95 | 36.304 | 36.304 |
+| max | 45.102 | 45.102 |
+| worst joint | r_wrist | r_wrist |
+| candidate span | 20.816 | 20.816 |
+| reference span | 14.485 | 14.485 |
+| verdict (bar 6) | fail | fail |
+
+The arithmetic is also pinned on a hand-computable T-pose by
+`DreamGenClone.Tests/RolePlay/PoseAgreementGateTests.cs`.

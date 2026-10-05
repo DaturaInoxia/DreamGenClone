@@ -38,6 +38,16 @@ public sealed class SceneBeatCatalogueContractTests
         Assert.Equal(SceneBeatCatalogueContract.ContractVersion, messages.ContractVersion);
         Assert.Equal(SceneBeatCatalogueContract.ResponseSchemaName, messages.ResponseSchemaName);
         Assert.Contains("1 to 6", messages.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("FIELD BUDGETS", messages.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains(
+            $"{SceneBeatCatalogueContract.BeatSynopsisTargetMinLength} to {SceneBeatCatalogueContract.BeatSynopsisTargetMaxLength} characters",
+            messages.SystemPrompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"{SceneBeatCatalogueContract.BeatSynopsisMaxLength} characters maximum",
+            messages.SystemPrompt,
+            StringComparison.Ordinal);
+        Assert.Contains("Do not quote dialogue", messages.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("speaks, responds, moves, touches, gestures", messages.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("never mark all participants observer", messages.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("observer only for someone who is present", messages.SystemPrompt, StringComparison.Ordinal);
@@ -54,6 +64,14 @@ public sealed class SceneBeatCatalogueContractTests
         Assert.False(beats.GetProperty("items").GetProperty("additionalProperties").GetBoolean());
         Assert.False(beats.GetProperty("items").GetProperty("properties").GetProperty("participants")
             .GetProperty("items").GetProperty("additionalProperties").GetBoolean());
+        var beatProperties = beats.GetProperty("items").GetProperty("properties");
+        Assert.Equal(
+            SceneBeatCatalogueContract.BeatSynopsisMaxLength,
+            beatProperties.GetProperty("beatSynopsis").GetProperty("maxLength").GetInt32());
+        Assert.Contains(
+            "hard maximum",
+            beatProperties.GetProperty("beatSynopsis").GetProperty("description").GetString()!,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -127,6 +145,39 @@ public sealed class SceneBeatCatalogueContractTests
         var observerError = Assert.Throws<InvalidOperationException>(() =>
             CreateContract().Parse("catalogue-1", observerOnly, CreateSnapshot(), 6));
         Assert.Contains("at least one active participant", observerError.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_AcceptsSynopsisAtEnforcedMaximumAndRejectsOverflow()
+    {
+        const string originalSynopsis = "Becky enters the hall and draws Dean's attention.";
+
+        var atMaximum = ValidResponse.Replace(
+            originalSynopsis,
+            new string('x', SceneBeatCatalogueContract.BeatSynopsisMaxLength));
+        var entry = Assert.Single(CreateContract().Parse("catalogue-1", atMaximum, CreateSnapshot(), 6));
+        Assert.Equal(SceneBeatCatalogueContract.BeatSynopsisMaxLength, entry.BeatSynopsis.Length);
+
+        var overflow = ValidResponse.Replace(
+            originalSynopsis,
+            new string('x', SceneBeatCatalogueContract.BeatSynopsisMaxLength + 1));
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            CreateContract().Parse("catalogue-1", overflow, CreateSnapshot(), 6));
+        Assert.Contains(
+            $"exceeds {SceneBeatCatalogueContract.BeatSynopsisMaxLength} characters",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InstructedSynopsisTargetStaysBelowEnforcedCeiling()
+    {
+        // The prompt must never instruct a budget the parser can reject: a stated target above the enforced
+        // ceiling is a cell that can never pass.
+        Assert.True(SceneBeatCatalogueContract.BeatSynopsisTargetMinLength
+            < SceneBeatCatalogueContract.BeatSynopsisTargetMaxLength);
+        Assert.True(SceneBeatCatalogueContract.BeatSynopsisTargetMaxLength
+            < SceneBeatCatalogueContract.BeatSynopsisMaxLength);
     }
 
         [Fact]

@@ -27,6 +27,14 @@ param(
     [double]$LoraStrength = 0.8,
     [string]$RunId = (Get-Date -Format 'yyyyMMdd-HHmmss'),
     [long]$Seed = 6601,
+    # Qwen-Image-2.1 has a documented "noise replay" failure: when a chain reuses ONE seed, every edit draws
+    # the same initial noise the source was made with (or the previous link's noise), and the sampler
+    # amplifies that identical pattern link over link until the frame is noise. Measured on the 2.1 native
+    # graph: pinned seed -> blur-residual sigma 4.8 / 12.9 / 36.8 at links 1-3 and a flat backdrop sigma of
+    # 68; a distinct seed per link -> 5.1 / 4.6 / 4.3 with the backdrop untouched. See
+    # specs/image-generator-tests/sex-slideshow/README.md and ComfyUI issue 16607 / Diffusers issue 14824.
+    # Off by default because a pinned seed is what makes two configurations comparable step-for-step.
+    [switch]$VarySeedPerStep,
     [int]$Width = 1216,
     [int]$Height = 832,
     [string]$BaseCheckpoint = 'bigLust_v16.safetensors',
@@ -43,6 +51,13 @@ param(
     [string]$Sampler = '',
     [string]$Scheduler = '',
     [double]$Denoise = -1,
+    # Reference resolution budget passthrough (Qwen-Image-2.1 only; -1 = leave the runner's configured value).
+    # The official 2.1 edit template starts at 0 — "no resize beyond a multiple of 32" — while the app
+    # configures 1024, which RESIZES the source (1216x832 comes back 1248x832). Chaining resizes at every
+    # link, so this is the knob that tests whether resampling in the loop is what the drift rides on.
+    # 0 is passed through (it is the documented "keep each image at its own size" value), so the sentinel
+    # here is -1, not 0 — the same convention -Cfg and -Denoise already use.
+    [int]$Resolution = -1,
     # Run only steps 1..N. Lets a chain be A/B-tested (e.g. sampling settings) without paying for all 19.
     [int]$MaxStep = 0,
     # Break the chain's colour-drift feedback loop: colour-match each frame to step 1 before it is fed
@@ -69,6 +84,10 @@ param(
     # step's output. Each prompt must fully describe the target state (they do). This removes the
     # chained-edit feedback loop entirely: no frame is ever derived from another edited frame.
     [switch]$FromBase,
+    # Names the renderer this run drives, for the manifest. Defaults to the merged-checkpoint wording the
+    # -EditRunner default produces; pass the family's own wording for any other runner (e.g. Qwen-Image-2.1)
+    # so a run is self-describing instead of being labelled with a graph it did not submit.
+    [string]$GraphLabel = '',
     [switch]$SkipSheet
 )
 
@@ -156,9 +175,12 @@ if ($MaxStep -gt 0) { $stepList = @($stepList | Where-Object { $_.N -le $MaxStep
 "checkpoint : $Checkpoint"
 "lora       : $(if ($LoraName) { "$LoraName @ $LoraStrength" } else { '(none)' })"
 "runId      : $RunId"
+"mode       : $(if ($FromBase) { 'FROM-BASE (every edit from step 1)' } else { 'CHAINED (each edit from the previous frame)' })"
+"base runner: $BaseRunner"
+"edit runner: $EditRunner"
 "output     : $OutDir"
-"seed       : $Seed   canvas: ${Width}x${Height}   steps: $($stepList.Count)"
-"sampling   : $(if ($Steps -gt 0) { "$Steps steps" } else { 'app-default 8 steps' }) / CFG $(if ($Cfg -ge 0) { $Cfg } else { 'app-default 1' })$(if ($Sampler) { " / $Sampler" })$(if ($Scheduler) { "/$Scheduler" })"
+"seed       : $Seed $(if ($VarySeedPerStep) { '+ step N per link (noise-replay guard)' } else { '(PINNED across every link)' })   canvas: ${Width}x${Height}   steps: $($stepList.Count)"
+"sampling   : $(if ($Steps -gt 0) { "$Steps steps" } else { 'app-default 8 steps' }) / CFG $(if ($Cfg -ge 0) { $Cfg } else { 'app-default 1' })$(if ($Sampler) { " / $Sampler" })$(if ($Scheduler) { "/$Scheduler" })$(if ($Resolution -ge 0) { " / resolution $Resolution" })"
 '================================================================================'
 
 $manifest = @()
@@ -170,6 +192,10 @@ $failedAt = $null
 foreach ($step in $stepList) {
     $label = '{0:d2}-{1}' -f $step.N, $step.Slug
     $target = Join-Path $OutDir ("step$label.png")
+
+    # A distinct seed per link, never the run seed, so no link can replay the noise its source was made
+    # with. Base keeps the run seed: it is the image every other seed must differ from.
+    $stepSeed = if ($VarySeedPerStep -and $step.Kind -ne 'base') { $Seed + $step.N } else { $Seed }
 
     ''
     '------------------------------------------------------------------------------'
@@ -192,7 +218,7 @@ foreach ($step in $stepList) {
                     -DeanMask $DeanMask `
                     -BeckyMask $BeckyMask `
                     -Prompt $step.Prompt `
-                    -Seed $Seed `
+                    -Seed $stepSeed `
                     -Width $Width `
                     -Height $Height `
                     -Checkpoint $BaseCheckpoint `
@@ -200,7 +226,7 @@ foreach ($step in $stepList) {
                     -Prefix "slide$Prefix"
             } else {
                 & $BaseRunner -ComfyUiUrl $ComfyUiUrl -Checkpoint $BaseCheckpoint -Positive $step.Prompt `
-                    -Negative '' -Seed $Seed -Width $Width -Height $Height -OutDir $staging -Prefix "slide$Prefix"
+                    -Negative '' -Seed $stepSeed -Width $Width -Height $Height -OutDir $staging -Prefix "slide$Prefix"
             }
         } else {
             if (-not $previous) { throw "Step $($step.N) needs a previous step but none succeeded." }
@@ -208,7 +234,7 @@ foreach ($step in $stepList) {
                 ComfyUiUrl  = $ComfyUiUrl
                 SourceImage = if ($FromBase) { $baseImage } else { $previous }
                 Instruction = $step.Prompt
-                Seed        = $Seed
+                Seed        = $stepSeed
                 Checkpoint  = $Checkpoint
                 OutDir      = $staging
             }
@@ -218,6 +244,7 @@ foreach ($step in $stepList) {
             if ($Sampler) { $editArgs.Sampler = $Sampler }
             if ($Scheduler) { $editArgs.Scheduler = $Scheduler }
             if ($Denoise -ge 0) { $editArgs.Denoise = $Denoise }
+            if ($Resolution -ge 0) { $editArgs.Resolution = $Resolution }
             if ($anchorImage) { $editArgs.AnchorImage = $anchorImage }
             & $EditRunner @editArgs
         }
@@ -234,6 +261,7 @@ foreach ($step in $stepList) {
             slug        = $step.Slug
             kind        = $step.Kind
             instruction = $step.Prompt
+            seed        = $stepSeed
             checkpoint  = $(if ($step.Kind -eq 'base') { $BaseCheckpoint } else { $Checkpoint })
             lora        = $(if ($step.Kind -eq 'base') { $null } else { $LoraName })
             loraStrength = $(if ($step.Kind -eq 'base' -or -not $LoraName) { $null } else { $LoraStrength })
@@ -290,8 +318,11 @@ $manifestDoc = [ordered]@{
     loraStrength = $(if ($LoraName) { $LoraStrength } else { $null })
     baseCheckpoint = $BaseCheckpoint
     seed         = $Seed
-    graph        = "MergedCheckpoint (app-faithful) | steps=$(if ($Steps -gt 0) { $Steps } else { 8 }) cfg=$(if ($Cfg -ge 0) { $Cfg } else { 1 }) sampler=$(if ($Sampler) { $Sampler } else { 'euler_ancestral' }) scheduler=$(if ($Scheduler) { $Scheduler } else { 'beta' })"
-    chained      = $true
+    seedPerStep  = [bool]$VarySeedPerStep
+    graph        = $(if ($GraphLabel) { $GraphLabel } else { "MergedCheckpoint (app-faithful) | steps=$(if ($Steps -gt 0) { $Steps } else { 8 }) cfg=$(if ($Cfg -ge 0) { $Cfg } else { 1 }) sampler=$(if ($Sampler) { $Sampler } else { 'euler_ancestral' }) scheduler=$(if ($Scheduler) { $Scheduler } else { 'beta' })" })
+    editRunner   = $EditRunner
+    baseRunner   = $BaseRunner
+    chained      = (-not $FromBase)
     colorStabilized = [bool]$StabilizeColors
     maxStep      = $MaxStep
     gitCommit    = $gitCommit

@@ -136,6 +136,22 @@ public interface ISceneAssetRepository
         string compatibilityMetadataJson,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The inverse of <see cref="ApproveImageForProductionAsync"/>: takes an image back out of production so it stops
+    /// being offered as a reference and becomes deletable again. Approval is what a reference picker reads and what
+    /// blocks <see cref="DeleteImageAsync"/>, so without this an image approved by mistake could never be removed.
+    ///
+    /// <para>
+    /// Implemented by <c>SceneAssetRepository</c>. The default REFUSES loudly rather than doing nothing, so a store
+    /// that cannot honour the request says so instead of appearing to have taken the image out of production.
+    /// </para>
+    /// </summary>
+    Task<SceneAssetImage> RevokeImageApprovalAsync(
+        string imageId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            $"'{nameof(RevokeImageApprovalAsync)}' is not implemented by {GetType().Name}, so this image cannot be taken out of production.");
+
     /// <summary>Insert a new asset or update mutable fields (status, file metadata, error).</summary>
     Task UpsertAsync(SceneAsset asset, CancellationToken cancellationToken = default);
 

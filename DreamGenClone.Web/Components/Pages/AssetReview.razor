@@ -59,7 +59,7 @@
                 <div class="card">
                     <div class="card-header"><strong>Finalization</strong></div>
                     <div class="card-body">
-                        <ProductionApprovalForm Image="_image" AssetType="_asset.Type" />
+                        <ProductionApprovalForm Image="_image" AssetType="_asset.Type" ApprovalChanged="ReloadAsync" />
                     </div>
                 </div>
             </div>
@@ -76,7 +76,14 @@
     private SceneAsset? _asset;
     private SceneAssetImage? _image;
 
-    protected override async Task OnParametersSetAsync()
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    /// <summary>
+    /// Re-reads both rows. It is the initial load and the form's <c>ApprovalChanged</c> target: taking an image out of
+    /// production changes its approval state, which this page renders, so it has to fetch the row again or the banner
+    /// keeps claiming the image is approved.
+    /// </summary>
+    private async Task ReloadAsync()
     {
         _asset = string.IsNullOrWhiteSpace(AssetId)
             ? null

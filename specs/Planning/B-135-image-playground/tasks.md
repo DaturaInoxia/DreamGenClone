@@ -187,8 +187,11 @@ suite / older-than. Promoted assets survive a purge because Promote copies (D9).
 Refuses a comparison where more than one variable differs, and names the difference.
 - Files: `Components/Shared/RunCompareGrid.razor`, `ImageRunComparisonService.cs`
 
-### B135-031 — Compiler-fidelity comparison `[P]`
+### B135-031 — Compiler-fidelity comparison `[P]` — **PARKED 2026-10-04**
 Compiled-render vs canned-render for the same cell and seed, with the prompt-level conformance result.
+**Parked 2026-10-04 (operator).** Deferred until wanted; it is the measurement that would settle whether the 2.1
+edit compiler's extra prose improves output and whether BigLust/Juggernaut/FLUX need their own builders
+(N8 re-opens only if this measures a gap). See `compiler-roadmap.md` §3.
 - Files: `Components/Shared/RunCompareGrid.razor`
 
 ### B135-032 — Suite seeding from the existing catalogs and flows

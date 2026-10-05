@@ -152,6 +152,11 @@ Analysis this needs before it is buildable (none of these are answered yet):
 6. **Relationship to route 1.** B135-008 must therefore put the Qwen long-form text behind the profile's
    `SystemPrompt` — one replaceable source — so route 2 can later swap the *text* without rewriting the builder.
    Route 1 is a step toward route 2, not a dead end; the seam is the deliverable.
+7. **Content policy / alignment of the PE weights (NSFW).** The PE checkpoints are a fine-tune of an *aligned*
+   Qwen3.5-VL base, and the vendor does not state their refusal posture. If they retain safety alignment (or are
+   aligned to refuse NSFW rewrites), route 2 would silently degrade adult edits and prompts — a first-class
+   regression for this app, whose route-1 design deliberately runs abliterated models and prose that scopes adult
+   fictional scenes as valid. Answer this before route 2 is tried.
 
 ### Task status under this decision
 

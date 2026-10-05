@@ -20,6 +20,7 @@ using DreamGenClone.Web.Application.Import;
 using DreamGenClone.Web.Application.Models;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Editing;
+using DreamGenClone.Web.Application.RolePlay.Evaluation.Gates;
 using DreamGenClone.Web.Application.RolePlay.Prompts;
 using DreamGenClone.Web.Application.RolePlay.Prompts.Slots;
 using DreamGenClone.Web.Application.Scenarios;
@@ -326,6 +327,10 @@ builder.Services.AddSingleton<IPoseConditionedImageClient, PoseConditionedImageC
 // Reading a pose out of an image. Registered with every other ComfyUI workflow client because it is the same
 // conversation: it uploads the image, submits the estimator graph and reads the keypoints back.
 builder.Services.AddSingleton<IPoseKeypointExtractor, ComfyUIPoseKeypointExtractor>();
+
+// The native image gates (B-135 P3): measure, never block. Stateless, so a singleton beside the extractor it reads
+// the DWPose keypoints through.
+builder.Services.AddSingleton<IImageGateEvaluator, ImageGateEvaluator>();
 builder.Services.AddSingleton<IPoseImageModelResolver, PoseImageModelResolver>();
 builder.Services.AddSingleton<ISceneImageRepository, SceneImageRepository>();
 builder.Services.AddSingleton<ISceneImageEditRepository, SceneImageEditRepository>();

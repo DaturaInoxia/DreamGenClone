@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Evaluation
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Components.Assets
 @implements IAsyncDisposable
@@ -149,6 +150,15 @@
                                             picked: @image.CandidateDecision
                                         </span>
                                     }
+                                    @* The native gates measured on this image (B-135 P3). A fail carries the measured
+                                       number in its tooltip; a gate only records, it never blocks the render. *@
+                                    @foreach (var gate in GateResults(image))
+                                    {
+                                        <span class="badge @(gate.Pass ? "text-bg-success" : "text-bg-danger")"
+                                              title="@gate.Detail">
+                                            @gate.Name @(gate.Pass ? "✓" : "✗")
+                                        </span>
+                                    }
                                 </div>
                                 <div class="font-monospace text-truncate mt-2" title="@image.Id">@image.Id</div>
                                 <div class="text-muted">@image.Kind · @image.CreatedUtc.ToLocalTime().ToString("g")</div>
@@ -192,6 +202,17 @@
                                             @onclick="() => LoadIntoGenerator(image)">
                                         <i class="bi bi-arrow-counterclockwise"></i>
                                     </button>
+                                    @* Deliberately NOT next to the delete button's meaning: this one is reversible and
+                                       is the step that makes the delete legal, so it says what it does rather than
+                                       borrowing the trash icon. *@
+                                    @if (image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-dark" disabled="@_busy"
+                                                title="Take this image out of production: it stops being offered as a reference, and deleting it then works"
+                                                @onclick="() => RevokeApprovalAsync(image)">
+                                            <i class="bi bi-slash-circle"></i>
+                                        </button>
+                                    }
                                     <button type="button" class="btn btn-sm btn-outline-danger" disabled="@_busy"
                                             title="Delete this image" @onclick="() => DeleteImageAsync(image)">
                                         <i class="bi bi-trash"></i>
@@ -422,6 +443,38 @@
         }
     }
 
+    /// <summary>
+    /// Takes an approved image back out of production.
+    ///
+    /// <para>
+    /// This is the step the delete's refusal tells the operator to take, so it has to exist somewhere they can reach:
+    /// while the image is approved the pickers offer it as a reference and <c>DeleteImageAsync</c> refuses. Nothing is
+    /// destroyed here — the approval is what is withdrawn, and it can be given again from the review page.
+    /// </para>
+    /// </summary>
+    private async Task RevokeApprovalAsync(SceneAssetImage image)
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            var revoked = await AssetService.RevokeImageApprovalAsync(image.Id);
+            var label = revoked.DisplayName is { Length: > 0 } name
+                ? name
+                : revoked.Id[..Math.Min(8, revoked.Id.Length)];
+            _message = $"Took '{label}' out of production. It is no longer offered as a reference, so it can be deleted now.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
     private System.Threading.Timer? _timer;
     private readonly object _timerLock = new();
 
@@ -493,6 +546,10 @@
         SceneAssetStatus.Failed => "text-bg-danger",
         _ => "text-bg-secondary"
     };
+
+    /// <summary>The native gates measured on this image (B-135 P3), or empty when none ran.</summary>
+    private static IReadOnlyList<ImageGateResult> GateResults(SceneAssetImage image) =>
+        ImageGateResults.Read(image.GateResultsJson);
 
     private void StopPolling()
     {

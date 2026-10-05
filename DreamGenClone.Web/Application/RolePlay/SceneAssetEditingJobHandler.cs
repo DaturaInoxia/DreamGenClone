@@ -7,6 +7,7 @@ using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -126,7 +127,7 @@ public sealed class SceneAssetEditingJobHandler : IBackgroundJobHandler, IDurabl
 
         var applications = JsonSerializer.Deserialize<IReadOnlyList<ReferenceApplicationSelection>>(payload.ReferenceApplicationsJson, JsonOptions)
             ?? throw new InvalidOperationException("Asset edit reference applications are invalid.");
-        var referenceApplications = applications.Where(application => application.UsesReference).ToList();
+        var referenceApplications = applications.Where(ReferenceBindingShape.IsAssetBacked).ToList();
         if (referenceApplications.Count == 0)
             return await _imageEditingClient.EditAsync(editor, sourceStream, $"{sourceImageId}.png", image.Prompt, cancellationToken);
         if (string.IsNullOrWhiteSpace(editor.RegisteredModelId))
@@ -142,8 +143,10 @@ public sealed class SceneAssetEditingJobHandler : IBackgroundJobHandler, IDurabl
                 var resolution = await _referenceStrategyResolver.ResolveAsync(editor.RegisteredModelId, application.Strategy, cancellationToken);
                 if (!resolution.IsAvailable)
                     throw new InvalidOperationException($"Asset edit reference strategy '{application.Strategy}' for '{application.ElementKey}' is unavailable: {resolution.Reason}");
-                if (!string.Equals(resolution.Strategy, "ReferenceConditioning", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException($"Asset edit reference strategy '{resolution.Strategy}' for '{application.ElementKey}' is qualified but has no implemented Qwen reference-edit graph.");
+                if (!ReferenceStrategyCatalogue.ImplementedReferenceStrategiesFor(
+                        ReferenceStrategyCatalogue.ReferenceImageSurface.Edit)
+                    .Contains(resolution.Strategy, StringComparer.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"Asset edit reference strategy '{resolution.Strategy}' for '{application.ElementKey}' is qualified, but has no implemented graph in this editor; it implements {string.Join(", ", ReferenceStrategyCatalogue.ImplementedReferenceStrategiesFor(ReferenceStrategyCatalogue.ReferenceImageSurface.Edit))}.");
                 var assetImage = await _repository.GetImageAsync(application.SceneAssetImageId!, cancellationToken)
                     ?? throw new InvalidOperationException($"Asset edit reference image '{application.SceneAssetImageId}' was not found.");
                 if (!string.Equals(assetImage.AssetId, application.SceneAssetId, StringComparison.Ordinal)

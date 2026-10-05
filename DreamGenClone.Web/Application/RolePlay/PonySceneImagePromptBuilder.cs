@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Domain.RolePlay;
 using DreamGenClone.Web.Domain.Scenarios;
@@ -45,6 +46,13 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
     /// reaches the Pony pre-processor as a labelled per-character block. Without this the compiled
     /// brief carries no physical attributes and the Pony prompt would lose per-character likeness.
     /// Mirrors the SDXL canonical overload (see <see cref="CanonicalCharacterAppearance"/>).
+    ///
+    /// <para>
+    /// It also carries the two halves of prompt adaptation the SDXL path already carries: the USER REMOVALS notice
+    /// and the reference-role clause naming each reference image. A family that omits them re-derives elements an
+    /// override removed and averages N unlabelled references together, which is a defect of that family rather than a
+    /// difference between families.
+    /// </para>
     /// </summary>
     public (string SystemPrompt, string UserPrompt) BuildMessages(
         CompiledMediaBrief brief,
@@ -54,11 +62,13 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         string? refineInstruction,
         IReadOnlyList<Character>? characters,
         IReadOnlyDictionary<string, string>? appearanceOverrides = null,
-        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null,
+        ScenePromptOverrides? effectiveOverrides = null,
+        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null)
     {
         ValidateCanonicalBrief(brief, pov);
-        var systemPrompt = BuildCanonicalSystemPrompt();
-        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides, canonicalAppearance);
+        var systemPrompt = BuildCanonicalSystemPrompt() + NaturalLanguageSceneImagePromptBuilder.CanonicalAuthorityRules;
+        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides, canonicalAppearance, effectiveOverrides, referenceBindings);
         return (systemPrompt, userPrompt);
     }
 
@@ -579,13 +589,16 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         string? refineInstruction,
         IReadOnlyList<Character>? characters,
         IReadOnlyDictionary<string, string>? appearanceOverrides,
-        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null,
+        ScenePromptOverrides? effectiveOverrides = null,
+        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("CANONICAL STILL BRIEF (immutable; this is the complete semantic source):");
+        // The brief is the SINGLE semantic source. The provider-request snapshot restates it and used to hand back
+        // every element an override had removed, which is why it is not sent (debug 052); the DB record keeps it for
+        // provenance. Only the brief reaches the pre-processor. Mirrors the SDXL canonical path.
+        sb.AppendLine("CANONICAL STILL BRIEF (the complete semantic source for this request):");
         sb.AppendLine(brief.SemanticInputSnapshotJson);
-        sb.AppendLine("CANONICAL PROVIDER REQUEST SNAPSHOT (immutable):");
-        sb.AppendLine(brief.ProviderRequestSnapshotJson);
         var appearanceBlock = CanonicalCharacterAppearance.BuildBlock(brief, pov, characters, appearanceOverrides, canonicalAppearance);
         if (!string.IsNullOrWhiteSpace(appearanceBlock))
         {
@@ -596,6 +609,24 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         sb.AppendLine($"IMAGE SETTINGS: style={settings.Style}; size={settings.ImageSize}; aspect={settings.AspectRatio}; policy={policy}");
         if (!string.IsNullOrWhiteSpace(refineInstruction))
             sb.AppendLine($"REFINE INSTRUCTION: {refineInstruction.Trim()}");
+
+        // Both halves of prompt adaptation reach the pre-processor here too: the removal notice (so it does not
+        // re-derive an element an override took out) and the reference-role clause (so each reference IMAGE is
+        // named rather than averaged with its neighbours).
+        var removalNotice = ScenePromptRemovalNotice.Build(effectiveOverrides ?? settings.PromptOverrides, characters);
+        if (!string.IsNullOrWhiteSpace(removalNotice))
+        {
+            sb.AppendLine();
+            sb.AppendLine(removalNotice);
+        }
+
+        var roleClause = ReferenceRoleClauses.ForPreprocessor(referenceBindings);
+        if (!string.IsNullOrWhiteSpace(roleClause))
+        {
+            sb.AppendLine();
+            sb.AppendLine(roleClause);
+        }
+
         return sb.ToString();
     }
 

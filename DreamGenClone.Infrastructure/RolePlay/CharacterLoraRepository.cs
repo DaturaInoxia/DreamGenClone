@@ -56,13 +56,21 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
     {
         var policy = new CurationPolicy
         {
-            // The matrix in DATASET-CAPTURE-LIST.md: 30 core cells, 6 variation cells.
-            ExpectedCoreCellCount = 30,
+            // The matrix in DATASET-CAPTURE-LIST.md as of 2026-10-04: 37 core cells, 6 variation cells - the
+            // original 30 plus four far cells (front, both profiles, behind) and three over-the-shoulder cells
+            // (close-up, half-body, full-body). The generator refuses to run if this number and the matrix disagree,
+            // so a policy written for the older 30 fails with both numbers named rather than generating a set it
+            // does not describe.
+            ExpectedCoreCellCount = 37,
             ExpectedVariationCellCount = 6,
             SeedRangeStart = 41000,
             SeedRangeLength = 100,
             CloseUpAspect = "1024x1024",
             PortraitAspect = "832x1216",
+            // Far cells are shot wide, because the space around the subject IS the far framing: at 832x1216 a figure
+            // standing across a room would still fill the frame vertically and stop being a far shot at all. Measured
+            // 2026-10-04 on Krea 2, a face lands near 60 px at this size against near 130 px for a full-body cell.
+            FarAspect = "1536x1024",
             // Diversity minima from the capture list: at least four outfits, backgrounds, lighting setups
             // and expressions, and at least three pose classes so the set is not all one stance.
             MinimumDistinctOutfits = 4,

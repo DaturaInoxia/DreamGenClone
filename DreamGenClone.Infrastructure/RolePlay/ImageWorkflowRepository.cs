@@ -548,6 +548,61 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 Body = "Photorealistic full-body photograph of {Subject}, head to feet, from behind, {Facing}, the back of the head, the back, the backside and the backs of the legs in frame, the face not visible, the whole body in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
             },
 
+            // ---- FAR cells, added 2026-10-04. ---------------------------------------------------------------
+            //
+            // The distance is stated as THE SPACE AND WHERE THE CAMERA IS IN IT, never as a demand about the subject.
+            // That distinction is measured, not stylistic: a brief that asked for "the whole room in frame with her
+            // standing small in it" was ignored and returned a normal framing with a face around 130 px, while the
+            // same subject briefed as a long bare room with the camera across it returned the far framing the operator
+            // wanted at around 60 px. A model reading "small in the frame" has no reason to shrink the subject; a
+            // model reading "the camera is at the far end of a long room" has to, because that is what the camera
+            // position means. So every far template below names the room, the camera's place at the far end of it, and
+            // the floor between the two - and lets the subject's size follow from that.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderFrontFar,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic wide photograph taken from the far end of a long room, {Subject} standing a long way off with the full length of bare floor between the camera and the subject and the whole space visible around the subject. {Facing}, the camera back at the far end of the room looking down its length. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderProfileFar,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic wide photograph taken from the far end of a long room, {Subject} in full profile standing a long way off, seen edge-on, with the full length of bare floor between the camera and the subject and the whole space visible around the subject. {Facing}, the camera back at the far end of the room looking down its length, a true edge-on profile of the whole figure at that distance. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderBehindFar,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic wide photograph taken from the far end of a long room, {Subject} seen from behind standing a long way off with the full length of bare floor between the camera and the subject and the whole space visible around the subject. {Facing}, the back of the head and the whole figure at that distance, the face not visible, the camera back at the far end of the room looking down its length. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
+            },
+
+            // ---- OVER-THE-SHOULDER cells, added 2026-10-04. ---------------------------------------------------
+            //
+            // The one framing in the set that shows a FACE while the body is turned away, so every template states
+            // both halves of that pose rather than the turn alone: the back of the near shoulder faces the camera and
+            // the head has come back over it into view. Saying only "from behind" is the back-view row, which is
+            // defined by having no face at all; saying only "looking back" leaves the body facing the camera and is a
+            // three-quarter. The two halves together are the shot.
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderOverShoulderClose,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic close-up photograph of {Subject} with the body turned away and the head turned back over one shoulder to look at the camera, {Facing}, the back of the near shoulder closest to the camera and the face come back into view over it, the whole head and both shoulders in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderOverShoulderHalf,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic photograph of {Subject} from the waist up with the body turned away and the head turned back over one shoulder to look at the camera, {Facing}, the back of the near shoulder closest to the camera and the face come back into view over it, the whole upper body and both hands in frame. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.RenderOverShoulderFull,
+                WorkflowStep = "LoraCellRender",
+                Body = "Photorealistic full-body photograph of {Subject}, head to feet, with the body turned away and the head turned back over one shoulder to look at the camera, {Facing}, the back of the near shoulder closest to the camera and the face come back into view over it, the whole body in frame and unobstructed. {Wardrobe}. {Pose}. {Expression}. {Lighting}. Background: {Background}. Sharp focus, natural skin texture, fine detail."
+            },
+
             // The caption. Comma-separated tags with the trigger token FIRST: the token is what the whole
             // identity binds to, and pinning it at the front is what lets a trainer shuffle the tail without
             // ever shuffling the identity into the middle of the caption. There is no invariant slot here, and
@@ -853,6 +908,12 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
             },
             new ImageWorkflowPromptTemplate
             {
+                Key = LoraCellWorkflowKeys.VocabularyDistanceFar,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "far away"
+            },
+            new ImageWorkflowPromptTemplate
+            {
                 Key = LoraCellWorkflowKeys.VocabularyAngleFront,
                 WorkflowStep = "LoraCellVocabulary",
                 Body = "front view"
@@ -874,6 +935,12 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
                 Key = LoraCellWorkflowKeys.VocabularyAngleBehind,
                 WorkflowStep = "LoraCellVocabulary",
                 Body = "from behind"
+            },
+            new ImageWorkflowPromptTemplate
+            {
+                Key = LoraCellWorkflowKeys.VocabularyAngleOverShoulder,
+                WorkflowStep = "LoraCellVocabulary",
+                Body = "over the shoulder"
             },
             new ImageWorkflowPromptTemplate
             {

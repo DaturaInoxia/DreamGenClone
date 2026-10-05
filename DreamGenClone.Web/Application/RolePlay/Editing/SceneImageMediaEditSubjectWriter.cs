@@ -3,6 +3,7 @@ using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay.Editing;
@@ -69,7 +70,7 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
         return image.ProductionStage switch
         {
             SceneImageProductionStage.Identity => await PrepareIdentityAsync(image, context, cancellationToken),
-            SceneImageProductionStage.Finish => await PrepareFinishAsync(image, cancellationToken),
+            SceneImageProductionStage.Finish => await PrepareFinishAsync(image, context, cancellationToken),
             // B-133: a preset pass is the third authored-instruction stage (see PreparePresetAsync), beside Identity and
             // Finish. Every other stage keeps the compiled path's session/attempt/revision validation.
             SceneImageProductionStage.Preset => await PreparePresetAsync(image, context, cancellationToken),
@@ -133,7 +134,7 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
             throw new InvalidOperationException("The queued edit prompt does not match the accepted prompt revision.");
 
         var source = await RequireSourceAsync(image, cancellationToken);
-        var (references, prompt) = await BuildAssetReferencesAsync(image, cancellationToken);
+        var (references, prompt) = await BuildAssetReferencesAsync(image, context.ExplicitEditorModelId, cancellationToken);
 
         return new MediaEditRunPlan(
             image.Id,
@@ -265,7 +266,7 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
         }
 
         var source = await RequireSourceAsync(image, cancellationToken);
-        var (references, prompt) = await BuildAssetReferencesAsync(image, cancellationToken);
+        var (references, prompt) = await BuildAssetReferencesAsync(image, context.ExplicitEditorModelId, cancellationToken);
 
         return new MediaEditRunPlan(
             image.Id,
@@ -280,7 +281,7 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
     }
 
     private async Task<MediaEditRunPlan> PrepareFinishAsync(
-        SceneImageRecord image, CancellationToken cancellationToken)
+        SceneImageRecord image, MediaEditRunContext context, CancellationToken cancellationToken)
     {
         var source = await RequireSourceAsync(image, cancellationToken);
         var requestAdultContent = false;
@@ -291,7 +292,7 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
                 && value.ValueKind == JsonValueKind.True;
         }
 
-        var (references, prompt) = await BuildAssetReferencesAsync(image, cancellationToken);
+        var (references, prompt) = await BuildAssetReferencesAsync(image, context.ExplicitEditorModelId, cancellationToken);
         return new MediaEditRunPlan(
             image.Id,
             source.Id,
@@ -309,7 +310,7 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
     /// source. Empty bindings mean a plain text edit with the stored prompt untouched.
     /// </summary>
     private async Task<(IReadOnlyList<MediaEditReference> References, string Prompt)> BuildAssetReferencesAsync(
-        SceneImageRecord image, CancellationToken cancellationToken)
+        SceneImageRecord image, string? editorModelId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(image.AppliedReferenceBindingsJson))
             return ([], image.PromptSnapshot);
@@ -320,14 +321,16 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
 
         var resolver = _references
             ?? throw new InvalidOperationException("Scene image edit reference application requires the reference resolver.");
+        // The EXACT editor model id, never null: the resolver proves the declared strategy against that model's own
+        // qualifications, so handing it nothing made every reference-carrying scene edit fail at "Reference editing
+        // requires the exact registered editor model id" before it could resolve anything.
         var references = await resolver.ResolveAsync(
-            null, applications, qualifiedStrategy: "NativeMultiReference", cancellationToken);
+            editorModelId, applications, ReferenceStrategyCatalogue.ReferenceImageSurface.Edit, cancellationToken);
         if (references.Count == 0)
             return ([], image.PromptSnapshot);
 
         var used = applications
-            .Where(application => application.UsesReference
-                && !string.Equals(application.Strategy, "TextOnly", StringComparison.OrdinalIgnoreCase))
+            .Where(ReferenceBindingShape.IsAssetBacked)
             .ToList();
         return (references, MediaEditReferenceResolver.BuildReferenceAwareInstruction(image.PromptSnapshot, used));
     }

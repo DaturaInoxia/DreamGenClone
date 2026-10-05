@@ -11,6 +11,7 @@ using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.ModelManager;
 using DreamGenClone.Web.Application.RolePlay.Editing;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using Microsoft.Extensions.Logging;
 
@@ -434,12 +435,19 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         CancellationToken cancellationToken,
         ReferenceConditionedImageInput? poseReference = null)
     {
-        var references = await BuildNativeReferencesAsync(image, resolved, cancellationToken);
+        // The role list is built ALONGSIDE the reference list — one entry per image actually added — so the <imageN>
+        // numbering in the prompt cannot diverge from the order the images are sent in. Deriving it afterwards from a
+        // second source is the one mistake that would silently re-point every tag.
+        var roles = new List<ReferenceRoleClauses.ReferenceRole>();
+        var references = await BuildNativeReferencesAsync(image, resolved, roles, cancellationToken);
         // Pose goes LAST: the measured order is faces, then approved scene assets, then the pose skeleton. Slot
         // order controls placement, and the proof landed all three in any order, so this is a deterministic
         // convention rather than a capability requirement.
         if (poseReference is not null)
+        {
             references.Add(poseReference);
+            roles.Add(new ReferenceRoleClauses.ReferenceRole(ImageStepSlotKind.Pose, null));
+        }
 
         if (references.Count == 0)
         {
@@ -449,9 +457,15 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                 + "prompt-only path.");
         }
 
+        // Qwen's <imageN> tagging is mandatory for two or more input images, and ComfyUI's 2.1 encoder passes the
+        // prompt through untouched, so this is the only thing that binds a reference image to a description of it.
+        // Composed HERE, from the images about to be sent, so every route into a render gets it — including a prompt
+        // generated before the references were bound, which is how the reported case reached the model unnamed.
+        var promptWithRoles = ReferenceRoleClauses.AppendToImagePrompt(prompt, roles);
+
         var request = new ReferenceConditionedImageRequest
         {
-            PositivePrompt = prompt,
+            PositivePrompt = promptWithRoles,
             NegativePrompt = negative,
             Size = image.ImageSize,
             Seed = seed,
@@ -468,8 +482,9 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
             registeredModelId = resolved.RegisteredModelId,
             referenceCount = references.Count,
             references = references.Select(reference => reference.SemanticRole).ToList(),
+            taggedReferenceCount = roles.Count > 1 ? roles.Count : 0,
             seed = seed.HasValue ? seed.Value.ToString() : "random",
-            positive = prompt,
+            positive = promptWithRoles,
             negative
         }, cancellationToken);
 
@@ -506,6 +521,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
     private async Task<List<ReferenceConditionedImageInput>> BuildNativeReferencesAsync(
         SceneImageRecord image,
         ResolvedImageModel resolved,
+        List<ReferenceRoleClauses.ReferenceRole> roles,
         CancellationToken cancellationToken)
     {
         var references = new List<ReferenceConditionedImageInput>();
@@ -540,6 +556,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                     FileName = $"{binding.CharacterId}.png",
                     Content = await ReadAllBytesAsync(stream, cancellationToken)
                 });
+                roles.Add(new ReferenceRoleClauses.ReferenceRole(ImageStepSlotKind.Face, binding.CharacterName));
             }
         }
 
@@ -549,15 +566,22 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                     image.AppliedReferenceBindingsJson, JsonOptions)
                 ?? throw new InvalidOperationException("Applied reference bindings are invalid.");
 
-            var packBindings = applications.Where(IsIdentityPackBinding).ToList();
+            // Send order comes from ONE place (ReferenceBindingShape), shared with the role clause that numbers the
+            // same images in the prompt: a second copy of this rule would re-point every <imageN> tag onto the wrong
+            // image without failing anything.
+            var ordered = ReferenceBindingShape.InSendOrder(applications);
+
+            var packBindings = ordered.Where(ReferenceBindingShape.IsIdentityPackBinding).ToList();
             if (packBindings.Count > 0)
             {
-                await AddIdentityPackReferencesAsync(packBindings, references, cancellationToken);
+                await AddIdentityPackReferencesAsync(packBindings, references, roles, cancellationToken);
             }
 
-            // Only the asset-backed bindings go to the asset resolver: a pack binding has no scene asset id to validate,
-            // and it is already resolved above, so nothing is left out by this split.
-            var assetBacked = applications.Where(application => !IsIdentityPackBinding(application)).ToList();
+            // Only the asset-backed bindings go to the asset resolver, using the SAME predicate the resolver selects
+            // by: a pack binding has no scene asset id to validate and is already resolved above, and a pose binding
+            // is a skeleton from the pose library that this route appends itself. Counting "not a pack binding" here
+            // instead is what made a bound pose look like an image the resolver had dropped.
+            var assetBacked = ordered.Where(ReferenceBindingShape.IsAssetBacked).ToList();
             if (assetBacked.Count > 0)
             {
                 var resolver = _referenceResolver
@@ -567,11 +591,21 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                 var assetReferences = await resolver.ResolveAsync(
                     resolved.RegisteredModelId ?? image.RequestedModelId,
                     assetBacked,
-                    qualifiedStrategy: "NativeMultiReference",
+                    ReferenceStrategyCatalogue.ReferenceImageSurface.Generate,
                     cancellationToken);
 
-                foreach (var reference in assetReferences)
+                // The roles are paired with the inputs BY POSITION, so a resolver that returned a different number of
+                // images would number the prompt against images the model never receives. Fail instead.
+                if (assetReferences.Count != assetBacked.Count)
                 {
+                    throw new InvalidOperationException(
+                        $"The reference resolver returned {assetReferences.Count} images for {assetBacked.Count} "
+                        + "approved bindings, so the prompt's <imageN> tags cannot be paired with them.");
+                }
+
+                for (var index = 0; index < assetReferences.Count; index++)
+                {
+                    var reference = assetReferences[index];
                     await using var stream = await reference.OpenAsync(cancellationToken);
                     references.Add(new ReferenceConditionedImageInput
                     {
@@ -579,22 +613,15 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                         FileName = reference.FileName,
                         Content = await ReadAllBytesAsync(stream, cancellationToken)
                     });
+                    roles.Add(new ReferenceRoleClauses.ReferenceRole(
+                        ReferenceBindingShape.SlotKindOf(assetBacked[index]),
+                        assetBacked[index].ReferenceLabel ?? reference.Description));
                 }
             }
         }
 
         return references;
     }
-
-    /// <summary>
-    /// Whether a binding supplies an image out of a character's approved identity PACK rather than an approved scene
-    /// asset. The two stores are not aliases: a pack image is a <c>SceneImageReferenceAsset</c> that only its own pack
-    /// can look up, so <c>SceneAssetImageId</c> is null on it and the asset resolver cannot serve it.
-    /// </summary>
-    private static bool IsIdentityPackBinding(ReferenceApplicationSelection application) =>
-        string.Equals(application.Source, nameof(ImageStepReferenceSourceKind.IdentityPackAsset), StringComparison.OrdinalIgnoreCase)
-        && !string.IsNullOrWhiteSpace(application.IdentityPackId)
-        && !string.IsNullOrWhiteSpace(application.ReferenceAssetId);
 
     /// <summary>
     /// Appends one reference image per bound pack FACE or BUILD, in the order the step planned them (the face first,
@@ -605,15 +632,16 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
     private async Task AddIdentityPackReferencesAsync(
         IReadOnlyList<ReferenceApplicationSelection> packBindings,
         List<ReferenceConditionedImageInput> references,
+        List<ReferenceRoleClauses.ReferenceRole> roles,
         CancellationToken cancellationToken)
     {
         var storage = _identityStorage
             ?? throw new InvalidOperationException(
                 "A native-reference render with identity-pack references requires the identity asset storage service.");
 
-        foreach (var binding in packBindings
-            .OrderBy(binding => binding.Ordinal ?? int.MaxValue)
-            .ThenBy(binding => binding.ElementKey, StringComparer.Ordinal))
+        // Already in send order - the caller partitions through ReferenceBindingShape, the single owner of that rule,
+        // so re-sorting here would be a second copy of it.
+        foreach (var binding in packBindings)
         {
             string semanticRole;
             string fileName;
@@ -658,6 +686,10 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                 FileName = fileName,
                 Content = await ReadAllBytesAsync(stream, cancellationToken)
             });
+            // The role cell is the pack's own view label ("Front", "Front · Unclothed"), which is exactly what tells
+            // two identity images of the same person apart in the prompt.
+            roles.Add(new ReferenceRoleClauses.ReferenceRole(
+                ReferenceBindingShape.SlotKindOf(binding), binding.ReferenceLabel));
         }
     }
 
@@ -787,6 +819,9 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         }
 
         var references = new List<ReferenceConditionedImageInput>(packSelections.Count);
+        // Built alongside the reference list, one entry per image actually added, so the prompt's <imageN> numbering
+        // and the order the images are sent in cannot drift apart (see ReferenceRoleClauses).
+        var roles = new List<ReferenceRoleClauses.ReferenceRole>(packSelections.Count);
         for (var index = 0; index < packSelections.Count; index++)
         {
             var selection = packSelections[index];
@@ -811,12 +846,18 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                 FileName = $"{face.FaceAssetId}.png",
                 Content = referenceBytes
             });
+            roles.Add(new ReferenceRoleClauses.ReferenceRole(ImageStepSlotKind.Face, label));
         }
 
         // Pose travels as the last reference: a native-reference model carries a pose as an image, so identity
         // and pose compose in ONE call instead of needing two graphs (the ControlNet route's constraint).
         if (poseReference is not null)
+        {
             references.Add(poseReference);
+            roles.Add(new ReferenceRoleClauses.ReferenceRole(ImageStepSlotKind.Pose, null));
+        }
+
+        var promptWithRoles = ReferenceRoleClauses.AppendToImagePrompt(prompt, roles);
 
         await WriteDebugEventAsync("IdentityNativeReferenceRenderSubmitted", payload.SessionId, payload.InteractionId, new
         {
@@ -826,12 +867,13 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
             registeredModelId = resolved.RegisteredModelId,
             strategy = strategy.Strategy,
             referenceCount = references.Count,
+            taggedReferenceCount = roles.Count > 1 ? roles.Count : 0,
             poseReference = poseReference?.FileName,
             packs = packSelections
                 .Select(selection => new { selection.PackId, selection.CharacterLabel })
                 .ToList(),
             seed = seed.HasValue ? seed.Value.ToString() : "random",
-            positive = prompt,
+            positive = promptWithRoles,
             negative = negative ?? string.Empty
         }, cancellationToken);
 
@@ -843,7 +885,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                 resolved,
                 new ReferenceConditionedImageRequest
                 {
-                    PositivePrompt = prompt,
+                    PositivePrompt = promptWithRoles,
                     NegativePrompt = negative ?? string.Empty,
                     Size = image.ImageSize,
                     Seed = seed,

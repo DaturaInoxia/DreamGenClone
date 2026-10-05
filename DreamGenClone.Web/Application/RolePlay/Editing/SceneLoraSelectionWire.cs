@@ -41,10 +41,24 @@ public static class SceneLoraSelectionWire
             return [];
         }
 
-        var selections = JsonSerializer.Deserialize<List<SceneImageLoraSelection>>(json, JsonOptions)
-            ?? throw new InvalidOperationException(
-                "The queued edit carries a scene-LoRA selection that could not be read, so the run cannot apply the "
-                + "stack the operator picked.");
+        // Both malformed JSON and a literal null are the SAME payload defect to the caller — "the stack the operator
+        // picked cannot be applied" — so both surface as the documented failure rather than as a raw serializer
+        // exception the render path does not catch.
+        List<SceneImageLoraSelection> selections;
+        try
+        {
+            selections = JsonSerializer.Deserialize<List<SceneImageLoraSelection>>(json, JsonOptions)
+                ?? throw new InvalidOperationException(UnreadableStackMessage);
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException(UnreadableStackMessage);
+        }
+
         return selections;
     }
+
+    private const string UnreadableStackMessage =
+        "The queued edit carries a scene-LoRA selection that could not be read, so the run cannot apply the "
+        + "stack the operator picked.";
 }

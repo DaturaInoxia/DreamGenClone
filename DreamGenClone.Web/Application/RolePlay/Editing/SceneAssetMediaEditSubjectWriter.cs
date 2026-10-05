@@ -131,8 +131,11 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
         // The resolver needs the EXACT registered editor model to prove the declared strategy is qualified;
         // handing it nothing made every reference-carrying asset edit fail at run time.
         var references = await _references.ResolveAsync(
-            context.ExplicitEditorModelId, applications, qualifiedStrategy: "ReferenceConditioning", cancellationToken);
+            context.ExplicitEditorModelId, applications, ReferenceStrategyCatalogue.ReferenceImageSurface.Edit, cancellationToken);
 
+        // The compiled-edit path's reference list. The role clause is appended later, at send time, from the images
+        // actually sent (S3) — a prompt drafted here with no bindings cannot know which of them will survive
+        // revalidation.
         return new MediaEditRunPlan(
             image.Id,
             source.Id,
@@ -199,7 +202,7 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
                 context.ReferenceApplicationsJson, JsonOptions)
                 ?? throw new InvalidOperationException("Preset edit reference applications are invalid.");
         var references = await _references.ResolveAsync(
-            context.ExplicitEditorModelId, applications, qualifiedStrategy: "ReferenceConditioning", cancellationToken);
+            context.ExplicitEditorModelId, applications, ReferenceStrategyCatalogue.ReferenceImageSurface.Edit, cancellationToken);
 
         var sourceFileRelativePath = source.FileRelativePath;
         return new MediaEditRunPlan(

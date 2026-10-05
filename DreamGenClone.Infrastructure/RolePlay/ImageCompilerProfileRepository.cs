@@ -369,7 +369,8 @@ public sealed class ImageCompilerProfileRepository : IImageCompilerProfileReposi
             PromptDialect = SceneImagePromptDialect.FluxNaturalLanguage,
             MinChars = 150,
             MaxChars = 1200,
-            MaxTokens = 256,
+            // T5-XXL max_sequence_length = 512 (the HF card's reference diffusers call) — not the provisional 256.
+            MaxTokens = 512,
             RequiredComponentsJson = """["subject","action","setting","framing","lighting"]""",
             ForbiddenTokensJson = """["story-name","relationship","ownership","negation","pov-character-in-frame"]""",
             // Measured (B-116): a dictated two-person pose is FRAGILE in text-T2I on this checkpoint; geometry holds
@@ -379,9 +380,10 @@ public sealed class ImageCompilerProfileRepository : IImageCompilerProfileReposi
             NegativeSource = null,
             SettingsEnvelopeJson = """{"guidance":3.5,"cfg":1.0,"sampler":"euler","scheduler":"simple","resolution":"1024x1024"}""",
             ResearchSource =
-                "B-112 (FluxGuidance 3.5 + cfg 1.0, empty negative — BFL: most FLUX models do not support negatives) + "
-                + "B-116 measured finding (dictated two-person pose fragile in text; use the re-skin route). "
-                + "MaxTokens 256 is PROVISIONAL (T5 window is larger); tighten in B135-037.",
+                "research/flux1-dev-prompting.md — black-forest-labs/FLUX.1-dev HF model card (fetched 2026-10-03): "
+                + "12B rectified-flow transformer, guidance 3.5 / 50 steps / max_sequence_length 512 / 1024x1024, "
+                + "no negative prompt (FluxPipeline takes none). B-112 (FluxGuidance 3.5 + cfg 1.0, euler/simple) + "
+                + "B-116 (dictated two-person pose fragile in text; use the re-skin route).",
         },
         new()
         {

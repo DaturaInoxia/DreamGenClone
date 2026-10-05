@@ -1,0 +1,70 @@
+﻿{
+    "runId":  "20261003-03-exp-res0-chain5",
+    "configName":  "expA-res0",
+    "createdAt":  "2026-10-03T11:36:12.1725704-04:00",
+    "checkpoint":  "qwen_image_2.1_int8_convrot.safetensors",
+    "lora":  "",
+    "loraStrength":  null,
+    "baseCheckpoint":  "qwen_image_2.1_int8_convrot.safetensors",
+    "seed":  6601,
+    "graph":  "Qwen-Image-2.1 native, official template shape: 25 steps/cfg 1/euler+simple, resolution 0 (no resize)",
+    "editRunner":  "helpers/local-comfyui-host/run-qwen21-native-edit.ps1",
+    "baseRunner":  "helpers/local-comfyui-host/run-qwen21-native-t2i.ps1",
+    "chained":  true,
+    "colorStabilized":  false,
+    "maxStep":  5,
+    "gitCommit":  "e7421ce",
+    "completed":  true,
+    "failedAtStep":  null,
+    "stepCount":  4,
+    "steps":  [
+                  {
+                      "step":  1,
+                      "slug":  "man-woman-facing-each-other",
+                      "kind":  "base",
+                      "instruction":  "photorealistic studio photograph of a man and a woman standing side by side facing each other, both fully clothed in fitted dark gray short-sleeved t-shirts and blue jeans, barefoot, full body, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail",
+                      "checkpoint":  "qwen_image_2.1_int8_convrot.safetensors",
+                      "lora":  null,
+                      "loraStrength":  null,
+                      "source":  "(text-to-image)",
+                      "anchor":  null,
+                      "output":  "step01-man-woman-facing-each-other.png"
+                  },
+                  {
+                      "step":  3,
+                      "slug":  "woman-on-knees",
+                      "kind":  "edit",
+                      "instruction":  "the man stands beside the woman who is on her knees on the floor facing him, she stays fully clothed in fitted dark gray short-sleeved t-shirt and blue jeans, he stays fully clothed in fitted dark gray short-sleeved t-shirt and blue jeans, barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail",
+                      "checkpoint":  "qwen_image_2.1_int8_convrot.safetensors",
+                      "lora":  "",
+                      "loraStrength":  null,
+                      "source":  "step01-man-woman-facing-each-other.png",
+                      "anchor":  null,
+                      "output":  "step03-woman-on-knees.png"
+                  },
+                  {
+                      "step":  4,
+                      "slug":  "man-soft-penis",
+                      "kind":  "edit",
+                      "instruction":  "the man stands beside the woman who is on her knees facing him, the man unzips his jeans and pulls the front down revealing his soft flaccid penis, correct male anatomy, natural integration with his body, the woman stays fully clothed in fitted dark gray short-sleeved t-shirt and blue jeans, barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail",
+                      "checkpoint":  "qwen_image_2.1_int8_convrot.safetensors",
+                      "lora":  "",
+                      "loraStrength":  null,
+                      "source":  "step03-woman-on-knees.png",
+                      "anchor":  null,
+                      "output":  "step04-man-soft-penis.png"
+                  },
+                  {
+                      "step":  5,
+                      "slug":  "woman-hand-erect",
+                      "kind":  "edit",
+                      "instruction":  "the man stands beside the woman who is on her knees facing him, the woman reaches out and holds the man\u0027s erect penis in her hand, his penis is now erect, correct male anatomy, natural integration with his body, the woman stays fully clothed in fitted dark gray short-sleeved t-shirt and blue jeans, barefoot, plain dark gray studio backdrop, soft studio lighting, sharp focus, high detail",
+                      "checkpoint":  "qwen_image_2.1_int8_convrot.safetensors",
+                      "lora":  "",
+                      "loraStrength":  null,
+                      "source":  "step04-man-soft-penis.png",
+                      "anchor":  null,
+                      "output":  "step05-woman-hand-erect.png"
+                  }
+              ]
+}

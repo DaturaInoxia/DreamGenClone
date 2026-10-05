@@ -14,8 +14,23 @@ public enum LoraCoverageAngleFamily
     ThreeQuarter = 2,
     Profile = 3,
 
-    /// <summary>Over-shoulder / behind. No canonical face slot exists for it, which is the point.</summary>
-    Behind = 4
+    /// <summary>
+    /// Directly behind: the body seen from the back with the face NOT visible. No canonical face slot exists for it,
+    /// which is the point.
+    /// </summary>
+    Behind = 4,
+
+    /// <summary>
+    /// Over the shoulder: the body is turned away but the subject has looked back, so the FACE IS VISIBLE.
+    ///
+    /// <para>
+    /// A separate family from <see cref="Behind"/> rather than a flag on it, because the angle PHRASE is keyed per
+    /// family - a look-back sharing the back-view wording renders the back of her head, which is the one thing the cell
+    /// exists to avoid. The two shots are otherwise unrelated: one is an identity-blind test of body generalisation,
+    /// the other is a face-carrying framing.
+    /// </para>
+    /// </summary>
+    OverShoulder = 5
 }
 
 /// <summary>How much of the subject fills the frame. Decides the native render aspect.</summary>
@@ -27,7 +42,21 @@ public enum LoraCoverageDistance
     /// <summary>Waist up.</summary>
     HalfBody = 2,
 
-    FullBody = 3
+    FullBody = 3,
+
+    /// <summary>
+    /// A whole scene with the subject small in it - beyond <see cref="FullBody"/>, which is a full figure FILLING the
+    /// frame. Measured 2026-10-04 on Krea 2: a full-body cell returns a face around 130 px, while the framing the
+    /// operator calls "far" returns one around 60 px, and identity holds at one and not the other.
+    ///
+    /// <para>
+    /// It belongs on this axis rather than as a flag, because every rule that keys off distance has to key off it too:
+    /// the aspect a far frame is rendered at, the stance phrasing, and the outfit phrasing. A far frame shows the
+    /// whole outfit, so its wardrobe phrasing is the full-body one; what it cannot do is carry a face, which is the
+    /// measurement this cell type exists to capture.
+    /// </para>
+    /// </summary>
+    Far = 4
 }
 
 /// <summary>
@@ -481,6 +510,18 @@ public sealed class CurationPolicy
     /// <summary>Render size for half-body and full-body cells.</summary>
     public required string PortraitAspect { get; set; }
 
+    /// <summary>
+    /// Render size for FAR cells: a whole scene with the subject small in it.
+    ///
+    /// <para>
+    /// Required, with no code default, because the whole point of a far cell is that the face occupies fewer pixels
+    /// and a default would silently decide HOW few. It is also the one lever other than distance itself that changes
+    /// the outcome - the same far framing is a different test at 1024 than at 1536 - so the number belongs to the
+    /// operator, where it can be changed and reviewed, not to this code.
+    /// </para>
+    /// </summary>
+    public required string FarAspect { get; set; }
+
     public required int MinimumDistinctOutfits { get; set; }
 
     public required int MinimumDistinctBackgrounds { get; set; }
@@ -520,6 +561,7 @@ public sealed class CurationPolicy
             "must cover every cell, one seed each");
         Require(!string.IsNullOrWhiteSpace(CloseUpAspect), nameof(CloseUpAspect), "is required");
         Require(!string.IsNullOrWhiteSpace(PortraitAspect), nameof(PortraitAspect), "is required");
+        Require(!string.IsNullOrWhiteSpace(FarAspect), nameof(FarAspect), "is required");
         Require(MinimumDistinctOutfits > 0, nameof(MinimumDistinctOutfits), "must be positive");
         Require(MinimumDistinctBackgrounds > 0, nameof(MinimumDistinctBackgrounds), "must be positive");
         Require(MinimumDistinctLighting > 0, nameof(MinimumDistinctLighting), "must be positive");

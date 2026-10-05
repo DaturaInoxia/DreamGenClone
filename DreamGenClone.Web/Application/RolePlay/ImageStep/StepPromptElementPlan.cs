@@ -66,7 +66,18 @@ public static class StepPromptElementPlan
         return slotKind switch
         {
             // The room is in the image, so neither the location prose nor the environment prose needs to be written.
-            ImageStepSlotKind.Location => ["frozenState.location", "frozenState.environment"],
+            //
+            // LIGHTING is removed for the same reason and it is the one that was measured: the pre-processor is
+            // REQUIRED to give lighting its own sentence (SceneImageCompilerSystemPrompts), so a bound location image
+            // was always fighting a prompt that had already decided the light. Reported live 2026-10-03 — the brief
+            // read "Thinning blue light from the last of the day; dim inside the shed." and the prompt transcribed it
+            // verbatim, so the render came out at mean brightness 43.5 against its reference's 72.0 and did not
+            // reproduce the room. The role clause already promises the model that "the room supplies the setting and
+            // its own lighting"; this is what makes that promise true.
+            //
+            // TIME OF DAY stays: it is a narrative anchor ("the last of the day"), not a visual claim the image
+            // duplicates. Mood stays too — it makes no claim about what the image owns.
+            ImageStepSlotKind.Location => ["frozenState.location", "frozenState.environment", "frozenState.lighting"],
 
             // The appearance line is what an identity/body image supplies. Both kinds clear it; the caller
             // de-duplicates, so binding face AND body clears it once.

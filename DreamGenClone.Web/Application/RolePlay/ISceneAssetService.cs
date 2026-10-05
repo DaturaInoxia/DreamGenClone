@@ -263,6 +263,22 @@ public interface ISceneAssetService
         string compatibilityMetadataJson,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The inverse of <see cref="ApproveImageForProductionAsync"/>: takes an image back out of production so it stops
+    /// being offered as a reference and becomes deletable again.
+    ///
+    /// <para>
+    /// Implemented by <c>SceneAssetService</c>. The default REFUSES loudly rather than doing nothing: a silent no-op
+    /// here would leave an operator believing a wrongly-approved image had been withdrawn while the pickers kept
+    /// offering it and the delete kept failing.
+    /// </para>
+    /// </summary>
+    Task<SceneAssetImage> RevokeImageApprovalAsync(
+        string imageId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            $"'{nameof(RevokeImageApprovalAsync)}' is not implemented by {GetType().Name}, so this image cannot be taken out of production.");
+
     Task<(SceneAsset Asset, SceneAssetImage Image, Stream Stream)> OpenImageForDownloadAsync(
         string imageId, CancellationToken cancellationToken = default);
 

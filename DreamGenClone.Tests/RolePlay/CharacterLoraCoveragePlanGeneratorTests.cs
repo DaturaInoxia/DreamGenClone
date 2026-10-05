@@ -24,10 +24,10 @@ public sealed class CharacterLoraCoveragePlanGeneratorTests
         {
             var plan = await world.GenerateAsync();
 
-            Assert.Equal(36, plan.Records.Count);
-            Assert.Equal(30, plan.Records.Count(record => record.Role == LoraCoverageCellRole.Core));
+            Assert.Equal(43, plan.Records.Count);
+            Assert.Equal(37, plan.Records.Count(record => record.Role == LoraCoverageCellRole.Core));
             Assert.Equal(6, plan.Records.Count(record => record.Role == LoraCoverageCellRole.Variation));
-            Assert.Equal(30, world.Policy.ExpectedCoreCellCount);
+            Assert.Equal(37, world.Policy.ExpectedCoreCellCount);
             Assert.Equal(6, world.Policy.ExpectedVariationCellCount);
         }
         finally
@@ -38,10 +38,11 @@ public sealed class CharacterLoraCoveragePlanGeneratorTests
 
     /// <summary>The per-angle, per-distance counts are the capture matrix: profiles and angled views weighted highest.</summary>
     [Theory]
-    [InlineData(LoraCoverageAngleFamily.Front, 6)]
+    [InlineData(LoraCoverageAngleFamily.Front, 7)]
     [InlineData(LoraCoverageAngleFamily.ThreeQuarter, 10)]
-    [InlineData(LoraCoverageAngleFamily.Profile, 12)]
-    [InlineData(LoraCoverageAngleFamily.Behind, 2)]
+    [InlineData(LoraCoverageAngleFamily.Profile, 14)]
+    [InlineData(LoraCoverageAngleFamily.Behind, 3)]
+    [InlineData(LoraCoverageAngleFamily.OverShoulder, 3)]
     public async Task Generate_MatchesTheCaptureMatrixPerAngle(LoraCoverageAngleFamily family, int expected)
     {
         var world = await World.CreateAsync();
@@ -59,9 +60,10 @@ public sealed class CharacterLoraCoveragePlanGeneratorTests
     }
 
     [Theory]
-    [InlineData(LoraCoverageDistance.CloseUp, 8)]
-    [InlineData(LoraCoverageDistance.HalfBody, 11)]
-    [InlineData(LoraCoverageDistance.FullBody, 11)]
+    [InlineData(LoraCoverageDistance.CloseUp, 9)]
+    [InlineData(LoraCoverageDistance.HalfBody, 12)]
+    [InlineData(LoraCoverageDistance.FullBody, 12)]
+    [InlineData(LoraCoverageDistance.Far, 4)]
     public async Task Generate_MatchesTheCaptureMatrixPerDistance(LoraCoverageDistance distance, int expected)
     {
         var world = await World.CreateAsync();
@@ -441,7 +443,14 @@ public sealed class CharacterLoraCoveragePlanGeneratorTests
             var plan = await world.GenerateAsync();
 
             Assert.All(plan.Records, record => Assert.Equal(
-                record.Distance == LoraCoverageDistance.CloseUp ? world.Policy.CloseUpAspect : world.Policy.PortraitAspect,
+                record.Distance switch
+                {
+                    LoraCoverageDistance.CloseUp => world.Policy.CloseUpAspect,
+                    // Far cells are the one framing whose shape is not the portrait shape, so the expected value
+                    // branches on the distance rather than on "close-up or not".
+                    LoraCoverageDistance.Far => world.Policy.FarAspect,
+                    _ => world.Policy.PortraitAspect
+                },
                 record.Aspect));
         }
         finally
@@ -609,7 +618,7 @@ public sealed class CharacterLoraCoveragePlanGeneratorTests
             var plan = await generator.GenerateAsync(new CoveragePlanRequest(
                 "character-1", "pack-1", 9, CharacterImageIdentityPackScope.BodyComplete, "ohwx-becky", "biglust"));
 
-            Assert.Equal(36, plan.Records.Count);
+            Assert.Equal(43, plan.Records.Count);
         }
         finally
         {
@@ -797,12 +806,13 @@ public sealed class CharacterLoraCoveragePlanGeneratorTests
 
         public CurationPolicy Policy { get; private set; } = new()
         {
-            ExpectedCoreCellCount = 30,
+            ExpectedCoreCellCount = 37,
             ExpectedVariationCellCount = 6,
             SeedRangeStart = 41000,
             SeedRangeLength = 100,
             CloseUpAspect = "1024x1024",
             PortraitAspect = "832x1216",
+            FarAspect = "1536x1024",
             MinimumDistinctOutfits = 4,
             MinimumDistinctBackgrounds = 4,
             MinimumDistinctLighting = 4,

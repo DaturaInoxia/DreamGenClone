@@ -8,6 +8,7 @@ using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -269,11 +270,103 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
         Assert.Equal(0, fixture.PromptOnlyClient.Calls);
     }
 
+    /// <summary>
+    /// TWO or more reference images MUST be numbered in the prompt. Qwen's own prompt-enhancer system prompt makes
+    /// <c>&lt;image1&gt;</c>, <c>&lt;image2&gt;</c> … mandatory for multi-image input and requires each image's role to
+    /// be stated, and ComfyUI's 2.1 encoder passes the prompt through untouched — so with no tags the model has no way
+    /// to tell which reference is which, and it reproduces the wrong one. Measured 2026-10-03 (CASE-25): the same two
+    /// references scored outer-ring L1 1.574 against the bound shed untagged and 0.887 tagged.
+    ///
+    /// <para>
+    /// Composed at SEND time from the images actually being sent, not carried over from prompt generation: the reported
+    /// render's prompt had been generated before the references were bound, so nothing upstream of here knew about
+    /// them.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_TwoBoundReferences_AreNumberedInThePromptInSendOrder()
+    {
+        await using var fixture = new Fixture();
+        var image = fixture.NewImage();
+        image.AppliedReferenceBindingsJson = """
+            [
+              {"elementKey":"Identity","kind":"Face","actorKey":"becky","source":"IdentityPackAsset",
+               "strategy":"NativeMultiReference","identityPackId":"pack-1","referenceAssetId":"face-1","ordinal":1,
+               "referenceLabel":"Front"},
+              {"elementKey":"Body","kind":"Body","actorKey":"becky","source":"IdentityPackAsset",
+               "strategy":"NativeMultiReference","identityPackId":"pack-1","referenceAssetId":"body-1","ordinal":2,
+               "referenceLabel":"Front · Unclothed"}
+            ]
+            """;
+        await fixture.Repository.InsertImageAsync(image);
+        var referenceClient = new RecordingReferenceClient();
+        var (pack, face, body) = ApprovedPackFaceAndBody();
+
+        var handler = fixture.CreatePackBindingHandler(
+            referenceClient, new StubReferenceStrategies(native: true), pack, face, body,
+            new PathKeyedIdentityStorage());
+
+        await handler.HandleAsync(fixture.JobFor(image), CancellationToken.None);
+
+        var request = Assert.Single(referenceClient.Requests);
+        Assert.Equal(2, request.References.Count);
+        Assert.StartsWith("two people talking in a bedroom", request.PositivePrompt, StringComparison.Ordinal);
+        Assert.Contains("REFERENCE IMAGES — AUTHORITATIVE", request.PositivePrompt, StringComparison.Ordinal);
+
+        var first = request.PositivePrompt.IndexOf("<image1>", StringComparison.Ordinal);
+        var second = request.PositivePrompt.IndexOf("<image2>", StringComparison.Ordinal);
+        Assert.True(first >= 0 && second > first, request.PositivePrompt);
+
+        // The tags name the images the model RECEIVES, in the order it receives them, and each line says what that
+        // image is — the face first, the build second, matching request.References above.
+        var firstLine = request.PositivePrompt[first..second];
+        var secondLine = request.PositivePrompt[second..];
+        Assert.Contains("Front", firstLine, StringComparison.Ordinal);
+        Assert.Contains("FACE reference", firstLine, StringComparison.Ordinal);
+        Assert.Contains("Front · Unclothed", secondLine, StringComparison.Ordinal);
+        Assert.Contains("BODY reference", secondLine, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ONE reference is the opposite case and must stay untagged: Qwen's rule is explicit that a single-image input
+    /// uses no tags, and every single-reference render the app has ever produced was working that way.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_OneBoundReference_LeavesThePromptUntagged()
+    {
+        await using var fixture = new Fixture();
+        var image = fixture.NewImage();
+        image.AppliedReferenceBindingsJson = """
+            [
+              {"elementKey":"Identity","kind":"Face","actorKey":"becky","source":"IdentityPackAsset",
+               "strategy":"NativeMultiReference","identityPackId":"pack-1","referenceAssetId":"face-1","ordinal":1,
+               "referenceLabel":"Front"}
+            ]
+            """;
+        await fixture.Repository.InsertImageAsync(image);
+        var referenceClient = new RecordingReferenceClient();
+        var (pack, face, body) = ApprovedPackFaceAndBody();
+
+        var handler = fixture.CreatePackBindingHandler(
+            referenceClient, new StubReferenceStrategies(native: true), pack, face, body,
+            new PathKeyedIdentityStorage());
+
+        await handler.HandleAsync(fixture.JobFor(image), CancellationToken.None);
+
+        var request = Assert.Single(referenceClient.Requests);
+        Assert.Single(request.References);
+        Assert.Equal("two people talking in a bedroom", request.PositivePrompt);
+        Assert.DoesNotContain("<image1>", request.PositivePrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("REFERENCE IMAGES", request.PositivePrompt, StringComparison.Ordinal);
+    }
+
     private static readonly byte[] FaceBytes = [9, 8, 7];
 
     private static readonly byte[] BuildBytes = [4, 4, 4, 4, 4];
 
     private static readonly byte[] SkeletonBytes = [5, 5, 5, 5];
+
+    private static readonly byte[] LocationBytes = [6, 6, 6, 6, 6, 6];
 
     private static (CharacterImageIdentityPack Pack, SceneImageReferenceAsset Face) ApprovedPackAndFace()
         => (new CharacterImageIdentityPack
@@ -330,6 +423,185 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
             FileRelativePath = "identity/body-1.png",
             Sha256 = "BODYHASH"
         });
+
+    /// <summary>
+    /// THE SHAPE THAT BROKE. A step that binds a pack FACE, a pack BODY, an approved LOCATION and a POSE sends four
+    /// images from three different stores, and each store is served by its own block in the render: the two pack images
+    /// by the identity-pack resolver, the location by the approved-asset resolver, and the skeleton last by the pose
+    /// block. Reported live 2026-10-03 as a failed render — "the reference resolver returned 1 images for 2 approved
+    /// bindings" — because the caller counted the asset resolver's input as "everything that is not a pack binding",
+    /// which included the pose, while the resolver selects by <c>UsesReference</c>, which excludes it. Two rules for one
+    /// question: the guard fired on a render that was about to be correct.
+    ///
+    /// <para>
+    /// The pose binding is the case that makes the two rules differ, so it is asserted here as a SENT image rather than
+    /// only as an absent error: it must be the fourth reference, and it must be numbered <c>&lt;image4&gt;</c>.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_PackFaceAndBuildWithALocationAndAPose_SendsFourNumberedReferences()
+    {
+        await using var fixture = new Fixture();
+        var image = fixture.NewImage();
+        image.SettingsJson = """{"poseReference":{"storagePath":"poses/lying012.png","strength":1.0}}""";
+        image.AppliedReferenceBindingsJson = """
+            [
+              {"elementKey":"Identity","kind":"Face","actorKey":"becky","source":"IdentityPackAsset",
+               "strategy":"NativeMultiReference","identityPackId":"pack-1","referenceAssetId":"face-1","ordinal":1,
+               "referenceLabel":"Front"},
+              {"elementKey":"Body","kind":"Body","actorKey":"becky","source":"IdentityPackAsset",
+               "strategy":"NativeMultiReference","identityPackId":"pack-1","referenceAssetId":"body-1","ordinal":2,
+               "referenceLabel":"Front · Unclothed"},
+              {"elementKey":"Location","kind":"Location","source":"ApprovedSceneAsset",
+               "strategy":"NativeMultiReference","sceneAssetId":"location-asset","sceneAssetImageId":"location-image",
+               "sceneAssetVersion":1,"sceneAssetSha256":"LOCATIONHASH","ordinal":3,"referenceLabel":"Indoor Back"},
+              {"elementKey":"Pose","kind":"Pose","source":"PoseLibrarySkeleton",
+               "strategy":"NativeMultiReference","ordinal":4,
+               "skeletonRelativePath":"library/openpose-nsfw/lying012.png",
+               "posePresetId":"pack-openpose-nsfw-nsfw-lying-012"}
+            ]
+            """;
+        await fixture.Repository.InsertImageAsync(image);
+        var referenceClient = new RecordingReferenceClient();
+        var (pack, face, body) = ApprovedPackFaceAndBody();
+
+        var handler = fixture.CreatePackBindingHandler(
+            referenceClient, new StubReferenceStrategies(native: true), pack, face, body,
+            new PathKeyedIdentityStorage(),
+            referenceResolver: new MediaEditReferenceResolver(
+                new StubSceneAssets(ApprovedLocationImage()), new StubSceneAssetStorageService(LocationBytes),
+                new StubReferenceStrategies(native: true)),
+            sceneStorage: new StubSceneImageStorage(SkeletonBytes));
+
+        await handler.HandleAsync(fixture.JobFor(image), CancellationToken.None);
+
+        // Four images, from three stores, in send order: the measured order is faces, then approved scene assets, then
+        // the pose skeleton last.
+        var request = Assert.Single(referenceClient.Requests);
+        Assert.Equal(4, request.References.Count);
+        Assert.Equal("face-1.png", request.References[0].FileName);
+        Assert.Equal("body-1.png", request.References[1].FileName);
+        Assert.Equal("location-image.png", request.References[2].FileName);
+        Assert.Equal(LocationBytes, request.References[2].Content);
+        Assert.Equal(SkeletonBytes, request.References[3].Content);
+        Assert.Contains("pose reference", request.References[3].SemanticRole, StringComparison.Ordinal);
+
+        // ...and the prompt numbers them in that same order, so the tag the model reads names the image it receives.
+        Assert.Contains("<image1> (Front)", request.PositivePrompt, StringComparison.Ordinal);
+        Assert.Contains("<image2> (Front · Unclothed)", request.PositivePrompt, StringComparison.Ordinal);
+        Assert.Contains("<image3> (Indoor Back)", request.PositivePrompt, StringComparison.Ordinal);
+        Assert.Contains("<image4>", request.PositivePrompt, StringComparison.Ordinal);
+        Assert.Contains("there are 4", request.PositivePrompt, StringComparison.Ordinal);
+        Assert.Equal(0, fixture.PromptOnlyClient.Calls);
+    }
+
+    private static SceneAssetImage ApprovedLocationImage() => new()
+    {
+        Id = "location-image",
+        AssetId = "location-asset",
+        Kind = SceneAssetKind.PromptGenerated,
+        Status = SceneAssetStatus.Complete,
+        DisplayName = "Indoor Back",
+        Prompt = "A weathered maintenance shed, indoors.",
+        FileRelativePath = "assets/location-image.png",
+        ProductionApprovalStatus = SceneAssetProductionApprovalStatus.Approved,
+        ProductionVersion = 1,
+        Sha256 = "LOCATIONHASH",
+        ByteLength = LocationBytes.Length
+    };
+
+    private sealed class StubSceneAssets(SceneAssetImage image) : ISceneAssetRepository
+    {
+        public Task<SceneAssetImage?> GetImageAsync(string imageId, CancellationToken cancellationToken = default)
+            => Task.FromResult<SceneAssetImage?>(image.Id == imageId ? image : null);
+
+        public Task<SceneAsset?> GetAsync(string assetId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneAsset>> ListAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneAsset>> ListByPackAsync(string identityPackId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneAsset>> ListByCandidateBatchAsync(string candidateBatchId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneAssetImage>> ListImagesAsync(string assetId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneAssetImage>> ListImagesByCandidateBatchAsync(string candidateBatchId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task UpsertImageAsync(SceneAssetImage value, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task SetImagePromptAsync(string imageId, string prompt, string promptCompilerId, string? negativePrompt, string? associationMetadataJson, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task SetImageCandidateDecisionAsync(string imageId, SceneAssetCandidateDecision decision, string? notes, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task SetImageTagsAsync(string imageId, IReadOnlyList<string> tags, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<string>> AddImageTagsAsync(string imageId, IReadOnlyList<string> tags, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneAssetImage> SetImageDisplayNameAsync(string imageId, string displayName, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneAssetImage>> SearchImagesByTagAsync(string tagQuery, int maxResults = 200, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneAssetImage> ApproveImageForProductionAsync(
+            string imageId, string sourceProvenanceJson, SceneAssetConsentState consentState,
+            SceneAssetLicenseState licenseState, string licenseLabel, SceneAssetApprovedUseScope approvedUseScope,
+            string contentPolicyKey, string compatibilityMetadataJson, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneAssetImage> RevokeImageApprovalAsync(string imageId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task UpsertAsync(SceneAsset asset, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task UpdateCandidateFieldsAsync(string assetId, string? candidateBatchId, SceneAssetCandidateDecision? candidateDecision, string? candidateNotes, string? candidateSourceAssetId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task RenameAsync(string assetId, string name, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<SceneAsset> ApproveForProductionAsync(
+            string assetId, string sourceProvenanceJson, SceneAssetConsentState consentState,
+            SceneAssetLicenseState licenseState, string licenseLabel, SceneAssetApprovedUseScope approvedUseScope,
+            string contentPolicyKey, string compatibilityMetadataJson, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task CreatePromotedAsync(SceneAsset asset, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task DeleteAsync(string assetId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<int> CountByFilePathAsync(string fileRelativePath, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class StubSceneAssetStorageService(byte[] bytes) : ISceneAssetStorageService
+    {
+        public Task<StoredSceneAsset> SaveAsync(string fileName, Stream content, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<Stream> OpenReadAsync(string relativePath, CancellationToken cancellationToken = default)
+            => Task.FromResult<Stream>(new MemoryStream(bytes));
+
+        public Task DeleteAsync(string relativePath, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
 
     private sealed class Fixture : IAsyncDisposable
     {
@@ -453,12 +725,14 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
             CharacterImageIdentityPack pack,
             SceneImageReferenceAsset face,
             SceneImageReferenceAsset body,
-            ICharacterImageAssetStorageService storage)
+            ICharacterImageAssetStorageService storage,
+            MediaEditReferenceResolver? referenceResolver = null,
+            ISceneImageStorageService? sceneStorage = null)
         {
             var identity = new StubIdentityRepository(pack, face, body);
             return new SceneImageRenderingJobHandler(
                 Repository,
-                new StubSceneImageStorage(),
+                sceneStorage ?? new StubSceneImageStorage(),
                 new StubModelResolution(),
                 PromptOnlyClient,
                 identityClient: null!,
@@ -471,6 +745,7 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
                 NullLogger<SceneImageRenderingJobHandler>.Instance,
                 ProducedImages,
                 referenceConditionedClient: referenceClient,
+                referenceResolver: referenceResolver,
                 identityStorage: storage,
                 referenceStrategyResolver: strategies,
                 identityFaceResolver: new IdentityFaceReferenceResolver(identity),

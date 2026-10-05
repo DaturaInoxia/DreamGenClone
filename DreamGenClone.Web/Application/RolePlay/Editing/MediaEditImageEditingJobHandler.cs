@@ -9,6 +9,7 @@ using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using Microsoft.Extensions.Logging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -138,7 +139,13 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
             }
 
             await using var source = await OpenSourceAsync(plan, cancellationToken);
-            var bytes = await ExecuteAsync(plan, parts.Prompt, parts.References, resolved, source, cancellationToken);
+            // The references are NAMED in the instruction, numbered from the image AFTER the source: the 2.1 edit
+            // graph puts the source in slot 1, so the first reference is <image2>. Composed here, from the references
+            // actually being sent, so a reference revalidation dropped cannot leave a tag pointing at nothing.
+            var instruction = ReferenceRoleClauses.AppendToEditInstruction(
+                parts.Prompt,
+                [.. parts.References.Select(reference => (reference.SlotKind, reference.Description))]);
+            var bytes = await ExecuteAsync(plan, instruction, parts.References, resolved, source, cancellationToken);
             stopwatch.Stop();
 
             await writer.CompleteAsync(plan, new MediaEditRunOutput(

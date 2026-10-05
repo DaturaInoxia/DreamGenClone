@@ -316,6 +316,9 @@ public sealed class CharacterLoraCoverageSchemaTests
         Assert.Equal(policy.NearDuplicateMaxSimilarity, reread.NearDuplicateMaxSimilarity);
         Assert.Equal("1024x1024", reread.CloseUpAspect);
         Assert.Equal("832x1216", reread.PortraitAspect);
+        // Far is its own shape and has to survive the round trip as its own value - if it were dropped, every
+        // far cell would silently render at whatever the fallback shape happened to be.
+        Assert.Equal("1536x1024", reread.FarAspect);
     }
 
     // ---------------------------------------------------------------- findings
@@ -484,6 +487,7 @@ public sealed class CharacterLoraCoverageSchemaTests
         SeedRangeLength = 100,
         CloseUpAspect = "1024x1024",
         PortraitAspect = "832x1216",
+        FarAspect = "1536x1024",
         MinimumDistinctOutfits = 1,
         MinimumDistinctBackgrounds = 1,
         MinimumDistinctLighting = 1,

@@ -91,7 +91,8 @@ Validation rules:
 
 - 1 to configured maximum catalogue entries;
 - unique positive order and unique beat ID;
-- concise bounded strings;
+- concise bounded strings: label ≤ 80 characters, beatSynopsis 300–450 characters instructed with a 600-character
+  hard maximum, primaryLocation ≤ 120 characters;
 - at least one active participant;
 - known participant names only;
 - known evidence keys only;

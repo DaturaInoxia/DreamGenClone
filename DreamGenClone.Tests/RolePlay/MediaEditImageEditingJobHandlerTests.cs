@@ -98,6 +98,124 @@ public sealed class MediaEditImageEditingJobHandlerTests
     }
 
     /// <summary>
+    /// THE REPORTED FAILURE (2026-10-03). An approved Location bound to an ASSET edit reached the resolver, which
+    /// demanded <c>ReferenceConditioning</c> — the IP-Adapter/PuLID identity MECHANISM, which no editor graph
+    /// implements — while the editor model declares only <c>NativeMultiReference</c>. Every reference-carrying asset
+    /// edit failed with "Reference strategy 'NativeMultiReference' for 'Location' is qualified but has no implemented
+    /// graph in this editor", so a face, body or wardrobe reference would have failed identically.
+    ///
+    /// <para>
+    /// The gate now reads the strategies the SURFACE implements from `ReferenceStrategyCatalogue`, so the model's own
+    /// qualification is what decides.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task AssetEdit_WithABoundApprovedLocation_CarriesTheReference()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var location = await fixture.GivenAnApprovedLocationAsync();
+        var resolver = new MediaEditReferenceResolver(
+            fixture.Assets, fixture.Storage, new QualifiedEditStrategies());
+        var strategies = await resolver.ResolveAsync(
+            Fixture.EditorModelId, [location], ReferenceStrategyCatalogue.ReferenceImageSurface.Edit);
+
+        var reference = Assert.Single(strategies);
+        Assert.Equal(1, reference.Ordinal);
+        Assert.Equal(ImageStepSlotKind.Location, reference.SlotKind);
+        Assert.Contains("location continuity", reference.Description, StringComparison.Ordinal);
+        Assert.Contains("Indoor Front", reference.Description, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A strategy the EDIT surface does not implement is still refused, by name, and the message says what it does
+    /// implement. Weakening the gate must not turn "this graph cannot carry it" into a wrong render.
+    /// </summary>
+    [Fact]
+    public async Task AssetEdit_WithAStrategyTheSurfaceDoesNotImplement_RefusesAndNamesWhatItDoesImplement()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var location = await fixture.GivenAnApprovedLocationAsync();
+        var resolver = new MediaEditReferenceResolver(
+            fixture.Assets, fixture.Storage, new QualifiedEditStrategies { ResolveEveryBindingAs = "ControlNet" });
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(
+            Fixture.EditorModelId, [location], ReferenceStrategyCatalogue.ReferenceImageSurface.Edit));
+
+        Assert.Contains("ControlNet", error.Message, StringComparison.Ordinal);
+        Assert.Contains("editor", error.Message, StringComparison.Ordinal);
+        Assert.Contains("NativeMultiReference", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A character's approved identity-PACK build travels as a reference on an edit. It used to be filtered out with
+    /// no error at all: `UsesReference` is false for a pack binding (a pack image is a `SceneImageReferenceAsset`
+    /// addressed by its own pack id, so it carries no scene asset id), so the asset branch could never serve it and
+    /// every edit lost the character's build in silence.
+    /// </summary>
+    [Fact]
+    public async Task AssetEdit_WithABoundPackBuild_CarriesIt()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var identityStorage = new RecordingIdentityStorage();
+        var resolver = new MediaEditReferenceResolver(
+            fixture.Assets, fixture.Storage, new QualifiedEditStrategies(),
+            identity: new StubIdentityRepository(), identityStorage: identityStorage);
+
+        var resolved = await resolver.ResolveAsync(
+            Fixture.EditorModelId, [Fixture.PackBuildBinding()], ReferenceStrategyCatalogue.ReferenceImageSurface.Edit);
+
+        var reference = Assert.Single(resolved);
+        Assert.Equal(ImageStepSlotKind.Body, reference.SlotKind);
+        Assert.Equal("body-1.png", reference.FileName);
+        Assert.Equal(Fixture.IdentityFaceSha256, reference.Sha256);
+        await using var bytes = await reference.OpenAsync(CancellationToken.None);
+        Assert.True(bytes.Length > 0);
+    }
+
+    /// <summary>
+    /// A pack carries faces and builds only, so a pack binding on any other element is refused BY NAME rather than
+    /// resolved as a guess.
+    /// </summary>
+    [Fact]
+    public async Task AssetEdit_WithAPackBindingOnAWardrobe_RefusesByName()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var resolver = new MediaEditReferenceResolver(
+            fixture.Assets, fixture.Storage, new QualifiedEditStrategies(),
+            identity: new StubIdentityRepository(), identityStorage: new RecordingIdentityStorage());
+
+        var wardrobe = Fixture.PackBuildBinding();
+        wardrobe.Kind = nameof(ImageStepSlotKind.Wardrobe);
+        wardrobe.ElementKey = "Wardrobe";
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(
+            Fixture.EditorModelId, [wardrobe], ReferenceStrategyCatalogue.ReferenceImageSurface.Edit));
+
+        Assert.Contains("faces and builds only", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A scratch-image binding has no implementable route on any surface today. It is refused with the channel named
+    /// rather than filtered out, because a reference the operator bound and the model never received is
+    /// indistinguishable from one that was applied and ignored.
+    /// </summary>
+    [Fact]
+    public async Task AssetEdit_WithAScratchImageBinding_RefusesByName()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var resolver = new MediaEditReferenceResolver(
+            fixture.Assets, fixture.Storage, new QualifiedEditStrategies());
+
+        var scratch = Fixture.PackBuildBinding();
+        scratch.Source = nameof(ImageStepReferenceSourceKind.ScratchImage);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(
+            Fixture.EditorModelId, [scratch], ReferenceStrategyCatalogue.ReferenceImageSurface.Edit));
+
+        Assert.Contains("scratch image", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The Asset Manager editor's identity run — the tab the asset store did not have. The row's bound approved
     /// faces are sent as references and the model carried on the job is used as-is: re-resolving a default here
     /// would let the run use a model the user never chose, which is exactly what carrying the chosen model stops.
@@ -347,6 +465,73 @@ public sealed class MediaEditImageEditingJobHandlerTests
 
         public SceneAssetRepository Assets { get; }
         public SceneAssetImageEditRepository Edits { get; }
+
+        /// <summary>The real asset storage the writers and the resolver read approved images through.</summary>
+        public ISceneAssetStorageService Storage { get; private set; } = null!;
+
+        /// <summary>
+        /// An APPROVED location image with a user-entered name, exactly as B-145 makes one offerable as a reference:
+        /// Complete + Approved + a production version + a checksum + a stored file.
+        /// </summary>
+        public async Task<ReferenceApplicationSelection> GivenAnApprovedLocationAsync()
+        {
+            // The container the image belongs to (a location asset created the way the app makes one).
+            await Assets.UpsertAsync(new SceneAsset
+            {
+                Id = LocationAssetId,
+                Name = "Maintenance Shed",
+                Type = SceneAssetType.Location,
+                Status = SceneAssetStatus.Complete
+            });
+
+            var image = new SceneAssetImage
+            {
+                Id = "location-image-1",
+                AssetId = LocationAssetId,
+                Kind = SceneAssetKind.PromptGenerated,
+                Status = SceneAssetStatus.Complete,
+                DisplayName = "Indoor Front",
+                Prompt = "A weathered maintenance shed, indoors.",
+                FileRelativePath = "assets/location-image-1.png",
+                ProductionApprovalStatus = SceneAssetProductionApprovalStatus.Approved,
+                ProductionVersion = 1,
+                Sha256 = LocationSha256,
+                ByteLength = 4
+            };
+            await Assets.UpsertImageAsync(image);
+
+            return new ReferenceApplicationSelection
+            {
+                ElementKey = "Location",
+                Kind = nameof(ImageStepSlotKind.Location),
+                SemanticRole = "location continuity",
+                Source = nameof(ImageStepReferenceSourceKind.ApprovedSceneAsset),
+                Strategy = ReferenceStrategyCatalogue.NativeMultiReference,
+                SceneAssetId = LocationAssetId,
+                SceneAssetImageId = image.Id,
+                SceneAssetVersion = 1,
+                SceneAssetSha256 = LocationSha256,
+                Ordinal = 1,
+                ReferenceLabel = "Indoor Front"
+            };
+        }
+
+        /// <summary>A bound approved identity-PACK build, the channel an edit could not carry at all.</summary>
+        public static ReferenceApplicationSelection PackBuildBinding() => new()
+        {
+            ElementKey = "Body",
+            Kind = nameof(ImageStepSlotKind.Body),
+            SemanticRole = "character body",
+            Source = nameof(ImageStepReferenceSourceKind.IdentityPackAsset),
+            Strategy = ReferenceStrategyCatalogue.NativeMultiReference,
+            Ordinal = 1,
+            IdentityPackId = "pack-1",
+            ReferenceAssetId = "body-1",
+            ReferenceLabel = "Front · Unclothed"
+        };
+
+        public const string LocationAssetId = "location-asset-1";
+        public const string LocationSha256 = "1B2C3D4E";
         public string EditedImageId { get; private set; } = string.Empty;
         public string CroppedImageId { get; private set; } = string.Empty;
         public string CropSourceImageId { get; private set; } = string.Empty;
@@ -373,7 +558,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
             var assets = new SceneAssetRepository(options);
             var edits = new SceneAssetImageEditRepository(options);
             var storage = new SceneAssetStorageService(options, NullLogger<SceneAssetStorageService>.Instance);
-            var fixture = new Fixture(dbPath, root, assets, edits);
+            var fixture = new Fixture(dbPath, root, assets, edits) { Storage = storage };
 
             await assets.UpsertAsync(new SceneAsset
             {
@@ -1313,6 +1498,115 @@ public sealed class MediaEditImageEditingJobHandlerTests
     private sealed class StubReferenceStrategies : IReferenceStrategyResolver
     {
         public Task<ReferenceStrategyResolution> ResolveAsync(string registeredModelId, string strategy, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// A model that qualifies the strategy a binding declares, which is what the editor model row actually holds:
+    /// `SupportedVisualStrategiesJson = ["NativeMultiReference"]` with a Qualified capability entry for it.
+    /// <see cref="ResolveEveryBindingAs"/> stands in for a model whose only qualified strategy is one the edit surface
+    /// has no graph for.
+    /// </summary>
+    private sealed class QualifiedEditStrategies : IReferenceStrategyResolver
+    {
+        public string? ResolveEveryBindingAs { get; init; }
+
+        public Task<ReferenceStrategyResolution> ResolveAsync(
+            string registeredModelId, string strategy, CancellationToken cancellationToken = default)
+        {
+            var resolved = ResolveEveryBindingAs ?? strategy;
+            return Task.FromResult(new ReferenceStrategyResolution(
+                ReferenceStrategyResolutionStatus.Possible,
+                resolved,
+                $"'{resolved}' is declared and qualified for model '{registeredModelId}'."));
+        }
+    }
+
+    /// <summary>
+    /// The character's approved identity pack and its approved build, which is the store a pack binding is addressed
+    /// in. Mirrors the fixture's face asset so both axes resolve.
+    /// </summary>
+    private sealed class StubIdentityRepository : ICharacterImageIdentityRepository
+    {
+        private static readonly CharacterImageIdentityPack Pack = new()
+        {
+            Id = "pack-1",
+            CharacterTemplateId = "character-1",
+            Version = 3,
+            Status = CharacterImageIdentityPackStatus.Approved,
+            CanonicalFullBodyAssetId = "body-1"
+        };
+
+        private static readonly SceneImageReferenceAsset Body = new()
+        {
+            Id = "body-1",
+            IdentityPackId = "pack-1",
+            AssetKind = SceneImageReferenceAssetKind.FullBody,
+            IsApproved = true,
+            BodyView = SceneImageReferenceBodyView.Front,
+            BodyState = SceneImageReferenceBodyState.Unclothed,
+            FileRelativePath = Fixture.IdentityFaceRelativePath,
+            Sha256 = Fixture.IdentityFaceSha256
+        };
+
+        public Task<CharacterImageIdentityPack?> GetPackAsync(string packId, CancellationToken cancellationToken = default)
+            => Task.FromResult<CharacterImageIdentityPack?>(packId == Pack.Id ? Pack : null);
+
+        public Task<SceneImageReferenceAsset?> GetAssetAsync(string assetId, CancellationToken cancellationToken = default)
+            => Task.FromResult<SceneImageReferenceAsset?>(assetId == Body.Id ? Body : null);
+
+        public Task<IReadOnlyList<CharacterImageIdentityPack>> ListPacksAsync(
+            string characterProfileId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<CharacterImageIdentityPack>> ListApprovedPacksAsync(
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<CharacterImageIdentityPack?> GetLatestApprovedPackAsync(
+            string characterProfileId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<CharacterImageIdentityPack> UpsertDraftAsync(
+            CharacterImageIdentityPack value, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<CharacterImageIdentityPack> ApproveAsync(
+            string packId, string descriptorSnapshotJson, string canonicalFaceAssetId,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<CharacterImageIdentityPack> SupersedeAsync(string packId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task DeletePackAsync(string packId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task AddAssetAsync(SceneImageReferenceAsset value, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SceneImageReferenceAsset>> ListAssetsAsync(
+            string packId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task UpdateAssetProvenanceAsync(
+            string assetId, string sourceLabel, SceneImageReferenceConsentState consentState,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task SetAssetApprovalAsync(
+            string assetId, bool isApproved, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task UpdateAssetQualityAsync(
+            string assetId, SceneImageReferenceQuality qualityRating, string qualityNotes,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task DeleteAssetAsync(string assetId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<int> CountAssetsByFilePathAsync(string fileRelativePath, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 

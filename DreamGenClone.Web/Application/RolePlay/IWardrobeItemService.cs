@@ -65,7 +65,7 @@ public interface IWardrobeItemService
     Task SetImageLabelAsync(string imageId, string? label, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes one image. Refused while it is in use as a reference, the same rule every asset-image delete follows.
+    /// Deletes one image. Refused while it is approved for production, the same rule every asset-image delete follows.
     /// </summary>
     Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default);
 

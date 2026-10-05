@@ -10,6 +10,7 @@ using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.RolePlay.Editing;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -324,14 +325,13 @@ public sealed class SceneImageEditingJobHandler : IBackgroundJobHandler, IDurabl
         var references = await BuildReferenceResolver().ResolveAsync(
             resolved.RegisteredModelId,
             applications,
-            qualifiedStrategy: "NativeMultiReference",
+            ReferenceStrategyCatalogue.ReferenceImageSurface.Edit,
             cancellationToken);
         if (references.Count == 0)
             return await _imageEditingClient.EditAsync(resolved, sourceStream, $"{sourceImageId}.png", image.PromptSnapshot, cancellationToken);
 
         var referenceApplications = applications
-            .Where(application => application.UsesReference
-                && !string.Equals(application.Strategy, "TextOnly", StringComparison.OrdinalIgnoreCase))
+            .Where(ReferenceBindingShape.IsAssetBacked)
             .ToList();
         var instruction = MediaEditReferenceResolver.BuildReferenceAwareInstruction(image.PromptSnapshot, referenceApplications);
 

@@ -19,6 +19,12 @@
 #       -> qwen2.1_penisV01_000004956.safetensors          (male specialist, 2.3k dl > CoachBate's 1.1k)
 #   "qwen 2.1 阴道|vagina" v2.0                    Civitai model 2976277, version 3377365
 #       -> pussyV2.safetensors                             (female specialist v2.0, pub 2026-10-02)
+#   "360 Panorama Maker - Qwen-Image 2.1 Edit" (Gogodr)  Civitai model 2976898, version 3374088
+#       -> pano360_qwen21_edit_v1.safetensors              (360/equirect producer, pub 2026-10-01,
+#          nsfw=FALSE. 1-3 photos of ONE spot -> a 2:1 equirectangular panorama; the FIRST image
+#          lands at the centre and everything no view covers is INVENTED. Staged onto the host
+#          2026-10-03; driven by run-qwen21-pano360.ps1, which must sample from an empty 1536x768
+#          latent rather than image_1's size. HF mirror: Gogodr/qwen-image-2.1-edit-pano360-lora)
 [CmdletBinding()]
 param(
     [int]$ModelVersionId = 3357315,

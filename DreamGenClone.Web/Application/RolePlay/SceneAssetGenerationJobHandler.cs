@@ -8,6 +8,10 @@ using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.ModelManager;
+using DreamGenClone.Web.Application.RolePlay.Editing;
+using DreamGenClone.Web.Application.RolePlay.Evaluation;
+using DreamGenClone.Web.Application.RolePlay.Evaluation.Gates;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using Microsoft.Extensions.Logging;
 
 namespace DreamGenClone.Web.Application.RolePlay;
@@ -65,6 +69,21 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
     /// without the LoRA the operator picked - which would look exactly like a render that applied it.
     /// </summary>
     private readonly ISceneLoraResolver? _sceneLoraResolver;
+
+    /// <summary>
+    /// Optional, exactly as the identity resolvers are: only a render that carries an approved SCENE-ASSET reference
+    /// (a location's view, a wardrobe item, a prop, a style) needs it, and such a render fails fast when it is absent
+    /// rather than rendering without the reference the operator bound.
+    ///
+    /// <para>
+    /// Shared with the scene render path and the edit path on purpose. "Is this still the approved, immutable image
+    /// that was bound" lives in ONE place, so this path cannot validate a reference differently from the two beside it.
+    /// </para>
+    /// </summary>
+    private readonly MediaEditReferenceResolver? _assetReferenceResolver;
+
+    private readonly IImageGateEvaluator _gateEvaluator;
+
     private readonly ILogger<SceneAssetGenerationJobHandler> _logger;
 
     public SceneAssetGenerationJobHandler(
@@ -87,7 +106,9 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         IdentityBodyReferenceResolver? identityBodyReferenceResolver = null,
         IPoseLibraryService? poseLibrary = null,
         ISceneImageCharacterLoraResolver? characterLoraResolver = null,
-        ISceneLoraResolver? sceneLoraResolver = null)
+        ISceneLoraResolver? sceneLoraResolver = null,
+        MediaEditReferenceResolver? assetReferenceResolver = null,
+        IImageGateEvaluator gateEvaluator = null!)
     {
         _repository = repository;
         _storage = storage;
@@ -108,6 +129,8 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         _poseLibrary = poseLibrary;
         _characterLoraResolver = characterLoraResolver;
         _sceneLoraResolver = sceneLoraResolver;
+        _assetReferenceResolver = assetReferenceResolver;
+        _gateEvaluator = gateEvaluator;
         _logger = logger;
     }
 
@@ -294,25 +317,79 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
             // described an older dispatch that resolved the pose as a stance, and it made a proven combination
             // unreachable from the app.
 
-            var bytes = !string.IsNullOrWhiteSpace(payload.BodyAngleView)
-                ? await RenderBodyAngleAsync(image, model, payload, compiledPrompt, negativePrompt, seed, cancellationToken)
-                // A pack reference decides this route: EITHER a face or a body reference is enough, because a view
-                // from directly behind carries no face in frame and still conditions on the character's build.
-                // Treating the face as the only trigger is what would leave those cells unconditioned.
-                : string.IsNullOrWhiteSpace(payload.IdentityFaceAssetId)
-                    && string.IsNullOrWhiteSpace(payload.BodyReferenceAssetId)
-                    ? string.IsNullOrWhiteSpace(payload.PoseStance) && string.IsNullOrWhiteSpace(payload.PosePresetId)
-                        ? await _imageClient.GenerateAsync(model, compiledPrompt, payload.ImageSize, negativePrompt, seed, cancellationToken)
-                            ?? throw new InvalidOperationException("The image model returned no image bytes.")
-                        : poseIsNative
-                            ? await RenderNativePoseAsync(image, model, payload, compiledPrompt, negativePrompt, seed, cancellationToken)
-                            : await RenderPoseConditionedAsync(image, payload, compiledPrompt, negativePrompt, seed, cancellationToken)
-                    : await RenderIdentityConditionedAsync(
-                        model, image, payload, compiledPrompt, negativePrompt,
-                        asset.Type ?? throw new InvalidOperationException("Scene asset generation requires an explicit asset type."),
-                        seed,
-                        cancellationToken,
-                        poseIsNative);
+            // The approved SCENE-ASSET references the operator bound (a location's view, a wardrobe item, a prop) are
+            // read back and re-validated BEFORE the route is chosen, because whether any were bound decides which
+            // routes are even expressible. They used to be written into the image's metadata and then dropped on the
+            // floor by this dispatch, so a render that bound a shed's approved front view reached the model as
+            // prompt-only and invented a DIFFERENT shed (reported live 2026-10-03: "did not work totally different
+            // shed").
+            var (assetReferences, assetRoles) = await ReadAssetReferencesAsync(model, payload, cancellationToken);
+
+            var hasPoseReference = !string.IsNullOrWhiteSpace(payload.PoseStance)
+                || !string.IsNullOrWhiteSpace(payload.PosePresetId);
+            var hasIdentityPackReference = !string.IsNullOrWhiteSpace(payload.IdentityFaceAssetId)
+                || !string.IsNullOrWhiteSpace(payload.BodyReferenceAssetId);
+
+            if (assetReferences.Count > 0)
+            {
+                // Two routes carry something that a native reference cannot ride beside. Refusing names the reason;
+                // rendering anyway would silently produce an image with none of the bound references in it, which is
+                // the failure this route exists to end.
+                if (!string.IsNullOrWhiteSpace(payload.BodyAngleView))
+                {
+                    throw new InvalidOperationException(
+                        "This render bound an approved scene-asset reference AND a canonical angle view. The angle "
+                        + "route carries the accepted body and the angle skeleton only, so the bound reference would be "
+                        + "dropped. Render the angle and the reference in two steps.");
+                }
+
+                if (hasPoseReference && !poseIsNative)
+                {
+                    throw new InvalidOperationException(
+                        $"This render bound an approved scene-asset reference, but '{payload.ModelId}' carries its pose "
+                        + "through a ControlNet stance graph, which cannot also take a reference image. Select a "
+                        + "native-reference model (Qwen-Image-2.1), or drop one of the two.");
+                }
+            }
+
+            byte[] bytes;
+            if (!string.IsNullOrWhiteSpace(payload.BodyAngleView))
+            {
+                bytes = await RenderBodyAngleAsync(image, model, payload, compiledPrompt, negativePrompt, seed, cancellationToken);
+            }
+            // A pack reference decides this route: EITHER a face or a body reference is enough, because a view from
+            // directly behind carries no face in frame and still conditions on the character's build. Treating the
+            // face as the only trigger is what would leave those cells unconditioned.
+            else if (hasIdentityPackReference)
+            {
+                bytes = await RenderIdentityConditionedAsync(
+                    model, image, payload, compiledPrompt, negativePrompt,
+                    asset.Type ?? throw new InvalidOperationException("Scene asset generation requires an explicit asset type."),
+                    seed,
+                    cancellationToken,
+                    poseIsNative,
+                    assetReferences,
+                    assetRoles);
+            }
+            else if (assetReferences.Count > 0)
+            {
+                // An approved scene-asset reference IS a native reference, so it rides the same call - and a native
+                // pose skeleton composes with it, which is why that combination is expressed here rather than refused.
+                bytes = hasPoseReference
+                    ? await RenderNativePoseAsync(image, model, payload, compiledPrompt, negativePrompt, seed, cancellationToken, assetReferences, assetRoles)
+                    : await RenderAssetReferencesAsync(image, model, payload, compiledPrompt, negativePrompt, seed, assetReferences, assetRoles, cancellationToken);
+            }
+            else if (hasPoseReference)
+            {
+                bytes = poseIsNative
+                    ? await RenderNativePoseAsync(image, model, payload, compiledPrompt, negativePrompt, seed, cancellationToken, [], [])
+                    : await RenderPoseConditionedAsync(image, payload, compiledPrompt, negativePrompt, seed, cancellationToken);
+            }
+            else
+            {
+                bytes = await _imageClient.GenerateAsync(model, compiledPrompt, payload.ImageSize, negativePrompt, seed, cancellationToken)
+                    ?? throw new InvalidOperationException("The image model returned no image bytes.");
+            }
             image.ModelSnapshotJson = JsonSerializer.Serialize(new
             {
                 requestedModelId = payload.ModelId,
@@ -334,6 +411,16 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 await BuildTagsAsync(payload, asset, sceneLoras, cancellationToken),
                 cancellationToken);
 
+            // The native gates run ONLY on Playground renders (the evidence layer they exist for), in the same
+            // background completion the render already runs in. They record verdicts and never block: a gate that
+            // cannot run records its own failure on the image, and a gate error here cannot fail the render that
+            // already completed. Sanitisation always runs; pose agreement runs only when the render carried a
+            // pose-library preset, whose own keypoints are the candidate the readback is measured against.
+            if (asset.Type == SceneAssetType.Playground)
+            {
+                await ApplyGateResultsAsync(image, payload, model, bytes, cancellationToken);
+            }
+
             _logger.LogInformation("Scene asset image generated: AssetId={AssetId}, ImageId={ImageId}, Model={Model}", asset.Id, image.Id, model.ModelIdentifier);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -349,6 +436,45 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
             _logger.LogWarning("Scene asset image generation failed: AssetId={AssetId}, ImageId={ImageId}, Error={Error}", asset.Id, image.Id, ex.Message);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Computes and stores the native gate verdicts on a completed Playground render (B-135 P3). Sanitisation always
+    /// runs; pose agreement runs only when the render carried a pose-library preset, whose own keypoints are the
+    /// candidate body the DWPose readback is measured against. The evaluator never throws, so this cannot fail a render
+    /// that already completed — and a gate failure is recorded on the image, never silently dropped.
+    /// </summary>
+    private async Task ApplyGateResultsAsync(
+        SceneAssetImage image,
+        SceneAssetGenerationJobPayload payload,
+        ResolvedImageModel model,
+        byte[] renderedImage,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<PoseKeypoint>? candidateBody = null;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(payload.PosePresetId) && _poseLibrary is not null)
+            {
+                var preset = await _poseLibrary.GetPresetAsync(payload.PosePresetId.Trim(), cancellationToken);
+                if (preset is not null && !string.IsNullOrWhiteSpace(preset.KeypointsJson))
+                {
+                    candidateBody = OpenPosePoseJson.Parse(preset.KeypointsJson, preset.Name).Body;
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            // A missing or unreadable candidate pose skips the pose gate rather than failing the completed render.
+            _logger.LogWarning(
+                "Playground render {ImageId} carried pose preset '{PresetId}' whose keypoints could not be read for the pose gate: {Message}",
+                image.Id, payload.PosePresetId, exception.Message);
+        }
+
+        image.GateResultsJson = ImageGateResults.Serialize(
+            await _gateEvaluator.EvaluateAsync(renderedImage, candidateBody, model, cancellationToken));
+        image.UpdatedUtc = DateTime.UtcNow;
+        await _repository.UpsertImageAsync(image, cancellationToken);
     }
 
     /// <summary>
@@ -463,23 +589,162 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         string compiledPrompt,
         string? negativePrompt,
         long seed,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<ReferenceConditionedImageInput> assetReferences,
+        IReadOnlyList<ReferenceRoleClauses.ReferenceRole> assetRoles)
     {
         var skeleton = await ReadPoseSkeletonAsync(payload, cancellationToken);
+
+        // Order is the scene path's measured one: the approved scene assets first, the pose skeleton LAST. The prompt's
+        // <imageN> tags are numbered in the SAME order, so the tag the model reads names the image it receives.
+        List<ReferenceConditionedImageInput> references = [.. assetReferences, skeleton];
+        List<ReferenceRoleClauses.ReferenceRole> roles =
+            [.. assetRoles, new ReferenceRoleClauses.ReferenceRole(ImageStepSlotKind.Pose, null)];
+        var prompt = ReferenceRoleClauses.AppendToImagePrompt(compiledPrompt, roles);
+
         _logger.LogInformation(
             "Scene asset pose render via NATIVE reference: ImageId={ImageId}, Model={Model}, Stance={Stance}, "
-            + "Skeleton={Skeleton}, ControlNetStrength=not-applicable",
-            image.Id, model.ModelIdentifier, payload.PoseStance, skeleton.FileName);
+            + "Skeleton={Skeleton}, References={References}, TaggedReferences={Tagged}, ControlNetStrength=not-applicable",
+            image.Id, model.ModelIdentifier, payload.PoseStance, skeleton.FileName, references.Count,
+            roles.Count > 1 ? roles.Count : 0);
 
         return await _referenceClient.GenerateWithReferencesAsync(
             model,
             new ReferenceConditionedImageRequest
             {
-                PositivePrompt = compiledPrompt,
+                PositivePrompt = prompt,
                 NegativePrompt = negativePrompt ?? string.Empty,
                 Size = payload.ImageSize,
                 Seed = seed,
-                References = [skeleton],
+                References = references,
+                CorrelationId = image.Id
+            },
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The approved SCENE-ASSET references this render was asked to carry — a location's views, a wardrobe item, a
+    /// prop — read back from the queue and RE-VALIDATED against the approved, immutable selection that was bound.
+    ///
+    /// <para>
+    /// Returns an empty list when nothing was bound, which is what keeps every existing render on exactly the route it
+    /// took before. When something WAS bound, the reference is either applied or the render fails: it is never
+    /// quietly dropped, because a render that ignored a bound reference looks identical to one that used it.
+    /// </para>
+    /// </summary>
+    private async Task<(IReadOnlyList<ReferenceConditionedImageInput> Inputs, IReadOnlyList<ReferenceRoleClauses.ReferenceRole> Roles)> ReadAssetReferencesAsync(
+        ResolvedImageModel model,
+        SceneAssetGenerationJobPayload payload,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(payload.ReferenceApplicationsJson))
+        {
+            return ([], []);
+        }
+
+        var applications = JsonSerializer.Deserialize<IReadOnlyList<ReferenceApplicationSelection>>(
+                payload.ReferenceApplicationsJson, JsonOptions)
+            ?? throw new InvalidOperationException("Scene asset reference applications are invalid.");
+
+        var bound = applications
+            .Where(ReferenceBindingShape.IsAssetBacked)
+            .ToList();
+        if (bound.Count == 0)
+        {
+            return ([], []);
+        }
+
+        var resolver = _assetReferenceResolver
+            ?? throw new InvalidOperationException(
+                "This render bound an approved scene-asset reference, but the reference resolver is unavailable, so "
+                + "the reference cannot be applied. The render was NOT submitted rather than rendering without it.");
+
+        var modelId = string.IsNullOrWhiteSpace(model.RegisteredModelId) ? payload.ModelId : model.RegisteredModelId;
+        if (string.IsNullOrWhiteSpace(modelId))
+        {
+            throw new InvalidOperationException(
+                "A reference-conditioned scene asset render requires the exact registered model id.");
+        }
+
+        // NativeMultiReference is the ONE graph this path implements. The shared resolver refuses anything else by
+        // name - an unqualified model, or a mechanism with no graph here - rather than returning fewer references
+        // than were bound.
+        var references = await resolver.ResolveAsync(
+            modelId, bound, ReferenceStrategyCatalogue.ReferenceImageSurface.Generate, cancellationToken);
+
+        // Paired BY POSITION with the bindings, so the prompt's <imageN> numbering names the images the model
+        // actually receives. A resolver that returned a different count would number against images that are not
+        // there; fail instead.
+        if (references.Count != bound.Count)
+        {
+            throw new InvalidOperationException(
+                $"The reference resolver returned {references.Count} images for {bound.Count} approved bindings, so "
+                + "the prompt's <imageN> tags cannot be paired with them.");
+        }
+
+        var inputs = new List<ReferenceConditionedImageInput>(references.Count);
+        var roles = new List<ReferenceRoleClauses.ReferenceRole>(references.Count);
+        for (var index = 0; index < references.Count; index++)
+        {
+            var reference = references[index];
+            await using var stream = await reference.OpenAsync(cancellationToken);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, cancellationToken);
+            inputs.Add(new ReferenceConditionedImageInput
+            {
+                SemanticRole = reference.Description,
+                FileName = reference.FileName,
+                Content = buffer.ToArray()
+            });
+            roles.Add(new ReferenceRoleClauses.ReferenceRole(
+                ReferenceBindingShape.SlotKindOf(bound[index]),
+                ReferenceRoleClauses.LabelFor(bound[index], reference.Description)));
+        }
+
+        _logger.LogInformation(
+            "Scene asset render carrying {Count} approved reference(s): AssetId={AssetId}, ImageId={ImageId}, Roles={Roles}",
+            inputs.Count, payload.AssetId, payload.ImageId,
+            string.Join(", ", inputs.Select(input => input.SemanticRole)));
+
+        return (inputs, roles);
+    }
+
+    /// <summary>
+    /// A render whose references ARE the approved scene assets the operator bound. This route exists so that "the
+    /// operator bound a reference" is a route of its own, rather than a field that gets recorded in the image's
+    /// metadata and then ignored by the dispatch.
+    /// </summary>
+    private async Task<byte[]> RenderAssetReferencesAsync(
+        SceneAssetImage image,
+        ResolvedImageModel model,
+        SceneAssetGenerationJobPayload payload,
+        string compiledPrompt,
+        string? negativePrompt,
+        long seed,
+        IReadOnlyList<ReferenceConditionedImageInput> assetReferences,
+        IReadOnlyList<ReferenceRoleClauses.ReferenceRole> assetRoles,
+        CancellationToken cancellationToken)
+    {
+        // A render whose references ARE the bound assets still has to say WHICH image is which: 2.1 reads N
+        // references by <imageN> tag, and an untagged pair made the model average them (measured 2026-10-04 —
+        // L1 1.574 untagged vs 0.887 tagged against the location reference).
+        var prompt = ReferenceRoleClauses.AppendToImagePrompt(compiledPrompt, assetRoles);
+
+        _logger.LogInformation(
+            "Scene asset reference-conditioned render via NATIVE reference: ImageId={ImageId}, Model={Model}, "
+            + "References={References}, TaggedReferences={Tagged}",
+            image.Id, model.ModelIdentifier, assetReferences.Count,
+            assetRoles.Count > 1 ? assetRoles.Count : 0);
+
+        return await _referenceClient.GenerateWithReferencesAsync(
+            model,
+            new ReferenceConditionedImageRequest
+            {
+                PositivePrompt = prompt,
+                NegativePrompt = negativePrompt ?? string.Empty,
+                Size = payload.ImageSize,
+                Seed = seed,
+                References = [.. assetReferences],
                 CorrelationId = image.Id
             },
             cancellationToken);
@@ -706,7 +971,9 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         SceneAssetType assetType,
         long seed,
         CancellationToken cancellationToken,
-        bool poseIsNative = false)
+        bool poseIsNative = false,
+        IReadOnlyList<ReferenceConditionedImageInput>? assetReferences = null,
+        IReadOnlyList<ReferenceRoleClauses.ReferenceRole>? assetRoles = null)
     {
         var hasFaceReference = !string.IsNullOrWhiteSpace(payload.IdentityFaceAssetId);
         var hasBodyReference = !string.IsNullOrWhiteSpace(payload.BodyReferenceAssetId);
@@ -725,6 +992,17 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
 
         var carriesReferencesNatively = string.Equals(
             strategy.Strategy, ReferenceStrategyResolver.IdentityNativeMultiReference, StringComparison.OrdinalIgnoreCase);
+
+        // An approved scene-asset reference is another image on the SAME request, so a one-slot graph cannot carry it
+        // any more than it could carry a body. Refusing names the reason; dropping it would render an image with none
+        // of the bound references in it, which is indistinguishable from a render that used it.
+        if (assetReferences is { Count: > 0 } && !carriesReferencesNatively)
+        {
+            throw new InvalidOperationException(
+                $"A reference image was bound, but model '{payload.ModelId}' carries references through "
+                + $"'{strategy.Strategy}', which has a single reference slot, so the bound reference would be dropped. "
+                + "This render was NOT submitted: select a model that carries references natively, or drop the reference.");
+        }
 
         // Shared with the scene render path: one implementation of "which approved face does this pack contribute".
         ResolvedIdentityFaceReference? face = null;
@@ -810,22 +1088,61 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 });
             }
 
+            // ORDER: identity first (the face anchors the person), then the approved scene-asset references, then the
+            // pose skeleton LAST. That is the scene path's measured convention, stated in one place so the two paths
+            // cannot disagree about which reference the model sees first.
+            if (assetReferences is { Count: > 0 })
+            {
+                references.AddRange(assetReferences);
+            }
+
             if (poseIsNative)
                 references.Add(await ReadPoseSkeletonAsync(payload, cancellationToken));
 
+            // The <imageN> tags are numbered in the SAME order the images are sent, so a face AND a bound location
+            // reference no longer reach the model as an unlabelled pair it merely averages (the live complaint of
+            // 2026-10-03: the location was not honoured once character references were added).
+            List<ReferenceRoleClauses.ReferenceRole> roles = [];
+            if (face is not null)
+            {
+                roles.Add(new ReferenceRoleClauses.ReferenceRole(
+                    ImageStepSlotKind.Face,
+                    $"approved identity face for the body reference ({face.FaceView?.ToString() ?? "unspecified view"})"));
+            }
+
+            if (bodyReference is not null)
+            {
+                roles.Add(new ReferenceRoleClauses.ReferenceRole(
+                    ImageStepSlotKind.Body,
+                    $"approved body build reference ({bodyReference.BodyView}/{bodyReference.BodyState})"));
+            }
+
+            if (assetRoles is { Count: > 0 })
+            {
+                roles.AddRange(assetRoles);
+            }
+
+            if (poseIsNative)
+            {
+                roles.Add(new ReferenceRoleClauses.ReferenceRole(ImageStepSlotKind.Pose, null));
+            }
+
+            var promptWithRoles = ReferenceRoleClauses.AppendToImagePrompt(compiledPrompt, roles);
+
             _logger.LogInformation(
                 "Scene asset reference-conditioned render via NATIVE reference: ImageId={ImageId}, Model={Model}, "
-                + "Pack={PackId} v{Version}, Face={FaceId}, Body={BodyId}, References={References}",
+                + "Pack={PackId} v{Version}, Face={FaceId}, Body={BodyId}, References={References}, TaggedReferences={Tagged}",
                 image.Id, model.ModelIdentifier,
                 face?.PackId ?? bodyReference!.PackId,
                 face?.PackVersion ?? bodyReference!.PackVersion,
-                face?.FaceAssetId, bodyReference?.BodyAssetId, references.Count);
+                face?.FaceAssetId, bodyReference?.BodyAssetId, references.Count,
+                roles.Count > 1 ? roles.Count : 0);
 
             return await _referenceClient.GenerateWithReferencesAsync(
                 model,
                 new ReferenceConditionedImageRequest
                 {
-                    PositivePrompt = compiledPrompt,
+                    PositivePrompt = promptWithRoles,
                     NegativePrompt = negativePrompt ?? string.Empty,
                     Size = payload.ImageSize,
                     Seed = seed,

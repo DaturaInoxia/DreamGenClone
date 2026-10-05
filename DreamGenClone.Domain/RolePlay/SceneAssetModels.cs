@@ -416,6 +416,14 @@ public sealed class SceneAssetImage
     /// </summary>
     public long? Seed { get; set; }
 
+    /// <summary>
+    /// The native gates' measurements and verdicts for this image (B-135 P3), as a JSON array of
+    /// <c>ImageGateResult</c> — sanitisation always, pose agreement when the render carried a pose. Each result
+    /// records a pass/fail and the measured number; none of them ever blocks or changes the image. Null on rows
+    /// rendered before the gates were wired, and empty when no gate ran for a render the gates do not apply to.
+    /// </summary>
+    public string? GateResultsJson { get; set; }
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? StartedUtc { get; set; }
     public DateTime? CompletedUtc { get; set; }

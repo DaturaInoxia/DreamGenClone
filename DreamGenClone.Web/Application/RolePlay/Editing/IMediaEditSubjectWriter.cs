@@ -7,12 +7,18 @@ namespace DreamGenClone.Web.Application.RolePlay.Editing;
 /// A reference image handed to the editor model alongside the source. The opener keeps the storage
 /// service private to the subject writer, so shared execution never learns which store it came from.
 /// </summary>
+/// <param name="SlotKind">
+/// Which slot the binding filled, or null for a legacy binding whose element key is not recognised. The render's own
+/// role clause needs it so each reference image can be NAMED in the prompt — an edit's references are numbered from
+/// the SECOND image, because the source occupies the first.
+/// </param>
 public sealed record MediaEditReference(
     int Ordinal,
     string Description,
     string FileName,
     string Sha256,
-    Func<CancellationToken, Task<Stream>> OpenAsync);
+    Func<CancellationToken, Task<Stream>> OpenAsync,
+    ImageStepSlotKind? SlotKind = null);
 
 /// <summary>What the enqueue-time payload carried that preparation still needs.</summary>
 public sealed record MediaEditRunContext(

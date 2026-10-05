@@ -45,6 +45,18 @@
 .PARAMETER Resolution
   TextEncodeQwenImage21 `resolution` (total pixel budget, not width/height). Default 1024.
 
+.PARAMETER Cfg
+  KSampler cfg. Default 1.0 (the shipped template envelope). The app's re-qualified envelope is 3.0
+  (see the model's NativeMultiReference `EnvelopeNote`); pass -Cfg 3 to reproduce it.
+
+.PARAMETER Sampler
+  KSampler sampler_name. Default euler (the shipped template). The app's re-qualified envelope is
+  er_sde; pass -Sampler er_sde to reproduce it.
+
+.PARAMETER Scheduler
+  KSampler scheduler. Default simple (the shipped template). The app's re-qualified envelope is
+  beta; pass -Scheduler beta to reproduce it.
+
 .EXAMPLE
   powershell -ExecutionPolicy RemoteSigned -File helpers/local-comfyui-host/run-qwen-2-1-proof.ps1 -Cells t2i,rgba
 #>
@@ -56,6 +68,9 @@ param(
     [int]$Seed = 20260922,
     [int]$Steps = 25,
     [int]$Resolution = 1024,
+    [double]$Cfg = 1.0,
+    [string]$Sampler = 'euler',
+    [string]$Scheduler = 'simple',
     [int]$TimeoutSec = 2400,
     [string]$UnetName = 'qwen_image_2.1_int8_convrot.safetensors',
     [string]$ClipName = 'qwen3vl_8b_int8_convrot.safetensors',
@@ -144,6 +159,25 @@ $references = @{
         Root          = 'artifacts/tmp/qwen-2-1'
         Sha256        = '7847CD8C5B6245FFB5CDCCF220C417D6F8FE6F7FD69D7457284CDFAFDA4091AB'
         View          = 'n/a (location)'
+    }
+    # The APP's own approved location reference for the Maintenance Shed (container
+    # 6dd275caf4fc47bb9532c66ab2243727), image "Workbench Back" - the exact file
+    # SceneAssetImages 4371dc7f serves. Pinned so the app-shape A/B renders the frame the app
+    # actually bound, not a stand-in shed. Lives under the asset root ($IdentityRoot), not the
+    # proof root, so it needs no Root override.
+    shedWorkbenchBack = @{
+        CharacterName = 'Maintenance Shed "Workbench Back" (approved scene asset image 4371dc7f)'
+        RelativePath  = 'assets/4371dc7fd21d4344994ea533eca6a33a.png'
+        Sha256        = '87B4001C66EEF105CEE7A4D260219A4942814A98D7186F846DE167B5D1E56B6C'
+        View          = 'n/a (location)'
+    }
+    # Becky's approved BUILD reference (pack v9 2d13c667 canonical "Front - Unclothed") - the second
+    # reference the app bound on the failing render.
+    beckyBuildFront = @{
+        CharacterName = 'Becky frontal build (pack v9 2d13c667 canonical Front, unclothed)'
+        RelativePath  = 'identity/de351eb3-69d3-421a-a762-79ae8ee183ed/37f0fa3f2dc3478eb47fb253beb1a104.png'
+        Sha256        = '9869FCC0B121D88FE640333216DB9E389B536B3EDCB19D159669D56316FC8032'
+        View          = 'Front'
     }
     # The photoreal plate poseRef consumes, produced by the posePlate cell (verified 2026-09-23:
     # a clean upright frontal figure, arms at sides, feet apart - the stance the skeleton encodes).
@@ -599,6 +633,119 @@ $cellDefs = @{
         Size        = @(1216, 832)
         Prompt      = 'Photorealistic 35mm wide photograph of the empty interior of a dim tin-walled shed at the last light of day. A heavy wooden workbench with rough worn boards runs along the wall, dusty grit scattered across the plank floor, corrugated tin walls, a few hand tools hanging, thin blue dusk light filtering through gaps in the boards, deep shadow in the corners. No people. Natural textures, dim ambient light, shot on 35mm.'
     }
+    # ---- APP-SHAPE A/B (2026-10-03): the app's OWN three references, in the app's OWN order -------
+    # Reproduces scene-image render 038dc86f: the approved identity FACE, the approved identity BUILD,
+    # then the approved Maintenance Shed location image ("Workbench Back"), at the app's live prompt.
+    # The location-ONLY render 0c2e8a4e that DID honour the shed used the same location image, the
+    # same prompt and the same model, so the reference set is the only variable between the two.
+    #
+    # Run the pair with ONE pinned seed and only -Resolution differing:
+    #   -Cells appThreeRefs -Seed 20261003 -Steps 30 -Cfg 3 -Sampler er_sde -Scheduler beta `
+    #       -Resolution 1024 -OutRoot artifacts/tmp/qwen-2-1-app-ab-budget1024
+    #   -Cells appThreeRefs -Seed 20261003 -Steps 30 -Cfg 3 -Sampler er_sde -Scheduler beta `
+    #       -Resolution 0    -OutRoot artifacts/tmp/qwen-2-1-app-ab-budget0
+    #
+    # The claim under test: TextEncodeQwenImage21.resolution is a TOTAL pixel budget for the reference
+    # set (specs/image-generator-tests/qwen-21-native-reference/manifest.json), not a per-reference
+    # size, so at 1024 three references divide it and the shed - the highest-frequency of the three -
+    # loses the detail it needs; at 0 each reference keeps its own size.
+    #
+    # RESULT (2026-10-03): the claim is REFUTED. Seed 20261003, same three files, same envelope, only
+    # -Resolution differing. Outer-ring histogram L1 vs the shed reference: 1.521 at 1024, 1.530 at 0
+    # - the budget moves the pixels (mean|diff| 16.0 at 512px) but not the room. The knob demonstrably
+    # IS a budget: with a SINGLE reference the two arms are pixel-identical (mean|diff| 0.0), because
+    # a 1024x1024 reference already fills a 1024 budget. appThreeRefsLocFirst refutes SLOT ORDER the
+    # same way (L1 1.500 with the shed in slot 1). What actually separates the arms is photometry:
+    # the 3-reference render is 82.8 mean vs the shed's 68.5, std 76.9 vs 46.7 and edge 3.1 vs 9.1 -
+    # the two bright studio identity plates set the render, and the location alone at 1024 matches the
+    # shed (L1 0.936). Read the four numbers together, not the picture alone: the room is not dropped,
+    # it is out-metered. Sheet: artifacts/tmp/qwen-2-1-app-ab/sheets/app-ref-budget-ab.png.
+    appThreeRefs = @{
+        Kind        = 'text2image'
+        Description = 'APP SHAPE: identity face + identity build + approved shed location, app prompt and app envelope (1024x1024)'
+        Refs        = @('beckyFront', 'beckyBuildFront', 'shedWorkbenchBack')
+        Size        = @(1024, 1024)
+        Prompt      = 'A nude woman lying on her back, legs spread, genitals clearly shown, on a wooden workbench in a dim shed, her full body is clearly in frame, looking toward the camera, medium shot, photorealistic, natural skin texture, soft directional daylight'
+    }
+    # The SAME location, alone, at the app's own envelope: the control arm for the pair above. This is
+    # the shape render 0c2e8a4e had, and it is what the shed-fidelity metric must be read against.
+    appLocationOnly = @{
+        Kind        = 'text2image'
+        Description = 'APP SHAPE CONTROL: the approved shed location ALONE, app prompt and app envelope (1024x1024)'
+        Refs        = @('shedWorkbenchBack')
+        Size        = @(1024, 1024)
+        Prompt      = 'A nude woman lying on her back, legs spread, genitals clearly shown, on a wooden workbench in a dim shed, her full body is clearly in frame, looking toward the camera, medium shot, photorealistic, natural skin texture, soft directional daylight'
+    }
+    # ---- ORDER PROBE (2026-10-03), same rig as appThreeRefs --------------------------------------
+    # The app's reference order is a fixed convention - identity faces first ("they anchor the
+    # composition", measured 2026-09-23), then approved scene assets - so a location can never lead.
+    # This cell moves the shed to slot 1 and keeps face/build at 2-3. Same three files, same seed,
+    # same envelope: SLOT ORDER is the only variable against appThreeRefs.
+    #
+    # Run (same seed and envelope as the appThreeRefs arms):
+    #   -Cells appThreeRefsLocFirst -Seed 20261003 -Steps 30 -Cfg 3 -Sampler er_sde -Scheduler beta `
+    #       -Resolution 1024 -OutRoot artifacts/tmp/qwen-2-1-app-ab-locfirst
+    #
+    # RESULT (2026-10-03): REFUTED - see the RESULT note on appThreeRefs. Shed in slot 1 gives room
+    # L1 1.500 against the shed reference, versus 1.521 with the app's identity-first order: a
+    # 1.4% shift, i.e. position is not what decides this, exactly as CASE-22 found for the pose
+    # signal ("position is not the variable; count is").
+    appThreeRefsLocFirst = @{
+        Kind        = 'text2image'
+        Description = 'ORDER PROBE: approved shed location in SLOT 1, identity face + build in slots 2-3 (1024x1024)'
+        Refs        = @('shedWorkbenchBack', 'beckyFront', 'beckyBuildFront')
+        Size        = @(1024, 1024)
+        Prompt      = 'A nude woman lying on her back, legs spread, genitals clearly shown, on a wooden workbench in a dim shed, her full body is clearly in frame, looking toward the camera, medium shot, photorealistic, natural skin texture, soft directional daylight'
+    }
+    # ---- ROLE LABELS + SLIMMER REFERENCE SET (2026-10-03, requested) ------------------------------
+    # The app's scene prompt carries NO <imageN> role text at all - it is pure scene description. Every
+    # proof cell in this programme that reproduced a room said which image WAS the room. These cells
+    # test that directly, and the slimmer set the operator asked for (body only, no face).
+    #
+    # Run all three with the same seed/envelope as the appThreeRefs arms:
+    #   -Cells appTwoRefsBodyLoc,appTwoRefsBodyLocLabelled,appThreeRefsLabelled -Seed 20261003 `
+    #       -Steps 30 -Cfg 3 -Sampler er_sde -Scheduler beta -Resolution 1024 `
+    #       -OutRoot artifacts/tmp/qwen-2-1-app-ab-labels
+    #
+    # appTwoRefsBodyLoc is the CONTROL for the label variable: same two files, same order, app prompt
+    # verbatim, no role text. Difference from appTwoRefsBodyLocLabelled is the prompt and nothing else.
+    #
+    # RESULT (2026-10-03) - THIS IS THE LEVER. Seed 20261003, only the prompt differs per pair:
+    #   outer-ring histogram L1 vs the shed reference
+    #   shed alone (control)                     0.936   mean 59.3  std 50.4  edge 4.2
+    #   2 refs body+shed, app prompt, NO labels  1.574   mean 79.9  std 73.7  edge 3.2
+    #   2 refs body+shed, LABELLED               0.887   mean 61.8  std 54.3  edge 4.4
+    #   3 refs face+body+shed, LABELLED          1.183   mean 65.9  std 62.8  edge 3.5
+    #   3 refs face+body+shed, app prompt        1.521   mean 82.8  std 76.9  edge 3.1
+    # Two findings. (1) ROLE TEXT, not reference count: dropping the face reference changed nothing
+    # while the prompt stayed unlabelled (1.574, i.e. no better than the 3-ref 1.521) - but naming
+    # what each image IS moved the same two files from 1.574 to 0.887, better than the shed-alone
+    # control, with the photometry landing on the shed (mean 61.8 vs 68.5, edge 4.4 vs 4.2). So the
+    # app's scene prompt has been asking the model to guess which unlabelled reference is the room.
+    # (2) Labels help but do not fully pay for a third reference: 1.183 at three refs against 0.887
+    # at two. Fewer identity references is still better once they are labelled.
+    # Sheet: artifacts/tmp/qwen-2-1-app-ab/sheets/app-ref-budget-ab.png
+    appTwoRefsBodyLoc = @{
+        Kind        = 'text2image'
+        Description = 'CONTROL: 2 refs (body + shed), APP PROMPT VERBATIM, no role text (1024x1024)'
+        Refs        = @('beckyBuildFront', 'shedWorkbenchBack')
+        Size        = @(1024, 1024)
+        Prompt      = 'A nude woman lying on her back, legs spread, genitals clearly shown, on a wooden workbench in a dim shed, her full body is clearly in frame, looking toward the camera, medium shot, photorealistic, natural skin texture, soft directional daylight'
+    }
+    appTwoRefsBodyLocLabelled = @{
+        Kind        = 'text2image'
+        Description = 'TEST: 2 refs (body + shed), SAME files, prompt states what each reference IS (1024x1024)'
+        Refs        = @('beckyBuildFront', 'shedWorkbenchBack')
+        Size        = @(1024, 1024)
+        Prompt      = '<image1> is the body reference for the woman: keep her build, body shape, skin tone and proportions exactly as they appear there. <image2> is the interior of the shed: reproduce that room faithfully - the wooden workbench, the corrugated tin walls, the dusty plank floor, the hand tools and the dim daylight - and do not invent a different room. A nude woman lying on her back, legs spread, genitals clearly shown, on a wooden workbench in a dim shed, her full body is clearly in frame, looking toward the camera, medium shot, photorealistic, natural skin texture, soft directional daylight'
+    }
+    appThreeRefsLabelled = @{
+        Kind        = 'text2image'
+        Description = 'TEST: the ORIGINAL 3 refs (face + body + shed), prompt states what each reference IS (1024x1024)'
+        Refs        = @('beckyFront', 'beckyBuildFront', 'shedWorkbenchBack')
+        Size        = @(1024, 1024)
+        Prompt      = '<image1> is the face reference for the woman and <image2> is her body reference: keep her face, hair, build and proportions exactly as they appear in those images. <image3> is the interior of the shed: reproduce that room faithfully - the wooden workbench, the corrugated tin walls, the dusty plank floor, the hand tools and the dim daylight - and do not invent a different room. A nude woman lying on her back, legs spread, genitals clearly shown, on a wooden workbench in a dim shed, her full body is clearly in frame, looking toward the camera, medium shot, photorealistic, natural skin texture, soft directional daylight'
+    }
     # genShedClothed (2026-09-25): the MECHANISM proof for the production moment. Location ref in
     # slot 1 (anchors the frame, per the loc3/loc3r finding), both canonical CLOTHED face refs in
     # slots 2/3, both figures in the supine/kneeling workbench geometry with every limb anchored
@@ -974,7 +1121,7 @@ function New-QwenGraph {
 
     $g['6'] = @{ class_type = 'KSampler'; inputs = @{
             model = $modelSource; positive = @('4', 0); negative = @('4', 1); latent_image = $latent
-            seed = $Seed; steps = $Steps; cfg = 1.0; sampler_name = 'euler'; scheduler = 'simple'; denoise = 1.0
+            seed = $Seed; steps = $Steps; cfg = $Cfg; sampler_name = $Sampler; scheduler = $Scheduler; denoise = 1.0
         } }
     $g['7'] = @{ class_type = 'VAEDecode'; inputs = @{ samples = @('6', 0); vae = @('3', 0) } }
     $g['8'] = @{ class_type = 'SaveImage'; inputs = @{ images = @('7', 0); filename_prefix = 'qwen21' } }
@@ -1083,9 +1230,9 @@ function Invoke-Cell {
         negative      = ''
         seed          = $Cells_Seed
         steps         = $Cells_Steps
-        cfg           = 1.0
-        sampler       = 'euler'
-        scheduler     = 'simple'
+        cfg           = $Cfg
+        sampler       = $Sampler
+        scheduler     = $Scheduler
         resolution    = $Resolution
         width         = $outWidth
         height        = $outHeight

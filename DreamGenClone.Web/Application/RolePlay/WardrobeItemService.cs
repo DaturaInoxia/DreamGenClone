@@ -174,7 +174,7 @@ public sealed class WardrobeItemService : IWardrobeItemService
 
     public async Task DeleteImageAsync(string imageId, CancellationToken cancellationToken = default)
     {
-        // The shared service refuses an image that is in use as a reference, so the rule has one home and this call
+        // The shared service refuses an image that is approved for production, so the rule has one home and this call
         // cannot drift from the asset pages' behaviour.
         await _assetService.DeleteImageAsync(imageId, cancellationToken);
     }

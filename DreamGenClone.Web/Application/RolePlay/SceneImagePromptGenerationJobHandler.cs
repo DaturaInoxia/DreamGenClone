@@ -319,7 +319,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             // receive the texts as data.
             var canonicalAppearance = await ResolveCanonicalAppearanceAsync(characters, cancellationToken);
             var (systemPrompt, userPrompt) = compiler.PromptBuilder.BuildMessages(
-                promptPayload.Brief, group.Pov, settings, resolvedImageModel.ContentPolicy, record.RefineInstruction, characters, promptPayload.AppearanceOverrides, canonicalAppearance);
+                promptPayload.Brief, group.Pov, settings, resolvedImageModel.ContentPolicy, record.RefineInstruction, characters, promptPayload.AppearanceOverrides, canonicalAppearance, effectiveOverrides, referenceApplications);
 
             await WriteDebugEventAsync("SceneImagePromptProjected", record.SessionId, record.InteractionId, new
             {
@@ -337,7 +337,12 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             var (rawResponse, reasoning) = await _completionClient.GenerateWithReasoningAsync(
                 systemPrompt, userPrompt, resolvedTextModel, cancellationToken);
             var parsed = compiler.PromptBuilder.ParseOutput(rawResponse);
-            record.OutputPrompt = parsed.Prompt;
+            // The role block is APPENDED rather than left to the pre-processor: the <imageN> tags are Qwen's mandatory
+            // syntax for a request with more than one reference image, and a language model that paraphrases or drops
+            // them leaves the image model to guess which reference is the room. Generated from the bindings the render
+            // will actually send, in send order, so no rewrite can renumber them.
+            record.OutputPrompt = ReferenceRoleClauses.AppendToImagePrompt(
+                parsed.Prompt, ReferenceRoleClauses.RolesFor(referenceApplications));
             record.ModelIdentifier = resolvedTextModel.ModelIdentifier;
             record.Status = SceneImagePromptStatus.Complete;
             record.ErrorMessage = null;

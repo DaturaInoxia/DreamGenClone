@@ -805,7 +805,15 @@
                 CompiledMediaBriefId = _compiledMediaBrief!.Id,
                 Pov = _productionGroup.Pov,
                 PromptStyle = style,
-                RequestedImageModelId = _selectedModelId
+                RequestedImageModelId = _selectedModelId,
+                // The bindings this render will carry, so the prompt is drafted KNOWING what the images supply and
+                // does not describe it in prose. Without them the pre-processor writes a complete description of the
+                // room (and its lighting) that the bound location image then has to argue with — and loses, because
+                // the body is longer, earlier and more specific than the role clause appended under it. Measured
+                // 2026-10-03: a prompt drafted with no bindings produced a render at mean brightness 43.5 against its
+                // reference's 72.0, and as far from its own bound room (outer-ring L1 2.094) as two different views
+                // of that shed are from each other (2.141).
+                ReferenceApplications = _referenceBindings
             });
             _pendingPrompt = record;
             SetPromptText(style, string.Empty);

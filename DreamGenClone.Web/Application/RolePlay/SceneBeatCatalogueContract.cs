@@ -14,10 +14,16 @@ public sealed record SceneBeatCatalogueContractMessages(
 
 public sealed class SceneBeatCatalogueContract
 {
-    public const string ContractVersion = "scene-beat-catalogue-v3";
+    public const string ContractVersion = "scene-beat-catalogue-v4";
     public const string ResponseSchemaName = "scene_beat_catalogue";
     public const int LabelMaxLength = 80;
-    public const int BeatSynopsisMaxLength = 400;
+    // The instructed target and the enforced ceiling are deliberately different values. The analyzer model clusters
+    // its output on whatever number the prompt states, so a stated budget equal to the hard maximum overshoots that
+    // maximum: 5 of the 10 recorded catalogue failures up to 2026-10-03 were synopsis overflows of 288-520 characters
+    // against a stated and enforced 400. State the target below the ceiling; enforce only the ceiling.
+    public const int BeatSynopsisMaxLength = 600;
+    public const int BeatSynopsisTargetMinLength = 300;
+    public const int BeatSynopsisTargetMaxLength = 450;
     public const int PrimaryLocationMaxLength = 120;
     public const int ParticipantNameMaxLength = 100;
 
@@ -217,9 +223,14 @@ public sealed class SceneBeatCatalogueContract
             {
                 ["beatId"] = new JsonObject { ["type"] = "string", ["pattern"] = "^b[1-9][0-9]*$", ["maxLength"] = 40 },
                 ["order"] = new JsonObject { ["type"] = "integer", ["minimum"] = 1 },
-                ["label"] = StringSchema(LabelMaxLength),
-                ["beatSynopsis"] = StringSchema(BeatSynopsisMaxLength),
-                ["primaryLocation"] = StringSchemaAllowEmpty(PrimaryLocationMaxLength),
+                ["label"] = StringSchema(LabelMaxLength, "Short scene title for this Beat, not a sentence."),
+                ["beatSynopsis"] = StringSchema(
+                    BeatSynopsisMaxLength,
+                    $"One or two sentences, {BeatSynopsisTargetMinLength} to {BeatSynopsisTargetMaxLength} characters,"
+                    + $" hard maximum {BeatSynopsisMaxLength}. Cover only what changes in this Beat."),
+                ["primaryLocation"] = StringSchemaAllowEmpty(
+                    PrimaryLocationMaxLength,
+                    "Known parent location, optionally followed by ' - ' and the specific spot within it; empty when no location applies."),
                 ["participants"] = new JsonObject
                 {
                     ["type"] = "array",
@@ -246,11 +257,21 @@ public sealed class SceneBeatCatalogueContract
             }
         };
 
-    private static JsonObject StringSchema(int maxLength)
-        => new() { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = maxLength };
+    private static JsonObject StringSchema(int maxLength, string? description = null)
+    {
+        var schema = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = maxLength };
+        if (description is not null)
+            schema["description"] = description;
+        return schema;
+    }
 
-    private static JsonObject StringSchemaAllowEmpty(int maxLength)
-        => new() { ["type"] = "string", ["minLength"] = 0, ["maxLength"] = maxLength };
+    private static JsonObject StringSchemaAllowEmpty(int maxLength, string? description = null)
+    {
+        var schema = new JsonObject { ["type"] = "string", ["minLength"] = 0, ["maxLength"] = maxLength };
+        if (description is not null)
+            schema["description"] = description;
+        return schema;
+    }
 
     private static string BuildSystemPrompt(int maximumEntries)
         => $$"""
@@ -262,7 +283,12 @@ public sealed class SceneBeatCatalogueContract
 
             Cite only the supplied character evidence keys that specifically support each Beat; the application attaches the authoritative Narrative evidence automatically. Use only supplied evidence keys and known participant names. Classify involvement by meaningful participation in this Beat: use active when a participant speaks, responds, moves, touches, gestures, performs an action, is directly interacted with, or deliberately observes/reacts in a way that contributes to the Beat's dramatic development. A participant may be active even when their behavior is restrained, indirect, emotional, or observational. Use observer only for someone who is present in the cited evidence but has no meaningful physical, conversational, reactive, or consequential role in the Beat. Every Beat requires at least one active participant; never mark all participants observer when the evidence describes any meaningful action, dialogue, response, contact, or deliberate reaction. primaryLocation names the known location where the beat happens, followed by ' - ' and the specific spot within it whenever you can determine one (for example 'Husband and Wife Trailer — Shared Private Space - the trailer deck'). Choose the parent from KNOWN LOCATIONS when one matches; otherwise describe the location briefly. Return the bare location name without a spot only when no specific spot can be determined. If no location applies, return an empty string.
 
-            Keep labels under {{LabelMaxLength}} characters, synopses under {{BeatSynopsisMaxLength}} characters, and locations under {{PrimaryLocationMaxLength}} characters. Return only JSON matching the supplied schema. Do not use markdown fences or explanatory text.
+            FIELD BUDGETS — count characters before emitting; a field over its hard maximum is rejected and the whole response is discarded:
+            - label: a short scene title, {{LabelMaxLength}} characters maximum.
+            - beatSynopsis: {{BeatSynopsisTargetMinLength}} to {{BeatSynopsisTargetMaxLength}} characters, {{BeatSynopsisMaxLength}} characters maximum. Write one or two sentences covering only what changes in this Beat: the action, who does what, and the material change in action, arrangement, location, clothing state, time, or scene purpose. Do not quote dialogue, do not inventory clothing, appearance, or props, do not describe lighting, weather, or scenery beyond the location change, and do not write interior reflection; name a clothing change only as the state change that starts or ends the Beat. Those details belong to later Beat enrichment, not the catalogue.
+            - primaryLocation: {{PrimaryLocationMaxLength}} characters maximum.
+
+            Return only JSON matching the supplied schema. Do not use markdown fences or explanatory text.
             """;
 
     private static void ValidateInputs(SceneBeatCatalogueInputSnapshot snapshot, int maximumEntries)

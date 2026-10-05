@@ -7,6 +7,7 @@ using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.BackgroundJobs;
 using DreamGenClone.Web.Application.ModelManager;
 using DreamGenClone.Web.Application.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Editing;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -92,6 +93,33 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
         Assert.Contains("Front", request.References[1].SemanticRole, StringComparison.Ordinal);
         Assert.Contains("Clothed", request.References[1].SemanticRole, StringComparison.Ordinal);
         Assert.Equal(0, world.PromptOnlyClient.Calls);
+    }
+
+    /// <summary>
+    /// Two references have to be NAMED. Qwen-Image-2.1's own prompt rule requires <c>&lt;image1&gt;</c>,
+    /// <c>&lt;image2&gt;</c> … for N &gt;= 2 ("mandatory and non-negotiable"), ComfyUI's encoder passes the prompt
+    /// through unchanged, and the live report of 2026-10-03 was exactly this pair reaching the model unlabelled and
+    /// being averaged. The tags are numbered in SEND order, so the face the model receives first is
+    /// <c>&lt;image1&gt;</c>.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_TwoReferences_NamesEachImageByItsSendSlot()
+    {
+        var world = new World();
+        var referenceClient = new RecordingReferenceClient();
+        var handler = world.CreateHandler(referenceClient: referenceClient, identityClient: new NeverCalledIdentityClient());
+
+        await handler.HandleAsync(
+            world.JobForBodyReference(packId: "pack-1", faceAssetId: "face-1", bodyAssetId: "body-1"),
+            CancellationToken.None);
+
+        var request = Assert.Single(referenceClient.Requests);
+        var faceTag = request.PositivePrompt.IndexOf("<image1>", StringComparison.Ordinal);
+        var bodyTag = request.PositivePrompt.IndexOf("<image2>", StringComparison.Ordinal);
+        Assert.True(faceTag >= 0, "the face the model receives first must be tagged <image1>");
+        Assert.True(bodyTag > faceTag, "the body the model receives second must be tagged <image2>");
+        Assert.Contains("FACE reference", request.PositivePrompt[faceTag..bodyTag], StringComparison.Ordinal);
+        Assert.Contains("BODY reference", request.PositivePrompt[bodyTag..], StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -288,6 +316,146 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
 
     /// <summary>
     /// One asset, one prompt-generated image, an approved pack, an approved face, and a strategy resolver keyed by
+    /// <summary>
+    /// A bound approved reference must REACH the model. It used to be written into the image's metadata and then
+    /// dropped by the render dispatch, so binding the shed's approved front view and asking for another angle
+    /// produced a completely different shed (reported live 2026-10-03: "did not work totally different shed").
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_WithABoundApprovedLocationReference_SendsItInsteadOfRenderingPromptOnly()
+    {
+        var world = new World();
+        var referenceClient = new RecordingReferenceClient();
+        var handler = world.CreateHandler(referenceClient: referenceClient, identityClient: new NeverCalledIdentityClient());
+
+        await handler.HandleAsync(world.JobForLocationReference(), CancellationToken.None);
+
+        var request = Assert.Single(referenceClient.Requests);
+        var reference = Assert.Single(request.References);
+        // The role names the location AND the view the operator picked, because a location holds several accepted
+        // images and "location continuity" alone would not say which one conditioned the render.
+        Assert.Contains("location continuity", reference.SemanticRole, StringComparison.Ordinal);
+        Assert.Contains("Outdoor Front", reference.SemanticRole, StringComparison.Ordinal);
+        Assert.Equal($"{world.LocationImageId}.png", reference.FileName);
+
+        // ONE reference gets no <imageN> tags — Qwen's own rule for N = 1 ("do NOT use tags"), and the behaviour
+        // every single-reference render already had.
+        Assert.DoesNotContain("<image1>", request.PositivePrompt, StringComparison.Ordinal);
+
+        // The whole point of the route: a bound reference is never traded for an unconditioned render.
+        Assert.Equal(0, world.PromptOnlyClient.Calls);
+    }
+
+    /// <summary>
+    /// Two bound views of the SAME location — the shed's front and a second accepted view — reach the model as two
+    /// NAMED references, in the order they are sent. This is the operator's own workflow ("I will use the first
+    /// approved image as reference to create the other sides"), and it is the case Qwen's multi-image rule makes
+    /// mandatory: untagged, the two views were averaged and the model changed the windows and the surroundings.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_TwoBoundLocationViews_NamesEachImageByItsSendSlot()
+    {
+        var world = new World();
+        var referenceClient = new RecordingReferenceClient();
+        var handler = world.CreateHandler(referenceClient: referenceClient, identityClient: new NeverCalledIdentityClient());
+
+        await handler.HandleAsync(world.JobForTwoLocationReferences(), CancellationToken.None);
+
+        var request = Assert.Single(referenceClient.Requests);
+        Assert.Equal(2, request.References.Count);
+        Assert.Equal($"{world.LocationImageId}.png", request.References[0].FileName);
+        Assert.Equal($"{world.LocationBackImageId}.png", request.References[1].FileName);
+
+        // The operator's names for the two images are what the clause says, so the model is told which is which.
+        var frontTag = request.PositivePrompt.IndexOf("<image1>", StringComparison.Ordinal);
+        var backTag = request.PositivePrompt.IndexOf("<image2>", StringComparison.Ordinal);
+        Assert.True(frontTag >= 0, "the first sent image must be tagged <image1>");
+        Assert.True(backTag > frontTag, "the second sent image must be tagged <image2>");
+        Assert.Contains("(Outdoor Front)", request.PositivePrompt[frontTag..backTag], StringComparison.Ordinal);
+        Assert.Contains("(Workbench Back)", request.PositivePrompt[backTag..], StringComparison.Ordinal);
+        Assert.Contains("Frame the shot inside that room", request.PositivePrompt, StringComparison.Ordinal);
+        Assert.Equal(0, world.PromptOnlyClient.Calls);
+    }
+
+    /// <summary>
+    /// Nothing bound means nothing changes. The plain text-to-image route is still the one a reference-less render
+    /// takes, so this fix cannot have moved the renders that were already correct.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_WithNoBoundReference_StillRendersPromptOnly()
+    {
+        var world = new World();
+        var referenceClient = new RecordingReferenceClient();
+        var handler = world.CreateHandler(referenceClient: referenceClient, identityClient: new NeverCalledIdentityClient());
+
+        await handler.HandleAsync(world.JobFor(packId: "none", faceAssetId: null), CancellationToken.None);
+
+        Assert.Equal(1, world.PromptOnlyClient.Calls);
+        Assert.Empty(referenceClient.Requests);
+    }
+
+    /// <summary>
+    /// A model that does not qualify the native multi-reference graph cannot carry the bound image, and SAYING SO is
+    /// the only honest answer: rendering anyway would produce an unconditioned image that looks exactly like a
+    /// conditioned one — which is precisely how a different shed got rendered in the first place.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_WhenTheModelCannotCarryTheBoundReference_RefusesInsteadOfDroppingIt()
+    {
+        var world = new World(modelId: "juggernaut-ipadapter");
+        var referenceClient = new RecordingReferenceClient();
+        var handler = world.CreateHandler(referenceClient: referenceClient, identityClient: new NeverCalledIdentityClient());
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => handler.HandleAsync(world.JobForLocationReference(), CancellationToken.None));
+
+        Assert.Contains("NativeMultiReference", error.Message, StringComparison.Ordinal);
+        Assert.Equal(0, world.PromptOnlyClient.Calls);
+        Assert.Empty(referenceClient.Requests);
+    }
+
+    /// <summary>
+    /// The body-angle route carries the accepted body and the angle skeleton only, so a bound reference cannot ride
+    /// it. Refusing names the conflict rather than silently dropping whichever the dispatch happened to skip.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_BoundReferenceOnAnAngleRender_RefusesNamingTheConflict()
+    {
+        var world = new World();
+        var handler = world.CreateHandler(referenceClient: new RecordingReferenceClient(), identityClient: new NeverCalledIdentityClient());
+
+        var job = world.JobForBodyAngle(SceneImageReferenceBodyView.ThreeQuarterLeft);
+        var payload = JsonSerializer.Deserialize<SceneAssetGenerationJobPayload>(job.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        payload.ReferenceApplicationsJson = JsonSerializer.Serialize(new[]
+        {
+            new ReferenceApplicationSelection
+            {
+                ElementKey = "Location",
+                Kind = nameof(ImageStepSlotKind.Location),
+                SemanticRole = "location continuity",
+                Source = nameof(ImageStepReferenceSourceKind.ApprovedSceneAsset),
+                Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+                SceneAssetId = world.LocationAssetId,
+                SceneAssetImageId = world.LocationImageId,
+                SceneAssetVersion = 1,
+                SceneAssetSha256 = world.LocationImageSha,
+                Ordinal = 1
+            }
+        });
+        var conflicted = new BackgroundJobEnvelope
+        {
+            JobType = BackgroundJobTypes.SceneAssetGeneration,
+            PayloadJson = JsonSerializer.Serialize(payload)
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => handler.HandleAsync(conflicted, CancellationToken.None));
+
+        Assert.Contains("bound reference would be dropped", error.Message, StringComparison.Ordinal);
+        Assert.Equal(0, world.PromptOnlyClient.Calls);
+    }
+
+    /// <summary>
     /// model id — the smallest world in which the render path's own decisions are visible.
     /// </summary>
     private sealed class World
@@ -298,6 +466,11 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
             AssetId = $"asset-{Guid.NewGuid():N}";
             ImageId = $"image-{Guid.NewGuid():N}";
             SourceImageId = $"source-{Guid.NewGuid():N}";
+            LocationAssetId = $"location-{Guid.NewGuid():N}";
+            LocationImageId = $"location-image-{Guid.NewGuid():N}";
+            LocationImageSha = new string('a', 64);
+            LocationBackImageId = $"location-back-{Guid.NewGuid():N}";
+            LocationBackImageSha = new string('b', 64);
             Repository = new StubSceneAssetRepository(
                 new SceneAsset { Id = AssetId, Type = SceneAssetType.CharacterBody },
                 new SceneAssetImage
@@ -322,6 +495,39 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
                     Prompt = "Full-body photograph of a middle-aged woman.",
                     PromptCompilerId = "body-reference-v1",
                     FileRelativePath = $"assets/{SourceImageId}.png"
+                },
+                // The APPROVED location view a bound reference points at. Seeded unconditionally: a job with no
+                // ReferenceApplicationsJson never reaches the resolver, so every other test in this file is untouched
+                // by its presence.
+                new SceneAssetImage
+                {
+                    Id = LocationImageId,
+                    AssetId = LocationAssetId,
+                    Kind = SceneAssetKind.PromptGenerated,
+                    Status = SceneAssetStatus.Complete,
+                    DisplayName = "Outdoor Front",
+                    Prompt = "A weathered maintenance shed.",
+                    FileRelativePath = $"assets/{LocationImageId}.png",
+                    ProductionApprovalStatus = SceneAssetProductionApprovalStatus.Approved,
+                    ProductionVersion = 1,
+                    Sha256 = LocationImageSha,
+                    ByteLength = 4
+                },
+                // A SECOND approved view of the same location. Locations hold many accepted images, so this is the
+                // two-reference case the operator actually works in.
+                new SceneAssetImage
+                {
+                    Id = LocationBackImageId,
+                    AssetId = LocationAssetId,
+                    Kind = SceneAssetKind.PromptGenerated,
+                    Status = SceneAssetStatus.Complete,
+                    DisplayName = "Workbench Back",
+                    Prompt = "A weathered maintenance shed, seen from behind.",
+                    FileRelativePath = $"assets/{LocationBackImageId}.png",
+                    ProductionApprovalStatus = SceneAssetProductionApprovalStatus.Approved,
+                    ProductionVersion = 1,
+                    Sha256 = LocationBackImageSha,
+                    ByteLength = 4
                 });
             IdentityRepository = new StubIdentityRepository(
                 new CharacterImageIdentityPack
@@ -365,6 +571,17 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
         public string ImageId { get; }
 
         public string SourceImageId { get; }
+
+        public string LocationAssetId { get; }
+
+        public string LocationImageId { get; }
+
+        public string LocationImageSha { get; }
+
+        /// <summary>A second approved view of the same location, for the two-reference cases.</summary>
+        public string LocationBackImageId { get; }
+
+        public string LocationBackImageSha { get; }
 
         public byte[] FaceBytes { get; } = [9, 9, 9, 9];
 
@@ -445,6 +662,48 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
                 })
             };
 
+        /// <summary>
+        /// A generate that bound an APPROVED location view as its reference — the shape the Asset Studio composer
+        /// sends when an operator binds "Maintenance Shed — Outdoor Front" and asks for another angle.
+        /// </summary>
+        public BackgroundJobEnvelope JobForLocationReference()
+            => LocationReferenceJob([(LocationImageId, LocationImageSha, 1)]);
+
+        /// <summary>
+        /// Two approved views of the SAME location, both bound: the operator's own "front, then the other sides"
+        /// workflow, and the N = 2 case where the role tags are mandatory.
+        /// </summary>
+        public BackgroundJobEnvelope JobForTwoLocationReferences()
+            => LocationReferenceJob([(LocationImageId, LocationImageSha, 1), (LocationBackImageId, LocationBackImageSha, 2)]);
+
+        private BackgroundJobEnvelope LocationReferenceJob(
+            IReadOnlyList<(string ImageId, string Sha, int Ordinal)> images)
+            => new()
+            {
+                JobType = BackgroundJobTypes.SceneAssetGeneration,
+                PayloadJson = JsonSerializer.Serialize(new SceneAssetGenerationJobPayload
+                {
+                    AssetId = AssetId,
+                    ImageId = ImageId,
+                    ModelId = RequestedModelId,
+                    ImageSize = "1024x1536",
+                    ReferenceApplicationsJson = JsonSerializer.Serialize(images.Select(image =>
+                        new ReferenceApplicationSelection
+                        {
+                            ElementKey = "Location",
+                            Kind = nameof(ImageStepSlotKind.Location),
+                            SemanticRole = "location continuity",
+                            Source = nameof(ImageStepReferenceSourceKind.ApprovedSceneAsset),
+                            Strategy = ReferenceStrategyResolver.IdentityNativeMultiReference,
+                            SceneAssetId = LocationAssetId,
+                            SceneAssetImageId = image.ImageId,
+                            SceneAssetVersion = 1,
+                            SceneAssetSha256 = image.Sha,
+                            Ordinal = image.Ordinal
+                        }).ToArray())
+                })
+            };
+
         public SceneAssetGenerationJobHandler CreateHandler(
             IReferenceConditionedImageClient referenceClient,
             IIdentityConditionedImageClient identityClient)
@@ -474,7 +733,11 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
                 new IdentityFaceReferenceResolver(IdentityRepository),
                 // The body twin, over the same repository, so which body reference a pack contributes is validated by
                 // the production rules rather than by the test's own copy of them.
-                new IdentityBodyReferenceResolver(IdentityRepository));
+                new IdentityBodyReferenceResolver(IdentityRepository),
+                // The ONE approved-reference resolver, over the same doubles, so the validation that a bound
+                // reference is still the approved immutable selection is the production code under test.
+                assetReferenceResolver: new MediaEditReferenceResolver(
+                    Repository, new StubSceneAssetStorage(), new StubReferenceStrategies()));
     }
 
     private sealed class StubSceneAssetRepository(SceneAsset asset, params SceneAssetImage[] images) : ISceneAssetRepository
