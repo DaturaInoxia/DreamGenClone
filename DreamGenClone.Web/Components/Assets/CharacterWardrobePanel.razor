@@ -61,8 +61,9 @@
                 </div>
                 <div class="col-md-8">
                     <label class="form-label small mb-1" for="wardrobe-description">Garment, in a few words</label>
-                    <input id="wardrobe-description" class="form-control form-control-sm" value="@_description"
-                           @oninput="e => _description = e.Value?.ToString() ?? string.Empty"
+                    <CommittedTextInput id="wardrobe-description" class="form-control form-control-sm"
+                           Live="@_description"
+                           LiveChanged="e => _description = e ?? string.Empty"
                            placeholder="a blue one piece swimsuit" />
                     <div class="form-text">
                         The prompt is compiled from this text for the chosen model — a full garment description with its
@@ -85,11 +86,11 @@
             </div>
             <div class="mt-2">
                 <label class="form-label small mb-1" for="wardrobe-prompt">Prompt</label>
-                <textarea id="wardrobe-prompt" class="form-control form-control-sm font-monospace" rows="6"
+                <CommittedTextInput Multiline="true" id="wardrobe-prompt" class="form-control form-control-sm font-monospace" rows="6"
                           aria-label="Prompt used for the render"
                           placeholder="Press Generate prompt to draft this from the description above, or type one yourself."
-                          value="@_prompt"
-                          @oninput="e => OnPromptChanged(e.Value?.ToString())"></textarea>
+                          Live="@_prompt"
+                          LiveChanged="OnPromptChanged" />
                 <div class="form-text">
                     The prompt is what the model is actually sent. "Generate prompt" drafts it and stops; edit it here and
                     press "Render image" when it reads right. "Compile prompt and generate" does both in one go.
@@ -213,10 +214,10 @@
                                                read-only copy beside it showed the same words twice. *@
                                             <details class="mt-2">
                                                 <summary class="small">Prompt — edit and re-render</summary>
-                                                <textarea class="form-control form-control-sm font-monospace mt-1" rows="6"
+                                                <CommittedTextInput Multiline="true" class="form-control form-control-sm font-monospace mt-1" rows="6"
                                                           aria-label="Prompt to render again"
-                                                          value="@PromptDraft(entry)"
-                                                          @oninput="e => SetPromptDraft(entry, e.Value?.ToString())"></textarea>
+                                                          Live="@PromptDraft(entry)"
+                                                          LiveChanged="e => SetPromptDraft(entry, e)" />
                                                 <button type="button" class="btn btn-sm btn-outline-primary mt-1 w-100"
                                                         disabled="@(_busy || string.IsNullOrWhiteSpace(_modelId))"
                                                         title="Render the prompt above as a new image, with the selected model and size"

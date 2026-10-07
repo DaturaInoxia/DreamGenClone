@@ -72,13 +72,13 @@
             <div class="row g-2 align-items-end">
                 <div class="col-md-6">
                     <label class="form-label small fw-semibold mb-1">Name</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="Standing, handshake"
-                           value="@_name" @oninput="e => _name = e.Value?.ToString()" />
+                    <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="Standing, handshake"
+                                        Live="@_name" LiveChanged="args => _name = args" />
                 </div>
                 <div class="col-md-6">
                     <label class="form-label small fw-semibold mb-1">Category</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="standing"
-                           value="@_category" @oninput="e => _category = e.Value?.ToString()" />
+                    <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="standing"
+                                        Live="@_category" LiveChanged="args => _category = args" />
                 </div>
                 <div class="col-md-6">
                     <label class="form-label small fw-semibold mb-1">Library</label>
@@ -91,8 +91,8 @@
                 </div>
                 <div class="col-md-6">
                     <label class="form-label small fw-semibold mb-1">Keywords (optional)</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="handshake, reach"
-                           value="@_keywords" @oninput="e => _keywords = e.Value?.ToString()" />
+                    <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="handshake, reach"
+                                        Live="@_keywords" LiveChanged="args => _keywords = args" />
                 </div>
                 <div class="col-12 d-grid">
                     <button type="button" class="btn btn-sm btn-success"

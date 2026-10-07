@@ -191,6 +191,10 @@
                                 <div class="mt-2">
                                     <ResolvedRenderBadge ModelLabel="@SelectedModelLabel()" Selections="_referenceBindings" />
                                 </div>
+                                @if (!string.IsNullOrWhiteSpace(_locationSeedNotice))
+                                {
+                                    <div class="alert alert-warning py-2 small mt-2">@_locationSeedNotice</div>
+                                }
                                 @* B-137 §4 item 4c: the composition's SCENE LoRAs (unlock / act / anatomy / style).
                                    Filtered to the selected model's FAMILY - a LoRA binds only to the family it was
                                    trained against - and it renders NOTHING when the catalog carries no rows for that
@@ -259,7 +263,9 @@
                                                         remove
                                                     </label>
                                                 </div>
-                                                <textarea class="form-control form-control-sm font-monospace" rows="2" value="@row.Value" @oninput="args => SetPromptRowValue(row, args.Value?.ToString())" disabled="@row.Removed"></textarea>
+                                                <CommittedTextInput Multiline="true" class="form-control form-control-sm font-monospace" rows="2"
+                                                                    Live="@row.Value" LiveChanged="args => SetPromptRowValue(row, args ?? string.Empty)"
+                                                                    disabled="@row.Removed" />
                                             </div>
                                         }
                                     }
@@ -528,6 +534,7 @@
     /// replaces offered four element rows with no owner on either per-character one).
     /// </summary>
     private IReadOnlyList<ReferenceApplicationSelection> _referenceBindings = [];
+    private string? _locationSeedNotice;
 
     /// <summary>
     /// The characters this Composition addresses, from the identity packs the page already resolves. The actor key is
@@ -591,6 +598,9 @@
         // either refuse the render or apply a LoRA trained against a different family. Cleared here, where the change
         // happens, rather than filtered later.
         _sceneLoras = [];
+        // The location binding re-seeds only after re-validation against the new model's slot plan; a blueprint that
+        // declares no location slot shows a notice instead of a silent drop.
+        SeedLocationBackdropIfBound();
         await OnModelChangedAsync();
     }
     private CancellationTokenSource? _pollingCts;
@@ -773,6 +783,45 @@
             .Where(decision => decision.Decision == ApprovedSceneFrameDecisionState.Approved)
             .Select(decision => decision.SceneImageId)
             .ToHashSet(StringComparer.Ordinal);
+
+        SeedLocationBackdropIfBound();
+    }
+
+    /// <summary>
+    /// The Composition auto-seed: on composer open, a bound per-POV backdrop re-seeds the declared <c>Location</c> slot
+    /// from the group (the durable record). A blueprint that declares no location slot is refused by name — the
+    /// operator sees a notice, never a silently dropped reference.
+    /// </summary>
+    private void SeedLocationBackdropIfBound()
+    {
+        _locationSeedNotice = null;
+        if (_productionGroup is null || string.IsNullOrWhiteSpace(_productionGroup.LocationBackdropJson))
+        {
+            return;
+        }
+
+        SceneImageLocationBackdrop? backdrop;
+        try
+        {
+            backdrop = JsonSerializer.Deserialize<SceneImageLocationBackdrop>(_productionGroup.LocationBackdropJson, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            backdrop = null;
+        }
+
+        if (backdrop is null)
+        {
+            return;
+        }
+
+        if (!LocationBackdropSlotPrefill.HasLocationSlot(CompositionBlueprint))
+        {
+            _locationSeedNotice = "This model cannot carry the location reference; the bound backdrop was not applied.";
+            return;
+        }
+
+        _referenceBindings = [LocationBackdropSlotPrefill.For(CompositionBlueprint, backdrop)];
     }
 
     private async Task RefreshCompletedPromptAsync(SceneImagePromptStyle style)

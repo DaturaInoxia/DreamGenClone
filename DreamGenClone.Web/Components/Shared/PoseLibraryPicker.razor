@@ -22,8 +22,8 @@
                     <div class="row g-2 align-items-end">
                         <div class="col-md-5">
                             <label class="form-label small fw-semibold mb-1">Keyword</label>
-                            <input type="text" class="form-control form-control-sm" placeholder="standing, kneeling, hand, 029..."
-                                   value="@_keyword" @oninput="e => _keyword = e.Value?.ToString()" @onkeydown="OnKeywordKeyDownAsync" />
+                            <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="standing, kneeling, hand, 029..."
+                                                Live="@_keyword" LiveChanged="args => _keyword = args" @onkeydown="OnKeywordKeyDownAsync" />
                         </div>
                         <div class="col-md-3">
                             <label class="form-label small fw-semibold mb-1">Library</label>
@@ -73,13 +73,13 @@
                         <div class="row g-2 align-items-end mt-1">
                             <div class="col-md-4">
                                 <label class="form-label small fw-semibold mb-1">New library name</label>
-                                <input type="text" class="form-control form-control-sm" placeholder="Handshakes"
-                                       value="@_newLibraryName" @oninput="e => _newLibraryName = e.Value?.ToString()" />
+                                <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="Handshakes"
+                                                    Live="@_newLibraryName" LiveChanged="args => _newLibraryName = args" />
                             </div>
                             <div class="col-md-5">
                                 <label class="form-label small fw-semibold mb-1">Description</label>
-                                <input type="text" class="form-control form-control-sm" placeholder="What belongs in this library"
-                                       value="@_newLibraryDescription" @oninput="e => _newLibraryDescription = e.Value?.ToString()" />
+                                <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="What belongs in this library"
+                                                    Live="@_newLibraryDescription" LiveChanged="args => _newLibraryDescription = args" />
                             </div>
                             <div class="col-md-3 d-grid">
                                 <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="CreateLibraryAsync">
@@ -96,18 +96,18 @@
                         <div class="row g-2 align-items-end mt-3 pt-3 border-top">
                             <div class="col-md-4">
                                 <label class="form-label small fw-semibold mb-1">Download a pack (zip URL)</label>
-                                <input type="text" class="form-control form-control-sm" placeholder="https://.../pack.zip"
-                                       value="@_downloadUrl" @oninput="e => _downloadUrl = e.Value?.ToString()" />
+                                <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="https://.../pack.zip"
+                                                    Live="@_downloadUrl" LiveChanged="args => _downloadUrl = args" />
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label small fw-semibold mb-1">Pack name</label>
-                                <input type="text" class="form-control form-control-sm" placeholder="Anime poses"
-                                       value="@_downloadName" @oninput="e => _downloadName = e.Value?.ToString()" />
+                                <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="Anime poses"
+                                                    Live="@_downloadName" LiveChanged="args => _downloadName = args" />
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label small fw-semibold mb-1">Description</label>
-                                <input type="text" class="form-control form-control-sm" placeholder="Optional"
-                                       value="@_downloadDescription" @oninput="e => _downloadDescription = e.Value?.ToString()" />
+                                <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="Optional"
+                                                    Live="@_downloadDescription" LiveChanged="args => _downloadDescription = args" />
                             </div>
                             <div class="col-md-2 d-grid">
                                 <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="DownloadPackAsync">

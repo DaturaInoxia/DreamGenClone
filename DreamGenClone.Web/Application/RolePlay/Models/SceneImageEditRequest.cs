@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Editing;
 
 namespace DreamGenClone.Web.Application.RolePlay.Models;
@@ -68,5 +69,35 @@ public sealed class SceneImagePresetEditRequest
     /// naming a second kind of run. Coordinates are PERCENT of the frame, and a model whose graph cannot confine an
     /// edit is refused at enqueue rather than after a render.
     /// </summary>
+    public MediaEditRegionOperation? Region { get; set; }
+}
+
+/// <summary>
+/// A multi-angle CAMERA edit pass on an existing scene image: orbit the source subject to a picked
+/// azimuth/elevation/distance. Like a preset edit there is no compilation step - the instruction is assembled
+/// deterministically from the editor LoRA's <c>&lt;sks&gt;</c> grammar - and the pose plus its instruction checksum are
+/// recorded on the queued row so the run re-derives and proves the same text.
+/// </summary>
+public sealed class SceneImageMultiAngleEditRequest
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string InteractionId { get; set; } = string.Empty;
+    public string SourceImageId { get; set; } = string.Empty;
+
+    /// <summary>The editor model the editor form selected. It must carry the multi-angle camera LoRA capability.</summary>
+    public string EditorModelId { get; set; } = string.Empty;
+
+    /// <summary>The orbit azimuth the camera moves to.</summary>
+    public MultiAngleAzimuth Azimuth { get; set; }
+
+    /// <summary>The vertical camera angle.</summary>
+    public MultiAngleElevation Elevation { get; set; }
+
+    /// <summary>How far the camera sits from the subject.</summary>
+    public MultiAngleDistance Distance { get; set; }
+
+    /// <summary>The REGION this edit is confined to, or null to edit the whole frame. Multi-angle orbits a single
+    /// subject, so a region is usually null; the field exists so a confined orbit is refused or handled explicitly
+    /// rather than silently dropped.</summary>
     public MediaEditRegionOperation? Region { get; set; }
 }

@@ -1149,6 +1149,104 @@ public sealed class SceneImageService : ISceneImageService
     }
 
     /// <summary>
+    /// Queues a multi-angle CAMERA edit pass on an existing scene image: orbit the source subject to a picked
+    /// azimuth/elevation/distance. The instruction is assembled deterministically from the editor LoRA's
+    /// <c>&lt;sks&gt;</c> grammar and recorded with the pose that produced it, so the stage's writer can re-derive and
+    /// prove it. Nothing is compiled.
+    /// </summary>
+    public async Task<SceneImageRecord> EnqueueMultiAngleEditAsync(
+        SceneImageMultiAngleEditRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (string.IsNullOrWhiteSpace(request.EditorModelId))
+            throw new InvalidOperationException("A multi-angle edit requires the editor model chosen in the editor form.");
+
+        var session = await LoadSessionAsync(request.SessionId, cancellationToken);
+        var interaction = FindInteraction(session, request.InteractionId);
+        var source = await _repository.GetImageAsync(request.SourceImageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene image '{request.SourceImageId}' was not found.");
+        if (source.Status != SceneImageStatus.Complete)
+            throw new InvalidOperationException("Only completed scene images can be edited.");
+        if (source.BytesPurgedUtc is not null)
+            throw new InvalidOperationException("A purged scene image cannot be edited.");
+        if (!string.Equals(source.SessionId, session.Id, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(source.InteractionId, interaction.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The source scene image must belong to the selected session and interaction.");
+        }
+        if (string.IsNullOrWhiteSpace(source.FileRelativePath))
+            throw new InvalidOperationException("The completed source scene image has no stored image path.");
+        if (string.IsNullOrWhiteSpace(source.Sha256))
+            throw new InvalidOperationException("The source scene image has no stored checksum.");
+
+        var resolvedEditorModel = await ResolveEditorModelByIdForDispatchAsync(request.EditorModelId, cancellationToken);
+        if (resolvedEditorModel.LoraCapability != ImageEditorLoraCapability.MultiAngleCamera)
+        {
+            throw new InvalidOperationException(
+                $"Editor model '{resolvedEditorModel.ModelIdentifier}' does not declare the multi-angle camera LoRA capability. "
+                + "Set 'Editor LoRA Capability' to Multi-Angle Camera in Model Manager (/model-manager).");
+        }
+
+        var instruction = MultiAngleCameraInstructionComposer.Compose(request.Azimuth, request.Elevation, request.Distance);
+        var pose = new MediaEditMultiAngleInstruction(
+            request.Azimuth, request.Elevation, request.Distance, MediaEditMultiAngleProvenance.InstructionSha256(instruction));
+        MediaEditMultiAngleProvenance.Validate(pose);
+
+        var record = new SceneImageRecord
+        {
+            SessionId = session.Id,
+            InteractionId = interaction.Id,
+            PromptRecordId = source.PromptRecordId,
+            PromptSnapshot = instruction,
+            Status = SceneImageStatus.Pending,
+            Operation = SceneImageOperation.Edit,
+            RequestedModelId = request.EditorModelId.Trim(),
+            SourceImageId = source.Id,
+            EditCompilerProvenanceJson = JsonSerializer.Serialize(new
+            {
+                operation = MediaEditProvenance.EditValue,
+                sourceImageSha256 = source.Sha256,
+                multiAngleInstruction = pose
+            }, JsonOptions),
+            ImageSize = source.ImageSize,
+            Style = source.Style,
+            SettingsJson = source.SettingsJson,
+            BeatId = source.BeatId,
+            Pov = source.Pov,
+            ProductionGroupId = source.ProductionGroupId,
+            CompiledMediaBriefId = source.CompiledMediaBriefId,
+            ProductionStage = SceneImageProductionStage.MultiAngle,
+            Disposition = source.Disposition,
+            CatalogueId = source.CatalogueId,
+            BeatProductionPlanId = source.BeatProductionPlanId,
+            BeatProductionPlanVersion = source.BeatProductionPlanVersion,
+            MomentSetId = source.MomentSetId,
+            MomentSetVersion = source.MomentSetVersion,
+            MomentId = source.MomentId,
+            MomentEnrichmentId = source.MomentEnrichmentId,
+            MomentEnrichmentRevision = source.MomentEnrichmentRevision,
+            TypedReferenceSnapshotJson = source.TypedReferenceSnapshotJson,
+            AppliedReferenceBindingsJson = source.AppliedReferenceBindingsJson
+        };
+        await _repository.InsertImageAsync(record, cancellationToken);
+        return await DispatchEditAsync(
+            record,
+            new SceneImageEditingJobPayload
+            {
+                SessionId = session.Id,
+                InteractionId = interaction.Id,
+                ImageRecordId = record.Id,
+                EditorModelId = request.EditorModelId.Trim()
+            },
+            resolvedEditorModel.ImageProtocol,
+            resolvedEditorModel,
+            region: request.Region,
+            outpaint: null,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// Resolves the completed source image an operation derives from and proves it belongs to the selected
     /// session and interaction. Every scene-image operation must satisfy exactly these conditions, so they
     /// are checked here once and only the operation's own name varies in the diagnostics.

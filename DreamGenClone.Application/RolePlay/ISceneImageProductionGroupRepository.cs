@@ -32,6 +32,16 @@ public interface ISceneImageProductionGroupRepository
         DateTime updatedUtc,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Writes the per-POV location backdrop (as <see cref="SceneImageLocationBackdrop"/> JSON) onto a production
+    /// group, or clears it when <paramref name="locationBackdropJson"/> is null (text-only location).
+    /// </summary>
+    Task<SceneImageProductionGroup> SetLocationBackdropAsync(
+        string groupId,
+        string? locationBackdropJson,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<SceneImageProductionGroup>> ListByInteractionAsync(
         string sessionId,
         string interactionId,

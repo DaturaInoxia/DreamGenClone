@@ -40,6 +40,26 @@
                   SubmitLabel="Generate"
                   SubmitBlockedReason="@SubmitBlockedReason"
                   OnSubmit="GenerateAsync">
+    @* This surface's own compile INPUT, and it sits ABOVE the prompt because the prompt is what it produces: the
+       operator writes what they want, compiles it below, and reads the result there. Nothing else of the prompt lives
+       here - the prompt panel is the composer's own, which already carries the Generate Prompt button, the "supplied
+       by the bound images" list and the "the references changed since this prompt was drafted" notice. Re-implementing
+       any of that here would give this page a second staleness rule, which is exactly what I must not do. *@
+    <BeforePromptContent>
+        @* The box draws the COMMITTED text and the live value follows every keystroke, so a render cannot put an older
+           value back into a box someone is typing in: see CommittedTextInput. *@
+        <div class="mb-2">
+            <label class="form-label" for="asset-user-input">Your input</label>
+            <CommittedTextInput Multiline="true" id="asset-user-input" class="form-control" rows="2"
+                                placeholder="Describe the image in your own words"
+                                Live="@_userInput" LiveChanged="args => _userInput = args ?? string.Empty" />
+            <div class="form-text">
+                What you want, in your words. Not sent to the model - press Generate Prompt to compile it into one
+                prompt for the selected model's own checkpoint.
+            </div>
+        </div>
+    </BeforePromptContent>
+
     <ChildContent>
         @* The character comes FIRST, exactly as it does on the pose library page, because everything below it is
            addressed to somebody: an asset that belongs to no character cannot declare a face, build or wardrobe slot at
@@ -68,21 +88,6 @@
         {
             <div class="alert alert-warning py-2 small">@_characterError</div>
         }
-        @* This surface's own compile INPUT, and nothing else of the prompt: the prompt itself is the composer's own
-           panel, which already carries the Generate Prompt button, the "supplied by the bound images" list and the
-           "the references changed since this prompt was drafted" notice. Re-implementing any of that here would give
-           this page a second staleness rule - which is exactly what I must not do. *@
-        <div class="mb-2">
-            <label class="form-label" for="asset-user-input">Your input</label>
-            <textarea id="asset-user-input" class="form-control" rows="2"
-                      placeholder="Describe the image in your own words"
-                      value="@_userInput"
-                      @oninput="args => _userInput = args.Value?.ToString() ?? string.Empty"></textarea>
-            <div class="form-text">
-                What you want, in your words. Not sent to the model - press Generate Prompt above to compile it into
-                one prompt for the selected model's own checkpoint.
-            </div>
-        </div>
         <div class="row g-2">
             <div class="col-sm-6">
                 <label class="form-label" for="generated-asset-size">Image size</label>
@@ -100,10 +105,10 @@
         <div class="row g-2 mt-2">
             <div class="col-sm-6">
                 <label class="form-label" for="asset-compiler-llm">Compiler LLM</label>
-                <input id="asset-compiler-llm" type="text" class="form-control"
-                       placeholder='{"model":"...","temperature":0}'
-                       value="@_compilerLlmJson"
-                       @oninput="args => _compilerLlmJson = args.Value?.ToString() ?? string.Empty" />
+                <CommittedTextInput id="asset-compiler-llm" type="text" class="form-control"
+                                    placeholder='{"model":"...","temperature":0}'
+                                    Live="@_compilerLlmJson"
+                                    LiveChanged="args => _compilerLlmJson = args ?? string.Empty" />
                 <div class="form-text">
                     From Model Manager's prompt-drafting function, so it is declared without being typed. Editable, and
                     recorded with the image that it drafted the prompt for.
@@ -121,8 +126,8 @@
         <div class="row g-2 mt-2">
             <div class="col-sm-6">
                 <label class="form-label" for="asset-seed">Seed</label>
-                <input id="asset-seed" type="text" class="form-control" placeholder="blank = a new image"
-                       value="@_seedText" @oninput="args => _seedText = args.Value?.ToString() ?? string.Empty" />
+                <CommittedTextInput id="asset-seed" type="text" class="form-control" placeholder="blank = a new image"
+                                    Live="@_seedText" LiveChanged="args => _seedText = args ?? string.Empty" />
                 <div class="form-text">
                     Set a seed to reproduce an image exactly. Blank draws a new one, and the seed actually used is
                     recorded on the image either way.
@@ -200,6 +205,15 @@
     /// </summary>
     [Parameter]
     public ImageGenerationDraft? Draft { get; set; }
+
+    /// <summary>
+    /// Text this container already carries — its description. Seeded into "Your input" once, so a container created
+    /// from a moment opens ready to compile a prompt instead of blank. Never overwrites operator typing.
+    /// </summary>
+    [Parameter]
+    public string? SeedUserInput { get; set; }
+
+    private bool _seedApplied;
 
     private List<SceneImageModelChoice> _models = [];
     private List<SceneAssetImage> _results = [];
@@ -639,12 +653,25 @@
     /// </summary>
     protected override void OnParametersSet()
     {
+        // A container that was created from something (a moment's place, or a location description) carries that text
+        // as its description. Seeding it here is what turns "an empty studio" into "the description is already typed
+        // in, press Generate Prompt" — applied ONCE, and never over operator typing.
+        if (!_seedApplied
+            && !string.IsNullOrWhiteSpace(SeedUserInput)
+            && string.IsNullOrWhiteSpace(_userInput))
+        {
+            _userInput = SeedUserInput.Trim();
+            _prompt = _userInput;
+            _seedApplied = true;
+        }
+
         if (Draft is not { } draft || draft.ImageId == _appliedDraftImageId)
         {
             return;
         }
 
         _appliedDraftImageId = draft.ImageId;
+        _seedApplied = true;
         _userInput = draft.UserInput ?? string.Empty;
 
         // The description, NOT the compiled prompt. A compiled prompt carries the character LoRA trigger tokens at its
@@ -885,6 +912,13 @@
                         // Stated only when the compiler authored the box above, which is what makes the handler send
                         // that text verbatim instead of compiling it a second time.
                         PromptCompilerId = _promptAuthoredByCompiler ? AssetPromptCompilerId : null,
+                        // What the operator typed is recorded only when the compiler authored the prompt: then it is a
+                        // fact of its own, and their words would otherwise exist nowhere once the compiled text replaces
+                        // them on the row. A prompt they wrote by hand IS their description, which the row's own Prompt
+                        // column already holds - recording it twice would make "Your input" come back as a stale copy.
+                        UserInput = _promptAuthoredByCompiler && !string.IsNullOrWhiteSpace(_userInput)
+                            ? _userInput.Trim()
+                            : null,
                         Seed = seed,
                         CharacterLoras = _characterLoras.Count > 0 ? _characterLoras : null,
                         SceneLoras = _sceneLoras.Count > 0 ? _sceneLoras : null,

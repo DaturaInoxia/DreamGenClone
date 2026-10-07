@@ -30,6 +30,15 @@ public interface ISceneAssetImageEditCompilationService
         EnqueueSceneAssetImagePresetEditRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Queues a multi-angle CAMERA edit pass of an existing asset image into a new derived image: orbit the source
+    /// subject to a picked azimuth/elevation/distance. Like a preset edit there is no prompt compilation - the
+    /// instruction is assembled deterministically from the editor LoRA's <c>&lt;sks&gt;</c> grammar - and the pose plus its
+    /// instruction checksum are recorded on the row so the run re-derives and proves the same text.
+    /// </summary>
+    Task<SceneAssetImage> EnqueueMultiAngleEditAsync(
+        EnqueueSceneAssetImageMultiAngleEditRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Queues a deterministic crop of an existing asset image into a new derived image. No editor model,
     /// prompt or compilation revision is involved.
     /// </summary>

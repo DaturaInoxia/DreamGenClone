@@ -4,6 +4,12 @@
 <PageTitle>Location Studio - DreamGenClone</PageTitle>
 
 <div class="container-fluid mt-4">
+    @if (!string.IsNullOrWhiteSpace(ReturnUrl))
+    {
+        <div class="mb-2">
+            <a class="btn btn-sm btn-outline-secondary" href="@ReturnUrl"><i class="bi bi-arrow-left me-1"></i>Back to production</a>
+        </div>
+    }
     <div class="card border-info mb-3">
         <div class="card-body">
             <h5 class="card-title mb-1">Views are just named images</h5>
@@ -22,4 +28,7 @@
 
 @code {
     [Parameter] public string? LocationId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "return")]
+    public string? ReturnUrl { get; set; }
 }

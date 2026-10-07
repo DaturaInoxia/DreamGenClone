@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace DreamGenClone.Domain.RolePlay;
 
@@ -487,6 +488,13 @@ public sealed class CoveragePlan
 /// no code default for any of them, so a policy row that is missing a value fails to deserialize by name
 /// instead of quietly applying a number nobody chose. The seeded global row is migration data, never a
 /// runtime fallback.
+///
+/// <para>
+/// The one exception is a member a PERSISTED policy predates - the FAR rung's aspect was added on 2026-10-04,
+/// after the first policies and dataset snapshots were saved. <see cref="FromStoredJson"/> returns such a policy
+/// with that aspect explicitly ABSENT and marked stale, never substituted, and generation refuses to size a far
+/// cell without it. <see cref="FromJson"/> stays the strict reader the write path uses.
+/// </para>
 /// </summary>
 public sealed class CurationPolicy
 {
@@ -551,7 +559,15 @@ public sealed class CurationPolicy
     /// <summary>The pose-adherence error a pose cell may not exceed.</summary>
     public required double PoseAdherenceMaxJointErrorPercent { get; set; }
 
-    public void Validate()
+    public void Validate() => Validate(requireFarAspect: true);
+
+    /// <summary>
+    /// Checks every member. <paramref name="requireFarAspect"/> is false for exactly one caller: reading a policy
+    /// that was PERSISTED before the FAR rung existed (<see cref="FromStoredJson"/>). That read records the
+    /// absence, and generation still refuses to size a far cell without the value - so this is not a default
+    /// standing in for a choice, it is a policy known to be missing the one member the operator has yet to state.
+    /// </summary>
+    private void Validate(bool requireFarAspect)
     {
         Require(ExpectedCoreCellCount > 0, nameof(ExpectedCoreCellCount), "must be positive");
         Require(ExpectedVariationCellCount > 0, nameof(ExpectedVariationCellCount), "must be positive");
@@ -561,7 +577,7 @@ public sealed class CurationPolicy
             "must cover every cell, one seed each");
         Require(!string.IsNullOrWhiteSpace(CloseUpAspect), nameof(CloseUpAspect), "is required");
         Require(!string.IsNullOrWhiteSpace(PortraitAspect), nameof(PortraitAspect), "is required");
-        Require(!string.IsNullOrWhiteSpace(FarAspect), nameof(FarAspect), "is required");
+        Require(!requireFarAspect || !string.IsNullOrWhiteSpace(FarAspect), nameof(FarAspect), "is required");
         Require(MinimumDistinctOutfits > 0, nameof(MinimumDistinctOutfits), "must be positive");
         Require(MinimumDistinctBackgrounds > 0, nameof(MinimumDistinctBackgrounds), "must be positive");
         Require(MinimumDistinctLighting > 0, nameof(MinimumDistinctLighting), "must be positive");
@@ -596,6 +612,46 @@ public sealed class CurationPolicy
         var policy = JsonSerializer.Deserialize<CurationPolicy>(json, JsonOptions)
             ?? throw new InvalidOperationException("The curation policy is invalid.");
         policy.Validate();
+        return policy;
+    }
+
+    /// <summary>
+    /// Reads a policy that was PERSISTED, which is not the same thing as reading one that was just written.
+    ///
+    /// <para>
+    /// A stored policy is data: it was written under the rules in force the day it was saved, and those rules change.
+    /// The FAR rung was added on 2026-10-04, and every policy row and dataset snapshot saved before it carries no
+    /// aspect for that rung. Reading those strictly made every dataset that already existed refuse to open - the
+    /// 2026-09-27 plan failure again, one document over. So the far aspect is the ONE member this reader tolerates
+    /// being absent: it comes back empty, the reason it is stale is handed back with it, and generation refuses to
+    /// size a far cell without a value an operator stated. Every OTHER member is still required by name, because no
+    /// policy that was ever saved could have omitted one.
+    /// </para>
+    /// </summary>
+    public static CurationPolicy FromStoredJson(string json, out string? staleReason)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            throw new InvalidOperationException("The curation policy is empty.");
+        }
+
+        staleReason = null;
+        var document = JsonNode.Parse(json) as JsonObject
+            ?? throw new InvalidOperationException("The curation policy is invalid.");
+
+        var hasFarAspect = document.Any(member =>
+            string.Equals(member.Key, nameof(FarAspect), StringComparison.OrdinalIgnoreCase));
+        if (!hasFarAspect)
+        {
+            staleReason = "it was saved before the FAR rung existed and names no far aspect (farAspect)";
+            // Present on the copy handed to the deserializer, so every OTHER required member keeps its fail-fast.
+            // The value itself stays empty: it is never substituted, which is why generation still refuses.
+            document["farAspect"] = string.Empty;
+        }
+
+        var policy = document.Deserialize<CurationPolicy>(JsonOptions)
+            ?? throw new InvalidOperationException("The curation policy is invalid.");
+        policy.Validate(requireFarAspect: staleReason is null);
         return policy;
     }
 }

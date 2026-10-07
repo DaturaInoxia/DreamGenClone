@@ -22,7 +22,8 @@
             <div class="card">
                 <div class="card-body">
                     <label class="form-label" for="asset-name">Name</label>
-                    <input id="asset-name" class="form-control" @bind="_name" @bind:event="oninput" />
+                    <CommittedTextInput id="asset-name" class="form-control" Live="@_name"
+                                        LiveChanged="args => _name = args ?? string.Empty" />
                     <label class="form-label mt-3" for="asset-type">Type</label>
                     <select id="asset-type" class="form-select" @bind="_type">
                         <option value="">Select a type</option>

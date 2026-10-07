@@ -256,6 +256,22 @@ public sealed class SceneAsset
     /// <summary>Character the generated profile pack belongs to (characterProfileId).</summary>
     public string? CharacterProfileId { get; set; }
 
+    /// <summary>
+    /// Parent asset when this row is a child container in a location hierarchy (world container → scenario-location
+    /// container). Null on a root container. Spots are named images INSIDE a location container, never a third level.
+    /// </summary>
+    public string? ParentAssetId { get; set; }
+
+    /// <summary>
+    /// The scenario location id this container is the CURRENT container for, or null when the location is ad-hoc
+    /// (invented by the RP engine and linked only through the moment→location link). The name is only the lookup key;
+    /// this id is the relation.
+    /// </summary>
+    public string? ScenarioLocationId { get; set; }
+
+    /// <summary>The scenario that owns <see cref="ScenarioLocationId"/>.</summary>
+    public string? ScenarioId { get; set; }
+
     public string? SourceApprovalDecisionId { get; set; }
 
     public string? SourceSceneImageId { get; set; }

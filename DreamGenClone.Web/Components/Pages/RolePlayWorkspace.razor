@@ -8551,9 +8551,9 @@ private void CloseInteractionInfo()
                 {
                     @if (_editingTitle)
                     {
-                        <input class="rw-session-title-input"
-                               value="@_editingTitleText"
-                               @oninput="e => _editingTitleText = e.Value?.ToString() ?? string.Empty"
+                        <CommittedTextInput class="rw-session-title-input"
+                               Live="@_editingTitleText"
+                               LiveChanged="e => _editingTitleText = e ?? string.Empty"
                                @onblur="CommitTitleEditAsync"
                                @onkeydown="OnTitleKeyDownAsync"
                                @onclick:stopPropagation />
@@ -8716,7 +8716,7 @@ private void CloseInteractionInfo()
                                     }
                                     @if (_editContent.ContainsKey(interactionId))
                                     {
-                                        <textarea class="rw-edit-textarea" @bind="_editContent[interactionId]" @bind:event="oninput"></textarea>
+                                        <CommittedTextInput Multiline="true" class="rw-edit-textarea" Live="@_editContent[interactionId]" LiveChanged="args => _editContent[interactionId] = args ?? string.Empty" />
                                     }
                                     else
                                     {
@@ -8815,7 +8815,7 @@ private void CloseInteractionInfo()
                             <div class="rw-modal" @onclick:stopPropagation>
                                 <div class="rw-modal-header">Custom Rewrite Instruction</div>
                                 <div class="rw-modal-body">
-                                    <textarea class="rw-rewrite-textarea" @bind="_rewriteInstruction" @bind:event="oninput" placeholder="Describe how to rewrite this interaction..."></textarea>
+                                    <CommittedTextInput Multiline="true" class="rw-rewrite-textarea" Live="@_rewriteInstruction" LiveChanged="args => _rewriteInstruction = args" placeholder="Describe how to rewrite this interaction..." />
                                 </div>
                                 <div class="rw-modal-actions">
                                     <button class="rw-btn rw-btn-secondary" @onclick="CancelRewriteDialog">Cancel</button>
@@ -8935,10 +8935,10 @@ private void CloseInteractionInfo()
 
                                             @if (option.IsCustomResponseFallback)
                                             {
-                                                <textarea class="rw-rewrite-textarea"
+                                                <CommittedTextInput Multiline="true" class="rw-rewrite-textarea"
                                                           placeholder="Describe your custom choice..."
-                                                          @bind="_decisionCustomResponse"
-                                                          @bind:event="oninput"></textarea>
+                                                          Live="@_decisionCustomResponse"
+                                                          LiveChanged="args => _decisionCustomResponse = args ?? string.Empty" />
                                             }
 
                                             <div class="rw-modal-actions" style="justify-content:flex-end; padding:8px 0 0 0;">
@@ -9565,8 +9565,8 @@ private void CloseInteractionInfo()
                         @if (_showCustomInput)
                         {
                             <div class="rw-custom-name-row">
-                                <input class="rw-custom-name-input" placeholder="Character name..."
-                                       @bind="_customIdentityName" @bind:event="oninput" />
+                                <CommittedTextInput class="rw-custom-name-input" placeholder="Character name..."
+                                       Live="@_customIdentityName" LiveChanged="args => _customIdentityName = args ?? string.Empty" />
                             </div>
                         }
                     </div>
@@ -9664,8 +9664,8 @@ private void CloseInteractionInfo()
                             _identityOptions.FirstOrDefault(o => o.Id == id)?.SourceType == IdentityOptionSource.CustomCharacter))
                         {
                             <div class="rw-custom-name-row">
-                                <input class="rw-custom-name-input" placeholder="Character name..."
-                                       @bind="_customIdentityName" @bind:event="oninput" disabled="@IsSelectionUiLocked" />
+                                <CommittedTextInput class="rw-custom-name-input" placeholder="Character name..."
+                                       Live="@_customIdentityName" LiveChanged="args => _customIdentityName = args ?? string.Empty" disabled="@IsSelectionUiLocked" />
                             </div>
                         }
                         <div class="rw-popup-actions rw-continue-popup-actions">
@@ -9990,12 +9990,12 @@ private void CloseInteractionInfo()
                     }
 
                     <div class="rw-prompt-box">
-                        <textarea class="rw-prompt-textarea"
+                        <CommittedTextInput Multiline="true" class="rw-prompt-textarea"
                                   placeholder="Write something..."
                                   rows="2"
-                                  @bind="_promptText"
-                                  @bind:event="oninput"
-                                  disabled="@IsSelectionUiLocked"></textarea>
+                                  Live="@_promptText"
+                                  LiveChanged="args => _promptText = args ?? string.Empty"
+                                  disabled="@IsSelectionUiLocked" />
                         <div class="rw-prompt-toolbar">
                             <div class="rw-toolbar-left">
                                 <button class="rw-intent-btn" @onclick="ToggleIntentPopup" @onclick:stopPropagation disabled="@IsSelectionUiLocked" title="Change message type">

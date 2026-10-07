@@ -74,6 +74,9 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
             // B-133: a preset pass is the third authored-instruction stage (see PreparePresetAsync), beside Identity and
             // Finish. Every other stage keeps the compiled path's session/attempt/revision validation.
             SceneImageProductionStage.Preset => await PreparePresetAsync(image, context, cancellationToken),
+            // A multi-angle camera pass is the fourth authored-instruction stage (see PrepareMultiAngleAsync): the
+            // instruction is the editor LoRA's <sks> grammar, assembled deterministically from the recorded pose.
+            SceneImageProductionStage.MultiAngle => await PrepareMultiAngleAsync(image, context, cancellationToken),
             _ => await PrepareCompiledEditAsync(image, context, cancellationToken)
         };
     }
@@ -278,6 +281,48 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
             References: references,
             Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),
             LogScope: $"SessionId={image.SessionId}, InteractionId={image.InteractionId}, Stage=Preset, Preset={preset.PresetKey}");
+    }
+
+    /// <summary>
+    /// The multi-angle twin of the preset stage: the row's prompt is the instruction a picked pose assembled from the
+    /// editor LoRA's <c>&lt;sks&gt;</c> grammar, and this re-derives it from the recorded pose to prove it is the same text.
+    /// Without that check a multi-angle run would execute whatever string the row happened to hold.
+    /// </summary>
+    private async Task<MediaEditRunPlan> PrepareMultiAngleAsync(
+        SceneImageRecord image, MediaEditRunContext context, CancellationToken cancellationToken)
+    {
+        var pose = MediaEditMultiAngleProvenance.TryRead(image.EditCompilerProvenanceJson)
+            ?? throw new InvalidOperationException(
+                $"Scene image '{image.Id}' is queued as a multi-angle pass but carries no multi-angle provenance.");
+
+        var instruction = MultiAngleCameraInstructionComposer.Compose(pose.Azimuth, pose.Elevation, pose.Distance);
+        var expected = MediaEditMultiAngleProvenance.InstructionSha256(instruction);
+        if (!string.Equals(expected, pose.InstructionSha256.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "The multi-angle pose assembles a different instruction than the one this edit was queued with, so the "
+                + "pose's wording changed after the edit was queued. Queue the edit again.");
+        }
+
+        if (!string.Equals(instruction, image.PromptSnapshot, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The queued multi-angle edit's prompt is not the instruction its pose assembles.");
+        }
+
+        var source = await RequireSourceAsync(image, cancellationToken);
+        var (references, prompt) = await BuildAssetReferencesAsync(image, context.ExplicitEditorModelId, cancellationToken);
+
+        return new MediaEditRunPlan(
+            image.Id,
+            source.Id,
+            token => _storage.OpenReadAsync(SourcePath(source), token),
+            source.Sha256 ?? throw new InvalidOperationException("The source scene image has no stored checksum."),
+            MediaEditOperation.ForEdit,
+            Prompt: prompt,
+            References: references,
+            Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),
+            LogScope: $"SessionId={image.SessionId}, InteractionId={image.InteractionId}, Stage=MultiAngle, Azimuth={pose.Azimuth}, Elevation={pose.Elevation}, Distance={pose.Distance}");
     }
 
     private async Task<MediaEditRunPlan> PrepareFinishAsync(

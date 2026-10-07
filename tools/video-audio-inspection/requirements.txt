@@ -1,0 +1,10 @@
+# Video audio inspection — pinned dependencies
+# Install into the repo venv (d:/src/DreamGenClone/.venv):
+#   python -m pip install -r tools/video-audio-inspection/requirements.txt
+#
+# imageio-ffmpeg bundles a static ffmpeg binary. This machine has no system
+# ffmpeg, so this package is what supplies decoding; ffmpeg_exe() in the script
+# falls back to a system ffmpeg on PATH if this import is unavailable.
+imageio-ffmpeg==0.6.0
+numpy
+scipy

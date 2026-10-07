@@ -52,4 +52,11 @@ public sealed record ResolvedImageEditorModel(
     /// LoRA was not trained for, so the edit path needs the same declaration the compose path has - and
     /// <c>Unknown</c> is a real value that REFUSES a selection rather than skipping the check.
     /// </summary>
-    SceneImageModelFamily SceneImageModelFamily = SceneImageModelFamily.Unknown);
+    SceneImageModelFamily SceneImageModelFamily = SceneImageModelFamily.Unknown,
+
+    /// <summary>
+    /// The capability the editor row's LoRA declares (<see cref="ImageEditorLoraCapability"/>). A capability-gated
+    /// control - e.g. the multi-angle camera tab - refuses a model whose LoRA does not declare the capability, so a
+    /// camera prompt can never reach a generic edit LoRA.
+    /// </summary>
+    ImageEditorLoraCapability LoraCapability = ImageEditorLoraCapability.None);

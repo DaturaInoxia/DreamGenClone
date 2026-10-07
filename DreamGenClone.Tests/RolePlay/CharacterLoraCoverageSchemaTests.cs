@@ -274,6 +274,69 @@ public sealed class CharacterLoraCoverageSchemaTests
         Assert.Contains("NearDuplicateMaxSimilarity", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// The strict reader still refuses a missing far aspect: it is required of every policy this build WRITES, and
+    /// only the stored reader may tolerate its absence.
+    /// </summary>
+    [Fact]
+    public void Policy_MissingFarAspect_IsStillRefusedByTheStrictReader()
+    {
+        var complete = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(BuildPolicy(cores: 3, variations: 1).ToJson())!;
+        complete.Remove("farAspect");
+
+        var error = Assert.Throws<JsonException>(() => CurationPolicy.FromJson(JsonSerializer.Serialize(complete)));
+
+        Assert.Contains("FarAspect", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A policy that was SAVED before the FAR rung existed still loads - that is what lets an existing dataset open -
+    /// but it comes back stale, naming the absent member, and the far aspect stays EMPTY: no substitute size is
+    /// invented for a framing nobody chose a size for.
+    /// </summary>
+    [Fact]
+    public void Policy_StoredWithoutFarAspect_LoadsAsStaleWithNoSubstitute()
+    {
+        var complete = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(BuildPolicy(cores: 30, variations: 6).ToJson())!;
+        complete.Remove("farAspect");
+
+        var policy = CurationPolicy.FromStoredJson(JsonSerializer.Serialize(complete), out var staleReason);
+
+        Assert.NotNull(staleReason);
+        Assert.Contains("farAspect", staleReason, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(string.Empty, policy.FarAspect);
+        Assert.Equal(30, policy.ExpectedCoreCellCount);
+        // Still incomplete: saving it back is refused, so nothing persists a policy with an unstated size.
+        Assert.Throws<InvalidOperationException>(() => policy.Validate());
+        Assert.Throws<InvalidOperationException>(() => policy.ToJson());
+    }
+
+    /// <summary>A stored policy that carries the far aspect is current - the tolerance must not mark it stale.</summary>
+    [Fact]
+    public void Policy_StoredWithFarAspect_IsNotStale()
+    {
+        var policy = CurationPolicy.FromStoredJson(BuildPolicy(cores: 30, variations: 6).ToJson(), out var staleReason);
+
+        Assert.Null(staleReason);
+        Assert.Equal("1536x1024", policy.FarAspect);
+    }
+
+    /// <summary>
+    /// Only the far aspect may be absent from a stored policy. Any other missing member is still refused by name:
+    /// no policy that was ever saved could have omitted a threshold that existed when it was written.
+    /// </summary>
+    [Fact]
+    public void Policy_StoredMissingAnyOtherMember_IsRefusedByName()
+    {
+        var complete = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(BuildPolicy(cores: 3, variations: 1).ToJson())!;
+        complete.Remove("nearDuplicateMaxSimilarity");
+
+        var error = Assert.Throws<JsonException>(() =>
+            CurationPolicy.FromStoredJson(JsonSerializer.Serialize(complete), out _));
+
+        Assert.Contains("NearDuplicateMaxSimilarity", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]

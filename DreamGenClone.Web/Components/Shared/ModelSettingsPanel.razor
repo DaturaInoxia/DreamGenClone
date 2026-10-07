@@ -47,7 +47,9 @@
             <span class="rw-settings-small-label">Max Tokens</span>
             <span class="rw-settings-small-label" style="margin-left:auto">@CurrentSettings.MaxTokens</span>
         </div>
-        <input type="number" id="maxtokens-@SessionId" class="rw-settings-input" min="50" max="16000" step="50" @bind="CurrentSettings.MaxTokens" @bind:event="oninput" @onchange="OnSettingsChanged" />
+        <CommittedTextInput type="number" id="@($"maxtokens-{SessionId}")" class="rw-settings-input" min="50" max="16000" step="50"
+                            Live="@CurrentSettings.MaxTokens.ToString()"
+                            Committed="OnMaxTokensCommittedAsync" />
     </div>
 
     <div class="rw-settings-section">
@@ -55,7 +57,9 @@
             <span class="rw-settings-small-label">Context Window (turns)</span>
             <span class="rw-settings-small-label" style="margin-left:auto">@(CurrentSettings.ContextWindowSize > 0 ? CurrentSettings.ContextWindowSize : 30)</span>
         </div>
-        <input type="number" id="contextwindow-@SessionId" class="rw-settings-input" min="4" max="60" step="1" @bind="CurrentSettings.ContextWindowSize" @bind:event="oninput" @onchange="OnSettingsChanged" />
+        <CommittedTextInput type="number" id="@($"contextwindow-{SessionId}")" class="rw-settings-input" min="4" max="60" step="1"
+                            Live="@CurrentSettings.ContextWindowSize.ToString()"
+                            Committed="OnContextWindowCommittedAsync" />
         <span class="rw-settings-small-label" style="font-size:11px;">Number of recent turns sent to the model. Lower = smaller request. Default: 30.</span>
     </div>
 </div>
@@ -121,5 +125,22 @@
             ModelSettingsService.UpdateSettings(SessionId, CurrentSettings);
             await OnSettingsUpdated.InvokeAsync();
         }
+    }
+
+    /// <summary>
+    /// A number box is committed when it is LEFT, not on every keystroke. Bound on input, each keystroke sends the text
+    /// to the server and the next render writes the number back into the box - which, when the round trip is slower
+    /// than the typing, writes an older number over a newer one and throws the caret to the end.
+    /// </summary>
+    private async Task OnMaxTokensCommittedAsync(string? text)
+    {
+        CurrentSettings.MaxTokens = int.TryParse(text, out var maxTokens) ? maxTokens : CurrentSettings.MaxTokens;
+        await OnSettingsChanged();
+    }
+
+    private async Task OnContextWindowCommittedAsync(string? text)
+    {
+        CurrentSettings.ContextWindowSize = int.TryParse(text, out var turns) ? turns : CurrentSettings.ContextWindowSize;
+        await OnSettingsChanged();
     }
 }

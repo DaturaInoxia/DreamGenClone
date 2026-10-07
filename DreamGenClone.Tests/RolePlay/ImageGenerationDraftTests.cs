@@ -40,7 +40,8 @@ public sealed class ImageGenerationDraftTests
 
         var draft = ImageGenerationDraft.FromImage(image);
 
-        // The row's own Prompt column is the description that was submitted.
+        // An image that recorded no operator input reports the row's Prompt column: for a prompt written by hand, that
+        // column IS the description, so "Your input" comes back as what the operator wrote.
         Assert.Equal("a woman on a bed, warm light", draft.UserInput);
         Assert.Equal("a photorealistic scene of a woman on a bed", draft.CompiledPrompt);
         Assert.Equal("biglust", draft.ModelId);
@@ -49,6 +50,33 @@ public sealed class ImageGenerationDraftTests
         Assert.Equal(20311, draft.Seed);
         Assert.Empty(draft.Bindings);
         Assert.True(draft.HasAnythingToLoad);
+    }
+
+    [Fact]
+    public void FromImage_ReadsTheOperatorsOwnWordsBackInsteadOfTheGeneratedPrompt()
+    {
+        var image = new SceneAssetImage
+        {
+            Id = "image-3",
+            AssetId = "asset-1",
+            // What RENDERS: a compiler authored this, so the row holds model-ready text, not a description.
+            Prompt = "score_9, photorealistic, a maintenance shed at dusk",
+            PromptCompilerId = "asset-prompt-compiler",
+            AssociationMetadataJson = HandlerMetadata(
+                compiledPrompt: "score_9, photorealistic, a maintenance shed at dusk",
+                requestedModelId: "juggernaut-xl",
+                imageSize: "1024x1024",
+                negativePrompt: null,
+                referenceApplicationsJson: null,
+                userInput: "a maintenance shed at dusk")
+        };
+
+        var draft = ImageGenerationDraft.FromImage(image);
+
+        // The operator's words, so the round-trip fills "Your input" with what they wrote rather than with the prompt
+        // the compiler made from it.
+        Assert.Equal("a maintenance shed at dusk", draft.UserInput);
+        Assert.Equal("score_9, photorealistic, a maintenance shed at dusk", draft.CompiledPrompt);
     }
 
     [Fact]
@@ -256,11 +284,14 @@ public sealed class ImageGenerationDraftTests
         string? requestedModelId,
         string? imageSize,
         string? negativePrompt,
-        string? referenceApplicationsJson) =>
+        string? referenceApplicationsJson,
+        string? userInput = null) =>
         JsonSerializer.Serialize(new
         {
             semanticDescription = "a woman on a bed",
             compiledPrompt,
+            // Written by the handler when the enqueue payload carried the operator's own description.
+            userInput,
             compilerId = "asset-prompt-compiler",
             compilerVersion = (string?)null,
             requestedModelId,

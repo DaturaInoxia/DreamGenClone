@@ -136,9 +136,13 @@ public static class BodyAxisVocabulary
         // ── Muscle definition (how visible — independent of mass) ──────────────────────────────────────────
         ["soft, no definition"] = new("", "soft, with no muscle definition", "Negation — ignored by Pony in the positive (rule 9). Omitted."),
         ["faint muscle definition"] = new("", "faint muscle definition", "No reliable Pony token; below 'abs' the model does not distinguish (rule 11)."),
-        ["defined, visible abs"] = new("abs", "defined, visible abs"),
-        ["very defined, clear muscle separation"] = new("abs, muscular", "very defined with clear muscle separation"),
-        ["ripped, striations and vascularity"] = new("abs, muscular, veins", "ripped, with visible striations and vascularity"),
+        // The SDXL phrase is the CLOTHED-SAFE rendering: "visible abs" / "clear muscle separation" / "striations"
+        // describe what a shirt covers, and putting them in the canonical text made the CLOTHED base render shirtless.
+        // The unclothed-only detail is appended by the compiler (BodyReferencePromptCompiler.ComposeStateDetail) for
+        // an unclothed view, the same way pubic hair is.
+        ["defined, visible abs"] = new("abs", "a defined, toned build"),
+        ["very defined, clear muscle separation"] = new("abs, muscular", "a very defined, athletic build"),
+        ["ripped, striations and vascularity"] = new("abs, muscular, veins", "a heavily muscled, lean build"),
         ["gaunt, over-dieted"] = new("skinny", "gaunt and over-dieted"),
 
         // ── Bust ────────────────────────────────────────────────────────────────────────────────────────────

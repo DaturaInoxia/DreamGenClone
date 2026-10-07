@@ -309,6 +309,13 @@
             </div>
         }
 
+        @* Above the prompt on purpose: what a description is compiled FROM is read before the prompt it produces, so the
+           operator writes what they want, compiles it, and reads the result underneath. *@
+        @if (BeforePromptContent is not null)
+        {
+            <div class="mt-3">@BeforePromptContent</div>
+        }
+
         @if (ShowPrompt)
         {
             <div class="mt-3">
@@ -316,7 +323,9 @@
                                RefineInstruction="@RefineInstruction" RefineInstructionChanged="RefineInstructionChanged"
                                Bindings="@Bindings" GeneratedForSignature="@_generatedForSignature"
                                DraftedFromBindings="@_draftedFromBindings" OmittedElements="@OmittedElementLabels"
-                               Busy="@Busy" OnGenerate="CompilePromptCallback" OnRefine="OnRefinePrompt" />
+                               Busy="@Busy" OnGenerate="CompilePromptCallback" OnRefine="OnRefinePrompt"
+                               OnCreate="OnSubmit" CreateLabel="@SubmitLabel"
+                               CreateBlocked="@SubmitBlocked" CreateBlockedReason="@SubmitBlockedReason" />
                 @if (!string.IsNullOrWhiteSpace(PromptError))
                 {
                     <div class="alert alert-danger py-2 small mt-2 mb-0">@PromptError</div>
@@ -337,7 +346,7 @@
         <div class="mt-3 d-flex align-items-center gap-2">
             @if (OnSubmit.HasDelegate)
             {
-                <button type="button" class="btn btn-sm btn-success" disabled="@(Busy || !CanSubmit || MissingRequiredSlots.Count > 0)" @onclick="() => OnSubmit.InvokeAsync()">
+                <button type="button" class="btn btn-sm btn-success" disabled="@SubmitBlocked" @onclick="() => OnSubmit.InvokeAsync()">
                     <i class="bi bi-image me-1"></i>@SubmitLabel
                 </button>
             }
@@ -464,6 +473,25 @@
     /// <summary>Host-specific controls, rendered inside the composer's body so a host never re-implements the shell.</summary>
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Host-specific controls that belong ABOVE the prompt: the input a description is compiled FROM.
+    ///
+    /// <para>
+    /// Separate from <see cref="ChildContent"/> because the prompt is what that input PRODUCES, and a host that put it
+    /// in the child content would be offering the result before the question. It is a fragment rather than a field
+    /// because the composer holds no host knowledge: whether a surface has such an input at all is the host's business.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public RenderFragment? BeforePromptContent { get; set; }
+
+    /// <summary>
+    /// True when the step cannot be created yet - busy, incomplete, or a required slot with no reference. ONE rule,
+    /// because the create action is offered twice (beside the prompt and at the foot of the step) and two gates would
+    /// let one button offer what the other refuses.
+    /// </summary>
+    private bool SubmitBlocked => Busy || !CanSubmit || MissingRequiredSlots.Count > 0;
 
     /// <summary>
     /// Whether this host presents the step's prompt itself. False renders the model and the reference slots only, and is

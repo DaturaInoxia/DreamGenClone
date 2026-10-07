@@ -51,6 +51,9 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
     /// </summary>
     public bool SupportsPresetEdits => true;
 
+    /// <summary>The scene-image store can orbit a source subject, the same capability the asset store has.</summary>
+    public bool SupportsMultiAngleCamera => true;
+
     /// <inheritdoc />
     public async Task<string> RunPresetAsync(
         ImageEditSubject subject,
@@ -65,6 +68,28 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
             SourceImageId = subject.ImageId,
             PresetKey = presetKey,
             EditorModelId = editorModelId
+        }, cancellationToken);
+        return image.Id;
+    }
+
+    /// <inheritdoc />
+    public async Task<string> RunMultiAngleAsync(
+        ImageEditSubject subject,
+        MultiAngleAzimuth azimuth,
+        MultiAngleElevation elevation,
+        MultiAngleDistance distance,
+        string editorModelId,
+        CancellationToken cancellationToken = default)
+    {
+        var image = await _images.EnqueueMultiAngleEditAsync(new SceneImageMultiAngleEditRequest
+        {
+            SessionId = Require(subject.SessionId, "SessionId"),
+            InteractionId = Require(subject.InteractionId, "InteractionId"),
+            SourceImageId = subject.ImageId,
+            EditorModelId = editorModelId,
+            Azimuth = azimuth,
+            Elevation = elevation,
+            Distance = distance
         }, cancellationToken);
         return image.Id;
     }

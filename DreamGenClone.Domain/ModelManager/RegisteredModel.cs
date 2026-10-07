@@ -55,6 +55,13 @@ public sealed class RegisteredModel
     /// Required and positive whenever a LoRA name is set. Never defaulted.</summary>
     public double? ImageEditorLoraStrength { get; set; }
 
+    /// <summary>
+    /// The capability the configured <see cref="ImageEditorLoraName"/> enables, persisted as
+    /// <see cref="ImageEditorLoraCapabilities"/> text. <c>None</c> (blank) means no named capability; a
+    /// capability that needs a LoRA requires a configured LoRA name and strength or resolution fails fast.
+    /// </summary>
+    public string? ImageEditorLoraCapability { get; set; }
+
     /// <summary>Identity conditioning mechanism for the controlled render path ("IpAdapter" or "PuLid").
     /// Empty = identity rendering not configured (fails fast when requested).</summary>
     public string? IdentityMechanism { get; set; }

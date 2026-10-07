@@ -106,10 +106,17 @@ public sealed class MediaEditHeadMeasurementServiceTests
 
         public bool SupportsPresetEdits => false;
 
+        public bool SupportsMultiAngleCamera => false;
+
         public bool SupportsIdentity => false;
 
         public Task<string> RunPresetAsync(
             ImageEditSubject subject, string presetKey, string editorModelId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<string> RunMultiAngleAsync(
+            ImageEditSubject subject, MultiAngleAzimuth azimuth, MultiAngleElevation elevation, MultiAngleDistance distance,
+            string editorModelId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<ImageEditSource?> GetSourceAsync(ImageEditSubject subject, CancellationToken cancellationToken = default)

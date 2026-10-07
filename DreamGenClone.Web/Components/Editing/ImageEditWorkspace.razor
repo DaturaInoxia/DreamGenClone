@@ -167,6 +167,15 @@ else
                             </button>
                         </li>
                     }
+                    @if (_service?.SupportsMultiAngleCamera == true)
+                    {
+                        <li class="nav-item" role="presentation">
+                            <button type="button" class="nav-link @(_activeTab == EditorTab.Camera ? "active" : "") @(_cameraError.Length > 0 ? "text-danger" : "")" aria-selected="@(_activeTab == EditorTab.Camera)"
+                                    @onclick="() => SelectEditorTab(EditorTab.Camera)">
+                                Camera
+                            </button>
+                        </li>
+                    }
                     @if (_regionEnabled)
                     {
                         <li class="nav-item" role="presentation">
@@ -537,6 +546,91 @@ else
                         </div>
                     }
                 }
+                else if (_activeTab == EditorTab.Camera && _service?.SupportsMultiAngleCamera == true)
+                {
+                    <div class="scene-edit-panel-heading">
+                        <div>
+                            <span class="scene-edit-kicker">Camera pass</span>
+                            <strong>Orbit the subject</strong>
+                        </div>
+                    </div>
+                    <p class="small text-muted">
+                        Orbits the subject to a picked angle using the model's multi-angle camera LoRA. The
+                        instruction is assembled here from the LoRA's <code>&lt;sks&gt;</code> grammar and sent unchanged -
+                        it never goes through the vision compiler. The result is a NEW image derived from this one, in
+                        the same batch.
+                    </p>
+                    @if (!string.IsNullOrWhiteSpace(_cameraError))
+                    {
+                        <div class="alert alert-danger py-2 small">@_cameraError</div>
+                    }
+                    @if (_cameraModelChoices.Count == 0)
+                    {
+                        <div class="alert alert-warning py-2 small mb-0">
+                            No editor model declares the multi-angle camera LoRA capability. Set 'Editor LoRA
+                            Capability' to Multi-Angle Camera on a Qwen-Edit-2511 editor model in Model Manager.
+                        </div>
+                    }
+                    else
+                    {
+                        <label class="form-label small mb-1" for="@CameraModelSelectId">Editor model</label>
+                        <ModelPicker Id="@CameraModelSelectId"
+                                     Choices="_cameraModelChoices"
+                                     SelectedModelId="@_cameraModelId"
+                                     SelectedModelIdChanged="OnCameraModelChangedAsync"
+                                     Disabled="@(_cameraBusy || _busy || _session?.IsCompleted == true)" />
+
+                        <div class="small text-muted mt-3 mb-1">Azimuth (orbit)</div>
+                        <div class="d-flex flex-wrap gap-1">
+                            @foreach (var azimuth in CameraAzimuths)
+                            {
+                                <button type="button"
+                                        class="btn btn-sm @(_cameraAzimuth == azimuth ? "btn-primary" : "btn-outline-secondary")"
+                                        disabled="@(_cameraBusy || _busy)" @onclick="() => _cameraAzimuth = azimuth">
+                                    @MultiAngleCameraTokens.Azimuth(azimuth)
+                                </button>
+                            }
+                        </div>
+
+                        <div class="small text-muted mt-3 mb-1">Elevation</div>
+                        <div class="d-flex flex-wrap gap-1">
+                            @foreach (var elevation in CameraElevations)
+                            {
+                                <button type="button"
+                                        class="btn btn-sm @(_cameraElevation == elevation ? "btn-primary" : "btn-outline-secondary")"
+                                        disabled="@(_cameraBusy || _busy)" @onclick="() => _cameraElevation = elevation">
+                                    @MultiAngleCameraTokens.Elevation(elevation)
+                                </button>
+                            }
+                        </div>
+
+                        <div class="small text-muted mt-3 mb-1">Distance</div>
+                        <div class="d-flex flex-wrap gap-1">
+                            @foreach (var distance in CameraDistances)
+                            {
+                                <button type="button"
+                                        class="btn btn-sm @(_cameraDistance == distance ? "btn-primary" : "btn-outline-secondary")"
+                                        disabled="@(_cameraBusy || _busy)" @onclick="() => _cameraDistance = distance">
+                                    @MultiAngleCameraTokens.Distance(distance)
+                                </button>
+                            }
+                        </div>
+
+                        <div class="small text-muted mt-3 mb-1">The instruction this sends</div>
+                        <pre class="border rounded bg-body-tertiary p-2 small text-wrap">@CameraInstruction</pre>
+
+                        <div class="d-flex justify-content-end mt-2">
+                            <button class="btn btn-success" type="button" @onclick="RunCameraEditAsync"
+                                    disabled="@(_cameraBusy || _busy || string.IsNullOrWhiteSpace(_cameraModelId) || _session?.IsCompleted == true)">
+                                @if (_cameraBusy)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                }
+                                <i class="bi bi-camera me-1"></i>Generate
+                            </button>
+                        </div>
+                    }
+                }
                 else if (_activeTab == EditorTab.Identity && IdentityAvailable)
                 {
                     <div class="scene-edit-panel-heading">
@@ -854,6 +948,7 @@ else
         Crop,
         Enhance,
         Presets,
+        Camera,
         Region
     }
 
@@ -921,6 +1016,26 @@ else
 
     /// <summary>Stable element id, one per subject, so two workspaces on a page cannot collide.</summary>
     private string PresetSelectId => $"preset-{SubjectKey}";
+
+    // Multi-angle camera state. The choices are the editor models whose LoRA declares the capability; the
+    // instruction is the <sks> grammar assembled from the picked pose, shown before it is sent.
+    private IReadOnlyList<SceneImageModelChoice> _cameraModelChoices = [];
+    private string _cameraModelId = string.Empty;
+    private MultiAngleAzimuth _cameraAzimuth = MultiAngleAzimuth.Front;
+    private MultiAngleElevation _cameraElevation = MultiAngleElevation.EyeLevel;
+    private MultiAngleDistance _cameraDistance = MultiAngleDistance.Medium;
+    private string _cameraError = string.Empty;
+    private bool _cameraBusy;
+
+    private static IReadOnlyList<MultiAngleAzimuth> CameraAzimuths { get; } = Enum.GetValues<MultiAngleAzimuth>();
+    private static IReadOnlyList<MultiAngleElevation> CameraElevations { get; } = Enum.GetValues<MultiAngleElevation>();
+    private static IReadOnlyList<MultiAngleDistance> CameraDistances { get; } = Enum.GetValues<MultiAngleDistance>();
+
+    private string CameraInstruction =>
+        MultiAngleCameraTokens.Instruction(_cameraAzimuth, _cameraElevation, _cameraDistance);
+
+    /// <summary>Stable element id, one per subject, so two workspaces on a page cannot collide.</summary>
+    private string CameraModelSelectId => $"camera-model-{SubjectKey}";
 
     // Crop state. The aspect and headroom start from persisted configuration (never from a value
     // invented here); the horizontal offset is a plain form control the user sets per run, and it is
@@ -1270,6 +1385,7 @@ else
                 _rawIntent = SeedIntent.Trim();
             }
             await LoadPresetsAsync();
+            await LoadCameraAsync();
             if (IdentityAvailable)
             {
                 await LoadIdentityRosterAsync();
@@ -1376,6 +1492,64 @@ else
         catch (Exception ex)
         {
             _presetError = ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// Primes the camera tab once per load: the model choices are the editor models whose LoRA declares the
+    /// multi-angle capability. A store that cannot run camera edits reads nothing: the tab does not render.
+    /// </summary>
+    private Task LoadCameraAsync()
+    {
+        _cameraError = string.Empty;
+        if (_service?.SupportsMultiAngleCamera != true)
+        {
+            _cameraModelChoices = [];
+            _cameraModelId = string.Empty;
+            return Task.CompletedTask;
+        }
+
+        _cameraModelChoices = _editorModelChoices
+            .Where(choice => choice.SupportsMultiAngleCamera)
+            .ToList();
+        _cameraModelId = _cameraModelChoices.FirstOrDefault()?.ModelId ?? string.Empty;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Queues the camera pass and waits for the derived image, exactly as a crop or enhance run does: the result is a
+    /// new row, never a rewrite of the source.
+    /// </summary>
+    private async Task RunCameraEditAsync()
+    {
+        if (_service?.SupportsMultiAngleCamera != true
+            || string.IsNullOrWhiteSpace(_cameraModelId))
+        {
+            return;
+        }
+
+        _cameraBusy = true;
+        _errorMessage = string.Empty;
+        _statusMessage = string.Empty;
+        try
+        {
+            var imageId = await _service.RunMultiAngleAsync(
+                Subject, _cameraAzimuth, _cameraElevation, _cameraDistance, _cameraModelId);
+            _statusMessage = $"Camera edit queued as a new image derived from this one (image {imageId}).";
+            Logger.LogInformation(
+                "Multi-angle camera edit queued: Subject={Subject}, Azimuth={Azimuth}, Elevation={Elevation}, Distance={Distance}, Image={Image}",
+                SubjectKey, _cameraAzimuth, _cameraElevation, _cameraDistance, imageId);
+            await RefreshAsync();
+            EnsurePolling();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            Logger.LogWarning(ex, "Multi-angle camera edit failed to queue: Subject={Subject}", SubjectKey);
+        }
+        finally
+        {
+            _cameraBusy = false;
         }
     }
 
@@ -2063,6 +2237,12 @@ else
         // The slots a step offers depend on the selected model's capability, so a model change invalidates what was
         // bound under the previous one: keeping the bindings would leave the plan describing a model no longer chosen.
         _bindings = [];
+        return Task.CompletedTask;
+    }
+
+    private Task OnCameraModelChangedAsync(string? modelId)
+    {
+        _cameraModelId = modelId ?? string.Empty;
         return Task.CompletedTask;
     }
 

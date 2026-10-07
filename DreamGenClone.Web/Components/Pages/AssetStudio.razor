@@ -37,9 +37,10 @@
             <div class="row g-2 align-items-end">
                 <div class="col-sm-5">
                     <label class="form-label small mb-1" for="tag-search">Tag</label>
-                    <input id="tag-search" type="search" class="form-control form-control-sm" @bind="_tagSearch"
-                           @bind:event="oninput" @onkeydown="OnTagSearchKeyDownAsync"
-                           placeholder="kneeling, nsfw, all fours, missionary, becky" />
+                    <CommittedTextInput id="tag-search" type="search" class="form-control form-control-sm"
+                                        Live="@_tagSearch" LiveChanged="args => _tagSearch = args ?? string.Empty"
+                                        @onkeydown="OnTagSearchKeyDownAsync"
+                                        placeholder="kneeling, nsfw, all fours, missionary, becky" />
                 </div>
                 <div class="col-sm-7 d-flex flex-wrap gap-2 align-items-center">
                     <button type="button" class="btn btn-sm btn-primary"
@@ -120,8 +121,9 @@
                     <div class="row g-2">
                         <div class="col-sm-4">
                             <label class="form-label small mb-1" for="asset-search">Search</label>
-                            <input id="asset-search" type="search" class="form-control form-control-sm"
-                                   @bind="_assetSearch" @bind:event="oninput" placeholder="Name, ID, character, or pack" />
+                            <CommittedTextInput id="asset-search" type="search" class="form-control form-control-sm"
+                                                Live="@_assetSearch" LiveChanged="args => _assetSearch = args ?? string.Empty"
+                                                placeholder="Name, ID, character, or pack" />
                         </div>
                         <div class="col-sm-3">
                             <label class="form-label small mb-1" for="asset-type-filter">Type</label>
@@ -189,21 +191,13 @@
                                                 }
                                                 <span class="text-muted small">@ItemCount(group)</span>
                                             </div>
+                                            @* Items AND child groups: a location group carries the containers at its own
+                                               level and the nested groups beneath them, so rendering one instead of both
+                                               hid the siblings of any container that had children. *@
+                                            @ItemGrid(group.Items)
                                             @if (group.Children.Count > 0)
                                             {
-                                                <div class="ms-3 mt-1">
-                                                    @foreach (var child in group.Children)
-                                                    {
-                                                        <div class="mt-1">
-                                                            <span class="small text-muted fst-italic">@child.Label</span>
-                                                            @ItemGrid(child.Items)
-                                                        </div>
-                                                    }
-                                                </div>
-                                            }
-                                            else
-                                            {
-                                                @ItemGrid(group.Items)
+                                                @RenderChildGroups(group.Children)
                                             }
                                         </div>
                                     }
@@ -392,8 +386,8 @@
             foreach (var group in root.Groups)
             {
                 var children = group.Children
-                    .Select(child => child with { Items = child.Items.Where(item => ItemMatches(item, root.Owner)).ToList() })
-                    .Where(child => child.Items.Count > 0)
+                    .Select(FilterChildGroup)
+                    .Where(child => child.Items.Count > 0 || child.Children.Count > 0)
                     .ToList();
                 var items = group.Items.Where(item => ItemMatches(item, root.Owner)).ToList();
                 if (children.Count == 0 && items.Count == 0)
@@ -403,6 +397,15 @@
 
                 groups.Add(group with { Children = children, Items = items });
             }
+
+            AssetTreeGroup FilterChildGroup(AssetTreeGroup child) => child with
+            {
+                Items = child.Items.Where(item => ItemMatches(item, root.Owner)).ToList(),
+                Children = child.Children
+                    .Select(FilterChildGroup)
+                    .Where(nested => nested.Items.Count > 0 || nested.Children.Count > 0)
+                    .ToList()
+            };
 
             if (groups.Count > 0)
             {
@@ -552,6 +555,12 @@
 
         _hasInFlight = _assets.Any(a => a.Status == SceneAssetStatus.Pending);
         StateHasChanged();
+
+        // Reconciled on the LOAD path rather than only where a job is enqueued: the pending row can be someone else's
+        // render (started from another tab, or already running when this page opened), and the tree only ever changes
+        // here. Without this the page kept showing work in flight until it was reloaded by hand. Same rule as
+        // CharacterWardrobePanel and AssetStudioView.
+        EnsurePolling();
     }
 
     private void SelectTreeItem(AssetTreeItem item)
@@ -614,7 +623,22 @@
     }
 
     private static int ItemCount(AssetTreeGroup group)
-        => group.Items.Count + group.Children.Sum(child => child.Items.Count);
+        => group.Items.Count + group.Children.Sum(ItemCount);
+
+    /// <summary>
+    /// Renders a group's nested child groups, recursing so a container tree of any depth is visible. The Asset Manager
+    /// shows world → location → spot; a one-level renderer silently hid everything below the first level.
+    /// </summary>
+    private RenderFragment RenderChildGroups(IReadOnlyList<AssetTreeGroup> children) => @<div class="ms-3 mt-1">
+        @foreach (var child in children)
+        {
+            <div class="mt-1">
+                <span class="small text-muted fst-italic">@child.Label</span>
+                @ItemGrid(child.Items)
+                @RenderChildGroups(child.Children)
+            </div>
+        }
+    </div>;
 
     private RenderFragment ItemGrid(IReadOnlyList<AssetTreeItem> items) => @<div class="d-flex flex-wrap gap-2 mt-1">
         @foreach (var item in items)
@@ -656,7 +680,9 @@
     {
         lock (_timerLock)
         {
-            if (_timer is null)
+            // Nothing in flight means nothing to watch: the tick stops the timer as soon as the list says so, and
+            // starting one on a reload with nothing pending would re-read the whole tree every two seconds for nothing.
+            if (_timer is null && _hasInFlight)
             {
                 _timer = new System.Threading.Timer(async _ =>
                 {

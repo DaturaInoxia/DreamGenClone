@@ -1,7 +1,9 @@
 <div>
     <label class="form-label" for="@Id">Frozen reference text</label>
-    <textarea id="@Id" class="form-control" rows="4" maxlength="@MaxCharacters"
-              value="@Value" @oninput="OnInput"></textarea>
+    <!-- The box draws the COMMITTED text and the live value follows every keystroke, so a render cannot put an older
+         value back into a box someone is typing in: see CommittedTextInput. -->
+    <CommittedTextInput Multiline="true" id="@Id" class="form-control" rows="4" maxlength="@MaxCharacters"
+                        Live="@Value" LiveChanged="OnInputAsync" />
     <div class="d-flex justify-content-between form-text">
         @if (IsValid)
         {
@@ -30,9 +32,9 @@
 
     private bool IsValid => !string.IsNullOrWhiteSpace(Value);
 
-    private async Task OnInput(ChangeEventArgs args)
+    private async Task OnInputAsync(string? text)
     {
-        var value = args.Value?.ToString() ?? string.Empty;
+        var value = text ?? string.Empty;
         if (value.Length > MaxCharacters)
         {
             value = value[..MaxCharacters];

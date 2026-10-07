@@ -40,14 +40,14 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
             INSERT INTO RegisteredModels (Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, IsDefault, SupportsThinkingControl, CreatedUtc, ContextWindowSize, Quantization, ParameterCount, Notes, ModelKind, ImageSizeSupported, SceneImageModelFamily, PromptDialect,
                 SupportsImageInput, MaximumInputImages, MaximumInputImageBytes, MaximumInputImagePixels, MaximumInputImageDimension, AcceptedInputMediaTypes, MaximumResponseBytes, RuntimeRevision, ArtifactRevision,
                 ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorGraphKind, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, ImageEditorAuraFlowShift, ImageEditorCfgNormStrength,
-                ImageEditorLoraName, ImageEditorLoraStrength,
+                ImageEditorLoraName, ImageEditorLoraStrength, ImageEditorLoraCapability,
                 IdentityMechanism, IdentityStrength, IdentityAdapterRef, IdentityClipVisionRef, SupportedIdentityStrategiesJson,
                 SupportedVisualStrategiesJson, CapabilityQualificationsJson,
                 StructuredOutputMode, MaximumContextTokens, MaximumOutputTokens)
             VALUES ($id, $providerId, $identifier, $displayName, $enabled, $isDefault, $supportsThinkingControl, $created, $ctxWindow, $quant, $paramCount, $notes, $modelKind, $imageSizeSupported, $sceneImageModelFamily, $promptDialect,
                 $supportsImageInput, $maximumInputImages, $maximumInputImageBytes, $maximumInputImagePixels, $maximumInputImageDimension, $acceptedInputMediaTypes, $maximumResponseBytes, $runtimeRevision, $artifactRevision,
                 $imageEditorDiffusionModel, $imageEditorTextEncoder, $imageEditorVae, $imageEditorGraphKind, $imageEditorSteps, $imageEditorCfg, $imageEditorSampler, $imageEditorScheduler, $imageEditorDenoise, $imageEditorAuraFlowShift, $imageEditorCfgNormStrength,
-                $imageEditorLoraName, $imageEditorLoraStrength,
+                $imageEditorLoraName, $imageEditorLoraStrength, $imageEditorLoraCapability,
                 $identityMechanism, $identityStrength, $identityAdapterRef, $identityClipVisionRef, $supportedIdentityStrategies,
                 $supportedVisualStrategies, $capabilityQualifications,
                 $structuredOutputMode, $maximumContextTokens, $maximumOutputTokens)
@@ -88,6 +88,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
                 ImageEditorCfgNormStrength = $imageEditorCfgNormStrength,
                 ImageEditorLoraName = $imageEditorLoraName,
                 ImageEditorLoraStrength = $imageEditorLoraStrength,
+                ImageEditorLoraCapability = $imageEditorLoraCapability,
                 IdentityMechanism = $identityMechanism,
                 IdentityStrength = $identityStrength,
                 IdentityAdapterRef = $identityAdapterRef,
@@ -138,6 +139,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         command.Parameters.AddWithValue("$imageEditorCfgNormStrength", (object?)model.ImageEditorCfgNormStrength ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorLoraName", (object?)model.ImageEditorLoraName ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageEditorLoraStrength", (object?)model.ImageEditorLoraStrength ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imageEditorLoraCapability", (object?)model.ImageEditorLoraCapability ?? DBNull.Value);
         command.Parameters.AddWithValue("$identityMechanism", (object?)model.IdentityMechanism ?? DBNull.Value);
         command.Parameters.AddWithValue("$identityStrength", (object?)model.IdentityStrength ?? DBNull.Value);
         command.Parameters.AddWithValue("$identityAdapterRef", (object?)model.IdentityAdapterRef ?? DBNull.Value);
@@ -263,7 +265,7 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         rm.IdentityMechanism, rm.IdentityStrength, rm.IdentityAdapterRef, rm.IdentityClipVisionRef, rm.SupportedIdentityStrategiesJson,
         rm.SupportedVisualStrategiesJson, rm.CapabilityQualificationsJson,
         rm.StructuredOutputMode, rm.MaximumContextTokens, rm.MaximumOutputTokens, rm.ImageEditorGraphKind,
-        rm.ImageEditorLoraName, rm.ImageEditorLoraStrength, rm.IsDefault
+        rm.ImageEditorLoraName, rm.ImageEditorLoraStrength, rm.IsDefault, rm.ImageEditorLoraCapability
         """;
 
     private static readonly string ModelSelectColumns = $"""
@@ -320,7 +322,8 @@ public sealed class RegisteredModelRepository : IRegisteredModelRepository
         ImageEditorGraphKind = reader.IsDBNull(44) ? null : reader.GetString(44),
         ImageEditorLoraName = reader.IsDBNull(45) ? null : reader.GetString(45),
         ImageEditorLoraStrength = reader.IsDBNull(46) ? null : reader.GetDouble(46),
-        IsDefault = reader.GetInt32(47) == 1
+        IsDefault = reader.GetInt32(47) == 1,
+        ImageEditorLoraCapability = reader.IsDBNull(48) ? null : reader.GetString(48)
     };
 
     private static void ValidateImagePromptMetadata(RegisteredModel model)

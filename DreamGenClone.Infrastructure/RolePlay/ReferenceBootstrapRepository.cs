@@ -21,7 +21,7 @@ public sealed class ReferenceBootstrapRepository : IReferenceBootstrapRepository
         Require(id, "Batch id");
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, CharacterProfileId, TargetAssetType, LocationProfileId, Description, FrozenTextBlock, RequestedCandidateCount, Status, CreatedUtc, UpdatedUtc FROM ReferenceBootstrapBatches WHERE Id = $id;";
+        command.CommandText = "SELECT Id, CharacterProfileId, TargetAssetType, Description, FrozenTextBlock, RequestedCandidateCount, Status, CreatedUtc, UpdatedUtc FROM ReferenceBootstrapBatches WHERE Id = $id;";
         command.Parameters.AddWithValue("$id", id.Trim());
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? ReadBatch(reader) : null;
@@ -31,7 +31,7 @@ public sealed class ReferenceBootstrapRepository : IReferenceBootstrapRepository
     {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, CharacterProfileId, TargetAssetType, LocationProfileId, Description, FrozenTextBlock, RequestedCandidateCount, Status, CreatedUtc, UpdatedUtc FROM ReferenceBootstrapBatches ORDER BY CreatedUtc DESC, Id DESC;";
+        command.CommandText = "SELECT Id, CharacterProfileId, TargetAssetType, Description, FrozenTextBlock, RequestedCandidateCount, Status, CreatedUtc, UpdatedUtc FROM ReferenceBootstrapBatches ORDER BY CreatedUtc DESC, Id DESC;";
         return await ReadBatchesAsync(command, cancellationToken);
     }
 
@@ -47,13 +47,12 @@ public sealed class ReferenceBootstrapRepository : IReferenceBootstrapRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO ReferenceBootstrapBatches
-                (Id, CharacterProfileId, TargetAssetType, LocationProfileId, Description, FrozenTextBlock, RequestedCandidateCount, Status, CreatedUtc, UpdatedUtc)
+                (Id, CharacterProfileId, TargetAssetType, Description, FrozenTextBlock, RequestedCandidateCount, Status, CreatedUtc, UpdatedUtc)
             VALUES
-                ($id, $characterProfileId, $targetAssetType, $locationProfileId, $description, $frozenTextBlock, $requestedCandidateCount, $status, $createdUtc, $updatedUtc)
+                ($id, $characterProfileId, $targetAssetType, $description, $frozenTextBlock, $requestedCandidateCount, $status, $createdUtc, $updatedUtc)
             ON CONFLICT(Id) DO UPDATE SET
                 CharacterProfileId = excluded.CharacterProfileId,
                 TargetAssetType = excluded.TargetAssetType,
-                LocationProfileId = excluded.LocationProfileId,
                 Description = excluded.Description,
                 FrozenTextBlock = excluded.FrozenTextBlock,
                 RequestedCandidateCount = excluded.RequestedCandidateCount,
@@ -63,7 +62,6 @@ public sealed class ReferenceBootstrapRepository : IReferenceBootstrapRepository
         command.Parameters.AddWithValue("$id", batch.Id.Trim());
         command.Parameters.AddWithValue("$characterProfileId", (object?)batch.CharacterProfileId ?? DBNull.Value);
         command.Parameters.AddWithValue("$targetAssetType", (object?)batch.TargetAssetType?.ToString() ?? DBNull.Value);
-        command.Parameters.AddWithValue("$locationProfileId", (object?)batch.LocationProfileId ?? DBNull.Value);
         command.Parameters.AddWithValue("$description", batch.Description.Trim());
         command.Parameters.AddWithValue("$frozenTextBlock", (object?)batch.FrozenTextBlock?.Trim() ?? DBNull.Value);
         command.Parameters.AddWithValue("$requestedCandidateCount", batch.RequestedCandidateCount);
@@ -79,127 +77,6 @@ public sealed class ReferenceBootstrapRepository : IReferenceBootstrapRepository
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM ReferenceBootstrapBatches WHERE Id = $id;";
-        command.Parameters.AddWithValue("$id", id.Trim());
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
-    public async Task<ReferenceBootstrapLocationProfile?> GetLocationProfileAsync(string id, CancellationToken cancellationToken = default)
-    {
-        Require(id, "Location profile id");
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, Status, CreatedUtc, UpdatedUtc FROM ReferenceBootstrapLocationProfiles WHERE Id = $id;";
-        command.Parameters.AddWithValue("$id", id.Trim());
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken) ? ReadLocationProfile(reader) : null;
-    }
-
-    public async Task<IReadOnlyList<ReferenceBootstrapLocationProfile>> ListLocationProfilesAsync(CancellationToken cancellationToken = default)
-    {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Description, Status, CreatedUtc, UpdatedUtc FROM ReferenceBootstrapLocationProfiles ORDER BY CreatedUtc DESC, Id DESC;";
-        var profiles = new List<ReferenceBootstrapLocationProfile>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken)) profiles.Add(ReadLocationProfile(reader));
-        return profiles;
-    }
-
-    public async Task UpsertLocationProfileAsync(ReferenceBootstrapLocationProfile profile, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(profile);
-        Require(profile.Id, "Location profile id");
-        Require(profile.Name, "Location profile name");
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO ReferenceBootstrapLocationProfiles (Id, Name, Description, Status, CreatedUtc, UpdatedUtc)
-            VALUES ($id, $name, $description, $status, $createdUtc, $updatedUtc)
-            ON CONFLICT(Id) DO UPDATE SET Name = excluded.Name, Description = excluded.Description,
-                Status = excluded.Status, UpdatedUtc = excluded.UpdatedUtc;
-            """;
-        command.Parameters.AddWithValue("$id", profile.Id.Trim());
-        command.Parameters.AddWithValue("$name", profile.Name.Trim());
-        command.Parameters.AddWithValue("$description", profile.Description ?? string.Empty);
-        command.Parameters.AddWithValue("$status", profile.Status.ToString());
-        command.Parameters.AddWithValue("$createdUtc", profile.CreatedUtc.ToString("O"));
-        command.Parameters.AddWithValue("$updatedUtc", profile.UpdatedUtc.ToString("O"));
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
-    public async Task DeleteLocationProfileAsync(string id, CancellationToken cancellationToken = default)
-    {
-        Require(id, "Location profile id");
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-        await using (var references = connection.CreateCommand())
-        {
-            references.Transaction = transaction;
-            references.CommandText = "DELETE FROM ReferenceBootstrapLocationReferences WHERE ProfileId = $profileId;";
-            references.Parameters.AddWithValue("$profileId", id.Trim());
-            await references.ExecuteNonQueryAsync(cancellationToken);
-        }
-        await using var profile = connection.CreateCommand();
-        profile.Transaction = transaction;
-        profile.CommandText = "DELETE FROM ReferenceBootstrapLocationProfiles WHERE Id = $id;";
-        profile.Parameters.AddWithValue("$id", id.Trim());
-        await profile.ExecuteNonQueryAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-    }
-
-    public async Task<ReferenceBootstrapLocationReference?> GetLocationReferenceAsync(string id, CancellationToken cancellationToken = default)
-    {
-        Require(id, "Location reference id");
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProfileId, OrderedIndex, AssetId, CreatedUtc FROM ReferenceBootstrapLocationReferences WHERE Id = $id;";
-        command.Parameters.AddWithValue("$id", id.Trim());
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken) ? ReadLocationReference(reader) : null;
-    }
-
-    public async Task<IReadOnlyList<ReferenceBootstrapLocationReference>> ListLocationReferencesAsync(string profileId, CancellationToken cancellationToken = default)
-    {
-        Require(profileId, "Location profile id");
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, ProfileId, OrderedIndex, AssetId, CreatedUtc FROM ReferenceBootstrapLocationReferences WHERE ProfileId = $profileId ORDER BY OrderedIndex, Id;";
-        command.Parameters.AddWithValue("$profileId", profileId.Trim());
-        var references = new List<ReferenceBootstrapLocationReference>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken)) references.Add(ReadLocationReference(reader));
-        return references;
-    }
-
-    public async Task UpsertLocationReferenceAsync(ReferenceBootstrapLocationReference reference, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(reference);
-        Require(reference.Id, "Location reference id");
-        Require(reference.ProfileId, "Location profile id");
-        Require(reference.AssetId, "Location reference asset id");
-        if (reference.OrderedIndex < 0) throw new InvalidOperationException("Location reference ordered index cannot be negative.");
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO ReferenceBootstrapLocationReferences (Id, ProfileId, OrderedIndex, AssetId, CreatedUtc)
-            VALUES ($id, $profileId, $orderedIndex, $assetId, $createdUtc)
-            ON CONFLICT(Id) DO UPDATE SET ProfileId = excluded.ProfileId,
-                OrderedIndex = excluded.OrderedIndex, AssetId = excluded.AssetId;
-            """;
-        command.Parameters.AddWithValue("$id", reference.Id.Trim());
-        command.Parameters.AddWithValue("$profileId", reference.ProfileId.Trim());
-        command.Parameters.AddWithValue("$orderedIndex", reference.OrderedIndex);
-        command.Parameters.AddWithValue("$assetId", reference.AssetId.Trim());
-        command.Parameters.AddWithValue("$createdUtc", reference.CreatedUtc.ToString("O"));
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
-    public async Task DeleteLocationReferenceAsync(string id, CancellationToken cancellationToken = default)
-    {
-        Require(id, "Location reference id");
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM ReferenceBootstrapLocationReferences WHERE Id = $id;";
         command.Parameters.AddWithValue("$id", id.Trim());
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -271,34 +148,18 @@ public sealed class ReferenceBootstrapRepository : IReferenceBootstrapRepository
         Id = reader.GetString(0),
         CharacterProfileId = reader.IsDBNull(1) ? null : reader.GetString(1),
         TargetAssetType = reader.IsDBNull(2) ? null : ParseEnum<SceneAssetType>(reader.GetString(2), reader.GetString(0)),
-        LocationProfileId = reader.IsDBNull(3) ? null : reader.GetString(3),
-        Description = reader.GetString(4),
-        FrozenTextBlock = reader.IsDBNull(5) ? null : reader.GetString(5),
-        RequestedCandidateCount = reader.GetInt32(6),
-        Status = ParseEnum<ReferenceBootstrapBatchStatus>(reader.GetString(7), reader.GetString(0)),
-        CreatedUtc = ParseUtc(reader.GetString(8), reader.GetString(0)),
-        UpdatedUtc = ParseUtc(reader.GetString(9), reader.GetString(0))
-    };
-
-    private static ReferenceBootstrapLocationProfile ReadLocationProfile(SqliteDataReader reader) => new()
-    {
-        Id = reader.GetString(0), Name = reader.GetString(1), Description = reader.GetString(2),
-        Status = ParseEnum<ReferenceBootstrapLocationProfileStatus>(reader.GetString(3), reader.GetString(0)),
-        CreatedUtc = ParseUtc(reader.GetString(4), reader.GetString(0)), UpdatedUtc = ParseUtc(reader.GetString(5), reader.GetString(0))
-    };
-
-    private static ReferenceBootstrapLocationReference ReadLocationReference(SqliteDataReader reader) => new()
-    {
-        Id = reader.GetString(0), ProfileId = reader.GetString(1), OrderedIndex = reader.GetInt32(2),
-        AssetId = reader.GetString(3), CreatedUtc = ParseUtc(reader.GetString(4), reader.GetString(0))
+        Description = reader.GetString(3),
+        FrozenTextBlock = reader.IsDBNull(4) ? null : reader.GetString(4),
+        RequestedCandidateCount = reader.GetInt32(5),
+        Status = ParseEnum<ReferenceBootstrapBatchStatus>(reader.GetString(6), reader.GetString(0)),
+        CreatedUtc = ParseUtc(reader.GetString(7), reader.GetString(0)),
+        UpdatedUtc = ParseUtc(reader.GetString(8), reader.GetString(0))
     };
 
     private static void ValidateBatchTarget(ReferenceBootstrapBatch batch)
     {
-        var characterTarget = !string.IsNullOrWhiteSpace(batch.CharacterProfileId) || batch.TargetAssetType is not null;
-        var locationTarget = !string.IsNullOrWhiteSpace(batch.LocationProfileId);
-        if (characterTarget == locationTarget || (characterTarget && (string.IsNullOrWhiteSpace(batch.CharacterProfileId) || batch.TargetAssetType is null)))
-            throw new InvalidOperationException("A batch must target either a character profile and asset type or a location profile.");
+        if (string.IsNullOrWhiteSpace(batch.CharacterProfileId) || batch.TargetAssetType is null)
+            throw new InvalidOperationException("A batch must target a character profile and an asset type.");
     }
 
     private static TEnum ParseEnum<TEnum>(string value, string id) where TEnum : struct, Enum =>

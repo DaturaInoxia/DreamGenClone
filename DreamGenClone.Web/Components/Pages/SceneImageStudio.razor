@@ -34,6 +34,8 @@
 @inject IModelResolutionService ModelResolutionService
 @inject StoryAnalysisFacade StoryAnalysis
 @inject IScenarioService ScenarioService
+@inject ISceneMomentLocationService LocationService
+@inject ISceneAssetService AssetService
 @inject WorkspaceSettingsState WorkspaceSettings
 @inject RolePlayDebugEventService DebugEventService
 @inject SceneImageTurnResolver TurnResolver
@@ -944,17 +946,137 @@
                                 </aside>
                                 <section class="scene-production-main" aria-label="Production canvas">
                                     <div class="scene-production-stage-stepper" role="tablist" aria-label="Production stages">
-                                        <button type="button" role="tab" tabindex="@StageTabIndex(SceneImageProductionStage.Composition)" aria-selected="@(_activeProductionStage == SceneImageProductionStage.Composition)" class="@StageTabClass(SceneImageProductionStage.Composition)" @onkeydown="eventArgs => HandleProductionStageKeyDown(eventArgs, SceneImageProductionStage.Composition)" @onclick="() => SelectProductionStageIfAvailable(SceneImageProductionStage.Composition)">
-                                            <strong>1</strong> Composition <span class="scene-production-stage-state">@StageState(SceneImageProductionStage.Composition)</span>@if (_activeProductionStage == SceneImageProductionStage.Composition) { <span class="visually-hidden">current stage</span> }
+                                        <button type="button" role="tab" tabindex="@LocationStageTabIndex()" aria-selected="@(_locationStageSelected)" class="@LocationStageTabClass()" @onkeydown="eventArgs => HandleLocationStageKeyDown(eventArgs)" @onclick="() => SelectLocationStageAsync()">
+                                            <strong>0</strong> Location <span class="scene-production-stage-state">@LocationStageState()</span>@if (_locationStageSelected) { <span class="visually-hidden">current stage</span> }
                                         </button>
-                                        <button type="button" role="tab" tabindex="@StageTabIndex(SceneImageProductionStage.Identity)" aria-selected="@(_activeProductionStage == SceneImageProductionStage.Identity)" class="@StageTabClass(SceneImageProductionStage.Identity)" @onkeydown="eventArgs => HandleProductionStageKeyDown(eventArgs, SceneImageProductionStage.Identity)" @onclick="() => SelectProductionStageIfAvailable(SceneImageProductionStage.Identity)">
+                                        <button type="button" role="tab" tabindex="@StageTabIndex(SceneImageProductionStage.Composition)" aria-selected="@(!_locationStageSelected && _activeProductionStage == SceneImageProductionStage.Composition)" class="@StageTabClass(SceneImageProductionStage.Composition)" @onkeydown="eventArgs => HandleProductionStageKeyDown(eventArgs, SceneImageProductionStage.Composition)" @onclick="() => SelectProductionStageIfAvailable(SceneImageProductionStage.Composition)">
+                                            <strong>1</strong> Composition <span class="scene-production-stage-state">@StageState(SceneImageProductionStage.Composition)</span>@if (_activeProductionStage == SceneImageProductionStage.Composition && !_locationStageSelected) { <span class="visually-hidden">current stage</span> }
+                                        </button>
+                                        <button type="button" role="tab" tabindex="@StageTabIndex(SceneImageProductionStage.Identity)" aria-selected="@(!_locationStageSelected && _activeProductionStage == SceneImageProductionStage.Identity)" class="@StageTabClass(SceneImageProductionStage.Identity)" @onkeydown="eventArgs => HandleProductionStageKeyDown(eventArgs, SceneImageProductionStage.Identity)" @onclick="() => SelectProductionStageIfAvailable(SceneImageProductionStage.Identity)">
                                             <strong>2</strong> Identity <span class="scene-production-stage-state">@StageState(SceneImageProductionStage.Identity)</span>
                                         </button>
-                                        <button type="button" role="tab" tabindex="@StageTabIndex(SceneImageProductionStage.Finish)" aria-selected="@(_activeProductionStage == SceneImageProductionStage.Finish)" class="@StageTabClass(SceneImageProductionStage.Finish)" @onkeydown="eventArgs => HandleProductionStageKeyDown(eventArgs, SceneImageProductionStage.Finish)" @onclick="() => SelectProductionStageIfAvailable(SceneImageProductionStage.Finish)">
+                                        <button type="button" role="tab" tabindex="@StageTabIndex(SceneImageProductionStage.Finish)" aria-selected="@(!_locationStageSelected && _activeProductionStage == SceneImageProductionStage.Finish)" class="@StageTabClass(SceneImageProductionStage.Finish)" @onkeydown="eventArgs => HandleProductionStageKeyDown(eventArgs, SceneImageProductionStage.Finish)" @onclick="() => SelectProductionStageIfAvailable(SceneImageProductionStage.Finish)">
                                             <strong>3</strong> Finish <span class="scene-production-stage-state">@StageState(SceneImageProductionStage.Finish)</span>
                                         </button>
                                     </div>
 
+                                    @if (_locationStageSelected)
+                                    {
+                                        <div class="scene-production-location-stage mt-3" role="tabpanel" aria-label="Location stage">
+                                            <div class="border rounded p-3">
+                                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                                    <div>
+                                                        <span class="fw-semibold">Location</span>
+                                                        <span class="text-muted small ms-2">@_productionPov POV · @LocationBackdropLabel()</span>
+                                                    </div>
+                                                    <span class="text-muted small">shared across this moment's POVs</span>
+                                                </div>
+                                                @if (!string.IsNullOrWhiteSpace(_locationStageError))
+                                                {
+                                                    <div class="alert alert-danger py-2 small">@_locationStageError</div>
+                                                }
+                                                @if (_locationStageBusy)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-2"></span><span class="small text-muted">Loading locations…</span>
+                                                }
+                                                else
+                                                {
+                                                    @if (_locationSuggestion is { Matched: true })
+                                                    {
+                                                        <div class="mb-3" aria-label="Location suggestion">
+                                                            <div class="small text-muted mb-1">Suggestion · @_locationSuggestion.MatchReason</div>
+                                                            <div class="d-flex gap-3 align-items-start">
+                                                                @if (_locationSuggestion.SpotImage is { FileRelativePath: not null } spot)
+                                                                {
+                                                                    <img src="/scene-images/@spot.FileRelativePath" class="border rounded" style="width:180px;height:120px;object-fit:cover;background:#101010;" alt="Suggested location spot" />
+                                                                }
+                                                                else if (_locationSuggestion.Container is not null)
+                                                                {
+                                                                    <div class="border rounded d-flex align-items-center justify-content-center text-muted" style="width:180px;height:120px;">@_locationSuggestion.Container.Name</div>
+                                                                }
+                                                                <div>
+                                                                    <div class="small text-muted">Sightline (context only): @(_locationSuggestion.SightlineContext ?? "not recorded")</div>
+                                                                    @if (_locationSuggestion.SpotImage is not null)
+                                                                    {
+                                                                        <button type="button" class="btn btn-sm btn-primary mt-2" disabled="@_locationStageBusy" @onclick="() => BindBackdropAsync(_locationSuggestion.SpotImage.Id)">Use as backdrop</button>
+                                                                    }
+                                                                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2 ms-1" @onclick="DismissLocationSuggestion">Dismiss</button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                    else if (_locationSuggestion is not null)
+                                                    {
+                                                        <div class="small text-muted mb-3">@_locationSuggestion.MatchReason</div>
+                                                    }
+
+                                                    <div class="mb-2">
+                                                        <label class="form-label small mb-1" for="location-search">Search locations</label>
+                                                        <CommittedTextInput id="location-search" type="search" class="form-control form-control-sm"
+                                                                            Live="@_locationSearchText" LiveChanged="args => _locationSearchText = args ?? string.Empty"
+                                                                            placeholder="Filter by container or image name" />
+                                                    </div>
+                                                    @if (_locationSearchCards.Count == 0)
+                                                    {
+                                                        <div class="small text-muted">No locations yet — create one from this moment.</div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="d-flex flex-wrap gap-2" aria-label="Location search results">
+                                                            @foreach (var card in _locationSearchCards)
+                                                            {
+                                                                <div class="card" style="width:200px;">
+                                                                    @if (card.Image is { FileRelativePath: not null } image)
+                                                                    {
+                                                                        <img src="/scene-images/@image.FileRelativePath" class="card-img-top" style="height:110px;object-fit:cover;background:#101010;" alt="@card.ImageName" />
+                                                                    }
+                                                                    <div class="card-body p-2 small">
+                                                                        <div class="text-truncate fw-semibold" title="@card.ImageName">@card.ImageName</div>
+                                                                        <div class="text-muted text-truncate" title="@card.ContainerName">@card.ContainerName</div>
+                                                                        @if (card.Selectable)
+                                                                        {
+                                                                            <button type="button" class="btn btn-sm btn-primary py-0 mt-1" disabled="@_locationStageBusy" @onclick="() => BindBackdropAsync(card.ImageId)">Bind</button>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <div class="text-muted mt-1">@card.Reason</div>
+                                                                            <a class="small" href="/locations/@card.ContainerId">Finish in Location Studio</a>
+                                                                        }
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
+
+                                                    <div class="d-flex flex-wrap gap-2 mt-3">
+                                                        <button type="button" class="btn btn-primary btn-sm" disabled="@_locationStageBusy" @onclick="CreateLocationFromMomentAsync"><i class="bi bi-plus-lg me-1"></i>Create location from this moment</button>
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@_locationStageBusy" @onclick="SkipLocationAsync">Skip — text-only location</button>
+                                                    </div>
+                                                    @* What the new container will be described with, and what was deliberately left
+                                                       OUT of it: a location is the place, so the cast and what they wear belong to
+                                                       the scene. Nothing is dropped silently. *@
+                                                    @if (_locationSeedNotes is { } seedNotes)
+                                                    {
+                                                        <div class="border rounded p-2 mt-3 small" aria-label="Place description preview">
+                                                            <div class="fw-semibold">Place description for the new container</div>
+                                                            <pre class="mb-1 small text-muted" style="white-space:pre-wrap;">@seedNotes.Description</pre>
+                                                            @if (seedNotes.WornObjectsRemoved.Count > 0)
+                                                            {
+                                                                <div class="text-muted">Left out (worn by a character): @string.Join(", ", seedNotes.WornObjectsRemoved)</div>
+                                                            }
+                                                            @if (seedNotes.CharacterNamesRemoved.Count > 0)
+                                                            {
+                                                                <div class="text-muted">Character names removed from the place text: @string.Join(", ", seedNotes.CharacterNamesRemoved)</div>
+                                                            }
+                                                        </div>
+                                                    }
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+
+                                    @if (!_locationStageSelected)
+                                    {
                                     <div class="scene-production-canvas">
                                         @if (_selectedProductionAttempt is null)
                                         {
@@ -1249,6 +1371,7 @@
                                                 </button>
                                             }
                                         </div>
+                                    }
                                     }
                                 </section>
 
@@ -2577,6 +2700,7 @@
 
     private void SelectProductionStage(SceneImageProductionStage stage)
     {
+        _locationStageSelected = false;
         _activeProductionStage = stage;
         _selectedParentAttemptId = _selectedProductionAttemptId;
     }
@@ -2832,6 +2956,254 @@
             : "Finish is locked until a completed Identity attempt exists or identity is explicitly skipped.",
         _ => string.Empty
     };
+
+    // ---- Location stage (B-148) ----
+
+    private sealed class LocationSearchCard
+    {
+        public string ContainerId { get; init; } = string.Empty;
+        public string ContainerName { get; init; } = string.Empty;
+        public string ImageId { get; init; } = string.Empty;
+        public string ImageName { get; init; } = string.Empty;
+        public SceneAssetImage? Image { get; init; }
+        public bool Selectable { get; init; }
+        public string Reason { get; init; } = string.Empty;
+    }
+
+    private bool _locationStageSelected;
+    private bool _locationStageBusy;
+    private string? _locationStageError;
+    private SceneMomentLocationSuggestion? _locationSuggestion;
+    private SceneMomentPlaceSeed? _locationSeedNotes;
+    private string _locationSearchText = string.Empty;
+    private List<SceneAsset> _locationContainers = [];
+    private Dictionary<string, List<SceneAssetImage>> _locationImagesByAsset = new(StringComparer.Ordinal);
+
+    private SceneImageLocationBackdrop? BoundLocationBackdrop
+        => _productionGroup is null || string.IsNullOrWhiteSpace(_productionGroup.LocationBackdropJson)
+            ? null
+            : JsonSerializer.Deserialize<SceneImageLocationBackdrop>(_productionGroup.LocationBackdropJson, JsonOptions);
+
+    private string LocationBackdropLabel()
+    {
+        var backdrop = BoundLocationBackdrop;
+        return backdrop is null ? "Not set — text only" : $"backdrop: {backdrop.Label}";
+    }
+
+    private string LocationStageState()
+        => BoundLocationBackdrop is { } backdrop
+            ? $"Complete (bound: {backdrop.Label})"
+            : "Not set — text only";
+
+    private int LocationStageTabIndex() => _locationStageSelected ? 0 : -1;
+
+    private string LocationStageTabClass()
+    {
+        var classes = new List<string>();
+        if (_locationStageSelected)
+            classes.Add("is-current");
+        if (BoundLocationBackdrop is not null)
+            classes.Add("is-complete");
+        return string.Join(' ', classes);
+    }
+
+    private IReadOnlyList<LocationSearchCard> _locationSearchCards => BuildLocationSearchCards();
+
+    private IReadOnlyList<LocationSearchCard> BuildLocationSearchCards()
+    {
+        var cards = new List<LocationSearchCard>();
+        var query = _locationSearchText?.Trim();
+        foreach (var container in _locationContainers)
+        {
+            _locationImagesByAsset.TryGetValue(container.Id, out var images);
+            foreach (var image in images ?? [])
+            {
+                var named = !string.IsNullOrWhiteSpace(image.DisplayName);
+                var approved = image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved;
+                var matches = string.IsNullOrWhiteSpace(query)
+                    || container.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || (named && image.DisplayName!.Contains(query, StringComparison.OrdinalIgnoreCase));
+
+                if (!matches)
+                    continue;
+
+                cards.Add(new LocationSearchCard
+                {
+                    ContainerId = container.Id,
+                    ContainerName = container.Name,
+                    ImageId = image.Id,
+                    ImageName = named ? image.DisplayName! : image.Id,
+                    Image = image,
+                    Selectable = named && approved,
+                    Reason = !named ? "needs a name" : "not approved"
+                });
+            }
+        }
+
+        return cards;
+    }
+
+    private async Task SelectLocationStageAsync()
+    {
+        _locationStageSelected = true;
+        await LoadLocationStageAsync();
+    }
+
+    private async Task LoadLocationStageAsync()
+    {
+        if (!IsSelectedMomentEnriched || _productionFrozenState is null)
+            return;
+
+        _locationStageBusy = true;
+        _locationStageError = null;
+        try
+        {
+            _locationSeedNotes = SceneMomentPlaceSeedBuilder.Build(_productionFrozenState);
+            var scenario = _session is not null && !string.IsNullOrWhiteSpace(_session.ScenarioId)
+                ? await ScenarioService.GetScenarioAsync(_session.ScenarioId)
+                : null;
+            _locationSuggestion = scenario is not null
+                ? await LocationService.ResolveSuggestionAsync(_productionFrozenState, scenario)
+                : null;
+
+            _locationContainers = (await AssetService.ListAssetsAsync())
+                .Where(asset => asset.Type == SceneAssetType.Location)
+                .OrderBy(asset => asset.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            _locationImagesByAsset.Clear();
+            foreach (var container in _locationContainers)
+            {
+                _locationImagesByAsset[container.Id] =
+                    (await AssetService.ListImagesAsync(container.Id)).ToList();
+            }
+        }
+        catch (Exception exception)
+        {
+            _locationStageError = exception.Message;
+        }
+        finally
+        {
+            _locationStageBusy = false;
+        }
+    }
+
+    private async Task BindBackdropAsync(string imageId)
+    {
+        if (_productionGroup is null)
+            return;
+
+        _locationStageBusy = true;
+        _locationStageError = null;
+        try
+        {
+            await LocationService.BindBackdropAsync(_productionGroup.Id, imageId);
+            await LoadProductionGroupAsync();
+            await LoadLocationStageAsync();
+        }
+        catch (Exception exception)
+        {
+            _locationStageError = exception.Message;
+        }
+        finally
+        {
+            _locationStageBusy = false;
+        }
+    }
+
+    private void DismissLocationSuggestion() => _locationSuggestion = null;
+
+    private async Task SkipLocationAsync()
+    {
+        if (_productionGroup is null)
+            return;
+
+        _locationStageBusy = true;
+        _locationStageError = null;
+        try
+        {
+            await LocationService.ClearBackdropAsync(_productionGroup.Id);
+            await LoadProductionGroupAsync();
+            await LoadLocationStageAsync();
+        }
+        catch (Exception exception)
+        {
+            _locationStageError = exception.Message;
+        }
+        finally
+        {
+            _locationStageBusy = false;
+        }
+    }
+
+    private async Task CreateLocationFromMomentAsync()
+    {
+        if (_productionFrozenState is null)
+            return;
+
+        _locationStageBusy = true;
+        _locationStageError = null;
+        try
+        {
+            var scenario = _session is not null && !string.IsNullOrWhiteSpace(_session.ScenarioId)
+                ? await ScenarioService.GetScenarioAsync(_session.ScenarioId)
+                : null;
+            if (scenario is null)
+                throw new InvalidOperationException("This session has no scenario, so the moment's place cannot be placed in a container hierarchy.");
+
+            // The scenario owns the world container and every scenario-location container; production creates only the
+            // SPOT container underneath the resolved one, which is why it knows exactly where the new container goes.
+            var chain = await LocationService.ResolveContainerChainAsync(scenario, _locationSuggestion);
+            var parent = chain.LocationContainer ?? chain.WorldContainer;
+            var name = !string.IsNullOrWhiteSpace(chain.SpotSuggestion)
+                ? chain.SpotSuggestion!.Trim()
+                : chain.LocationContainer?.Name ?? chain.WorldContainer.Name;
+            var seed = _locationSeedNotes ?? SceneMomentPlaceSeedBuilder.Build(_productionFrozenState);
+            var asset = await AssetService.CreateLocationContainerAsync(
+                name, seed.Description, scenario.Id, chain.LocationContainer?.ScenarioLocationId, parent.Id);
+
+            Nav.NavigateTo($"/locations/{asset.Id}?return={Uri.EscapeDataString(RolePlayStudioReturnUrl)}");
+        }
+        catch (Exception exception)
+        {
+            _locationStageError = exception.Message;
+        }
+        finally
+        {
+            _locationStageBusy = false;
+        }
+    }
+
+    private void HandleLocationStageKeyDown(KeyboardEventArgs args)
+    {
+        var stages = new[] { "Location", "Composition", "Identity", "Finish" };
+        var currentIndex = 0;
+        var nextIndex = args.Key switch
+        {
+            "ArrowRight" or "ArrowDown" => 1,
+            "ArrowLeft" or "ArrowUp" => stages.Length - 1,
+            "End" => stages.Length - 1,
+            "Home" => 0,
+            _ => -1
+        };
+        if (nextIndex < 0)
+            return;
+
+        if (nextIndex == 0)
+        {
+            _locationStageSelected = true;
+            return;
+        }
+
+        var stage = nextIndex switch
+        {
+            1 => SceneImageProductionStage.Composition,
+            2 => SceneImageProductionStage.Identity,
+            _ => SceneImageProductionStage.Finish
+        };
+        if (IsStageAvailable(stage))
+            SelectProductionStage(stage);
+    }
 
     private void ToggleStoryArc() => _storyArcOpen = !_storyArcOpen;
 
@@ -3644,6 +4016,8 @@
         _productionPov = null;
         _productionIdentityReadiness = [];
         _productionIdentityReadinessError = null;
+        _locationStageSelected = false;
+        _locationSuggestion = null;
         _activeProductionStage = SceneImageProductionStage.Composition;
         _selectedParentAttemptId = null;
         _compareAttemptIds.Clear();

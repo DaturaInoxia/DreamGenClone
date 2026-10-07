@@ -197,6 +197,17 @@ public sealed class CharacterLoraCoveragePlanGenerator : ICharacterLoraCoverageP
         }
 
         var policy = await _datasets.ResolveCurationPolicyAsync(request.CharacterProfileId, cancellationToken);
+
+        // The far aspect is the one policy member a STORED policy may predate (the workspace reads such a policy
+        // rather than refusing to open the tab). Generation still requires it: a far cell shot at a size nobody
+        // chose is not a far test, and the rung cannot be skipped because the matrix carries them.
+        if (Matrix.Any(axis => axis.Far > 0) && string.IsNullOrWhiteSpace(policy.FarAspect))
+        {
+            throw new InvalidOperationException(
+                "The curation policy names no far aspect (farAspect), so its far cells cannot be sized. Set the "
+                + "policy's far aspect before generating a plan; no render size is assumed in code.");
+        }
+
         var expectedTotal = policy.ExpectedCoreCellCount + policy.ExpectedVariationCellCount;
         if (expectedTotal > policy.SeedRangeLength)
         {

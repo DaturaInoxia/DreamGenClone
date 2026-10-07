@@ -348,6 +348,78 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
         return image;
     }
 
+    /// <summary>
+    /// Queues a multi-angle CAMERA edit pass of an existing asset image into a new derived image: orbit the source
+    /// subject to a picked azimuth/elevation/distance. The instruction is assembled deterministically from the editor
+    /// LoRA's <c>&lt;sks&gt;</c> grammar, and the pose plus its instruction checksum travel with the queued row so the run
+    /// re-derives and proves the same text.
+    /// </summary>
+    public async Task<SceneAssetImage> EnqueueMultiAngleEditAsync(
+        EnqueueSceneAssetImageMultiAngleEditRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (string.IsNullOrWhiteSpace(request.EditorModelId))
+        {
+            throw new InvalidOperationException("A multi-angle edit requires the editor model chosen in the editor form.");
+        }
+
+        var source = await RequireSourceAsync(request.AssetId, request.SourceImageId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(source.Sha256))
+        {
+            throw new InvalidOperationException("The source asset image has no stored checksum.");
+        }
+
+        var resolvedEditorModel = await _editorModels.ResolveByIdAsync(request.EditorModelId.Trim(), cancellationToken);
+        if (resolvedEditorModel.LoraCapability != ImageEditorLoraCapability.MultiAngleCamera)
+        {
+            throw new InvalidOperationException(
+                $"Editor model '{resolvedEditorModel.ModelIdentifier}' does not declare the multi-angle camera LoRA capability. "
+                + "Set 'Editor LoRA Capability' to Multi-Angle Camera in Model Manager (/model-manager).");
+        }
+
+        var instruction = MultiAngleCameraInstructionComposer.Compose(request.Azimuth, request.Elevation, request.Distance);
+        var pose = new MediaEditMultiAngleInstruction(
+            request.Azimuth, request.Elevation, request.Distance, MediaEditMultiAngleProvenance.InstructionSha256(instruction));
+        MediaEditMultiAngleProvenance.Validate(pose);
+
+        var provenance = JsonSerializer.Serialize(new
+        {
+            operation = MediaEditProvenance.EditValue,
+            sourceImageSha256 = source.Sha256,
+            multiAngleInstruction = pose
+        }, JsonOptions);
+
+        // The source's own batch by default: an orbit of an attempt belongs beside that attempt.
+        var candidateBatchId = string.IsNullOrWhiteSpace(request.CandidateBatchId)
+            ? (string.IsNullOrWhiteSpace(source.CandidateBatchId) ? null : source.CandidateBatchId.Trim())
+            : request.CandidateBatchId.Trim();
+
+        var image = new SceneAssetImage
+        {
+            AssetId = source.AssetId,
+            Kind = SceneAssetKind.Edited,
+            Status = SceneAssetStatus.Pending,
+            Prompt = instruction,
+            SourceImageId = source.Id,
+            SourceProvenanceJson = provenance,
+            CandidateBatchId = candidateBatchId,
+            CandidateDecision = candidateBatchId is null ? null : SceneAssetCandidateDecision.Undecided
+        };
+        await _assetRepository.UpsertImageAsync(image, cancellationToken);
+
+        var editAttempts = (await _durableSettingsResolver.ResolveAsync(cancellationToken)).RetryDelaysSeconds.Count + 1;
+        await _mediaEdits.EnqueueRunAsync(
+            new MediaEditRunRequest(
+                MediaEditSubjectKind.AssetImage,
+                image.Id,
+                request.EditorModelId.Trim(),
+                editAttempts,
+                Region: request.Region),
+            cancellationToken);
+        return image;
+    }
+
     public async Task<SceneAssetImage> EnqueueIdentityEditAsync(
         EnqueueSceneAssetImageIdentityEditRequest request, CancellationToken cancellationToken = default)
     {

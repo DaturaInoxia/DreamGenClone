@@ -31,6 +31,12 @@ These rules are mandatory for all coding tasks in this repository.
 - If a test fails after a change, the change is not complete: fix the code (or, only with explicit user approval, the test) forward — never via `git restore`/reverting.
 - Pre-existing failing tests must be reported and resolved (fixed or explicitly removed with user approval) rather than silently ignored.
 
+## Hard Rule: Reuse Shared Components — Do Not Invent New UI For What Already Exists
+- Before creating a new Razor component, page, picker, panel, or UI pipeline, SEARCH for an existing shared one and use it.
+- The image composition UI is **exactly one component**: `ImageStepComposer` (`DreamGenClone.Web/Components/Shared/ImageStepComposer.razor`). Every surface that produces an image — Asset Creator/Manager, Studio Composer, LoRA cells, the edit workspace, the pose library, and the Body tab — MUST present its step through it. Do NOT build a bespoke model picker, reference/face/body/pose selector, prompt box, or generate button for image work; express what differs as data via `ImageStepBlueprintFactory`.
+- New surface behaviours belong in `ImageStepBlueprint` / `ImageStepBlueprintFactory` / `ImageStepProfile` (the single place host knowledge lives), never as a second layout or a second pipeline.
+- If a shared component cannot express a surface's need, extend the shared component/factory forward — do not fork a private copy.
+
 ## Hard Rule: No RP Engine Code Changes Without Plan + Confirmation
 - Before ANY code change to RP engine files (`RolePlayEngineService.cs`, `RolePlayContinuationService.cs`, prompt slots, etc.), present: root cause, proposed fix with file list, and blast radius.
 - Wait for explicit "go ahead" or "yes" before touching any code. This applies even when the fix seems obvious.

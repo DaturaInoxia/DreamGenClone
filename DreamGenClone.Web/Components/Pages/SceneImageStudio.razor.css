@@ -149,7 +149,8 @@
 
 .scene-production-main > .scene-production-stage-stepper,
 .scene-production-main > .scene-production-canvas,
-.scene-production-main > .scene-production-stage-controls {
+.scene-production-main > .scene-production-stage-controls,
+.scene-production-main > .scene-production-location-stage {
     grid-column: 2;
 }
 
@@ -163,6 +164,13 @@
 
 .scene-production-main > .scene-production-stage-controls {
     grid-row: 4;
+}
+
+/* B-148: the Location stage stands in for the canvas + stage controls while it is selected, so it occupies
+   their two rows rather than being auto-placed into an implicit row (which the explicit grid never shows). */
+.scene-production-main > .scene-production-location-stage {
+    grid-row: 3 / span 2;
+    min-width: 0;
 }
 
 .scene-production-canvas-actions,
@@ -180,7 +188,7 @@
 
 .scene-production-stage-stepper {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
     margin-bottom: 10px;
 }
@@ -656,6 +664,7 @@
     .scene-production-main > .scene-production-stage-stepper,
     .scene-production-main > .scene-production-canvas,
     .scene-production-main > .scene-production-stage-controls,
+    .scene-production-main > .scene-production-location-stage,
     .scene-production-canvas-actions,
     .scene-production-attempts {
         grid-column: 1;
@@ -665,6 +674,7 @@
     .scene-production-main > .scene-production-stage-stepper,
     .scene-production-main > .scene-production-canvas,
     .scene-production-main > .scene-production-stage-controls,
+    .scene-production-main > .scene-production-location-stage,
     .scene-production-canvas-actions,
     .scene-production-attempts,
     .scene-production-inspector {

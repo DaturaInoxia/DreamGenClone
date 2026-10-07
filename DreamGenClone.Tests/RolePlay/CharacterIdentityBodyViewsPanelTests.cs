@@ -89,47 +89,35 @@ public sealed class CharacterIdentityBodyViewsPanelTests
     }
 
     /// <summary>
-    /// "Reload prompt" must be observably doing something, on three counts (operator report, 2026-09-22: "the reload
-    /// prompt is not doing anything"):
-    ///
-    /// <list type="number">
-    /// <item>It must NOT be gated by the panel's <c>_busy</c> lock. That lock is set by the five-second poll while
-    /// anything is Pending, and reads cannot conflict with a render — so sharing it discarded clicks with no feedback
-    /// at all.</item>
-    /// <item>It must REPORT its outcome, including an unchanged one. A silent no-op and a broken button look the
-    /// same to the operator.</item>
-    /// <item>The textarea must remount, because an uncontrolled input is only updated when its rendered value
-    /// changes — re-resolving the same text would leave a stale edit sitting in the box.</item>
-    /// </list>
+    /// The shared composer's Generate Prompt must run the SAME LLM prompt compiler every other host uses — not a
+    /// bespoke re-read of the deterministic prompt (operator request: "the body prompt is missing the prompt
+    /// compiler"). The deterministic prompt is still resolved once, silently, when a row opens, and either way the
+    /// textarea remounts through <c>BumpPromptRevision</c> so an uncontrolled input always shows the result.
     /// </summary>
     [Fact]
-    public void ReloadPrompt_IsUngated_ReportsItsOutcome_AndReplacesTheBox()
+    public void GeneratePrompt_CompilesThroughTheSharedPromptCompiler_AndReplacesTheBox()
     {
         var panel = Read("DreamGenClone.Web", "Components", "RolePlay", "BodyViewsPanel.razor");
 
-        // 1. The reload button is disabled by ITS OWN in-flight flag, never by the shared lock.
-        Assert.Contains("disabled=\"@IsReloading(keyText)\"", panel, StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "@onclick=\"() => ReloadPromptAsync(key)\" disabled=\"@_busy\"",
-            panel,
-            StringComparison.Ordinal);
+        // The shared step wires its prompt-draft action to this panel's LLM compile.
+        Assert.Contains("OnGeneratePrompt=\"() => GeneratePromptAsync(key)\"", panel, StringComparison.Ordinal);
+        Assert.DoesNotContain("disabled=\"@_busy\"", panel, StringComparison.Ordinal);
 
-        // ...and the resolution itself does not run through the busy-gated RunAsync.
-        Assert.Contains("private async Task ResolvePromptAsync(CharacterIdentityBodyViewKey key, bool announce)", panel, StringComparison.Ordinal);
+        // The compile resolves the canonical body text, the selected model's checkpoint profile and the prompt model,
+        // then runs the shared compiler — the same sequence PromptAssetCreator and the other hosts run.
+        Assert.Contains("private async Task GeneratePromptAsync(CharacterIdentityBodyViewKey key)", panel, StringComparison.Ordinal);
+        Assert.Contains("BodyService.ResolveBodyTextsAsync(CharacterId, key.State)", panel, StringComparison.Ordinal);
+        Assert.Contains("CompilerProfiles.FindByCheckpointAsync(model.ModelIdentifier)", panel, StringComparison.Ordinal);
+        Assert.Contains("ModelResolutionService.ResolveImagePromptModelAsync()", panel, StringComparison.Ordinal);
+        Assert.Contains("PromptCompiler.CompileAsync(new ImageCellCompileInput(", panel, StringComparison.Ordinal);
+
+        // The deterministic prompt is still resolved once, silently, when a row opens.
+        Assert.Contains("private async Task ResolvePromptAsync(CharacterIdentityBodyViewKey key)", panel, StringComparison.Ordinal);
         Assert.Contains("_reloading.Add(keyText)", panel, StringComparison.Ordinal);
-        Assert.Contains("DescribeResolution(previous, prompt, key)", panel, StringComparison.Ordinal);
+        Assert.Contains("ResolvePromptAsync(key)", panel, StringComparison.Ordinal);
 
-        // 2. An unchanged result is reported, and the message says so in words.
-        Assert.Contains("unchanged", panel, StringComparison.Ordinal);
-
-        // 3. The textarea is keyed by the prompt revision, so a reload really replaces its contents.
-        Assert.Contains("PromptRevisionFor(keyText)", panel, StringComparison.Ordinal);
-        Assert.Contains("@key=", panel, StringComparison.Ordinal);
+        // A resolve or compile re-keys the box so its contents are replaced rather than a stale edit staying visible.
         Assert.Contains("BumpPromptRevision(keyText)", panel, StringComparison.Ordinal);
-
-        // Opening a row resolves silently (the row is about to show the prompt); the button announces.
-        Assert.Contains("ResolvePromptAsync(key, announce: false)", panel, StringComparison.Ordinal);
-        Assert.Contains("ResolvePromptAsync(key, announce: true)", panel, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -177,194 +165,58 @@ public sealed class CharacterIdentityBodyViewsPanelTests
     }
 
     /// <summary>
-    /// Identity and pose are MODEL capabilities, so the panel asks before it offers (operator requirement,
-    /// 2026-09-22: "if the model selected does not support it then it does not try or it is not enabled in the UI").
-    ///
-    /// Both switches are drawn only inside an availability check, and both ask the resolver the render path uses — so
-    /// an offered switch is never one the render would refuse. Both also state the reason when they cannot be
-    /// offered, because a silently missing switch is indistinguishable from a forgotten one.
-    ///
-    /// The pose capability is re-checked where the request is BUILT as well: turning the switch on and then changing
-    /// the body view model leaves a stale <c>true</c> behind, and that combination must not reach a render.
+    /// The body view's image composition is the ONE shared step every other surface uses — the composer renders the
+    /// Face, Body and Pose tabs, and the panel maps its bindings onto the body render instead of drawing its own
+    /// identity and pose switches. The back view still takes no face, enforced in the submit path.
     /// </summary>
     [Fact]
-    public void BothConditioningSwitches_AreOfferedOnlyForAModelThatDeclaresTheCapability()
+    public void TheBodyView_ComposesThroughTheSharedImageStep()
     {
         var panel = Read("DreamGenClone.Web", "Components", "RolePlay", "BodyViewsPanel.razor");
 
-        // Identity: offered under its own availability, refused with a stated reason otherwise — and NOT offered on the
-        // BACK view, which shows no face (the render refuses a face reference there too).
-        Assert.Contains("else if (_identityAvailability?.IsAvailable == true)", panel, StringComparison.Ordinal);
-        Assert.Contains("Identity conditioning is unavailable: @unavailable.Reason", panel, StringComparison.Ordinal);
-        Assert.Contains("No identity face reference on the back view", panel, StringComparison.Ordinal);
+        // The shared composer, driven by the shared blueprint factory.
+        Assert.Contains("<ImageStepComposer Blueprint=\"blueprint\"", panel, StringComparison.Ordinal);
+        Assert.Contains("ImageStepBlueprintFactory.ForBodyView(new ImageStepActor(CharacterId, CharacterName))", panel, StringComparison.Ordinal);
 
-        // Pose: exactly the same shape, from the model's own answer — and NOT offered when the model carries identity
-        // as a reference image, because that path has no pose-skeleton input to condition. It is also a BASE-only
-        // control: an angle row's pose IS its committed angle skeleton, so there is no stance to pick there.
-        Assert.Contains(
-            "@if (slot.IsBase && _poseAvailability?.IsAvailable == true && !PoseBlockedByIdentityMechanism)",
-            panel,
-            StringComparison.Ordinal);
-        Assert.Contains("Pose conditioning is unavailable: @poseUnavailable.Reason", panel, StringComparison.Ordinal);
+        // The three slots map onto the body render's three conditionings.
+        Assert.Contains("var face = FaceFromBindings(bindings);", panel, StringComparison.Ordinal);
+        Assert.Contains("var body = BodyFromBindings(bindings);", panel, StringComparison.Ordinal);
+        Assert.Contains("var pose = ImageStepPoseBinding.Resolve(bindings);", panel, StringComparison.Ordinal);
+        Assert.Contains("bodyReference: body", panel, StringComparison.Ordinal);
+        Assert.Contains("posePresetId: pose?.PresetId", panel, StringComparison.Ordinal);
 
-        // The requested conditioning is derived from the capability, not from the switch alone. Identity is offered on
-        // every row EXCEPT the back view (no face), and the stance pose only where a stance is meaningful.
-        Assert.Contains("=> _useIdentity", panel, StringComparison.Ordinal);
-        Assert.Contains("key.View != SceneImageReferenceBodyView.Back", panel, StringComparison.Ordinal);
-        Assert.Contains("=> _poseConditioning && IsBaseKey(key) && _poseAvailability?.IsAvailable == true", panel, StringComparison.Ordinal);
-
-        // Both answers are refreshed with the panel: changing the model changes the answer.
-        Assert.Contains("await RefreshConditioningAvailabilityAsync();", panel, StringComparison.Ordinal);
-        Assert.Contains("ResolveIdentityAvailabilityAsync(BuildId)", panel, StringComparison.Ordinal);
-        Assert.Contains("ResolvePoseAvailabilityAsync(BuildId)", panel, StringComparison.Ordinal);
+        // The back view still takes no face reference.
+        Assert.Contains("useIdentity: face is not null && key.View != SceneImageReferenceBodyView.Back", panel, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Operator request 2026-09-23: "it should allow for identity as reference images". A model can carry identity
-    /// WITHOUT a configured mechanism, by taking the approved face as a reference IMAGE (Qwen-Image-2.1 declares
-    /// NativeMultiReference and no IdentityMechanism at all).
-    ///
-    /// That changes three things in the panel, and all are source-level contracts because the alternative is an
-    /// offered control the render refuses:
-    ///
-    /// <list type="number">
-    /// <item>The switch says WHICH mechanism is in play, taken from the strategy the render will use.</item>
-    /// <item>Pose and identity compose whenever both travel the SAME way. On the reference-image route the skeleton
-    /// is simply another reference image in the same call, so the switch is offered; the switch is withheld only
-    /// for the genuinely impossible mix — identity as a reference image while the pose needs its own ControlNet
-    /// graph — and the submit path refuses that mix, because a stale switch survives a model change and that click
-    /// must not look like "nothing happened".</item>
-    /// <item>A pose the model cannot carry is refused, not dropped. The request builder still does NOT discard the
-    /// pose; it either carries it or the submit stops with the resolver's own reason.</item>
-    /// </list>
+    /// The body render conditions identity and body from the character's approved pack, so the shared step's Face and
+    /// Body slots read those pack fields — never an approved scene asset, which the render cannot honour.
     /// </summary>
     [Fact]
-    public void NativeReferenceIdentity_NamesItsMechanism_AndWithholdsPoseWhileItIsOn()
+    public void TheFaceAndBodySlots_ReadFromTheApprovedPack()
     {
         var panel = Read("DreamGenClone.Web", "Components", "RolePlay", "BodyViewsPanel.razor");
 
-        // The mechanism is read from the availability answer, i.e. the strategy the render path resolved — not
-        // re-derived here from the model's mechanism field, which is empty for a native-reference model.
-        Assert.Contains("private bool NativeReferenceIdentity", panel, StringComparison.Ordinal);
-        Assert.Contains("_identityAvailability?.Strategy", panel, StringComparison.Ordinal);
-        Assert.Contains("ReferenceStrategyResolver.IdentityNativeMultiReference", panel, StringComparison.Ordinal);
-        Assert.Contains("@IdentityMechanismExplanation", panel, StringComparison.Ordinal);
-
-        // ONE conflict decision, used by the switch and by the submit guard, so they cannot disagree. The mix that
-        // genuinely cannot compose is identity-as-reference-image PLUS pose-through-ControlNet: the two mechanisms
-        // disagree, and only then is the pose withheld.
-        Assert.Contains("private bool NativeReferencePose", panel, StringComparison.Ordinal);
-        Assert.Contains(
-            "private bool PoseBlockedByIdentityMechanism => NativeReferenceIdentity && !NativeReferencePose && _useIdentity;",
-            panel,
-            StringComparison.Ordinal);
-        Assert.Contains("if (PoseBlockedByIdentityMechanism && _poseConditioning)", panel, StringComparison.Ordinal);
-        Assert.Contains("cannot be combined with identity on this model", panel, StringComparison.Ordinal);
-
-        // The stance controls follow the switch: a hidden switch must not leave its controls behind — and they are a
-        // BASE control only, because an angle row's pose is its own committed skeleton and has no stance to choose.
-        Assert.Contains("@if (slot.IsBase && _poseConditioning && !PoseBlockedByIdentityMechanism)", panel, StringComparison.Ordinal);
-
-        // No silent drop: the request builder is NOT taught to discard the pose — the submit path refuses instead.
-        Assert.Contains(
-            "=> _poseConditioning && IsBaseKey(key) && _poseAvailability?.IsAvailable == true",
-            panel,
-            StringComparison.Ordinal);
-
-        // A pose asked for on a model that cannot carry one stops the submit and states the reason, because PoseFor
-        // would otherwise return null and the render would report success with the skeleton never sent.
-        Assert.Contains("private bool PoseRequestedButNotCarried", panel, StringComparison.Ordinal);
-        Assert.Contains("if (PoseRequestedButNotCarried(key))", panel, StringComparison.Ordinal);
-        Assert.Contains("The pose was NOT applied, so nothing was submitted.", panel, StringComparison.Ordinal);
+        Assert.Contains("private ReferenceApplicationSelection? FaceFromBindings", panel, StringComparison.Ordinal);
+        Assert.Contains("!string.IsNullOrWhiteSpace(binding.IdentityPackId)", panel, StringComparison.Ordinal);
+        Assert.Contains("private SceneAssetBodyReferenceConditioning? BodyFromBindings", panel, StringComparison.Ordinal);
+        Assert.Contains("new SceneAssetBodyReferenceConditioning(body.IdentityPackId!, body.ReferenceAssetId ?? string.Empty)", panel, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// The ControlNet strength box belongs to the ControlNet route only. On a model that carries the skeleton as a
-    /// reference image there is no adapter to weight, so the box is replaced by a sentence saying so rather than shown
-    /// as an input that would do nothing.
+    /// The body view model and its choices are the panel's shared settings, threaded into the common step so its model
+    /// picker reflects the same value every body view uses.
     /// </summary>
     [Fact]
-    public void ThePoseStrength_IsShownOnlyWhenTheRouteHasAStrengthToSet()
+    public void TheSharedStep_ThreadsTheBodyModelAndSettings()
     {
         var panel = Read("DreamGenClone.Web", "Components", "RolePlay", "BodyViewsPanel.razor");
 
-        Assert.Contains("@if (_poseAvailability?.DefaultStrength is not null)", panel, StringComparison.Ordinal);
-        Assert.Contains(
-            "No strength to set: this model carries the skeleton as a reference image",
-            panel,
-            StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// The capability answer must not outlive the settings it was computed for (operator report, 2026-09-22: "the
-    /// identity and pose options are gone now i do not see them" — after switching the body view model to Juggernaut,
-    /// which declares BOTH capabilities, the panel still showed the previous model's "unavailable" reasons).
-    ///
-    /// The answer is cached in fields, and a field does not notice a setting saved beside it. Two things invalidate it:
-    ///
-    /// <list type="number">
-    /// <item>A different MODEL — because the answer is about that model.</item>
-    /// <item>A SAVE of the settings — because the model dropdown is two-way bound, so the model id changes BEFORE the
-    /// save persists. Keying on the model alone therefore re-asks against the OLD settings and never re-asks after the
-    /// save, which is exactly the observed behaviour. The save is the event that changes the persisted value, so the
-    /// studio bumps a revision and the panel keys on that too.</item>
-    /// </list>
-    ///
-    /// Refresh views remains the operator's own unconditional control.
-    /// </summary>
-    [Fact]
-    public void TheCapabilityAnswer_DoesNotOutliveTheSettingsItWasComputedFor()
-    {
-        var panel = Read("DreamGenClone.Web", "Components", "RolePlay", "BodyViewsPanel.razor");
-        var studio = Read("DreamGenClone.Web", "Components", "Pages", "CharacterStudio.razor");
-
-        // 1+2. The cache is keyed to the model AND the save revision, and a new key re-asks.
-        Assert.Contains("private string _availabilityModelKey = string.Empty;", panel, StringComparison.Ordinal);
-        Assert.Contains("var key = $\"{modelId}|{SettingsRevision}\";", panel, StringComparison.Ordinal);
-        Assert.Contains("_availabilityModelKey = key;", panel, StringComparison.Ordinal);
-        Assert.Contains("if (!force && string.Equals(_availabilityModelKey, key, StringComparison.Ordinal))", panel, StringComparison.Ordinal);
-        Assert.Contains("private async Task RefreshConditioningAvailabilityAsync(bool force = false)", panel, StringComparison.Ordinal);
-        Assert.Contains("public int SettingsRevision { get; set; }", panel, StringComparison.Ordinal);
-
-        // The studio increments the revision on a SUCCESSFUL save and passes it down.
-        Assert.Contains("_bodyViewSettingsRevision++;", studio, StringComparison.Ordinal);
-        Assert.Contains("SettingsRevision=\"@_bodyViewSettingsRevision\"", studio, StringComparison.Ordinal);
-
-        // Refresh views is the operator's own control, and it re-asks unconditionally. The assertion pins the BUTTON:
-        // the candidate deck also has a Refresh, and that one is legitimately views-only — it has no model question
-        // to re-ask, so it must NOT be swept up into this rule.
-        Assert.Contains("@onclick=\"RefreshViewsAsync\" disabled=\"@_refreshing\">Refresh views</button>", panel, StringComparison.Ordinal);
-        Assert.Contains("await RefreshConditioningAvailabilityAsync(force: true);", panel, StringComparison.Ordinal);
-        Assert.Contains("@onclick=\"RefreshAsync\" disabled=\"@_refreshing\">Refresh</button>", panel, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// The ControlNet strength OPENS on the model's configured value, never on a panel-local number (operator report,
-    /// 2026-09-23: a FLUX pose render came back with the skeleton's own strokes imprinted on the body).
-    ///
-    /// Measured on the local host at a fixed seed, canvas already matched: strength 1.0 imprinted the control image's
-    /// strokes, 0.85 imprinted them faintly, 0.60 did not, and a BLANK control image at 1.0 did not — so the artifact
-    /// comes from the control image's content, in proportion to the strength. The panel used to hardcode 0.8, which
-    /// meant the configured value could never reach the operator at all.
-    /// </summary>
-    [Fact]
-    public void ThePoseStrength_OpensOnTheModelsConfiguredValue_NotOnAPanelDefault()
-    {
-        var panel = Read("DreamGenClone.Web", "Components", "RolePlay", "BodyViewsPanel.razor");
-
-        // No panel-local strength default: the field starts unset and is filled from the resolved availability.
-        Assert.DoesNotContain("_poseStrength = 0.8", panel, StringComparison.Ordinal);
-        Assert.Contains("private double _poseStrength;", panel, StringComparison.Ordinal);
-        Assert.Contains("_poseStrength = configured;", panel, StringComparison.Ordinal);
-        Assert.Contains("IsAvailable: true, DefaultStrength: { } configured", panel, StringComparison.Ordinal);
-
-        // The box is re-keyed on the value, because an uncontrolled input only follows a server-side change when it is
-        // remounted — otherwise a resolved default would be invisible.
-        Assert.Contains("value=\"@_poseStrength\"", panel, StringComparison.Ordinal);
-        Assert.Contains("@key=\"@($\"strength-{_poseStrength}\")\"", panel, StringComparison.Ordinal);
-
-        // And the value the panel sends is the one in the box.
-        Assert.Contains("new SceneAssetPoseConditioning(_poseStance, _poseStrength)", panel, StringComparison.Ordinal);
+        Assert.Contains("ModelChoices=\"ModelChoices\"", panel, StringComparison.Ordinal);
+        Assert.Contains("SelectedModelId=\"@ModelId\"", panel, StringComparison.Ordinal);
+        Assert.Contains("ModelIdChanged.InvokeAsync(modelId)", panel, StringComparison.Ordinal);
+        Assert.Contains("public IReadOnlyList<SceneImageModelChoice> ModelChoices { get; set; } = [];", panel, StringComparison.Ordinal);
     }
 
     [Fact]

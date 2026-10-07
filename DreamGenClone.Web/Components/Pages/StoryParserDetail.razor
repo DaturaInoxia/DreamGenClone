@@ -789,7 +789,8 @@
             @if (_isEditingCombinedText)
             {
                 <div class="card-body">
-                    <textarea class="form-control" rows="20" style="font-family: monospace; white-space: pre-wrap;" @bind="_editCombinedText" @bind:event="oninput"></textarea>
+                    <CommittedTextInput Multiline="true" class="form-control" rows="20" style="font-family: monospace; white-space: pre-wrap;"
+                                        Live="@_editCombinedText" LiveChanged="args => _editCombinedText = args ?? string.Empty" />
                     <div class="mt-2 d-flex gap-2">
                         <button class="btn btn-sm btn-primary" @onclick="SaveCombinedText" disabled="@_isSavingCombinedText">Save</button>
                         <button class="btn btn-sm btn-secondary" @onclick="CancelEditCombinedText">Cancel</button>

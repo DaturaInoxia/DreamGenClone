@@ -28,7 +28,6 @@ public sealed class SceneAssetTreeServiceTests
             new StubScenarios([scenario]),
             new StubIdentityService(packs, new Dictionary<string, SceneImageReferenceAsset>()),
             new StubSceneAssets([]),
-            new StubLocations([], []),
             new StubOwners([scenario]));
 
         var roots = await service.BuildTreeAsync();
@@ -63,7 +62,6 @@ public sealed class SceneAssetTreeServiceTests
             new StubScenarios([scenarioA, scenarioB]),
             new StubIdentityService(packs, new Dictionary<string, SceneImageReferenceAsset>()),
             new StubSceneAssets([]),
-            new StubLocations([], []),
             new StubOwners([scenarioA, scenarioB]));
 
         var roots = await service.BuildTreeAsync();
@@ -99,7 +97,6 @@ public sealed class SceneAssetTreeServiceTests
             new StubScenarios([scenarioA, scenarioB]),
             new StubIdentityService(packs, new Dictionary<string, SceneImageReferenceAsset>()),
             new StubSceneAssets([]),
-            new StubLocations([], []),
             new StubOwners([scenarioA, scenarioB]));
 
         var roots = await service.BuildTreeAsync();
@@ -110,40 +107,91 @@ public sealed class SceneAssetTreeServiceTests
     }
 
     [Fact]
-    public async Task BuildTreeAsync_CreatesLocationRootFromProfileReferences()
+    public async Task BuildTreeAsync_LocationRootsComeFromContainersWithHierarchy()
     {
-        var profiles = new List<ReferenceBootstrapLocationProfile>
+        // B-148 D19: the location roots are the location CONTAINERS (not the retired bootstrap profiles), and a world
+        // container renders its child location containers underneath it, each linking its own /locations studio.
+        var world = new SceneAsset
         {
-            new() { Id = "loc-1", Name = "Lakeside Cabin" }
+            Id = "world-1",
+            Name = "Trailer Park",
+            Type = SceneAssetType.Location,
+            IsContainerOnly = true,
+            Kind = SceneAssetKind.Uploaded,
+            Status = SceneAssetStatus.Complete
         };
-        var references = new List<ReferenceBootstrapLocationReference>
+        var child = new SceneAsset
         {
-            new() { Id = "ref-1", ProfileId = "loc-1", AssetId = "plate-1", OrderedIndex = 0 }
+            Id = "loc-1",
+            Name = "Husband and Wife Trailer",
+            ParentAssetId = "world-1",
+            Type = SceneAssetType.Location,
+            IsContainerOnly = true,
+            Kind = SceneAssetKind.Uploaded,
+            Status = SceneAssetStatus.Complete
         };
-        var libraryAssets = new List<SceneAsset>
+        var standalone = new SceneAsset
         {
-            new() { Id = "plate-1", Name = "Cabin plate", Type = SceneAssetType.Location, Kind = SceneAssetKind.Uploaded, Status = SceneAssetStatus.Complete }
+            Id = "loc-2",
+            Name = "The Shed",
+            Type = SceneAssetType.Location,
+            IsContainerOnly = true,
+            Kind = SceneAssetKind.Uploaded,
+            Status = SceneAssetStatus.Complete
         };
 
         var service = new SceneAssetTreeService(
             new StubScenarios([]),
             new StubIdentityService(new Dictionary<string, CharacterImageIdentityPack>(), new Dictionary<string, SceneImageReferenceAsset>()),
-            new StubSceneAssets(libraryAssets),
-            new StubLocations(profiles, references),
+            new StubSceneAssets([world, child, standalone]),
             new StubOwners([]));
 
         var roots = await service.BuildTreeAsync();
 
-        var location = Assert.Single(roots, r => r.Owner.RootKind == "Location");
-        Assert.Equal("Lakeside Cabin", location.Owner.OwnerName);
-        Assert.Equal("/locations/loc-1", location.Owner.Href);
-        var item = Assert.Single(Assert.Single(location.Groups).Items);
-        Assert.Equal("plate-1", item.AssetId);
-        Assert.Equal("Library", item.SourceStore);
+        var worldRoot = Assert.Single(roots, r => r.Owner.RootKind == "Location" && r.Owner.OwnerId == "world-1");
+        Assert.Equal("/locations/world-1", worldRoot.Owner.Href);
+        var childItem = Assert.Single(Assert.Single(worldRoot.Groups).Items);
+        Assert.Equal("loc-1", childItem.AssetId);
+        Assert.Equal("/locations/loc-1", childItem.Href);
+        Assert.Equal("Location", childItem.SourceStore);
 
-        // The referenced plate must not also appear under the cleanup bucket.
+        var standaloneRoot = Assert.Single(roots, r => r.Owner.RootKind == "Location" && r.Owner.OwnerId == "loc-2");
+        Assert.Equal("/locations/loc-2", standaloneRoot.Owner.Href);
+        Assert.Empty(standaloneRoot.Groups);
+
+        // The child container must not also appear as its own root or under the cleanup bucket.
+        Assert.DoesNotContain(roots, r => r.Owner.OwnerId == "loc-1" && r.Owner.RootKind == "Location");
         Assert.DoesNotContain(roots, r => r.Owner.RootKind == "Cleanup"
-            && r.Groups.SelectMany(g => g.Items).Any(i => i.AssetId == "plate-1"));
+            && r.Groups.SelectMany(g => g.Items).Any(i => i.AssetId == "loc-1"));
+    }
+
+    [Fact]
+    public async Task BuildTreeAsync_RendersTheFullNestedDepth()
+    {
+        // B-148: the hierarchy is unbounded — Camp Ground → Trailer → the yard clothesline. A one-level renderer hid
+        // everything below the first level, so the deepest container was invisible in the Asset Manager.
+        var world = new SceneAsset { Id = "world-1", Name = "Camp Ground", Type = SceneAssetType.Location, IsContainerOnly = true, Kind = SceneAssetKind.Uploaded, Status = SceneAssetStatus.Complete };
+        var trailer = new SceneAsset { Id = "loc-1", Name = "Husband and Wife Trailer", ParentAssetId = "world-1", Type = SceneAssetType.Location, IsContainerOnly = true, Kind = SceneAssetKind.Uploaded, Status = SceneAssetStatus.Complete };
+        var spot = new SceneAsset { Id = "spot-1", Name = "the yard clothesline", ParentAssetId = "loc-1", Type = SceneAssetType.Location, IsContainerOnly = true, Kind = SceneAssetKind.Uploaded, Status = SceneAssetStatus.Complete };
+
+        var service = new SceneAssetTreeService(
+            new StubScenarios([]),
+            new StubIdentityService(new Dictionary<string, CharacterImageIdentityPack>(), new Dictionary<string, SceneImageReferenceAsset>()),
+            new StubSceneAssets([world, trailer, spot]),
+            new StubOwners([]));
+
+        var roots = await service.BuildTreeAsync();
+
+        var worldRoot = Assert.Single(roots, r => r.Owner.OwnerId == "world-1");
+        var topGroup = Assert.Single(worldRoot.Groups);
+        Assert.Equal("loc-1", Assert.Single(topGroup.Items).AssetId);
+
+        var trailerGroup = Assert.Single(topGroup.Children);
+        Assert.Equal("Husband and Wife Trailer", trailerGroup.Label);
+        Assert.Equal("spot-1", Assert.Single(trailerGroup.Items).AssetId);
+
+        // Nothing in the chain may fall into the cleanup bucket.
+        Assert.DoesNotContain(roots, r => r.Owner.RootKind == "Cleanup");
     }
 
     [Fact]
@@ -163,7 +211,6 @@ public sealed class SceneAssetTreeServiceTests
             new StubScenarios([]),
             new StubIdentityService(new Dictionary<string, CharacterImageIdentityPack>(), new Dictionary<string, SceneImageReferenceAsset>()),
             new StubSceneAssets([container]),
-            new StubLocations([], []),
             new StubOwners([]));
 
         var roots = await service.BuildTreeAsync();
@@ -190,7 +237,6 @@ public sealed class SceneAssetTreeServiceTests
             new StubScenarios([]),
             new StubIdentityService(new Dictionary<string, CharacterImageIdentityPack>(), new Dictionary<string, SceneImageReferenceAsset>()),
             new StubSceneAssets([stray]),
-            new StubLocations([], []),
             new StubOwners([]));
 
         var roots = await service.BuildTreeAsync();
@@ -328,26 +374,5 @@ public sealed class SceneAssetTreeServiceTests
         public Task<(SceneAsset Asset, Stream Stream)> OpenForDownloadAsync(string assetId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<SceneAsset> RenameAssetAsync(string assetId, string name, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task DeleteAssetAsync(string assetId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    }
-
-    private sealed class StubLocations(
-        IReadOnlyList<ReferenceBootstrapLocationProfile> profiles,
-        IReadOnlyList<ReferenceBootstrapLocationReference> references) : IReferenceBootstrapRepository
-    {
-        public Task<ReferenceBootstrapLocationProfile?> GetLocationProfileAsync(string id, CancellationToken cancellationToken = default)
-            => Task.FromResult(profiles.FirstOrDefault(p => p.Id == id));
-        public Task<IReadOnlyList<ReferenceBootstrapLocationProfile>> ListLocationProfilesAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(profiles);
-        public Task<IReadOnlyList<ReferenceBootstrapLocationReference>> ListLocationReferencesAsync(string profileId, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<ReferenceBootstrapLocationReference>>(references.Where(r => r.ProfileId == profileId).ToList());
-        public Task<ReferenceBootstrapBatch?> GetBatchAsync(string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<ReferenceBootstrapBatch>> ListBatchesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task UpsertBatchAsync(ReferenceBootstrapBatch batch, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task DeleteBatchAsync(string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task UpsertLocationProfileAsync(ReferenceBootstrapLocationProfile profile, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task DeleteLocationProfileAsync(string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<ReferenceBootstrapLocationReference?> GetLocationReferenceAsync(string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task UpsertLocationReferenceAsync(ReferenceBootstrapLocationReference reference, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task DeleteLocationReferenceAsync(string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

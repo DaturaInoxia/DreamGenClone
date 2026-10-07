@@ -65,6 +65,16 @@ else
             onto the same matrix.
         </div>
     }
+    @if (!string.IsNullOrWhiteSpace(_policyStaleReason))
+    {
+        @* The thresholds are DATA too, and the FAR rung was added after the first datasets were projected. Reading
+           those snapshots strictly made the tab unopenable, so the policy is read, the missing member is named, and
+           generation still refuses until an operator states the size. *@
+        <div class="alert alert-warning py-2" role="alert">
+            <strong>This curation policy predates the current rules</strong> - @_policyStaleReason. It can be read, but
+            no plan can be generated from it until the far aspect is set.
+        </div>
+    }
 
     <div class="d-flex justify-content-between align-items-center mb-2">
         <div class="d-flex align-items-center gap-2">
@@ -527,6 +537,13 @@ else
     /// own schema version, so the page can say WHY it is stale instead of throwing on the first contradictory cell.
     /// </summary>
     private string? _planStaleReason;
+
+    /// <summary>
+    /// Why the loaded dataset's policy is not one this build would save - null when it is current. The FAR rung was
+    /// added after the first datasets were projected, and a stored policy that predates it is read (rather than made
+    /// the reason the tab will not open) with the absence named here and refused at generation.
+    /// </summary>
+    private string? _policyStaleReason;
     private string _error = string.Empty;
     private string _status = string.Empty;
 
@@ -722,6 +739,11 @@ else
                 _plan = null;
                 _members = [];
                 _selectedCellKey = string.Empty;
+                // Both stale reasons describe the dataset that was loaded, so neither may outlive it: the component is
+                // reused when the operator moves between characters, and an inherited banner would warn about a
+                // document that is no longer on screen.
+                _planStaleReason = null;
+                _policyStaleReason = null;
             }
 
             // Arriving from somewhere that named a cell: open on it. Only honoured when the plan actually carries the
@@ -753,7 +775,8 @@ else
         _selectedDatasetId = dataset.Id;
         _plan = CoveragePlan.FromStoredJson(dataset.CoveragePlanJson, out var staleReason);
         _planStaleReason = staleReason;
-        _policy = CurationPolicy.FromJson(dataset.CurationPolicyJson);
+        _policy = CurationPolicy.FromStoredJson(dataset.CurationPolicyJson, out var policyStaleReason);
+        _policyStaleReason = policyStaleReason;
         _members = (await LoraRepository.ListDatasetMembersAsync(dataset.Id)).ToList();
 
         // Every cell's state is read once per dataset, so the list shows which cells are done without the operator

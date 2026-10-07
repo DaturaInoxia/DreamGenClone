@@ -495,4 +495,32 @@ public sealed class ImageStepBlueprintFactoryTests
 
         Assert.DoesNotContain(ImageStepReferenceSourceKind.IdentityPackAsset, slot.AllowedSources);
     }
+
+    /// <summary>
+    /// A body view is composed through the SAME step as every other surface, so it declares the three elements the
+    /// asset manager's image composition offers — Face, Body and Pose — and nothing else. The face and body read from
+    /// the character's approved pack, the same store the body render conditions identity and build from.
+    /// </summary>
+    [Fact]
+    public void BodyView_DeclaresTheFaceBodyAndPoseSlotsFromThePack()
+    {
+        var blueprint = ImageStepBlueprintFactory.ForBodyView(Becky);
+
+        Assert.Equal(ImageStepKind.BodyView, blueprint.StepKind);
+        Assert.Equal(
+            [ImageStepSlotKind.Face, ImageStepSlotKind.Body, ImageStepSlotKind.Pose],
+            blueprint.Slots.Select(slot => slot.SlotKind));
+
+        foreach (var slotKind in new[] { ImageStepSlotKind.Face, ImageStepSlotKind.Body })
+        {
+            var slot = blueprint.Slots.Single(candidate => candidate.SlotKind == slotKind);
+            Assert.Equal([ImageStepReferenceSourceKind.IdentityPackAsset], slot.AllowedSources);
+            Assert.Equal(Becky.ActorKey, slot.ActorKey);
+            Assert.False(slot.Required);
+        }
+
+        var pose = blueprint.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Pose);
+        Assert.Equal([ImageStepReferenceSourceKind.PoseLibrarySkeleton], pose.AllowedSources);
+        Assert.False(pose.Required);
+    }
 }

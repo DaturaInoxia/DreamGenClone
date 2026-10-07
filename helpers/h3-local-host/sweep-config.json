@@ -1,0 +1,261 @@
+[
+  {
+    "tag": "v2-base",
+    "chunk": 1,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v2.txt",
+    "loras": ["sexytime@0.8"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "note": "Prompt-v2 lever alone (character lock + face-forward) vs nsfw-004."
+  },
+  {
+    "tag": "v2-real10",
+    "chunk": 1,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v2-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "note": "Adds fal h3-realism-people @1.0 at full strength, trigger r34l1sm on line 1."
+  },
+  {
+    "tag": "v2-real07",
+    "chunk": 1,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v2-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@0.7"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "note": "Realism LoRA at the author's lighter-touch 0.7 so it does not fight the NSFW LoRA."
+  },
+
+  {
+    "tag": "v2-soft-real",
+    "chunk": 2,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v2-trigger.txt",
+    "loras": ["softer@1.0", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "note": "softer (anatomy/detail flavor) + realism, no sexytime."
+  },
+  {
+    "tag": "v2-facial",
+    "chunk": 2,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v2-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0", "facial@0.6"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "note": "Three-LoRA stack adding the facial-realism closeup adapter for the face problem."
+  },
+  {
+    "tag": "v2-real10-notrig",
+    "chunk": 2,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v2.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "note": "Same as v2-real10 but WITHOUT the r34l1sm trigger line, to test whether the trigger placement matters."
+  },
+
+  {
+    "tag": "v2-steps50",
+    "chunk": 3,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v2-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 50, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "note": "Steps 50 (author's top band for high-detail reference shots)."
+  },
+  {
+    "tag": "v2-refmax",
+    "chunk": 3,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v2-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "refSize": "max",
+    "note": "ref_image_size=max (2048px short edge) for stronger identity retention."
+  },
+
+  {
+    "tag": "v3-explicit",
+    "chunk": 4,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "note": "Vulgar/explicit vocabulary + face-priority close framing; the NSFW LoRA is trained on these terms."
+  },
+  {
+    "tag": "v3-explicit-soft",
+    "chunk": 4,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["softer@1.0", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "note": "Explicit prompt against the softer (anatomy/detail) flavor instead of sexytime."
+  },
+  {
+    "tag": "v3-explicit-face",
+    "chunk": 4,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0", "facial@0.6"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "note": "Explicit prompt + facial-realism adapter stacked on the winning pair."
+  },
+
+  {
+    "tag": "dual-scene-head",
+    "chunk": 5,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-head.png",
+    "note": "TWO references: full scene + tight MediaPipe head crop of the one clearly detectable face."
+  },
+  {
+    "tag": "dual-scene-subject",
+    "chunk": 5,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "note": "TWO references: full scene + head-and-shoulders subject crop."
+  },
+  {
+    "tag": "dual-head-only",
+    "chunk": 5,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "image": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "loras": ["softer@1.0", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "note": "SINGLE tight subject crop as the only reference - tests whether a closer reference alone fixes face fidelity."
+  },
+
+  {
+    "tag": "dual-subj-s2",
+    "chunk": 6,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 2, "timeout": 5400,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "note": "Winning dual-reference config, seed 2 - variance check."
+  },
+  {
+    "tag": "dual-subj-s3",
+    "chunk": 6,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 3, "timeout": 5400,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "note": "Winning dual-reference config, seed 3 - variance check."
+  },
+  {
+    "tag": "dual-head-s2",
+    "chunk": 6,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 2, "timeout": 5400,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-head.png",
+    "note": "Head-crop dual-reference variant, seed 2 - variance check against the subject crop."
+  },
+  {
+    "tag": "dual-subj-facial",
+    "chunk": 6,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0", "facial@0.6"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "note": "Dual reference + the facial-realism adapter - the best of both levers."
+  },
+  {
+    "tag": "dual-subj-steps50",
+    "chunk": 6,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 50, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "note": "Dual reference at 50 steps for maximum detail."
+  },
+  {
+    "tag": "dual-subj-long",
+    "chunk": 6,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 192, "seed": 1, "timeout": 7200,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "note": "Winning config at 192 frames (~8 s) - the longest valid H3 length, for a usable clip."
+  },
+
+  {
+    "tag": "tri-scene-subj-head",
+    "chunk": 7,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 7200,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "image3": "artifacts/tmp/h3-nsfw-proof/ref-head.png",
+    "note": "THREE references (scene + subject crop + head crop); ref_images is an autogrow input."
+  },
+  {
+    "tag": "dual-subj-s4",
+    "chunk": 7,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 4, "timeout": 5400,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "note": "Winning dual-reference config, seed 4 - more seed options."
+  },
+  {
+    "tag": "tri-hero-long",
+    "chunk": 7,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v3-explicit-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 192, "seed": 1, "timeout": 7200,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "image3": "artifacts/tmp/h3-nsfw-proof/ref-head.png",
+    "note": "Three references at 192 frames (~8 s) - hero clip candidate."
+  },
+
+  {
+    "tag": "audio-v4",
+    "chunk": 8,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v4-audio-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "note": "AUDIO PASS: prompt revised against the official H3 rules - style declared first in [Shot 1], speaker identity (age/pitch/timbre) at first appearance, 4 dialogue <d> blocks using both names, concrete object+action sound events for the body/impact band (bed frame, mattress, sheets as fabric movement, skin impact), non_diegetic_music=N/A, no negative phrasing. Single continuous shot (no cut). Dual reference. Compare audio against dual-scene-subject."
+  },
+  {
+    "tag": "audio-v4-long",
+    "chunk": 8,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v4-audio-trigger.txt",
+    "loras": ["sexytime@0.8", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 192, "seed": 1, "timeout": 7200,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "note": "AUDIO PASS at 192 frames (8.0 s) - more timeline for the spoken lines and the soundscape to land."
+  },
+  {
+    "tag": "audio-v4-soft",
+    "chunk": 8,
+    "enabled": true,
+    "prompt": "artifacts/tmp/h3-nsfw-proof/prompt-v4-audio-trigger.txt",
+    "loras": ["softer@1.0", "realism@1.0"],
+    "steps": 40, "width": 1344, "height": 768, "length": 124, "seed": 1, "timeout": 5400,
+    "image2": "artifacts/tmp/h3-nsfw-proof/ref-subject.png",
+    "note": "AUDIO PASS with the softer flavour - A/B whether the NSFW LoRA flavour changes the generated audio."
+  }
+]

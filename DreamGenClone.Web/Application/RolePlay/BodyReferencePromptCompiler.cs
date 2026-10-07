@@ -670,8 +670,20 @@ public static class BodyReferencePromptCompiler
     }
 
     /// <summary>
-    /// The state-dependent body detail the canonical text cannot carry, or null when there is none: the pubic hair,
-    /// and only for an unclothed view.
+    /// The unclothed-only detail a muscle-definition pick adds, keyed by the pick's canonical value. The canonical
+    /// body text carries the CLOTHED-SAFE phrase (a shirt covers the abs), so the abs themselves are appended here,
+    /// for an unclothed view only — the same rule as pubic hair.
+    /// </summary>
+    private static readonly Dictionary<string, string> MuscleDefinitionUnclothedDetail = new(StringComparer.Ordinal)
+    {
+        ["defined, visible abs"] = "visible abs",
+        ["very defined, clear muscle separation"] = "clearly separated, defined muscles",
+        ["ripped, striations and vascularity"] = "visible striations and vascularity"
+    };
+
+    /// <summary>
+    /// The state-dependent body detail the canonical text cannot carry, or null when there is none: the pubic hair and
+    /// the visible muscle definition, and only for an unclothed view.
     ///
     /// ONE place decides this, because it is a rule about bodies and states rather than about any one consumer's
     /// dialect — and getting it wrong is not cosmetic: the CLOTHED base carried it unconditionally for a while, which
@@ -681,10 +693,24 @@ public static class BodyReferencePromptCompiler
     public static string? ComposeStateDetail(BodyReferenceBrief brief)
     {
         ArgumentNullException.ThrowIfNull(brief);
-        return brief.BodyState == SceneImageReferenceBodyState.Unclothed
-            && !string.IsNullOrWhiteSpace(brief.PubicHair)
-                ? NormalizeValue(brief.PubicHair).ToLowerInvariant()
-                : null;
+        if (brief.BodyState != SceneImageReferenceBodyState.Unclothed)
+        {
+            return null;
+        }
+
+        var details = new List<string>(2);
+        if (!string.IsNullOrWhiteSpace(brief.PubicHair))
+        {
+            details.Add(NormalizeValue(brief.PubicHair).ToLowerInvariant());
+        }
+
+        if (!string.IsNullOrWhiteSpace(brief.Axes?.MuscleDefinition)
+            && MuscleDefinitionUnclothedDetail.TryGetValue(brief.Axes.MuscleDefinition.Trim(), out var muscleDetail))
+        {
+            details.Add(muscleDetail);
+        }
+
+        return details.Count == 0 ? null : string.Join(", ", details);
     }
 
     /// <summary>
@@ -733,8 +759,32 @@ public static class BodyReferencePromptCompiler
                 continue;
             }
 
-            yield return BodyAxisVocabulary.Require(axis, value).PonyTags;
+            var ponyTags = BodyAxisVocabulary.Require(axis, value).PonyTags;
+            if (axis == BodyAxis.MuscleDefinition && brief.BodyState == SceneImageReferenceBodyState.Clothed)
+            {
+                ponyTags = ClothedMuscleDefinitionPonyTags(ponyTags);
+            }
+
+            if (!string.IsNullOrWhiteSpace(ponyTags))
+            {
+                yield return ponyTags;
+            }
         }
+    }
+
+    /// <summary>
+    /// The muscle-definition Pony tags that survive a CLOTHED render. "abs" and "veins" are unclothed-visible:
+    /// emitting them for a clothed view tells the model to draw a shirtless torso (or visible vascularity), which
+    /// contradicts the clothing anchor. "muscular" and "skinny" describe the build, so they stay.
+    /// </summary>
+    private static string ClothedMuscleDefinitionPonyTags(string ponyTags)
+    {
+        var kept = ponyTags
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(tag => !string.Equals(tag, "abs", StringComparison.OrdinalIgnoreCase)
+                          && !string.Equals(tag, "veins", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        return string.Join(", ", kept);
     }
 
     /// <summary>

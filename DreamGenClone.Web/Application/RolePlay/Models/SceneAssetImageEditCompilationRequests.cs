@@ -1,5 +1,6 @@
 namespace DreamGenClone.Web.Application.RolePlay.Models;
 
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Editing;
 
 public sealed class CreateSceneAssetImageEditSessionRequest
@@ -88,6 +89,36 @@ public sealed class EnqueueSceneAssetImagePresetEditRequest
     public string? CharacterId { get; set; }
 
     /// <summary>The batch the derived image joins; defaults to the source's own batch, which is what an attempt deck shows.</summary>
+    public string? CandidateBatchId { get; set; }
+
+    /// <summary>The REGION this edit is confined to, or null to edit the whole frame.</summary>
+    public MediaEditRegionOperation? Region { get; set; }
+}
+
+/// <summary>
+/// Queues a multi-angle CAMERA edit pass of an existing asset image into a new derived image: orbit the source
+/// subject to a picked azimuth/elevation/distance. Like a preset edit there is no prompt compilation - the
+/// instruction is assembled deterministically from the editor LoRA's <c>&lt;sks&gt;</c> grammar - and the pose plus its
+/// instruction checksum travel with the queued row so the run re-derives and proves the same text.
+/// </summary>
+public sealed class EnqueueSceneAssetImageMultiAngleEditRequest
+{
+    public string AssetId { get; set; } = string.Empty;
+    public string SourceImageId { get; set; } = string.Empty;
+
+    /// <summary>The editor model the editor form selected. It must carry the multi-angle camera LoRA capability.</summary>
+    public string EditorModelId { get; set; } = string.Empty;
+
+    /// <summary>The orbit azimuth the camera moves to.</summary>
+    public MultiAngleAzimuth Azimuth { get; set; }
+
+    /// <summary>The vertical camera angle.</summary>
+    public MultiAngleElevation Elevation { get; set; }
+
+    /// <summary>How far the camera sits from the subject.</summary>
+    public MultiAngleDistance Distance { get; set; }
+
+    /// <summary>The batch the derived image joins; defaults to the source's own batch.</summary>
     public string? CandidateBatchId { get; set; }
 
     /// <summary>The REGION this edit is confined to, or null to edit the whole frame.</summary>

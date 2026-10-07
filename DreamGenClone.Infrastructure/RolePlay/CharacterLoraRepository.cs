@@ -117,7 +117,9 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         var id = CharacterLoraCurationPolicyKeys.ComputeId(characterProfileId);
         var seedPayload = id == CharacterLoraCurationPolicyKeys.GlobalId
             ? policy.ToJson()
-            : Serialize(await ResolveCurationPolicyAsync(null, cancellationToken));
+            // ToJson, not a raw serialize: a stored policy can now read back with a member absent (the FAR rung
+            // predates it), and snapshotting that into a character row would persist a policy nobody completed.
+            : (await ResolveCurationPolicyAsync(null, cancellationToken)).ToJson();
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         // The seed text is only ever written by the row's first insert, so an edited body never becomes the
@@ -146,7 +148,9 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         read.Parameters.AddWithValue("$id", id);
         var seed = await read.ExecuteScalarAsync(cancellationToken) as string
             ?? throw new InvalidOperationException($"Missing required LoRA curation policy row '{id}'.");
-        var policy = CurationPolicy.FromJson(seed);
+        // The seed is stored data too, so it is read the same way; saving it back below is what refuses a seed
+        // that predates a member, naming the value instead of letting it run the gates.
+        var policy = CurationPolicy.FromStoredJson(seed, out _);
         var saved = await SaveCurationPolicyAsync(policy, characterProfileId, cancellationToken);
         return saved;
     }
@@ -158,7 +162,9 @@ public sealed class CharacterLoraRepository : ICharacterLoraRepository
         command.CommandText = "SELECT PayloadJson FROM CharacterLoraCurationPolicies WHERE Id = $id;";
         command.Parameters.AddWithValue("$id", id);
         var payload = await command.ExecuteScalarAsync(cancellationToken) as string;
-        return payload is null ? null : CurationPolicy.FromJson(payload);
+        // A row written by an older build may predate a member (the FAR rung, 2026-10-04). It is read and marked
+        // stale rather than thrown on, so the workspace opens; the write path still refuses to save it back.
+        return payload is null ? null : CurationPolicy.FromStoredJson(payload, out _);
     }
 
     public async Task<CharacterLoraTrainingProfile> CreateTrainingProfileAsync(

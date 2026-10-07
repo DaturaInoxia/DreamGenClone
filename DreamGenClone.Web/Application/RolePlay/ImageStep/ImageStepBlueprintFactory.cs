@@ -395,6 +395,40 @@ public static class ImageStepBlueprintFactory
             AllowsBatch: true));
     }
 
+    /// <summary>
+    /// One body reference view (B-122 Phase 0) composed through the ONE shared step. The body set is the same
+    /// one-view-at-a-time contract the face pipeline uses, so the step offers the same three elements the asset
+    /// manager's image composition offers — face, build and pose — with no host-specific restriction: the face
+    /// conditions the render on the character's approved identity face, the build on the character's approved body
+    /// reference, and the pose on a verified stance skeleton. Each is optional, because a body view is still built
+    /// from the body card when none is bound.
+    /// </summary>
+    /// <param name="actor">The character whose body view is being composed.</param>
+    public static ImageStepBlueprint ForBodyView(ImageStepActor actor)
+    {
+        var resolved = RequireActor(actor);
+
+        // The body render's identity and body conditionings resolve from the character's approved identity PACK — the
+        // same store the identity renders use — so the Face and Body slots offer only the pack. Offering an approved
+        // scene asset here would render a control the render cannot honour (the body render reads pack face/body rows,
+        // not scene assets).
+        ImageStepReferenceSourceKind[] packSources = [ImageStepReferenceSourceKind.IdentityPackAsset];
+
+        return Build(new ImageStepBlueprint(
+            ImageStepKind.BodyView,
+            "Body view",
+            ImageStepSourceMode.None,
+            [
+                new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.None, packSources,
+                    resolved.ActorKey, ActorDisplayName: resolved.DisplayName),
+                new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, packSources,
+                    resolved.ActorKey, ActorDisplayName: resolved.DisplayName),
+                new ImageStepSlotBlueprint(ImageStepSlotKind.Pose, ImageStepSlotPrefill.CallerSupplied,
+                    [ImageStepReferenceSourceKind.PoseLibrarySkeleton])
+            ],
+            ImageStepPersistenceKind.SceneAsset));
+    }
+
     private static IReadOnlyList<ImageStepActor> RequireCast(IReadOnlyList<ImageStepActor> cast)
     {
         if (cast is null || cast.Count == 0)

@@ -24,7 +24,13 @@ namespace DreamGenClone.Web.Application.RolePlay.ImageStep;
 public sealed record ImageGenerationDraft(
     string ImageId,
 
-    /// <summary>What was typed or supplied as the description. The row's own <c>Prompt</c> column owns this.</summary>
+    /// <summary>
+    /// What the operator TYPED as the description, so the studio's "Your input" gets their words back rather than the
+    /// text that rendered. Metadata owns this once the image recorded it: the row's <c>Prompt</c> holds the text that
+    /// was submitted, which a compiler replaces with the model-ready prompt, and an operator's description is not the
+    /// generated prompt. An image with no recorded input reports the row's <c>Prompt</c> instead, which is what its
+    /// description has always been.
+    /// </summary>
     string? UserInput,
 
     /// <summary>The prompt that actually rendered, when a compiler authored one. Metadata owns this.</summary>
@@ -77,13 +83,18 @@ public sealed record ImageGenerationDraft(
 
         using var association = ReadObject(image.AssociationMetadataJson);
 
+        // The operator's own description, or null when they wrote the prompt itself (or the row predates the field).
+        var typedDescription = ReadString(association, "userInput");
+
         return new ImageGenerationDraft(
             image.Id,
-            // The row's Prompt column is the description that was submitted; the handler's semanticDescription is a
-            // copy of it. Reading the column means an uploaded or pre-metadata row still reports what it holds. A blank
-            // column reports NULL, not the empty string the column defaults to, so "never recorded" and "empty" read
-            // the same way - which is the only reading a caller can act on.
-            string.IsNullOrWhiteSpace(image.Prompt) ? null : image.Prompt,
+            // Their words when the image recorded them; otherwise the row's Prompt column, which IS the description on
+            // an image whose prompt was written by hand and the compiled text on one a compiler authored. The row's
+            // semanticDescription metadata is a copy of that column, so the column is read directly and an uploaded or
+            // pre-metadata row still reports what it holds. A blank column reports NULL, not the empty string the column
+            // defaults to, so "never recorded" and "empty" read the same way - which is the only reading a caller can
+            // act on.
+            typedDescription ?? (string.IsNullOrWhiteSpace(image.Prompt) ? null : image.Prompt),
             ReadString(association, "compiledPrompt"),
             ReadString(association, "requestedModelId"),
             ReadString(association, "imageSize"),

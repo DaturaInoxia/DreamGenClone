@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.Processing;
+using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay.Editing;
 
@@ -31,6 +32,26 @@ public interface IImageEditWorkspaceService
     Task<string> RunPresetAsync(
         ImageEditSubject subject,
         string presetKey,
+        string editorModelId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// True when this store can run a multi-angle CAMERA edit pass: orbit the source subject to a picked
+    /// azimuth/elevation/distance from an editor model whose LoRA declares the multi-angle capability. A store that
+    /// cannot says so HERE so the surface renders no control it would have to refuse.
+    /// </summary>
+    bool SupportsMultiAngleCamera { get; }
+
+    /// <summary>
+    /// Queues a multi-angle camera edit pass of the subject's stored image and returns the derived image's id. The
+    /// instruction is assembled deterministically from the editor LoRA's <c>&lt;sks&gt;</c> grammar and recorded with the
+    /// pose, so the run re-derives and proves the same text.
+    /// </summary>
+    Task<string> RunMultiAngleAsync(
+        ImageEditSubject subject,
+        MultiAngleAzimuth azimuth,
+        MultiAngleElevation elevation,
+        MultiAngleDistance distance,
         string editorModelId,
         CancellationToken cancellationToken = default);
 

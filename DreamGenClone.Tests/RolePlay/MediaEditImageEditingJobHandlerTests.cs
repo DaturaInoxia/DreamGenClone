@@ -448,6 +448,63 @@ public sealed class MediaEditImageEditingJobHandlerTests
         Assert.Equal(0, editor.Calls);
     }
 
+    // ---- multi-angle camera edit pass ----------------------------------------------------------------
+
+    private const string MultiAngleInstruction = "<sks> back view eye-level shot medium shot";
+
+    [Fact]
+    public async Task MultiAngleRun_SendsTheAssembledInstructionAndCompletes()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var imageId = await fixture.CreateAssetMultiAngleImageAsync(
+            MultiAngleAzimuth.Back, MultiAngleElevation.EyeLevel, MultiAngleDistance.Medium, MultiAngleInstruction);
+        var editor = new RecordingImageEditor();
+        var handler = fixture.BuildMultiAngleHandler(editor);
+
+        await handler.HandleAsync(await fixture.EnqueueAssetRunAsync(imageId));
+
+        Assert.Equal(MultiAngleInstruction, Assert.Single(editor.Instructions));
+        var image = await fixture.Assets.GetImageAsync(imageId);
+        Assert.Equal(SceneAssetStatus.Complete, image!.Status);
+    }
+
+    [Fact]
+    public async Task MultiAngleRun_WhenThePoseChecksumChanged_RefusesInsteadOfRenderingTheStaleText()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var imageId = await fixture.CreateAssetMultiAngleImageAsync(
+            MultiAngleAzimuth.Back, MultiAngleElevation.EyeLevel, MultiAngleDistance.Medium, MultiAngleInstruction,
+            MediaEditMultiAngleProvenance.InstructionSha256("<sks> front view eye-level shot medium shot"));
+        var editor = new RecordingImageEditor();
+        var handler = fixture.BuildMultiAngleHandler(editor);
+        var job = await fixture.EnqueueAssetRunAsync(imageId);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => handler.HandleAsync(job));
+
+        Assert.Contains("multi-angle", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, editor.Calls);
+    }
+
+    [Fact]
+    public async Task MultiAngleRun_WhenTheRowIsNotWhatThePoseAssembles_IsRefused()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        // The recorded checksum matches the pose, but the row's own prompt does not: the row was written by
+        // something that does not agree with the pose, which is exactly the mismatch to refuse.
+        var imageId = await fixture.CreateAssetMultiAngleImageAsync(
+            MultiAngleAzimuth.Back, MultiAngleElevation.EyeLevel, MultiAngleDistance.Medium,
+            MultiAngleInstruction + " And something else.",
+            MediaEditMultiAngleProvenance.InstructionSha256(MultiAngleInstruction));
+        var editor = new RecordingImageEditor();
+        var handler = fixture.BuildMultiAngleHandler(editor);
+        var job = await fixture.EnqueueAssetRunAsync(imageId);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => handler.HandleAsync(job));
+
+        Assert.Contains("prompt", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, editor.Calls);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public const string EditorModelId = "22222222-2222-2222-2222-222222222222";
@@ -780,6 +837,57 @@ public sealed class MediaEditImageEditingJobHandlerTests
             };
             await Assets.UpsertImageAsync(image);
             return image.Id;
+        }
+
+        /// <summary>
+        /// The queued multi-angle row exactly as the asset multi-angle enqueue writes it: the instruction the pose
+        /// assembled from the <c>&lt;sks&gt;</c> grammar, plus the pose and its instruction checksum in the provenance and no
+        /// compiler artifact.
+        /// </summary>
+        public async Task<string> CreateAssetMultiAngleImageAsync(
+            MultiAngleAzimuth azimuth, MultiAngleElevation elevation, MultiAngleDistance distance,
+            string instruction, string? instructionSha256 = null)
+        {
+            var pose = new MediaEditMultiAngleInstruction(
+                azimuth, elevation, distance,
+                instructionSha256 ?? MediaEditMultiAngleProvenance.InstructionSha256(instruction));
+            var image = new SceneAssetImage
+            {
+                AssetId = "asset-1",
+                Kind = SceneAssetKind.Edited,
+                Status = SceneAssetStatus.Pending,
+                Prompt = instruction,
+                SourceImageId = SourceImageId,
+                SourceProvenanceJson = JsonSerializer.Serialize(new
+                {
+                    operation = MediaEditProvenance.EditValue,
+                    sourceImageSha256 = SourceSha256,
+                    multiAngleInstruction = pose
+                }, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            };
+            await Assets.UpsertImageAsync(image);
+            return image.Id;
+        }
+
+        /// <summary>The handler an asset multi-angle run needs: the writer re-derives the pose, no preset resolver.</summary>
+        public MediaEditImageEditingJobHandler BuildMultiAngleHandler(IImageEditingClient editor)
+        {
+            var options = Options.Create(new PersistenceOptions
+            {
+                ConnectionString = $"Data Source={_dbPath};Pooling=False",
+                SceneImageRoot = Path.Combine(_root, "scene-images")
+            });
+            var storage = new SceneAssetStorageService(options, NullLogger<SceneAssetStorageService>.Instance);
+            var references = new MediaEditReferenceResolver(Assets, storage, new StubReferenceStrategies());
+            var writer = new SceneAssetMediaEditSubjectWriter(
+                Assets, Edits, storage, references, identityStorage: null, presets: null);
+            return new MediaEditImageEditingJobHandler(
+                new MediaEditSubjectWriterResolver([writer]),
+                OperationResolver(),
+                new StubImageEditorResolver(),
+                editor,
+                new ImageRegionMaskEngine(),
+                NullLogger<MediaEditImageEditingJobHandler>.Instance);
         }
 
         /// <summary>The handler an asset preset run needs: the writer armed with the preset resolver.</summary>

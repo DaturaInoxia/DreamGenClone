@@ -49,11 +49,11 @@
     </div>
 
     <div class="assistant-input-group">
-        <textarea rows="3"
+        <CommittedTextInput Multiline="true" rows="3"
               placeholder="Ask for assistance (e.g., why phase did not advance, why this theme was selected, what to change in profiles/stats)..."
-              @bind="UserPrompt"
-              @bind:event="oninput"
-              @onkeyup="OnInputKeyUp"></textarea>
+              Live="@UserPrompt"
+              LiveChanged="args => UserPrompt = args ?? string.Empty"
+              @onkeyup="OnInputKeyUp" />
         <div class="button-group">
             <button class="btn btn-primary" @onclick="OnSendRequest" disabled="@(string.IsNullOrWhiteSpace(UserPrompt) || IsProcessing)">
                 @if (IsProcessing)

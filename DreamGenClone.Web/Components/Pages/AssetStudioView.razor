@@ -9,6 +9,7 @@
 
 @inject ISceneAssetService AssetService
 @inject NavigationManager Navigation
+@inject ILogger<AssetStudioView> Logger
 
 <PageTitle>Asset - DreamGenClone</PageTitle>
 
@@ -89,7 +90,8 @@
         </div>
         <div class="row g-3 mb-4">
             <div class="col-xl-7">
-                <PromptAssetCreator AssetId="@_asset.Id" SubjectActor="SubjectActor()" ImagesChanged="LoadAsync" Draft="_draft" />
+                <PromptAssetCreator AssetId="@_asset.Id" SubjectActor="SubjectActor()" ImagesChanged="LoadAsync" Draft="_draft"
+                                    SeedUserInput="@(_asset.Type == SceneAssetType.Location ? _asset.Prompt : null)" />
             </div>
             <div class="col-xl-5">
                 <AssetUploadCreator AssetId="@_asset.Id" ImagesChanged="LoadAsync" />
@@ -480,8 +482,9 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        // The poll is started by the load itself, so every path that loads the list - opening the page, generating,
+        // renaming, deleting - reconciles it. See LoadAsync.
         await LoadAsync();
-        EnsurePolling();
     }
 
     private async Task LoadAsync()
@@ -505,6 +508,13 @@
         }
 
         StateHasChanged();
+
+        // THIS is what makes the Images list update on its own. Blazor re-renders a poll-driven load only because the
+        // load renders; and the poll has to be reconciled HERE, on the load path, because the image that is pending is
+        // usually asked for from this very page (it arrives through ImagesChanged, after the page opened). Starting it
+        // only when the page was first shown left a finished render — and the "Processing..." badge — stuck until the
+        // operator reloaded the screen by hand. Same rule as CharacterWardrobePanel.
+        EnsurePolling();
     }
 
     /// <summary>
@@ -528,14 +538,24 @@
 
             _timer = new System.Threading.Timer(async _ =>
             {
-                await InvokeAsync(async () =>
+                try
                 {
-                    await LoadAsync();
-                    if (_asset is null || !_images.Any(image => image.Status == SceneAssetStatus.Pending))
+                    // Marshalled onto the dispatcher because a System.Threading.Timer callback runs on a threadpool
+                    // thread, and GUARDED because this lambda is async void: an exception escaping one of those is
+                    // unhandled and can take the process down. Same guard as the Asset Manager's own poll.
+                    await InvokeAsync(async () =>
                     {
-                        StopPolling();
-                    }
-                });
+                        await LoadAsync();
+                        if (_asset is null || !_images.Any(image => image.Status == SceneAssetStatus.Pending))
+                        {
+                            StopPolling();
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Asset image list polling reload failed.");
+                }
             }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
         }
     }

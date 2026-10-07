@@ -15,7 +15,6 @@ public sealed class SceneAssetTreeService : ISceneAssetTreeService
     private readonly IScenarioService _scenarios;
     private readonly ICharacterImageIdentityService _identity;
     private readonly ISceneAssetService _library;
-    private readonly IReferenceBootstrapRepository _locations;
     private readonly ICharacterIdentityOwnerResolver _owners;
 
     /// <summary>One identity owner's row in the tree: the owner key plus the instance ids that resolve to it.</summary>
@@ -32,13 +31,11 @@ public sealed class SceneAssetTreeService : ISceneAssetTreeService
         IScenarioService scenarios,
         ICharacterImageIdentityService identity,
         ISceneAssetService library,
-        IReferenceBootstrapRepository locations,
         ICharacterIdentityOwnerResolver owners)
     {
         _scenarios = scenarios;
         _identity = identity;
         _library = library;
-        _locations = locations;
         _owners = owners;
     }
 
@@ -46,7 +43,6 @@ public sealed class SceneAssetTreeService : ISceneAssetTreeService
     {
         var roots = new List<AssetTreeRoot>();
         var libraryAssets = (await _library.ListAssetsAsync(cancellationToken)).ToList();
-        var libraryById = libraryAssets.ToDictionary(a => a.Id, StringComparer.Ordinal);
         var consumedLibraryIds = new HashSet<string>(StringComparer.Ordinal);
 
         // B-127: group by identity OWNER (the character template), never by display name. The Asset Manager used to
@@ -158,59 +154,54 @@ public sealed class SceneAssetTreeService : ISceneAssetTreeService
             });
         }
 
-        var locationProfiles = (await _locations.ListLocationProfilesAsync(cancellationToken)).ToList();
-        foreach (var profile in locationProfiles)
-        {
-            var references = (await _locations.ListLocationReferencesAsync(profile.Id, cancellationToken)).ToList();
-            var items = new List<AssetTreeItem>();
-            foreach (var reference in references.OrderBy(r => r.OrderedIndex))
-            {
-                if (!libraryById.TryGetValue(reference.AssetId, out var asset))
-                {
-                    continue;
-                }
-
-                consumedLibraryIds.Add(asset.Id);
-                items.Add(ToLibraryItem(asset, "Reference"));
-            }
-
-            roots.Add(new AssetTreeRoot
-            {
-                Owner = new AssetTreeOwner
-                {
-                    RootKind = "Location",
-                    OwnerId = profile.Id,
-                    OwnerName = profile.Name,
-                    Badge = profile.Status.ToString(),
-                    Href = $"/locations/{Uri.EscapeDataString(profile.Id)}"
-                },
-                Groups =
-                [
-                    new AssetTreeGroup
-                    {
-                        Key = $"location:{profile.Id}",
-                        Label = "Location references",
-                        Items = items
-                    }
-                ]
-            });
-        }
-
-        foreach (var asset in libraryAssets
+        // B-148 D19: location roots are the location CONTAINERS, rendered with the hierarchy (world container →
+        // scenario-location containers → spot containers). The retired bootstrap location profiles linked an id
+        // `/locations/{id}` could not resolve, so the roots must come from the containers themselves.
+        var locationContainers = libraryAssets
             .Where(a => a.Type == SceneAssetType.Location && !consumedLibraryIds.Contains(a.Id))
+            .ToList();
+        var locationById = locationContainers.ToDictionary(a => a.Id, StringComparer.Ordinal);
+        var byParent = locationContainers
+            .Where(a => !string.IsNullOrWhiteSpace(a.ParentAssetId))
+            .ToLookup(a => a.ParentAssetId!, StringComparer.Ordinal);
+
+        // A root is a location whose parent is missing or is not itself a location container (the world container).
+        foreach (var rootAsset in locationContainers
+            .Where(a => string.IsNullOrWhiteSpace(a.ParentAssetId) || !locationById.ContainsKey(a.ParentAssetId))
             .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase))
         {
-            consumedLibraryIds.Add(asset.Id);
+            consumedLibraryIds.Add(rootAsset.Id);
+            // Every descendant is consumed too, or a nested container would also appear under Cleanup.
+            foreach (var descendant in Descendants(rootAsset.Id, byParent))
+            {
+                consumedLibraryIds.Add(descendant.Id);
+            }
+
+            var directChildren = Children(rootAsset.Id, byParent);
             roots.Add(new AssetTreeRoot
             {
                 Owner = new AssetTreeOwner
                 {
                     RootKind = "Location",
-                    OwnerId = asset.Id,
-                    OwnerName = asset.Name,
-                    Href = $"/locations/{Uri.EscapeDataString(asset.Id)}"
+                    OwnerId = rootAsset.Id,
+                    OwnerName = rootAsset.Name,
+                    Href = $"/locations/{Uri.EscapeDataString(rootAsset.Id)}"
                 },
-                Groups = []
+                Groups = directChildren.Count == 0
+                    ? []
+                    :
+                    [
+                        new AssetTreeGroup
+                        {
+                            Key = $"location:{rootAsset.Id}",
+                            Label = "Locations",
+                            Items = directChildren.Select(ToLocationContainerItem).ToList(),
+                            Children = directChildren
+                                .Select(child => BuildLocationGroup(child, byParent))
+                                .Where(group => group.Items.Count > 0)
+                                .ToList()
+                        }
+                    ]
             });
         }
 
@@ -231,6 +222,57 @@ public sealed class SceneAssetTreeService : ISceneAssetTreeService
 
         return roots;
     }
+
+    /// <summary>
+    /// One nested group per child container: the container's own name, its direct children as items, and one group
+    /// per child that has children of its own. Recursion is what makes the tree show world → location → spot rather
+    /// than silently dropping everything below the first level.
+    /// </summary>
+    private static AssetTreeGroup BuildLocationGroup(
+        SceneAsset container,
+        ILookup<string, SceneAsset> byParent)
+    {
+        var children = Children(container.Id, byParent);
+        return new AssetTreeGroup
+        {
+            Key = $"location:{container.Id}",
+            Label = container.Name,
+            Items = children.Select(ToLocationContainerItem).ToList(),
+            Children = children
+                .Select(child => BuildLocationGroup(child, byParent))
+                .Where(group => group.Items.Count > 0)
+                .ToList()
+        };
+    }
+
+    private static List<SceneAsset> Children(string assetId, ILookup<string, SceneAsset> byParent)
+        => byParent[assetId].OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
+
+    private static IEnumerable<SceneAsset> Descendants(string assetId, ILookup<string, SceneAsset> byParent)
+    {
+        foreach (var child in byParent[assetId])
+        {
+            yield return child;
+            foreach (var descendant in Descendants(child.Id, byParent))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
+    private static AssetTreeItem ToLocationContainerItem(SceneAsset asset) => new()    {
+        SourceStore = "Location",
+        AssetId = asset.Id,
+        Name = asset.Name,
+        KindLabel = asset.Type?.ToString() ?? asset.Kind.ToString(),
+        KindFilter = asset.Type?.ToString() ?? asset.Kind.ToString(),
+        ApprovalFilter = asset.ProductionApprovalStatus?.ToString() ?? "Unreviewed",
+        StatusLabel = asset.ProductionApprovalStatus is not null
+            ? $"{asset.Status} · {asset.ProductionApprovalStatus}"
+            : asset.Status.ToString(),
+        CreatedUtc = asset.CreatedUtc,
+        Href = $"/locations/{Uri.EscapeDataString(asset.Id)}"
+    };
 
     private static AssetTreeItem ToLibraryItem(SceneAsset asset, string? kindLabel = null) => new()
     {

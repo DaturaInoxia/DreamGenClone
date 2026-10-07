@@ -283,6 +283,7 @@ public sealed class SceneImageIdentityReadinessTests
         public Task CreateAsync(SceneImageProductionGroup group, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<SceneImageProductionGroup?> GetCurrentAsync(string momentEnrichmentId, string pov, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<SceneImageProductionGroup> SetIdentityPolicyAsync(string groupId, SceneImageIdentityPolicy policy, string? reason, DateTime updatedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<SceneImageProductionGroup> SetLocationBackdropAsync(string groupId, string? locationBackdropJson, DateTime updatedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<SceneImageProductionGroup>> ListByInteractionAsync(string sessionId, string interactionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApprovedSceneFrameDecision?> GetApprovalDecisionAsync(string decisionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<ApprovedSceneFrameDecision>> ListApprovalDecisionsAsync(string groupId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

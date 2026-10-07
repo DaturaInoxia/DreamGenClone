@@ -1,0 +1,80 @@
+@using DreamGenClone.Web.Application.TextEntry
+
+@*
+    A text box that is safe to type in on Blazor Server.
+
+    Bound the ordinary way - value="@field" @oninput="…field = …" - a box hands every keystroke to the server and every
+    server render writes the field's value back into the DOM. When the round trip is slower than the operator's typing
+    (any unrelated render makes that likely, and a periodic poll makes it routine) the render writes an OLDER value:
+    the box is truncated and the caret is thrown to the end, so the characters typed meanwhile land after it and the
+    text arrives interleaved. That is the "the cursor jumps while I type" failure, and it is a property of that
+    binding - not of any one page - so the rule is implemented once, here, instead of at every box.
+
+    This box draws the text the operator COMMITTED (blur or Enter) while Live still moves on every keystroke, so every
+    button, preview, filter and blocked reason that reads it stays as immediate as it was. Nothing else about the
+    element changes: id, class, rows, placeholder, type, disabled, aria and key handlers all ride through as
+    attributes, exactly as they are written at the call site.
+
+    Do not also write value, @oninput or @onchange at the call site: those belong to this component, and an element
+    cannot carry the same attribute twice.
+*@
+@if (Multiline)
+{
+    <textarea value="@_state.Rendered" @oninput="ReportInputAsync" @onchange="CommitInputAsync" @attributes="AdditionalAttributes"></textarea>
+}
+else
+{
+    <input value="@_state.Rendered" @oninput="ReportInputAsync" @onchange="CommitInputAsync" @attributes="AdditionalAttributes" />
+}
+
+@code {
+    /// <summary>
+    /// The live text the host owns. It moves on every keystroke, exactly as it did when the box was bound directly, so
+    /// anything gated on it - a Submit button, a filter, a blocked reason - behaves as before.
+    /// </summary>
+    [Parameter]
+    public string? Live { get; set; }
+
+    /// <summary>
+    /// Raised on every keystroke, and again on a commit. The commit is reported too because a value the browser
+    /// changed without an input event of its own (autofill, some pastes) would otherwise never reach the host, and the
+    /// next render would read the host's older text as a change and put it back in the box.
+    /// </summary>
+    [Parameter]
+    public EventCallback<string?> LiveChanged { get; set; }
+
+    /// <summary>
+    /// Raised only when the operator commits - blur or Enter. Use it for work that must not run per keystroke: saving
+    /// to the database, or parsing the text into a number. Do not write a handler here through @onchange instead: the
+    /// element's own change handler is this component's, and a second one would replace it.
+    /// </summary>
+    [Parameter]
+    public EventCallback<string?> Committed { get; set; }
+
+    /// <summary>Draws a textarea instead of an input.</summary>
+    [Parameter]
+    public bool Multiline { get; set; }
+
+    /// <summary>Everything else written on the element: id, class, rows, placeholder, type, disabled, aria, key handlers.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private readonly CommittedTextState _state = new();
+
+    protected override void OnParametersSet() => _state.AdoptHostText(Live);
+
+    private async Task ReportInputAsync(ChangeEventArgs args)
+    {
+        var text = args.Value?.ToString();
+        _state.Report(text);
+        await LiveChanged.InvokeAsync(text);
+    }
+
+    private async Task CommitInputAsync(ChangeEventArgs args)
+    {
+        var text = args.Value?.ToString();
+        _state.Commit(text);
+        await LiveChanged.InvokeAsync(text);
+        await Committed.InvokeAsync(text);
+    }
+}

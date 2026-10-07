@@ -96,6 +96,7 @@ internal static class ModelManagerTransfer
         new Column("ImageEditorCfgNormStrength", ColumnType.Real),
         new Column("ImageEditorLoraName", ColumnType.Text),
         new Column("ImageEditorLoraStrength", ColumnType.Real),
+        new Column("ImageEditorLoraCapability", ColumnType.Text),
         new Column("SupportsImageInput", ColumnType.Bool),
         new Column("MaximumInputImages", ColumnType.Int),
         new Column("MaximumInputImageBytes", ColumnType.Int),

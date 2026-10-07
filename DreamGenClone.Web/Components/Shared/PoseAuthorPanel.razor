@@ -187,13 +187,13 @@
                 <div class="row g-2 align-items-end">
                     <div class="col-md-4">
                         <label class="form-label small fw-semibold mb-1">Name</label>
-                        <input type="text" class="form-control form-control-sm" placeholder="Standing 3/4 right"
-                               value="@_name" @oninput="e => _name = e.Value?.ToString()" />
+                        <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="Standing 3/4 right"
+                                            Live="@_name" LiveChanged="args => _name = args" />
                     </div>
                     <div class="col-md-3">
                         <label class="form-label small fw-semibold mb-1">Category</label>
-                        <input type="text" class="form-control form-control-sm" placeholder="standing"
-                               value="@_category" @oninput="e => _category = e.Value?.ToString()" />
+                        <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="standing"
+                                            Live="@_category" LiveChanged="args => _category = args" />
                     </div>
                     <div class="col-md-3">
                         <label class="form-label small fw-semibold mb-1">Library</label>
@@ -214,8 +214,8 @@
                     </div>
                     <div class="col-12">
                         <label class="form-label small fw-semibold mb-1">Keywords (optional)</label>
-                        <input type="text" class="form-control form-control-sm" placeholder="three quarter, turn, profile"
-                               value="@_keywords" @oninput="e => _keywords = e.Value?.ToString()" />
+                        <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="three quarter, turn, profile"
+                                            Live="@_keywords" LiveChanged="args => _keywords = args" />
                     </div>
                 </div>
 
@@ -271,9 +271,9 @@
                         </div>
                         <div class="col-12">
                             <label class="form-label small fw-semibold mb-1">Metadata prompt</label>
-                            <textarea class="form-control form-control-sm" rows="3"
-                                      placeholder="Set a rating and the prompt is written from the fields above."
-                                      value="@_metaPrompt" @oninput="OnMetadataPromptInput"></textarea>
+                            <CommittedTextInput Multiline="true" class="form-control form-control-sm" rows="3"
+                                                placeholder="Set a rating and the prompt is written from the fields above."
+                                                Live="@_metaPrompt" LiveChanged="OnMetadataPromptInput" />
                             <span class="form-text">
                                 @if (_promptHandEdited)
                                 {
@@ -337,13 +337,13 @@
                         </div>
                         <div class="col-md-3">
                             <label class="form-label small fw-semibold mb-1">Seed (optional)</label>
-                            <input type="text" class="form-control form-control-sm" placeholder="random"
-                                   value="@_testSeed" @oninput="e => _testSeed = e.Value?.ToString()" />
+                            <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="random"
+                                                Live="@_testSeed" LiveChanged="args => _testSeed = args" />
                         </div>
                         <div class="col-md-2">
                             <label class="form-label small fw-semibold mb-1">Canvas</label>
-                            <input type="text" class="form-control form-control-sm"
-                                   value="@_testSize" @oninput="e => _testSize = e.Value?.ToString()" />
+                            <CommittedTextInput type="text" class="form-control form-control-sm"
+                                                Live="@_testSize" LiveChanged="args => _testSize = args" />
                         </div>
                         <div class="col-md-3 d-grid">
                             <button type="button" class="btn btn-sm btn-primary"
@@ -364,9 +364,9 @@
                                     Use the pose's metadata prompt
                                 </button>
                             </div>
-                            <textarea class="form-control form-control-sm" rows="3"
-                                      placeholder="A full-body photograph of a fully clothed person, natural skin texture, photorealistic, plain studio background, 85mm."
-                                      value="@_testPrompt" @oninput="e => _testPrompt = e.Value?.ToString()"></textarea>
+                            <CommittedTextInput Multiline="true" class="form-control form-control-sm" rows="3"
+                                                placeholder="A full-body photograph of a fully clothed person, natural skin texture, photorealistic, plain studio background, 85mm."
+                                                Live="@_testPrompt" LiveChanged="args => _testPrompt = args" />
                             <span class="form-text">
                                 The same wording for every pose, so a test compares poses rather than prompts. Square
                                 canvas keeps the skeleton's own aspect. Note that a skeleton carries the body's shape but
@@ -997,9 +997,9 @@
     /// against the composed one, because the two can coincide — a prompt typed to match the fields is still the
     /// operator's own wording.
     /// </summary>
-    private void OnMetadataPromptInput(ChangeEventArgs args)
+    private void OnMetadataPromptInput(string? text)
     {
-        _metaPrompt = args.Value?.ToString();
+        _metaPrompt = text;
         _promptHandEdited = true;
     }
 

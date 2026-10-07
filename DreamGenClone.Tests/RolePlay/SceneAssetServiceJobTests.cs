@@ -119,6 +119,51 @@ public sealed class SceneAssetServiceJobTests
     }
 
     [Fact]
+    public async Task AddGeneratedImage_RecordsTheOperatorsInputBesideThePromptThatRenders()
+    {
+        var (service, queue, _, _, dbPath, root) = Build();
+        try
+        {
+            var asset = await service.CreateAssetAsync("Shed", SceneAssetType.Location);
+            queue.Enqueued.Clear();
+
+            var image = await service.AddGeneratedImageAsync(
+                asset.Id,
+                "score_9, score_8_up, a maintenance shed at dusk",
+                "model-42",
+                "1024x1024",
+                options: new SceneAssetImageGenerationOptions
+                {
+                    PromptCompilerId = "asset-prompt-compiler",
+                    UserInput = "a maintenance shed at dusk"
+                });
+
+            // The row still holds the text that RENDERS - the handler sends it verbatim when the row names a compiler -
+            // so recording the description must not disturb it.
+            var persisted = Assert.Single(await service.ListImagesAsync(asset.Id));
+            Assert.Equal(image.Id, persisted.Id);
+            Assert.Equal("score_9, score_8_up, a maintenance shed at dusk", persisted.Prompt);
+            Assert.Equal("asset-prompt-compiler", persisted.PromptCompilerId);
+
+            // And the operator's own words travel with it: a compiled prompt replaces the description on the row, so
+            // without this the round-trip has nothing to put back into "Your input".
+            var payload = JsonSerializer.Deserialize<SceneAssetGenerationJobPayload>(
+                Assert.Single(queue.Enqueued).PayloadJson,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            Assert.NotNull(payload);
+            Assert.Equal("a maintenance shed at dusk", payload!.UserInput);
+            Assert.Contains(
+                "\"userInput\":\"a maintenance shed at dusk\"",
+                persisted.AssociationMetadataJson,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
     public async Task CreateAsset_RequiresOnlyNameAndType_AndStartsWithoutImages()
     {
         var (service, queue, _, _, dbPath, root) = Build();

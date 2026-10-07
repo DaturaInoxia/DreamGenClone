@@ -389,7 +389,6 @@ public sealed class ReferenceBootstrapRepositoryTests
     [Theory]
     [InlineData(SceneAssetType.CharacterBody)]
     [InlineData(SceneAssetType.Wardrobe)]
-    [InlineData(SceneAssetType.Location)]
     public async Task PromoteAcceptedReference_EmptyFrozenTextBlock_Throws(SceneAssetType targetAssetType)
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"reference-bootstrap-promotion-empty-{Guid.NewGuid():N}.db");
@@ -405,9 +404,8 @@ public sealed class ReferenceBootstrapRepositoryTests
             await bootstrapRepository.UpsertBatchAsync(new ReferenceBootstrapBatch
             {
                 Id = "batch-empty-frozen",
-                CharacterProfileId = targetAssetType == SceneAssetType.Location ? null : "character-1",
-                LocationProfileId = targetAssetType == SceneAssetType.Location ? "location-1" : null,
-                TargetAssetType = targetAssetType == SceneAssetType.Location ? null : targetAssetType,
+                CharacterProfileId = "character-1",
+                TargetAssetType = targetAssetType,
                 Description = "A reference",
                 RequestedCandidateCount = 1
             });
@@ -433,7 +431,6 @@ public sealed class ReferenceBootstrapRepositoryTests
     [Theory]
     [InlineData(SceneAssetType.CharacterBody)]
     [InlineData(SceneAssetType.Wardrobe)]
-    [InlineData(SceneAssetType.Location)]
     public async Task PromoteAcceptedReference_NonAcceptedCandidate_Throws(SceneAssetType targetAssetType)
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"reference-bootstrap-promotion-nonaccepted-{Guid.NewGuid():N}.db");
@@ -449,9 +446,8 @@ public sealed class ReferenceBootstrapRepositoryTests
             await bootstrapRepository.UpsertBatchAsync(new ReferenceBootstrapBatch
             {
                 Id = "batch-nonaccepted",
-                CharacterProfileId = targetAssetType == SceneAssetType.Location ? null : "character-1",
-                LocationProfileId = targetAssetType == SceneAssetType.Location ? "location-1" : null,
-                TargetAssetType = targetAssetType == SceneAssetType.Location ? null : targetAssetType,
+                CharacterProfileId = "character-1",
+                TargetAssetType = targetAssetType,
                 Description = "A reference",
                 FrozenTextBlock = "Frozen description",
                 RequestedCandidateCount = 1
@@ -478,7 +474,6 @@ public sealed class ReferenceBootstrapRepositoryTests
     [Theory]
     [InlineData(SceneAssetType.CharacterBody)]
     [InlineData(SceneAssetType.Wardrobe)]
-    [InlineData(SceneAssetType.Location)]
     public async Task PromoteAcceptedReference_MissingAsset_Throws(SceneAssetType targetAssetType)
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"reference-bootstrap-promotion-missing-reference-{Guid.NewGuid():N}.db");
@@ -493,9 +488,8 @@ public sealed class ReferenceBootstrapRepositoryTests
             await bootstrapRepository.UpsertBatchAsync(new ReferenceBootstrapBatch
             {
                 Id = "batch-missing-reference",
-                CharacterProfileId = targetAssetType == SceneAssetType.Location ? null : "character-1",
-                LocationProfileId = targetAssetType == SceneAssetType.Location ? "location-1" : null,
-                TargetAssetType = targetAssetType == SceneAssetType.Location ? null : targetAssetType,
+                CharacterProfileId = "character-1",
+                TargetAssetType = targetAssetType,
                 Description = "A reference",
                 FrozenTextBlock = "Frozen description",
                 RequestedCandidateCount = 1
@@ -520,7 +514,6 @@ public sealed class ReferenceBootstrapRepositoryTests
         {
             SceneAssetType.CharacterBody => service.PromoteAcceptedCharacterBodyAsync(batchId, producedImageId),
             SceneAssetType.Wardrobe => service.PromoteAcceptedWardrobeAsync(batchId, producedImageId),
-            SceneAssetType.Location => service.PromoteAcceptedLocationAsync(batchId, producedImageId),
             _ => throw new ArgumentOutOfRangeException(nameof(targetAssetType), targetAssetType, null)
         };
 

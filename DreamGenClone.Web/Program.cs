@@ -344,6 +344,7 @@ builder.Services.AddSingleton<CompiledMediaBriefRepository>();
 builder.Services.AddSingleton<ICompiledMediaBriefRepository>(sp => sp.GetRequiredService<CompiledMediaBriefRepository>());
 builder.Services.AddSingleton<IApprovedMediaDerivativeRepository>(sp => sp.GetRequiredService<CompiledMediaBriefRepository>());
 builder.Services.AddSingleton<ISceneImageProductionGroupRepository, SceneImageProductionGroupRepository>();
+builder.Services.AddSingleton<ISceneMomentLocationLinkRepository, SceneMomentLocationLinkRepository>();
 builder.Services.AddSingleton<IDurableBackgroundJobRepository, DurableBackgroundJobRepository>();
 builder.Services.AddSingleton<IDurableBackgroundJobQueue, DurableBackgroundJobQueue>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -551,6 +552,8 @@ builder.Services.AddScoped<IProductionWorkloadService, ProductionWorkloadService
 builder.Services.AddScoped<IProductionStudioService, ProductionStudioService>();
 builder.Services.AddSingleton<ISceneAssetStorageService, SceneAssetStorageService>();
 builder.Services.AddScoped<ISceneAssetService, SceneAssetService>();
+builder.Services.AddScoped<ISceneMomentLocationService, SceneMomentLocationService>();
+builder.Services.AddScoped<IScenarioLocationContainerService, ScenarioLocationContainerService>();
 // The image-tag surface of the same service (B-140 D2): a narrow interface so a tag editor or a tag search does not
 // have to depend on - or stub - the whole asset lifecycle to read and write the tags on one image.
 builder.Services.AddScoped<ISceneAssetImageTagService>(provider =>

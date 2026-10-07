@@ -156,7 +156,9 @@
                                         <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ReloadDefaultFrontPromptAsync" disabled="@_frontBusy" title="Load this character's default prompt">Reload default</button>
                                     </span>
                                 </div>
-                                <textarea class="form-control font-monospace small" rows="6" value="@_frontPrompt" @oninput="OnFrontPromptInput" @onchange="OnFrontPromptCommitted"></textarea>
+                                <CommittedTextInput Multiline="true" class="form-control font-monospace small" rows="6"
+                                                    Live="@_frontPrompt" LiveChanged="args => _frontPrompt = args ?? string.Empty"
+                                                    Committed="OnFrontPromptCommittedAsync" />
                             </div>
 
                             <div class="row g-2 mb-2">
@@ -169,7 +171,8 @@
                                 </div>
                                 <div class="col-md-3">
                                     <label class="form-label small mb-1">Size</label>
-                                    <input class="form-control form-control-sm" @bind="_frontImageSize" @bind:event="oninput" />
+                                    <CommittedTextInput class="form-control form-control-sm" Live="@_frontImageSize"
+                                                        LiveChanged="args => _frontImageSize = args ?? string.Empty" />
                                 </div>
                                 <div class="col-md-4 d-flex align-items-end gap-1">
                                     <button type="button" class="btn btn-sm btn-primary" @onclick="GenerateFrontAsync" disabled="@_frontBusy">Generate</button>
@@ -483,8 +486,14 @@
                                                                 @if (attempt.Status == CharacterIdentityAngleStatus.Failed)
                                                                 {
                                                                     <div class="mt-2">
-                                                                        <input class="form-control form-control-sm" placeholder="Override reason" value="@OverrideReason(attempt.Id)" @oninput="args => SetOverrideReason(attempt.Id, args.Value?.ToString() ?? string.Empty)" @onclick:stopPropagation="true" />
-                                                                        <input class="form-control form-control-sm mt-1" placeholder="Author" value="@OverrideAuthor(attempt.Id)" @oninput="args => SetOverrideAuthor(attempt.Id, args.Value?.ToString() ?? string.Empty)" @onclick:stopPropagation="true" />
+                                                                        <CommittedTextInput class="form-control form-control-sm" placeholder="Override reason"
+                                                                                            Live="@OverrideReason(attempt.Id)"
+                                                                                            LiveChanged="args => SetOverrideReason(attempt.Id, args ?? string.Empty)"
+                                                                                            @onclick:stopPropagation="true" />
+                                                                        <CommittedTextInput class="form-control form-control-sm mt-1" placeholder="Author"
+                                                                                            Live="@OverrideAuthor(attempt.Id)"
+                                                                                            LiveChanged="args => SetOverrideAuthor(attempt.Id, args ?? string.Empty)"
+                                                                                            @onclick:stopPropagation="true" />
                                                                         <button type="button" class="btn btn-sm btn-warning mt-1" @onclick:stopPropagation="true" @onclick="() => RecordAngleOverrideAsync(view, attempt.Id)">Record visual override</button>
                                                                     </div>
                                                                 }
@@ -628,18 +637,55 @@
             </div>
             break;
         case "Body":
-            <div>
-                @if (!string.IsNullOrWhiteSpace(_bodyMessage))
-                {
-                    <div class="alert alert-info small py-1">@_bodyMessage</div>
-                }
+            @if (!string.IsNullOrWhiteSpace(_bodyMessage))
+            {
+                <div class="alert alert-info small py-1">@_bodyMessage</div>
+            }
 
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <strong>Body card</strong>
-                        <span class="small @(_bodyCard.IsReady && _bodyCardVersion > 0 ? "text-success" : "text-warning")">@BodyCardStatus</span>
-                    </div>
-                    <div class="card-body">
+            @* The body tab is a left navigation over its sections, like the LoRA dataset workspace: the list on the
+               left names every section, and the panel on the right is the one being worked on. *@
+            <div class="row g-3">
+                <div class="col-12 col-lg-4 col-xl-3">
+                    <section class="card" aria-label="Body sections">
+                        <div class="card-header"><strong>Body</strong></div>
+                        <ul class="list-group list-group-flush" style="max-height:78vh;overflow-y:auto;">
+                            @foreach (var navSection in BodyNavSections)
+                            {
+                                @if (navSection.IsGroup)
+                                {
+                                    <li class="list-group-item py-2">
+                                        <div class="small fw-semibold mb-1">@navSection.Label</div>
+                                        <ul class="list-unstyled ms-2 mb-0">
+                                            @foreach (var angle in navSection.Angles!)
+                                            {
+                                                <li class="py-1 small @(IsBodyAngleSelected(angle.State, angle.View) ? "fw-semibold text-primary" : "text-body")"
+                                                    style="cursor:pointer;" @onclick="() => SelectBodyAngleAsync(angle)">
+                                                    @angle.Label
+                                                </li>
+                                            }
+                                        </ul>
+                                    </li>
+                                }
+                                else
+                                {
+                                    <li class="list-group-item py-2 @(IsBodySectionSelected(navSection.Id) ? "active" : "")"
+                                        style="cursor:pointer;" @onclick="() => _bodyNavSection = navSection.Id">
+                                        @navSection.Label
+                                    </li>
+                                }
+                            }
+                        </ul>
+                    </section>
+                </div>
+                <div class="col-12 col-lg-8 col-xl-9">
+                    @if (_bodyNavSection == "body-card")
+                    {
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <strong>Body card</strong>
+                                <span class="small @(_bodyCard.IsReady && _bodyCardVersion > 0 ? "text-success" : "text-warning")">@BodyCardStatus</span>
+                            </div>
+                            <div class="card-body">
                         <p class="small text-muted">
                             The single source of every body prompt: this line is pasted verbatim into each body reference
                             prompt, and generation refuses while a field is unanswered. A field marked <strong>[DECIDE]</strong>
@@ -694,10 +740,10 @@
                                         </select>
                                         @if (custom)
                                         {
-                                            <input class="form-control form-control-sm mt-1"
-                                                   placeholder="type your own wording"
-                                                   value="@picked"
-                                                   @oninput="e => picker.Write(_bodyCard.Axes, e.Value?.ToString())" />
+                                            <CommittedTextInput class="form-control form-control-sm mt-1"
+                                                                placeholder="type your own wording"
+                                                                Live="@picked"
+                                                                LiveChanged="args => picker.Write(_bodyCard.Axes, args)" />
                                         }
                                         @if (DescribeAxisConsequence(picker.Axis, picked) is { Length: > 0 } consequence)
                                         {
@@ -986,16 +1032,16 @@
                         </button>
                         <div class="border-top mt-3 pt-3">
                             <label class="form-label small fw-semibold" for="body-card-face-text">Canonical face text</label>
-                            <textarea id="body-card-face-text" class="form-control form-control-sm font-monospace" rows="2"
-                                      @bind="_bodyCard.FaceText" @bind:event="oninput"></textarea>
+                            <CommittedTextInput Multiline="true" id="body-card-face-text" class="form-control form-control-sm font-monospace" rows="2"
+                                                Live="@_bodyCard.FaceText" LiveChanged="args => _bodyCard.FaceText = args ?? string.Empty" />
                             <div class="form-text">
                                 The face clause alone — hair, eyes, bone structure, detail. Skin is not here: tone and texture
                                 are body-wide and travel on the body text below.
                             </div>
 
                             <label class="form-label small fw-semibold mt-2" for="body-card-text">Canonical body text</label>
-                            <textarea id="body-card-text" class="form-control form-control-sm font-monospace" rows="3"
-                                      @bind="_bodyCard.BodyText" @bind:event="oninput"></textarea>
+                            <CommittedTextInput Multiline="true" id="body-card-text" class="form-control form-control-sm font-monospace" rows="3"
+                                                Live="@_bodyCard.BodyText" LiveChanged="args => _bodyCard.BodyText = args ?? string.Empty" />
                             <div class="d-flex gap-2 flex-wrap align-items-center mt-2">
                                 <button type="button" class="btn btn-outline-primary btn-sm"
                                         @onclick="ComposeBodyTextAsync" disabled="@_bodyTextBusy">
@@ -1023,15 +1069,17 @@
                         }
                     </div>
                 </div>
-
-                <div class="card mt-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <strong>Body build</strong>
-                        <button type="button" class="btn btn-sm btn-primary" @onclick="StartBodyBuildAsync" disabled="@_bodyStartingBuild">
-                            @(_bodyBuild is null ? "Start body build" : "Start over")
-                        </button>
-                    </div>
-                    <div class="card-body">
+                    }
+                    else if (_bodyNavSection == "body-build")
+                    {
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <strong>Body build</strong>
+                                <button type="button" class="btn btn-sm btn-primary" @onclick="StartBodyBuildAsync" disabled="@_bodyStartingBuild">
+                                    @(_bodyBuild is null ? "Start body build" : "Start over")
+                                </button>
+                            </div>
+                            <div class="card-body">
                         @if (_bodyBuild is null)
                         {
                             <p class="text-muted small mb-0">
@@ -1051,11 +1099,15 @@
                                     <span class="badge @StepBadge(row.Status)" title="@row.FailureReason">@StepLabel(row.Step)</span>
                                 }
                             </div>
-
-                            @* B-122 E-2: the clothed and unclothed view grids. One row per canonical slot, one
-                               request per row — the panel owns the per-view actions and this page only tells it
-                               which build it is acquiring and which settings apply. *@
-                            <div class="card mt-3">
+                        }
+                    </div>
+                </div>
+                    }
+                    else if (_bodyNavSection == "body-view-setting")
+                    {
+                        @if (_bodyBuild is not null)
+                        {
+                            <div class="card">
                                 <div class="card-header d-flex justify-content-between align-items-center">
                                     <strong>Body view settings</strong>
                                     <span class="small text-muted">set once — used by every body view</span>
@@ -1099,25 +1151,43 @@
                                     </div>
                                 </div>
                             </div>
-
-                            <div class="mt-3">
-                                <BodyViewsPanel BuildId="@_bodyBuild.Id" CharacterName="@BodyPanelCharacterName"
-                                                ModelId="@_bodyViewModelId" ModelName="@BodyViewModelName"
-                                                ImageSize="@_bodyViewImageSize"
-                                                SettingsRevision="@_bodyViewSettingsRevision" />
+                        }
+                    }
+                    else if (_bodyNavSection == "body-angle")
+                    {
+                        @if (_bodyBuild is not null)
+                        {
+                            <BodyViewsPanel BuildId="@_bodyBuild.Id" CharacterName="@BodyPanelCharacterName"
+                                            CharacterId="@IdentityKey" ModelChoices="@_bodyViewModels"
+                                            ModelId="@_bodyViewModelId" ModelName="@BodyViewModelName"
+                                            ImageSize="@_bodyViewImageSize"
+                                            SettingsRevision="@_bodyViewSettingsRevision"
+                                            ModelIdChanged="OnBodyViewModelChanged"
+                                            SelectedState="@_selectedBodyState" SelectedView="@_selectedBodyView" />
+                        }
+                        else
+                        {
+                            <div class="card">
+                                <div class="card-body text-muted small">
+                                    Start the body build first — the views are acquired from it.
+                                </div>
                             </div>
-
+                        }
+                    }
+                    else if (_bodyNavSection == "approve")
+                    {
+                        @if (_bodyBuild is not null)
+                        {
                             @* The BODY build's own promotion panel. Its readiness — not the build's step index — is the gate: the
                                body plan's remaining steps are completed BY the promotion (CompleteBodyStepsAsync), so hiding
                                this behind "CurrentStep >= Promote" hid the one action that finishes them and left a fully
                                accepted body set with no way into a BodyComplete pack. Every unmet requirement is named here
                                instead, and the button stays disabled until none is left. *@
-                            <div class="mt-3">
-                                <div class="card">
-                                    <div class="card-header d-flex justify-content-between align-items-center">
-                                        <strong>Promote the body set to a BodyComplete pack</strong>
-                                        <span class="badge @(BodyPromotionReady ? "text-bg-success" : "text-bg-secondary")">@BodyPromotionStatus</span>
-                                    </div>
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <strong>Promote the body set to a BodyComplete pack</strong>
+                                    <span class="badge @(BodyPromotionReady ? "text-bg-success" : "text-bg-secondary")">@BodyPromotionStatus</span>
+                                </div>
                                     <div class="card-body">
                                         @if (_bodyPromotion is null)
                                         {
@@ -1187,9 +1257,8 @@
                                         }
                                     </div>
                                 </div>
-                            </div>
                         }
-                    </div>
+                    }
                 </div>
             </div>
             break;
@@ -1398,6 +1467,16 @@
         }
     }
 
+    /// <summary>
+    /// The composer's model picker updates the same body-view model the Body view setting section edits. The SAVE is
+    /// still the one action that persists it; this only moves the dropdown's value.
+    /// </summary>
+    private Task OnBodyViewModelChanged(string? modelId)
+    {
+        _bodyViewModelId = modelId ?? string.Empty;
+        return Task.CompletedTask;
+    }
+
     private async Task SaveBodyViewSettingsAsync()
     {
         if (string.IsNullOrWhiteSpace(IdentityKey))
@@ -1435,6 +1514,45 @@
     private string? _ownerMessage;
 
     private string _activeSection = "Packs";
+
+    /// <summary>The section the Body tab's left navigation is showing: body-card, body-build, body-view-setting, body-angle, or approve.</summary>
+    private string _bodyNavSection = "body-card";
+
+    /// <summary>The body angle the left navigation selected, shown by the BodyViewsPanel when <see cref="_bodyNavSection"/> is "body-angle".</summary>
+    private SceneImageReferenceBodyState _selectedBodyState = SceneImageReferenceBodyState.Clothed;
+    private SceneImageReferenceBodyView _selectedBodyView = SceneImageReferenceBodyView.Front;
+
+    /// <summary>One entry of the Body tab's left navigation: a section, or a group of angle sections.</summary>
+    private sealed record BodyNavSection(
+        string Id,
+        string Label,
+        bool IsGroup = false,
+        IReadOnlyList<CharacterIdentityBodySlot>? Angles = null);
+
+    /// <summary>The Body tab's left navigation, in working order.</summary>
+    private static readonly IReadOnlyList<BodyNavSection> BodyNavSections =
+    [
+        new("body-card", "Body card"),
+        new("body-build", "Body build"),
+        new("body-view-setting", "Body view setting"),
+        new("clothed", "Clothed views", IsGroup: true, Angles: CharacterIdentityBodySlots.For(SceneImageReferenceBodyState.Clothed)),
+        new("unclothed", "Unclothed", IsGroup: true, Angles: CharacterIdentityBodySlots.For(SceneImageReferenceBodyState.Unclothed)),
+        new("approve", "Approve")
+    ];
+
+    private bool IsBodySectionSelected(string id) => string.Equals(_bodyNavSection, id, StringComparison.Ordinal);
+
+    private bool IsBodyAngleSelected(SceneImageReferenceBodyState state, SceneImageReferenceBodyView view)
+        => _bodyNavSection == "body-angle" && _selectedBodyState == state && _selectedBodyView == view;
+
+    private Task SelectBodyAngleAsync(CharacterIdentityBodySlot slot)
+    {
+        _selectedBodyState = slot.State;
+        _selectedBodyView = slot.View;
+        _bodyNavSection = "body-angle";
+        return Task.CompletedTask;
+    }
+
     private string _characterName = "Character";
     private string? _scenarioName;
     private List<CharacterImageIdentityPack> _packs = [];
@@ -2742,11 +2860,9 @@
         _ => "text-muted"
     };
 
-    private void OnFrontPromptInput(ChangeEventArgs e) => _frontPrompt = e.Value?.ToString() ?? string.Empty;
-
-    private async Task OnFrontPromptCommitted(ChangeEventArgs e)
+    private async Task OnFrontPromptCommittedAsync(string? text)
     {
-        _frontPrompt = e.Value?.ToString() ?? string.Empty;
+        _frontPrompt = text ?? string.Empty;
         await PersistFrontPromptAsync();
     }
 

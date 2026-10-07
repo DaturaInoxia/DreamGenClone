@@ -444,7 +444,9 @@ public sealed class SceneImageStudioUiContractTests
     [Fact]
     public void EditIterateWorkbench_ForwardsBoundFieldsToItsParent()
     {
-        Assert.Contains("@bind:set=\"SetIntentAsync\"", EditIterateWorkbenchSource, StringComparison.Ordinal);
+        // The boxes take committed text (CommittedTextInput) instead of @bind:get/@bind:set, which lost the caret; the
+        // forwarding to the parent is unchanged, so assert that.
+        Assert.Contains("LiveChanged=\"args => SetIntentAsync(args ?? string.Empty)\"", EditIterateWorkbenchSource, StringComparison.Ordinal);
         Assert.Contains("await IntentChanged.InvokeAsync(value);", EditIterateWorkbenchSource, StringComparison.Ordinal);
         Assert.Contains("await ClarificationChanged.InvokeAsync(value);", EditIterateWorkbenchSource, StringComparison.Ordinal);
         Assert.Contains("await EditablePromptChanged.InvokeAsync(value);", EditIterateWorkbenchSource, StringComparison.Ordinal);
@@ -582,6 +584,30 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("ProductionGroupId = source.ProductionGroupId", genericEditSource, StringComparison.Ordinal);
         Assert.DoesNotContain("ProductionStage = SceneImageProductionStage.Finish", genericEditSource, StringComparison.Ordinal);
         Assert.DoesNotContain("Disposition = SceneImageAttemptDisposition.Active", genericEditSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProductionStudio_LocationStageLeadsThePageLocalStageArrayAndOffersCreateBindAndSkip()
+    {
+        // B-148 D15: the page-local workbench stage array now leads with Location. The persisted SceneImageProductionStage
+        // enum is untouched, so the keyboard array still holds Composition/Identity/Finish.
+        Assert.Contains("new[] { \"Location\", \"Composition\", \"Identity\", \"Finish\" }", Source, StringComparison.Ordinal);
+        Assert.Contains("Create location from this moment", Source, StringComparison.Ordinal);
+        Assert.Contains("Skip — text-only location", Source, StringComparison.Ordinal);
+        Assert.Contains("Finish in Location Studio", Source, StringComparison.Ordinal);
+        Assert.Contains("Use as backdrop", Source, StringComparison.Ordinal);
+        Assert.Contains("@card.Reason", Source, StringComparison.Ordinal);
+        Assert.Contains("CreateLocationFromMomentAsync", Source, StringComparison.Ordinal);
+        Assert.Contains("BindBackdropAsync", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompositionComposer_SeedsTheLocationSlotFromABoundBackdropAndShowsANotice()
+    {
+        Assert.Contains("SeedLocationBackdropIfBound", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("LocationBackdropSlotPrefill.For(", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("This model cannot carry the location reference", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("_locationSeedNotice", CompositionComposerSource, StringComparison.Ordinal);
     }
 
     private static int IndexOf(string value, int startIndex = 0)

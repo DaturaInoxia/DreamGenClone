@@ -131,6 +131,25 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
                 $"Image editor model '{model.DisplayName}' configures editor LoRA '{loraName}' without an explicit positive strength. Set 'Editor LoRA Strength' in Model Manager (/model-manager).");
         }
 
+        // A LoRA capability names what the configured LoRA is FOR. MultiAngleCamera is a real contract: it needs a
+        // LoRA (the trigger grammar lives in the LoRA, not in the checkpoint) and a 2511 graph (the fal multi-angle
+        // LoRA maps onto the 2511 diffusion model). A capability without its LoRA, or on a graph the LoRA was not
+        // trained for, is a configuration conflict rather than something to ignore.
+        var loraCapability = ImageEditorLoraCapabilities.ParseOrNone(model.ImageEditorLoraCapability);
+        if (loraCapability == ImageEditorLoraCapability.MultiAngleCamera)
+        {
+            if (loraName is null)
+            {
+                throw new ModelResolutionException(
+                    $"Image editor model '{model.DisplayName}' declares the multi-angle camera LoRA capability but configures no editor LoRA. Set 'Editor LoRA' in Model Manager (/model-manager), or clear the capability.");
+            }
+            if (graphKind is not (ImageEditorGraphKind.MergedCheckpoint or ImageEditorGraphKind.SplitUnet))
+            {
+                throw new ModelResolutionException(
+                    $"Image editor model '{model.DisplayName}' declares the multi-angle camera LoRA capability, which requires a 2511 editor graph ('MergedCheckpoint' or 'SplitUnet'). Its graph is '{model.ImageEditorGraphKind}'. Set 'Editor Graph' in Model Manager (/model-manager).");
+            }
+        }
+
         // 2.1 native editing carries its reference pixel budget with the capability it was qualified
         // for, so it is required exactly for that graph kind. Never inferred, never defaulted.
         // Note: the configured 'AuraFlow shift' and 'CFGNorm strength' are validated and persisted for
@@ -166,7 +185,8 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
             LoraName: loraName,
             LoraStrength: model.ImageEditorLoraStrength,
             ResolutionBudget: resolutionBudget,
-            SceneImageModelFamily: model.SceneImageModelFamily);
+            SceneImageModelFamily: model.SceneImageModelFamily,
+            LoraCapability: loraCapability);
     }
 
     public async Task<IReadOnlyList<SceneImageModelChoice>> ListImageEditorModelsAsync(
@@ -200,7 +220,9 @@ public sealed class ImageEditorModelResolver : IImageEditorModelResolver
                     // native references on a model that has none.
                     QualifiedStrategies = provider is null
                         ? ["TextOnly"]
-                        : ReferenceStrategyResolver.ListAvailableStrategies(model, provider)
+                        : ReferenceStrategyResolver.ListAvailableStrategies(model, provider),
+                    // The camera tab lists only models whose editor LoRA declares the multi-angle capability.
+                    SupportsMultiAngleCamera = resolved.LoraCapability == ImageEditorLoraCapability.MultiAngleCamera
                 });
             }
             catch (ModelResolutionException)

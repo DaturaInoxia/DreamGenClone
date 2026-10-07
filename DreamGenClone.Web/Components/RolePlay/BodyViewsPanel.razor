@@ -1,11 +1,16 @@
 @using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Application.RolePlay
 @using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.ImageStep
 @using DreamGenClone.Web.Application.Scenarios
 @using System.Text.Json
 @inject ICharacterIdentityBodyService BodyService
 @inject ISceneAssetService AssetService
+@inject IImageCellPromptCompiler PromptCompiler
+@inject IImageCompilerProfileRepository CompilerProfiles
+@inject IModelResolutionService ModelResolutionService
 @implements IDisposable
 
 @* B-122 E-2: the clothed and unclothed view grids. One row per canonical slot, one request per row, and no batch
@@ -49,12 +54,22 @@ else
 
     @foreach (var state in BodyStates)
     {
-        var slots = CharacterIdentityBodySlots.For(state);
+        var slots = CharacterIdentityBodySlots.For(state)
+            .Where(slot => SelectedSlot is null || (slot.State == SelectedSlot.State && slot.View == SelectedSlot.View))
+            .ToList();
+        if (slots.Count == 0)
+        {
+            continue;
+        }
+
         var accepted = slots.Count(slot => ViewFor(slot)?.Status == CharacterIdentityAngleStatus.Accepted);
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <strong>@state views</strong>
-                <span class="badge @(accepted == slots.Count ? "text-bg-success" : "text-bg-secondary")">@accepted / @slots.Count accepted</span>
+                <strong>@(SelectedSlot is null ? $"{state} views" : SelectedSlot.Label)</strong>
+                @if (SelectedSlot is null)
+                {
+                    <span class="badge @(accepted == slots.Count ? "text-bg-success" : "text-bg-secondary")">@accepted / @slots.Count accepted</span>
+                }
             </div>
             <div class="card-body">
                 @foreach (var slot in slots)
@@ -62,7 +77,7 @@ else
                     var key = CharacterIdentityBodyViewKey.Canonical(slot.State, slot.View);
                     var keyText = key.Describe();
                     var view = ViewFor(slot);
-                    var open = string.Equals(_openKey, keyText, StringComparison.Ordinal);
+                    var open = SelectedSlot is not null || string.Equals(_openKey, keyText, StringComparison.Ordinal);
                     <div class="border rounded p-2 mb-2">
                         <div class="d-flex flex-wrap align-items-center gap-2">
                             <span class="fw-semibold small">@slot.Label</span>
@@ -138,20 +153,30 @@ else
                         @if (open)
                         {
                             <div class="mt-2">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <label class="form-label small mb-1">
-                                        @(slot.IsBase
-                                            ? "Prompt compiled for the selected model (used by Generate). 'Edit from accepted source' uses the stored rotation instruction instead."
-                                            : "Render prompt compiled for the selected model: the body prompt plus this angle's camera clause. 'Render angle' sends it with the accepted body and the committed angle skeleton; 'Rotation edit' uses the stored rotation instruction instead.")
-                                    </label>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => ReloadPromptAsync(key)" disabled="@IsReloading(keyText)">@(IsReloading(keyText) ? "Reloading…" : "Reload prompt")</button>
-                                </div>
-                                <textarea @key="@(keyText + "|" + PromptRevisionFor(keyText))" class="form-control font-monospace small" rows="4"
-                                          value="@PromptFor(keyText)"
-                                          @oninput="e => SetPrompt(keyText, e.Value?.ToString())"></textarea>
+                                @* The image composition is the ONE shared step every surface uses: its Face, Body and Pose
+                                   tabs bind the conditionings, and its prompt panel and Generate submit replace this
+                                   panel's own prompt box and generate button. *@
+                                @if (BodyViewBlueprint is { } blueprint)
+                                {
+                                    <ImageStepComposer Blueprint="blueprint"
+                                                       ModelChoices="ModelChoices"
+                                                       SelectedModelId="@ModelId"
+                                                       SelectedModelIdChanged="OnModelChanged"
+                                                       ModelPlaceholder="Select model…"
+                                                       AutoSelectDefaultModel="false"
+                                                       Bindings="ViewBindingsFor(keyText)"
+                                                       BindingsChanged="bindings => SetViewBindings(keyText, bindings)"
+                                                       Prompt="@PromptFor(keyText)"
+                                                       PromptChanged="p => OnPromptEditedAsync(key, p)"
+                                                       OnGeneratePrompt="() => GeneratePromptAsync(key)"
+                                                       Busy="@(IsSubmitting(keyText) || IsCompiling(keyText))"
+                                                       CanSubmit="@CanGenerate"
+                                                       SubmitLabel="Generate"
+                                                       SubmitBlockedReason="@(CanGenerate ? null : "Set the body view model and image size in Body view setting.")"
+                                                       OnSubmit="() => GenerateAsync(key)" />
+                                }
 
                                 <div class="d-flex flex-wrap gap-1 mt-2">
-                                    <button type="button" class="btn btn-sm btn-primary" @onclick="() => GenerateAsync(key)" disabled="@(IsSubmitting(keyText) || !CanGenerate)">@(IsSubmitting(keyText) ? "Rendering…" : GenerateLabelFor(slot))</button>
                                     @if (slot.IsBase)
                                     {
                                         @* A base has no source to derive from, so "edit from accepted source" cannot apply to it:
@@ -208,14 +233,6 @@ else
                                                      style="height:80px;width:80px;object-fit:contain;background:#f8f9fa;" alt="angle skeleton" />
                                                 <div class="small text-muted">@slot.View pose</div>
                                             </div>
-                                            @if (_useIdentity && _identityAvailability is { } identityFaceSet)
-                                            {
-                                                <div class="text-center" style="width:96px;">
-                                                    <div class="border rounded bg-light d-flex align-items-center justify-content-center text-muted small"
-                                                         style="height:80px;width:80px;">face</div>
-                                                    <div class="small text-muted">@identityFaceSet.Faces.FirstOrDefault(face => face.AssetId == IdentityFaceAssetId)?.Label</div>
-                                                </div>
-                                            }
                                             <div class="small text-muted" style="max-width:26rem;">
                                                 The committed <code>@angleSkeleton.FileName</code> is annotated from a figure in
                                                 this view (<span title="@angleSkeleton.VerifiedOn">provenance</span>) — it supplies the
@@ -229,168 +246,6 @@ else
                                     </div>
                                 }
 
-                                @* Pose and identity are offered on EVERY row now. On a base, the pose is the operator's choice of
-                                   stance skeleton and the identity switch sends the approved face. On a canonical angle, the pose
-                                   IS the committed angle skeleton for that view (shown above, not selectable) and the identity
-                                   switch adds the approved face alongside it — measured 2026-09-23 as redundant but passing, so
-                                   it is offered rather than refused. *@
-                                <div class="border rounded p-2 mt-2">
-                                        @* Identity is offered only when an approved reference EXISTS. Showing a switch that
-                                           cannot be honoured would make the operator discover the problem in a failed render. *@
-                                        @* The BACK view shows no face by design, so it offers no identity face reference — and says
-                                           why, rather than showing a switch the render refuses. *@
-                                        @if (slot.View == SceneImageReferenceBodyView.Back)
-                                        {
-                                            <div class="small text-muted">
-                                                No identity face reference on the back view: it shows no face by design, and the
-                                                identity travels in the accepted body reference. A face reference here would ask
-                                                the model to show the face this view exists to hide.
-                                            </div>
-                                        }
-                                        else if (_identityAvailability?.IsAvailable == true)
-                                        {
-                                            <div class="form-check form-switch">
-                                                <input class="form-check-input" type="checkbox" id="@($"identity-{keyText}")"
-                                                       checked="@_useIdentity"
-                                                       @onchange="e => _useIdentity = e.Value is bool on && on" />
-                                                <label class="form-check-label small" for="@($"identity-{keyText}")">
-                                                    Condition this render on the character's approved identity face
-                                                    (<strong>pack v@(_identityAvailability.PackVersion)</strong>) — @IdentityMechanismExplanation
-                                                </label>
-                                            </div>
-                                            @if (_useIdentity && _identityAvailability.Faces.Count > 1)
-                                            {
-                                                @* Which ANGLE conditions the render. The same rule the scene editor follows: pick the
-                                                   reference that matches the view being generated instead of always using the canonical
-                                                   face. Canonical is listed first and is the default. *@
-                                                <div class="row g-2 align-items-end mt-1 ms-1">
-                                                    <div class="col-md-5">
-                                                        <label class="form-label small mb-1" for="@($"identity-face-{keyText}")">Reference face angle</label>
-                                                        <select class="form-select form-select-sm" id="@($"identity-face-{keyText}")"
-                                                                value="@IdentityFaceAssetId"
-                                                                @onchange="e => _identityFaceAssetId = e.Value?.ToString() ?? string.Empty">
-                                                            @foreach (var face in _identityAvailability.Faces)
-                                                            {
-                                                                <option value="@face.AssetId">@face.Label</option>
-                                                            }
-                                                        </select>
-                                                    </div>
-                                                    <div class="col-md-7">
-                                                        <span class="small text-muted">
-                                                            The approved faces in this pack. Conditioning on the angle the view
-                                                            actually shows is what keeps the reference from fighting the pose.
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            }
-                                        }
-                                        else if (_identityAvailability is { } unavailable)
-                                        {
-                                            <div class="small text-muted">
-                                                Identity conditioning is unavailable: @unavailable.Reason
-                                            </div>
-                                        }
-                                        @* Pose is offered when the model can carry one by EITHER route — a declared and
-                                           qualified OpenPose ControlNet, or its own reference slots (the skeleton then
-                                           travels as an image in the same call). It is the same answer the render path
-                                           gets from the same resolver, so an offered switch is never one the render refuses. *@
-                                        @* Pose is offered when the model can carry one by EITHER route — a declared and
-                                           qualified OpenPose ControlNet, or its own reference slots (the skeleton then
-                                           travels as an image in the same call). It is the same answer the render path
-                                           gets from the same resolver, so an offered switch is never one the render refuses. *@
-                                        @if (slot.IsBase && _poseAvailability?.IsAvailable == true && !PoseBlockedByIdentityMechanism)
-                                        {
-                                            <div class="form-check form-switch">
-                                                <input class="form-check-input" type="checkbox" id="@($"pose-{keyText}")"
-                                                       checked="@_poseConditioning"
-                                                       @onchange="e => _poseConditioning = e.Value is bool on && on" />
-                                                <label class="form-check-label small" for="@($"pose-{keyText}")">
-                                                    Condition this render on the verified OpenPose stance skeleton
-                                                    @if (_useIdentity)
-                                                    {
-                                                        <span class="d-block text-muted">
-                                                            Combines with identity: the skeleton drives the pose and the face
-                                                            reference drives the face, as two independent conditionings on one render.
-                                                        </span>
-                                                    }
-                                                </label>
-                                            </div>
-                                        }
-                                        else if (_poseAvailability?.IsAvailable == true && slot.IsBase)
-                                        {
-                                            @* The remaining impossible mix: identity travels as a reference IMAGE while the
-                                               pose needs a separate ControlNet graph, so the skeleton would be dropped. A
-                                               model that carries BOTH as references is offered the switch instead (above).
-                                               Saying so here keeps the operator from meeting that refusal in a failed
-                                               render. *@
-                                            <div class="small text-muted">
-                                                Pose conditioning cannot be combined with identity on this model: it carries the
-                                                face as a reference image while the pose needs a separate ControlNet graph, so the
-                                                pose would be dropped. Turn identity off to use a pose, or select a model that
-                                                carries both as references.
-                                            </div>
-                                        }
-                                        else if (_poseAvailability is { } poseUnavailable && slot.IsBase)
-                                        {
-                                            <div class="small text-muted">
-                                                Pose conditioning is unavailable: @poseUnavailable.Reason
-                                            </div>
-                                        }
-                                        @if (!slot.IsBase)
-                                        {
-                                            <div class="small text-muted">
-                                                <strong>Pose:</strong> the committed @slot.View angle skeleton shown above —
-                                                this view's pose is fixed by the view itself, so there is no stance to pick.
-                                                Render the base with a stance if a different pose is wanted there.
-                                            </div>
-                                        }
-                                        @if (slot.IsBase && _poseConditioning && !PoseBlockedByIdentityMechanism)
-                                        {
-                                            <div class="row g-2 align-items-end mt-1">
-                                                <div class="col-md-4">
-                                                    <label class="form-label small mb-1">Stance skeleton</label>
-                                                    <select class="form-select form-select-sm" value="@_poseStance"
-                                                            @onchange="e => _poseStance = ParseStance(e.Value?.ToString())">
-                                                        @foreach (var stance in BodyStanceSkeletons.Available)
-                                                        {
-                                                            <option value="@stance">@stance</option>
-                                                        }
-                                                    </select>
-                                                </div>
-                                                <div class="col-md-3">
-                                                    @if (_poseAvailability?.DefaultStrength is not null)
-                                                    {
-                                                        <label class="form-label small mb-1">ControlNet strength</label>
-                                                        @* Keyed by the model's configured strength so a resolved default actually replaces the
-                                                           box: it is an uncontrolled input, and the configured value differs per model (on the
-                                                           FLUX path the strength decides whether the control strokes imprint on the render). *@
-                                                        <input @key="@($"strength-{_poseStrength}")" type="number" min="0.05" max="1" step="0.05"
-                                                               class="form-control form-control-sm"
-                                                               value="@_poseStrength"
-                                                               @oninput="e => _poseStrength = ParseStrength(e.Value?.ToString())" />
-                                                    }
-                                                    else
-                                                    {
-                                                        @* No ControlNet on this route, so there is no strength to configure. Said
-                                                           plainly rather than shown as a box that would do nothing. *@
-                                                        <span class="small text-muted d-block">
-                                                            No strength to set: this model carries the skeleton as a reference image,
-                                                            so there is no ControlNet to weight.
-                                                        </span>
-                                                    }
-                                                </div>
-                                                <div class="col-md-5">
-                                                    <span class="small text-muted">
-                                                        Source: <code>@BodyStanceSkeletons.Require(_poseStance).VerifiedOn</code>
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            @if (BodyStanceSkeletons.Require(_poseStance).KnownLimitation is { } limitation)
-                                            {
-                                                <div class="small text-warning mt-1">Known limitation: @limitation</div>
-                                            }
-                                        }
-                                </div>
 
                                 @* Every attempt this view has ever produced, NEWEST first. A re-run never erases the
                                    previous result — the view row only ever pointed at the newest image — so this is
@@ -509,13 +364,13 @@ else
                                         }
                                         <div class="col-md-6">
                                             <label class="form-label small mb-1">Reviewer</label>
-                                            <input class="form-control form-control-sm" value="@ReviewerFor(keyText)"
-                                                   @oninput="e => _reviewers[keyText] = e.Value?.ToString() ?? string.Empty" />
+                                            <CommittedTextInput class="form-control form-control-sm" Live="@ReviewerFor(keyText)"
+                                                   LiveChanged="e => _reviewers[keyText] = e ?? string.Empty" />
                                         </div>
                                         <div class="col-md-6">
                                             <label class="form-label small mb-1">Note</label>
-                                            <input class="form-control form-control-sm" value="@NoteFor(keyText)"
-                                                   @oninput="e => _notes[keyText] = e.Value?.ToString() ?? string.Empty" />
+                                            <CommittedTextInput class="form-control form-control-sm" Live="@NoteFor(keyText)"
+                                                   LiveChanged="e => _notes[keyText] = e ?? string.Empty" />
                                         </div>
                                     </div>
                                     <button type="button" class="btn btn-sm btn-outline-success mt-2"
@@ -542,14 +397,14 @@ else
                                     <div class="small fw-semibold mb-1">Attributed override — only for a view the checks refuse</div>
                                     <div class="row g-2">
                                         <div class="col-md-6">
-                                            <input class="form-control form-control-sm" placeholder="Reason"
-                                                   value="@OverrideReasonFor(keyText)"
-                                                   @oninput="e => _overrideReasons[keyText] = e.Value?.ToString() ?? string.Empty" />
+                                            <CommittedTextInput class="form-control form-control-sm" placeholder="Reason"
+                                                   Live="@OverrideReasonFor(keyText)"
+                                                   LiveChanged="e => _overrideReasons[keyText] = e ?? string.Empty" />
                                         </div>
                                         <div class="col-md-6">
-                                            <input class="form-control form-control-sm" placeholder="Author"
-                                                   value="@OverrideAuthorFor(keyText)"
-                                                   @oninput="e => _overrideAuthors[keyText] = e.Value?.ToString() ?? string.Empty" />
+                                            <CommittedTextInput class="form-control form-control-sm" placeholder="Author"
+                                                   Live="@OverrideAuthorFor(keyText)"
+                                                   LiveChanged="e => _overrideAuthors[keyText] = e ?? string.Empty" />
                                         </div>
                                     </div>
                                     <button type="button" class="btn btn-sm btn-outline-warning mt-2"
@@ -584,13 +439,16 @@ else
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small mb-1">Rotation (deg)</label>
-                    <input type="number" min="-180" max="180" class="form-control form-control-sm"
-                           value="@_extendedRotation" @oninput="e => _extendedRotation = ParseRotation(e.Value?.ToString())" />
+                    @* The box draws the operator's own text, never the parsed int: typing "-" or clearing the box
+                       mid-edit parses to 0, and drawing that would rewrite what they are typing. ParseRotation still
+                       keeps the number current on every keystroke, so Generate uses what is in the box. *@
+                    <CommittedTextInput type="number" min="-180" max="180" class="form-control form-control-sm"
+                           Live="@_extendedRotationText" LiveChanged="OnExtendedRotationInput" />
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small mb-1">Position key</label>
-                    <input class="form-control form-control-sm" placeholder="e.g. standing"
-                           value="@_extendedPosition" @oninput="e => _extendedPosition = e.Value?.ToString() ?? string.Empty" />
+                    <CommittedTextInput class="form-control form-control-sm" placeholder="e.g. standing"
+                           Live="@_extendedPosition" LiveChanged="e => _extendedPosition = e ?? string.Empty" />
                 </div>
                 <div class="col-md-3 d-flex gap-1">
                     <button type="button" class="btn btn-sm btn-primary" @onclick="GenerateExtendedAsync" disabled="@(_extendedBusy || !CanGenerate)">Generate</button>
@@ -687,6 +545,34 @@ else
     [Parameter]
     public int SettingsRevision { get; set; }
 
+    /// <summary>
+    /// When set with <see cref="SelectedView"/>, the panel renders exactly ONE canonical slot (always expanded)
+    /// instead of the whole clothed/unclothed grid — the Body tab's left navigation drives these.
+    /// </summary>
+    [Parameter]
+    public SceneImageReferenceBodyState? SelectedState { get; set; }
+
+    [Parameter]
+    public SceneImageReferenceBodyView? SelectedView { get; set; }
+
+    /// <summary>The single slot to render, or null to render the whole grid.</summary>
+    private CharacterIdentityBodySlot? SelectedSlot =>
+        SelectedState is { } state && SelectedView is { } view
+            ? CharacterIdentityBodySlots.All.FirstOrDefault(slot => slot.State == state && slot.View == view)
+            : null;
+
+    /// <summary>The character template id — the profile key the body render addresses identity by.</summary>
+    [Parameter]
+    public string CharacterId { get; set; } = string.Empty;
+
+    /// <summary>The shared body-view model list, fed to the common image step composer so its model picker reflects the same setting.</summary>
+    [Parameter]
+    public IReadOnlyList<SceneImageModelChoice> ModelChoices { get; set; } = [];
+
+    /// <summary>Updates the parent's body-view model when the composer's model picker changes it.</summary>
+    [Parameter]
+    public EventCallback<string?> ModelIdChanged { get; set; }
+
     private List<CharacterIdentityBodyView> _views = [];
     private Dictionary<string, string> _previews = new(StringComparer.Ordinal);
 
@@ -698,6 +584,7 @@ else
     private Dictionary<string, IReadOnlyList<SceneAssetImage>> _candidatesByBatch = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SceneAssetStatus> _imageStatuses = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _prompts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyList<ReferenceApplicationSelection>> _viewBindings = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _messages = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _reviewers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _notes = new(StringComparer.Ordinal);
@@ -728,44 +615,17 @@ else
     /// exactly what "nothing happened after I pressed Generate" looked like.
     /// </summary>
     private readonly HashSet<string> _submitting = new(StringComparer.Ordinal);
-
-    /// <summary>
-    /// Whether this request asks for pose conditioning, and with what. The stance and strength are VISIBLE controls
-    /// with the qualified values shown, not hidden defaults: 0.8 is the strength the OpenPoseXL2 stance scorecard was
-    /// verified at, and the operator can change it before generating.
-    /// </summary>
-    private bool _poseConditioning;
-    private BodyReferenceStance _poseStance = BodyReferenceStance.Standing;
-    private double _poseStrength;
-
-    /// <summary>
-    /// Whether this character can be identity-conditioned, read from the approved pack. Null until the first load, so
-    /// the switch is not offered on a guess.
-    /// </summary>
-    private BodyIdentityAvailability? _identityAvailability;
-    private BodyPoseAvailability? _poseAvailability;
-
-    /// <summary>
-    /// The model (and settings revision) the cached capability answer was computed for. A different model invalidates
-    /// it — and so does a SAVE of the settings, because the model id alone changes too early: the dropdown is two-way
-    /// bound, so it changes before the save persists, and the answer would be re-asked against the old settings.
-    /// </summary>
-    private string _availabilityModelKey = string.Empty;
-
-    /// <summary>Whether this request asks for identity conditioning. Composes with pose.</summary>
-    private bool _useIdentity;
-
-    /// <summary>
-    /// Which approved face of the pack conditions the render; empty means the pack's canonical face. Held as one value
-    /// for the whole panel: an angle is a property of the character's pack, not of a single view.
-    /// </summary>
-    private string _identityFaceAssetId = string.Empty;
     private ViewerState? _viewer;
     private bool _viewerZoomed;
     private Timer? _poll;
     private bool _disposed;
+
+    /// <summary>Debounces prompt-edit saves so a keystroke does not write to the store on every character.</summary>
+    private Timer? _promptSaveDebounce;
+    private CharacterIdentityBodyViewKey? _pendingPromptKey;
     private SceneImageReferenceBodyState _extendedState = SceneImageReferenceBodyState.Clothed;
     private int _extendedRotation;
+    private string _extendedRotationText = "0";
     private string _extendedPosition = string.Empty;
 
     protected override async Task OnParametersSetAsync()
@@ -780,72 +640,24 @@ else
         // button did nothing.
         _poll ??= new Timer(_ => _ = InvokeAsync(PollAsync), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
         await RefreshAsync();
-        await RefreshConditioningAvailabilityAsync();
-    }
 
-    /// <summary>
-    /// Asks the resolvers whether the configured model can carry each conditioning, and whether this character has an
-    /// approved identity reference to condition on.
-    ///
-    /// Capability is a property of the MODEL, so this is the same question the render asks, asked before queueing one.
-    ///
-    /// The answer is CACHED in fields, and a field does not notice a setting that was saved beside it: changing the
-    /// body view model used to leave the previous model's answer in place, so a model that declares identity still
-    /// showed "identity is unavailable" until the whole page was reloaded. The cache is therefore keyed to the model
-    /// it was computed for, and a different model re-asks. <paramref name="force"/> is the operator's own control
-    /// (Refresh views), for the case where the setting changed without this component's parameter changing with it.
-    /// </summary>
-    private async Task RefreshConditioningAvailabilityAsync(bool force = false)
-    {
-        if (string.IsNullOrWhiteSpace(BuildId))
+        // The single-slot view (the Body tab's left navigation) renders its card ALREADY EXPANDED, so the toggle that
+        // resolves a prompt in the full grid never runs and the prompt box came up empty. Resolve it here, so a slot
+        // the operator is looking at is pre-filled exactly as opening it in the grid would be.
+        if (SelectedSlot is { } selectedSlot)
         {
-            return;
-        }
-
-        var modelId = ModelId ?? string.Empty;
-        var key = $"{modelId}|{SettingsRevision}";
-        if (!force && string.Equals(_availabilityModelKey, key, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        _availabilityModelKey = key;
-
-        try
-        {
-            _identityAvailability = await BodyService.ResolveIdentityAvailabilityAsync(BuildId);
-        }
-        catch (InvalidOperationException error)
-        {
-            _identityAvailability = BodyIdentityAvailability.Unavailable(error.Message);
-        }
-
-        try
-        {
-            _poseAvailability = await BodyService.ResolvePoseAvailabilityAsync(BuildId);
-        }
-        catch (InvalidOperationException error)
-        {
-            _poseAvailability = BodyPoseAvailability.Unavailable(error.Message);
-        }
-
-        // The strength OPENS on the model's configured value, which is the value proven for that model — never on a
-        // panel-local number. A model change or a settings save is exactly when that value changes, so this is the one
-        // place it is set; an operator's own edit afterwards is theirs to keep.
-        if (_poseAvailability is { IsAvailable: true, DefaultStrength: { } configured })
-        {
-            _poseStrength = configured;
+            var selectedKey = CharacterIdentityBodyViewKey.Canonical(selectedSlot.State, selectedSlot.View);
+            if (!_prompts.ContainsKey(selectedKey.Describe()))
+            {
+                await ResolvePromptAsync(selectedKey);
+            }
         }
     }
 
-    /// <summary>
-    /// Refresh views re-reads the views AND re-asks the capability questions, so it is the one control that brings the
-    /// whole panel and its conditioning options back in line with the saved settings.
-    /// </summary>
+    /// <summary>Refresh views re-reads the views so the grid stays in line with the saved settings.</summary>
     private async Task RefreshViewsAsync()
     {
         await RefreshAsync();
-        await RefreshConditioningAvailabilityAsync(force: true);
     }
 
     /// <summary>
@@ -870,6 +682,7 @@ else
     {
         _disposed = true;
         _poll?.Dispose();
+        _promptSaveDebounce?.Dispose();
     }
 
     private async Task RefreshAsync()
@@ -960,22 +773,90 @@ else
         {
             // Opening reads the prompt without announcing it: the row is about to show it anyway, and a message on
             // every open would be noise.
-            await ResolvePromptAsync(key, announce: false);
+            await ResolvePromptAsync(key);
         }
     }
 
-    private Task ReloadPromptAsync(CharacterIdentityBodyViewKey key)
-        => ResolvePromptAsync(key, announce: true);
+    /// <summary>
+    /// Compiles this row's prompt through the shared image-cell prompt compiler — the same LLM compile every other
+    /// surface's Generate Prompt button uses — for the selected body view model's checkpoint profile, and shows the
+    /// result in the prompt box.
+    ///
+    /// The user direction is the character's canonical body text (the same text the deterministic prompt is built
+    /// from) plus the row's clothing/state and the full-body shot requirement, so the compile describes THIS body
+    /// rather than drafting a generic one. What comes back replaces the box and can be edited; the debounced save
+    /// then persists the operator's final text, exactly as a hand edit would.
+    /// </summary>
+    private async Task GeneratePromptAsync(CharacterIdentityBodyViewKey key)
+    {
+        var keyText = key.Describe();
+        if (!_compiling.Add(keyText))
+        {
+            return;
+        }
+
+        StateHasChanged();
+        try
+        {
+            var body = await BodyService.ResolveBodyTextsAsync(CharacterId, key.State);
+            var model = ModelChoices.FirstOrDefault(choice => choice.ModelId == ModelId)
+                ?? throw new InvalidOperationException("Choose a body view model first — there is no model selected to compile for.");
+            var profile = await CompilerProfiles.FindByCheckpointAsync(model.ModelIdentifier)
+                ?? throw new InvalidOperationException(
+                    $"No compiler profile exists for checkpoint '{model.ModelIdentifier}'. Add one before compiling a prompt.");
+            var promptModel = await ModelResolutionService.ResolveImagePromptModelAsync();
+            var settings = new ImageCellCompilerLlmSettings(promptModel.ModelIdentifier, promptModel.Temperature);
+
+            var direction = BuildBodyCompileDirection(body, key.State);
+            var result = await PromptCompiler.CompileAsync(new ImageCellCompileInput(direction, profile, settings, []));
+
+            _prompts[keyText] = result.CompiledPrompt;
+            BumpPromptRevision(keyText);
+            SetMessage(keyText, $"Compiled a prompt for {profile.DisplayName} with {result.ModelIdentifier}.");
+        }
+        catch (Exception error)
+        {
+            SetMessage(keyText, error.Message);
+        }
+        finally
+        {
+            _compiling.Remove(keyText);
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>The compile's complete input: the canonical body description plus this row's clothing/state and the shot.</summary>
+    private static string BuildBodyCompileDirection(CharacterBodyTexts body, SceneImageReferenceBodyState state)
+    {
+        var builder = new System.Text.StringBuilder();
+        builder.Append(body.SubjectWithFace.Trim().TrimEnd('.'));
+        builder.Append(". ");
+
+        if (state == SceneImageReferenceBodyState.Clothed)
+        {
+            // A clothed reference's outfit is required (the brief refuses a clothed body with no clothing), so the
+            // wardrobe text is always present here — and describing it in words is exactly what a clothed render needs.
+            builder.Append("Wearing ");
+            builder.Append(body.WardrobeText.Trim());
+            builder.Append(". ");
+        }
+        else
+        {
+            builder.Append("Fully nude. ");
+        }
+
+        builder.Append(
+            "Full body in frame from head to feet, standing upright facing the camera, natural skin texture, "
+            + "soft even lighting, sharp focus, 35mm photograph.");
+        return builder.ToString();
+    }
 
     /// <summary>
-    /// Resolves this row's prompt again and says what happened.
-    ///
-    /// This deliberately does NOT share the panel's refresh gate. Reloading a prompt only READS — it
-    /// cannot conflict with a render — and that gate is set by the five-second poll while anything is Pending, so a
-    /// click landing in that window was discarded with no feedback at all. "I clicked Reload and nothing happened"
-    /// was exactly that: a swallowed click, indistinguishable from a broken button.
+    /// Resolves this row's prompt once, silently, when the row opens. The prompt box shows the deterministic body
+    /// prompt (or the stored rotation instruction for an extended view), which the operator can then edit or replace
+    /// with the shared compiler's Generate Prompt.
     /// </summary>
-    private async Task ResolvePromptAsync(CharacterIdentityBodyViewKey key, bool announce)
+    private async Task ResolvePromptAsync(CharacterIdentityBodyViewKey key)
     {
         var keyText = key.Describe();
         if (!_reloading.Add(keyText))
@@ -986,9 +867,8 @@ else
         StateHasChanged();
         try
         {
-            var previous = PromptFor(keyText);
             // A canonical angle has a REAL generation prompt now — the compiled body prompt plus its camera clause —
-            // so it reloads like the base does. Only an extended view has nothing to compile: its prompt is the stored
+            // so it resolves like the base does. Only an extended view has nothing to compile: its prompt is the stored
             // rotation instruction, because a rotation is a request about an image that already exists.
             var prompt = key.IsCanonical
                 ? await BodyService.ResolvePromptAsync(BuildId, key, ModelId, CharacterName)
@@ -998,14 +878,9 @@ else
 
             // The box is an uncontrolled input: Blazor only updates its DOM value when the RENDERED value changes, so
             // re-resolving the same text would leave any edit sitting in the box and look like nothing happened.
-            // Bumping the revision remounts it through the @key below, so a reload really does replace what is on
+            // Bumping the revision remounts it through the @key below, so a resolve really does replace what is on
             // screen.
             BumpPromptRevision(keyText);
-
-            if (announce)
-            {
-                SetMessage(keyText, DescribeResolution(previous, prompt, key));
-            }
         }
         catch (Exception error)
         {
@@ -1017,34 +892,6 @@ else
             StateHasChanged();
         }
     }
-
-    /// <summary>
-    /// What the reload actually did. An UNCHANGED result is reported too: the panel cannot tell an operator that a
-    /// silent no-op worked, and "nothing visibly happened" is the whole reason this read as broken.
-    /// </summary>
-    private string DescribeResolution(string previous, string resolved, CharacterIdentityBodyViewKey key)
-    {
-        var what = IsBaseKey(key)
-            ? $"the prompt compiled for {(string.IsNullOrWhiteSpace(ModelName) ? ModelId : ModelName)}"
-            : key.IsCanonical
-                ? $"the render prompt compiled for {(string.IsNullOrWhiteSpace(ModelName) ? ModelId : ModelName)} (body prompt plus this angle's camera clause)"
-                : "the stored rotation instruction";
-
-        if (string.Equals(previous, resolved, StringComparison.Ordinal))
-        {
-            // Say WHERE it comes from. "Unchanged" on its own reads as a failure, and the usual real cause is an edit
-            // that was never saved — the resolver reads the SAVED body card and the character template, not the form.
-            return $"Reloaded {what} — unchanged ({resolved.Length} characters). It is resolved from the SAVED body "
-                + "card and the character template, so an edit that has not been saved yet is not part of it.";
-        }
-
-        return $"Reloaded {what} ({resolved.Length} characters). The box now holds the freshly resolved text, so an "
-            + "edit you had made there is no longer applied.";
-    }
-
-    /// <summary>The front in either state: the only views that are generated from nothing.</summary>
-    private static bool IsBaseKey(CharacterIdentityBodyViewKey key)
-        => key.IsCanonical && key.View == SceneImageReferenceBodyView.Front;
 
     /// <summary>
     /// The committed angle skeleton this slot renders with, or null for a slot that has none (the base, which is
@@ -1073,131 +920,63 @@ else
     {
         if (!CanGenerate)
         {
-            SetMessage(key.Describe(), "Set the body view model and image size in Body view settings above — neither is assumed.");
+            SetMessage(key.Describe(), "Set the body view model and image size in Body view settings — neither is assumed.");
             return Task.CompletedTask;
         }
 
-        // The switch above already says this, but a stale switch survives a model change: turning on a pose and THEN
-        // selecting a model that carries identity as a reference image would otherwise send a combination the render
-        // is known to refuse, and the operator would read that as "generate did nothing".
-        if (PoseBlockedByIdentityMechanism && _poseConditioning)
-        {
-            SetMessage(
-                key.Describe(),
-                "Pose conditioning cannot be combined with identity on this model: it carries the face as a reference "
-                + "image while the pose needs a separate ControlNet graph, so the pose would be silently dropped. Turn "
-                + "one of them off, or select a model that carries both as references.");
-            return Task.CompletedTask;
-        }
-
-        // A pose that this model cannot carry must never be quietly omitted: the request would render and the operator
-        // would read "submitted" while the skeleton never reached the model. Refuse, and say what the model needs.
-        if (PoseRequestedButNotCarried(key))
-        {
-            SetMessage(
-                key.Describe(),
-                $"Pose conditioning was requested, but this model cannot carry it: {_poseAvailability?.Reason ?? "no pose capability is configured for it."} "
-                + "The pose was NOT applied, so nothing was submitted.");
-            return Task.CompletedTask;
-        }
-
+        var keyText = key.Describe();
         return RunAsync(key, async () =>
         {
+            // The composer's Face, Body and Pose slots are the request's conditionings. Each is read back from the ONE
+            // binding channel the shared step uses, so a bound reference is never dropped the way the old switches
+            // could drop one on a model change.
+            var bindings = ViewBindingsFor(keyText);
+            var face = FaceFromBindings(bindings);
+            var body = BodyFromBindings(bindings);
+            var pose = ImageStepPoseBinding.Resolve(bindings);
+
             await BodyService.GenerateAsync(
-                BuildId, key, ModelId, ImageSize, CharacterName, PromptOrNull(key), PoseFor(key),
-                IdentityRequested(key), IdentityFaceAssetIdRequested(key));
-            return $"Render submitted for {key.Describe()} at {ImageSize}. It appears here when it finishes.";
+                BuildId, key, ModelId, ImageSize, CharacterName, PromptOrNull(key),
+                useIdentity: face is not null && key.View != SceneImageReferenceBodyView.Back,
+                identityFaceAssetId: face?.ReferenceAssetId,
+                bodyReference: body,
+                posePresetId: pose?.PresetId,
+                poseSkeletonRelativePath: pose?.SkeletonRelativePath);
+            return $"Render submitted for {keyText} at {ImageSize}. It appears here when it finishes.";
         });
     }
 
-    /// <summary>
-    /// The face asset the identity switcher should show: the operator's pick when they have made one, otherwise the
-    /// pack's canonical face — so the control opens on what will actually be used.
-    /// </summary>
-    private string IdentityFaceAssetId
+    /// <summary>The Face slot's approved-pack binding, or null when the operator bound none.</summary>
+    private ReferenceApplicationSelection? FaceFromBindings(IReadOnlyList<ReferenceApplicationSelection> bindings)
+        => bindings.FirstOrDefault(binding =>
+            string.Equals(binding.Kind, nameof(ImageStepSlotKind.Face), StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(binding.IdentityPackId));
+
+    /// <summary>The Body slot's approved-pack binding, as the render's body-reference conditioning — or null.</summary>
+    private SceneAssetBodyReferenceConditioning? BodyFromBindings(IReadOnlyList<ReferenceApplicationSelection> bindings)
+        => bindings.FirstOrDefault(binding =>
+            string.Equals(binding.Kind, nameof(ImageStepSlotKind.Body), StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(binding.IdentityPackId)) is { } body
+                ? new SceneAssetBodyReferenceConditioning(body.IdentityPackId!, body.ReferenceAssetId ?? string.Empty)
+                : null;
+
+    /// <summary>The shared step's blueprint for this body view, or null when the character is unresolved.</summary>
+    private ImageStepBlueprint? BodyViewBlueprint =>
+        string.IsNullOrWhiteSpace(CharacterId)
+            ? null
+            : ImageStepBlueprintFactory.ForBodyView(new ImageStepActor(CharacterId, CharacterName));
+
+    private IReadOnlyList<ReferenceApplicationSelection> ViewBindingsFor(string keyText)
+        => _viewBindings.TryGetValue(keyText, out var bindings) ? bindings : [];
+
+    private void SetViewBindings(string keyText, IReadOnlyList<ReferenceApplicationSelection> bindings)
+        => _viewBindings[keyText] = bindings;
+
+    private Task OnModelChanged(string? modelId)
     {
-        get
-        {
-            if (!string.IsNullOrWhiteSpace(_identityFaceAssetId))
-            {
-                return _identityFaceAssetId;
-            }
-
-            var canonical = _identityAvailability?.Faces.FirstOrDefault(face => face.IsCanonical);
-            return canonical?.AssetId ?? _identityAvailability?.FaceAssetId ?? string.Empty;
-        }
+        _viewBindings.Clear();
+        return ModelIdChanged.InvokeAsync(modelId);
     }
-
-    /// <summary>
-    /// Identity conditioning is offered wherever it can be honoured: on the base AND on a canonical angle — except the
-    /// BACK view, which shows no face, so a face reference there would fight the view (the service refuses it too).
-    /// </summary>
-    private bool IdentityRequested(CharacterIdentityBodyViewKey key)
-        => _useIdentity
-            && key.View != SceneImageReferenceBodyView.Back
-            && _identityAvailability?.IsAvailable == true;
-
-    /// <summary>
-    /// True when the selected model carries identity as a reference IMAGE rather than through an applied mechanism.
-    /// The strategy comes from the SAME resolver the render path asks, so the panel and the render cannot disagree
-    /// about how the face reaches the model.
-    /// </summary>
-    private bool NativeReferenceIdentity
-        => string.Equals(
-            _identityAvailability?.Strategy,
-            ReferenceStrategyResolver.IdentityNativeMultiReference,
-            StringComparison.Ordinal);
-
-    /// <summary>
-    /// True when the selected model carries a pose as a reference IMAGE rather than through a ControlNet graph. Asked
-    /// of the same decision the render path asks, so the panel cannot offer a pose route the render would refuse.
-    /// </summary>
-    private bool NativeReferencePose
-        => string.Equals(
-            _poseAvailability?.Strategy,
-            ReferenceStrategyResolver.IdentityNativeMultiReference,
-            StringComparison.Ordinal);
-
-    /// <summary>
-    /// The two conditionings compose when they travel the SAME way: a model that takes both the face and the skeleton
-    /// as reference images renders them in one call (measured 2026-09-23). They cannot compose when the identity is a
-    /// reference image and the pose needs a separate ControlNet graph — that path has no ControlNet input, so the
-    /// skeleton would be silently dropped. Decided in ONE place so the switch and the submit guard cannot disagree.
-    /// </summary>
-    private bool PoseBlockedByIdentityMechanism => NativeReferenceIdentity && !NativeReferencePose && _useIdentity;
-
-    /// <summary>
-    /// HOW this model will carry the identity, in the operator's words, from the strategy the render will use. The two
-    /// mechanisms are not interchangeable, so the switch says which one is in play instead of describing only one.
-    /// </summary>
-    private string IdentityMechanismExplanation
-        => NativeReferenceIdentity
-            ? "this model carries it by taking that face as a reference image in the same render"
-            : "needs a model that declares an identity mechanism, otherwise the render fails rather than quietly rendering an unconditioned body";
-
-    /// <summary>The chosen face asset, or null to let the resolver take the pack's canonical face.</summary>
-    private string? IdentityFaceAssetIdRequested(CharacterIdentityBodyViewKey key)
-        => IdentityRequested(key) ? IdentityFaceAssetId : null;
-
-    /// <summary>
-    /// The pose conditioning this request asks for, or null. Null means "no pose was asked for" — the panel never
-    /// picks a stance on the operator's behalf, and a stance is only offered on a base (the only generatable view).
-    ///
-    /// The capability is re-checked here, not just where the switch is drawn: turning the switch on and THEN changing
-    /// the body view model to one that cannot pose leaves a stale <c>true</c> behind, and that combination must not be
-    /// sent to a render that is known to refuse it.
-    /// </summary>
-    private SceneAssetPoseConditioning? PoseFor(CharacterIdentityBodyViewKey key)
-        => _poseConditioning && IsBaseKey(key) && _poseAvailability?.IsAvailable == true
-            ? new SceneAssetPoseConditioning(_poseStance, _poseStrength)
-            : null;
-
-    /// <summary>
-    /// True when a pose was asked for on a base view but the model cannot carry one — the case where
-    /// <see cref="PoseFor"/> would return null and the pose would vanish without a word.
-    /// </summary>
-    private bool PoseRequestedButNotCarried(CharacterIdentityBodyViewKey key)
-        => _poseConditioning && IsBaseKey(key) && _poseAvailability?.IsAvailable != true;
 
     private Task EditFromSourceAsync(CharacterIdentityBodyViewKey key)    {
         if (!CanGenerate)
@@ -1395,21 +1174,6 @@ else
     /// <summary>True while this view's request is on the wire.</summary>
     private bool IsSubmitting(string keyText) => _submitting.Contains(keyText);
 
-    /// <summary>A stance the skeleton library actually has; an unparseable value cannot become a pose.</summary>
-    private static BodyReferenceStance ParseStance(string? value)
-        => Enum.TryParse<BodyReferenceStance>(value, out var stance) && BodyStanceSkeletons.Has(stance)
-            ? stance
-            : throw new InvalidOperationException(
-                $"'{value}' is not a stance with a verified pose skeleton.");
-
-    /// <summary>A ControlNet strength inside (0, 1]. Anything else is refused rather than clamped.</summary>
-    private static double ParseStrength(string? value)
-        => double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var strength)
-            && strength is > 0 and <= 1
-                ? strength
-                : throw new InvalidOperationException(
-                    $"Pose ControlNet strength must be in (0, 1], but was '{value}'.");
-
     private void SetMessage(string keyText, string message)
     {
         _messages[keyText] = message;
@@ -1606,6 +1370,9 @@ else
     /// <summary>Rows whose prompt is being resolved right now, so the button can say so.</summary>
     private readonly HashSet<string> _reloading = new(StringComparer.Ordinal);
 
+    /// <summary>Rows whose prompt is being compiled through the shared image-cell prompt compiler right now.</summary>
+    private readonly HashSet<string> _compiling = new(StringComparer.Ordinal);
+
     /// <summary>
     /// Bumped each time a row's prompt is re-resolved. It is the textarea's <c>@key</c>, which is the only reliable
     /// way to make Blazor recreate an uncontrolled input so it shows the resolved text again.
@@ -1618,8 +1385,8 @@ else
     private int PromptRevisionFor(string keyText)
         => _promptRevisions.TryGetValue(keyText, out var revision) ? revision : 0;
 
-    /// <summary>True while this row's prompt is being resolved.</summary>
-    private bool IsReloading(string keyText) => _reloading.Contains(keyText);
+    /// <summary>True while this row's prompt is being compiled.</summary>
+    private bool IsCompiling(string keyText) => _compiling.Contains(keyText);
 
     private string PromptFor(string keyText) => _prompts.TryGetValue(keyText, out var prompt) ? prompt : string.Empty;    private string? PromptOrNull(CharacterIdentityBodyViewKey key)
     {
@@ -1628,6 +1395,40 @@ else
     }
 
     private void SetPrompt(string keyText, string? value) => _prompts[keyText] = value ?? string.Empty;
+
+    /// <summary>
+    /// Records an operator edit in the panel and schedules it to be PERSISTED a moment later, so a reload shows what
+    /// they entered instead of re-compiling the body card over it.
+    /// </summary>
+    private Task OnPromptEditedAsync(CharacterIdentityBodyViewKey key, string? value)
+    {
+        SetPrompt(key.Describe(), value);
+        _pendingPromptKey = key;
+        _promptSaveDebounce ??= new Timer(_ => _ = InvokeAsync(SavePendingPromptAsync), null, Timeout.Infinite, Timeout.Infinite);
+        _promptSaveDebounce.Change(TimeSpan.FromMilliseconds(800), Timeout.InfiniteTimeSpan);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Persists the last edited prompt. Failure here must not interrupt editing, so it is swallowed after a log.</summary>
+    private async Task SavePendingPromptAsync()
+    {
+        var key = _pendingPromptKey;
+        _pendingPromptKey = null;
+        if (key is null || string.IsNullOrWhiteSpace(BuildId))
+        {
+            return;
+        }
+
+        try
+        {
+            await BodyService.SavePromptOverrideAsync(BuildId, key, PromptFor(key.Describe()));
+        }
+        catch (Exception)
+        {
+            // The edit stays in the panel; the next save retries. A transient store failure must not look like the
+            // edit was lost.
+        }
+    }
 
     private string MessageFor(string keyText) => _messages.TryGetValue(keyText, out var message) ? message : string.Empty;
 
@@ -1753,8 +1554,16 @@ else
     private static SceneImageReferenceBodyState ParseState(string? value)
         => Enum.TryParse<SceneImageReferenceBodyState>(value, out var state)
             ? state
-            : throw new InvalidOperationException($"Unsupported body state '{value}'.");
-
-    private static int ParseRotation(string? value)
+            : throw new InvalidOperationException($"Unsupported body state '{value}'.");    private static int ParseRotation(string? value)
         => int.TryParse(value, out var rotation) ? rotation : 0;
+
+            /// <summary>
+            /// The rotation box's own text: the int above is derived from it and never drawn from, so a half-typed value
+            /// ("-", "") stays in the box instead of being replaced by the 0 it parses to.
+            /// </summary>
+            private void OnExtendedRotationInput(string? text)
+            {
+                _extendedRotationText = text ?? string.Empty;
+                _extendedRotation = ParseRotation(_extendedRotationText);
+            }
 }

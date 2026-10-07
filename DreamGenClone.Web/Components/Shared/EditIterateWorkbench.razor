@@ -25,7 +25,7 @@ else
         </div>
     }
     <label class="form-label" for="@IntentInputId">@IntentLabel</label>
-    <textarea id="@IntentInputId" class="form-control" rows="4" @bind:get="Intent" @bind:set="SetIntentAsync" @bind:event="oninput" disabled="@(Busy || ReadOnly)"></textarea>
+    <CommittedTextInput Multiline="true" id="@IntentInputId" class="form-control" rows="4" Live="@Intent" LiveChanged="args => SetIntentAsync(args ?? string.Empty)" disabled="@(Busy || ReadOnly)" />
     @if (CompilationStale)
     {
         <div class="alert alert-warning py-2 mt-2 mb-0">The intent changed after compilation. Prepare it again before running.</div>
@@ -59,7 +59,7 @@ else
     {
         <div class="border rounded p-3 mt-3">
             <div class="small text-muted mb-2">Compiled prompt, revision @PromptRevisionNumber</div>
-            <textarea class="form-control font-monospace" rows="6" @bind:get="EditablePrompt" @bind:set="SetEditablePromptAsync" @bind:event="oninput" disabled="@ReadOnly"></textarea>
+            <CommittedTextInput Multiline="true" class="form-control font-monospace" rows="6" Live="@EditablePrompt" LiveChanged="args => SetEditablePromptAsync(args ?? string.Empty)" disabled="@ReadOnly" />
             <details class="mt-2 small">
                 <summary>View what will be submitted</summary>
                 <pre class="border rounded bg-body-tertiary p-2 mt-2 mb-0 text-wrap">@SubmittedInput</pre>

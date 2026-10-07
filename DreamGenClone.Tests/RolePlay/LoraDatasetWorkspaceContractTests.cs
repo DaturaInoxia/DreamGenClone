@@ -219,7 +219,10 @@ public sealed class LoraDatasetWorkspaceContractTests
         // dataset that already existed refuse to open (2026-09-27).
         Assert.Contains("CoveragePlan.FromStoredJson(dataset.CoveragePlanJson", source, StringComparison.Ordinal);
         Assert.DoesNotContain("JsonSerializer.Deserialize<CoveragePlan>", source, StringComparison.Ordinal);
-        Assert.Contains("CurationPolicy.FromJson(dataset.CurationPolicyJson)", source, StringComparison.Ordinal);
+        // The policy is stored data as well: read through the stored reader so a dataset projected before the FAR
+        // rung (2026-10-04) still opens, with generation - not the page - refusing the absent size.
+        Assert.Contains("CurationPolicy.FromStoredJson(dataset.CurationPolicyJson", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CurationPolicy.FromJson(dataset.CurationPolicyJson)", source, StringComparison.Ordinal);
         Assert.Contains("plan.ToJson()", source, StringComparison.Ordinal);
 
         // No JSON textarea: the coverage plan is not something an operator should ever hand-write.

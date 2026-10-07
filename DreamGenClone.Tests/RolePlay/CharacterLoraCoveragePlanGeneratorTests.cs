@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
@@ -592,6 +593,31 @@ public sealed class CharacterLoraCoveragePlanGeneratorTests
             // rather than letting a gate run on a threshold nobody set.
             Assert.Contains("CurationPolicy", error.Message, StringComparison.Ordinal);
             Assert.Contains("required", error.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A policy row saved before the FAR rung existed READS - that is what lets the workspace open an existing
+    /// dataset - but it names no far aspect, and a far cell cannot be sized without one. Generation refuses by name
+    /// rather than rendering the rung at whatever an empty string produced.
+    /// </summary>
+    [Fact]
+    public async Task Generate_RefusesAFarRungWhenTheStoredPolicyPredatesIt()
+    {
+        var world = await World.CreateAsync();
+        try
+        {
+            var payload = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(world.Policy.ToJson())!;
+            payload.Remove("farAspect");
+            world.WriteRawGlobalPolicy(JsonSerializer.Serialize(payload));
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => world.GenerateAsync());
+
+            Assert.Contains("farAspect", error.Message, StringComparison.Ordinal);
         }
         finally
         {

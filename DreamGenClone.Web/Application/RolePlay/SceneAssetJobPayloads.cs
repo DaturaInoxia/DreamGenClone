@@ -41,6 +41,14 @@ public sealed class SceneAssetGenerationJobPayload
     /// </summary>
     public List<DreamGenClone.Web.Application.RolePlay.Models.AppliedImagePreset>? AppliedPresets { get; set; }
 
+    /// <summary>
+    /// The description the OPERATOR typed for this render, or null when they wrote the prompt itself. Carried on the
+    /// payload so the completion step records it on the image: the row's <c>Prompt</c> is what RENDERS (the compiled
+    /// text once a compiler has authored it), so without this the operator's own words are lost the moment "Generate
+    /// Prompt" runs, and "Your input" would come back from a round-trip holding the generated prompt instead.
+    /// </summary>
+    public string? UserInput { get; set; }
+
     /// <summary>The caller-declared tags (character / position / wardrobe / location / sex position) for this render.</summary>
     public List<string>? DeclaredTags { get; set; }
 

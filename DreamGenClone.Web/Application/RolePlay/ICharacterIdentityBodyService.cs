@@ -128,6 +128,15 @@ public interface ICharacterIdentityBodyService
         string? promptOverride = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Persists the operator's EDITED prompt for one view, so a reload shows what they entered instead of re-compiling
+    /// the body card over it. This is the view's own prompt, not the canonical text: it travels on the view and is
+    /// returned by <see cref="ResolvePromptAsync"/> ahead of a fresh compile. A blank prompt clears the override.
+    /// </summary>
+    Task<CharacterIdentityBodyView> SavePromptOverrideAsync(
+        string buildId, CharacterIdentityBodyViewKey key, string prompt,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The instruction an EDIT of this slot from its accepted source uses: the store's own rotation instruction.
     /// A rotation is a request to change an image that already exists, not a description of a body, so the
     /// per-family prompt dialect does not apply here.
@@ -143,11 +152,17 @@ public interface ICharacterIdentityBodyService
     /// <paramref name="pose"/> optionally conditions the render on a verified stance skeleton. It is the operator's
     /// per-request choice, not a default: pose conditioning needs a model that declares the PoseControlNet capability,
     /// and assuming it would fail on every other model.
+    ///
+    /// <paramref name="bodyReference"/> optionally conditions the render on an approved body reference (the shared
+    /// step's Body slot). <paramref name="posePresetId"/>/<paramref name="poseSkeletonRelativePath"/> optionally
+    /// condition it on a pose-library skeleton (the shared step's Pose slot). Each is optional: null means the body
+    /// card and the view's own angle skeleton carry the request, exactly as before.
     /// </summary>
     Task<CharacterIdentityBodyView> GenerateAsync(
         string buildId, CharacterIdentityBodyViewKey key, string modelId, string imageSize, string characterName,
         string? promptOverride = null, SceneAssetPoseConditioning? pose = null, bool useIdentity = false,
-        string? identityFaceAssetId = null,
+        string? identityFaceAssetId = null, SceneAssetBodyReferenceConditioning? bodyReference = null,
+        string? posePresetId = null, string? poseSkeletonRelativePath = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

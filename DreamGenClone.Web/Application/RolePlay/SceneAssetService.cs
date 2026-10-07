@@ -67,6 +67,70 @@ public sealed class SceneAssetService : ISceneAssetService, ISceneAssetImageTagS
         return asset;
     }
 
+    public async Task<SceneAsset> CreateLocationContainerAsync(
+        string name,
+        string description,
+        string? scenarioId,
+        string? scenarioLocationId,
+        string? parentAssetId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new InvalidOperationException("A location container name is required.");
+        if (string.IsNullOrWhiteSpace(description))
+            throw new InvalidOperationException($"Location container '{name}' has no description; a container is created from a description, not from nothing.");
+
+        var asset = new SceneAsset
+        {
+            Name = name.Trim(),
+            Type = SceneAssetType.Location,
+            IsContainerOnly = true,
+            Kind = SceneAssetKind.Uploaded,
+            Status = SceneAssetStatus.Pending,
+            Prompt = description.Trim(),
+            ScenarioId = string.IsNullOrWhiteSpace(scenarioId) ? null : scenarioId.Trim(),
+            ScenarioLocationId = string.IsNullOrWhiteSpace(scenarioLocationId) ? null : scenarioLocationId.Trim(),
+            ParentAssetId = string.IsNullOrWhiteSpace(parentAssetId) ? null : parentAssetId.Trim()
+        };
+        await _repository.UpsertAsync(asset, cancellationToken);
+        _logger.LogInformation(
+            "Created location container: AssetId={AssetId}, Name={Name}, Parent={Parent}, ScenarioId={ScenarioId}, ScenarioLocationId={ScenarioLocationId}",
+            asset.Id, asset.Name, asset.ParentAssetId, asset.ScenarioId, asset.ScenarioLocationId);
+        return asset;
+    }
+
+    public async Task<SceneAsset> UpdateLocationContainerAsync(
+        string assetId,
+        string name,
+        string? description,
+        string? parentAssetId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(assetId))
+            throw new InvalidOperationException("A location container id is required.");
+        if (string.IsNullOrWhiteSpace(name))
+            throw new InvalidOperationException("A location container name is required.");
+
+        var asset = await _repository.GetAsync(assetId, cancellationToken)
+            ?? throw new InvalidOperationException($"Location container '{assetId}' was not found.");
+        if (asset.Type != SceneAssetType.Location)
+            throw new InvalidOperationException($"'Scene asset {assetId}' is {asset.Type}, not a location container.");
+
+        if (!string.IsNullOrWhiteSpace(parentAssetId)
+            && string.Equals(parentAssetId, assetId, StringComparison.Ordinal))
+            throw new InvalidOperationException($"Location container '{assetId}' cannot be its own parent.");
+
+        if (!string.IsNullOrWhiteSpace(description))
+            asset.Prompt = description.Trim();
+        asset.Name = name.Trim();
+        asset.ParentAssetId = string.IsNullOrWhiteSpace(parentAssetId) ? null : parentAssetId.Trim();
+        asset.UpdatedUtc = DateTime.UtcNow;
+
+        // UpsertAsync refuses an approved container, which is the immutability rule and not a limitation here.
+        await _repository.UpsertAsync(asset, cancellationToken);
+        return asset;
+    }
+
     public async Task<SceneAssetImage> AddGeneratedImageAsync(
         string assetId,
         string prompt,
@@ -127,6 +191,10 @@ public sealed class SceneAssetService : ISceneAssetService, ISceneAssetImageTagS
             // Materialised for the same reason as the LoRA selections: this is queue payload, not a live reference.
             AppliedPresets = options?.AppliedPresets?.ToList(),
             DeclaredTags = options?.DeclaredTags?.ToList(),
+            // The operator's own description, when they typed one. It travels so the completed image can hand it BACK to
+            // the studio: the row's Prompt is the text that renders, which is not the operator's words once a compiler
+            // has authored it.
+            UserInput = options?.UserInput,
             // Both are stated together or not at all: the stance names the skeleton, the strength says how hard to
             // push it, and a stance with no strength is not a usable request.
             PoseStance = hasStance ? options!.Pose!.Stance.ToString() : null,

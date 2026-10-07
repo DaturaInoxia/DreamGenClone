@@ -78,7 +78,7 @@ public sealed class ReferenceBootstrapService : IReferenceBootstrapService
         if (_backgroundJobQueue is null || _durableSettingsResolver is null || _timeProvider is null)
             throw new InvalidOperationException("Reference bootstrap generation requires durable job queue configuration.");
 
-        var targetRef = batch.CharacterProfileId ?? batch.LocationProfileId;
+        var targetRef = batch.CharacterProfileId;
         if (string.IsNullOrWhiteSpace(targetRef))
             throw new InvalidOperationException($"Reference bootstrap batch '{batch.Id}' has no target reference.");
         var referenceKind = MapReferenceKind(batch.TargetAssetType.Value);
@@ -129,7 +129,6 @@ public sealed class ReferenceBootstrapService : IReferenceBootstrapService
         SceneAssetType.CharacterFace => ProducedImageReferenceKind.CharacterFace,
         SceneAssetType.CharacterBody => ProducedImageReferenceKind.CharacterBody,
         SceneAssetType.Wardrobe => ProducedImageReferenceKind.Wardrobe,
-        SceneAssetType.Location => ProducedImageReferenceKind.Location,
         _ => throw new InvalidOperationException($"Scene asset type '{assetType}' cannot generate a reference candidate.")
     };
 
@@ -278,41 +277,6 @@ public sealed class ReferenceBootstrapService : IReferenceBootstrapService
             SceneAssetId = asset.Id,
             SemanticRole = "reference-bootstrap",
             Ordinal = 0
-        }, cancellationToken);
-    }
-
-    public async Task PromoteAcceptedLocationAsync(
-        string batchId,
-        string producedImageId,
-        CancellationToken cancellationToken = default)
-    {
-        var (batch, candidate) = await RequireAcceptedCandidateAsync(
-            batchId, producedImageId, null, cancellationToken);
-        if (string.IsNullOrWhiteSpace(batch.LocationProfileId))
-            throw new InvalidOperationException(
-                $"Reference bootstrap batch '{batch.Id}' has no location profile target.");
-
-        var profile = await _batches.GetLocationProfileAsync(batch.LocationProfileId, cancellationToken)
-            ?? throw new InvalidOperationException(
-                $"Location profile '{batch.LocationProfileId}' was not found.");
-        await using var source = await _sceneAssetStorage.OpenReadAsync(candidate.StoragePath!, cancellationToken);
-        var asset = await _sceneAssets.CreateFromUploadAsync(
-            $"Reference bootstrap location {batch.Id}",
-            SceneAssetType.Location,
-            $"{candidate.Id}.png",
-            source,
-            cancellationToken);
-        var references = await _batches.ListLocationReferencesAsync(profile.Id, cancellationToken);
-        await _batches.UpsertLocationProfileAsync(profile with
-        {
-            Description = batch.FrozenTextBlock!.Trim(),
-            UpdatedUtc = DateTime.UtcNow
-        }, cancellationToken);
-        await _batches.UpsertLocationReferenceAsync(new ReferenceBootstrapLocationReference
-        {
-            ProfileId = profile.Id,
-            OrderedIndex = references.Count,
-            AssetId = asset.Id
         }, cancellationToken);
     }
 

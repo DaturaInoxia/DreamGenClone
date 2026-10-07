@@ -26,7 +26,10 @@ public sealed class AssetStudioUiContractTests
         Assert.Contains("BuildTreeAsync", ManagerSource, StringComparison.Ordinal);
         Assert.DoesNotContain("_filteredAssets", ManagerSource, StringComparison.Ordinal);
         Assert.DoesNotContain("table-responsive", ManagerSource, StringComparison.Ordinal);
-        Assert.Contains("@bind=\"_assetSearch\"", ManagerSource, StringComparison.Ordinal);
+        // The search box takes committed text (CommittedTextInput) instead of binding value + @oninput, which lost the
+        // caret; what it is wired to is unchanged, so assert that.
+        Assert.Contains("Live=\"@_assetSearch\"", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("args => _assetSearch = args ?? string.Empty", ManagerSource, StringComparison.Ordinal);
         Assert.Contains("@bind=\"_assetTypeFilter\"", ManagerSource, StringComparison.Ordinal);
         Assert.Contains("@bind=\"_assetApprovalFilter\"", ManagerSource, StringComparison.Ordinal);
         Assert.Contains("@bind=\"_assetCharacterFilter\"", ManagerSource, StringComparison.Ordinal);

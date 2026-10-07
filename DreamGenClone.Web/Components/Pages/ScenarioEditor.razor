@@ -12,8 +12,11 @@
 @using DreamGenClone.Application.StoryAnalysis.Abstractions
 @using DreamGenClone.Domain.StoryAnalysis
 @using DreamGenClone.Domain.Templates
+@using DreamGenClone.Web.Application.RolePlay
 
 @inject IScenarioService ScenarioService
+@inject ISceneAssetService SceneAssetService
+@inject IScenarioLocationContainerService ScenarioLocationContainerService
 @inject ITemplateService TemplateService
 @inject IScenarioTokenCounter TokenCounter
 @inject StoryAnalysisFacade StoryAnalysisFacade
@@ -50,6 +53,18 @@
                             </div>
                         </div>
                     </div>
+                    @if (!string.IsNullOrWhiteSpace(_containerSyncError))
+                    {
+                        <div class="alert alert-danger mb-0 rounded-0 border-start-0 border-end-0">
+                            <strong>Save blocked — location containers.</strong> @_containerSyncError
+                        </div>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(_containerSyncStatus))
+                    {
+                        <div class="alert alert-success mb-0 rounded-0 border-start-0 border-end-0 py-2 small">
+                            @_containerSyncStatus
+                        </div>
+                    }
                 </div>
 
                 <!-- Scenario Metadata -->
@@ -142,6 +157,30 @@
                             <label class="form-label">Time Frame</label>
                             <input type="text" class="form-control" @bind="CurrentScenario.Setting.TimeFrame" />
                         </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">World container name</label>
+                            <input type="text" class="form-control" @bind="CurrentScenario.Setting.WorldLocation.Name"
+                                   placeholder="e.g. Camp Ground" />
+                            <div class="form-text">
+                                The root Asset Manager container for this world. On save the scenario creates it, plus one
+                                container per location below, so every place in this scenario resolves to a container.
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">World location rendering description</label>
+                            <textarea class="form-control" rows="2" @bind="CurrentScenario.Setting.WorldLocation.RenderingDescription"></textarea>
+                            <div class="form-text">What the place looks like for rendering, not the narrative mood.</div>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(CurrentScenario.Setting.WorldLocation.AssetContainerId))
+                        {
+                            <div class="mb-3">
+                                <span class="text-muted small">World container: </span>
+                                <a class="small" href="/locations/@CurrentScenario.Setting.WorldLocation.AssetContainerId">
+                                    @(CurrentScenario.Setting.WorldLocation.Name ?? CurrentScenario.Setting.WorldLocation.AssetContainerId)
+                                </a>
+                            </div>
+                        }
                         
                         <div class="mb-3">
                             <label class="form-label">Environmental Details</label>
@@ -564,6 +603,17 @@
                                                         <button class="btn btn-sm btn-outline-danger" @onclick="@(() => CurrentScenario.Locations.RemoveAt(index))">Delete</button>
                                                     </div>
                                                 </div>
+                                                @if (_scenarioLocationContainerIds.TryGetValue(location.Id, out var containerId))
+                                                {
+                                                    <div class="mt-1">
+                                                        <span class="text-muted small">Container: </span>
+                                                        <a class="small" href="/locations/@containerId">@containerId</a>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="mt-1 text-muted small">No container yet — saved on Save.</div>
+                                                }
                                             }
                                         </div>
                                     </div>
@@ -809,6 +859,10 @@
     private List<CharacterProfile> CharacterProfiles = [];
     private List<RoleDefinition> RoleDefinitions = [];
     private List<TemplateDefinition> CharacterLikeTemplates = [];
+    private List<SceneAsset> _worldLocationContainers = [];
+    private Dictionary<string, string> _scenarioLocationContainerIds = new(StringComparer.Ordinal);
+    private string? _containerSyncStatus;
+    private string? _containerSyncError;
     private readonly Dictionary<string, string?> _characterProfileSelectionById = new(StringComparer.OrdinalIgnoreCase);
     
     protected override async Task OnInitializedAsync()
@@ -836,6 +890,14 @@
             CurrentScenario = new Scenario { Name = "New Scenario" };
         }
 
+        if (CurrentScenario is not null && CurrentScenario.Setting.WorldLocation is null)
+        {
+            CurrentScenario.Setting.WorldLocation = new WorldLocationSetting();
+        }
+
+        await LoadWorldLocationContainersAsync();
+        await RefreshScenarioContainerMapAsync();
+
         // One-time migration fallback for existing scenarios still carrying legacy default profile.
         if (CurrentScenario is not null
             && string.IsNullOrWhiteSpace(CurrentScenario.DefaultRPThemeProfileId)
@@ -857,6 +919,21 @@
                     _characterProfileSelectionById[character.Id] = character.DefaultEncounterProfileId;
                 }
             }
+        }
+    }
+
+    private async Task LoadWorldLocationContainersAsync()
+    {
+        try
+        {
+            _worldLocationContainers = (await SceneAssetService.ListAssetsAsync())
+                .Where(asset => asset.Type == SceneAssetType.Location)
+                .OrderBy(asset => asset.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception exception)
+        {
+            _assistantApplyStatus = $"Could not load world location containers: {exception.Message}";
         }
     }
 
@@ -1788,7 +1865,49 @@
             EnsureBaseStatsInitialized();
             await ResolveScenarioBaseStatsAsync();
             RecalculateTokenCount();
+
+            // The scenario is the authority for its location container tree: the world container and one container per
+            // location are created here, before the payload is written, so the mapping is never missing at production
+            // time. A blank world name refuses the save (see the service) rather than inventing a container.
+            try
+            {
+                _containerSyncStatus = null;
+                _containerSyncError = null;
+                var sync = await ScenarioLocationContainerService.EnsureContainersAsync(CurrentScenario);
+                _containerSyncStatus = sync.Summary;
+                await RefreshScenarioContainerMapAsync();
+            }
+            catch (Exception exception)
+            {
+                _containerSyncError = exception.Message;
+                return;
+            }
+
             await ScenarioService.SaveScenarioAsync(CurrentScenario);
+        }
+    }
+
+    /// <summary>
+    /// The containers currently mapped to this scenario, keyed by scenario location id, so the Locations card can
+    /// link each one. Read-only: the mapping is written by the save-time ensure, never by this view.
+    /// </summary>
+    private async Task RefreshScenarioContainerMapAsync()
+    {
+        if (CurrentScenario is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var mapped = await ScenarioLocationContainerService.ListMappedContainerIdsAsync(CurrentScenario);
+            _scenarioLocationContainerIds = mapped
+                .Where(pair => pair.Key is not null)
+                .ToDictionary(pair => pair.Key!, pair => pair.Value, StringComparer.Ordinal);
+        }
+        catch (Exception exception)
+        {
+            _containerSyncError = exception.Message;
         }
     }
 

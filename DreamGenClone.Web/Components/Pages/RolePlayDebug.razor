@@ -33,7 +33,8 @@
     </header>
 
     <section class="rpd-filters">
-        <input class="rpd-input" placeholder="Search summary or json" @bind="_search" @bind:event="oninput" />
+        <CommittedTextInput class="rpd-input" placeholder="Search summary or json" Live="@_search"
+                            LiveChanged="args => _search = args ?? string.Empty" />
         <select class="rpd-select" @bind="_activeTab">
             <option value="overview">Overview</option>
             <option value="timeline">Timeline</option>

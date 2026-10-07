@@ -403,10 +403,13 @@ public sealed class CharacterIdentityPromotionGateTests
         public Task<string> ResolvePromptAsync(string buildId, CharacterIdentityBodyViewKey key, string modelId, string characterName, string? promptOverride = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<CharacterIdentityBodyView> SavePromptOverrideAsync(string buildId, CharacterIdentityBodyViewKey key, string prompt, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<string> ResolveEditInstructionAsync(string buildId, CharacterIdentityBodyViewKey key, string characterName, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public Task<CharacterIdentityBodyView> GenerateAsync(string buildId, CharacterIdentityBodyViewKey key, string modelId, string imageSize, string characterName, string? promptOverride = null, SceneAssetPoseConditioning? pose = null, bool useIdentity = false, string? identityFaceAssetId = null, CancellationToken cancellationToken = default)
+        public Task<CharacterIdentityBodyView> GenerateAsync(string buildId, CharacterIdentityBodyViewKey key, string modelId, string imageSize, string characterName, string? promptOverride = null, SceneAssetPoseConditioning? pose = null, bool useIdentity = false, string? identityFaceAssetId = null, SceneAssetBodyReferenceConditioning? bodyReference = null, string? posePresetId = null, string? poseSkeletonRelativePath = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<BodyIdentityAvailability> ResolveIdentityAvailabilityAsync(string buildId, CancellationToken cancellationToken = default)

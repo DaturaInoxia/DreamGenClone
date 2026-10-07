@@ -262,6 +262,16 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
 
         var build = await RequireBodyBuildAsync(buildId, cancellationToken);
 
+        // The operator's own edit for this view wins over a fresh compile: a reload must show what they typed, not
+        // replace it with a re-derived prompt. ResolvedPromptText is the persisted prompt this view last rendered
+        // with (or the operator saved), so it is exactly what should be shown again.
+        var saved = (await _repository.ListBodyViewsAsync(buildId, cancellationToken))
+            .FirstOrDefault(view => Matches(view, key));
+        if (saved is not null && !string.IsNullOrWhiteSpace(saved.ResolvedPromptText))
+        {
+            return saved.ResolvedPromptText.Trim();
+        }
+
         if (!IsBaseKey(key) && !key.IsCanonical)
         {
             throw new InvalidOperationException(
@@ -276,6 +286,25 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
         var compiled = await CompileBaseAsync(
             build, key, modelId, characterName, useIdentity: false, identityFaceAssetId: null, cancellationToken);
         return compiled.Compiled.Positive;
+    }
+
+    /// <inheritdoc />
+    public async Task<CharacterIdentityBodyView> SavePromptOverrideAsync(
+        string buildId, CharacterIdentityBodyViewKey key, string prompt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        key.Validate();
+        if (string.IsNullOrWhiteSpace(buildId))
+        {
+            throw new InvalidOperationException("A body build id is required to save a view prompt.");
+        }
+
+        await RequireBodyBuildAsync(buildId, cancellationToken);
+        var view = await LoadOrCreateAsync(buildId, key, cancellationToken);
+        view.ResolvedPromptText = string.IsNullOrWhiteSpace(prompt) ? null : prompt.Trim();
+        await _repository.UpsertBodyViewAsync(view, cancellationToken);
+        return view;
     }
 
     /// <inheritdoc />
@@ -492,7 +521,8 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
     public async Task<CharacterIdentityBodyView> GenerateAsync(
         string buildId, CharacterIdentityBodyViewKey key, string modelId, string imageSize, string characterName,
         string? promptOverride = null, SceneAssetPoseConditioning? pose = null, bool useIdentity = false,
-        string? identityFaceAssetId = null,
+        string? identityFaceAssetId = null, SceneAssetBodyReferenceConditioning? bodyReference = null,
+        string? posePresetId = null, string? poseSkeletonRelativePath = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -539,6 +569,15 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
             throw new InvalidOperationException(
                 $"The {Describe(key)} takes no stance pose: its pose IS the committed angle skeleton for that view, "
                 + "which the row shows. Render the base with the stance, or render this angle as it is.");
+        }
+
+        // The same rule for a pose-library skeleton: an angle view's pose is its committed angle skeleton, so a second
+        // skeleton would contradict it. Refused rather than dropped.
+        if (!isBase && !string.IsNullOrWhiteSpace(posePresetId))
+        {
+            throw new InvalidOperationException(
+                $"The {Describe(key)} takes no pose-library skeleton: its pose IS the committed angle skeleton for "
+                + "that view. Render the base with the skeleton, or render this angle as it is.");
         }
 
         // The BACK view shows NO face by design, so the approved face reference is refused for it rather than sent: the
@@ -618,6 +657,9 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
                 PromptCompilerId = BodyReferencePromptCompiler.CompilerId,
                 Pose = pose,
                 Identity = identity,
+                BodyReference = bodyReference,
+                PosePresetId = posePresetId,
+                PoseSkeletonRelativePath = poseSkeletonRelativePath,
                 BodyAngle = angleView is { } angle && angleSource is not null
                     ? new SceneAssetBodyAngleConditioning(angle, angleSource.Id)
                     : null

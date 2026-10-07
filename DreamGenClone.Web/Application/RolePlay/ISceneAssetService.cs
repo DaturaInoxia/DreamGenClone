@@ -62,6 +62,18 @@ public sealed record SceneAssetImageGenerationOptions
     /// <summary>The compiler that authored the prompt, or null when it is still a semantic description.</summary>
     public string? PromptCompilerId { get; init; }
 
+    /// <summary>
+    /// What the OPERATOR typed as the description, when they typed one, or null when the prompt box itself is what they
+    /// wrote.
+    ///
+    /// <para>
+    /// It is a separate fact from the prompt because a compiled prompt is not a description: once the compiler has
+    /// authored the text, the image's own description - the words the operator would recognise as theirs - exists
+    /// nowhere else. Recorded so the studio hands it BACK to "Your input" instead of showing them the generated prompt.
+    /// </para>
+    /// </summary>
+    public string? UserInput { get; init; }
+
     public SceneAssetPoseConditioning? Pose { get; init; }
 
     /// <summary>
@@ -153,6 +165,40 @@ public interface ISceneAssetService
         SceneAssetType type,
         string? characterProfileId = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a location container carrying an optional hierarchy (<paramref name="parentAssetId"/>) and
+    /// scenario-location mapping (<paramref name="scenarioId"/> / <paramref name="scenarioLocationId"/>). The
+    /// description is stored on the container's <c>Prompt</c> so its studio shows it as the editable starting text.
+    ///
+    /// <para>
+    /// The scenario is what creates the world container and every scenario-location container underneath it; the
+    /// production studio creates the spot container from a moment. One creator for both, so the hierarchy and the
+    /// mapping are written the same way wherever a container is born.
+    /// </para>
+    /// </summary>
+    Task<SceneAsset> CreateLocationContainerAsync(
+        string name,
+        string description,
+        string? scenarioId,
+        string? scenarioLocationId,
+        string? parentAssetId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            $"'{nameof(CreateLocationContainerAsync)}' is not implemented by {GetType().Name}.");
+
+    /// <summary>
+    /// Corrects an existing location container's name, description and parent — what a scenario save does when a
+    /// location was renamed or re-parented. Refused on a production-approved container, which is immutable.
+    /// </summary>
+    Task<SceneAsset> UpdateLocationContainerAsync(
+        string assetId,
+        string name,
+        string? description,
+        string? parentAssetId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            $"'{nameof(UpdateLocationContainerAsync)}' is not implemented by {GetType().Name}.");
 
     Task<SceneAssetImage> AddGeneratedImageAsync(
         string assetId,

@@ -161,13 +161,13 @@
                         </div>
                         <div class="col-md-3">
                             <label class="form-label small fw-semibold mb-1">Name</label>
-                            <input type="text" class="form-control form-control-sm" placeholder="Extracted pose"
-                                   value="@_extractName" @oninput="e => _extractName = e.Value?.ToString()" />
+                            <CommittedTextInput type="text" class="form-control form-control-sm" placeholder="Extracted pose"
+                                                Live="@_extractName" LiveChanged="args => _extractName = args ?? string.Empty" />
                         </div>
                         <div class="col-md-2">
                             <label class="form-label small fw-semibold mb-1">Category</label>
-                            <input type="text" class="form-control form-control-sm"
-                                   value="@_extractCategory" @oninput="e => _extractCategory = e.Value?.ToString()" />
+                            <CommittedTextInput type="text" class="form-control form-control-sm"
+                                                Live="@_extractCategory" LiveChanged="args => _extractCategory = args ?? string.Empty" />
                         </div>
                         <div class="col-md-2">
                             <label class="form-label small fw-semibold mb-1">Library</label>
@@ -1077,7 +1077,7 @@
             builder.OpenElement(0, "img");
             builder.AddAttribute(1, "src", $"/scene-images/{image.StoragePath}");
             builder.AddAttribute(2, "class", "img-fluid w-100");
-            builder.AddAttribute(3, "style", "max-height:min(56vh,560px);object-fit:contain;");
+            builder.AddAttribute(3, "style", "max-height:calc(100vh - 15rem);object-fit:contain;");
             builder.AddAttribute(4, "alt", $"Review image {image.Id}");
             builder.CloseElement();
         }

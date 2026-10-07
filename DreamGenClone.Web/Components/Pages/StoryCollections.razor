@@ -129,8 +129,9 @@
                             @if (_addingToCollectionId == col.Id)
                             {
                                 <div class="d-flex gap-2 align-items-center mt-1">
-                                    <input class="form-control form-control-sm" style="max-width:300px" placeholder="Search stories..."
-                                           @bind="_addStorySearch" @bind:event="oninput" @onkeyup="OnAddStorySearchKeyUp" />
+                                    <CommittedTextInput class="form-control form-control-sm" style="max-width:300px" placeholder="Search stories..."
+                                                        Live="@_addStorySearch" LiveChanged="args => _addStorySearch = args ?? string.Empty"
+                                                        @onkeyup="OnAddStorySearchKeyUp" />
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => _addingToCollectionId = null">Cancel</button>
                                 </div>
                                 @if (_addStoryResults.Count > 0)

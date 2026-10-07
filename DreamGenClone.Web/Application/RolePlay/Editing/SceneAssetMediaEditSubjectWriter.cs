@@ -86,6 +86,12 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
         if (preset is not null)
             return await PreparePresetAsync(image, context, preset, cancellationToken);
 
+        // A multi-angle camera run is the third authored-instruction kind: the row carries the pose it was assembled
+        // from (the editor LoRA's <sks> grammar), and the instruction is re-derived and checksummed rather than trusted.
+        var multiAngle = MediaEditMultiAngleProvenance.TryRead(image.SourceProvenanceJson);
+        if (multiAngle is not null)
+            return await PrepareMultiAngleAsync(image, context, multiAngle, cancellationToken);
+
         using var provenance = JsonDocument.Parse(image.SourceProvenanceJson);
         var root = provenance.RootElement;
         var editSessionId = root.GetProperty("editSessionId").GetString()
@@ -215,6 +221,66 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
             References: references,
             Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),
             LogScope: $"AssetId={image.AssetId}, Preset={preset.PresetKey}");
+    }
+
+    /// <summary>
+    /// The multi-angle twin of the preset stage: the row's prompt is the instruction a picked pose assembled from the
+    /// editor LoRA's <c>&lt;sks&gt;</c> grammar, and this re-derives it from the recorded pose to prove it is the same text.
+    /// </summary>
+    private async Task<MediaEditRunPlan> PrepareMultiAngleAsync(
+        SceneAssetImage image,
+        MediaEditRunContext context,
+        MediaEditMultiAngleInstruction pose,
+        CancellationToken cancellationToken)
+    {
+        var instruction = MultiAngleCameraInstructionComposer.Compose(pose.Azimuth, pose.Elevation, pose.Distance);
+
+        var expected = MediaEditMultiAngleProvenance.InstructionSha256(instruction);
+        if (!string.Equals(expected, pose.InstructionSha256.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "The multi-angle pose assembles a different instruction than the one this edit was queued with, so the "
+                + "pose's wording changed after the edit was queued. Queue the edit again.");
+        }
+
+        if (!string.Equals(instruction, image.Prompt, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The queued multi-angle edit's prompt is not the instruction its pose assembles.");
+        }
+
+        using var provenance = JsonDocument.Parse(image.SourceProvenanceJson!);
+        var sourceSha256 = provenance.RootElement.GetProperty("sourceImageSha256").GetString()
+            ?? throw new InvalidOperationException("Multi-angle edit provenance is missing the source checksum.");
+
+        var source = await _assets.GetImageAsync(image.SourceImageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Source scene asset image '{image.SourceImageId}' was not found.");
+        if (!string.Equals(source.AssetId, image.AssetId, StringComparison.Ordinal)
+            || source.Status != SceneAssetStatus.Complete
+            || string.IsNullOrWhiteSpace(source.FileRelativePath))
+        {
+            throw new InvalidOperationException("The source asset image is not complete, stored, and owned by the queued asset.");
+        }
+
+        var applications = string.IsNullOrWhiteSpace(context.ReferenceApplicationsJson)
+            ? []
+            : JsonSerializer.Deserialize<IReadOnlyList<ReferenceApplicationSelection>>(
+                context.ReferenceApplicationsJson, JsonOptions)
+                ?? throw new InvalidOperationException("Multi-angle edit reference applications are invalid.");
+        var references = await _references.ResolveAsync(
+            context.ExplicitEditorModelId, applications, ReferenceStrategyCatalogue.ReferenceImageSurface.Edit, cancellationToken);
+
+        var sourceFileRelativePath = source.FileRelativePath;
+        return new MediaEditRunPlan(
+            image.Id,
+            source.Id,
+            token => _storage.OpenReadAsync(sourceFileRelativePath, token),
+            sourceSha256,
+            MediaEditOperation.ForEdit,
+            Prompt: instruction,
+            References: references,
+            Editor: new MediaEditEditorResolution(context.ExplicitEditorModelId, RequiresAdultContentPolicy: false),
+            LogScope: $"AssetId={image.AssetId}, Azimuth={pose.Azimuth}, Elevation={pose.Elevation}, Distance={pose.Distance}");
     }
 
     /// <summary>

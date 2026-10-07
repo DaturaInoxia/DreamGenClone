@@ -39,7 +39,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                                          CandidateBatchId, CandidateDecision, CandidateNotes, CandidateSourceAssetId,
                                          ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
                                          ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc,
-                                         IsContainerOnly, ViewDescriptorJson, BodyView, BodyState
+                                         IsContainerOnly, ViewDescriptorJson, BodyView, BodyState,
+                                         ParentAssetId, ScenarioLocationId, ScenarioId
             FROM SceneAssets
             WHERE Id = $id;
             """;
@@ -69,7 +70,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                                          CandidateBatchId, CandidateDecision, CandidateNotes, CandidateSourceAssetId,
                                          ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
                                          ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc,
-                                         IsContainerOnly, ViewDescriptorJson, BodyView, BodyState
+                                         IsContainerOnly, ViewDescriptorJson, BodyView, BodyState,
+                                         ParentAssetId, ScenarioLocationId, ScenarioId
             FROM SceneAssets
             ORDER BY CreatedUtc DESC;
             """;
@@ -102,7 +104,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                                          CandidateBatchId, CandidateDecision, CandidateNotes, CandidateSourceAssetId,
                                          ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
                                          ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc,
-                                         IsContainerOnly, ViewDescriptorJson, BodyView, BodyState
+                                         IsContainerOnly, ViewDescriptorJson, BodyView, BodyState,
+                                         ParentAssetId, ScenarioLocationId, ScenarioId
             FROM SceneAssets
             WHERE IdentityPackId = $packId
             ORDER BY CreatedUtc ASC;
@@ -825,7 +828,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 CandidateBatchId, CandidateDecision, CandidateNotes, CandidateSourceAssetId,
                 ProductionApprovalStatus, ConsentState, LicenseState, LicenseLabel, ApprovedUseScope,
                 ContentPolicyKey, CompatibilityMetadataJson, ProductionVersion, SupersedesAssetId, ProductionApprovedUtc,
-                IsContainerOnly, ViewDescriptorJson, BodyView, BodyState)
+                IsContainerOnly, ViewDescriptorJson, BodyView, BodyState,
+                ParentAssetId, ScenarioLocationId, ScenarioId)
             VALUES (
                 $id, $name, $kind, $status, $prompt, $sourceAssetId, $modelSnapshotJson, $fileRelativePath,
                 $mediaType, $width, $height, $byteLength, $sha256, $faceView, $identityPackId, $characterProfileId,
@@ -834,7 +838,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 $candidateBatchId, $candidateDecision, $candidateNotes, $candidateSourceAssetId,
                 $productionApprovalStatus, $consentState, $licenseState, $licenseLabel, $approvedUseScope,
                 $contentPolicyKey, $compatibilityMetadataJson, $productionVersion, $supersedesAssetId, $productionApprovedUtc,
-                $isContainerOnly, $viewDescriptorJson, $bodyView, $bodyState);
+                $isContainerOnly, $viewDescriptorJson, $bodyView, $bodyState,
+                $parentAssetId, $scenarioLocationId, $scenarioId);
             """;
         command.Parameters.AddWithValue("$id", asset.Id.Trim());
         command.Parameters.AddWithValue("$name", asset.Name ?? string.Empty);
@@ -864,6 +869,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         command.Parameters.AddWithValue("$viewDescriptorJson", (object?)asset.ViewDescriptorJson ?? DBNull.Value);
         command.Parameters.AddWithValue("$bodyView", (object?)asset.BodyView?.ToString() ?? DBNull.Value);
         command.Parameters.AddWithValue("$bodyState", (object?)asset.BodyState?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$parentAssetId", (object?)asset.ParentAssetId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$scenarioLocationId", (object?)asset.ScenarioLocationId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$scenarioId", (object?)asset.ScenarioId ?? DBNull.Value);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -1257,6 +1265,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ,ViewDescriptorJson = reader.IsDBNull(42) ? null : reader.GetString(42)
             ,BodyView = reader.IsDBNull(43) ? null : ParseEnum<SceneImageReferenceBodyView>(reader.GetString(43), id, "SceneAssets")
             ,BodyState = reader.IsDBNull(44) ? null : ParseEnum<SceneImageReferenceBodyState>(reader.GetString(44), id, "SceneAssets")
+            ,ParentAssetId = reader.IsDBNull(45) ? null : reader.GetString(45)
+            ,ScenarioLocationId = reader.IsDBNull(46) ? null : reader.GetString(46)
+            ,ScenarioId = reader.IsDBNull(47) ? null : reader.GetString(47)
         };
     }
 
@@ -1518,6 +1529,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 SupersedesAssetId  TEXT NULL,
                 ProductionApprovedUtc TEXT NULL,
                 IsContainerOnly     INTEGER NOT NULL DEFAULT 0,
+                ParentAssetId       TEXT NULL,
+                ScenarioLocationId  TEXT NULL,
+                ScenarioId          TEXT NULL,
                 ErrorMessage       TEXT NULL,
                 CreatedUtc         TEXT NOT NULL,
                 StartedUtc         TEXT NULL,
@@ -1555,7 +1569,10 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ("IsContainerOnly", "ALTER TABLE SceneAssets ADD COLUMN IsContainerOnly INTEGER NOT NULL DEFAULT 0"),
             ("ViewDescriptorJson", "ALTER TABLE SceneAssets ADD COLUMN ViewDescriptorJson TEXT NULL"),
             ("BodyView", "ALTER TABLE SceneAssets ADD COLUMN BodyView TEXT NULL"),
-            ("BodyState", "ALTER TABLE SceneAssets ADD COLUMN BodyState TEXT NULL")
+            ("BodyState", "ALTER TABLE SceneAssets ADD COLUMN BodyState TEXT NULL"),
+            ("ParentAssetId", "ALTER TABLE SceneAssets ADD COLUMN ParentAssetId TEXT NULL"),
+            ("ScenarioLocationId", "ALTER TABLE SceneAssets ADD COLUMN ScenarioLocationId TEXT NULL"),
+            ("ScenarioId", "ALTER TABLE SceneAssets ADD COLUMN ScenarioId TEXT NULL")
         })
         {
             await using var check = connection.CreateCommand();

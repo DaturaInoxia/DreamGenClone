@@ -38,6 +38,14 @@ public interface ISceneImageService
         SceneImagePresetEditRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Enqueue a multi-angle CAMERA edit pass on a completed scene image: orbit the source subject to a picked
+    /// azimuth/elevation/distance. No compiler artifact is involved - the instruction is assembled deterministically
+    /// from the editor LoRA's <c>&lt;sks&gt;</c> grammar - so the row records the pose and its instruction checksum.
+    /// </summary>
+    Task<SceneImageRecord> EnqueueMultiAngleEditAsync(
+        SceneImageMultiAngleEditRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Enqueue a deterministic crop of a completed scene image into a new derived image. No editor model,
     /// prompt revision or compiler artifact is involved — the crop is an operation, so the row it creates
     /// records the operation and inherits its source's lineage.

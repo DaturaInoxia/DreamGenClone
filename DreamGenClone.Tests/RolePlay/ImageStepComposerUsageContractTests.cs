@@ -34,7 +34,7 @@ public sealed class ImageStepComposerUsageContractTests
             .Where(path => File.ReadAllText(path).Contains("<ImageStepComposer", StringComparison.Ordinal))
             .ToList();
 
-        Assert.Equal(6, hosts.Count);
+        Assert.Equal(7, hosts.Count);
 
         var offenders = new List<string>();
         foreach (var host in hosts)

@@ -34,6 +34,13 @@ public sealed record SceneImageModelChoice(
     public SceneImagePromptDialect Dialect { get; init; } = SceneImagePromptDialect.Unknown;
 
     /// <summary>
+    /// True when this editor model's configured editor LoRA carries the
+    /// <see cref="ImageEditorLoraCapability.MultiAngleCamera"/> capability. The Camera tab lists only such
+    /// models, so a camera prompt can never be sent to a model whose LoRA cannot execute it.
+    /// </summary>
+    public bool SupportsMultiAngleCamera { get; init; }
+
+    /// <summary>
     /// The visual strategies this model can actually execute (<c>TextOnly</c> plus each declared and qualified
     /// graph strategy), so a reference panel offers the selected model's real capabilities instead of a list frozen
     /// per page. A model whose identity travels as its own reference images therefore offers

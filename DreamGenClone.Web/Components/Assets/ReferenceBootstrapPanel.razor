@@ -4,7 +4,6 @@
 
 @inject IReferenceBootstrapService ReferenceBootstrapService
 @inject DreamGenClone.Application.StoryAnalysis.Abstractions.ICharacterProfileService CharacterProfiles
-@inject DreamGenClone.Application.RolePlay.IReferenceBootstrapRepository BootstrapRepository
 
 <section class="card mb-3" aria-label="Build reference">
     <div class="card-header"><strong>Build Reference</strong></div>
@@ -20,7 +19,7 @@
             <div class="col-md-4">
                 <label class="form-label" for="reference-bootstrap-kind">Kind</label>
                 <select id="reference-bootstrap-kind" class="form-select" @bind="_referenceKind">
-                    @foreach (var kind in Enum.GetValues<ProducedImageReferenceKind>())
+                    @foreach (var kind in Enum.GetValues<ProducedImageReferenceKind>().Where(kind => kind != ProducedImageReferenceKind.Location))
                     {
                         <option value="@kind">@kind</option>
                     }
@@ -28,7 +27,7 @@
             </div>
             <div class="col-md-5">
                 <label class="form-label" for="reference-bootstrap-character">Character</label>
-                <select id="reference-bootstrap-character" class="form-select" @bind="_characterProfileId" disabled="@IsLocation">
+                <select id="reference-bootstrap-character" class="form-select" @bind="_characterProfileId">
                     <option value="">Select character</option>
                     @foreach (var profile in _characterProfiles)
                     {
@@ -41,28 +40,6 @@
                 <input id="reference-bootstrap-count" class="form-control" type="number" min="1" @bind="_count" />
             </div>
         </div>
-        @if (IsLocation)
-        {
-            <div class="row g-2 mt-1">
-                <div class="col-md-8">
-                <label class="form-label" for="reference-bootstrap-location">Location profile</label>
-                <select id="reference-bootstrap-location" class="form-select" @bind="_locationProfileId">
-                    <option value="">Select location profile</option>
-                    @foreach (var profile in _locationProfiles)
-                    {
-                        <option value="@profile.Id">@profile.Name</option>
-                    }
-                </select>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label" for="reference-bootstrap-location-name">New location</label>
-                    <div class="input-group">
-                        <input id="reference-bootstrap-location-name" class="form-control" @bind="_newLocationName" />
-                        <button class="btn btn-outline-secondary" type="button" disabled="@_busy" @onclick="CreateLocationProfileAsync">Create</button>
-                    </div>
-                </div>
-            </div>
-        }
         <button class="btn btn-primary mt-3" type="button" disabled="@_busy" @onclick="GenerateAsync">Generate candidates</button>
         @if (!string.IsNullOrWhiteSpace(_batchId))
         {
@@ -91,10 +68,7 @@
 
 @code {
     private List<CharacterProfile> _characterProfiles = [];
-    private List<ReferenceBootstrapLocationProfile> _locationProfiles = [];
     private string _characterProfileId = string.Empty;
-    private string _locationProfileId = string.Empty;
-    private string _newLocationName = string.Empty;
     private string _description = string.Empty;
     private ProducedImageReferenceKind _referenceKind = ProducedImageReferenceKind.CharacterFace;
     private int _count = 4;
@@ -104,41 +78,11 @@
     private List<ProducedImage> _candidates = [];
     private string? _selectedCandidateId;
 
-    private bool IsLocation => _referenceKind == ProducedImageReferenceKind.Location;
     private ProducedImage? SelectedCandidate => _candidates.FirstOrDefault(candidate => candidate.Id == _selectedCandidateId);
 
     protected override async Task OnInitializedAsync()
     {
         _characterProfiles = (await CharacterProfiles.GetAllAsync()).ToList();
-        _locationProfiles = (await BootstrapRepository.ListLocationProfilesAsync()).ToList();
-    }
-
-    private async Task CreateLocationProfileAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_newLocationName))
-        {
-            _error = "A location profile name is required.";
-            return;
-        }
-
-        _busy = true;
-        _error = null;
-        try
-        {
-            var profile = new ReferenceBootstrapLocationProfile { Name = _newLocationName.Trim() };
-            await BootstrapRepository.UpsertLocationProfileAsync(profile);
-            _locationProfiles = (await BootstrapRepository.ListLocationProfilesAsync()).ToList();
-            _locationProfileId = profile.Id;
-            _newLocationName = string.Empty;
-        }
-        catch (Exception exception)
-        {
-            _error = exception.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
     }
 
     private async Task GenerateAsync()
@@ -149,15 +93,12 @@
         {
             if (string.IsNullOrWhiteSpace(_description))
                 throw new InvalidOperationException("Frozen reference text is required.");
-            if (IsLocation && string.IsNullOrWhiteSpace(_locationProfileId))
-                throw new InvalidOperationException("Select a location profile first.");
-            if (!IsLocation && string.IsNullOrWhiteSpace(_characterProfileId))
+            if (string.IsNullOrWhiteSpace(_characterProfileId))
                 throw new InvalidOperationException("Select a character profile first.");
             var batch = await ReferenceBootstrapService.CreateBatchAsync(new ReferenceBootstrapBatch
             {
                 Description = _description.Trim(), FrozenTextBlock = _description.Trim(), RequestedCandidateCount = Math.Max(1, _count),
-                TargetAssetType = ToAssetType(_referenceKind), CharacterProfileId = IsLocation ? null : _characterProfileId,
-                LocationProfileId = IsLocation ? _locationProfileId : null
+                TargetAssetType = ToAssetType(_referenceKind), CharacterProfileId = _characterProfileId
             });
             _batchId = batch.Id;
             await ReferenceBootstrapService.GenerateCandidatesAsync(batch.Id);
@@ -246,9 +187,6 @@
                 case ProducedImageReferenceKind.Wardrobe:
                     await ReferenceBootstrapService.PromoteAcceptedWardrobeAsync(_batchId, SelectedCandidate.Id);
                     break;
-                case ProducedImageReferenceKind.Location:
-                    await ReferenceBootstrapService.PromoteAcceptedLocationAsync(_batchId, SelectedCandidate.Id);
-                    break;
                 default:
                     throw new InvalidOperationException($"Unsupported reference kind '{_referenceKind}'.");
             }
@@ -268,7 +206,6 @@
         ProducedImageReferenceKind.CharacterFace => SceneAssetType.CharacterFace,
         ProducedImageReferenceKind.CharacterBody => SceneAssetType.CharacterBody,
         ProducedImageReferenceKind.Wardrobe => SceneAssetType.Wardrobe,
-        ProducedImageReferenceKind.Location => SceneAssetType.Location,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
 }

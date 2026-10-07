@@ -14,8 +14,9 @@
                is worse than no button: it claims a capability the surface does not have. *@
             @if (OnRefine.HasDelegate)
             {
-                <input class="form-control form-control-sm" style="min-width: 220px;" placeholder="Refine instruction, e.g. 'tighter framing'"
-                       value="@RefineInstruction" @oninput="args => RefineInstructionChanged.InvokeAsync(args.Value?.ToString())" />
+                <CommittedTextInput class="form-control form-control-sm" style="min-width: 220px;"
+                       placeholder="Refine instruction, e.g. 'tighter framing'"
+                       Live="@RefineInstruction" LiveChanged="RefineInstructionChanged" />
                 <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap" disabled="@Busy"
                         @onclick="() => OnRefine.InvokeAsync()">
                     <i class="bi bi-arrow-repeat me-1"></i>Refine
@@ -26,6 +27,16 @@
                 <button type="button" class="btn btn-sm btn-primary text-nowrap" disabled="@Busy"
                         @onclick="() => OnGenerate.InvokeAsync()">
                     <i class="bi bi-magic me-1"></i>Generate Prompt
+                </button>
+            }
+            @* The step's own create action, beside the prompt: an operator who has just generated the prompt does not
+               have to leave it to make the image. Whether it may run is the CALLER's gate, passed in rather than
+               re-derived here, so the button beside the prompt and the one at the foot of the step cannot disagree. *@
+            @if (OnCreate.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-success text-nowrap" disabled="@CreateBlocked"
+                        title="@CreateBlockedReason" @onclick="() => OnCreate.InvokeAsync()">
+                    <i class="bi bi-image me-1"></i>@CreateLabel
                 </button>
             }
         </div>
@@ -44,9 +55,9 @@
         </div>
     }
 
-    <textarea class="form-control font-monospace" rows="6" value="@Prompt"
-              @oninput="args => PromptChanged.InvokeAsync(args.Value?.ToString())"
-              placeholder="The prompt for this step. Generate one, or write it by hand."></textarea>
+    <CommittedTextInput Multiline="true" class="form-control font-monospace" rows="6"
+              placeholder="The prompt for this step. Generate one, or write it by hand."
+              Live="@Prompt" LiveChanged="PromptChanged" />
 
     @if (OmittedElements.Count > 0)
     {
@@ -111,6 +122,25 @@
 
     [Parameter]
     public EventCallback OnRefine { get; set; }
+
+    /// <summary>
+    /// The step's create action, offered beside the prompt. An empty callback renders NO button: a host with no create
+    /// path must not be given one that does nothing.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnCreate { get; set; }
+
+    /// <summary>The create button's label - the host's own submit label, so the two buttons say the same thing.</summary>
+    [Parameter]
+    public string CreateLabel { get; set; } = "Create";
+
+    /// <summary>True when the create action cannot run yet. The caller's gate, not this panel's.</summary>
+    [Parameter]
+    public bool CreateBlocked { get; set; }
+
+    /// <summary>Why it cannot run yet, shown as the disabled button's tooltip.</summary>
+    [Parameter]
+    public string? CreateBlockedReason { get; set; }
 
     private bool IsStale => StepPromptStaleness.IsStale(GeneratedForSignature, Bindings);
 

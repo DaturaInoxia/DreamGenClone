@@ -36,9 +36,4 @@ public interface IReferenceBootstrapService
         string batchId,
         string producedImageId,
         CancellationToken cancellationToken = default);
-
-    Task PromoteAcceptedLocationAsync(
-        string batchId,
-        string producedImageId,
-        CancellationToken cancellationToken = default);
 }

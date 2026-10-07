@@ -2227,7 +2227,9 @@
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Description</label>
-                                <textarea class="form-control" rows="2" @bind="_charProfileFormDescription" @bind:event="oninput"></textarea>
+                                <CommittedTextInput Multiline="true" class="form-control" rows="2"
+                                                    Live="@_charProfileFormDescription"
+                                                    LiveChanged="args => _charProfileFormDescription = args ?? string.Empty" />
                             </div>
                             <div class="col-12">
                                 <div class="fw-semibold mb-2">Character Stats</div>
@@ -2281,7 +2283,9 @@
                             }
                             <div class="col-12">
                                 <label class="form-label">Additional Notes</label>
-                                <textarea class="form-control" rows="3" @bind="_charProfileFormAdditionalNotes" @bind:event="oninput"></textarea>
+                                <CommittedTextInput Multiline="true" class="form-control" rows="3"
+                                                    Live="@_charProfileFormAdditionalNotes"
+                                                    LiveChanged="args => _charProfileFormAdditionalNotes = args ?? string.Empty" />
                             </div>
                             @if (!string.IsNullOrWhiteSpace(_charProfileFormAdditionalNotes))
                             {

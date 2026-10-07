@@ -251,6 +251,10 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
             {
                 semanticDescription = image.Prompt,
                 compiledPrompt,
+                // What the operator typed as the description, when they typed one. It is NOT a copy of the row's Prompt:
+                // a compiled prompt replaces the description on the render path, so this is the only place the
+                // operator's own words survive to be handed back to "Your input" on a round-trip.
+                userInput = payload.UserInput,
                 compilerId,
                 compilerVersion,
                 requestedModelId = payload.ModelId,

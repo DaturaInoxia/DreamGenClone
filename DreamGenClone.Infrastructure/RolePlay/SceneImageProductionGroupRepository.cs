@@ -128,13 +128,13 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
                 BeatProductionPlanId, BeatProductionPlanVersion,
                 MomentSetId, MomentSetVersion, MomentId,
                 MomentEnrichmentId, MomentEnrichmentRevision, Pov,
-                CameraIntentSnapshotJson, Status, IdentityPolicy, IdentitySkipReason,
+                CameraIntentSnapshotJson, LocationBackdropJson, Status, IdentityPolicy, IdentitySkipReason,
                 CurrentApprovedDecisionId, CreatedUtc, UpdatedUtc)
             VALUES (
                 $id, $sessionId, $interactionId, $catalogueId, $beatId,
                 $planId, $planVersion, $momentSetId, $momentSetVersion, $momentId,
                 $enrichmentId, $enrichmentRevision, $pov,
-                $cameraIntent, $status, $identityPolicy, $identitySkipReason,
+                $cameraIntent, $locationBackdrop, $status, $identityPolicy, $identitySkipReason,
                 $currentDecisionId, $createdUtc, $updatedUtc);
             """;
         AddGroupParameters(insert, group);
@@ -206,6 +206,34 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
         select.Parameters.AddWithValue("$id", groupId.Trim());
         return await ReadAsync(select, cancellationToken)
             ?? throw new InvalidOperationException($"Production group '{groupId}' was not found after updating identity policy.");
+    }
+
+    public async Task<SceneImageProductionGroup> SetLocationBackdropAsync(
+        string groupId,
+        string? locationBackdropJson,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default)
+    {
+        Require(groupId, "Production group id");
+
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneImageProductionGroups
+            SET LocationBackdropJson = $backdrop, UpdatedUtc = $updatedUtc
+            WHERE Id = $id AND Status <> 'Archived';
+            """;
+        command.Parameters.AddWithValue("$backdrop", (object?)locationBackdropJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$updatedUtc", FormatUtc(updatedUtc));
+        command.Parameters.AddWithValue("$id", groupId.Trim());
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException($"Production group '{groupId}' was not found or is archived.");
+
+        await using var select = CreateSelect(connection);
+        select.CommandText += " WHERE Id = $id;";
+        select.Parameters.AddWithValue("$id", groupId.Trim());
+        return await ReadAsync(select, cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{groupId}' was not found after setting its location backdrop.");
     }
 
     public async Task<IReadOnlyList<SceneImageProductionGroup>> ListByInteractionAsync(
@@ -562,7 +590,7 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
                    BeatProductionPlanId, BeatProductionPlanVersion,
                    MomentSetId, MomentSetVersion, MomentId,
                    MomentEnrichmentId, MomentEnrichmentRevision, Pov,
-                   CameraIntentSnapshotJson, Status, IdentityPolicy, IdentitySkipReason,
+                   CameraIntentSnapshotJson, LocationBackdropJson, Status, IdentityPolicy, IdentitySkipReason,
                    CurrentApprovedDecisionId, CreatedUtc, UpdatedUtc
             FROM SceneImageProductionGroups
             """;
@@ -594,12 +622,13 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
             MomentEnrichmentRevision = reader.GetInt32(11),
             Pov = reader.GetString(12),
             CameraIntentSnapshotJson = reader.IsDBNull(13) ? null : reader.GetString(13),
-            Status = Enum.Parse<SceneImageProductionGroupStatus>(reader.GetString(14)),
-            IdentityPolicy = Enum.Parse<SceneImageIdentityPolicy>(reader.GetString(15)),
-            IdentitySkipReason = reader.IsDBNull(16) ? null : reader.GetString(16),
-            CurrentApprovedDecisionId = reader.IsDBNull(17) ? null : reader.GetString(17),
-            CreatedUtc = ParseUtc(reader.GetString(18)),
-            UpdatedUtc = ParseUtc(reader.GetString(19))
+            LocationBackdropJson = reader.IsDBNull(14) ? null : reader.GetString(14),
+            Status = Enum.Parse<SceneImageProductionGroupStatus>(reader.GetString(15)),
+            IdentityPolicy = Enum.Parse<SceneImageIdentityPolicy>(reader.GetString(16)),
+            IdentitySkipReason = reader.IsDBNull(17) ? null : reader.GetString(17),
+            CurrentApprovedDecisionId = reader.IsDBNull(18) ? null : reader.GetString(18),
+            CreatedUtc = ParseUtc(reader.GetString(19)),
+            UpdatedUtc = ParseUtc(reader.GetString(20))
         };
 
     private static void AddGroupParameters(SqliteCommand command, SceneImageProductionGroup group)
@@ -618,6 +647,7 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
         command.Parameters.AddWithValue("$enrichmentRevision", group.MomentEnrichmentRevision);
         command.Parameters.AddWithValue("$pov", group.Pov.Trim());
         command.Parameters.AddWithValue("$cameraIntent", (object?)group.CameraIntentSnapshotJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$locationBackdrop", (object?)group.LocationBackdropJson ?? DBNull.Value);
         command.Parameters.AddWithValue("$status", group.Status.ToString());
         command.Parameters.AddWithValue("$identityPolicy", group.IdentityPolicy.ToString());
         command.Parameters.AddWithValue("$identitySkipReason", (object?)group.IdentitySkipReason?.Trim() ?? DBNull.Value);
@@ -713,6 +743,25 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
         await using var command = connection.CreateCommand();
         command.CommandText = SchemaSql;
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        // The production group table predates the per-POV location backdrop. It has only CREATE TABLE IF NOT
+        // EXISTS, so a column added later never reaches an existing DB without an explicit, guarded migration.
+        foreach (var (name, sql) in new[]
+        {
+            ("LocationBackdropJson", "ALTER TABLE SceneImageProductionGroups ADD COLUMN LocationBackdropJson TEXT NULL")
+        })
+        {
+            await using var check = connection.CreateCommand();
+            check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('SceneImageProductionGroups') WHERE name = '{name}'";
+            if (Convert.ToInt32(await check.ExecuteScalarAsync(cancellationToken)) > 0)
+            {
+                continue;
+            }
+
+            await using var migrate = connection.CreateCommand();
+            migrate.CommandText = sql;
+            await migrate.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private const string SchemaSql = """
@@ -731,6 +780,7 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
             MomentEnrichmentRevision INTEGER NOT NULL CHECK (MomentEnrichmentRevision > 0),
             Pov TEXT NOT NULL CHECK (length(trim(Pov)) > 0),
             CameraIntentSnapshotJson TEXT NULL,
+            LocationBackdropJson TEXT NULL,
             Status TEXT NOT NULL CHECK (Status IN ('Draft', 'InProgress', 'Review', 'Approved', 'Archived')),
             IdentityPolicy TEXT NOT NULL CHECK (IdentityPolicy IN ('Required', 'SkippedByUser')),
             IdentitySkipReason TEXT NULL,
