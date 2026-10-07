@@ -523,6 +523,8 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
         string? promptOverride = null, SceneAssetPoseConditioning? pose = null, bool useIdentity = false,
         string? identityFaceAssetId = null, SceneAssetBodyReferenceConditioning? bodyReference = null,
         string? posePresetId = null, string? poseSkeletonRelativePath = null,
+        IReadOnlyList<Models.SceneImageCharacterLoraSelection>? characterLoras = null,
+        IReadOnlyList<Models.SceneImageLoraSelection>? sceneLoras = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -660,6 +662,8 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
                 BodyReference = bodyReference,
                 PosePresetId = posePresetId,
                 PoseSkeletonRelativePath = poseSkeletonRelativePath,
+                CharacterLoras = characterLoras,
+                SceneLoras = sceneLoras,
                 BodyAngle = angleView is { } angle && angleSource is not null
                     ? new SceneAssetBodyAngleConditioning(angle, angleSource.Id)
                     : null
@@ -741,6 +745,59 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
 
         _logger.LogInformation(
             "Body view edit queued: BuildId={BuildId}, Key={Key}, SourceImageId={SourceImageId}, ImageId={ImageId}",
+            build.Id, key.Describe(), source.Id, image.Id);
+
+        return view;
+    }
+
+    public async Task<CharacterIdentityBodyView> EditFromClothedSourceAsync(
+        string buildId, CharacterIdentityBodyViewKey key, string modelId, string characterName,
+        string? promptOverride = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        key.Validate();
+        if (key.State != SceneImageReferenceBodyState.Unclothed)
+        {
+            throw new InvalidOperationException(
+                $"The {Describe(key)} is not unclothed, so it has no clothed same-angle to remove clothes from. "
+                + "Only an unclothed view is edited from its approved clothed counterpart.");
+        }
+        if (string.IsNullOrWhiteSpace(modelId))
+        {
+            throw new InvalidOperationException($"An editor model is required to create the {Describe(key)}.");
+        }
+
+        var build = await RequireBodyBuildAsync(buildId, cancellationToken);
+        await RequireCompleteBodyCardAsync(build.CharacterTemplateId, cancellationToken);
+        var source = await RequireClothedSameAngleSourceAsync(build.Id, key, cancellationToken);
+        // An edit is a request about an image that already exists, so its instruction is the one store's
+        // "remove clothes" template — the same store every other body instruction is resolved from.
+        var template = await _templates.ResolveAsync(
+            CharacterBodyWorkflowKeys.UnclothedEdit, build.CharacterTemplateId, cancellationToken);
+        var prompt = string.IsNullOrWhiteSpace(promptOverride)
+            ? Fill(template.Body, characterName, string.Empty)
+            : promptOverride.Trim();
+        var view = await LoadOrCreateAsync(build.Id, key, cancellationToken);
+
+        var image = await _assets.EnqueueImageEditAsync(
+            source.AssetId,
+            source.Id,
+            prompt,
+            modelId.Trim(),
+            cancellationToken,
+            candidateBatchId: key.BatchIdFor(build.Id));
+
+        view.InputArtifactId = source.Id;
+        view.OutputArtifactId = image.Id;
+        view.Status = CharacterIdentityAngleStatus.Pending;
+        view.ResolvedPromptText = prompt;
+        view.ResolvedModelId = modelId.Trim();
+        view.FailureReason = null;
+        view.UpdatedUtc = DateTime.UtcNow;
+        await _repository.UpsertBodyViewAsync(view, cancellationToken);
+
+        _logger.LogInformation(
+            "Body view clothed-source edit queued: BuildId={BuildId}, Key={Key}, SourceImageId={SourceImageId}, ImageId={ImageId}",
             build.Id, key.Describe(), source.Id, image.Id);
 
         return view;
@@ -1138,6 +1195,36 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
             throw new InvalidOperationException(
                 $"The {Describe(sourceKey)} is not accepted yet (status '{source.Status}'), so the {Describe(key)} "
                 + "cannot be created from it. Accept it first — a body view is always the same body.");
+        }
+
+        return await _assets.GetImageAsync(source.OutputArtifactId, cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"The accepted image '{source.OutputArtifactId}' of the {Describe(sourceKey)} was not found.");
+    }
+
+    /// <summary>
+    /// The approved CLOTHED view of the same angle that an UNCLOTHED view is edited from to remove clothes.
+    /// It is deliberately not the default edit chain's source: that chain turns the unclothed front, while this one
+    /// keeps the angle and only removes the clothing, so the clothed/unclothed pairs match by angle.
+    /// </summary>
+    private async Task<SceneAssetImage> RequireClothedSameAngleSourceAsync(
+        string buildId, CharacterIdentityBodyViewKey key, CancellationToken cancellationToken)
+    {
+        var sourceKey = CharacterIdentityBodyViewKey.Canonical(
+            SceneImageReferenceBodyState.Clothed, key.View
+                ?? throw new InvalidOperationException(
+                    $"The {Describe(key)} is not a canonical view, so it has no clothed same-angle to edit from."));
+        var views = await _repository.ListBodyViewsAsync(buildId, cancellationToken);
+        var source = views.FirstOrDefault(view => Matches(view, sourceKey))
+            ?? throw new InvalidOperationException(
+                $"The {Describe(sourceKey)} has not been produced yet, so the {Describe(key)} cannot be created "
+                + "from it.");
+
+        if (source.Status != CharacterIdentityAngleStatus.Accepted || string.IsNullOrWhiteSpace(source.OutputArtifactId))
+        {
+            throw new InvalidOperationException(
+                $"The {Describe(sourceKey)} is not accepted yet (status '{source.Status}'), so the {Describe(key)} "
+                + "cannot be created from it. Accept the clothed view first.");
         }
 
         return await _assets.GetImageAsync(source.OutputArtifactId, cancellationToken)

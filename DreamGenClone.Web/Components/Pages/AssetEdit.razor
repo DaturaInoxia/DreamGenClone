@@ -67,6 +67,15 @@
     [SupplyParameterFromQuery(Name = "return")]
     public string? ReturnUrl { get; set; }
 
+    /// <summary>
+    /// The candidate batch the edit RESULT should join, when the host that opened the editor wants it somewhere other
+    /// than the source image's own batch (query data, so a link carries it). The body tab opens the approved CLOTHED
+    /// image here to derive the UNCLOTHED view, so the result must land in the unclothed view's batch, not the clothed
+    /// one. Null means the source image's own batch, which is the normal case for editing an image in place.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "batch")]
+    public string? TargetBatchId { get; set; }
+
     private SceneAsset? _asset;
     private SceneAssetImage? _image;
     private ImageEditSubject _subject = null!;
@@ -83,15 +92,31 @@
         if (_image?.AssetId != AssetId)
             _image = null;
 
-        _subject = ImageEditSubject.ForAssetImage(AssetId, ImageId);
-        _reviewDeckUrl = string.IsNullOrWhiteSpace(_image?.CandidateBatchId)
-            ? null
-            : $"/review-deck/asset/{_image.CandidateBatchId}";
+        _subject = string.IsNullOrWhiteSpace(TargetBatchId)
+            ? ImageEditSubject.ForAssetImage(AssetId, ImageId)
+            : new ImageEditSubject(ImageEditSubjectKind.AssetImage, ImageId, AssetId: AssetId, CandidateBatchId: TargetBatchId);
+
+        _reviewDeckUrl = string.IsNullOrWhiteSpace(TargetBatchId)
+            ? (string.IsNullOrWhiteSpace(_image?.CandidateBatchId) ? null : $"/review-deck/asset/{_image.CandidateBatchId}")
+            : $"/review-deck/asset/{TargetBatchId}";
     }
 
     private string EditImageUrl(string imageId)
-        => $"/assets/{AssetId}/images/{imageId}/edit"
-            + (string.IsNullOrWhiteSpace(ReturnUrl) ? string.Empty : $"?return={ReturnUrl}");
+    {
+        var url = $"/assets/{AssetId}/images/{imageId}/edit";
+        var query = new List<string>(2);
+        if (!string.IsNullOrWhiteSpace(ReturnUrl))
+        {
+            query.Add($"return={Uri.EscapeDataString(ReturnUrl)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(TargetBatchId))
+        {
+            query.Add($"batch={Uri.EscapeDataString(TargetBatchId)}");
+        }
+
+        return query.Count == 0 ? url : $"{url}?{string.Join('&', query)}";
+    }
 
     /// <summary>
     /// Returns the operator to the page that opened this editor, and keeps working when the host did not name one:

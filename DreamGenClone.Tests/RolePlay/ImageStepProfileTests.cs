@@ -54,6 +54,27 @@ public sealed class ImageStepProfileTests
     }
 
     /// <summary>
+    /// Every body view offers the character LoRA picker (operator request, 2026-10-07): identity can travel as a LoRA
+    /// on the body render just as it does on every other authoring step, so the BodyView kind declares the same
+    /// capability instead of being the one surface without it.
+    /// </summary>
+    /// <summary>
+    /// Every body view offers the character LoRA picker (operator request, 2026-10-07): identity can travel as a LoRA
+    /// on the body render just as it does on every other authoring step, so the BodyView kind declares the same
+    /// capability instead of being the one surface without it. Like every other step, the picker still gates on the
+    /// model declaring and qualifying the Lora reference strategy — the scene LoRAs are the separate scene-LoRA picker.
+    /// </summary>
+    [Fact]
+    public void ForKind_GivesTheBodyViewTheCharacterLoraPicker()
+    {
+        var body = ImageStepProfile.ForKind(ImageStepKind.BodyView);
+
+        Assert.True(body.Allows(ImageStepFeature.PromptPanel));
+        Assert.True(body.Allows(ImageStepFeature.CompilePrompt));
+        Assert.True(body.Allows(ImageStepFeature.CharacterLoras));
+    }
+
+    /// <summary>
     /// A step kind nobody has decided about gets the always-on features and NOTHING optional, so a new kind cannot
     /// silently acquire a control by being absent from the table.
     /// </summary>

@@ -1352,6 +1352,72 @@ public sealed class CharacterIdentityBodyServiceTests
         }
     }
 
+    [Fact]
+    public async Task UnclothedAngle_IsAnEditOfTheApprovedClothedSameAngle_RemovingClothes()
+    {
+        var world = CreateWorld();
+        try
+        {
+            var build = await StartBodyBuildAsync(world);
+            var clothedThreeQuarter = CharacterIdentityBodyViewKey.Canonical(
+                SceneImageReferenceBodyState.Clothed, SceneImageReferenceBodyView.ThreeQuarterLeft);
+            var unclothedThreeQuarter = CharacterIdentityBodyViewKey.Canonical(
+                SceneImageReferenceBodyState.Unclothed, SceneImageReferenceBodyView.ThreeQuarterLeft);
+
+            // Nothing accepted yet: the unclothed angle cannot remove clothes from an image that does not exist.
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => world.Body.EditFromClothedSourceAsync(
+                build.Id, unclothedThreeQuarter, "qwen-edit", "Becky"));
+            Assert.Contains("not been produced yet", error.Message, StringComparison.Ordinal);
+            Assert.Contains("Clothed ThreeQuarterLeft", error.Message, StringComparison.Ordinal);
+
+            // The clothed same-angle, accepted — the source the remove-clothes edit works from.
+            var acceptedClothed = await AcceptViewAsync(world, build.Id, clothedThreeQuarter, "clothed-three-quarter.png");
+
+            var derived = await world.Body.EditFromClothedSourceAsync(build.Id, unclothedThreeQuarter, "qwen-edit", "Becky");
+
+            Assert.Equal(SceneImageReferenceBodyState.Unclothed, derived.State);
+            Assert.Equal(acceptedClothed.Id, derived.InputArtifactId);
+            Assert.Equal(unclothedThreeQuarter.BatchIdFor(build.Id), world.Assets.Edits.Last().CandidateBatchId);
+
+            var edit = Assert.Single(world.Assets.Edits);
+            Assert.Equal(acceptedClothed.Id, edit.SourceImageId);
+            Assert.Contains("Remove all clothing", edit.Prompt, StringComparison.Ordinal);
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task EditFromClothedSource_RefusesAClothedView_AndAnUnacceptedClothedSameAngle()
+    {
+        var world = CreateWorld();
+        try
+        {
+            var build = await StartBodyBuildAsync(world);
+            var clothedThreeQuarter = CharacterIdentityBodyViewKey.Canonical(
+                SceneImageReferenceBodyState.Clothed, SceneImageReferenceBodyView.ThreeQuarterLeft);
+            var unclothedThreeQuarter = CharacterIdentityBodyViewKey.Canonical(
+                SceneImageReferenceBodyState.Unclothed, SceneImageReferenceBodyView.ThreeQuarterLeft);
+
+            // A clothed view has no "clothed same-angle to remove clothes from" — the route is unclothed-only.
+            var clothedRefusal = await Assert.ThrowsAsync<InvalidOperationException>(() => world.Body.EditFromClothedSourceAsync(
+                build.Id, clothedThreeQuarter, "qwen-edit", "Becky"));
+            Assert.Contains("not unclothed", clothedRefusal.Message, StringComparison.Ordinal);
+
+            // The clothed same-angle exists but is not accepted: refused naming what is missing.
+            await world.Body.UploadAsync(build.Id, clothedThreeQuarter, "clothed.png", new MemoryStream([5, 5, 5]));
+            var unaccepted = await Assert.ThrowsAsync<InvalidOperationException>(() => world.Body.EditFromClothedSourceAsync(
+                build.Id, unclothedThreeQuarter, "qwen-edit", "Becky"));
+            Assert.Contains("not accepted yet", unaccepted.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
     // ── Section C: the body-invariant findings gate (B122-011…014) ──────────────────────────────────────────
 
     [Fact]
@@ -1796,6 +1862,8 @@ public sealed class CharacterIdentityBodyServiceTests
                 "Full-body photograph of {CharacterName}, head to feet, standing straight and facing the camera: {BodyCard}. Wearing plain everyday clothing.",
             [CharacterBodyWorkflowKeys.UnclothedAcquire] =
                 "Full-body photograph of {CharacterName}, head to feet, standing straight and facing the camera: {BodyCard}.",
+            [CharacterBodyWorkflowKeys.UnclothedEdit] =
+                "Remove all clothing from the person. Keep the exact same pose, angle, framing, zoom, lighting, body shape, proportions, skin, body hair and marks unchanged.",
             [CharacterBodyWorkflowKeys.AngleThreeQuarterLeft] = "Rotate the person's whole body to a three-quarter view facing the LEFT.",
             [CharacterBodyWorkflowKeys.AngleThreeQuarterRight] = "Rotate the person's whole body to a three-quarter view facing the RIGHT.",
             [CharacterBodyWorkflowKeys.AngleProfileLeft] = "Rotate the person's whole body to a full profile facing the LEFT.",

@@ -157,12 +157,20 @@ public interface ICharacterIdentityBodyService
     /// step's Body slot). <paramref name="posePresetId"/>/<paramref name="poseSkeletonRelativePath"/> optionally
     /// condition it on a pose-library skeleton (the shared step's Pose slot). Each is optional: null means the body
     /// card and the view's own angle skeleton carry the request, exactly as before.
+    ///
+    /// <paramref name="characterLoras"/> optionally selects the character LoRA(s) the render applies on the resolved
+    /// model (the shared step's Character LoRA picker). Optional and null means none, exactly as before.
+    ///
+    /// <paramref name="sceneLoras"/> optionally selects the scene LoRA(s) the render applies on the resolved model
+    /// (the shared scene-LoRA picker — unlock / act / anatomy / style). Optional and null means none, exactly as before.
     /// </summary>
     Task<CharacterIdentityBodyView> GenerateAsync(
         string buildId, CharacterIdentityBodyViewKey key, string modelId, string imageSize, string characterName,
         string? promptOverride = null, SceneAssetPoseConditioning? pose = null, bool useIdentity = false,
         string? identityFaceAssetId = null, SceneAssetBodyReferenceConditioning? bodyReference = null,
         string? posePresetId = null, string? poseSkeletonRelativePath = null,
+        IReadOnlyList<Models.SceneImageCharacterLoraSelection>? characterLoras = null,
+        IReadOnlyList<Models.SceneImageLoraSelection>? sceneLoras = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -187,6 +195,15 @@ public interface ICharacterIdentityBodyService
     /// been accepted, because a body view is always the same body, never a fresh attempt at it.
     /// </summary>
     Task<CharacterIdentityBodyView> EditFromAcceptedSourceAsync(
+        string buildId, CharacterIdentityBodyViewKey key, string modelId, string characterName,
+        string? promptOverride = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queues an edit of an UNCLOTHED view from the APPROVED CLOTHED view of the same angle — the "remove clothes"
+    /// route. It keeps the clothed/unclothed pairs aligned by angle rather than deriving the unclothed angle from the
+    /// unclothed front. Refuses when the view is not unclothed, or when its clothed same-angle has not been accepted.
+    /// </summary>
+    Task<CharacterIdentityBodyView> EditFromClothedSourceAsync(
         string buildId, CharacterIdentityBodyViewKey key, string modelId, string characterName,
         string? promptOverride = null, CancellationToken cancellationToken = default);
 

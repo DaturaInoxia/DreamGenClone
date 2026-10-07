@@ -4,6 +4,7 @@
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.RolePlay.ImageStep
+@using DreamGenClone.Web.Application.RolePlay.Models
 @using DreamGenClone.Web.Application.Scenarios
 @using System.Text.Json
 @inject ICharacterIdentityBodyService BodyService
@@ -166,6 +167,8 @@ else
                                                        AutoSelectDefaultModel="false"
                                                        Bindings="ViewBindingsFor(keyText)"
                                                        BindingsChanged="bindings => SetViewBindings(keyText, bindings)"
+                                                       CharacterLoras="ViewLorasFor(keyText)"
+                                                       CharacterLorasChanged="loras => SetViewLoras(keyText, loras)"
                                                        Prompt="@PromptFor(keyText)"
                                                        PromptChanged="p => OnPromptEditedAsync(key, p)"
                                                        OnGeneratePrompt="() => GeneratePromptAsync(key)"
@@ -174,6 +177,21 @@ else
                                                        SubmitLabel="Generate"
                                                        SubmitBlockedReason="@(CanGenerate ? null : "Set the body view model and image size in Body view setting.")"
                                                        OnSubmit="() => GenerateAsync(key)" />
+                                }
+
+                                @* The scene-LoRA picker (unlock / act / anatomy / style) — the SAME shared control the
+                                   Studio, the Playground and the asset creator render. It lists by the selected model's
+                                   family and shows nothing for a family with no catalog rows, so it can never offer a
+                                   LoRA the render would refuse. *@
+                                @if (!string.IsNullOrWhiteSpace(ModelId))
+                                {
+                                    <div class="mt-2">
+                                        <SceneLoraPicker Family="@SelectedModelFamily"
+                                                         Selections="ViewSceneLorasFor(keyText)"
+                                                         SelectionsChanged="loras => SetViewSceneLoras(keyText, loras)"
+                                                         Disabled="@(IsSubmitting(keyText) || IsCompiling(keyText))"
+                                                         Scope="@($"body-scene-lora-{slot.State}-{slot.View}")" />
+                                    </div>
                                 }
 
                                 <div class="d-flex flex-wrap gap-1 mt-2">
@@ -205,6 +223,45 @@ else
                                     <a class="btn btn-sm btn-outline-info" href="@ReviewDeckUrlFor(key)"
                                        title="Every image this view created or edited">Review deck</a>
                                 </div>
+
+                                @* An unclothed view can be produced by EDITING the approved CLOTHED same-angle to remove
+                                   clothes, so the clothed/unclothed pairs match by angle. The source is shown with its
+                                   thumbnail — an edit is never a blind request. *@
+                                @if (key.State == SceneImageReferenceBodyState.Unclothed)
+                                {
+                                    <div class="border rounded p-2 mt-2">
+                                        <div class="small fw-semibold mb-1">
+                                            Approved @ClothedAngleLabel(slot) — edit to remove clothes
+                                        </div>
+                                        @if (AcceptedClothedAnglePreview(key) is { } clothedUrl)
+                                        {
+                                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                                <img src="@clothedUrl" class="border rounded"
+                                                     style="height:80px;width:80px;object-fit:cover;" alt="approved clothed source" />
+                                                <button type="button" class="btn btn-sm btn-outline-primary"
+                                                        @onclick="() => EditFromClothedSourceAsync(key)"
+                                                        disabled="@(IsSubmitting(keyText) || !CanGenerate)"
+                                                        title="Edit the approved clothed view to remove clothes; the result joins this view's candidates">
+                                                    Edit — remove clothes
+                                                </button>
+                                                @if (AcceptedClothedAngleEditUrl(key) is { } clothedEditUrl)
+                                                {
+                                                    <a class="btn btn-sm btn-outline-primary" href="@clothedEditUrl"
+                                                       title="Open the full editor on the approved clothed image — masks, prompt and model, nothing canned">
+                                                        <i class="bi bi-magic me-1"></i>Full editor
+                                                    </a>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="small text-warning">
+                                                The @ClothedAngleLabel(slot) is not accepted yet, so there is no clothed image to
+                                                remove clothes from. Accept the @ClothedAngleLabel(slot) first.
+                                            </div>
+                                        }
+                                    </div>
+                                }
 
                                 @* WHAT this render sends, shown before it is sent: an angle render is the accepted body turned
                                    by the committed angle skeleton, so both are named here with their thumbnails — and the
@@ -585,6 +642,8 @@ else
     private readonly Dictionary<string, SceneAssetStatus> _imageStatuses = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _prompts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IReadOnlyList<ReferenceApplicationSelection>> _viewBindings = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyList<SceneImageCharacterLoraSelection>> _viewLoras = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyList<SceneImageLoraSelection>> _viewSceneLoras = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _messages = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _reviewers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _notes = new(StringComparer.Ordinal);
@@ -934,6 +993,8 @@ else
             var face = FaceFromBindings(bindings);
             var body = BodyFromBindings(bindings);
             var pose = ImageStepPoseBinding.Resolve(bindings);
+            var loras = ViewLorasFor(keyText);
+            var sceneLoras = ViewSceneLorasFor(keyText);
 
             await BodyService.GenerateAsync(
                 BuildId, key, ModelId, ImageSize, CharacterName, PromptOrNull(key),
@@ -941,7 +1002,9 @@ else
                 identityFaceAssetId: face?.ReferenceAssetId,
                 bodyReference: body,
                 posePresetId: pose?.PresetId,
-                poseSkeletonRelativePath: pose?.SkeletonRelativePath);
+                poseSkeletonRelativePath: pose?.SkeletonRelativePath,
+                characterLoras: loras.Count > 0 ? loras : null,
+                sceneLoras: sceneLoras.Count > 0 ? sceneLoras : null);
             return $"Render submitted for {keyText} at {ImageSize}. It appears here when it finishes.";
         });
     }
@@ -972,9 +1035,32 @@ else
     private void SetViewBindings(string keyText, IReadOnlyList<ReferenceApplicationSelection> bindings)
         => _viewBindings[keyText] = bindings;
 
+    /// <summary>The character LoRA selections the shared step's picker made for this view, or none.</summary>
+    private IReadOnlyList<SceneImageCharacterLoraSelection> ViewLorasFor(string keyText)
+        => _viewLoras.TryGetValue(keyText, out var loras) ? loras : [];
+
+    private void SetViewLoras(string keyText, IReadOnlyList<SceneImageCharacterLoraSelection> loras)
+        => _viewLoras[keyText] = loras;
+
+    /// <summary>The scene LoRA selections the shared scene-LoRA picker made for this view, or none.</summary>
+    private IReadOnlyList<SceneImageLoraSelection> ViewSceneLorasFor(string keyText)
+        => _viewSceneLoras.TryGetValue(keyText, out var loras) ? loras : [];
+
+    private void SetViewSceneLoras(string keyText, IReadOnlyList<SceneImageLoraSelection> loras)
+        => _viewSceneLoras[keyText] = loras;
+
+    /// <summary>The selected body view model's family, for the scene-LoRA picker — the picker lists by family.</summary>
+    private SceneImageModelFamily SelectedModelFamily =>
+        ModelChoices.FirstOrDefault(choice => string.Equals(choice.ModelId, ModelId, StringComparison.Ordinal))?.Family
+        ?? SceneImageModelFamily.Unknown;
+
     private Task OnModelChanged(string? modelId)
     {
+        // Bindings and LoRA selections do not survive a model change: both bind to the model's family, and a stale
+        // selection would plan a render the new model refuses.
         _viewBindings.Clear();
+        _viewLoras.Clear();
+        _viewSceneLoras.Clear();
         return ModelIdChanged.InvokeAsync(modelId);
     }
 
@@ -990,6 +1076,27 @@ else
             await BodyService.EditFromAcceptedSourceAsync(
                 BuildId, key, ModelId, CharacterName, PromptOrNull(key));
             return $"Edit from the accepted source submitted for {key.Describe()}.";
+        });
+    }
+
+    /// <summary>
+    /// The "remove clothes" edit: an UNCLOTHED view edited from the approved CLOTHED same-angle, so the two states
+    /// match by angle. Its instruction is the one store's remove-clothes template — not the prompt box, which holds
+    /// this view's GENERATION prompt, not a clothing-removal instruction.
+    /// </summary>
+    private Task EditFromClothedSourceAsync(CharacterIdentityBodyViewKey key)
+    {
+        if (!CanGenerate)
+        {
+            SetMessage(key.Describe(), "Set the body view model in Body view settings above — no model is assumed.");
+            return Task.CompletedTask;
+        }
+
+        return RunAsync(key, async () =>
+        {
+            await BodyService.EditFromClothedSourceAsync(
+                BuildId, key, ModelId, CharacterName);
+            return $"Edit from the approved clothed {key.View} submitted for {key.Describe()}.";
         });
     }
 
@@ -1253,6 +1360,57 @@ else
         return baseView is null || baseView.Status != CharacterIdentityAngleStatus.Accepted
             ? null
             : PreviewFor(baseView);
+    }
+
+    /// <summary>
+    /// The approved CLOTHED view of the same angle, as a thumbnail, for an UNCLOTHED view — the source a "remove
+    /// clothes" edit removes the clothing from. Null for a clothed view, or when its clothed same-angle has not been
+    /// accepted yet.
+    /// </summary>
+    private string? AcceptedClothedAnglePreview(CharacterIdentityBodyViewKey key)
+    {
+        if (key.State != SceneImageReferenceBodyState.Unclothed || key.View is not { } view)
+        {
+            return null;
+        }
+
+        var clothed = ViewFor(CharacterIdentityBodyViewKey.Canonical(
+            SceneImageReferenceBodyState.Clothed, view));
+        return clothed is null || clothed.Status != CharacterIdentityAngleStatus.Accepted
+            ? null
+            : PreviewFor(clothed);
+    }
+
+    /// <summary>The label of the CLOTHED slot with the same angle as an unclothed slot — "Clothed three-quarter left", etc.</summary>
+    private static string ClothedAngleLabel(CharacterIdentityBodySlot slot)
+        => CharacterIdentityBodySlots.Require(SceneImageReferenceBodyState.Clothed, slot.View).Label;
+
+    /// <summary>
+    /// The FULL shared editor's URL for the approved CLOTHED same-angle, or null when there is none to edit. This is
+    /// the real editor — masks, prompt, model — not the one-shot remove-clothes request, for when the operator wants
+    /// to remove the clothing themselves rather than send a canned instruction.
+    ///
+    /// It carries the UNCLOTHED view's candidate batch, so an edit made there lands in THIS view's deck — the one the
+    /// operator is looking at — rather than in the clothed view's deck (the source image's own batch).
+    /// </summary>
+    private string? AcceptedClothedAngleEditUrl(CharacterIdentityBodyViewKey key)
+    {
+        if (key.State != SceneImageReferenceBodyState.Unclothed || key.View is not { } view)
+        {
+            return null;
+        }
+
+        var clothed = ViewFor(CharacterIdentityBodyViewKey.Canonical(
+            SceneImageReferenceBodyState.Clothed, view));
+        if (clothed is null || clothed.Status != CharacterIdentityAngleStatus.Accepted)
+        {
+            return null;
+        }
+
+        var editUrl = EditImageUrlFor(clothed);
+        return editUrl is null
+            ? null
+            : $"{editUrl}?batch={Uri.EscapeDataString(key.BatchIdFor(BuildId))}";
     }
 
     /// <summary>

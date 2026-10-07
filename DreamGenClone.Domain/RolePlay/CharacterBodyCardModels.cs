@@ -378,6 +378,7 @@ public static class CharacterBodyWorkflowKeys
 {
     public const string ClothedAcquire = "identity.body.clothed.acquire";
     public const string UnclothedAcquire = "identity.body.unclothed.acquire";
+    public const string UnclothedEdit = "identity.body.unclothed.edit";
     public const string AngleThreeQuarterLeft = "identity.body.angle.three-quarter";
     public const string AngleThreeQuarterRight = "identity.body.angle.three-quarter.right";
     public const string AngleProfileLeft = "identity.body.angle.profile";
@@ -406,6 +407,7 @@ public static class CharacterBodyWorkflowKeys
     [
         ClothedAcquire,
         UnclothedAcquire,
+        UnclothedEdit,
         AngleThreeQuarterLeft,
         AngleThreeQuarterRight,
         AngleProfileLeft,

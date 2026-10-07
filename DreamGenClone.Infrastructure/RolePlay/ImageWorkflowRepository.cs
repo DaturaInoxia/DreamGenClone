@@ -379,6 +379,12 @@ public sealed class ImageWorkflowRepository : IImageWorkflowRepository
             },
             new ImageWorkflowPromptTemplate
             {
+                Key = CharacterBodyWorkflowKeys.UnclothedEdit,
+                WorkflowStep = "BodyUnclothedEdit",
+                Body = "Remove all clothing from the person. Keep the exact same pose, angle, framing, zoom, lighting, body shape, proportions, skin, body hair and marks unchanged. Do not change anything other than removing the clothing."
+            },
+            new ImageWorkflowPromptTemplate
+            {
                 Key = CharacterBodyWorkflowKeys.AngleThreeQuarterLeft,
                 WorkflowStep = "BodyAngles",
                 Body = "Rotate the person's whole body to a three-quarter view so they face toward the LEFT side of the image. Keep the identical body, proportions, skin, body hair and marks, the identical head-to-feet framing, zoom and lighting. Do not change the body shape or the set."

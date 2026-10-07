@@ -409,7 +409,7 @@ public sealed class CharacterIdentityPromotionGateTests
         public Task<string> ResolveEditInstructionAsync(string buildId, CharacterIdentityBodyViewKey key, string characterName, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public Task<CharacterIdentityBodyView> GenerateAsync(string buildId, CharacterIdentityBodyViewKey key, string modelId, string imageSize, string characterName, string? promptOverride = null, SceneAssetPoseConditioning? pose = null, bool useIdentity = false, string? identityFaceAssetId = null, SceneAssetBodyReferenceConditioning? bodyReference = null, string? posePresetId = null, string? poseSkeletonRelativePath = null, CancellationToken cancellationToken = default)
+        public Task<CharacterIdentityBodyView> GenerateAsync(string buildId, CharacterIdentityBodyViewKey key, string modelId, string imageSize, string characterName, string? promptOverride = null, SceneAssetPoseConditioning? pose = null, bool useIdentity = false, string? identityFaceAssetId = null, SceneAssetBodyReferenceConditioning? bodyReference = null, string? posePresetId = null, string? poseSkeletonRelativePath = null, IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageCharacterLoraSelection>? characterLoras = null, IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageLoraSelection>? sceneLoras = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<BodyIdentityAvailability> ResolveIdentityAvailabilityAsync(string buildId, CancellationToken cancellationToken = default)
@@ -419,6 +419,9 @@ public sealed class CharacterIdentityPromotionGateTests
             => throw new NotSupportedException();
 
         public Task<CharacterIdentityBodyView> EditFromAcceptedSourceAsync(string buildId, CharacterIdentityBodyViewKey key, string modelId, string characterName, string? promptOverride = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<CharacterIdentityBodyView> EditFromClothedSourceAsync(string buildId, CharacterIdentityBodyViewKey key, string modelId, string characterName, string? promptOverride = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<CharacterIdentityBodyView> RecordSourceAsResultAsync(string buildId, CharacterIdentityBodyViewKey key, CancellationToken cancellationToken = default)

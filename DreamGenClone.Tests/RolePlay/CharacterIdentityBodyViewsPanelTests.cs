@@ -190,6 +190,31 @@ public sealed class CharacterIdentityBodyViewsPanelTests
     }
 
     /// <summary>
+    /// An unclothed view shows its approved CLOTHED same-angle and offers a "remove clothes" edit from it, so the
+    /// clothed/unclothed pairs match by angle (operator request) instead of every unclothed angle being derived from
+    /// the unclothed front.
+    /// </summary>
+    [Fact]
+    public void TheUnclothedViews_ShowTheApprovedClothedSameAngle_ForARemoveClothesEdit()
+    {
+        var panel = Read("DreamGenClone.Web", "Components", "RolePlay", "BodyViewsPanel.razor");
+
+        Assert.Contains("key.State == SceneImageReferenceBodyState.Unclothed", panel, StringComparison.Ordinal);
+        Assert.Contains("AcceptedClothedAnglePreview(key)", panel, StringComparison.Ordinal);
+        Assert.Contains("EditFromClothedSourceAsync(key)", panel, StringComparison.Ordinal);
+        Assert.Contains("BodyService.EditFromClothedSourceAsync(", panel, StringComparison.Ordinal);
+        Assert.Contains("Approved @ClothedAngleLabel(slot) — edit to remove clothes", panel, StringComparison.Ordinal);
+        Assert.Contains("private string? AcceptedClothedAnglePreview(CharacterIdentityBodyViewKey key)", panel, StringComparison.Ordinal);
+
+        // The approved clothed image also opens in the FULL shared editor, not only the one-shot remove-clothes request.
+        Assert.Contains("private string? AcceptedClothedAngleEditUrl(CharacterIdentityBodyViewKey key)", panel, StringComparison.Ordinal);
+        Assert.Contains("EditImageUrlFor(clothed)", panel, StringComparison.Ordinal);
+        Assert.Contains("href=\"@clothedEditUrl\"", panel, StringComparison.Ordinal);
+        // The full-editor link carries THIS (unclothed) view's candidate batch, so its result lands in this deck.
+        Assert.Contains("batch={Uri.EscapeDataString(key.BatchIdFor(BuildId))}", panel, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The body render conditions identity and body from the character's approved pack, so the shared step's Face and
     /// Body slots read those pack fields — never an approved scene asset, which the render cannot honour.
     /// </summary>
@@ -219,6 +244,56 @@ public sealed class CharacterIdentityBodyViewsPanelTests
         Assert.Contains("public IReadOnlyList<SceneImageModelChoice> ModelChoices { get; set; } = [];", panel, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Every body view offers the character LoRA picker: the shared step's selections are wired back into the body
+    /// render's LoRA conditioning, and a model change clears them exactly as it clears the reference bindings.
+    /// </summary>
+    [Fact]
+    public void TheBodyView_OffersCharacterLoras_AndSendsThemToTheRender()
+    {
+        var panel = Read("DreamGenClone.Web", "Components", "RolePlay", "BodyViewsPanel.razor");
+
+        Assert.Contains("CharacterLoras=\"ViewLorasFor(keyText)\"", panel, StringComparison.Ordinal);
+        Assert.Contains("CharacterLorasChanged=\"loras => SetViewLoras(keyText, loras)\"", panel, StringComparison.Ordinal);
+        Assert.Contains("characterLoras: loras.Count > 0 ? loras : null", panel, StringComparison.Ordinal);
+        Assert.Contains("_viewLoras.Clear();", panel, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every body view also offers the shared scene-LoRA picker (unlock / act / anatomy / style), because those are
+    /// the LoRAs the body models actually carry (e.g. the Qwen-Image-2.1 unlock/anatomy catalog). Its selections reach
+    /// the render's SceneLoras and clear on a model change, exactly like the character LoRAs.
+    /// </summary>
+    [Fact]
+    public void TheBodyView_OffersSceneLoras_AndSendsThemToTheRender()
+    {
+        var panel = Read("DreamGenClone.Web", "Components", "RolePlay", "BodyViewsPanel.razor");
+
+        Assert.Contains("<SceneLoraPicker Family=\"@SelectedModelFamily\"", panel, StringComparison.Ordinal);
+        Assert.Contains("Selections=\"ViewSceneLorasFor(keyText)\"", panel, StringComparison.Ordinal);
+        Assert.Contains("SelectionsChanged=\"loras => SetViewSceneLoras(keyText, loras)\"", panel, StringComparison.Ordinal);
+        Assert.Contains("sceneLoras: sceneLoras.Count > 0 ? sceneLoras : null", panel, StringComparison.Ordinal);
+        Assert.Contains("_viewSceneLoras.Clear();", panel, StringComparison.Ordinal);
+        Assert.Contains("private SceneImageModelFamily SelectedModelFamily", panel, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The body view's Face / Body / Pose reference tabs must survive the LoRA pickers. The composer renders its
+    /// character-LoRA picker INSTEAD of the reference tabs only for a model that declares the Lora reference strategy
+    /// (its identity travels as a LoRA) - so a body view model that carries identity by reference (Qwen native
+    /// references, FLUX conditioning) keeps its tabs, and the scene LoRAs live in the separate scene-LoRA picker.
+    /// </summary>
+    [Fact]
+    public void TheBodyView_KeepsItsReferenceTabs_AlongsideTheLoraPickers()
+    {
+        var composer = Read("DreamGenClone.Web", "Components", "Shared", "ImageStepComposer.razor");
+
+        // The LoRA picker gate is the model's own Lora strategy, not a per-step override that would hide references.
+        Assert.Contains("Profile.Allows(ImageStepFeature.CharacterLoras) && CarriesLora && CharacterLorasChanged.HasDelegate", composer, StringComparison.Ordinal);
+        // The reference tabs remain the else-branch, so a reference-carrying model always keeps them.
+        Assert.Contains("else if (CarriesReferences)", composer, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ThePromotionGate_UsesTheOneSlotDefinition()
     {
@@ -244,6 +319,7 @@ public sealed class CharacterIdentityBodyViewsPanelTests
                  {
                      "BodyService.GenerateAsync(",
                      "BodyService.EditFromAcceptedSourceAsync(",
+                     "BodyService.EditFromClothedSourceAsync(",
                      "BodyService.UploadAsync(",
                      "BodyService.RecordSourceAsResultAsync(",
                      "BodyService.AcceptAsync(",

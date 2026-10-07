@@ -74,7 +74,7 @@ public sealed record ImageStepProfile(ImageStepKind StepKind, ImageStepFeature F
             [ImageStepKind.Compose] =
                 ImageStepFeature.Presets | ImageStepFeature.CharacterLoras,
             [ImageStepKind.PoseRender] = Always,
-            [ImageStepKind.BodyView] = Always | ImageStepFeature.CompilePrompt,
+            [ImageStepKind.BodyView] = Always | ImageStepFeature.CompilePrompt | ImageStepFeature.CharacterLoras,
             [ImageStepKind.IdentityApply] = Always
         };
 

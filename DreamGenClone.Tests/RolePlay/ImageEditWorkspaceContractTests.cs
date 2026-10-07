@@ -25,6 +25,20 @@ public sealed class ImageEditWorkspaceContractTests
         Assert.Contains("<ImageEditWorkspace Subject=", CharacterStudioSource, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A host may ask the asset editor to put an edit's RESULT in a batch other than the source image's own: the body
+    /// tab edits the approved CLOTHED image to derive the UNCLOTHED view, so the result must land in the unclothed
+    /// batch. The <c>batch</c> query parameter travels to the subject's <c>CandidateBatchId</c>.
+    /// </summary>
+    [Fact]
+    public void TheAssetEditor_RoutesAResultToTheRequestedBatch()
+    {
+        Assert.Contains("[SupplyParameterFromQuery(Name = \"batch\")]", AssetEditorSource, StringComparison.Ordinal);
+        Assert.Contains("TargetBatchId", AssetEditorSource, StringComparison.Ordinal);
+        Assert.Contains("CandidateBatchId: TargetBatchId", AssetEditorSource, StringComparison.Ordinal);
+        Assert.Contains("batch={Uri.EscapeDataString(TargetBatchId)}", AssetEditorSource, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void TheDuplicateAssetEditorForm_NoLongerExists()
     {
