@@ -23,12 +23,31 @@ internal static class ComfyUiWorkflowTransport
         string fileName,
         string providerName,
         string reasonPrefix,
+        CancellationToken cancellationToken) =>
+        await UploadInputAsync(
+            client, baseUrl, image, fileName, "image/png", providerName, reasonPrefix, cancellationToken);
+
+    /// <summary>
+    /// Uploads ANY input file ComfyUI's input directory accepts. B-156 needs this because a continuation guide can
+    /// carry audio as well as an image, and both go through the same <c>/upload/image</c> endpoint with
+    /// <c>type=input</c> (verified against the live host: a WAV uploads exactly like a PNG and <c>LoadAudio</c> then
+    /// finds it by name). One implementation, so the upload contract cannot drift between the two.
+    /// </summary>
+    public static async Task<string> UploadInputAsync(
+        HttpClient client,
+        string baseUrl,
+        Stream content,
+        string fileName,
+        string contentType,
+        string providerName,
+        string reasonPrefix,
         CancellationToken cancellationToken)
     {
         using var form = new MultipartFormDataContent();
-        using var imageContent = new StreamContent(image);
-        imageContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
-        form.Add(imageContent, "image", fileName);
+        using var fileContent = new StreamContent(content);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        form.Add(fileContent, "image", fileName);
+        form.Add(new StringContent("input"), "type");
         using var response = await client.PostAsync($"{baseUrl}/upload/image", form, cancellationToken);
         if (!response.IsSuccessStatusCode)
             throw await CreateHttpExceptionAsync(response, providerName, reasonPrefix, "upload_failed", cancellationToken);
@@ -37,7 +56,7 @@ internal static class ComfyUiWorkflowTransport
         var name = upload?["name"]?.GetValue<string>();
         if (string.IsNullOrWhiteSpace(name))
             throw new ImageGenerationException(
-                "ComfyUI returned no uploaded source image name.", providerName, reasonCode: $"{reasonPrefix}_upload_no_name");
+                "ComfyUI returned no uploaded file name.", providerName, reasonCode: $"{reasonPrefix}_upload_no_name");
 
         var subfolder = upload?["subfolder"]?.GetValue<string>();
         return string.IsNullOrWhiteSpace(subfolder) ? name : $"{subfolder}/{name}";

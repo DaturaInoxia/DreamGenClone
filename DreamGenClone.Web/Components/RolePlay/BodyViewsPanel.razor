@@ -6,12 +6,13 @@
 @using DreamGenClone.Web.Application.RolePlay.ImageStep
 @using DreamGenClone.Web.Application.RolePlay.Models
 @using DreamGenClone.Web.Application.Scenarios
-@using System.Text.Json
+@using DreamGenClone.Components.Assets
 @inject ICharacterIdentityBodyService BodyService
 @inject ISceneAssetService AssetService
 @inject IImageCellPromptCompiler PromptCompiler
 @inject IImageCompilerProfileRepository CompilerProfiles
 @inject IModelResolutionService ModelResolutionService
+@inject NavigationManager Navigation
 @implements IDisposable
 
 @* B-122 E-2: the clothed and unclothed view grids. One row per canonical slot, one request per row, and no batch
@@ -331,65 +332,52 @@ else
                                     }
                                     else
                                     {
-                                        <div class="d-flex flex-wrap gap-2 mt-2">
+                                        <div class="row g-2 mt-2">
                                             @foreach (var candidate in candidates)
                                             {
-                                                <div class="border rounded p-2" style="width:320px;">
-                                                    <div class="d-flex align-items-center gap-1 mb-1">
-                                                        <span class="badge @CandidateBadge(candidate)">@(candidate.CandidateDecision?.ToString() ?? "Undecided")</span>
-                                                        @if (candidate.Status != SceneAssetStatus.Complete)
-                                                        {
-                                                            <span class="badge text-bg-light">@candidate.Status</span>
-                                                        }
-                                                        <span class="small text-muted ms-auto">@candidate.CreatedUtc.ToLocalTime().ToString("g")</span>
-                                                    </div>
-                                                    @if (CandidatePreview(candidate) is { } candidateUrl)
-                                                    {
-                                                        <a href="@candidateUrl" target="_blank" rel="noopener" title="Open this image full size">
-                                                            <img src="@candidateUrl" class="border rounded w-100 mb-1"
-                                                                 style="height:200px;object-fit:contain;cursor:zoom-in;" alt="candidate" />
-                                                        </a>
-                                                    }
-                                                    <div class="small"><span class="text-muted">Model:</span> @CandidateModel(candidate)</div>
-                                                    <div class="small text-muted">Prompt:</div>
-                                                    <div class="font-monospace small border rounded p-1" style="max-height:5rem;overflow:auto;">@candidate.Prompt</div>
-                                                    @if (!string.IsNullOrWhiteSpace(candidate.CandidateNotes))
-                                                    {
-                                                        <div class="small text-muted">Note: @candidate.CandidateNotes</div>
-                                                    }
-                                                    <div class="d-flex flex-wrap gap-1 mt-1">
-                                                        <button type="button" class="btn btn-sm btn-outline-success"
-                                                                @onclick="() => AcceptCandidateAsync(key, candidate.Id)"
-                                                                disabled="@IsSubmitting(keyText)"
-                                                                title="Make this image this view's result and accept the view (the recorded findings gate still applies)">Accept this image</button>
-                                                        <button type="button" class="btn btn-sm btn-outline-danger"
-                                                                @onclick="() => DecideCandidateAsync(key, candidate.Id, SceneAssetCandidateDecision.Rejected)"
-                                                                disabled="@IsSubmitting(keyText)">Reject</button>
-                                                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                                @onclick="() => DecideCandidateAsync(key, candidate.Id, SceneAssetCandidateDecision.Undecided)"
-                                                                disabled="@IsSubmitting(keyText)">Undecide</button>
-                                                        @* ANY image can be edited, accepted or not: the edit is a new request about
-                                                           this picture, and the shared editor puts its result back into this view's
-                                                           candidate batch, so it appears here like every other attempt. *@
-                                                        @if (EditUrlFor(candidate) is { } editUrl)
-                                                        {
-                                                            <a class="btn btn-sm btn-outline-primary" href="@editUrl"
-                                                               title="Edit this image in the shared editor; the result joins this view's candidates">Edit</a>
-                                                        }
-                                                        <button type="button" class="btn btn-sm btn-outline-danger"
-                                                                @onclick="() => DeleteCandidateAsync(key, candidate)"
-                                                                disabled="@IsSubmitting(keyText)"
-                                                                title="Delete this image from the asset library">Delete</button>
-                                                    </div>
-                                                    @if (candidate.CandidateDecision == SceneAssetCandidateDecision.Accepted
-                                                        && view?.Status != CharacterIdentityAngleStatus.Accepted)
-                                                    {
-                                                        <div class="small text-warning mt-1">
-                                                            This image is decided Accepted, but the VIEW is not accepted yet
-                                                            (@(view?.Status.ToString() ?? "NotStarted")). Record this view's findings (or an
-                                                            attributed override) and then accept it.
-                                                        </div>
-                                                    }
+                                                <div class="col-sm-6 col-xl-4 col-xxl-3">
+                                                    <ImageCard Model="CandidateCardModel(candidate)"
+                                                               Busy="IsSubmitting(keyText)"
+                                                               ShowName="true"
+                                                               NameChanged="name => RenameCandidateAsync(candidate, name)"
+                                                               AcceptTitle="Make this image this view's result and accept the view (the recorded findings gate still applies)"
+                                                               AcceptRequested="() => AcceptCandidateAsync(key, candidate.Id)"
+                                                               ShortlistRequested="() => DecideCandidateAsync(key, candidate.Id, SceneAssetCandidateDecision.Shortlisted)"
+                                                               RejectRequested="() => DecideCandidateAsync(key, candidate.Id, SceneAssetCandidateDecision.Rejected)"
+                                                               EditRequested="() => OpenCandidateEdit(candidate)"
+                                                               ReviewRequested="() => OpenCandidateReview(candidate)"
+                                                               DownloadRequested="() => OpenCandidateDownload(candidate)"
+                                                               VideoRequested="() => OpenCandidateVideo(candidate)"
+                                                               LoadIntoGeneratorRequested="() => LoadCandidatePromptAsync(key, candidate)"
+                                                               DeleteRequested="() => DeleteCandidateAsync(key, candidate)">
+                                                        <BodyContent>
+                                                            @if (candidate.Status == SceneAssetStatus.Complete)
+                                                            {
+                                                                <div class="mt-2">
+                                                                    <ImageTags Image="candidate" Editable="true" TagsChanged="() => RefreshAsync()" />
+                                                                </div>
+                                                            }
+                                                            @if (!string.IsNullOrWhiteSpace(candidate.CandidateNotes))
+                                                            {
+                                                                <div class="small text-muted">Note: @candidate.CandidateNotes</div>
+                                                            }
+                                                        </BodyContent>
+                                                        <FooterContent>
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                                                                    @onclick="() => DecideCandidateAsync(key, candidate.Id, SceneAssetCandidateDecision.Undecided)"
+                                                                    disabled="@IsSubmitting(keyText)"
+                                                                    title="Return this candidate to Undecided">Undecide</button>
+                                                            @if (candidate.CandidateDecision == SceneAssetCandidateDecision.Accepted
+                                                                && view?.Status != CharacterIdentityAngleStatus.Accepted)
+                                                            {
+                                                                <div class="small text-warning w-100 mt-1">
+                                                                    This image is decided Accepted, but the VIEW is not accepted yet
+                                                                    (@(view?.Status.ToString() ?? "NotStarted")). Record this view's findings (or an
+                                                                    attributed override) and then accept it.
+                                                                </div>
+                                                            }
+                                                        </FooterContent>
+                                                    </ImageCard>
                                                 </div>
                                             }
                                         </div>
@@ -1424,52 +1412,71 @@ else
     private IReadOnlyList<SceneAssetImage> CandidatesFor(CharacterIdentityBodyViewKey key)
         => _candidatesByBatch.TryGetValue(key.BatchIdFor(BuildId), out var candidates) ? candidates : [];
 
-    /// <summary>The candidate's image URL, from the container preview map that already holds every attempt.</summary>
-    private string? CandidatePreview(SceneAssetImage candidate)
-        => _previews.TryGetValue(candidate.Id, out var url) ? url : null;
-
-    private static string CandidateBadge(SceneAssetImage candidate) => candidate.CandidateDecision switch
+    /// <summary>The card model for one body-view candidate: the shared card renders its picture, status and decision.</summary>
+    private SceneImageCardModel CandidateCardModel(SceneAssetImage candidate) => new()
     {
-        SceneAssetCandidateDecision.Accepted => "text-bg-success",
-        SceneAssetCandidateDecision.Rejected => "text-bg-danger",
-        _ => "text-bg-secondary"
+        Id = candidate.Id,
+        FileRelativePath = candidate.FileRelativePath,
+        StatusText = candidate.Status.ToString(),
+        StatusBadgeClass = candidate.Status switch
+        {
+            SceneAssetStatus.Complete => "text-bg-success",
+            SceneAssetStatus.Failed => "text-bg-danger",
+            _ => "text-bg-secondary"
+        },
+        IsComplete = candidate.Status == SceneAssetStatus.Complete,
+        ErrorMessage = candidate.ErrorMessage,
+        Subtitle = candidate.CreatedUtc.ToLocalTime().ToString("g"),
+        DecisionBadgeText = candidate.CandidateDecision?.ToString(),
+        DecisionBadgeTitle = "This attempt's pick in the body-view deck.",
+        CandidateBatchId = candidate.CandidateBatchId,
+        DisplayName = candidate.DisplayName,
+        IsProductionApproved = candidate.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved
     };
 
-    /// <summary>
-    /// The model that produced this candidate, read from the snapshot the image row already carries. When it is
-    /// absent or unreadable the fact is stated rather than a model name being invented (repo no-fallback rule).
-    /// </summary>
-    private static string CandidateModel(SceneAssetImage candidate)
+    /// <summary>Renames one candidate through the same writer the asset studio card uses, then reloads the row.</summary>
+    private async Task RenameCandidateAsync(SceneAssetImage candidate, string? name)
     {
-        if (string.IsNullOrWhiteSpace(candidate.ModelSnapshotJson))
-        {
-            return "not recorded";
-        }
-
         try
         {
-            using var document = JsonDocument.Parse(candidate.ModelSnapshotJson);
-            var root = document.RootElement;
-            var identifier = SnapshotString(root, "modelIdentifier") ?? SnapshotString(root, "requestedModelId");
-            var provider = SnapshotString(root, "providerName");
-
-            if (identifier is null)
-            {
-                return "not recorded";
-            }
-
-            return provider is null ? identifier : $"{identifier} ({provider})";
+            var named = await AssetService.SetImageDisplayNameAsync(candidate.Id, name ?? string.Empty);
+            _panelMessage = $"Named this image '{named.DisplayName}'.";
+            _panelMessageIsError = false;
+            await RefreshAsync();
         }
-        catch (JsonException)
+        catch (Exception error)
         {
-            return "snapshot unreadable";
+            _panelMessage = error.Message;
+            _panelMessageIsError = true;
         }
     }
 
-    private static string? SnapshotString(JsonElement element, string name)
-        => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
+    /// <summary>Opens the shared editor on this candidate; the result joins this view's candidates via the batch.</summary>
+    private void OpenCandidateEdit(SceneAssetImage candidate)
+    {
+        if (EditUrlFor(candidate) is { } url)
+            Navigation.NavigateTo(url);
+    }
+
+    private void OpenCandidateReview(SceneAssetImage candidate)
+    {
+        if (!string.IsNullOrWhiteSpace(candidate.AssetId) && !string.IsNullOrWhiteSpace(candidate.Id))
+            Navigation.NavigateTo($"/assets/{candidate.AssetId}/images/{candidate.Id}/review");
+    }
+
+    private void OpenCandidateDownload(SceneAssetImage candidate)
+        => Navigation.NavigateTo($"/asset-studio/images/{candidate.Id}/download");
+
+    private void OpenCandidateVideo(SceneAssetImage candidate)
+        => Navigation.NavigateTo($"/roleplay/video-studio/asset/{candidate.Id}");
+
+    /// <summary>Loads this candidate's prompt into the view's prompt box so it can be tweaked and regenerated.</summary>
+    private Task LoadCandidatePromptAsync(CharacterIdentityBodyViewKey key, SceneAssetImage candidate)
+    {
+        SetPrompt(key.Describe(), candidate.Prompt);
+        SetMessage(key.Describe(), $"Loaded the prompt from {candidate.Id[..Math.Min(8, candidate.Id.Length)]}… into the view's prompt box.");
+        return Task.CompletedTask;
+    }
 
     /// <summary>
     /// Records the operator's judgement about one candidate. This is a decision ABOUT an image, so it never moves

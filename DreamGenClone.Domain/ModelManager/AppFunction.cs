@@ -37,5 +37,12 @@ public enum AppFunction
     /// scene-image default because a wardrobe reference is a catalogue image of one garment, so the model that draws
     /// a scene well is not automatically the model that draws a good garment reference.
     /// </summary>
-    RolePlayWardrobeItem
+    RolePlayWardrobeItem,
+
+    /// <summary>
+    /// The video model the Video Composer renders a clip with (B-152/B-153). Its own function because a video
+    /// render is a ~25 to ~100 minute single-GPU job with its own concurrency, lease and polling bounds, and
+    /// because a video model can never be substituted for an image one.
+    /// </summary>
+    RolePlaySceneVideo
 }

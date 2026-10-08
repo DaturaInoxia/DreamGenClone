@@ -23,7 +23,12 @@ namespace DreamGenClone.Domain.ModelManager;
 /// The catalog's human-readable purpose (for example "Krea2 NSFW unlock", "Cowgirl act LoKr"), recorded so an
 /// audit event can say WHY a LoRA was in the chain without a second lookup.
 /// </param>
+/// <param name="TriggerToken">
+/// The token the catalog row requires in the prompt, when it has one (the fal realism LoRA's <c>r34l1sm</c>).
+/// Carried so a compiler can place it without a second catalog lookup; null means the LoRA has no trigger.
+/// </param>
 public sealed record ResolvedSceneLora(
     string FileName,
     double Strength,
-    string? Purpose = null);
+    string? Purpose = null,
+    string? TriggerToken = null);

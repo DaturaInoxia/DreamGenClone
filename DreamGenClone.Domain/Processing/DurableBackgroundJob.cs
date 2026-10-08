@@ -5,7 +5,14 @@ public enum DurableJobLane
     TextAnalysis = 1,
     PromptCompilation = 2,
     ImageRender = 3,
-    ImageEdit = 4
+    ImageEdit = 4,
+
+    /// <summary>
+    /// Video render (MiniMax H3, B-152). Its own lane because one clip occupies the single GPU for ~25 to ~100
+    /// minutes: its concurrency, lease and polling bounds come from the <c>RolePlaySceneVideo</c> function default
+    /// rather than the image lanes' settings. Appended, never renumbered - the integer is persisted.
+    /// </summary>
+    VideoRender = 5
 }
 
 public enum DurableBackgroundJobStatus

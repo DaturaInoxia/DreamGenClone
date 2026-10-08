@@ -20,6 +20,9 @@ public static class BackgroundJobTypes
     public const string MediaEditImageEditing = "media-edit-image-editing";
     public const string SceneAssetGeneration = "scene-asset-generation";
 
+    /// <summary>Renders a composed clip through the local MiniMax H3 video model (B-152).</summary>
+    public const string SceneVideoRendering = "scene-video-rendering";
+
     /// <summary>
     /// Compiles a wardrobe item's short description into a full reference prompt geared to the chosen model, then
     /// renders it. One job for both stages so the compiled prompt IS the image's prompt.

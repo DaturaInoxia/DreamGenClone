@@ -101,6 +101,10 @@
                             {
                                 <span class="font-monospace">@row.FileName</span>
                                 <span class="text-muted"> · @row.Category · @row.DisplayName</span>
+                                @if (!string.IsNullOrWhiteSpace(row.TriggerToken))
+                                {
+                                    <span class="text-muted"> · carries trigger <span class="font-monospace">@row.TriggerToken</span></span>
+                                }
                             }
                         </div>
                         <div style="width: 6rem;">
@@ -283,7 +287,9 @@
         strength?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
 
     private static string Describe(SceneLora lora) =>
-        $"{lora.DisplayName} · {lora.Category} · {lora.FileName}";
+        string.IsNullOrWhiteSpace(lora.TriggerToken)
+            ? $"{lora.DisplayName} · {lora.Category} · {lora.FileName}"
+            : $"{lora.DisplayName} · {lora.Category} · {lora.FileName} · trigger {lora.TriggerToken}";
 
     private string Id(string suffix) => $"{Scope}-{suffix}";
 }

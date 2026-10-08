@@ -99,6 +99,16 @@ A permanent .NET 9 console project lives at `DreamGenClone.DbQuery/DreamGenClone
 - **Approved developer/validation tools live in `tools/` (git-tracked), NOT in `artifacts/tmp/`** — `artifacts/` is git-ignored, so anything only in `artifacts/tmp/**` is ephemeral and not reproducible/committed. Promote a tool into `tools/<name>/` (script + README.md + pinned requirements.txt) and register it in `tools/README.md` before relying on it. Tools must write outputs to git-ignored paths.
 - **Face/eye validation** (identity refs, IP-Adapter renders, character faces) MUST use the canonical `tools/eye-validation/measure_iris.py` (MediaPipe iris landmarks). Haar box centers / dark-region centroids / Hough circles are KNOWN-BAD for pinpointing irises on photoreal faces — do not re-derive a checker from them. Agent rules: `.github/instructions/agent-tools.instructions.md`.
 
+## Hard Rule: Never Kill The Web App (No Blanket `dotnet` Kills)
+
+The user keeps the web app running while agents build and test. Killing it is a hard failure.
+
+- **NEVER** run `Stop-Process -Name dotnet`, `Get-Process dotnet | Stop-Process`, `Stop-Process -Name DreamGenClone`, or `taskkill` on `dotnet`/`DreamGenClone`. It kills the user's app, other agents' in-flight builds/tests, and `DbQuery` runs.
+- **Do not "stop the web app before building".** The app runs from a published release folder (`artifacts\runtime\web\<release>`) via `helpers/publish-and-run.ps1`, so it holds **no** lock on `DreamGenClone.Web\bin` or `obj` — plain `dotnet build` / `dotnet test` work while it stays up. (Only a legacy `bin`-based instance locks the build output; that instance is not the user's current app.)
+- If a build reports `file is locked by: "..." (PID)`, report the lock. Do **not** fix it by killing processes.
+- **Do not start the app yourself** unless the user asks. Use `helpers/publish-and-run.ps1` to publish + restart, or `helpers/publish-and-run.ps1 -UseExistingRelease` to restart the bits already published. The `bin`-based starters (`start-webapp.ps1`, `start-webapp-dev.ps1`, `start-webapp-dev-clean.ps1`) run from `bin`, so they both stop the user's app and re-introduce the locked-file problem; they now refuse to run while a release instance is up unless `-TakeOver` is passed.
+- Session/server logs for the running app: `artifacts\runtime\web\logs\<release>.out.log` (stdout) and `DreamGenClone.Web\logs\dreamgenclone-<date>.log` (Serilog).
+
 ## DB Snapshot & Portable Database (IMPORTANT)
 
 - There are TWO databases in `DreamGenClone.Web/data/`:
@@ -107,7 +117,8 @@ A permanent .NET 9 console project lives at `DreamGenClone.DbQuery/DreamGenClone
 - **NEVER** commit `dreamgenclone.dev.db` or any other `.db`/`.bak` file — only `dreamgenclone.snapshot.db` is allowed in git.
 - **NEVER run `git clean -fd` / `git clean -fdx`** — it deletes ignored files, including the live `dreamgenclone.dev.db`.
 - A `git pull` never touches `dev.db` (it is ignored); it only updates `snapshot.db` and the rest of the repo.
-- The app resolves its DB path **relative to the working directory + environment**: Development → `data/dreamgenclone.dev.db`, Production → `data/dreamgenclone.db`. Always start the app from `DreamGenClone.Web` with `ASPNETCORE_ENVIRONMENT=Development` (as `helpers/start-webapp-dev-clean.ps1` does). Starting it from the repo root, or without the env var, reads the WRONG near-empty DB.
+- The app resolves its DB path **relative to the working directory + environment**: Development → `data/dreamgenclone.dev.db`, Production → `data/dreamgenclone.db`. Always start the app from `DreamGenClone.Web` with `ASPNETCORE_ENVIRONMENT=Development`. Starting it from the repo root, or without the env var, reads the WRONG near-empty DB.
+- **Run the app without blocking builds**: `helpers/publish-and-run.ps1` publishes to `artifacts/runtime/web/<release-id>` and runs the app from that copy, so the running process never locks `DreamGenClone.Web\bin` or `obj` — agents can keep building while the app stays up. It pins working directory + content root to `DreamGenClone.Web` and the Development environment, so it still uses the live `data/dreamgenclone.dev.db`, `logs\`, `..\specs\` and the source `wwwroot`. An app started from `bin` does hold those locks; that is the only reason a build would need the app stopped.
 - The dev DB balloons because `RolePlayDebugEvents.MetadataJson` stores full built LLM prompts (600 KB+ each); keep session data out of git via the snapshot model.
 - Full workflow (why the DB grows, pruning, snapshot refresh, other-machine setup) is in `.github/instructions/db-snapshot-workflow.instructions.md` and `docs/db-snapshot-setup.md`.
 

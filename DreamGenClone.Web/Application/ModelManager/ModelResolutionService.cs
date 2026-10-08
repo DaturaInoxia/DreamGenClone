@@ -382,6 +382,166 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
     }
 
     /// <inheritdoc />
+    public async Task<ResolvedVideoModel> ResolveVideoModelAsync(
+        string? modelId = null,
+        CancellationToken cancellationToken = default)
+    {
+        RegisteredModel model;
+        if (!string.IsNullOrWhiteSpace(modelId))
+        {
+            model = await _modelRepository.GetByIdAsync(modelId, cancellationToken)
+                ?? throw new ModelResolutionException(
+                    $"Video model '{modelId}' was not found. Select an enabled video model in the Video Composer or "
+                    + "Model Manager (/model-manager).");
+            if (!model.IsEnabled)
+            {
+                throw new ModelResolutionException(
+                    $"Video model '{model.DisplayName}' is disabled. Enable it in Model Manager (/model-manager).");
+            }
+        }
+        else
+        {
+            var functionDefault = await _functionDefaultRepository
+                .GetByFunctionAsync(AppFunction.RolePlaySceneVideo, cancellationToken)
+                ?? throw new ModelResolutionException(
+                    $"No video model configured for function '{AppFunction.RolePlaySceneVideo}'. Assign a video-kind "
+                    + "model to 'RP Scene Video (Render)' in Model Manager (/model-manager).");
+
+            model = await _modelRepository.GetByIdAsync(functionDefault.ModelId, cancellationToken)
+                ?? throw new ModelResolutionException(
+                    $"The default video model for function '{AppFunction.RolePlaySceneVideo}' is no longer available. "
+                    + "Update the model assignment in Model Manager (/model-manager).");
+            if (!model.IsEnabled)
+            {
+                throw new ModelResolutionException(
+                    $"The default video model '{model.DisplayName}' is disabled. Enable it in Model Manager "
+                    + "(/model-manager).");
+            }
+        }
+
+        return await ResolveVideoModelCoreAsync(model, cancellationToken);
+    }
+
+    private async Task<ResolvedVideoModel> ResolveVideoModelCoreAsync(
+        RegisteredModel model,
+        CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        if (model.ModelKind != ModelKind.Video)
+        {
+            throw new ModelResolutionException(
+                $"Model '{model.DisplayName}' is not a video model (ModelKind={model.ModelKind}). Assign a "
+                + $"video-kind model to '{AppFunction.RolePlaySceneVideo}' in Model Manager (/model-manager).");
+        }
+
+        if (!SceneImagePromptMetadata.IsCompatible(model.SceneImageModelFamily, model.PromptDialect))
+        {
+            throw new ModelResolutionException(
+                $"Video model '{model.DisplayName}' declares family '{model.SceneImageModelFamily}' with dialect "
+                + $"'{model.PromptDialect}', which is not a valid pair. Configure the model's video family and its "
+                + "prompt dialect together in Model Manager (/model-manager).");
+        }
+
+        var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
+        if (provider is null || !provider.IsEnabled)
+        {
+            throw new ModelResolutionException(
+                $"The provider for video model '{model.DisplayName}' is disabled. Enable the provider in Model Manager "
+                + "(/model-manager).");
+        }
+
+        if (provider.ImageProtocol is not (ImageProtocol.ComfyUi or ImageProtocol.ComfyUiServerless))
+        {
+            throw new ModelResolutionException(
+                $"Provider '{provider.Name}' uses protocol '{provider.ImageProtocol}', but a video render is a "
+                + "ComfyUI graph. Set the provider's image protocol to ComfyUI in Model Manager (/model-manager).");
+        }
+
+        // D-8 (operator constraint, 2026-10-06): NO content policy is required or consulted for video, and nothing
+        // may block, flag or cap video content. The provider's image content policy is deliberately not read here
+        // and must not be extended to this path.
+
+        var refs = MiniMaxH3ModelSettings.Resolve(model);
+        stopwatch.Stop();
+
+        _logger.LogInformation(
+            "Video model resolved: Function={Function}, Model={ModelIdentifier}, Provider={ProviderName}, "
+            + "Family={Family}, Frames={FrameMin}-{FrameMax}, RenderTimeoutSeconds={RenderTimeoutSeconds}, TotalMs={TotalMs}",
+            AppFunction.RolePlaySceneVideo,
+            model.ModelIdentifier,
+            provider.Name,
+            model.SceneImageModelFamily,
+            refs.FramePolicy.MinFrames,
+            refs.FramePolicy.MaxFrames,
+            refs.RenderTimeoutSeconds,
+            stopwatch.ElapsedMilliseconds);
+
+        return new ResolvedVideoModel(
+            ProviderBaseUrl: provider.BaseUrl,
+            ProviderTimeoutSeconds: provider.TimeoutSeconds,
+            ApiKeyEncrypted: provider.ApiKeyEncrypted,
+            ModelIdentifier: model.ModelIdentifier,
+            ProviderName: provider.Name,
+            Family: model.SceneImageModelFamily,
+            PromptDialect: model.PromptDialect,
+            ImageProtocol: provider.ImageProtocol,
+            H3: refs,
+            ComfyUiUrl: provider.BaseUrl,
+            RegisteredModelId: model.Id);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SceneImageModelChoice>> ListSceneVideoModelsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var models = await _modelRepository.GetAllEnabledAsync(cancellationToken);
+        var result = new List<SceneImageModelChoice>();
+        foreach (var model in models
+            .Where(item => item.ModelKind == ModelKind.Video)
+            .OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            var provider = await _providerRepository.GetByIdAsync(model.ProviderId, cancellationToken);
+            result.Add(new SceneImageModelChoice(
+                model.Id,
+                model.DisplayName,
+                model.ModelIdentifier,
+                provider?.Name ?? "Unknown",
+                HasIdentity: false)
+            {
+                ProviderId = model.ProviderId,
+                IsDefaultModel = model.IsDefault,
+                IsDefaultProvider = provider?.IsDefault ?? false,
+                Family = model.SceneImageModelFamily,
+                Dialect = model.PromptDialect,
+                // The video reference ceiling comes from the model's own H3 qualification, so the References tab
+                // plans its slots from configured data. A malformed row reports 0 here (listing must not throw) and
+                // the render path remains the authority that fails fast with the exact reason.
+                MaxReferences = TryResolveReferenceCapacity(model)
+            });
+        }
+
+        return ModelChoiceOrdering.Order(result);
+    }
+
+    private int TryResolveReferenceCapacity(RegisteredModel model)
+    {
+        try
+        {
+            return MiniMaxH3ModelSettings.Resolve(model).MaxReferenceImages;
+        }
+        catch (Exception exception) when (exception is ModelResolutionException or JsonException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Video reference capacity could not be resolved while listing video models: ModelId={ModelId}, Model={DisplayName}",
+                model.Id,
+                model.DisplayName);
+            return 0;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<SceneImageModelChoice>> ListSceneImageModelsAsync(
         bool identityCapableOnly,
         CancellationToken cancellationToken = default)

@@ -153,7 +153,8 @@ public sealed class SceneLoraResolver : ISceneLoraResolver
             resolved.Add(new ResolvedSceneLora(
                 FileName: row.FileName,
                 Strength: strength,
-                Purpose: string.IsNullOrWhiteSpace(row.DisplayName) ? null : row.DisplayName));
+                Purpose: string.IsNullOrWhiteSpace(row.DisplayName) ? null : row.DisplayName,
+                TriggerToken: string.IsNullOrWhiteSpace(row.TriggerToken) ? null : row.TriggerToken.Trim()));
         }
 
         if (_logger.IsEnabled(LogLevel.Debug))

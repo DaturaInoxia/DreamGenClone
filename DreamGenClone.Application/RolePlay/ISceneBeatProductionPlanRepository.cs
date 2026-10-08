@@ -11,6 +11,14 @@ public interface ISceneBeatProductionPlanRepository
 
     Task<SceneBeatProductionPlan?> GetAsync(string planId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The plan that owns a B-100 video coverage plan, found from the coverage plan id (B-152). Lets the Video
+    /// Composer's coverage route resolve the plan's <c>VideoFirstFrame</c> reference without knowing the plan id.
+    /// </summary>
+    Task<SceneBeatProductionPlan?> GetByCoveragePlanIdAsync(
+        string coveragePlanId,
+        CancellationToken cancellationToken = default);
+
     Task<SceneBeatProductionPlan?> GetCurrentAsync(
         string catalogueId,
         string beatId,

@@ -32,7 +32,7 @@ with **no LoRA dataset and no uploaded photo**.
 
 ## Dispatch discipline (MANDATORY — see tasks/README.md + memory speed rules)
 Every subagent dispatch to `GPT-5.6 Luna (copilot)` MUST:
-- FIRST `Get-Process DreamGenClone | Stop-Process -Force`.
+- Do **NOT** kill processes first: the app runs from a published release folder (`helpers/publish-and-run.ps1`), so builds and tests do not lock it. Blanket kills (`Stop-Process -Name dotnet`, `Get-Process DreamGenClone | Stop-Process`) take down the user's app and other agents' builds/tests. If a build reports a locked file, report it instead of killing the holder.
 - Build ONLY the affected project(s), NEVER `dotnet build DreamGenClone.sln`.
 - Test ONLY a tight `--filter`, NEVER the full `dotnet test`.
 - Stop and report if any command exceeds 90s.

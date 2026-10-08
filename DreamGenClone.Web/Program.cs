@@ -313,6 +313,9 @@ builder.Services.AddSingleton<ComfyUIImageClient>();
 builder.Services.AddSingleton<RunPodServerlessImageClient>();
 builder.Services.AddSingleton<IImageGenerationClient, ImageGenerationClientDispatcher>();
 builder.Services.AddSingleton<IReferenceConditionedImageClient, ReferenceConditionedImageClientDispatcher>();
+// MiniMax H3 video render path (B-152): the same ComfyUI conversation, a much longer poll, an mp4 instead of a png.
+builder.Services.AddSingleton<MiniMaxH3VideoClient>();
+builder.Services.AddSingleton<IVideoGenerationClient>(services => services.GetRequiredService<MiniMaxH3VideoClient>());
 builder.Services.AddSingleton<ComfyUIImageEditingClient>();
 builder.Services.AddSingleton<RunPodServerlessEditingClient>();
 builder.Services.AddSingleton<IImageEditingClient, ImageEditingClientDispatcher>();
@@ -338,6 +341,8 @@ builder.Services.AddSingleton<ISceneBeatCatalogueRepository, SceneBeatCatalogueR
 builder.Services.AddSingleton<ISceneBeatDiagnosticsRepository, SceneBeatDiagnosticsRepository>();
 builder.Services.AddScoped<ISceneBeatDiagnosticsService, SceneBeatDiagnosticsService>();
 builder.Services.AddSingleton<ISceneBeatProductionPlanRepository, SceneBeatProductionPlanRepository>();
+// B-152: composed scene videos - their own store, storage root and durable lane.
+builder.Services.AddSingleton<ISceneVideoRepository, SceneVideoRepository>();
 builder.Services.AddSingleton<ISceneMomentSetRepository, SceneMomentSetRepository>();
 builder.Services.AddSingleton<ISceneMomentEnrichmentRepository, SceneMomentEnrichmentRepository>();
 builder.Services.AddSingleton<CompiledMediaBriefRepository>();
@@ -431,8 +436,16 @@ builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetImageEditComp
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetImageEditDescriptionJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler>(serviceProvider => serviceProvider.GetRequiredService<SceneImageRenderingJobHandler>());
 builder.Services.AddScoped<IDurableBackgroundJobHandler>(serviceProvider => serviceProvider.GetRequiredService<SceneImageEditingJobHandler>());
+builder.Services.AddScoped<SceneVideoRenderingJobHandler>();
+builder.Services.AddScoped<IDurableBackgroundJobHandler>(serviceProvider => serviceProvider.GetRequiredService<SceneVideoRenderingJobHandler>());
+builder.Services.AddScoped<ISceneVideoService, SceneVideoService>();
+builder.Services.AddScoped<SceneVideoChainPolicy>();
+builder.Services.AddScoped<SceneVideoDriftRecorder>();
+builder.Services.AddScoped<ISceneVideoLaneResolver, SceneVideoLaneResolver>();
 builder.Services.AddScoped<TextAnalysisDurableJobExecutor>();
 builder.Services.AddSingleton<ISceneImageStorageService, SceneImageStorageService>();
+builder.Services.AddSingleton<ISceneVideoStorageService, SceneVideoStorageService>();
+builder.Services.AddSingleton<IVideoAudioProcessor, SceneVideoAudioProcessor>();
 builder.Services.AddSingleton<ICharacterImageIdentityRepository, CharacterImageIdentityRepository>();
 builder.Services.AddSingleton<ISceneIdentityEvaluationRepository, SceneIdentityEvaluationRepository>();
 builder.Services.AddSingleton<ICharacterImageAssetStorageService, CharacterImageAssetStorageService>();
@@ -827,6 +840,17 @@ app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(sceneImageFullPath),
     RequestPath = "/scene-images"
+});
+
+// Serve composed scene videos from the git-ignored video root (kept out of wwwroot). StaticFiles answers HTTP Range
+// requests natively, which is what makes the Queue tab's <video> element seekable.
+var sceneVideoRoot = app.Services.GetRequiredService<IOptions<PersistenceOptions>>().Value.SceneVideoRoot;
+var sceneVideoFullPath = Path.GetFullPath(sceneVideoRoot);
+Directory.CreateDirectory(sceneVideoFullPath);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(sceneVideoFullPath),
+    RequestPath = "/scene-videos"
 });
 
 app.MapStaticAssets();

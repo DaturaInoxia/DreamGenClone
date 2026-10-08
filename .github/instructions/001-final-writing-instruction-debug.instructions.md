@@ -57,7 +57,9 @@ Before any analysis or plan, consult these files as authoritative references:
 - Build full solution: `dotnet build DreamGenClone.sln --no-restore`
 - Slot contract tests: `dotnet test DreamGenClone.Tests --no-build --filter "FullyQualifiedName~SlotContractTests"`
 - All RolePlay tests: `dotnet test DreamGenClone.Tests --no-build --filter "FullyQualifiedName~RolePlay"`
-- Stop web app before building: `Stop-Process -Name dotnet -Force -ErrorAction SilentlyContinue`
+- **Never kill the app or stop `dotnet` processes.** Do NOT run `Stop-Process -Name dotnet`, `Get-Process dotnet | Stop-Process`, or `taskkill` on `dotnet`/`DreamGenClone`. That kills the user's running app together with other agents' in-flight builds, tests and `DbQuery` runs. The app runs from a published release folder (`artifacts\runtime\web\<release>`), so building and testing do not lock it — just build.
+- If a build fails with `file is locked by: "..." (PID)`, the holder is a `bin`-based app instance or another concurrent build. Report it; never kill processes to clear it.
+- To restart the app so it picks up code: `helpers/publish-and-run.ps1` (publish + restart) or `helpers/publish-and-run.ps1 -UseExistingRelease` (restart the bits already published).
 
 ### 8. Debug Issue Recording (MANDATORY)
 For EVERY issue reported during this debug session:
@@ -79,4 +81,4 @@ All debug records live under: `specs/001-final-writing-instruction/debug/`
    - **Validated**: Confirmed fixed by user? Date/time. Leave as `[ ] pending` until confirmed.
 
 All debug records live under: `specs/001-rp-prompt-redesign/debug/`
-- Stop web app before building: `Stop-Process -Name dotnet -Force -ErrorAction SilentlyContinue`
+- **Never kill the app or stop `dotnet` processes** (see the Build + Test Protocol section): it kills the user's running app and other agents' builds/tests.

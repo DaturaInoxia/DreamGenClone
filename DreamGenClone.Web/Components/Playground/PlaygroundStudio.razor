@@ -57,27 +57,16 @@
                         @foreach (var image in _images)
                         {
                             <div class="col-6">
-                                <div class="card h-100 @(IsEditing(image.Id) ? "border-primary" : string.Empty)">
-                                    <div class="ratio ratio-1x1 bg-dark">
-                                        @if (!string.IsNullOrWhiteSpace(image.FileRelativePath))
-                                        {
-                                            <img src="/scene-images/@image.FileRelativePath" class="w-100 h-100"
-                                                 style="object-fit:contain;" alt="playground image" />
-                                        }
-                                        else
-                                        {
-                                            <div class="d-flex align-items-center justify-content-center text-light small">
-                                                @image.Status
-                                            </div>
-                                        }
-                                    </div>
-                                    <div class="card-body p-1">
-                                        <button type="button" class="btn btn-sm w-100 @(IsEditing(image.Id) ? "btn-primary" : "btn-outline-secondary")"
-                                                disabled="@(image.Status != SceneAssetStatus.Complete)"
-                                                @onclick="@(() => SelectImage(image.Id))">
-                                            @(IsEditing(image.Id) ? "Editing" : "Edit")
-                                        </button>
-                                    </div>
+                                <div class="@(IsEditing(image.Id) ? "border border-primary rounded" : string.Empty)">
+                                    <ImageCard Model="CardModel(image)" Busy="_busy">
+                                        <FooterContent>
+                                            <button type="button" class="btn btn-sm @(IsEditing(image.Id) ? "btn-primary" : "btn-outline-secondary")"
+                                                    disabled="@(image.Status != SceneAssetStatus.Complete)"
+                                                    @onclick="@(() => SelectImage(image.Id))">
+                                                @(IsEditing(image.Id) ? "Editing" : "Edit")
+                                            </button>
+                                        </FooterContent>
+                                    </ImageCard>
                                 </div>
                             </div>
                         }
@@ -207,6 +196,22 @@
     }
 
     private bool IsEditing(string imageId) => string.Equals(_selectedImageId, imageId, StringComparison.Ordinal);
+
+    private SceneImageCardModel CardModel(SceneAssetImage image) => new()
+    {
+        Id = image.Id,
+        FileRelativePath = image.FileRelativePath,
+        StatusText = image.Status.ToString(),
+        StatusBadgeClass = image.Status switch
+        {
+            SceneAssetStatus.Complete => "text-bg-success",
+            SceneAssetStatus.Failed => "text-bg-danger",
+            _ => "text-bg-secondary"
+        },
+        IsComplete = image.Status == SceneAssetStatus.Complete,
+        ErrorMessage = image.ErrorMessage,
+        Subtitle = image.CreatedUtc.ToLocalTime().ToString("g")
+    };
 
     private void SelectImage(string imageId)
     {

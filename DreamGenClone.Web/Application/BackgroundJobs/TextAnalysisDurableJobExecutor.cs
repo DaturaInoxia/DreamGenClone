@@ -28,6 +28,26 @@ public sealed class TextAnalysisDurableJobExecutor
         ResolvedSceneBeatAnalyzer analyzer,
         CancellationToken stoppingToken = default)
     {
+        // The analyzer IS the configuration of the text/image lanes: it is resolved from the function default those
+        // lanes already run under, so mapping it here preserves their behaviour exactly. The video lane passes its
+        // own bounds instead (see the DurableLaneSettings overload).
+        await ExecuteAsync(
+            job,
+            new DurableLaneSettings(
+                Lane: job.Lane,
+                MaxConcurrentJobs: analyzer.MaxConcurrentJobs,
+                LeaseSeconds: analyzer.LeaseSeconds,
+                PollIntervalMilliseconds: analyzer.PollIntervalMilliseconds,
+                RetryDelaysSeconds: analyzer.RetryDelaysSeconds,
+                ProviderTimeoutSeconds: analyzer.Model.ProviderTimeoutSeconds),
+            stoppingToken);
+    }
+
+    public async Task ExecuteAsync(
+        DurableBackgroundJob job,
+        DurableLaneSettings lane,
+        CancellationToken stoppingToken = default)
+    {
         if (job.Status != DurableBackgroundJobStatus.Processing || string.IsNullOrWhiteSpace(job.LeaseOwner))
             throw new InvalidOperationException("A claimed durable job with a lease owner is required.");
 
@@ -62,11 +82,11 @@ public sealed class TextAnalysisDurableJobExecutor
                 && matchingHandlers[0] is IDurableJobOperationBudget budget
                 ? Math.Max(1, budget.OperationTimeoutMultiplier)
                 : 1;
-            operationTimeout.CancelAfter(TimeSpan.FromSeconds(analyzer.Model.ProviderTimeoutSeconds * multiplier));
+            operationTimeout.CancelAfter(TimeSpan.FromSeconds(lane.ProviderTimeoutSeconds * multiplier));
         }
         var renewalTask = RenewLeaseAsync(
             job,
-            analyzer.LeaseSeconds,
+            lane.LeaseSeconds,
             executionCancellation,
             () => Interlocked.Exchange(ref leaseLost, 1));
 
@@ -123,10 +143,10 @@ public sealed class TextAnalysisDurableJobExecutor
         }
 
         if (failure is DurableJobFailureException { IsTransient: true } transient
-            && job.AttemptCount <= analyzer.RetryDelaysSeconds.Count
+            && job.AttemptCount <= lane.RetryDelaysSeconds.Count
             && job.AttemptCount < job.MaxAttempts)
         {
-            var retryDelay = analyzer.RetryDelaysSeconds[job.AttemptCount - 1];
+            var retryDelay = lane.RetryDelaysSeconds[job.AttemptCount - 1];
             await _repository.TryScheduleRetryAsync(
                 job.Id,
                 job.LeaseOwner,

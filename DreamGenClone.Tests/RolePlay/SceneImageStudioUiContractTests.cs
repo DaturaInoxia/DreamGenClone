@@ -25,8 +25,6 @@ public sealed class SceneImageStudioUiContractTests
         FindRepositoryRoot(), "DreamGenClone.Web", "Application", "RolePlay", "Editing", "SceneImageEditWorkspaceService.cs"));
     private static readonly string SceneImageGallerySource = File.ReadAllText(Path.Combine(
         FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageGallery.razor"));
-    private static readonly string SceneImageGalleryStylesheet = File.ReadAllText(Path.Combine(
-        FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Pages", "SceneImageGallery.razor.css"));
     private static readonly string EditIterateWorkbenchSource = File.ReadAllText(Path.Combine(
         FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Shared", "EditIterateWorkbench.razor"));
     private static readonly string SceneImageStudioStylesheet = File.ReadAllText(Path.Combine(
@@ -108,7 +106,7 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("Composition Composer", Source, StringComparison.Ordinal);
         Assert.Contains("Choices=\"_genericModelChoices\"", Source, StringComparison.Ordinal);
         Assert.Contains("@bind-SelectedModelId=\"_selectedGenericModelId\"", Source, StringComparison.Ordinal);
-        Assert.Contains("@onclick=\"() => OpenImageEditor(img)\"", Source, StringComparison.Ordinal);
+        Assert.Contains("EditRequested=\"() => OpenImageEditor(img)\"", Source, StringComparison.Ordinal);
         Assert.Contains("This session predates the current production schema. Create a new session", Source, StringComparison.Ordinal);
     }
 
@@ -432,13 +430,13 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("/roleplay/studio/{sessionId}/{image.InteractionId}/production/moment/{image.MomentEnrichmentId}", SceneImageGallerySource, StringComparison.Ordinal);
         Assert.Contains("@onclick=\"() => OpenStudio(img)\"", SceneImageGallerySource, StringComparison.Ordinal);
         Assert.DoesNotContain("OpenStudio(group.InteractionId)", SceneImageGallerySource, StringComparison.Ordinal);
-        // The card actions must be labelled, full-size buttons (the icon-only py-0/px-1 stubs rendered as slivers).
-        Assert.Contains(">Edit</button>", SceneImageGallerySource, StringComparison.Ordinal);
-        Assert.Contains(">Studio</button>", SceneImageGallerySource, StringComparison.Ordinal);
-        Assert.Contains(">Delete</button>", SceneImageGallerySource, StringComparison.Ordinal);
-        Assert.DoesNotContain("py-0 px-1", SceneImageGallerySource, StringComparison.Ordinal);
-        Assert.Contains("class=\"scene-gallery-actions\"", SceneImageGallerySource, StringComparison.Ordinal);
-        Assert.Contains(".scene-gallery-actions .btn {", SceneImageGalleryStylesheet, StringComparison.Ordinal);
+        // The gallery is now the shared ImageCard (the one /asset-studio card), so its actions are the card's own
+        // icon buttons wired through callbacks rather than a private set of labelled text buttons.
+        Assert.Contains("<ImageCard Model=\"CardModel(img)\"", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.Contains("EditRequested=\"() => OpenEditor(img.InteractionId, img.Id)\"", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.Contains("VideoRequested=\"() => OpenVideoComposer(img.InteractionId, img.Id)\"", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.Contains("DeleteRequested=\"() => DeleteImageAsync(img)\"", SceneImageGallerySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("class=\"scene-gallery-actions\"", SceneImageGallerySource, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -20,8 +20,10 @@ fields are never touched).
 
 ## Prerequisites
 
-1. The webapp must be running on `http://localhost:5177` (Development). The user starts it
-   themselves, e.g. `helpers/start-webapp-dev-clean.ps1`.
+1. The webapp must be running on `http://localhost:5177` (Development). The **user** starts it, e.g.
+   `helpers/publish-and-run.ps1` (or `-UseExistingRelease` to restart the last published build).
+   Never start or kill it yourself: `start-webapp*.ps1` refuse to run while a release instance is up,
+   and blanket `dotnet` kills (`Stop-Process -Name dotnet`) take down the user's app.
 2. Node.js ≥ 18 (this repo's tooling runs on Windows PowerShell; Node is only needed here).
 3. A roleplay session that opens cleanly in the workspace (defaults to the dev session
    `f1d424cc-eb01-47ca-8176-5c280b6fb696`).

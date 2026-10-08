@@ -66,8 +66,11 @@ public sealed class AssetStudioUiContractTests
         // for a location. The rule itself is read from the domain, so the form and the store cannot disagree.
         Assert.Contains("SetImageDisplayNameAsync", DetailSource, StringComparison.Ordinal);
         Assert.Contains("SceneAssetImageNaming.IsNameRequiredForApproval", ApprovalFormSource, StringComparison.Ordinal);
-        Assert.Contains("/assets/@_asset.Id/images/@image.Id/edit", DetailSource, StringComparison.Ordinal);
-        Assert.Contains("/assets/@_asset.Id/images/@image.Id/review", DetailSource, StringComparison.Ordinal);
+        // The card is the shared ImageCard; the detail page supplies the route callbacks the card renders.
+        Assert.Contains("EditRequested=\"() => OpenEdit(image)\"", DetailSource, StringComparison.Ordinal);
+        Assert.Contains("ReviewRequested=\"() => OpenReview(image)\"", DetailSource, StringComparison.Ordinal);
+        Assert.Contains("/assets/{_asset!.Id}/images/{image.Id}/edit?return=/asset-studio/{_asset.Id}", DetailSource, StringComparison.Ordinal);
+        Assert.Contains("/assets/{_asset!.Id}/images/{image.Id}/review", DetailSource, StringComparison.Ordinal);
         Assert.Contains("await InvokeAsync(async () =>", DetailSource, StringComparison.Ordinal);
         Assert.DoesNotContain("EnqueueEditAsync", DetailSource, StringComparison.Ordinal);
         Assert.DoesNotContain("ApproveForProductionAsync", DetailSource, StringComparison.Ordinal);

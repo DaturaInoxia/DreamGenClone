@@ -392,6 +392,25 @@ from a bound reference; **none of it is invented by the compiler**.
 Deterministic, unit-testable without ComfyUI, fail-fast with the offending section and rule named.
 This list is the acceptance checklist for C-3.
 
+### Severity: BLOCKING vs ADVISORY (implemented 2026-09-02)
+
+Every rule reports a finding, but only a **BLOCKING** failure stops the composition from queueing
+(`SceneVideoValidationFinding.BlocksQueueing`, which drives `SceneVideoCompilationResult.IsValid`).
+A quality target must never hold a ~25-minute render hostage, so a rule blocks only when it means the
+document or the render graph would be **malformed**:
+
+- **BLOCKING** — R01–R09, R12–R16, R18–R20, R25–R30 (wrong graph, undefined labels, illegal frame
+  length, negative phrasing, missing VAEs).
+- **ADVISORY** — R10 (style presence), R11 (word-count target), R17 (identity richness),
+  R21 (soundscape authored/prose), R22 (music prose), R23 (diegetic placement),
+  R31 (declared timeline), R32 (abstract-only), R33 (plot summary). Reported in amber with the
+  measured value; they improve the render without stopping it.
+- R24 stays a non-failing note (no reference audio is bound in this slice).
+
+An untouched Audio tab must not trap the operator: an unauthored soundscape or score is emitted as
+the `N/A` sentinel so the six sections are always well formed, and the gap is reported as an
+advisory rather than a failure.
+
 **Structure**
 
 1. Exactly six sections, present, in order.
@@ -685,6 +704,23 @@ From `docs.comfy.org/tutorials/video/minimax/minimax-h3`:
    `shift_audio` `3`; sampling a distilled build at the wrong shift shows **grid artifacts**. â†’
    Graph-builder note: never emit a shift node against the w4a8 stack; the definition's 12/3 is
    correct for it.
+
+4. **The native guide is the continuity seam, and it is already installed** (C0 spike, 2026-10-07, on
+   `comfy.kenacwood.net`). `MiniMaxH3ReferenceToVideo` outputs `CONDITIONING, LATENT`, and
+   `MiniMaxH3AddGuide(positive, latent, frame_idx, vae, audio_vae, image)` consumes exactly those - so
+   continuity is **additive** to the existing graph (one extra `LoadImage` plus the guide node), with no
+   reference-video slots and no decode â†’ resize â†’ re-encode round trip. Verified against the live host:
+   - `frame_idx=0` conditions the new clip's **first** frame on the guide image: guided frame 0 scores
+     PSNR **18.29** / SSIM **0.727** against the guide, the unguided control **10.38** / **0.475**.
+   - The guide's `audio` input **carries audio**: with seed, prompt, image and step count held identical,
+     the rendered PCM differs from the unguided control.
+   - `length` still respects the node's envelope - all three arms rendered `length=5` as 1344Ã—768 h264 + AAC.
+   - `POST /upload/image` with `type=input` accepts **both** PNG and WAV, so an anchor frame and a carried
+     audio window upload exactly the way references already do.
+   - A guided render is materially slower than an unguided one at the same step count.
+   - `ComfyUI-H3-Motion-Context` is **not** installed, and the native guide needs no pod change (D-8/C-8).
+   - Diagnostic caveat: `system_stats.vram_free` is **not** a liveness signal. A working guided render
+     reported low free VRAM while still sampling, so treating it as a stall metric produces false alarms.
 
 ### 17.6 Ecosystem findings (`awesome-minimax-h3-integration`)
 

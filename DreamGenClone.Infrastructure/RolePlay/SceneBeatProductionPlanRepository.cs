@@ -116,6 +116,37 @@ public sealed class SceneBeatProductionPlanRepository : ISceneBeatProductionPlan
         return await ReadPlanAsync(connection, command, cancellationToken);
     }
 
+    /// <summary>
+    /// Loads the plan that owns a video coverage plan (B-152). The coverage plan's id is what a Video Composer
+    /// coverage route carries, and it is the only handle on the plan - so the owner is looked up through the
+    /// projection table rather than by scanning every plan.
+    /// </summary>
+    public async Task<SceneBeatProductionPlan?> GetByCoveragePlanIdAsync(
+        string coveragePlanId,
+        CancellationToken cancellationToken = default)
+    {
+        Require(coveragePlanId, "Video coverage plan id");
+        await using var connection = await OpenAsync(cancellationToken);
+
+        string? planId;
+        await using (var lookup = connection.CreateCommand())
+        {
+            lookup.CommandText = "SELECT BeatProductionPlanId FROM SceneVideoCoveragePlans WHERE Id = $id;";
+            lookup.Parameters.AddWithValue("$id", coveragePlanId.Trim());
+            planId = await lookup.ExecuteScalarAsync(cancellationToken) as string;
+        }
+
+        if (string.IsNullOrWhiteSpace(planId))
+        {
+            return null;
+        }
+
+        await using var command = CreatePlanSelect(connection);
+        command.CommandText += " WHERE Id = $id;";
+        command.Parameters.AddWithValue("$id", planId);
+        return await ReadPlanAsync(connection, command, cancellationToken);
+    }
+
     public async Task<SceneBeatProductionPlan?> GetCurrentAsync(
         string catalogueId,
         string beatId,

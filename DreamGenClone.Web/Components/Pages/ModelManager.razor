@@ -362,8 +362,9 @@
                                     <select class="form-select" @bind="_editingModel!.ModelKind">
                                         <option value="Text">Text</option>
                                         <option value="Image">Image</option>
+                                        <option value="Video">Video</option>
                                     </select>
-                                    <div class="form-text">Image models are selectable for scene-image rendering.</div>
+                                    <div class="form-text">Image models are selectable for scene-image rendering; video models for the Video Composer.</div>
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Supported Image Size</label>
@@ -437,6 +438,25 @@
                                     <label class="form-label">Artifact Revision</label>
                                     <input type="text" class="form-control" @bind="_editingModel!.ArtifactRevision" placeholder="Pinned repository commit" />
                                 </div>
+                                @if (_editingModel!.ModelKind == ModelKind.Video)
+                                {
+                                    <div class="col-12"><hr class="my-1" /><strong>Scene Video Compilation</strong></div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Video Family</label>
+                                        <select class="form-select" @bind="_editingModel.SceneImageModelFamily">
+                                            <option value="Unknown">Not configured</option>
+                                            <option value="MiniMaxH3Ref2VA">MiniMax H3 (Ref2VA)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Prompt Dialect</label>
+                                        <select class="form-select" @bind="_editingModel.PromptDialect">
+                                            <option value="Unknown">Not configured</option>
+                                            <option value="MiniMaxH3SixSection">MiniMax H3 six-section document</option>
+                                        </select>
+                                        <div class="form-text">MiniMax H3 requires its six-section document dialect. The artifacts, sampler envelope, frame policy and loudness target are the model's <code>MiniMaxH3Ref2VA</code> capability qualification (seeded by the DbQuery <code>h3-video-configure</code> command); the render fails fast naming any missing field rather than guessing it.</div>
+                                    </div>
+                                }
                                 @if (_editingModel!.ModelKind == ModelKind.Image)
                                 {
                                     <div class="col-12"><hr class="my-1" /><strong>Scene Image Compilation</strong></div>
@@ -609,6 +629,13 @@
                     No default model for wardrobe items. Assign one to <strong>RP Wardrobe Item (Render)</strong> so the character Wardrobe tab opens on the model you render garments with.
                 </div>
             }
+            @if (_functionStates.TryGetValue(AppFunction.RolePlaySceneVideo, out var _videoFnState) && string.IsNullOrEmpty(_videoFnState.ModelId))
+            {
+                <div class="alert alert-info">
+                    <i class="bi bi-camera-video me-1"></i>
+                    No video model configured. Assign a video-kind model to <strong>RP Scene Video (Render)</strong> so the Video Composer can render clips.
+                </div>
+            }
             @if (_enabledModelsDropdown.Count == 0)
             {
                 <div class="alert alert-info">Register and enable a model first to assign function defaults.</div>
@@ -633,6 +660,7 @@
                             @foreach (var (func, fd) in _functionDefaults)
                             {
                                 var state = GetFunctionState(func);
+                                var isVideoFunction = func == AppFunction.RolePlaySceneVideo;
                                 <tr>
                                     <td>
                                         <strong>@FormatFunctionName(func)</strong>
@@ -641,6 +669,7 @@
                                             || func == AppFunction.RolePlayCharacterBodyCardDraft
                                             || func == AppFunction.RolePlaySceneImage
                                             || func == AppFunction.RolePlayWardrobeItem
+                                            || func == AppFunction.RolePlaySceneVideo
                                             || func == AppFunction.RolePlaySceneImagePreprocessor
                                             || func == AppFunction.RolePlaySceneImageEditor
                                             || func == AppFunction.RolePlaySceneImageEditPromptCompiler
@@ -684,7 +713,7 @@
                                         </select>
                                     </td>
                                     <td>
-                                        @if (func is AppFunction.RolePlaySemanticAnalysis or AppFunction.RolePlaySceneBeatAnalyzer)
+                                        @if (func is AppFunction.RolePlaySemanticAnalysis or AppFunction.RolePlaySceneBeatAnalyzer or AppFunction.RolePlaySceneVideo)
                                         {
                                             <input type="number" class="form-control form-control-sm" min="1" max="16"
                                                    value="@state.MaxConcurrentJobs" @onchange="e => state.MaxConcurrentJobs = ParseNullableInt(e)" />
@@ -694,20 +723,21 @@
                                         <button class="btn btn-sm btn-outline-success" @onclick="() => SaveFunctionDefault(func)" disabled="@_isBusy">
                                             <i class="bi bi-check-lg me-1"></i> Save
                                         </button>
-                                        @if (func is AppFunction.RolePlaySemanticAnalysis or AppFunction.RolePlaySceneBeatAnalyzer && state.HasBeenSaved)
+                                        @if (func is AppFunction.RolePlaySemanticAnalysis or AppFunction.RolePlaySceneBeatAnalyzer or AppFunction.RolePlaySceneVideo && state.HasBeenSaved)
                                         {
                                             <div class="form-text text-muted mt-1" style="font-size:0.75em">Restart app to apply concurrency changes.</div>
                                         }
                                     </td>
                                 </tr>
-                                @if (func == AppFunction.RolePlaySceneBeatAnalyzer)
+                                @if (func is AppFunction.RolePlaySceneBeatAnalyzer or AppFunction.RolePlaySceneVideo)
                                 {
                                     <tr>
                                         <td colspan="8" class="border-top-0 pt-0 pb-3">
                                             <div class="row g-2 ms-1">
                                                 <div class="col-md-2">
                                                     <label class="form-label small">Lease Seconds</label>
-                                                    <input type="number" class="form-control form-control-sm" min="1" max="3600"
+                                                    <input type="number" class="form-control form-control-sm"
+                                                           min="@(isVideoFunction ? 60 : 1)" max="@(isVideoFunction ? 86400 : 3600)"
                                                            value="@state.DurableJobLeaseSeconds" @onchange="e => state.DurableJobLeaseSeconds = ParseNullableInt(e)" />
                                                 </div>
                                                 <div class="col-md-2">
@@ -725,16 +755,19 @@
                                                     <input type="text" class="form-control form-control-sm font-monospace"
                                                            value="@state.TransientRetryDelaysSecondsJson" @onchange="e => state.TransientRetryDelaysSecondsJson = e.Value?.ToString()" />
                                                 </div>
-                                                <div class="col-md-2">
-                                                    <label class="form-label small">Diagnostics Retention Days</label>
-                                                    <input type="number" class="form-control form-control-sm" min="1" max="3650"
-                                                           value="@state.DiagnosticsRetentionDays" @onchange="e => state.DiagnosticsRetentionDays = ParseNullableInt(e)" />
-                                                </div>
-                                                <div class="col-md-1">
-                                                    <label class="form-label small">Max Beats</label>
-                                                    <input type="number" class="form-control form-control-sm" min="1" max="12"
-                                                           value="@state.MaximumCatalogueEntries" @onchange="e => state.MaximumCatalogueEntries = ParseNullableInt(e)" />
-                                                </div>
+                                                @if (!isVideoFunction)
+                                                {
+                                                    <div class="col-md-2">
+                                                        <label class="form-label small">Diagnostics Retention Days</label>
+                                                        <input type="number" class="form-control form-control-sm" min="1" max="3650"
+                                                               value="@state.DiagnosticsRetentionDays" @onchange="e => state.DiagnosticsRetentionDays = ParseNullableInt(e)" />
+                                                    </div>
+                                                    <div class="col-md-1">
+                                                        <label class="form-label small">Max Beats</label>
+                                                        <input type="number" class="form-control form-control-sm" min="1" max="12"
+                                                               value="@state.MaximumCatalogueEntries" @onchange="e => state.MaximumCatalogueEntries = ParseNullableInt(e)" />
+                                                    </div>
+                                                }
                                                 @if (!string.IsNullOrWhiteSpace(state.ValidationError))
                                                 {
                                                     <div class="col-12 text-danger small">@state.ValidationError</div>
@@ -1340,6 +1373,34 @@
             }
         }
 
+        if (func == AppFunction.RolePlaySceneVideo)
+        {
+            // The video lane renders a ComfyUI graph through a video-kind model only; a wrong kind is refused here
+            // rather than one failed render later.
+            var selectedVideoModel = _modelsGrouped.Values.SelectMany(models => models)
+                .SingleOrDefault(model => model.Id == state.ModelId);
+            if (selectedVideoModel is null)
+            {
+                state.ValidationError = "The selected video model could not be loaded.";
+                return;
+            }
+            if (selectedVideoModel.ModelKind != ModelKind.Video)
+            {
+                state.ValidationError =
+                    $"'{selectedVideoModel.DisplayName}' is not a video model (ModelKind={selectedVideoModel.ModelKind}). "
+                    + "Pick a video-kind model.";
+                return;
+            }
+            if (!SceneImagePromptMetadata.IsCompatible(selectedVideoModel.SceneImageModelFamily, selectedVideoModel.PromptDialect))
+            {
+                state.ValidationError =
+                    $"'{selectedVideoModel.DisplayName}' has family '{selectedVideoModel.SceneImageModelFamily}' with "
+                    + $"dialect '{selectedVideoModel.PromptDialect}', which is not a valid pair. Configure both on the "
+                    + "model first.";
+                return;
+            }
+        }
+
         if (func != AppFunction.RolePlaySceneBeatAnalyzer)
         {
             state.Temperature = Math.Clamp(state.Temperature, 0.0, 2.0);
@@ -1369,7 +1430,8 @@
                 DiagnosticsRetentionDays = state.DiagnosticsRetentionDays,
                 MaximumCatalogueEntries = state.MaximumCatalogueEntries
             };
-            state.ValidationError = fd.ValidateSceneBeatAnalyzerConfiguration();
+            state.ValidationError = fd.ValidateSceneBeatAnalyzerConfiguration()
+                ?? fd.ValidateSceneVideoConfiguration();
             if (state.ValidationError is not null)
                 return;
 
@@ -1435,11 +1497,22 @@
         AppFunction.RolePlaySceneBeatAnalyzer => "RP Scene Beat Analyzer",
         AppFunction.RolePlayCharacterBodyCardDraft => "Character Body Card Draft (studio)",
         AppFunction.RolePlayWardrobeItem => "RP Wardrobe Item (Render)",
+        AppFunction.RolePlaySceneVideo => "RP Scene Video (Render)",
         _ => func.ToString()
     };
 
     private List<(Provider Provider, List<RegisteredModel> Models)> GetFunctionModelDropdown(AppFunction func)
     {
+        if (func == AppFunction.RolePlaySceneVideo)
+        {
+            // Video render function: only video-kind models are valid. Fail-fast at the UI by not offering text or
+            // image models (resolution also enforces this).
+            return _enabledModelsDropdown
+                .Select(g => (g.Provider, Models: g.Models.Where(m => m.ModelKind == ModelKind.Video).ToList()))
+                .Where(g => g.Models.Count > 0)
+                .ToList();
+        }
+
         if (func == AppFunction.RolePlaySceneImage || func == AppFunction.RolePlaySceneImageEditor || func == AppFunction.RolePlayWardrobeItem)
         {
             // Image render function: only image-kind models are valid. Fail-fast at the UI by

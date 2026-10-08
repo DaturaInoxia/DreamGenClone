@@ -370,6 +370,10 @@
                             {
                                 <a class="btn btn-sm btn-outline-primary py-0 px-1" href="@GetEditUrl(item)" title="Edit this image"><i class="bi bi-pencil-square"></i></a>
                             }
+                            @if (CanComposeVideo(item))
+                            {
+                                <a class="btn btn-sm btn-outline-dark py-0 px-1" href="@GetVideoUrl(item)" title="Compose a video from this image"><i class="bi bi-camera-video"></i></a>
+                            }
                             @if (_deleteConfirmId == item.Id)
                             {
                                 <button class="btn btn-danger btn-sm py-0 px-1" type="button" @onclick="() => DeleteItemAsync(item.Id)" disabled="@_busy">Delete</button>
@@ -508,6 +512,20 @@
     private string GetEditUrl(ReviewDeckItem item) => IsImageRoute
         ? $"/assets/{item.AssetId}/images/{item.Id}/edit"
         : $"/roleplay/image-editor/{item.SessionId}/{item.InteractionId}/{item.Id}";
+
+    /// <summary>
+    /// Whether this deck item can seed a video composition (B-152 R4). A scene-image route needs a session and an
+    /// interaction to hang the clip on; the asset route needs only the image, and uses the no-session route.
+    /// </summary>
+    private bool CanComposeVideo(ReviewDeckItem item) =>
+        item.Status is not (nameof(SceneImageStatus.Pending) or nameof(SceneImageStatus.Generating))
+        && (IsImageRoute
+            ? !string.IsNullOrWhiteSpace(item.AssetId)
+            : !string.IsNullOrWhiteSpace(item.SessionId) && !string.IsNullOrWhiteSpace(item.InteractionId));
+
+    private string GetVideoUrl(ReviewDeckItem item) => IsImageRoute
+        ? $"/roleplay/video-studio/asset/{item.Id}"
+        : $"/roleplay/video-studio/session/{item.SessionId}/{item.InteractionId}/{item.Id}";
 
     private ReviewDeckItem? Current => _items.Count > 0 ? _items[_index] : null;
 

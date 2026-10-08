@@ -53,39 +53,34 @@
                     <span class="badge bg-secondary ms-2">@group.Images.Count</span>
                 </div>
                 <div class="card-body">
-                    <div class="d-flex flex-wrap gap-3">
+                    <div class="row g-3">
                         @foreach (var img in group.Images)
                         {
-                            <div class="border rounded p-2 scene-gallery-card">
-                                @if (img.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(img.FileRelativePath))
-                                {
-                                    <img src="/scene-images/@img.FileRelativePath" class="img-fluid rounded scene-image-thumb" alt="Scene image"
-                                         @onclick="() => OpenViewer(img)" />
-                                }
-                                else if (img.Status == SceneImageStatus.Pending || img.Status == SceneImageStatus.Generating)
-                                {
-                                    <div class="d-flex align-items-center justify-content-center" style="height: 120px;">
-                                        <span class="spinner-border spinner-border-sm me-2"></span><span class="small">Rendering…</span>
-                                    </div>
-                                }
-                                else if (img.Status == SceneImageStatus.Failed)
-                                {
-                                    <div class="alert alert-danger py-2 small mb-0">@img.ErrorMessage</div>
-                                }
-                                <div class="scene-gallery-meta">
-                                    <small class="text-muted">@img.Style · @img.ImageSize</small>
-                                </div>
-                                <div class="scene-gallery-actions">
-                                    @if (img.Status == SceneImageStatus.Complete)
-                                    {
-                                        <button type="button" class="btn btn-sm btn-outline-primary" title="Edit this image"
-                                                @onclick="() => OpenEditor(img.InteractionId, img.Id)">Edit</button>
-                                    }
-                                    <button type="button" class="btn btn-sm btn-outline-primary" title="Open this image in Production Studio"
-                                            @onclick="() => OpenStudio(img)">Studio</button>
-                                    <button type="button" class="btn btn-sm btn-outline-danger" title="Delete image"
-                                            @onclick="() => DeleteImageAsync(img)">Delete</button>
-                                </div>
+                            <div class="col-6 col-md-4 col-xl-3">
+                                <ImageCard Model="CardModel(img)"
+                                           Busy="_busy"
+                                           ShowVerdicts="@(img.ProductionGroupId is { Length: > 0 })"
+                                           ShortlistRequested="() => ShortlistAsync(img)"
+                                           RejectRequested="() => SetDispositionAsync(img, SceneImageAttemptDisposition.Rejected)"
+                                           EditRequested="() => OpenEditor(img.InteractionId, img.Id)"
+                                           VideoRequested="() => OpenVideoComposer(img.InteractionId, img.Id)"
+                                           ViewRequested="() => OpenViewer(img)"
+                                           DeleteRequested="() => DeleteImageAsync(img)">
+                                    <BodyContent>
+                                        @if (img.Status is SceneImageStatus.Pending or SceneImageStatus.Generating)
+                                        {
+                                            <div class="d-flex align-items-center justify-content-center mt-1">
+                                                <span class="spinner-border spinner-border-sm me-2"></span><span class="small">Rendering…</span>
+                                            </div>
+                                        }
+                                    </BodyContent>
+                                    <FooterContent>
+                                        <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1"
+                                                title="Open this image in Production Studio" @onclick="() => OpenStudio(img)">
+                                            <i class="bi bi-box-arrow-up-right"></i>
+                                        </button>
+                                    </FooterContent>
+                                </ImageCard>
                             </div>
                         }
                     </div>
@@ -126,6 +121,69 @@
     private void OpenViewer(SceneImageRecord image) => _viewerImage = image;
 
     private void CloseViewer() => _viewerImage = null;
+
+    private SceneImageCardModel CardModel(SceneImageRecord img) => new()
+    {
+        Id = img.Id,
+        FileRelativePath = img.FileRelativePath,
+        StatusText = img.Status.ToString(),
+        StatusBadgeClass = img.Status switch
+        {
+            SceneImageStatus.Complete => "text-bg-success",
+            SceneImageStatus.Failed => "text-bg-danger",
+            _ => "text-bg-secondary"
+        },
+        IsComplete = img.Status == SceneImageStatus.Complete,
+        ErrorMessage = img.ErrorMessage,
+        Subtitle = StyleSubtitle(img),
+        DecisionBadgeText = img.Disposition is SceneImageAttemptDisposition.Shortlisted or SceneImageAttemptDisposition.Rejected
+            ? img.Disposition.ToString()
+            : null
+    };
+
+    private static string? StyleSubtitle(SceneImageRecord img)
+        => (img.Style, img.ImageSize) switch
+        {
+            (null or "", null or "") => null,
+            _ => $"{img.Style} · {img.ImageSize}"
+        };
+
+    private async Task ShortlistAsync(SceneImageRecord img)
+    {
+        var current = img.Disposition ?? SceneImageAttemptDisposition.Active;
+        var next = current == SceneImageAttemptDisposition.Shortlisted
+            ? SceneImageAttemptDisposition.Active
+            : SceneImageAttemptDisposition.Shortlisted;
+        await SetDispositionAsync(img, next);
+    }
+
+    private async Task SetDispositionAsync(SceneImageRecord img, SceneImageAttemptDisposition next)
+    {
+        if (string.IsNullOrWhiteSpace(img.ProductionGroupId))
+        {
+            _errorMessage = "This image predates the production pipeline and cannot take a shortlist / reject decision.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await ImageService.SetDispositionAsync(
+                img.Id,
+                img.ProductionGroupId,
+                img.Disposition ?? SceneImageAttemptDisposition.Active,
+                next);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Could not update this image's decision: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     private sealed class GalleryGroup
     {
@@ -212,6 +270,12 @@
     private void OpenEditor(string interactionId, string imageId)
     {
         Nav.NavigateTo($"/roleplay/image-editor/{sessionId}/{interactionId}/{imageId}");
+    }
+
+    /// <summary>Opens the Video Composer seeded from this image (B-152 R4).</summary>
+    private void OpenVideoComposer(string interactionId, string imageId)
+    {
+        Nav.NavigateTo($"/roleplay/video-studio/session/{sessionId}/{interactionId}/{imageId}");
     }
 
     private async Task DeleteImageAsync(SceneImageRecord image)

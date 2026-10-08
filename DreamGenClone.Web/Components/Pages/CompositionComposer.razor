@@ -417,6 +417,9 @@
                                                 <a class="btn btn-sm btn-outline-secondary" href="/roleplay/image-editor/@sessionId/@interactionId/@attempt.Id" title="Open this Composition in the image editor">
                                                     <i class="bi bi-pencil-square me-1"></i>Edit
                                                 </a>
+                                                <a class="btn btn-sm btn-outline-dark" href="/roleplay/video-studio/session/@sessionId/@interactionId/@attempt.Id" title="Compose a video from this Composition image">
+                                                    <i class="bi bi-camera-video me-1"></i>Video
+                                                </a>
                                                 @if (attempt.Disposition == SceneImageAttemptDisposition.Shortlisted)
                                                 {
                                                     <button class="btn btn-sm btn-outline-warning" disabled="@_busy" @onclick="() => SetCompositionDispositionAsync(attempt, SceneImageAttemptDisposition.Active)" title="Return to active">

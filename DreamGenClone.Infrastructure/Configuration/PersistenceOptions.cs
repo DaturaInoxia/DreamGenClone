@@ -12,4 +12,10 @@ public sealed class PersistenceOptions
 
     /// <summary>Root directory for generated RP scene images. Git-ignored alongside the dev DB.</summary>
     public string SceneImageRoot { get; set; } = "data/scene-images";
+
+    /// <summary>
+    /// Root directory for composed RP scene videos (B-152). Git-ignored alongside the dev DB, served at
+    /// <c>/scene-videos</c>.
+    /// </summary>
+    public string SceneVideoRoot { get; set; } = "data/scene-videos";
 }

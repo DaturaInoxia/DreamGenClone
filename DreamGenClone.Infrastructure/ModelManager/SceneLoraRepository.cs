@@ -29,6 +29,7 @@ public sealed class SceneLoraRepository : ISceneLoraRepository
             Category TEXT NOT NULL,
             DefaultStrength REAL NOT NULL CHECK (DefaultStrength > 0),
             IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)),
+            TriggerToken TEXT NULL,
             Notes TEXT NULL,
             CreatedUtc TEXT NOT NULL,
             UNIQUE (SceneImageModelFamily, FileName)
@@ -36,6 +37,13 @@ public sealed class SceneLoraRepository : ISceneLoraRepository
         CREATE INDEX IF NOT EXISTS IX_SceneLoras_Family
             ON SceneLoras (SceneImageModelFamily, IsEnabled, Category);
         """;
+
+    /// <summary>
+    /// Additive column for catalogs created before triggers existed. The table is created idempotently, so an
+    /// existing database never re-runs the CREATE above and needs the column added explicitly.
+    /// </summary>
+    private const string AddTriggerTokenColumnSql =
+        "ALTER TABLE SceneLoras ADD COLUMN TriggerToken TEXT NULL";
 
     private readonly string _connectionString;
 
@@ -62,7 +70,8 @@ public sealed class SceneLoraRepository : ISceneLoraRepository
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, FileName, DisplayName, SceneImageModelFamily, Category, DefaultStrength, IsEnabled, Notes
+            SELECT Id, FileName, DisplayName, SceneImageModelFamily, Category, DefaultStrength, IsEnabled,
+                   TriggerToken, Notes
             FROM SceneLoras
             WHERE SceneImageModelFamily = $family AND IsEnabled = 1
             ORDER BY Category, DisplayName COLLATE NOCASE;
@@ -90,7 +99,8 @@ public sealed class SceneLoraRepository : ISceneLoraRepository
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, FileName, DisplayName, SceneImageModelFamily, Category, DefaultStrength, IsEnabled, Notes
+            SELECT Id, FileName, DisplayName, SceneImageModelFamily, Category, DefaultStrength, IsEnabled,
+                   TriggerToken, Notes
             FROM SceneLoras
             WHERE FileName = $fileName;
             """;
@@ -139,7 +149,8 @@ public sealed class SceneLoraRepository : ISceneLoraRepository
             Category = category,
             DefaultStrength = strength,
             IsEnabled = reader.GetInt32(6) == 1,
-            Notes = reader.IsDBNull(7) ? null : reader.GetString(7)
+            TriggerToken = reader.IsDBNull(7) ? null : reader.GetString(7),
+            Notes = reader.IsDBNull(8) ? null : reader.GetString(8)
         };
     }
 
@@ -147,9 +158,39 @@ public sealed class SceneLoraRepository : ISceneLoraRepository
     {
         var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA foreign_keys = ON; " + SchemaSql;
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "PRAGMA foreign_keys = ON; " + SchemaSql;
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await EnsureTriggerTokenColumnAsync(connection, cancellationToken);
         return connection;
+    }
+
+    /// <summary>
+    /// Adds the trigger column to a catalog created before it existed. SQLite has no
+    /// <c>ADD COLUMN IF NOT EXISTS</c>, so the table is inspected first; the column is added only when absent,
+    /// which keeps every open idempotent.
+    /// </summary>
+    private static async Task EnsureTriggerTokenColumnAsync(
+        SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using (var inspect = connection.CreateCommand())
+        {
+            inspect.CommandText = "PRAGMA table_info(SceneLoras);";
+            await using var reader = await inspect.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(reader.GetString(1), "TriggerToken", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+        }
+
+        await using var alter = connection.CreateCommand();
+        alter.CommandText = AddTriggerTokenColumnSql;
+        await alter.ExecuteNonQueryAsync(cancellationToken);
     }
 }

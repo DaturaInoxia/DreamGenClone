@@ -99,4 +99,58 @@ public sealed class FunctionModelDefault
         return JsonSerializer.Deserialize<int[]>(TransientRetryDelaysSecondsJson!)
             ?? throw new InvalidOperationException("RP Scene Beat Analyzer retry delays JSON is invalid.");
     }
+
+    /// <summary>
+    /// The video render function's own configuration contract (B-152, D-7). Deliberately NOT the analyzer's: a
+    /// video render takes ~25 to ~100 minutes on one GPU, so its lease bound is a day rather than the analyzer's
+    /// hour, and it has no sampling values to validate (the sampler envelope is a model property, not a function
+    /// one). Concurrency defaults to 1 because there is one GPU.
+    /// </summary>
+    public string? ValidateSceneVideoConfiguration()
+    {
+        if (!string.Equals(FunctionName, AppFunction.RolePlaySceneVideo.ToString(), StringComparison.Ordinal))
+            return null;
+        if (string.IsNullOrWhiteSpace(ModelId))
+            return "A video model assignment is required.";
+        if (MaxConcurrentJobs is null or < 1 or > 16)
+            return "Max Parallel must be between 1 and 16.";
+        if (DurableJobLeaseSeconds is null or < 60 or > 86400)
+            return "Lease Seconds must be between 60 and 86400 (one render can take over an hour).";
+        if (DurableJobPollIntervalMilliseconds is null or < 10 or > 60000)
+            return "Poll Milliseconds must be between 10 and 60000.";
+        if (TransientRetryCount is null or < 0 or > 10)
+            return "Retry Count must be between 0 and 10.";
+        if (string.IsNullOrWhiteSpace(TransientRetryDelaysSecondsJson))
+            return "Retry Delays JSON is required.";
+
+        try
+        {
+            using var document = JsonDocument.Parse(TransientRetryDelaysSecondsJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+                return "Retry Delays JSON must be an array of positive whole seconds.";
+            var delays = document.RootElement.EnumerateArray().ToArray();
+            if (delays.Length != TransientRetryCount.Value
+                || delays.Any(delay => !delay.TryGetInt32(out var seconds) || seconds < 1 || seconds > 86400))
+            {
+                return "Retry Delays JSON must contain one positive whole-second value per retry, each no greater than 86400.";
+            }
+        }
+        catch (JsonException)
+        {
+            return "Retry Delays JSON must be valid JSON.";
+        }
+
+        return null;
+    }
+
+    /// <summary>The video lane's retry delays, refused rather than guessed when the configuration is invalid.</summary>
+    public IReadOnlyList<int> GetSceneVideoRetryDelaysSeconds()
+    {
+        var validationError = ValidateSceneVideoConfiguration();
+        if (validationError is not null)
+            throw new InvalidOperationException($"RP Scene Video configuration is invalid: {validationError}");
+
+        return JsonSerializer.Deserialize<int[]>(TransientRetryDelaysSecondsJson!)
+            ?? throw new InvalidOperationException("RP Scene Video retry delays JSON is invalid.");
+    }
 }

@@ -23,7 +23,7 @@ if (!File.Exists(databasePath))
 // connection level, not merely by convention.
 var rekeyApplies = string.Equals(commandName, "b127-identity-rekey", StringComparison.Ordinal)
     && args.Skip(1).Any(argument => string.Equals(argument, "apply", StringComparison.OrdinalIgnoreCase));
-var connectionMode = rekeyApplies || commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "b137-krea2-configure" or "qwen21-lora-catalog-configure" or "qwen21-envelope-configure" or "image-editor-family-configure" or "qwen-edit-serverless-configure" or "qwen-edit-local-aio-configure" or "qwen-edit-local-aio-lora-configure" or "qwen-edit-remix-aio-configure" or "qwen-edit-remix-aio-lora-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "body-axes-migrate" or "local-comfyui-configure" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
+var connectionMode = rekeyApplies || commandName is "provider-endpoint-update" or "provider-split-model" or "provider-timeout-update" or "provider-api-key-update" or "b100-analyzer-configure" or "b100-analyzer-openrouter-configure" or "biglust-image-configure" or "b137-krea2-configure" or "h3-video-configure" or "qwen21-lora-catalog-configure" or "qwen21-envelope-configure" or "image-editor-family-configure" or "qwen-edit-serverless-configure" or "qwen-edit-local-aio-configure" or "qwen-edit-local-aio-lora-configure" or "qwen-edit-remix-aio-configure" or "qwen-edit-remix-aio-lora-configure" or "api-image-configure" or "api-image-catalog" or "turn-membership-reconcile" or "b100-settle-plan" or "scene-asset-retag" or "set-identity-strength" or "character-figure-update" or "body-axes-migrate" or "local-comfyui-configure" or "modelmanager-import" or "sql" ? "ReadWrite" : "ReadOnly";
 await using var connection = new SqliteConnection($"Data Source={databasePath};Mode={connectionMode}");
 await connection.OpenAsync();
 
@@ -72,6 +72,7 @@ try
         "b100-analyzer-openrouter-configure" => await ConfigureB100OpenRouterAnalyzerAsync(connection),
         "biglust-image-configure" => await ConfigureBigLustImageAsync(connection),
         "b137-krea2-configure" => await ConfigureKrea2Async(connection),
+        "h3-video-configure" => await ConfigureH3VideoAsync(connection),
         "qwen21-lora-catalog-configure" => await ConfigureQwen21LoraCatalogAsync(connection),
         "image-editor-family-configure" => await ConfigureImageEditorFamilyAsync(
             connection,
@@ -1016,6 +1017,7 @@ static async Task<int> ConfigureKrea2Async(SqliteConnection connection)
                 Category TEXT NOT NULL,
                 DefaultStrength REAL NOT NULL CHECK (DefaultStrength > 0),
                 IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)),
+                TriggerToken TEXT NULL,
                 Notes TEXT NULL,
                 CreatedUtc TEXT NOT NULL,
                 UNIQUE (SceneImageModelFamily, FileName)
@@ -1090,6 +1092,344 @@ static async Task<int> ConfigureKrea2Async(SqliteConnection connection)
         + $"catalog rows inserted {catalogInserted}/{loras.Length} (existing rows left as they were)");
     Console.WriteLine(
         "Additive only: no function default was changed, so nothing renders differently until Krea 2 is picked.");
+    return 0;
+}
+
+/// <summary>
+/// Registers the local MiniMax H3 (Ref2VA) video model as DATA: the model row (video kind, H3 family and dialect)
+/// with the <c>MiniMaxH3Ref2VA</c> qualification the render reads (artifacts, sampler envelope, frame policy,
+/// reference caps, loudness target, render budget), the H3 LoRA catalog rows with their trigger tokens, and the
+/// <c>RolePlaySceneVideo</c> function default.
+///
+/// Every value here is measured, not guessed: the artifacts are the ones the B-150 sweep proved on this host, the
+/// frame envelope is the node's own schema against its documented trained range, and each LoRA strength is the
+/// strength that sweep actually rendered. The render fails fast naming any field that is missing, so this command is
+/// the one place the video path's configuration is written.
+/// </summary>
+static async Task<int> ConfigureH3VideoAsync(SqliteConnection connection)
+{
+    const string providerName = "Local ComfyUI (WOOD-GAME-MAIN 5080)";
+    const string modelIdentifier = "minimax_h3_ref2va_pruned_w4a8_mixed.safetensors";
+    const string modelDisplayName = "MiniMax H3 Ref2VA (Local ComfyUI)";
+    const int modelKindVideo = 2;                      // ModelKind.Video
+    const int familyMiniMaxH3Ref2VA = 7;               // SceneImageModelFamily.MiniMaxH3Ref2VA
+    const int dialectMiniMaxH3SixSection = 6;          // SceneImagePromptDialect.MiniMaxH3SixSection
+    const string loraFamily = "MiniMaxH3Ref2VA";
+
+    // The app has no audio path of its own and this machine has no system ffmpeg, so the binary that performs the
+    // mandatory loudness normalization is configured data. The repo venv's imageio-ffmpeg ships a static build, which
+    // is what the B-150 harness used; the resolver fails fast when the configured file is absent, so a wrong path is
+    // a loud failure rather than an un-normalized clip.
+    var ffmpegPath = Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory, "..", "..", "..", "..",
+        ".venv", "Lib", "site-packages", "imageio_ffmpeg", "binaries", "ffmpeg-win-x86_64-v7.1.exe"));
+
+    var now = DateTime.UtcNow.ToString("o");
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+    string providerId;
+    await using (var selectProvider = connection.CreateCommand())
+    {
+        selectProvider.Transaction = transaction;
+        selectProvider.CommandText = "SELECT Id FROM Providers WHERE Name = $name;";
+        selectProvider.Parameters.AddWithValue("$name", providerName);
+        providerId = await selectProvider.ExecuteScalarAsync() as string
+            ?? throw new InvalidOperationException(
+                $"Provider '{providerName}' was not found, so there is nowhere to register the H3 video model. Run "
+                + "'local-comfyui-configure <baseUrl>' first. No database changes were made.");
+    }
+
+    // The qualification the render reads. Values are the ones verified on the host on 2026-10-06 (ComfyUI 0.37.1,
+    // RTX 5080 16 GB): the w4a8 DiT, the nvfp4_awq text encoder pinned to the CPU (it does not fit in VRAM
+    // alongside the DiT), the int8 video VAE and the fp32 audio VAE - both of which the node marks optional and
+    // which are required here because omitting one silently degrades reference conditioning.
+    const string proofId = "b150-h3-16gb-sweep-2026-10-06";
+    const string qualificationNote =
+        "MiniMax H3 Ref2VA on the local 5080: DiT minimax_h3_ref2va_pruned_w4a8_mixed + text encoder "
+        + "qwen3vl_32b_minimax_h3_nvfp4_awq on device=cpu + int8 video VAE + fp32 audio VAE. euler/beta at 40 steps "
+        + "and denoise 1, because the AfterMidnight Ref2VA LoRAs require that pair (other schedulers break the "
+        + "generated audio) and the distilled model has no CFG or negative branch at all. Frame envelope is the "
+        + "node's own 5/3600/17 with the trained band at 124-362 (124 and 192 are the proven presets). Render "
+        + "budget 7200 s: a trained-range clip measures ~25 min at 124 frames and up to ~100 min at 362 on one GPU. "
+        + "Loudness target -16 LUFS because H3's native audio measures about -24 to -30 LUFS, roughly 12 dB below "
+        + "delivery level, and normalization is mandatory rather than optional. MaxContinuationChainLength 3: "
+        + "continuing a finished clip accumulates ~4 % contrast bloom and ~1/3 treble loss per join (measured by "
+        + "the H3 Motion-Context author; two independent projects put the comfortable zone at 3-4 joins), so the "
+        + "composer refuses a longer chain and tells the operator to start a fresh one (B-156 C-13). "
+        + "NO content policy: video has no "
+        + "content gate by operator decision (B-152 D-8).";
+    var qualifications =
+        "[{\"Strategy\":\"MiniMaxH3Ref2VA\",\"EndpointId\":\"" + providerId + "\",\"Qualified\":true,"
+        + "\"ProofId\":\"" + proofId + "\","
+        + "\"DitName\":\"" + modelIdentifier + "\","
+        + "\"TextEncoderName\":\"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors\","
+        + "\"TextEncoderDevice\":\"cpu\","
+        + "\"VideoVae\":\"minimax_h3_video_vae_int8_convrot.safetensors\","
+        + "\"VideoAudioVae\":\"minimax_h3_audio_vae_fp32.safetensors\","
+        + "\"SamplerName\":\"euler\",\"Scheduler\":\"beta\",\"Steps\":40,\"Denoise\":1.0,"
+        + "\"Fps\":24,\"BitDepth\":8,"
+        + "\"DefaultWidth\":1344,\"DefaultHeight\":768,\"DefaultRefImageSize\":\"match\","
+        + "\"FrameMinFrames\":5,\"FrameMaxFrames\":3600,\"FrameStep\":17,"
+        + "\"TrainedMinFrames\":124,\"TrainedMaxFrames\":362,\"WarnAboveFrames\":192,"
+        + "\"PresetShortFrames\":124,\"PresetLongFrames\":192,"
+        + "\"MaxReferenceImages\":9,\"MaxReferenceVideos\":3,\"MaxReferenceAudios\":3,"
+        + "\"LoudnessTargetLufs\":-16,\"RenderTimeoutSeconds\":7200,"
+        + "\"MaxContinuationChainLength\":3,"
+        + "\"FfmpegPath\":\"" + ffmpegPath.Replace("\\", "\\\\") + "\","
+        + "\"Note\":\"" + qualificationNote.Replace("\"", "'") + "\"}]";
+
+    // Reference conditioning is what this model IS (it renders from ordered reference images), so the strategy is
+    // declared on the same entry the composer's reference panel reads.
+    const string supportedIdentityStrategies = "[\"NativeMultiReference\"]";
+    const string supportedVisualStrategies = "[\"NativeMultiReference\"]";
+
+    const string modelNotes =
+        "MiniMax H3 Ref2VA local video on the ComfyUI host (ComfyUI 0.37.1, RTX 5080 16 GB): 768p short edge, "
+        + "native audio in the same pass, ordered reference images (ref_images 0..9) whose <Picture i> numbering is "
+        + "semantic. Proof: helpers/h3-local-host/run-h3-ref2va-proof.py and the 23-config sweep "
+        + "(specs/Planning/B-150-minimax-h3-local-investigation). Design: specs/Planning/B-152-scene-video-composer.";
+
+    string modelId;
+    await using (var selectModel = connection.CreateCommand())
+    {
+        selectModel.Transaction = transaction;
+        selectModel.CommandText = "SELECT Id FROM RegisteredModels WHERE ModelIdentifier = $modelIdentifier;";
+        selectModel.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
+        var existingModelId = await selectModel.ExecuteScalarAsync();
+        if (existingModelId is string foundModelId)
+        {
+            modelId = foundModelId;
+            await using var updateModel = connection.CreateCommand();
+            updateModel.Transaction = transaction;
+            updateModel.CommandText = """
+                UPDATE RegisteredModels
+                SET ProviderId = $providerId,
+                    DisplayName = $displayName,
+                    ModelKind = $modelKind,
+                    SceneImageModelFamily = $family,
+                    PromptDialect = $dialect,
+                    SupportedIdentityStrategiesJson = $identityStrategies,
+                    SupportedVisualStrategiesJson = $visualStrategies,
+                    CapabilityQualificationsJson = $qualifications,
+                    Notes = $notes,
+                    IsEnabled = 1
+                WHERE Id = $modelId;
+                """;
+            updateModel.Parameters.AddWithValue("$providerId", providerId);
+            updateModel.Parameters.AddWithValue("$displayName", modelDisplayName);
+            updateModel.Parameters.AddWithValue("$modelKind", modelKindVideo);
+            updateModel.Parameters.AddWithValue("$family", familyMiniMaxH3Ref2VA);
+            updateModel.Parameters.AddWithValue("$dialect", dialectMiniMaxH3SixSection);
+            updateModel.Parameters.AddWithValue("$identityStrategies", supportedIdentityStrategies);
+            updateModel.Parameters.AddWithValue("$visualStrategies", supportedVisualStrategies);
+            updateModel.Parameters.AddWithValue("$qualifications", qualifications);
+            updateModel.Parameters.AddWithValue("$notes", modelNotes);
+            updateModel.Parameters.AddWithValue("$modelId", modelId);
+            await updateModel.ExecuteNonQueryAsync();
+        }
+        else
+        {
+            modelId = Guid.NewGuid().ToString();
+            await using var insertModel = connection.CreateCommand();
+            insertModel.Transaction = transaction;
+            insertModel.CommandText = """
+                INSERT INTO RegisteredModels (
+                    Id, ProviderId, ModelIdentifier, DisplayName, IsEnabled, CreatedUtc,
+                    ContextWindowSize, Quantization, ParameterCount, Notes, SupportsThinkingControl,
+                    ModelKind, SupportsImageInput, SceneImageModelFamily, PromptDialect,
+                    SupportsStructuredJsonSchema, StructuredOutputMode,
+                    SupportedIdentityStrategiesJson, SupportedVisualStrategiesJson,
+                    CapabilityQualificationsJson, IsDefault)
+                VALUES (
+                    $id, $providerId, $modelIdentifier, $displayName, 1, $now,
+                    0, 'w4a8', '33B', $notes, 0,
+                    $modelKind, 0, $family, $dialect,
+                    0, 0,
+                    $identityStrategies, $visualStrategies,
+                    $qualifications, 0);
+                """;
+            insertModel.Parameters.AddWithValue("$id", modelId);
+            insertModel.Parameters.AddWithValue("$providerId", providerId);
+            insertModel.Parameters.AddWithValue("$modelIdentifier", modelIdentifier);
+            insertModel.Parameters.AddWithValue("$displayName", modelDisplayName);
+            insertModel.Parameters.AddWithValue("$modelKind", modelKindVideo);
+            insertModel.Parameters.AddWithValue("$family", familyMiniMaxH3Ref2VA);
+            insertModel.Parameters.AddWithValue("$dialect", dialectMiniMaxH3SixSection);
+            insertModel.Parameters.AddWithValue("$identityStrategies", supportedIdentityStrategies);
+            insertModel.Parameters.AddWithValue("$visualStrategies", supportedVisualStrategies);
+            insertModel.Parameters.AddWithValue("$qualifications", qualifications);
+            insertModel.Parameters.AddWithValue("$notes", modelNotes);
+            insertModel.Parameters.AddWithValue("$now", now);
+            await insertModel.ExecuteNonQueryAsync();
+        }
+    }
+
+    // The catalog table itself. Byte-identical to SceneLoraRepository.SchemaSql, and the app also ensures it at
+    // startup; it is created here so this command works standalone on a fresh sanitized snapshot.
+    await using (var createCatalog = connection.CreateCommand())
+    {
+        createCatalog.Transaction = transaction;
+        createCatalog.CommandText = """
+            CREATE TABLE IF NOT EXISTS SceneLoras (
+                Id TEXT PRIMARY KEY,
+                FileName TEXT NOT NULL,
+                DisplayName TEXT NOT NULL,
+                SceneImageModelFamily TEXT NOT NULL,
+                Category TEXT NOT NULL,
+                DefaultStrength REAL NOT NULL CHECK (DefaultStrength > 0),
+                IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)),
+                TriggerToken TEXT NULL,
+                Notes TEXT NULL,
+                CreatedUtc TEXT NOT NULL,
+                UNIQUE (SceneImageModelFamily, FileName)
+            );
+            """;
+        await createCatalog.ExecuteNonQueryAsync();
+    }
+
+    await using (var createIndex = connection.CreateCommand())
+    {
+        createIndex.Transaction = transaction;
+        createIndex.CommandText = """
+            CREATE INDEX IF NOT EXISTS IX_SceneLoras_Family
+                ON SceneLoras (SceneImageModelFamily, IsEnabled, Category);
+            """;
+        await createIndex.ExecuteNonQueryAsync();
+    }
+
+    // A catalog created before trigger tokens existed keeps its old shape, because CREATE TABLE IF NOT EXISTS does
+    // not alter it. SQLite has no ADD COLUMN IF NOT EXISTS, so the column is inspected first - the same idempotent
+    // step SceneLoraRepository performs on every open.
+    await using (var inspectColumns = connection.CreateCommand())
+    {
+        inspectColumns.Transaction = transaction;
+        inspectColumns.CommandText = "SELECT COUNT(*) FROM pragma_table_info('SceneLoras') WHERE name = 'TriggerToken';";
+        if (Convert.ToInt64(await inspectColumns.ExecuteScalarAsync()) == 0)
+        {
+            await using var alter = connection.CreateCommand();
+            alter.Transaction = transaction;
+            alter.CommandText = "ALTER TABLE SceneLoras ADD COLUMN TriggerToken TEXT NULL;";
+            await alter.ExecuteNonQueryAsync();
+        }
+    }
+
+    // Every DefaultStrength is the strength the B-150 sweep actually rendered, and every trigger token is the one
+    // the LoRA's own card names. The fal realism LoRA is useless without 'r34l1sm' at the start of the prompt,
+    // which is exactly why the token lives on the catalog row instead of in a render request.
+    (string Id, string FileName, string DisplayName, string Category, double Strength, string? Trigger, string Notes)[] loras =
+    [
+        ("h3-lora-sexytime", "AfterMidnight_ref2va_h3_sexytime_rank64-v1.2.safetensors",
+            "AfterMidnight sexytime (act unlock)", "Unlock", 0.8, null,
+            "Best observed NSFW unlock in the sweep (w4a8 DiT + sexytime@0.8 + realism@1.0 + two references). Author guidance caps it at 0.8; a defined act does not render on base weights."),
+        ("h3-lora-softer", "AfterMidnight_ref2va_h3_softer_rank64_v1.safetensors",
+            "AfterMidnight softer", "Unlock", 0.8, null,
+            "Lighter AfterMidnight unlock from the same family as sexytime. Seeded at the same proven strength (0.8); not individually cell-proven - verify before relying on it."),
+        ("h3-lora-realism", "h3-realism-people.safetensors",
+            "MiniMax H3 Realism (people)", "Style", 1.0, "r34l1sm",
+            "fal MiniMax-H3-Realism-People (rank 32). Intended strength 1.0 (0.6-0.8 for a lighter touch) and REQUIRES the trigger token 'r34l1sm' at the start of the prompt; without it the LoRA contributes nothing."),
+        ("h3-lora-facial", "h3-facial-realism-closeup.safetensors",
+            "MiniMax H3 Facial Realism CloseUp", "Style", 0.6, null,
+            "prithivMLmods close-up face helper. Optional in the proven stack; seeded at 0.6 as the sweep used it."),
+    ];
+
+    var catalogInserted = 0;
+    var catalogUpdated = 0;
+    foreach (var lora in loras)
+    {
+        await using var insertLora = connection.CreateCommand();
+        insertLora.Transaction = transaction;
+        insertLora.CommandText = """
+            INSERT INTO SceneLoras
+                (Id, FileName, DisplayName, SceneImageModelFamily, Category, DefaultStrength, IsEnabled,
+                 TriggerToken, Notes, CreatedUtc)
+            VALUES ($id, $fileName, $displayName, $family, $category, $strength, 1, $trigger, $notes, $now)
+            ON CONFLICT (SceneImageModelFamily, FileName) DO UPDATE SET
+                DisplayName = excluded.DisplayName,
+                Category = excluded.Category,
+                DefaultStrength = excluded.DefaultStrength,
+                IsEnabled = 1,
+                TriggerToken = excluded.TriggerToken,
+                Notes = excluded.Notes;
+            """;
+        insertLora.Parameters.AddWithValue("$id", lora.Id);
+        insertLora.Parameters.AddWithValue("$fileName", lora.FileName);
+        insertLora.Parameters.AddWithValue("$displayName", lora.DisplayName);
+        insertLora.Parameters.AddWithValue("$family", loraFamily);
+        insertLora.Parameters.AddWithValue("$category", lora.Category);
+        insertLora.Parameters.AddWithValue("$strength", lora.Strength);
+        insertLora.Parameters.AddWithValue("$trigger", (object?)lora.Trigger ?? DBNull.Value);
+        insertLora.Parameters.AddWithValue("$notes", lora.Notes);
+        insertLora.Parameters.AddWithValue("$now", now);
+        var affected = await insertLora.ExecuteNonQueryAsync();
+        catalogInserted += affected;
+    }
+
+    await using (var updateTriggers = connection.CreateCommand())
+    {
+        // Defensive: an earlier catalog row (seeded before triggers existed) may hold the realism LoRA with a NULL
+        // token. The upsert above already wrote it; this reports how many rows would change and is a no-op after.
+        updateTriggers.Transaction = transaction;
+        updateTriggers.CommandText = """
+            UPDATE SceneLoras
+            SET TriggerToken = 'r34l1sm'
+            WHERE SceneImageModelFamily = 'MiniMaxH3Ref2VA'
+              AND FileName = 'h3-realism-people.safetensors'
+              AND (TriggerToken IS NULL OR TriggerToken = '');
+            """;
+        catalogUpdated = await updateTriggers.ExecuteNonQueryAsync();
+    }
+
+    // The function default: concurrency 1 (there is one GPU), a two-hour lease and a 5 s poll, with its own retry
+    // shape. Temperature/TopP/MaxTokens are stored because the table requires them; the video path ignores them -
+    // the sampler envelope is a model property, qualified above.
+    await using (var upsert = connection.CreateCommand())
+    {
+        upsert.Transaction = transaction;
+        upsert.CommandText = """
+            INSERT INTO FunctionModelDefaults (
+                Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode,
+                MaxConcurrentJobs, DurableJobLeaseSeconds, DurableJobPollIntervalMilliseconds,
+                TransientRetryCount, TransientRetryDelaysSecondsJson, DiagnosticsRetentionDays,
+                MaximumCatalogueEntries, UpdatedUtc)
+            VALUES (
+                $id, 'RolePlaySceneVideo', $modelId, 0.7, 0.9, 500, 2,
+                1, 7200, 5000,
+                2, '[30,120]', 30,
+                NULL, $updatedUtc)
+            ON CONFLICT(FunctionName) DO UPDATE SET
+                ModelId = excluded.ModelId,
+                MaxConcurrentJobs = excluded.MaxConcurrentJobs,
+                DurableJobLeaseSeconds = excluded.DurableJobLeaseSeconds,
+                DurableJobPollIntervalMilliseconds = excluded.DurableJobPollIntervalMilliseconds,
+                TransientRetryCount = excluded.TransientRetryCount,
+                TransientRetryDelaysSecondsJson = excluded.TransientRetryDelaysSecondsJson,
+                UpdatedUtc = excluded.UpdatedUtc;
+            """;
+        upsert.Parameters.AddWithValue("$id", Guid.NewGuid().ToString());
+        upsert.Parameters.AddWithValue("$modelId", modelId);
+        upsert.Parameters.AddWithValue("$updatedUtc", now);
+        if (await upsert.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("The RolePlaySceneVideo function default upsert failed; no database changes were made.");
+    }
+
+    await transaction.CommitAsync();
+    Console.WriteLine(
+        $"MiniMax H3 video configured: {providerName} | {modelIdentifier} (Video / MiniMaxH3Ref2VA / "
+        + "MiniMaxH3SixSection) | 1344x768, 124-362 trained frames, 40 steps euler/beta, -16 LUFS, 7200 s budget");
+    Console.WriteLine(
+        $"Scene-LoRA catalog rows upserted: {catalogInserted}/{loras.Length} for family '{loraFamily}' "
+        + $"(trigger tokens backfilled: {catalogUpdated})");
+    Console.WriteLine(
+        "RolePlaySceneVideo default set: concurrency 1, lease 7200 s, poll 5000 ms, retries [30,120] s.");
+    Console.WriteLine($"Ffmpeg path configured: {ffmpegPath}");
+    if (!File.Exists(ffmpegPath))
+    {
+        Console.Error.WriteLine(
+            "WARNING: that ffmpeg path does not exist on this machine, so a video render will FAIL when it reaches "
+            + "the mandatory loudness normalization. Point 'FfmpegPath' at a real ffmpeg before rendering.");
+    }
+    Console.WriteLine(
+        "No image model or image function default was touched, and video has no content gate by operator decision.");
     return 0;
 }
 
@@ -1326,6 +1666,7 @@ static async Task<int> ConfigureQwen21LoraCatalogAsync(SqliteConnection connecti
                 Category TEXT NOT NULL,
                 DefaultStrength REAL NOT NULL CHECK (DefaultStrength > 0),
                 IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)),
+                TriggerToken TEXT NULL,
                 Notes TEXT NULL,
                 CreatedUtc TEXT NOT NULL,
                 UNIQUE (SceneImageModelFamily, FileName)
@@ -2904,5 +3245,5 @@ static string FindDatabasePath()
 static void PrintUsage()
 {
     Console.Error.WriteLine("Usage: dotnet run --project DreamGenClone.DbQuery -- <command> [args]");
-    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, b137-krea2-configure, qwen-edit-serverless-configure, qwen-edit-local-aio-configure, qwen-edit-local-aio-lora-configure <loraName> <strength>, qwen-edit-remix-aio-configure, qwen-edit-remix-aio-lora-configure <loraName> <strength>, local-comfyui-configure <baseUrl>, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <bustSize> <buttSize>, body-axes-migrate, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
+    Console.Error.WriteLine("Commands: tables, schema [table], sessions, session <id>, adaptive <id>, themes <id>, evals <id>, transitions <id>, turns <id>, debug <id>, completions <id>, formula <id>, scenario <id>, gate-profiles, gate-rules <themeId>, theme-profiles, rp-themes <profileId>, provider-endpoint-update <providerId> <expectedCurrentBaseUrl> <newBaseUrl>, provider-split-model <sourceProviderId> <modelId> <newProviderName> <newBaseUrl>, provider-timeout-update <providerId> <expectedCurrentTimeoutSeconds> <newTimeoutSeconds>, b100-analyzer-configure, biglust-image-configure, b137-krea2-configure, h3-video-configure, qwen-edit-serverless-configure, qwen-edit-local-aio-configure, qwen-edit-local-aio-lora-configure <loraName> <strength>, qwen-edit-remix-aio-configure, qwen-edit-remix-aio-lora-configure <loraName> <strength>, local-comfyui-configure <baseUrl>, set-identity-strength <modelIdentifier> <strength>, character-figure-update <scenarioId> <characterName> <bustSize> <buttSize>, body-axes-migrate, api-image-configure, api-image-catalog, turn-membership-reconcile <sessionId>, b100-settle-plan <planId>, scene-asset-retag <assetId> <expectedCurrentType> <newType>, modelmanager-export [outFile], modelmanager-import <jsonFile>, sql <file> [id]");
 }

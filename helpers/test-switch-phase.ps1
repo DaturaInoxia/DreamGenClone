@@ -23,9 +23,17 @@ $sql | Out-File -Encoding utf8 "artifacts/tmp/dbquery/queries/_temp_switch_phase
 dotnet run --project artifacts/tmp/dbquery -- exec artifacts/tmp/dbquery/queries/_temp_switch_phase.sql 2>&1 | Out-Null
 Write-Host "    Done." -ForegroundColor Green
 
-# 2. Kill dotnet processes
+# 2. Stop only DreamGenClone web-app instances. Never blanket-kill dotnet: that also kills builds,
+#    tests, DbQuery runs and the user's app when it is running from a published release folder.
 Write-Host "[2] Restarting web app..." -ForegroundColor DarkGray
-Get-Process -Name dotnet -ErrorAction SilentlyContinue | Stop-Process -Force
+$appPids = @(
+    Get-CimInstance Win32_Process -Filter "Name = 'dotnet.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like "*DreamGenClone.dll*" } |
+        Select-Object -ExpandProperty ProcessId
+)
+foreach ($appPid in $appPids) {
+    Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue
+}
 Start-Sleep -Seconds 2
 
 # 3. Start web app in background

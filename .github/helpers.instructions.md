@@ -134,6 +134,8 @@ param(
 
 ## Process Management and Cleanup
 
+- **Never blanket-kill `dotnet` processes** (`Stop-Process -Name dotnet`, `Get-Process dotnet | Stop-Process`, `taskkill`). The user keeps the web app running from a published release folder (`helpers/publish-and-run.ps1`); a blanket kill takes down their app along with other agents' builds, tests and `DbQuery` runs. Scope cleanup to the app's own processes (match `*DreamGenClone.dll*` on `dotnet.exe`), and prefer failing fast with guidance when the app is already running from a release folder (see `start-webapp*.ps1` / `Assert-ReleaseAppNotRunning`).
+
 - For web apps (Blazor, ASP.NET Core) and any long-running processes:
   - **Always include a process cleanup function** that finds and stops existing instances
   - Clear any persisted state files that could cause "already in use" conflicts

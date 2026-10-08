@@ -34,7 +34,10 @@ param(
     [switch]$Restore,
 
     [Parameter()]
-    [switch]$Build
+    [switch]$Build,
+
+    [Parameter()]
+    [switch]$TakeOver
 )
 
 # Usage:
@@ -119,6 +122,35 @@ function Stop-WebAppProcesses {
     Start-Sleep -Seconds 2
     Write-Host "Processes stopped." -ForegroundColor Green
     Write-Host ""
+}
+
+function Get-ReleaseWebAppProcesses {
+    # Instances started by helpers/publish-and-run.ps1, i.e. running from artifacts\runtime\web\<release>.
+    $procs = Get-CimInstance Win32_Process -Filter "Name = 'dotnet.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like "*runtime\web*DreamGenClone.dll*" }
+
+    return @($procs)
+}
+
+function Assert-ReleaseAppNotRunning {
+    param([switch]$TakeOver)
+
+    $releaseInstances = @(Get-ReleaseWebAppProcesses)
+    if ($releaseInstances.Count -eq 0 -or $TakeOver) {
+        return
+    }
+
+    Write-Host "DreamGenClone is already running from a published release folder:" -ForegroundColor Yellow
+    foreach ($process in $releaseInstances) {
+        Write-Host "  PID $($process.ProcessId)" -ForegroundColor Yellow
+    }
+    Write-Host "This starter runs the app from bin\Debug, so it would stop that instance and re-introduce the" -ForegroundColor Yellow
+    Write-Host "locked-file problem the release flow exists to avoid." -ForegroundColor Yellow
+    Write-Host "  Publish and restart:      ./helpers/publish-and-run.ps1" -ForegroundColor DarkCyan
+    Write-Host "  Restart last build:       ./helpers/publish-and-run.ps1 -UseExistingRelease" -ForegroundColor DarkCyan
+    Write-Host "  Stop the app first:       ./helpers/start-webapp.ps1 stop" -ForegroundColor DarkCyan
+    Write-Host "  Force the bin path:       add -TakeOver" -ForegroundColor DarkGray
+    exit 1
 }
 
 function Show-WebAppStatus {
@@ -250,6 +282,7 @@ function Start-DeferredBrowserOpen {
 switch ($Action) {
     "webapp" {
         Test-Prerequisites
+        Assert-ReleaseAppNotRunning -TakeOver:$TakeOver
         Stop-WebAppProcesses
 
         $resolvedUrl = Resolve-AvailableUrl -RequestedUrl $Urls

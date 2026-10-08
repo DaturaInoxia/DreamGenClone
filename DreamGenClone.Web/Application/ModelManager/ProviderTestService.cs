@@ -10,6 +10,7 @@ public sealed class ProviderTestService
 {
     private readonly ICompletionClient _completionClient;
     private readonly IImageGenerationClient _imageGenerationClient;
+    private readonly IVideoGenerationClient _videoGenerationClient;
     private readonly RunPodServerlessImageClient _runPodServerlessImageClient;
     private readonly IApiKeyEncryptionService _encryptionService;
     private readonly IProviderRepository _providerRepository;
@@ -18,6 +19,7 @@ public sealed class ProviderTestService
     public ProviderTestService(
         ICompletionClient completionClient,
         IImageGenerationClient imageGenerationClient,
+        IVideoGenerationClient videoGenerationClient,
         RunPodServerlessImageClient runPodServerlessImageClient,
         IApiKeyEncryptionService encryptionService,
         IProviderRepository providerRepository,
@@ -25,6 +27,7 @@ public sealed class ProviderTestService
     {
         _completionClient = completionClient;
         _imageGenerationClient = imageGenerationClient;
+        _videoGenerationClient = videoGenerationClient;
         _runPodServerlessImageClient = runPodServerlessImageClient;
         _encryptionService = encryptionService;
         _providerRepository = providerRepository;
@@ -104,6 +107,42 @@ public sealed class ProviderTestService
                 _logger.LogError(ex, "Failed to decrypt API key for provider {ProviderName} while testing model {ModelName}.", provider.Name, model.DisplayName);
                 return (false, "API key decryption failed. Please re-enter the API key on the provider.");
             }
+        }
+
+        // A video model is a ComfyUI graph that takes ~25 minutes to render, so it must neither fall through to the
+        // chat health check nor be probed with a generation. The probe answers reachability, node presence and
+        // artifact presence in about a second.
+        if (model.ModelKind == ModelKind.Video)
+        {
+            MiniMaxH3Refs refs;
+            try
+            {
+                refs = MiniMaxH3ModelSettings.Resolve(model);
+            }
+            catch (ModelResolutionException ex)
+            {
+                return (false, ex.Message);
+            }
+
+            _logger.LogInformation(
+                "Testing video model connection: Model={ModelIdentifier}, Provider={ProviderName}",
+                model.ModelIdentifier,
+                provider.Name);
+
+            return await _videoGenerationClient.CheckVideoModelHealthAsync(
+                new ResolvedVideoModel(
+                    ProviderBaseUrl: provider.BaseUrl,
+                    ProviderTimeoutSeconds: provider.TimeoutSeconds,
+                    ApiKeyEncrypted: provider.ApiKeyEncrypted ?? decryptedKey,
+                    ModelIdentifier: model.ModelIdentifier,
+                    ProviderName: provider.Name,
+                    Family: model.SceneImageModelFamily,
+                    PromptDialect: model.PromptDialect,
+                    ImageProtocol: provider.ImageProtocol,
+                    H3: refs,
+                    ComfyUiUrl: provider.BaseUrl,
+                    RegisteredModelId: model.Id),
+                cancellationToken);
         }
 
         // Image-kind models are served at the image-generation endpoint (not chat completions),

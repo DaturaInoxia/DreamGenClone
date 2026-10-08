@@ -123,116 +123,29 @@
                 @foreach (var image in _images)
                 {
                     <div class="col-sm-6 col-xl-4 col-xxl-3">
-                        <article class="card h-100">
-                            <div class="ratio ratio-1x1 bg-dark">
-                                @if (image.Status == SceneAssetStatus.Complete && !string.IsNullOrWhiteSpace(image.FileRelativePath))
-                                {
-                                    <img src="/scene-images/@image.FileRelativePath" class="w-100 h-100" style="object-fit:contain;" alt="@_asset.Name image" />
-                                }
-                                else
-                                {
-                                    <div class="d-flex align-items-center justify-content-center text-light small">@image.Status</div>
-                                }
-                            </div>
-                            <div class="card-body py-2 small">
-                                <div class="d-flex flex-wrap gap-2">
-                                    <span class="badge @StatusBadge(image.Status)">@image.Status</span>
-                                    @if (image.ProductionApprovalStatus is not null)
-                                    {
-                                        <span class="badge text-bg-info">@image.ProductionApprovalStatus</span>
-                                    }
-                                    @if (image.CandidateDecision is not null)
-                                    {
-                                        @* Deliberately NOT green and deliberately not just the verdict. A green "Accepted"
-                                           reads as approved-for-use, which it is not: it only says this attempt was the
-                                           batch's pick. The confusion cost an operator a working session (2026-10-02),
-                                           so the badge names the gate it is and the title says which gate it is not. *@
-                                        <span class="badge text-bg-secondary"
-                                              title="This attempt was the batch's pick. It is NOT approved for production, so it cannot be used as a reference until it is approved on the review page.">
-                                            picked: @image.CandidateDecision
-                                        </span>
-                                    }
-                                    @* The native gates measured on this image (B-135 P3). A fail carries the measured
-                                       number in its tooltip; a gate only records, it never blocks the render. *@
-                                    @foreach (var gate in GateResults(image))
-                                    {
-                                        <span class="badge @(gate.Pass ? "text-bg-success" : "text-bg-danger")"
-                                              title="@gate.Detail">
-                                            @gate.Name @(gate.Pass ? "✓" : "✗")
-                                        </span>
-                                    }
-                                </div>
-                                <div class="font-monospace text-truncate mt-2" title="@image.Id">@image.Id</div>
-                                <div class="text-muted">@image.Kind · @image.CreatedUtc.ToLocalTime().ToString("g")</div>
-                                @* The name is what a reference picker shows, so it is edited HERE, on the picture it
-                                   belongs to. Saved on change (blur or Enter) rather than by a button: there is one
-                                   field, and a Save button under every thumbnail would be a row of buttons for a
-                                   one-word label. A blank name is refused by the service, whose words are shown above
-                                   rather than swallowed, and the card then shows the stored value again. *@
-                                <div class="mt-2">
-                                    <input class="form-control form-control-sm" value="@image.DisplayName"
-                                           placeholder="Name this image (Front, Left side…)"
-                                           aria-label="Image name"
-                                           disabled="@_busy"
-                                           @onchange="args => RenameImageAsync(image, args.Value?.ToString())" />
-                                </div>
+                        <ImageCard Model="CardModel(image)"
+                                   Busy="_busy"
+                                   ShowName="true"
+                                   NameChanged="name => RenameImageAsync(image, name)"
+                                   AcceptRequested="() => DecideImageAsync(image, SceneAssetCandidateDecision.Accepted)"
+                                   ShortlistRequested="() => DecideImageAsync(image, SceneAssetCandidateDecision.Shortlisted)"
+                                   RejectRequested="() => DecideImageAsync(image, SceneAssetCandidateDecision.Rejected)"
+                                   EditRequested="() => OpenEdit(image)"
+                                   ReviewRequested="() => OpenReview(image)"
+                                   DownloadRequested="() => OpenDownload(image)"
+                                   VideoRequested="() => OpenVideo(image)"
+                                   LoadIntoGeneratorRequested="() => LoadIntoGenerator(image)"
+                                   RevokeRequested="() => RevokeApprovalAsync(image)"
+                                   DeleteRequested="() => DeleteImageAsync(image)">
+                            <BodyContent>
                                 @if (image.Status == SceneAssetStatus.Complete)
                                 {
-                                    @* Tags are edited only on a finished image: a tag is a claim about a picture, and
-                                       a pending or failed row has no picture to make a claim about. *@
                                     <div class="mt-2">
                                         <ImageTags Image="image" Editable="true" TagsChanged="LoadAsync" />
                                     </div>
                                 }
-                                @if (!string.IsNullOrWhiteSpace(image.ErrorMessage))
-                                {
-                                    <div class="text-danger mt-1">@image.ErrorMessage</div>
-                                }
-                            </div>
-                            @if (image.Status == SceneAssetStatus.Complete)
-                            {
-                                <div class="card-footer d-flex gap-1 justify-content-end">
-                                    <a class="btn btn-sm btn-outline-primary" href="/assets/@_asset.Id/images/@image.Id/edit?return=/asset-studio/@_asset.Id" title="Edit image"><i class="bi bi-magic"></i></a>
-                                    <a class="btn btn-sm btn-outline-success" href="/assets/@_asset.Id/images/@image.Id/review" title="Review image"><i class="bi bi-check2-circle"></i></a>
-                                    @if (!string.IsNullOrWhiteSpace(image.CandidateBatchId))
-                                    {
-                                        <a class="btn btn-sm btn-outline-info" href="/review-deck/asset/@image.CandidateBatchId" title="Review candidate batch"><i class="bi bi-collection-play"></i></a>
-                                    }
-                                    <a class="btn btn-sm btn-outline-secondary" href="/asset-studio/images/@image.Id/download" title="Download image"><i class="bi bi-download"></i></a>
-                                    <button type="button" class="btn btn-sm btn-outline-warning" disabled="@_busy"
-                                            title="Load the prompt, model, size, seed and references that made this image into the generator above"
-                                            @onclick="() => LoadIntoGenerator(image)">
-                                        <i class="bi bi-arrow-counterclockwise"></i>
-                                    </button>
-                                    @* Deliberately NOT next to the delete button's meaning: this one is reversible and
-                                       is the step that makes the delete legal, so it says what it does rather than
-                                       borrowing the trash icon. *@
-                                    @if (image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved)
-                                    {
-                                        <button type="button" class="btn btn-sm btn-outline-dark" disabled="@_busy"
-                                                title="Take this image out of production: it stops being offered as a reference, and deleting it then works"
-                                                @onclick="() => RevokeApprovalAsync(image)">
-                                            <i class="bi bi-slash-circle"></i>
-                                        </button>
-                                    }
-                                    <button type="button" class="btn btn-sm btn-outline-danger" disabled="@_busy"
-                                            title="Delete this image" @onclick="() => DeleteImageAsync(image)">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </div>
-                            }
-                            else
-                            {
-                                @* A failed or still-running attempt is deletable too: the operator's way of cleaning up a
-                                   bad generation must not depend on it having succeeded. *@
-                                <div class="card-footer d-flex gap-1 justify-content-end">
-                                    <button type="button" class="btn btn-sm btn-outline-danger" disabled="@_busy"
-                                            title="Delete this image" @onclick="() => DeleteImageAsync(image)">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </div>
-                            }
-                        </article>
+                            </BodyContent>
+                        </ImageCard>
                     </div>
                 }
             </div>
@@ -443,6 +356,76 @@
         {
             _busy = false;
         }
+    }
+
+    /// <summary>Records the review deck's decision (accept / shortlist / reject) against this image.</summary>
+    private async Task DecideImageAsync(SceneAssetImage image, SceneAssetCandidateDecision decision)
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            await AssetService.SetImageCandidateDecisionAsync(image.Id, decision, null);
+            _message = $"Set {image.Id[..Math.Min(8, image.Id.Length)]}… to {decision}.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string? EditImageUrl(SceneAssetImage image)
+        => $"/assets/{_asset!.Id}/images/{image.Id}/edit?return=/asset-studio/{_asset.Id}";
+
+    private string? ReviewImageUrl(SceneAssetImage image)
+        => $"/assets/{_asset!.Id}/images/{image.Id}/review";
+
+    private string? DownloadImageUrl(SceneAssetImage image)
+        => $"/asset-studio/images/{image.Id}/download";
+
+    private string? VideoImageUrl(SceneAssetImage image)
+        => $"/roleplay/video-studio/asset/{image.Id}";
+
+    private SceneImageCardModel CardModel(SceneAssetImage image) => new()
+    {
+        Id = image.Id,
+        FileRelativePath = image.FileRelativePath,
+        StatusText = image.Status.ToString(),
+        StatusBadgeClass = image.Status switch
+        {
+            SceneAssetStatus.Complete => "text-bg-success",
+            SceneAssetStatus.Failed => "text-bg-danger",
+            _ => "text-bg-secondary"
+        },
+        IsComplete = image.Status == SceneAssetStatus.Complete,
+        ErrorMessage = image.ErrorMessage,
+        Subtitle = $"{image.Kind} · {image.CreatedUtc.ToLocalTime():g}",
+        DecisionBadgeText = image.CandidateDecision is null ? null : $"picked: {image.CandidateDecision}",
+        DecisionBadgeTitle = "This attempt was the batch's pick. It is NOT approved for production, so it cannot be used as a reference until it is approved on the review page.",
+        ApprovalBadgeText = image.ProductionApprovalStatus?.ToString(),
+        GateResults = ImageGateResults.Read(image.GateResultsJson),
+        CandidateBatchId = image.CandidateBatchId,
+        DisplayName = image.DisplayName,
+        IsProductionApproved = image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved
+    };
+
+    private void OpenEdit(SceneAssetImage image) => NavigateTo(EditImageUrl(image));
+
+    private void OpenReview(SceneAssetImage image) => NavigateTo(ReviewImageUrl(image));
+
+    private void OpenDownload(SceneAssetImage image) => NavigateTo(DownloadImageUrl(image));
+
+    private void OpenVideo(SceneAssetImage image) => NavigateTo(VideoImageUrl(image));
+
+    private void NavigateTo(string? url)
+    {
+        if (!string.IsNullOrWhiteSpace(url))
+            Navigation.NavigateTo(url);
     }
 
     /// <summary>

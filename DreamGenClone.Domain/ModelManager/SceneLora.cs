@@ -75,6 +75,14 @@ public sealed class SceneLora
     /// </summary>
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>
+    /// The token this LoRA needs carried into the prompt, when it has one (for example the fal realism LoRA's
+    /// <c>r34l1sm</c>). It belongs to the LoRA, not to a render: the compiler reads it off the selected stack, and
+    /// the picker shows it, so an operator who selects the LoRA sees that its trigger is already handled. Null or
+    /// empty means the LoRA has no trigger, which is a configured state and not a missing value.
+    /// </summary>
+    public string? TriggerToken { get; set; }
+
     /// <summary>Optional operator note (what the LoRA was proven to do, and how).</summary>
     public string? Notes { get; set; }
 }

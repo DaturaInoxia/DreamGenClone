@@ -199,6 +199,7 @@ public sealed class StoryPresentationImportServiceTests
         public Task<SceneBeatProductionPlan?> GetAsync(string planId, CancellationToken cancellationToken = default) => Task.FromResult(values.SingleOrDefault(value => value.Plan.Id == planId)?.Plan);
         public Task<SceneBeatProductionPlan?> GetCurrentAsync(string catalogueId, string beatId, CancellationToken cancellationToken = default) => Task.FromResult(values.SingleOrDefault(value => value.Plan.CatalogueId == catalogueId && value.Plan.BeatId == beatId)?.Plan);
         public Task<SceneBeatProductionPlan?> GetLatestAsync(string catalogueId, string beatId, CancellationToken cancellationToken = default) => Task.FromResult(values.SingleOrDefault(value => value.Plan.CatalogueId == catalogueId && value.Plan.BeatId == beatId)?.Plan);
+        public Task<SceneBeatProductionPlan?> GetByCoveragePlanIdAsync(string coveragePlanId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task CreateVersionAsync(SceneBeatProductionPlan plan, SceneBeatAnalysisAttempt attempt, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<SceneBeatAnalysisAttempt?> GetAttemptAsync(string attemptId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> TryStartAttemptAsync(string planId, string attemptId, string modelIdentifier, string providerName, DateTime startedUtc, CancellationToken cancellationToken = default) => throw new NotSupportedException();

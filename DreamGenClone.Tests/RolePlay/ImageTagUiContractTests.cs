@@ -46,10 +46,13 @@ public sealed class ImageTagUiContractTests
     [Fact]
     public void AssetDetailPage_ShowsTheTagEditorOnCompletedImagesOnly()
     {
+        // The card is the shared ImageCard; the detail page renders it from the one model helper.
+        Assert.Contains("<ImageCard Model=\"CardModel(image)\"", DetailSource, StringComparison.Ordinal);
+
+        // The tag editor is host content handed to the card, and it sits inside the completed-image branch so a
+        // pending or failed row never offers to tag a picture that does not exist.
         Assert.Contains("<ImageTags Image=\"image\" Editable=\"true\" TagsChanged=\"LoadAsync\" />",
             DetailSource, StringComparison.Ordinal);
-
-        // Offering to tag a pending or failed row would invite a claim about a picture that does not exist.
         var tagEditor = DetailSource.IndexOf("<ImageTags Image=\"image\" Editable=\"true\"", StringComparison.Ordinal);
         var completionGuard = DetailSource.LastIndexOf(
             "image.Status == SceneAssetStatus.Complete", tagEditor, StringComparison.Ordinal);

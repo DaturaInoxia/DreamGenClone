@@ -1,0 +1,1648 @@
+@page "/roleplay/video-studio"
+@page "/roleplay/video-studio/session/{SessionId}/{InteractionId}"
+@page "/roleplay/video-studio/session/{SessionId}/{InteractionId}/{SourceImageId}"
+@page "/roleplay/video-studio/asset/{AssetImageId}"
+@page "/roleplay/video-studio/coverage/{CoveragePlanId}"
+@page "/roleplay/video-studio/continue/{SourceVideoId}"
+@rendermode InteractiveServer
+
+@using System.Text.Json
+@using DreamGenClone.Application.Abstractions
+@using DreamGenClone.Application.ModelManager
+@using DreamGenClone.Application.Processing
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.ModelManager
+@using DreamGenClone.Domain.Processing
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.Models
+
+@inject ISceneVideoService VideoService
+@inject ISceneImageService SceneImages
+@inject ISceneLoraRepository LoraCatalog
+@inject IModelResolutionService ModelResolution
+@inject IVideoGenerationClient VideoClient
+@inject IDurableBackgroundJobRepository DurableJobs
+@inject NavigationManager Nav
+@inject ILogger<VideoStudio> Logger
+
+<PageTitle>Video Composer - DreamGenClone</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+            <h4 class="mb-0"><i class="bi bi-camera-video me-2"></i>Video Composer</h4>
+            <div class="small text-muted">
+                Local MiniMax H3 (Ref2VA). A trained-range render takes roughly 25 to 100 minutes on one GPU.
+                @if (_seed is not null)
+                {
+                    <span>· opened from <strong>@_seed.OriginKind</strong></span>
+                }
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="CompileAsync" disabled="@_busy">
+                <i class="bi bi-arrow-repeat me-1"></i>Recompile prompt
+            </button>
+            <button class="btn btn-sm btn-outline-primary" @onclick="StageAsync" disabled="@(_busy || !_compilationValid)">
+                <i class="bi bi-pause-circle me-1"></i>Stage for later
+            </button>
+            <button class="btn btn-sm btn-success" @onclick="StartNowAsync" disabled="@(_busy || !_compilationValid)">
+                <i class="bi bi-play-fill me-1"></i>Start now
+            </button>
+        </div>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    @if (_notice is not null)
+    {
+        <div class="alert alert-info">@_notice</div>
+    }
+
+    <ul class="nav nav-tabs">
+        @foreach (var tab in Tabs)
+        {
+            <li class="nav-item">
+                <button type="button" class="nav-link @(_activeTab == tab.Key ? "active" : null)"
+                        @onclick="() => _activeTab = tab.Key">
+                    @tab.Value
+                    @if (tab.Key == "prompt" && _compilation is not null)
+                    {
+                        if (_compilation.BlockingFailures.Count > 0)
+                        {
+                            <span class="badge bg-danger ms-1">@_compilation.BlockingFailures.Count</span>
+                        }
+                        else if (_compilation.Advisories.Count > 0)
+                        {
+                            <span class="badge bg-warning text-dark ms-1">@_compilation.Advisories.Count</span>
+                        }
+                    }
+                </button>
+            </li>
+        }
+    </ul>
+
+    <div class="border border-top-0 rounded-bottom p-3">
+        @switch (_activeTab)
+        {
+            case "intent":
+                @* ---------- Intent (R6) ---------- *@
+                @if (_continuation is not null)
+                {
+                    <div class="alert alert-info">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <strong>Continuing a finished clip</strong>
+                                <div class="small">
+                                    from <span class="font-monospace">@_continuation.Source.Id</span>
+                                    @if (_continuation.SourceDurationSeconds is not null)
+                                    {
+                                        <span> · @(_continuation.SourceDurationSeconds.Value.ToString("0.0"))s source</span>
+                                    }
+                                    <span> · @(_continuation.Kind)</span>
+                                    <span> · chain @_continuation.ChainDepth of @(_maxContinuationChainLength)</span>
+                                </div>
+                                <div class="small mt-1">
+                                    <span class="badge bg-secondary">anchor frame @(_continuation.FrameSha256[..8])</span>
+                                    @if (_continuation.Kind == SceneVideoContinuationKind.FrameAndAudio)
+                                    {
+                                        <span class="badge bg-secondary ms-1">carried audio</span>
+                                    }
+                                </div>
+                            </div>
+                            <a class="btn btn-sm btn-outline-secondary" href="/roleplay/video-studio">Start fresh instead</a>
+                        </div>
+                        <hr class="my-2" />
+                        <div class="small">
+                            The next clip <strong>starts</strong> from that clip's final frame, but the model
+                            <strong>regenerates</strong> it — it is not a copy. Quality drifts a little at each join
+                            (contrast, texture and treble), and grading afterwards cannot restore detail that is
+                            already clipped. Keep chains to a few joins, or render one longer clip instead.
+                            @if (_continuation.Kind == SceneVideoContinuationKind.FrameAndAudio)
+                            {
+                                <span>The source's audio is carried forward, so the track continues rather than
+                                matching exactly.</span>
+                            }
+                            else
+                            {
+                                <span>The audio starts fresh: choose frame + audio when continuing if you want the
+                                previous track carried.</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="alert alert-warning small">
+                        The description below starts <strong>empty on purpose</strong>. Write the <strong>next</strong>
+                        beat — re-describing the clip you are continuing reads as a repeat.
+                    </div>
+                }
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Composition title</label>
+                        <input type="text" class="form-control" @bind="_record.Title" @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Content register</label>
+                        <select class="form-select" @bind="_register">
+                            <option value="@SceneVideoContentRegister.Explicit">Explicit (the trained register)</option>
+                            <option value="@SceneVideoContentRegister.Clinical">Clinical</option>
+                        </select>
+                        <div class="form-text">Configured, never a compiler default: the NSFW adapters are trained on explicit vocabulary.</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Task type</label>
+                        <input type="text" class="form-control" value="@_taskType" readonly />
+                        <div class="form-text">Derived from the reference roles.</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">
+                            Style declaration
+                            <span class="text-muted small ms-2">recommended — directs the render's look</span>
+                        </label>
+                        <textarea class="form-control" rows="2" @bind="_style" @bind:event="oninput"
+                                  placeholder="One or two sentences. Rendered before [Shot 1]."></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">
+                            Scene / action description
+                            <span class="text-muted small ms-2">@_descriptionWords words (target @(_minWords)-@(_maxWords))</span>
+                        </label>
+                        <textarea class="form-control" rows="8" @bind="_sceneDescription" @bind:event="oninput"
+                                  placeholder="What happens, in order. Give every sentence composition, subject state, environment, action, camera or sound — not a plot summary."></textarea>
+                        @if (_descriptionWords < _minWords)
+                        {
+                            <div class="form-text text-warning">
+                                Below the target band. A short draft still renders — a fuller description just conditions H3 better.
+                            </div>
+                        }
+                        else if (_descriptionWords > _maxWords)
+                        {
+                            <div class="form-text text-warning">
+                                Above the target band. Long descriptions are fine; dialogue-dense content may prioritise the
+                                spoken timeline instead.
+                            </div>
+                        }
+                    </div>
+
+                    <div class="col-12">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <strong>Shots</strong>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="AddShot">
+                                <i class="bi bi-plus-lg me-1"></i>Add shot
+                            </button>
+                        </div>
+                        <div class="form-text">
+                            [Shot 1] is untimed. Every later shot needs a cut time in MM:SS.mmm that strictly increases
+                            inside the @(_duration.ToString("0.0"))s clip. Multi-shot prompting is unproven — the B-150 sweep
+                            rendered single continuous shots.
+                        </div>
+                        @for (var index = 0; index < _shots.Count; index++)
+                        {
+                            var shotIndex = index;
+                            var shot = _shots[shotIndex];
+                            <div class="border rounded p-2 mb-2">
+                                <div class="row g-2">
+                                    <div class="col-md-1">
+                                        <label class="form-label small">Shot</label>
+                                        <input type="text" class="form-control form-control-sm" value="@shot.Number" readonly />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small">Cut time</label>
+                                        <input type="text" class="form-control form-control-sm" value="@shot.CutTime"
+                                               disabled="@(shot.Number == 1)" placeholder="MM:SS.mmm"
+                                               @onchange="args => SetCutTime(shotIndex, args)" />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label small">Camera motion</label>
+                                        <select class="form-select form-select-sm" value="@shot.CameraMotionType"
+                                                @onchange="args => SetCameraMotion(shotIndex, args)">
+                                            <option value="">(none)</option>
+                                            @foreach (var motion in CameraMotionTypes)
+                                            {
+                                                <option value="@motion">@motion</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small">Amplitude</label>
+                                        <select class="form-select form-select-sm" value="@shot.CameraAmplitude"
+                                                @onchange="args => SetCameraAmplitude(shotIndex, args)">
+                                            <option value="">(medium — omitted)</option>
+                                            <option value="small">small</option>
+                                            <option value="large">large</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small">Speed</label>
+                                        <select class="form-select form-select-sm" value="@shot.CameraSpeed"
+                                                @onchange="args => SetCameraSpeed(shotIndex, args)">
+                                            <option value="">(normal — omitted)</option>
+                                            <option value="slow">slow</option>
+                                            <option value="fast">fast</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2 d-flex align-items-end">
+                                        <button class="btn btn-sm btn-outline-danger w-100" disabled="@(shot.Number == 1)"
+                                                @onclick="() => RemoveShot(shotIndex)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label small">What this shot shows</label>
+                                        <textarea class="form-control form-control-sm" rows="2" value="@shot.Description"
+                                                  @onchange="args => SetShotDescription(shotIndex, args)"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <strong>Visible on-screen text</strong>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => _onScreenText.Add(new SceneVideoOnScreenText(string.Empty, 1))">
+                                <i class="bi bi-plus-lg"></i>
+                            </button>
+                        </div>
+                        <div class="form-text">Rendered verbatim inside English double quotes.</div>
+                        @for (var index = 0; index < _onScreenText.Count; index++)
+                        {
+                            var textIndex = index;
+                            <div class="d-flex gap-2 mb-1">
+                                <input type="text" class="form-control form-control-sm" value="@_onScreenText[textIndex].Text"
+                                       @onchange="args => SetOnScreenText(textIndex, args)" />
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => _onScreenText.RemoveAt(textIndex)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                break;
+
+            case "references":
+                @* ---------- References (R4, R12) ---------- *@
+                <div class="form-text mb-2">
+                    <strong>Row order is semantic</strong>: it is the <span class="font-monospace">&lt;Picture i&gt;</span>
+                    numbering the node requires. Reordering renumbers the labels. The proven stack is two references —
+                    the scene image plus a tight subject crop.
+                </div>
+                @if (_referenceError is not null)
+                {
+                    <div class="alert alert-warning small">@_referenceError</div>
+                }
+                @for (var index = 0; index < _references.Count; index++)
+                {
+                    var referenceIndex = index;
+                    var reference = _references[referenceIndex];
+                    <div class="border rounded p-2 mb-2">
+                        <div class="row g-2 align-items-start">
+                            <div class="col-md-2">
+                                <div class="small text-muted font-monospace">&lt;Picture @(referenceIndex + 1)&gt;</div>
+                                <img src="@ReferenceUrl(reference)" alt="reference @(referenceIndex + 1)"
+                                     class="img-fluid border rounded" style="max-height: 6rem;" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">Role</label>
+                                <select class="form-select form-select-sm" value="@reference.Role"
+                                        @onchange="args => SetReferenceRole(referenceIndex, args)">
+                                    <option value="@SceneVideoReferenceRole.FrameAnchor">frame anchor</option>
+                                    <option value="@SceneVideoReferenceRole.SubjectDefinition">subject definition</option>
+                                    <option value="@SceneVideoReferenceRole.CharacterSheet">character sheet</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">Retention marker</label>
+                                <select class="form-select form-select-sm" value="@reference.RetentionMarker"
+                                        @onchange="args => SetReferenceRetention(referenceIndex, args)">
+                                    <option value="">(choose)</option>
+                                    <option value="fully_preserved">fully_preserved</option>
+                                    <option value="partially_preserved">partially_preserved</option>
+                                    <option value="attribute_transfer">attribute_transfer</option>
+                                    <option value="weak_reference">weak_reference</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end gap-1">
+                                <button class="btn btn-sm btn-outline-secondary" disabled="@(referenceIndex == 0)"
+                                        title="Move up" @onclick="() => MoveReference(referenceIndex, -1)">
+                                    <i class="bi bi-arrow-up"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" disabled="@(referenceIndex == _references.Count - 1)"
+                                        title="Move down" @onclick="() => MoveReference(referenceIndex, 1)">
+                                    <i class="bi bi-arrow-down"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" title="Remove" @onclick="() => _references.RemoveAt(referenceIndex)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="small text-muted text-break">@reference.FileName</div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small">Subject description</label>
+                                <textarea class="form-control form-control-sm" rows="2" value="@reference.SubjectDescription"
+                                          @onchange="args => SetReferenceDescription(referenceIndex, args)"
+                                          placeholder="Required when the role defines a subject: who or what this reference shows."></textarea>
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label small">Add a reference from the session gallery</label>
+                        <select class="form-select form-select-sm" value="@_addReferencePath" @onchange="args => _addReferencePath = args.Value?.ToString() ?? string.Empty">
+                            <option value="">Choose an image…</option>
+                            @foreach (var candidate in _candidates)
+                            {
+                                <option value="@candidate.FileRelativePath">@candidate.Label</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-sm btn-outline-primary w-100" disabled="@string.IsNullOrWhiteSpace(_addReferencePath)"
+                                @onclick="AddReferenceAsync">
+                            <i class="bi bi-plus-lg me-1"></i>Add reference
+                        </button>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-sm btn-outline-secondary w-100" disabled
+                                title="The MediaPipe subject crop (helpers/h3-local-host/make-ref-crop.py) is not yet wired into the app; crop the face reference with that tool and add it as a second reference.">
+                            <i class="bi bi-crop me-1"></i>Derive subject crop (not wired)
+                        </button>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">ref_image_size</label>
+                        <select class="form-select form-select-sm" @bind="_refImageSize">
+                            <option value="match">match (fast)</option>
+                            <option value="max">max (2048px, several times slower)</option>
+                        </select>
+                    </div>
+                </div>
+
+                break;
+
+            case "audio":
+                @* ---------- Audio (R8) ---------- *@
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">
+                            Soundscape
+                            <span class="text-muted small ms-2">@_soundscapeSentences sentence(s), 1-4</span>
+                        </label>
+                        <textarea class="form-control" rows="4" @bind="_soundscape" @bind:event="oninput"
+                                  placeholder="Name a concrete object and a physical action — 'the bed frame knocks against the wall', 'the sheets bunch and drag under her hands'. Abstract qualities render nothing."></textarea>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="soundscape-na" @bind="_soundscapeSilent" />
+                            <label class="form-check-label small" for="soundscape-na">Deliberate silence (N/A)</label>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">
+                            Non-diegetic music
+                            <span class="text-muted small ms-2">N/A or 1-3 sentences</span>
+                        </label>
+                        <textarea class="form-control" rows="4" @bind="_music" @bind:event="oninput"
+                                  disabled="@_musicNone"
+                                  placeholder="Instrumentation, tempo, rhythm and dynamics only — no mood words."></textarea>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="music-na" @bind="_musicNone" />
+                            <label class="form-check-label small" for="music-na">No non-diegetic music (N/A)</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Loudness target</label>
+                        <input type="text" class="form-control" value="@(_resolvedModel is null ? "—" : $"{_resolvedModel.H3.LoudnessTargetLufs:0.#} LUFS")" readonly />
+                        <div class="form-text">Mandatory normalization target from the model's configuration.</div>
+                    </div>
+
+                    <div class="col-12">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <strong>Dialogue</strong>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="AddDialogue">
+                                <i class="bi bi-plus-lg me-1"></i>Add line
+                            </button>
+                        </div>
+                        <div class="form-text">
+                            Line text is verbatim — never translated. Speaker ids <span class="font-monospace">(Sx)</span>
+                            are assigned by vocal-event order and shown in the compiled prompt. The first line from a
+                            speaker must carry identity information.
+                        </div>
+                        @for (var index = 0; index < _dialogue.Count; index++)
+                        {
+                            var lineIndex = index;
+                            var line = _dialogue[lineIndex];
+                            <div class="border rounded p-2 mb-2">
+                                <div class="row g-2">
+                                    <div class="col-md-2">
+                                        <label class="form-label small">Speaker</label>
+                                        <input type="text" class="form-control form-control-sm" value="@line.SpeakerName"
+                                               @onchange='args => SetDialogue(lineIndex, args, field: "speaker")' />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small">Subject label</label>
+                                        <input type="text" class="form-control form-control-sm" value="@line.SubjectLabel"
+                                               placeholder="<Subject 1>" @onchange='args => SetDialogue(lineIndex, args, field: "label")' />
+                                    </div>
+                                    <div class="col-md-1">
+                                        <label class="form-label small">Shot</label>
+                                        <input type="number" class="form-control form-control-sm" min="1" max="@_shots.Count" value="@line.ShotNumber"
+                                               @onchange='args => SetDialogue(lineIndex, args, field: "shot")' />
+                                    </div>
+                                    <div class="col-md-1">
+                                        <label class="form-label small">Order</label>
+                                        <input type="number" class="form-control form-control-sm" min="1" value="@line.Order"
+                                               @onchange='args => SetDialogue(lineIndex, args, field: "order")' />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small">Language</label>
+                                        <input type="text" class="form-control form-control-sm" value="@line.LanguageCode"
+                                               @onchange='args => SetDialogue(lineIndex, args, field: "language")' />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small">Delivery</label>
+                                        <input type="text" class="form-control form-control-sm" value="@line.Delivery"
+                                               @onchange='args => SetDialogue(lineIndex, args, field: "delivery")' />
+                                    </div>
+                                    <div class="col-md-2 d-flex align-items-end gap-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" checked="@line.OffScreen"
+                                                   @onchange='args => SetDialogueFlag(lineIndex, "offscreen", args)' />
+                                            <label class="form-check-label small">off-screen</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" checked="@line.Voiceover"
+                                                   @onchange='args => SetDialogueFlag(lineIndex, "voiceover", args)' />
+                                            <label class="form-check-label small">voiceover</label>
+                                        </div>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => _dialogue.RemoveAt(lineIndex)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label small">Continuity</label>
+                                        <select class="form-select form-select-sm" value="@line.Continuity"
+                                                @onchange="args => SetDialogueContinuity(lineIndex, args)">
+                                            <option value="@SceneVideoCutContinuity.None">none</option>
+                                            <option value="@SceneVideoCutContinuity.CrossesCut">crosses a cut (&lt;scenetrans&gt;)</option>
+                                            <option value="@SceneVideoCutContinuity.Truncated">truncated (&lt;cutoff&gt;)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-9">
+                                        <label class="form-label small">Identity information (first appearance)</label>
+                                        <input type="text" class="form-control form-control-sm" value="@line.IdentityInfo"
+                                               placeholder="character type, age, gender, pitch, timbre, rate or accent"
+                                               @onchange='args => SetDialogue(lineIndex, args, field: "identity")' />
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label small">Line (verbatim)</label>
+                                        <input type="text" class="form-control form-control-sm" value="@line.Content"
+                                               @onchange='args => SetDialogue(lineIndex, args, field: "content")' />
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                break;
+
+            case "model":
+                @* ---------- Model & LoRAs (R11, R12) ---------- *@
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Video model</label>
+                        <select class="form-select" value="@_selectedModelId" @onchange="OnModelChanged">
+                            <option value="">Choose a video model…</option>
+                            @foreach (var model in _videoModels)
+                            {
+                                <option value="@model.ModelId">@model.DisplayName</option>
+                            }
+                        </select>
+                        @if (_videoModels.Count == 0)
+                        {
+                            <div class="form-text text-warning">
+                                No video model is configured. Assign one to <strong>RP Scene Video (Render)</strong> in
+                                Model Manager, or run the DbQuery <span class="font-monospace">h3-video-configure</span> command.
+                            </div>
+                        }
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Provider</label>
+                        <input type="text" class="form-control" value="@(_resolvedModel?.ProviderName ?? "—")" readonly />
+                        <div class="form-text">Resolved from the model's provider row — never a hardcoded host.</div>
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-outline-secondary w-100 mt-4" @onclick="TestConnectionAsync" disabled="@(_busy || _resolvedModel is null)">
+                            <i class="bi bi-plug me-1"></i>Test connection (never renders)
+                        </button>
+                    </div>
+                    @if (_modelError is not null)
+                    {
+                        <div class="col-12"><div class="alert alert-danger small">@_modelError</div></div>
+                    }
+                    @if (_connectionResult is not null)
+                    {
+                        <div class="col-12"><div class="alert alert-info small">@_connectionResult</div></div>
+                    }
+                    @if (_resolvedModel is not null)
+                    {
+                        <div class="col-12">
+                            <div class="border rounded p-2 small">
+                                <strong>Resolved configuration</strong>
+                                <div class="row">
+                                    <div class="col-md-3">DiT: <span class="font-monospace">@_resolvedModel.H3.DitName</span></div>
+                                    <div class="col-md-3">Text encoder: <span class="font-monospace">@_resolvedModel.H3.TextEncoderName</span> (@_resolvedModel.H3.TextEncoderDevice)</div>
+                                    <div class="col-md-2">Video VAE: <span class="font-monospace">@_resolvedModel.H3.VideoVaeName</span></div>
+                                    <div class="col-md-2">Audio VAE: <span class="font-monospace">@_resolvedModel.H3.AudioVaeName</span></div>
+                                    <div class="col-md-2">@_resolvedModel.H3.SamplerName / @_resolvedModel.H3.Scheduler, @_resolvedModel.H3.Steps steps</div>
+                                    <div class="col-md-3">Frames @_resolvedModel.H3.FramePolicy.TrainedMinFrames-@_resolvedModel.H3.FramePolicy.TrainedMaxFrames trained</div>
+                                    <div class="col-md-3">References ≤ @_resolvedModel.H3.MaxReferenceImages</div>
+                                    <div class="col-md-3">Render budget @(_resolvedModel.H3.RenderTimeoutSeconds / 60) min</div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    <div class="col-12">
+                        <SceneLoraPicker Family="@_selectedFamily" Selections="_loraSelections"
+                                         SelectionsChanged="OnLorasChanged" Disabled="@(_selectedFamily == SceneImageModelFamily.Unknown)"
+                                         Scope="video-scene-lora" />
+                        <div class="form-text">
+                            The stack is applied in the order shown. The fal realism LoRA needs its trigger token at the
+                            start of the prompt — the picker shows the token the catalog row carries.
+                        </div>
+                    </div>
+                </div>
+
+                break;
+
+            case "sampling":
+                @* ---------- Sampling & Output (R10) ---------- *@
+                <div class="row g-3">
+                    <div class="col-md-2">
+                        <label class="form-label">Steps</label>
+                        <input type="number" class="form-control" min="1" max="100" @bind="_steps" />
+                        <div class="form-text">40 is the proven value; 50 measured as poor value.</div>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Sampler / scheduler</label>
+                        <input type="text" class="form-control" value="@(_resolvedModel is null ? "—" : $"{_resolvedModel.H3.SamplerName} / {_resolvedModel.H3.Scheduler}")" readonly />
+                        <div class="form-text">Locked: the Ref2VA LoRAs require this pair; another scheduler breaks the audio.</div>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">CFG / denoise</label>
+                        <input type="text" class="form-control" value="@(_resolvedModel is null ? "—" : $"1.0 / {_resolvedModel.H3.Denoise:0.##}")" readonly />
+                        <div class="form-text">Locked: the distilled model has no negative branch, so no negative prompt exists.</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Canvas</label>
+                        <select class="form-select" value="@_canvasKey" @onchange="OnCanvasChanged">
+                            <option value="1344x768">1344 × 768 (proven, 768p short edge)</option>
+                            <option value="768x1344">768 × 1344 portrait (unproven)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">FPS</label>
+                        <input type="text" class="form-control" value="@(_resolvedModel is null ? "—" : _resolvedModel.H3.Fps.ToString())" readonly />
+                        <div class="form-text">Fixed by the node.</div>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Seed</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" @bind="_seedValue" />
+                            <button class="btn btn-outline-secondary" @onclick="RandomizeSeed" title="Randomize"><i class="bi bi-dice-5"></i></button>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Frame length</label>
+                        @if (_resolvedModel is null)
+                        {
+                            <input type="text" class="form-control" value="—" readonly />
+                            <div class="form-text">Choose a video model first.</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex gap-2">
+                                @foreach (var preset in new[] { _resolvedModel.H3.FramePolicy.PresetShortFrames, _resolvedModel.H3.FramePolicy.PresetLongFrames })
+                                {
+                                    var presetValue = preset;
+                                    <button class="btn btn-sm @(_frameLength == presetValue ? "btn-primary" : "btn-outline-primary")"
+                                            @onclick="() => _frameLength = presetValue">
+                                        @presetValue frames (@((presetValue / (double)_resolvedModel.H3.Fps).ToString("0.0"))s)
+                                    </button>
+                                }
+                            </div>
+                            <select class="form-select mt-2" value="@_frameLength" @onchange="args => _frameLength = ParseInt(args, _frameLength)">
+                                @foreach (var frames in TrainedFrameLengths())
+                                {
+                                    <option value="@frames">@frames frames — @((frames / (double)_resolvedModel.H3.Fps).ToString("0.0"))s@(frames > _resolvedModel.H3.FramePolicy.WarnAboveFrames ? " (long — up to ~100 min)" : string.Empty)</option>
+                                }
+                            </select>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="untrained-override" @bind="_allowUntrainedLength" />
+                                <label class="form-check-label small" for="untrained-override">
+                                    Allow a length outside the trained range (a deliberate override)
+                                </label>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                break;
+
+            case "prompt":
+                @* ---------- Prompt (R7) ---------- *@
+                <div class="row g-3">
+                    <div class="col-12 d-flex justify-content-between align-items-center">
+                        <div class="small text-muted">
+                            Compiler <span class="font-monospace">@_compilation?.CompilerKey</span> v<span class="font-monospace">@_compilation?.CompilerVersion</span>
+                            @if (_record.PromptManuallyEdited)
+                            {
+                                <span class="badge bg-warning text-dark ms-2">manual override — flagged on the attempt</span>
+                            }
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="manual-prompt" @bind="_manualPromptEdit" />
+                            <label class="form-check-label small" for="manual-prompt">Edit compiled prompt</label>
+                        </div>
+                    </div>
+                    @if (_manualPromptEdit)
+                    {
+                        <div class="col-12">
+                            <textarea class="form-control font-monospace" rows="16" @bind="_manualPrompt" @bind:event="oninput"></textarea>
+                            <div class="form-text">A manual edit is persisted and flagged so the attempt's provenance is honest.</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="col-12">
+                            <pre class="border rounded p-2 bg-body-tertiary" style="white-space: pre-wrap; max-height: 26rem; overflow: auto;">@_promptText</pre>
+                        </div>
+                    }
+                    <div class="col-12">
+                        @{
+                            var blocking = _compilation?.BlockingFailures.Count ?? 0;
+                            var advisories = _compilation?.Advisories.Count ?? 0;
+                        }
+                        <div class="small mb-1">
+                            @if (blocking > 0)
+                            {
+                                <span class="badge bg-danger me-1">@blocking blocking</span>
+                                <span>Queueing is disabled until these are fixed — they mean the document or the render graph would be malformed.</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success me-1">queueable</span>
+                                <span>No blocking issues. Every remaining item is advisory: it improves the render's quality but does not stop it.</span>
+                            }
+                            @if (advisories > 0)
+                            {
+                                <span class="badge bg-warning text-dark ms-1">@advisories advisory</span>
+                            }
+                        </div>
+                        <table class="table table-sm">
+                            <thead>
+                                <tr><th style="width:6rem">Rule</th><th style="width:12rem">Section</th><th style="width:7rem">Result</th><th>Detail</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var finding in _compilation?.Findings ?? [])
+                                {
+                                    <tr class="@(finding.Passed ? null : finding.IsAdvisory ? "table-warning" : "table-danger")">
+                                        <td class="font-monospace">@finding.RuleId</td>
+                                        <td>@finding.Section</td>
+                                        <td>@(finding.Passed ? "pass" : finding.IsAdvisory ? "advisory" : "FAIL")</td>
+                                        <td class="small">@finding.Message</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                break;
+
+            case "queue":
+                @* ---------- Queue (R3) ---------- *@
+                <div class="row g-3">
+                    @if (_record.Id == Guid.Empty.ToString("N") || string.IsNullOrWhiteSpace(_record.JobId))
+                    {
+                        <div class="col-12">
+                            <div class="alert alert-secondary small mb-0">
+                                This composition has not been queued yet. <strong>Stage for later</strong> records it and
+                                waits for a Start; <strong>Start now</strong> queues it immediately.
+                            </div>
+                        </div>
+                    }
+                    @if (_job is not null)
+                    {
+                        <div class="col-md-6">
+                            <div class="border rounded p-2 small">
+                                <div>Job <span class="font-monospace">@_job.Id</span></div>
+                                <div>Status: <strong>@_job.Status</strong> · attempts @_job.AttemptCount/@_job.MaxAttempts</div>
+                                @if (!string.IsNullOrWhiteSpace(_job.ErrorMessage))
+                                {
+                                    <div class="text-danger">@_job.ErrorCode: @_job.ErrorMessage</div>
+                                }
+                                <div class="d-flex gap-2 mt-2">
+                                    <button class="btn btn-sm btn-success" @onclick="StartNowAsync"
+                                            disabled="@(_busy || _job.Status != DurableBackgroundJobStatus.Staged)">
+                                        <i class="bi bi-play-fill me-1"></i>Start
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="CancelAsync"
+                                            disabled="@(_busy || _job.Status is DurableBackgroundJobStatus.Complete or DurableBackgroundJobStatus.Cancelled or DurableBackgroundJobStatus.Failed)">
+                                        <i class="bi bi-x-lg me-1"></i>Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    @if (_record.Status == SceneVideoStatus.Complete)
+                    {
+                        <div class="col-md-6">
+                            <div class="border rounded p-2">
+                                <div class="small">
+                                    <span class="badge @(_record.VideoStreamPresent == true ? "bg-success" : "bg-danger")">video stream</span>
+                                    <span class="badge @(_record.AudioStreamPresent == true ? "bg-success" : "bg-danger")">audio stream</span>
+                                    <span class="badge bg-secondary">@(_record.MeasuredLoudnessLufs is null ? "loudness unknown" : $"measured {_record.MeasuredLoudnessLufs:0.#} LUFS")</span>
+                                    @if (_record.LoudnessTargetLufs is not null)
+                                    {
+                                        <span class="badge bg-secondary">target @(_record.LoudnessTargetLufs.Value.ToString("0.#")) LUFS</span>
+                                    }
+                                    @if (_record.MeasuredDurationSeconds is not null)
+                                    {
+                                        <span class="badge bg-secondary">@(_record.MeasuredDurationSeconds.Value.ToString("0.0"))s</span>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(_record.VerificationNotes))
+                                {
+                                    <div class="alert alert-warning small mt-2 mb-0">@_record.VerificationNotes</div>
+                                }
+                                @if (ReadDriftMetrics(_record.DriftMetricsJson) is { } drift)
+                                {
+                                    <div class="small text-muted mt-2">
+                                        <strong>drift</strong>
+                                        @if (drift.EdgeEnergyRatioToSource is not null)
+                                        {
+                                            <span class="badge bg-secondary ms-1">sharpness @(drift.EdgeEnergyRatioToSource.Value.ToString("0.00"))&times; anchor</span>
+                                        }
+                                        @if (drift.LuminanceMean is not null)
+                                        {
+                                            <span class="badge bg-secondary ms-1">luma @(drift.LuminanceMean.Value.ToString("0.0"))</span>
+                                        }
+                                        @if (drift.LuminanceLowPercentile is not null)
+                                        {
+                                            <span class="badge bg-secondary ms-1">shadows @(drift.LuminanceLowPercentile.Value.ToString("0.0"))</span>
+                                        }
+                                        @if (drift.LuminanceHighPercentile is not null)
+                                        {
+                                            <span class="badge bg-secondary ms-1">highlights @(drift.LuminanceHighPercentile.Value.ToString("0.0"))</span>
+                                        }
+                                        @if (drift.SaturationMean is not null)
+                                        {
+                                            <span class="badge bg-secondary ms-1">chroma @(drift.SaturationMean.Value.ToString("0.0"))</span>
+                                        }
+                                        @if (drift.AudioTrebleToBassRatio is not null)
+                                        {
+                                            <span class="badge bg-secondary ms-1">treble/bass @(drift.AudioTrebleToBassRatio.Value.ToString("0.00"))</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(drift.Notes))
+                                        {
+                                            <div class="form-text">@drift.Notes</div>
+                                        }
+                                    </div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(_record.NormalizedFileRelativePath))
+                                {
+                                    <video class="w-100 mt-2" controls preload="metadata"
+                                           src="@VideoUrl(_record.NormalizedFileRelativePath)"></video>
+                                }
+                                <div class="d-flex gap-2 mt-2 flex-wrap">
+                                    <a class="btn btn-sm btn-outline-primary"
+                                       href="/roleplay/video-studio/continue/@_record.Id?kind=frame"
+                                       title="Start the next clip from this clip's final frame">
+                                        <i class="bi bi-skip-forward me-1"></i>Continue (frame only)
+                                    </a>
+                                    <a class="btn btn-sm btn-outline-primary"
+                                       href="/roleplay/video-studio/continue/@_record.Id?kind=audio"
+                                       title="Start the next clip from this clip's final frame and carry its audio track">
+                                        <i class="bi bi-skip-forward me-1"></i>Continue (frame + audio)
+                                    </a>
+                                </div>
+                                <div class="form-text">
+                                    A continuation regenerates the final frame rather than copying it, so quality drifts
+                                    a little at each join — keep chains short.
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    <div class="col-12">
+                        @if (_record.Status != SceneVideoStatus.Complete && LatestCompleted is not null)
+                        {
+                            @* A freshly opened composer has no output of its own, so the newest finished clip is offered
+                               here with its evidence instead of leaving the operator with an empty player. *@
+                            <div class="border rounded p-2 mb-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <strong>Latest finished clip</strong>
+                                    <span class="small text-muted">
+                                        @LatestCompleted.CreatedUtc.ToLocalTime().ToString("g") ·
+                                        @(LatestCompleted.MeasuredDurationSeconds is null ? "duration unknown" : $"{LatestCompleted.MeasuredDurationSeconds.Value:0.0}s")
+                                    </span>
+                                </div>
+                                <video class="w-100 mt-2" controls preload="metadata"
+                                       src="@VideoUrl(LatestCompleted.NormalizedFileRelativePath!)"></video>
+                                <div class="d-flex gap-2 mt-2">
+                                    <a class="btn btn-sm btn-outline-primary"
+                                       href="/roleplay/video-studio/continue/@LatestCompleted.Id?kind=frame">Continue (frame only)</a>
+                                    <a class="btn btn-sm btn-outline-primary"
+                                       href="/roleplay/video-studio/continue/@LatestCompleted.Id?kind=audio">Continue (frame + audio)</a>
+                                </div>
+                            </div>
+                        }
+                        <strong>Recent compositions</strong>
+                        <table class="table table-sm mt-2">
+                            <thead>
+                                <tr><th>Title</th><th>Status</th><th>Frames</th><th>Created</th><th></th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var recent in _recent)
+                                {
+                                    var recentId = recent.Id;
+                                    <tr>
+                                        <td>@(string.IsNullOrWhiteSpace(recent.Title) ? "(untitled)" : recent.Title)</td>
+                                        <td>@recent.Status</td>
+                                        <td>@recent.Length</td>
+                                        <td class="small text-muted">@recent.CreatedUtc.ToLocalTime().ToString("g")</td>
+                                        <td>
+                                            @if (!string.IsNullOrWhiteSpace(recent.NormalizedFileRelativePath))
+                                            {
+                                                <a class="btn btn-sm btn-outline-secondary" href="@VideoUrl(recent.NormalizedFileRelativePath)" target="_blank">Open</a>
+                                                <a class="btn btn-sm btn-outline-primary ms-1"
+                                                   href="/roleplay/video-studio/continue/@recent.Id?kind=frame">Continue</a>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                break;
+        }
+    </div>
+</div>
+
+@code {
+    private static readonly Dictionary<string, string> Tabs = new()
+    {
+        ["intent"] = "Intent",
+        ["references"] = "References",
+        ["audio"] = "Audio",
+        ["model"] = "Model & LoRAs",
+        ["sampling"] = "Sampling & Output",
+        ["prompt"] = "Prompt",
+        ["queue"] = "Queue"
+    };
+
+    private static readonly string[] CameraMotionTypes =
+    [
+        "Zoom In", "Zoom Out", "Push In", "Pull Out", "Pan Left", "Pan Right",
+        "Truck Left", "Truck Right", "Tilt Up", "Tilt Down", "Pedestal Up", "Pedestal Down",
+        "Arc Shot", "Tracking Shot", "Static Shot", "Shake Slightly", "Shake Strongly",
+        "POV", "Roll Clockwise", "Roll Counterclockwise"
+    ];
+
+    [Parameter] public string? SessionId { get; set; }
+    [Parameter] public string? InteractionId { get; set; }
+    [Parameter] public string? SourceImageId { get; set; }
+    [Parameter] public string? AssetImageId { get; set; }
+    [Parameter] public string? CoveragePlanId { get; set; }
+
+    /// <summary>The finished clip this composition continues (B-156). Set by the /continue route.</summary>
+    [Parameter] public string? SourceVideoId { get; set; }
+
+    /// <summary>"audio" carries the source's track forward; anything else (or absent) is frame-only.</summary>
+    [Parameter] public string? ContinueKind { get; set; }
+
+    private readonly SceneVideoRecord _record = new();
+    private readonly List<SceneVideoReference> _references = [];
+    private readonly List<SceneVideoShot> _shots = [];
+    private readonly List<SceneVideoDialogueLine> _dialogue = [];
+    private readonly List<SceneVideoOnScreenText> _onScreenText = [];
+    private readonly List<SceneVideoCandidate> _candidates = [];
+    private readonly List<SceneImageModelChoice> _videoModels = [];
+    private readonly List<SceneImageLoraSelection> _loraSelections = [];
+
+    private string _activeTab = "intent";
+    private SceneVideoSeed? _seed;
+    private SceneVideoCompilationResult? _compilation;
+    private SceneVideoContinuationSeed? _continuation;
+    private ResolvedVideoModel? _resolvedModel;
+    private DurableBackgroundJob? _job;
+    private IReadOnlyList<SceneVideoRecord> _recent = [];
+
+    /// <summary>The newest finished clip, offered with a player when this composition has no output of its own.</summary>
+    private SceneVideoRecord? LatestCompleted =>
+        _recent.FirstOrDefault(record =>
+            record.Status == SceneVideoStatus.Complete
+            && !string.IsNullOrWhiteSpace(record.NormalizedFileRelativePath));
+    private string _promptText = string.Empty;
+    private string _manualPrompt = string.Empty;
+    private bool _manualPromptEdit;
+    private bool _allowUntrainedLength;
+    private string _style = string.Empty;
+    private string _sceneDescription = string.Empty;
+    private string _soundscape = string.Empty;
+    private string _music = string.Empty;
+    private bool _soundscapeSilent;
+    private bool _musicNone = true;
+    private string _title = string.Empty;
+    private string _selectedModelId = string.Empty;
+    private string _canvasKey = "1344x768";
+    private string _refImageSize = "match";
+    private string _addReferencePath = string.Empty;
+    private string? _error;
+    private string? _notice;
+    private string? _modelError;
+    private string? _referenceError;
+    private string? _connectionResult;
+    private bool _busy;
+    private int _steps = 40;
+    private int _frameLength = 124;
+    private long _seedValue = 1;
+    private SceneVideoContentRegister _register = SceneVideoContentRegister.Explicit;
+    private SceneImageModelFamily _selectedFamily = SceneImageModelFamily.Unknown;
+
+    private double _duration => _resolvedModel is null ? 0 : _frameLength / (double)_resolvedModel.H3.Fps;
+    private int _descriptionWords => CountWords(_sceneDescription);
+    private int _minWords => 350;
+    private int _maxWords => 500;
+
+    /// <summary>
+    /// The configured chain budget, read from the resolved video model (never a code default). It is what the
+    /// continuation banner reports and what the service enforces before a continuation can be queued.
+    /// </summary>
+    private int _maxContinuationChainLength =>
+        _resolvedModel?.H3.MaxContinuationChainLength ?? 0;
+    private int _soundscapeSentences => _soundscapeSilent ? 0 : CountSentences(_soundscape);
+    private bool _compilationValid => _compilation?.IsValid == true;
+
+    private string _taskType =>
+        _references.Any(reference => reference.Role != SceneVideoReferenceRole.FrameAnchor)
+            ? "reference generation"
+            : _references.Count > 0 ? "keyframe completion" : "not determined";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // A continuation route prepares its anchor FIRST and then runs the normal load, so the page ends up in
+            // exactly the same state as any other composition - only its references and settings differ.
+            if (!string.IsNullOrWhiteSpace(SourceVideoId))
+            {
+                await LoadContinuationAsync();
+            }
+
+            await LoadSeedAsync();
+            _videoModels.AddRange(await ModelResolution.ListSceneVideoModelsAsync());
+
+            // Default to the configured default model (or the only one), so the page is usable immediately.
+            var preferred = _videoModels.FirstOrDefault(model => model.IsDefaultModel) ?? _videoModels.FirstOrDefault();
+            if (preferred is not null)
+            {
+                _selectedModelId = preferred.ModelId;
+                await ResolveSelectedModelAsync();
+            }
+
+            if (_seed is not null && !string.IsNullOrWhiteSpace(_seed.FileRelativePath))
+            {
+                _references.Add(new SceneVideoReference(
+                    SceneVideoReferenceRole.FrameAnchor,
+                    _seed.FileRelativePath,
+                    _seed.FileName ?? Path.GetFileName(_seed.FileRelativePath),
+                    SubjectDescription: null,
+                    RetentionMarker: "fully_preserved"));
+            }
+
+            if (_seed is not null && !string.IsNullOrWhiteSpace(_seed.CoverageCameraIntent))
+            {
+                // A coverage plan carries the shot's camera and motion intent verbatim, so it seeds the first shot
+                // instead of being retyped.
+                _shots.Add(BuildCoverageShot(1, _seed.CoverageCameraIntent));
+            }
+            else
+            {
+                _shots.Add(new SceneVideoShot(1, null, string.Empty, string.Empty));
+            }
+
+            _title = _seed?.SuggestedTitle ?? string.Empty;
+            _record.Title = _title;
+            await LoadCandidatesAsync();
+            await CompileAsync();
+            // Load the queue view on open, not only after a queue action: the recent list is the only place this page
+            // shows what has already been rendered, so an operator who opens the composer to look at a finished clip
+            // would otherwise see an empty table with no player.
+            await RefreshQueueAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private async Task LoadContinuationAsync()
+    {
+        var kind = string.Equals(ContinueKind, "audio", StringComparison.OrdinalIgnoreCase)
+            ? SceneVideoContinuationKind.FrameAndAudio
+            : SceneVideoContinuationKind.FrameOnly;
+
+        var seed = await VideoService.PrepareContinuationAsync(SourceVideoId!, kind);
+        _continuation = seed;
+
+        var source = seed.Source;
+
+        // The anchor frame is BOTH the prompt's first-frame reference and the guide the graph pins, so it is added
+        // as an ordinary FrameAnchor - exactly how the manual workaround seeded it - with the scene-video root named
+        // explicitly because the frame lives beside the clip it came from.
+        _references.Clear();
+        _references.Add(new SceneVideoReference(
+            SceneVideoReferenceRole.FrameAnchor,
+            seed.FrameRelativePath,
+            seed.FrameFileName,
+            SubjectDescription: null,
+            RetentionMarker: "fully_preserved",
+            StorageRoot: SceneVideoReferenceStorageRoot.SceneVideo));
+
+        // Everything else is cloned from the source so a continuation differs only in the beat being written.
+        _canvasKey = $"{source.Width}x{source.Height}";
+        _frameLength = source.Length;
+        _steps = source.Steps;
+        _seedValue = source.Seed;
+        _refImageSize = source.RefImageSize;
+        _register = Enum.TryParse<SceneVideoContentRegister>(
+            ReadSettingsValue(source.SettingsJson, "register"), out var register)
+            ? register
+            : SceneVideoContentRegister.Explicit;
+
+        _loraSelections.Clear();
+        _loraSelections.AddRange(DeserializeLoraSelections(source.LoraStackJson));
+
+        if (!string.IsNullOrWhiteSpace(source.RequestedModelId))
+        {
+            _selectedModelId = source.RequestedModelId;
+            await ResolveSelectedModelAsync();
+        }
+
+        // The description starts EMPTY on purpose: the compiler's rules assume [Shot 1] starts the action, so
+        // re-using the source's text would read as a repeat of the beat already rendered.
+        _sceneDescription = string.Empty;
+        _style = ReadSettingsValue(source.SettingsJson, "style") ?? string.Empty;
+        _soundscape = ReadSettingsValue(source.SettingsJson, "soundscape") ?? string.Empty;
+        _music = ReadSettingsValue(source.SettingsJson, "music") ?? string.Empty;
+        _title = string.IsNullOrWhiteSpace(source.Title) ? string.Empty : $"{source.Title} (continued)";
+        _record.Title = _title;
+    }
+
+    private static string? ReadSettingsValue(string? settingsJson, string key)
+    {
+        if (string.IsNullOrWhiteSpace(settingsJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(settingsJson);
+            return document.RootElement.TryGetProperty(key, out var value)
+                ? value.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the picker's selections from the recorded stack. A row that cannot be parsed is surfaced rather than
+    /// dropped, because rendering with a shorter stack than the source used is a different render.
+    /// </summary>
+    private IReadOnlyList<SceneImageLoraSelection> DeserializeLoraSelections(string? loraStackJson)
+    {
+        if (string.IsNullOrWhiteSpace(loraStackJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            var rows = JsonSerializer.Deserialize<List<LoraStackRow>>(loraStackJson) ?? [];
+            return rows
+                .Where(row => !string.IsNullOrWhiteSpace(row.FileName))
+                .Select(row => new SceneImageLoraSelection { FileName = row.FileName!, Strength = row.Strength })
+                .ToList();
+        }
+        catch (JsonException exception)
+        {
+            _referenceError = $"The source composition's LoRA stack could not be read ({exception.Message}), so the "
+                + "stack is empty. Re-add the LoRAs before queueing.";
+            return [];
+        }
+    }
+
+    private sealed record LoraStackRow(string? FileName, double? Strength);
+
+    /// <summary>
+    /// The recorded drift evidence for a continuation, or null when this block has none (an original render never has
+    /// any). The blob is read back with the same web naming policy it was written with; one that cannot be read is
+    /// surfaced rather than hidden, because "unmeasurable" and "never measured" are different claims.
+    /// </summary>
+    private SceneVideoDriftMetrics? ReadDriftMetrics(string? driftMetricsJson)
+    {
+        if (string.IsNullOrWhiteSpace(driftMetricsJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<SceneVideoDriftMetrics>(driftMetricsJson, DriftJsonOptions);
+        }
+        catch (JsonException exception)
+        {
+            _referenceError = $"The recorded drift metrics could not be read ({exception.Message}).";
+            return null;
+        }
+    }
+
+    private static readonly JsonSerializerOptions DriftJsonOptions = new(JsonSerializerDefaults.Web);
+
+    private async Task LoadSeedAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(SourceImageId))
+        {
+            _seed = await VideoService.ResolveSeedAsync(SceneVideoOriginKind.SceneImage, SourceImageId);
+        }
+        else if (!string.IsNullOrWhiteSpace(AssetImageId))
+        {
+            _seed = await VideoService.ResolveSeedAsync(SceneVideoOriginKind.AssetImage, AssetImageId);
+        }
+        else if (!string.IsNullOrWhiteSpace(CoveragePlanId))
+        {
+            _seed = await VideoService.ResolveSeedAsync(SceneVideoOriginKind.VideoCoveragePlan, CoveragePlanId);
+        }
+        else if (!string.IsNullOrWhiteSpace(SessionId) && !string.IsNullOrWhiteSpace(InteractionId))
+        {
+            _seed = null;
+        }
+    }
+
+    private static SceneVideoShot BuildCoverageShot(int number, string cameraIntent) =>
+        new(number, number == 1 ? null : null, cameraIntent, "Static Shot");
+
+    private async Task LoadCandidatesAsync()
+    {
+        _candidates.Clear();
+
+        if (!string.IsNullOrWhiteSpace(SessionId))
+        {
+            var images = await SceneImages.ListImagesBySessionAsync(SessionId);
+            foreach (var image in images.Where(image => !string.IsNullOrWhiteSpace(image.FileRelativePath)))
+            {
+                _candidates.Add(new SceneVideoCandidate(
+                    image.FileRelativePath!,
+                    $"{image.BeatId ?? "image"} · {image.FileRelativePath}"));
+            }
+        }
+        else if (_seed?.FileRelativePath is not null)
+        {
+            // The standalone/asset routes still let the origin image be re-added, which is how a second reference
+            // (the subject crop produced by the harness tool) joins the stack.
+            _candidates.Add(new SceneVideoCandidate(_seed.FileRelativePath, _seed.FileName ?? _seed.FileRelativePath));
+        }
+    }
+
+    private async Task OnModelChanged(ChangeEventArgs args)
+    {
+        _selectedModelId = args.Value?.ToString() ?? string.Empty;
+        await ResolveSelectedModelAsync();
+        await CompileAsync();
+    }
+
+    private async Task ResolveSelectedModelAsync()
+    {
+        _modelError = null;
+        _resolvedModel = null;
+        _selectedFamily = SceneImageModelFamily.Unknown;
+
+        if (string.IsNullOrWhiteSpace(_selectedModelId))
+        {
+            return;
+        }
+
+        try
+        {
+            _resolvedModel = await ModelResolution.ResolveVideoModelAsync(_selectedModelId);
+            _selectedFamily = _resolvedModel.Family;
+            _steps = _resolvedModel.H3.Steps;
+            _frameLength = _resolvedModel.H3.FramePolicy.PresetShortFrames;
+            _canvasKey = $"{_resolvedModel.H3.DefaultWidth}x{_resolvedModel.H3.DefaultHeight}";
+            _refImageSize = _resolvedModel.H3.DefaultRefImageSize;
+            _record.RequestedModelId = _selectedModelId;
+        }
+        catch (Exception exception)
+        {
+            _modelError = exception.Message;
+        }
+    }
+
+    private async Task TestConnectionAsync()
+    {
+        if (_resolvedModel is null) return;
+        _busy = true;
+        try
+        {
+            var (success, message) = await VideoClient.CheckVideoModelHealthAsync(_resolvedModel);
+            _connectionResult = (success ? "OK: " : "FAILED: ") + message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CompileAsync()
+    {
+        if (_resolvedModel is null)
+        {
+            _promptText = string.Empty;
+            _compilation = null;
+            return;
+        }
+
+        try
+        {
+            var input = new SceneVideoCompilationInput(
+                StyleDeclaration: _style,
+                SceneDescription: _sceneDescription,
+                References: _references,
+                Shots: _shots,
+                Dialogue: _dialogue,
+                OnScreenText: _onScreenText.Where(text => !string.IsNullOrWhiteSpace(text.Text)).ToList(),
+                Soundscape: _soundscapeSilent ? MiniMaxH3SceneVideoPromptCompiler.NotApplicableSentinel : _soundscape,
+                NonDiegeticMusic: _musicNone ? MiniMaxH3SceneVideoPromptCompiler.NotApplicableSentinel : _music,
+                ContentRegister: _register,
+                FrameLength: _frameLength,
+                Fps: _resolvedModel.H3.Fps,
+                FramePolicy: _resolvedModel.H3.FramePolicy,
+                MinWordCount: _minWords,
+                MaxWordCount: _maxWords,
+                VideoVaeName: _resolvedModel.H3.VideoVaeName,
+                AudioVaeName: _resolvedModel.H3.AudioVaeName,
+                AllowUntrainedLength: _allowUntrainedLength);
+
+            _compilation = new MiniMaxH3SceneVideoPromptCompiler().Compile(input);
+            _promptText = _compilation.Prompt;
+            if (!_manualPromptEdit)
+            {
+                _manualPrompt = _compilation.Prompt;
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private async Task StageAsync() => await EnqueueAsync(startImmediately: false);
+
+    private async Task StartNowAsync()
+    {
+        if (_job is not null && _job.Status == DurableBackgroundJobStatus.Staged)
+        {
+            await VideoService.StartStagedAsync(_record.Id);
+            await RefreshQueueAsync();
+            return;
+        }
+
+        await EnqueueAsync(startImmediately: true);
+    }
+
+    private async Task EnqueueAsync(bool startImmediately)
+    {
+        _busy = true;
+        _error = null;
+        _notice = null;
+        try
+        {
+            await CompileAsync();
+            if (!_compilationValid)
+            {
+                _activeTab = "prompt";
+                var blocking = _compilation?.BlockingFailures ?? [];
+                _error = blocking.Count == 0
+                    ? "The compiled prompt has failing rules; fix them before queueing."
+                    : $"The compiled prompt has {blocking.Count} blocking issue(s): "
+                      + string.Join("; ", blocking.Select(finding => $"{finding.RuleId} — {finding.Message}"));
+                return;
+            }
+
+            if (_resolvedModel is null)
+            {
+                _error = "Choose a video model first.";
+                return;
+            }
+
+            _record.Title = _title;
+            _record.PromptSnapshot = _manualPromptEdit ? _manualPrompt : _promptText;
+            _record.PromptManuallyEdited = _manualPromptEdit;
+            _record.CompilerKey = _compilation?.CompilerKey;
+            _record.CompilerVersion = _compilation?.CompilerVersion;
+            _record.ModelIdentifier = _resolvedModel.ModelIdentifier;
+            _record.ProviderName = _resolvedModel.ProviderName;
+            _record.Seed = _seedValue;
+            _record.Steps = _steps;
+            _record.Length = _frameLength;
+            _record.Fps = _resolvedModel.H3.Fps;
+            _record.RefImageSize = _refImageSize;
+            _record.OriginKind = _seed?.OriginKind ?? SceneVideoOriginKind.Standalone;
+            _record.OriginImageId = _seed?.OriginId;
+            _record.OriginCoveragePlanId = _seed?.OriginKind == SceneVideoOriginKind.VideoCoveragePlan ? _seed.OriginId : null;
+            _record.SessionId = _seed?.SessionId ?? SessionId;
+            _record.InteractionId = _seed?.InteractionId ?? InteractionId;
+
+            // B-156 lineage: recorded on the row so the chain, the anchor and the guide index survive a restart and
+            // so the render handler can materialise the guide without the seed object.
+            _record.SourceVideoId = _continuation?.Source.Id;
+            _record.ContinuationKind = _continuation?.Kind;
+            _record.GuideFrameIndex = _continuation?.GuideFrameIndex;
+            _record.SourceFrameRelativePath = _continuation?.FrameRelativePath;
+            _record.SourceFrameSha256 = _continuation?.FrameSha256;
+            _record.ReferencesJson = JsonSerializer.Serialize(_references);
+            _record.LoraStackJson = await BuildLoraStackJsonAsync();
+            _record.SettingsJson = JsonSerializer.Serialize(new
+            {
+                style = _style,
+                sceneDescription = _sceneDescription,
+                soundscape = _soundscapeSilent ? "N/A" : _soundscape,
+                music = _musicNone ? "N/A" : _music,
+                register = _register.ToString(),
+                canvas = _canvasKey
+            });
+
+            var (width, height) = ParseCanvas(_canvasKey);
+            _record.Width = width;
+            _record.Height = height;
+
+            await VideoService.EnqueueAsync(new SceneVideoComposeRequest(_record, _references, startImmediately));
+
+            _notice = startImmediately
+                ? "Queued. A trained-range render takes roughly 25 to 100 minutes on the GPU."
+                : "Staged. Start it from the Queue tab when the GPU is free.";
+            await RefreshQueueAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<string?> BuildLoraStackJsonAsync()
+    {
+        if (_loraSelections.Count == 0)
+        {
+            return null;
+        }
+
+        var rows = new List<object>();
+        foreach (var selection in _loraSelections)
+        {
+            var catalogRow = await LoraCatalog.GetByFileNameAsync(selection.FileName);
+            rows.Add(new
+            {
+                FileName = selection.FileName,
+                Strength = selection.Strength ?? 1.0,
+                Purpose = catalogRow?.DisplayName,
+                TriggerToken = catalogRow?.TriggerToken
+            });
+        }
+
+        return JsonSerializer.Serialize(rows);
+    }
+
+    private async Task CancelAsync()
+    {
+        _busy = true;
+        try
+        {
+            await VideoService.CancelAsync(_record.Id);
+            await RefreshQueueAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RefreshQueueAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(_record.JobId))
+        {
+            _job = await DurableJobs.GetAsync(_record.JobId);
+        }
+
+        _recent = await VideoService.ListRecentAsync(10);
+    }
+
+    private void AddShot()
+    {
+        var number = _shots.Count + 1;
+        _shots.Add(new SceneVideoShot(number, "00:00.000", string.Empty, string.Empty));
+    }
+
+    private void RemoveShot(int index)
+    {
+        if (_shots.Count <= 1) return;
+        _shots.RemoveAt(index);
+        for (var i = 0; i < _shots.Count; i++)
+        {
+            _shots[i] = _shots[i] with { Number = i + 1, CutTime = i == 0 ? null : _shots[i].CutTime };
+        }
+    }
+
+    private void SetCutTime(int index, ChangeEventArgs args) =>
+        _shots[index] = _shots[index] with { CutTime = args.Value?.ToString() };
+
+    private void SetCameraMotion(int index, ChangeEventArgs args) =>
+        _shots[index] = _shots[index] with { CameraMotionType = args.Value?.ToString() ?? string.Empty };
+
+    private void SetCameraAmplitude(int index, ChangeEventArgs args) =>
+        _shots[index] = _shots[index] with { CameraAmplitude = string.IsNullOrWhiteSpace(args.Value?.ToString()) ? null : args.Value!.ToString() };
+
+    private void SetCameraSpeed(int index, ChangeEventArgs args) =>
+        _shots[index] = _shots[index] with { CameraSpeed = string.IsNullOrWhiteSpace(args.Value?.ToString()) ? null : args.Value!.ToString() };
+
+    private void SetShotDescription(int index, ChangeEventArgs args) =>
+        _shots[index] = _shots[index] with { Description = args.Value?.ToString() ?? string.Empty };
+
+    private void SetOnScreenText(int index, ChangeEventArgs args) =>
+        _onScreenText[index] = _onScreenText[index] with { Text = args.Value?.ToString() ?? string.Empty };
+
+    private void AddDialogue()
+    {
+        _dialogue.Add(new SceneVideoDialogueLine(
+            Order: _dialogue.Count + 1,
+            ShotNumber: 1,
+            SpeakerName: string.Empty,
+            SubjectLabel: null,
+            IdentityInfo: string.Empty,
+            LanguageCode: "English",
+            Content: string.Empty,
+            Delivery: string.Empty));
+    }
+
+    private void SetDialogue(int index, ChangeEventArgs args, string field)
+    {
+        var value = args.Value?.ToString() ?? string.Empty;
+        var line = _dialogue[index];
+        _dialogue[index] = field switch
+        {
+            "speaker" => line with { SpeakerName = value },
+            "label" => line with { SubjectLabel = string.IsNullOrWhiteSpace(value) ? null : value },
+            "language" => line with { LanguageCode = value },
+            "delivery" => line with { Delivery = value },
+            "identity" => line with { IdentityInfo = value },
+            "content" => line with { Content = value },
+            "shot" => line with { ShotNumber = ParseInt(args, line.ShotNumber) },
+            "order" => line with { Order = ParseInt(args, line.Order) },
+            _ => line
+        };
+    }
+
+    private void SetDialogueFlag(int index, string flag, ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString() == "true";
+        var line = _dialogue[index];
+        _dialogue[index] = flag switch
+        {
+            "offscreen" => line with { OffScreen = value },
+            "voiceover" => line with { Voiceover = value },
+            _ => line
+        };
+    }
+
+    private void SetDialogueContinuity(int index, ChangeEventArgs args) =>
+        _dialogue[index] = _dialogue[index] with
+        {
+            Continuity = Enum.TryParse<SceneVideoCutContinuity>(args.Value?.ToString(), out var continuity)
+                ? continuity
+                : SceneVideoCutContinuity.None
+        };
+
+    private void MoveReference(int index, int offset)
+    {
+        var target = index + offset;
+        if (target < 0 || target >= _references.Count) return;
+        var reference = _references[index];
+        _references.RemoveAt(index);
+        _references.Insert(target, reference);
+    }
+
+    private void SetReferenceRole(int index, ChangeEventArgs args) =>
+        _references[index] = _references[index] with
+        {
+            Role = Enum.TryParse<SceneVideoReferenceRole>(args.Value?.ToString(), out var role)
+                ? role
+                : SceneVideoReferenceRole.FrameAnchor
+        };
+
+    private void SetReferenceRetention(int index, ChangeEventArgs args) =>
+        _references[index] = _references[index] with { RetentionMarker = args.Value?.ToString() };
+
+    private void SetReferenceDescription(int index, ChangeEventArgs args) =>
+        _references[index] = _references[index] with { SubjectDescription = args.Value?.ToString() };
+
+    private void AddReferenceAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_addReferencePath)) return;
+        _references.Add(new SceneVideoReference(
+            SceneVideoReferenceRole.SubjectDefinition,
+            _addReferencePath,
+            Path.GetFileName(_addReferencePath),
+            SubjectDescription: null,
+            RetentionMarker: "fully_preserved"));
+        _addReferencePath = string.Empty;
+    }
+
+    private void OnCanvasChanged(ChangeEventArgs args)
+    {
+        _canvasKey = args.Value?.ToString() ?? _canvasKey;
+    }
+
+    private void OnLorasChanged(IReadOnlyList<SceneImageLoraSelection> selections)
+    {
+        _loraSelections.Clear();
+        _loraSelections.AddRange(selections);
+    }
+
+    private void RandomizeSeed() => _seedValue = Random.Shared.Next(1, int.MaxValue);
+
+    /// <summary>The lengths the model's configured band offers, as the composer's dropdown.</summary>
+    private IEnumerable<int> TrainedFrameLengths()
+    {
+        if (_resolvedModel is null) yield break;
+        var policy = _resolvedModel.H3.FramePolicy;
+        for (var frames = policy.TrainedMinFrames; frames <= policy.TrainedMaxFrames; frames += policy.FrameStep)
+        {
+            yield return frames;
+        }
+    }
+
+    private static (int Width, int Height) ParseCanvas(string key)
+    {
+        var parts = key.Split('x');
+        return parts.Length == 2 && int.TryParse(parts[0], out var width) && int.TryParse(parts[1], out var height)
+            ? (width, height)
+            : (1344, 768);
+    }
+
+    private static int ParseInt(ChangeEventArgs args, int fallback) =>
+        int.TryParse(args.Value?.ToString(), out var value) ? value : fallback;
+
+    private static int CountWords(string? text) =>
+        string.IsNullOrWhiteSpace(text)
+            ? 0
+            : text.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Length;
+
+    private static int CountSentences(string? text) =>
+        string.IsNullOrWhiteSpace(text)
+            ? 0
+            : text.Split(['.', '!', '?'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+
+    private static string ImageUrl(string relativePath) => $"/scene-images/{relativePath}";
+
+    private static string VideoUrl(string relativePath) => $"/scene-videos/{relativePath}";
+
+    /// <summary>
+    /// The URL a stored reference is served from. A reference names its own root: a continuation's anchor frame lives
+    /// under the scene-video root, so requesting it from the scene-image root would show a broken thumbnail for the
+    /// one reference the operator most needs to see.
+    /// </summary>
+    private static string ReferenceUrl(SceneVideoReference reference) =>
+        reference.StorageRoot == SceneVideoReferenceStorageRoot.SceneVideo
+            ? VideoUrl(reference.FileRelativePath)
+            : ImageUrl(reference.FileRelativePath);
+
+    private sealed record SceneVideoCandidate(string FileRelativePath, string Label);
+}

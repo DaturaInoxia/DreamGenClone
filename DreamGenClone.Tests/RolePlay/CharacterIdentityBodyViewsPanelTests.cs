@@ -67,8 +67,9 @@ public sealed class CharacterIdentityBodyViewsPanelTests
 
     /// <summary>
     /// The panel is a compare deck, not a single-result view (operator decision, 2026-09-22): every attempt the view
-    /// has produced stays listed, and each one shows the prompt that made it AND the model that ran it — the two
-    /// things being compared when tuning a body. A re-run must never make the previous result unreachable.
+    /// has produced stays listed, and each can be decided without deleting anything. The card is the shared ImageCard
+    /// (operator request: it must match the asset studio card), so a candidate's prompt is restored through the card's
+    /// "load into generator" action rather than shown inline. A re-run must never make the previous result unreachable.
     /// </summary>
     [Fact]
     public void TheGridListsEveryCandidate_WithItsPromptAndModel()
@@ -81,11 +82,11 @@ public sealed class CharacterIdentityBodyViewsPanelTests
         Assert.Contains("CandidatesFor(key)", panel, StringComparison.Ordinal);
         Assert.Contains("key.BatchIdFor(BuildId)", panel, StringComparison.Ordinal);
 
-        // Each candidate shows its prompt and its model, and can be decided without deleting anything.
-        Assert.Contains("@candidate.Prompt", panel, StringComparison.Ordinal);
-        Assert.Contains("CandidateModel(candidate)", panel, StringComparison.Ordinal);
-        Assert.Contains("modelIdentifier", panel, StringComparison.Ordinal);
+        // Each candidate can be decided without deleting anything, and its prompt is restored into the view's prompt
+        // box through the card's load-into-generator action — the asset-studio card's own round-trip.
         Assert.Contains("SetImageCandidateDecisionAsync", panel, StringComparison.Ordinal);
+        Assert.Contains("LoadIntoGeneratorRequested=\"() => LoadCandidatePromptAsync(key, candidate)\"", panel, StringComparison.Ordinal);
+        Assert.Contains("private Task LoadCandidatePromptAsync(CharacterIdentityBodyViewKey key, SceneAssetImage candidate)", panel, StringComparison.Ordinal);
     }
 
     /// <summary>

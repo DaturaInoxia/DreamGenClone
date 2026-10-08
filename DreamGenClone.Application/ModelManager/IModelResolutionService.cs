@@ -83,4 +83,29 @@ public interface IModelResolutionService
         bool identityCapableOnly,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Resolve the video model a clip is rendered with (B-152). Uses the model pinned by the caller when given,
+    /// otherwise the <see cref="AppFunction.RolePlaySceneVideo"/> function default. Fails fast when no video model is
+    /// assigned, the model is not video-kind, the provider is not a ComfyUI endpoint, the family/dialect pair is
+    /// invalid, or the H3 qualification is incomplete (naming the exact setting).
+    /// <para>
+    /// Deliberately imposes NO content policy: video has no content gate by operator decision (D-8).
+    /// </para>
+    /// <para>
+    /// Default implementation throws so test doubles that do not exercise video keep compiling; the production
+    /// <c>ModelResolutionService</c> overrides it with the real, deterministic resolution.
+    /// </para>
+    /// </summary>
+    Task<ResolvedVideoModel> ResolveVideoModelAsync(
+        string? modelId = null,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            $"This model-resolution implementation does not support {nameof(ResolveVideoModelAsync)}.");
+
+    /// <summary>List enabled video models for the Video Composer's model selector.</summary>
+    Task<IReadOnlyList<SceneImageModelChoice>> ListSceneVideoModelsAsync(
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            $"This model-resolution implementation does not support {nameof(ListSceneVideoModelsAsync)}.");
+
 }

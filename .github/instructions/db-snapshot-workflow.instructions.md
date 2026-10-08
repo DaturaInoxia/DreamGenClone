@@ -44,7 +44,7 @@ See `docs/db-snapshot-setup.md` (ships in the repo). Short version:
 1. `git clone <repo>` (gets `snapshot.db` + full content)
 2. `copy DreamGenClone.Web\data\dreamgenclone.snapshot.db DreamGenClone.Web\data\dreamgenclone.dev.db`
 3. Run `powershell -ExecutionPolicy Bypass -File helpers/dbq.ps1 b100-analyzer-configure`
-4. Start via `helpers/start-webapp-dev-clean.ps1`
+4. Start via `helpers/publish-and-run.ps1` (runs the app from `artifacts\runtime\web\<release>`, so `bin`/`obj` stay free for builds)
 5. Re-enter provider API keys once (Settings → Providers)
 
 ## Tooling

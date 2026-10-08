@@ -45,7 +45,7 @@ Restated as verifiable requirements. Every one of these is in scope for this ite
 | **D-3** | Where video attaches in the domain | A new **`SceneVideoRecord`** with an **optional origin** that may be (a) a **B-100 video coverage plan**, (b) a scene image, (c) an asset image, or (d) none â€” standalone. Settled 2026-10-06. | The operator's spec is an independent page that *may* be seeded from an image. Binding to a coverage plan when one exists keeps video intent in B-100's canonical hands and shrinks D-1 to execution-only, while the optional origin preserves the standalone case. `IMultimodalMediaCompiler` already carries `VideoCoveragePlanId`, so the linkage precedent exists. |
 | **D-4** | What supplies the reference image(s) | **Operator-controlled, ordered, 1..N, each with an explicit role.** The origin seeds the default: a coverage plan's `VideoFirstFrame` typed reference, or the scene image plus a one-click MediaPipe-derived subject crop (`make-ref-crop.py`). Settled 2026-10-06. | Proven quality config is 2 references (scene + subject crop); `ref_images` autogrows to **9** (verified from the node). Critically, the node requires the prompt's **`<Picture i>` number to match the slot order** ("Use the same tags when prompting"), so reference order is *semantic* and must be operator-controlled and stably renumbered on reorder. |
 | **D-5** | Audio | **Native audio kept and normalized.** Prompt-authored soundscape + diegetic/dialogue content; a required **loudness normalization** step to a configured target. `ref_audios` voice pinning is **deferred** (slice S7). Audio is always produced, so the honest production kind is `VideoWithAudio`. | H3 generates audio in the same forward pass; measured âˆ’24 to âˆ’30 LUFS is ~12 dB too quiet to ship. |
-| **D-6** | Duration policy | **Trained range only: 124â€“362 frames (5.2â€“15.1 s)**, with **124 and 192 as the proven presets** and a UI warning above 192. Settled 2026-10-06 from the node's own schema. | The node accepts `min 5 / max 3600 / step 17` but documents the **trained range as ~124â€“362**; 56 is accepted yet untrained. Measured cost is ~0.28 min/frame (124 â‰ˆ 23â€“30 min; 192 â‰ˆ 53 min), so 362 â‰ˆ ~100 min is the practical ceiling. Multi-shot chaining remains out of scope. |
+| **D-6** | Duration policy | **Trained range only: 124â€“362 frames (5.2â€“15.1 s)**, with **124 and 192 as the proven presets** and a UI warning above 192. Settled 2026-10-06 from the node's own schema. | The node accepts `min 5 / max 3600 / step 17` but documents the **trained range as ~124â€“362**; 56 is accepted yet untrained. Measured cost is ~0.28 min/frame (124 â‰ˆ 23â€“30 min; 192 â‰ˆ 53 min), so 362 â‰ˆ ~100 min is the practical ceiling. Multi-shot chaining is **no longer out of scope**: **B-156** continues a finished clip by anchoring the next render to that clip's final frame through the native `MiniMaxH3AddGuide` node, under a configured chain budget because drift accumulates per join ([B-156 plan](../B-156-clip-continuation/plan.md)). A chain is a lineage of separate clips, not a longer single-shot window. |
 | **D-7** | Lease strategy | **Reuse the existing renewing executor.** Add the video lane to `SupportedLanes` and add a **video `AppFunction` default** with concurrency **1** and its own lease/poll/retry bounds. Settled 2026-10-06. | **Correction to the handoff:** lease renewal already exists â€” [`TextAnalysisDurableJobExecutor.RenewLeaseAsync`](../../../DreamGenClone.Web/Application/BackgroundJobs/TextAnalysisDurableJobExecutor.cs:174) renews while a job runs (with an `onLeaseLost` callback) and the worker reclaims expired leases. The `1â€“3600` bound appears **only** in `ValidateSceneBeatAnalyzerConfiguration`, so it is not a global job-duration ceiling. **No new mechanism is needed.** |
 | **D-8** | NSFW gating | **None. No content-policy controls and no content limits on video** (operator constraint, 2026-10-06). Video model resolution must **not** demand a content policy, and nothing may block, flag, or cap video content. | Explicit operator requirement â€” do not re-introduce a gate. The local H3 pipeline has no runtime moderation, and the operator has chosen that the app imposes none either. The existing provider-level `ImageContentPolicy` stays **exactly as-is for images** ([`ImageContentPolicy.cs`](../../../DreamGenClone.Domain/ModelManager/ImageContentPolicy.cs), enforced at [`ModelManager.razor:1004`](../../../DreamGenClone.Web/Components/Pages/ModelManager.razor:1004)) and is **not** extended to video. |
 | **D-9** | 768p ceiling | **Accept 768p short edge** (1344Ã—768). No upscale pass. | H3-Regenerate-2K is not open-sourced; an external upscaler is a separate item. |
@@ -117,8 +117,8 @@ enum, and nothing is a code-only default.
 | Field | Control | Source / validation |
 |---|---|---|
 | Composition title | text | Stored on the record; shown in Queue history and the recent-videos list |
-| Style declaration | textarea (1â€“2 sentences) | **Required** â€” lands *before* `[Shot 1]` (rule 10); hint text says so |
-| Scene / action description | textarea with **live word counter** | Target band 350â€“500 words (rule 11); counter warns outside the band; dialogue-dense content may prioritise the spoken timeline (G-5) |
+| Style declaration | textarea (1â€“2 sentences) | **Recommended** (rule 10 is advisory) â€” lands *before* `[Shot 1]`; hint text says so |
+| Scene / action description | textarea with **live word counter** | Target band 350â€“500 words (rule 11, **advisory**); counter warns outside the band; dialogue-dense content may prioritise the spoken timeline (G-5). A short draft still renders |
 | Shots | list: `[Shot 1]` fixed, untimed; "Add shot" appends a row | Each added shot requires a cut time `MM:SS.mmm`; **strictly increasing** and within duration (rule 9); removing a shot renumbers |
 | Camera intent (per shot) | 3 dropdowns: motion type Â· amplitude Â· speed | Closed vocabulary (COMPILER-RESEARCH Â§5.4); amplitude/speed include "(medium/normal â€” omitted)" |
 | On-screen text entries | list of text inputs | Rendered verbatim in English double quotes (rule 13) |
@@ -181,9 +181,9 @@ warning on `max`.
 | Element | Behaviour |
 |---|---|
 | Compiled preview | Read-only render of the six sections, monospace, with the compiler key + version |
-| Validation results | The **33 rules as a checklist** â€” pass/fail per rule with the offending section and text; failing rules block queueing (no silent submit) |
+| Validation results | The **33 rules as a checklist** â€” pass/advisory/FAIL per rule with the offending section and text. Only BLOCKING rules stop queueing (no silent submit); quality targets (rules 10, 11, 17, 21â€“23, 31â€“33) are shown in amber and never block [COMPILER-RESEARCH.md Â§13](./COMPILER-RESEARCH.md) |
 | Manual override | "Edit compiled prompt" unlocks a textarea; the edit is **persisted and flagged** on the attempt for provenance; "Recompile" returns to compiler output |
-| Word count | Live counter against the 350â€“500 band |
+| Word count | Live counter against the 350â€“500 target band (advisory) |
 
 #### 3.2.7 Queue tab
 
@@ -403,6 +403,14 @@ S1â€“S3 produce a working, configurable video producer; S4â€“S6 make i
 - **New implementation item** (proposed next free number) for the Video Studio, referencing the
   slices in Â§8 â€” so the scoping record stays readable as a decision log rather than becoming a task
   list.
+- **B-155** - state `planned`, plan: [`specs/Planning/B-155-video-composition-drafts-and-library/plan.md`](../B-155-video-composition-drafts-and-library/plan.md).
+  **Extends D-3** (the record-only, queue-only composition model): a composition becomes a persisted,
+  resumable document (`SceneVideoStatus.Draft` + a versioned `ComposerStateJson` on the same row), `EnqueueAsync`
+  promotes that row in place, an origin route resumes that origin's newest draft (with an explicit
+  **New composition** action), and a shared composition list backs a new library page plus per-asset and
+  per-session embeds. It also carries the compliance fixes found while implementing B-153: the 350-500 word
+  band must stop being a page literal, draft retention must be configured, and two dead/missing UI links are
+  repaired. Nothing in it changes the compiler's rules or the advisory/blocking severity split.
 - The compiler rule set ([COMPILER-RESEARCH.md](./COMPILER-RESEARCH.md)) is the authoritative input
   for any future compiler change; deviations are reconciled by updating it **first** (constitution).
 
