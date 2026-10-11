@@ -41,10 +41,16 @@
 
     <div class="col-xl-5">
         <div class="card">
-            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
                 <span class="small fw-semibold">Your images</span>
-                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadImagesAsync"
-                        disabled="@_busy">Refresh</button>
+                <span class="d-flex align-items-center gap-2">
+                    <ImageCardStatusFilter Options="ImageCardStatus.Build(_images.Select(CardModel))"
+                                           Selected="_imageFilter"
+                                           SelectedChanged="key => _imageFilter = key"
+                                           Total="_images.Count" />
+                    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadImagesAsync"
+                            disabled="@_busy">Refresh</button>
+                </span>
             </div>
             <div class="card-body py-2">
                 @if (_images.Count == 0)
@@ -54,7 +60,7 @@
                 else
                 {
                     <div class="row g-2">
-                        @foreach (var image in _images)
+                        @foreach (var image in VisibleImages)
                         {
                             <div class="col-6">
                                 <div class="@(IsEditing(image.Id) ? "border border-primary rounded" : string.Empty)">
@@ -210,8 +216,26 @@
         },
         IsComplete = image.Status == SceneAssetStatus.Complete,
         ErrorMessage = image.ErrorMessage,
-        Subtitle = image.CreatedUtc.ToLocalTime().ToString("g")
+        Subtitle = image.CreatedUtc.ToLocalTime().ToString("g"),
+        DecisionKey = image.Status switch
+        {
+            SceneAssetStatus.Pending => ImageCardStatus.Pending,
+            SceneAssetStatus.Failed => ImageCardStatus.Failed,
+            _ => image.CandidateDecision switch
+            {
+                SceneAssetCandidateDecision.Accepted => ImageCardStatus.Accepted,
+                SceneAssetCandidateDecision.Shortlisted => ImageCardStatus.Shortlisted,
+                SceneAssetCandidateDecision.Rejected => ImageCardStatus.Rejected,
+                SceneAssetCandidateDecision.Revoked => ImageCardStatus.Revoked,
+                _ => ImageCardStatus.Undecided
+            }
+        }
     };
+
+    private string? _imageFilter;
+
+    private IEnumerable<SceneAssetImage> VisibleImages =>
+        _images.Where(image => ImageCardStatus.Matches(CardModel(image), _imageFilter));
 
     private void SelectImage(string imageId)
     {

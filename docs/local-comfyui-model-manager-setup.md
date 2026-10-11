@@ -19,8 +19,8 @@
 | Host | **WOOD-GAME-MAIN** (Windows 11, RTX 5080 16 GB, ComfyUI 0.34.0 at `D:\ComfyUI`) |
 | Service | `main.py --listen 0.0.0.0 --port 8188` |
 | Base URL (on the ComfyUI host itself) | `http://127.0.0.1:8188` |
-| Base URL (from other LAN hosts) | `http://192.168.0.11:8188` (reassigned 2026-09-21; the old `192.168.0.16` no longer routes) |
-| **Current provider `BaseUrl` on this system** | **`https://comfy.kenacwood.net`** — a public HTTPS front for the same ComfyUI (verified 2026-09-13: `/system_stats` → HTTP 200, `comfyui_version 0.34.0`). Use this from any host; the LAN URL is the fallback. Note the scheme: `http://…:8188` through the domain does **not** work (only HTTPS/443 is served). |
+| Base URL (from other LAN hosts) | **`http://192.168.0.10:8188`** (reassigned again 2026-10-10; previously `192.168.0.11`, and `192.168.0.16` before that — this host has moved LAN address three times, so prefer the hostname or a DHCP reservation) |
+| **Current provider `BaseUrl` on this system** | **`http://192.168.0.10:8188`** — set 2026-10-10 with `local-comfyui-configure`. The public HTTPS front (`https://comfy.kenacwood.net`) went to **Cloudflare 502** when the host moved to `.10`, because its tunnel origin still named `.11`; repointing the provider at the LAN URL removed that dependency (and with it the unauthenticated public exposure). Set it back to the HTTPS front only after the tunnel origin is fixed — ideally to `http://127.0.0.1:8188`, so it survives the next address change. The LAN URL is the fallback. Note the scheme: `http://…:8188` through the domain does **not** work (only HTTPS/443 is served). |
 | Protocol in Model Manager | `ImageProtocol = ComfyUi` (`/prompt`), **not** `ComfyUiServerless`, **not** a pod |
 | Generation checkpoints served | `juggernautXL_ragnarok.safetensors`, `bigLust_v16.safetensors`, `ponyDiffusionV6XL_v6.safetensors`, `ponyRealism_V23ULTRA.safetensors`, `flux1-dev-fp8.safetensors` |
 | Editor checkpoints served | `Qwen-Rapid-AIO-NSFW-v23.safetensors`, `qwenImageEditRemix_aioV20.safetensors` (both merged/AIO) |

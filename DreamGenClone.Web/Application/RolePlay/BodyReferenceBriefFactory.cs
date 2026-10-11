@@ -25,6 +25,7 @@ public interface IBodyReferenceBriefFactory
         CharacterBodyCard card,
         SceneImageReferenceBodyState state,
         BodyReferenceStance stance,
+        BodyPromptScope scope,
         bool requestIdentity = false,
         string? faceAssetId = null,
         CancellationToken cancellationToken = default);
@@ -129,11 +130,21 @@ public sealed class BodyReferenceBriefFactory : IBodyReferenceBriefFactory
         CharacterBodyCard card,
         SceneImageReferenceBodyState state,
         BodyReferenceStance stance,
+        BodyPromptScope scope,
         bool requestIdentity = false,
         string? faceAssetId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(card);
+
+        // Stated by the caller, never inferred from what happens to be bound: the scope is what decides whether the
+        // compiled prompt describes the build in words or points at the references that carry it.
+        if (!Enum.IsDefined(scope))
+        {
+            throw new InvalidOperationException(
+                $"Unsupported body prompt scope '{(int)scope}': a brief must state whether its prompt describes the "
+                + "body or points at the references.");
+        }
 
         if (string.IsNullOrWhiteSpace(characterTemplateId))
         {
@@ -172,6 +183,7 @@ public sealed class BodyReferenceBriefFactory : IBodyReferenceBriefFactory
 
             BodyState = state,
             Stance = stance,
+            Scope = scope,
 
             // Required. Both target families need an explicit age token or they fall back to their own prior, and
             // that prior is consistently younger than the character.

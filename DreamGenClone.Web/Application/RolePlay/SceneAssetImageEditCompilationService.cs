@@ -217,7 +217,7 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
     {
         if (string.IsNullOrWhiteSpace(request.EditorModelId)) throw new InvalidOperationException("An exact asset image editor model is required.");
         var source = await RequireSourceAsync(request.AssetId, request.SourceImageId, cancellationToken);
-        var session = await GetActiveSessionAsync(request.EditSessionId, cancellationToken);
+        var session = await GetSessionForRunAsync(request.EditSessionId, cancellationToken);
         if (!string.Equals(session.AssetId, source.AssetId, StringComparison.Ordinal) || !string.Equals(session.SourceImageId, source.Id, StringComparison.Ordinal)) throw new InvalidOperationException("The asset edit session does not belong to the selected source image and asset.");
         await using var stream = await _storage.OpenReadAsync(source.FileRelativePath!, cancellationToken);
         var input = await SceneImageMultimodalInput.ReadAsync(stream, int.MaxValue, cancellationToken);
@@ -521,6 +521,34 @@ public sealed class SceneAssetImageEditCompilationService : ISceneAssetImageEdit
     {
         var session = await _editRepository.GetSessionAsync(editSessionId, cancellationToken) ?? throw new InvalidOperationException($"Asset edit session '{editSessionId}' was not found.");
         if (session.Status == SceneAssetImageEditSessionStatus.Completed) throw new InvalidOperationException("A completed asset edit session cannot be changed.");
+        return session;
+    }
+
+    /// <summary>
+    /// The session a NEW RUN is about to use.
+    ///
+    /// <para>
+    /// A run is repeatable: the same source image, the same compiled attempt and the operator's current prompt can be
+    /// run again to produce another result. "Completed" records that the last run finished — not that this source
+    /// image may never be edited again — so running against a completed session REOPENS it and the row goes back to
+    /// Active. Without this the editor became read-only the moment its first edit succeeded, and pressing Run again
+    /// failed with "A completed asset edit session cannot be changed" (2026-10-08).
+    /// </para>
+    /// </summary>
+    private async Task<SceneAssetImageEditSession> GetSessionForRunAsync(string editSessionId, CancellationToken cancellationToken)
+    {
+        var session = await _editRepository.GetSessionAsync(editSessionId, cancellationToken)
+            ?? throw new InvalidOperationException($"Asset edit session '{editSessionId}' was not found.");
+
+        if (session.Status != SceneAssetImageEditSessionStatus.Completed)
+        {
+            return session;
+        }
+
+        await _editRepository.UpdateSessionStatusAsync(
+            session.Id, SceneAssetImageEditSessionStatus.Active, DateTime.UtcNow, cancellationToken: cancellationToken);
+        session.Status = SceneAssetImageEditSessionStatus.Active;
+        session.CompletedUtc = null;
         return session;
     }
 

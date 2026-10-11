@@ -146,6 +146,17 @@ public interface ICharacterIdentityBodyService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The camera clause an ANGLE render appends to its prompt, resolved from the one template store and filled
+    /// with the character name and the body line. It is the words that carry the facing direction the angle
+    /// skeleton cannot (the skeleton carries limb layout only — measured 2026-09-24), so the Generate Prompt
+    /// compile reads the same clause the render appends rather than spelling it a second time. Refuses for a view
+    /// with no angle-render clause (the front is the base and an extended view is an edit).
+    /// </summary>
+    Task<string> ResolveRenderClauseAsync(
+        string buildId, CharacterIdentityBodyViewKey key, string characterName,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Queues a configured-model generation of one view — the only route that produces an image without a source,
     /// and what a base uses (the two states of the front). The body card must be complete first.
     ///

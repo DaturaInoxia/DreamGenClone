@@ -5,6 +5,7 @@
 @using DreamGenClone.Application.RolePlay
 @using DreamGenClone.Application.Abstractions
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Components.Assets
 @inject IProducedImageRepository ProducedImages
 @inject IReferenceBootstrapService ReferenceBootstrapService
 @inject ISceneImageProductionService ProductionService
@@ -17,7 +18,7 @@
 @inject IPoseExtractionService PoseExtraction
 @inject IPoseTestRenderService PoseTestRender
 @inject IPoseLibraryService PoseLibrary
-@inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <PageTitle>Review Deck - DreamGenClone</PageTitle>
 
@@ -33,23 +34,43 @@
         font-size: 1rem;
         margin-bottom: .35rem;
     }
+
+    /* The metadata rail is exactly as tall as the row the image is in — it stretches to that row and scrolls only
+       once its own content is taller, so a long prompt can never hide the data beneath it. */
+    .deck-compact .review-deck-body {
+        align-items: stretch;
+    }
+
+    .deck-compact .review-deck-body > [class*="col-"] {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .deck-compact .review-deck-rail {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    /* Long unbroken values (checksums, JSON) wrap inside the rail instead of forcing a horizontal scrollbar. */
+    .deck-compact .review-deck-rail pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    /* The audit-trail identifiers sit at the very bottom, after everything an operator actually judges by. */
+    .deck-compact .review-deck-rail-footer {
+        border-top: 1px solid var(--dgc-border, #333);
+        padding-top: .5rem;
+        margin-top: .75rem;
+    }
 </style>
 
 <div class="container-fluid mt-4 deck-compact">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0">Review Deck</h4>
-        <div class="d-flex align-items-center gap-2">
-            @if (Current is not null || !string.IsNullOrWhiteSpace(ReturnUrl))
-            {
-                <a class="btn btn-outline-secondary btn-sm" href="@BackUrl" title="@BackLabel">
-                    <i class="bi bi-arrow-left me-1"></i>@BackLabel
-                </a>
-            }
-        </div>
-        @if (_items.Count > 0)
-        {
-            <span class="text-muted">@(_index + 1) of @_items.Count</span>
-        }
     </div>
 
     @if (!string.IsNullOrWhiteSpace(_error))
@@ -60,69 +81,83 @@
     @if (_items.Count == 0)
     {
         <p class="text-muted">No images are available for this @(IsStudioRoute ? "production group" : IsDatasetRoute ? (OnlyAccepted ? "dataset with accepted attempts" : "dataset") : IsAssetRoute ? "asset batch" : "batch").</p>
+        @if (!string.IsNullOrWhiteSpace(ReturnUrl))
+        {
+            <a class="btn btn-outline-secondary btn-sm" href="@BackUrl" title="@BackLabel">
+                <i class="bi bi-arrow-left me-1"></i>@BackLabel
+            </a>
+        }
     }
     else if (Current is not null)
     {
-        <div class="d-flex flex-wrap gap-2 mb-2">
-            <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="PreviousAsync" disabled="@(_busy || _index == 0)">Previous</button>
-            <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="NextAsync" disabled="@(_busy || _index == _items.Count - 1)">Next</button>
+        <div class="d-flex align-items-center flex-wrap gap-1 mb-2">
+            @* Icon buttons, the same vocabulary as the card's footer — the toolbar reads as one row of actions rather
+               than a row of words, and every meaning that is not obvious lives in the tooltip. *@
+            <span class="text-muted text-nowrap me-2">@(_index + 1) of @_items.Count</span>
+            <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" @onclick="PreviousAsync" disabled="@(_busy || _index == 0)" title="Previous image"><i class="bi bi-chevron-left"></i></button>
+            <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" @onclick="NextAsync" disabled="@(_busy || _index == _items.Count - 1)" title="Next image"><i class="bi bi-chevron-right"></i></button>
             @if (_items.Count >= 2 && !IsDatasetRoute)
             {
-                <a class="btn btn-outline-primary" href="@CompareUrl" role="button">Compare</a>
+                <a class="btn btn-sm btn-outline-primary py-0 px-1" href="@CompareUrl" role="button" title="Compare these images side by side"><i class="bi bi-columns-gap"></i></a>
             }
             else
             {
                 @* No compare in the dataset scope: the compare deck is scoped by batch, and a dataset is not one. *@
                 @if (!IsDatasetRoute)
                 {
-                    <button class="btn btn-outline-primary" type="button" disabled>Compare</button>
+                    <button class="btn btn-sm btn-outline-primary py-0 px-1" type="button" disabled title="Compare needs at least two images"><i class="bi bi-columns-gap"></i></button>
                 }
             }
             @if (IsDatasetRoute)
             {
                 @* The accepted/all choice is part of the ADDRESS rather than component state, so the accepted set can be
                    linked, and the deck's own back button carries the scope home with it. *@
-                <a class="btn btn-sm @(OnlyAccepted ? "btn-outline-secondary" : "btn-primary")"
-                   href="/review-deck/dataset/@BatchId?only=all@(string.IsNullOrWhiteSpace(ReturnUrl) ? string.Empty : $"&return={Uri.EscapeDataString(ReturnUrl)}")">All attempts</a>
-                <a class="btn btn-sm @(OnlyAccepted ? "btn-primary" : "btn-outline-secondary")"
-                   href="/review-deck/dataset/@BatchId?only=accepted@(string.IsNullOrWhiteSpace(ReturnUrl) ? string.Empty : $"&return={Uri.EscapeDataString(ReturnUrl)}")">Accepted only</a>
+                <a class="btn btn-sm py-0 px-1 @(OnlyAccepted ? "btn-outline-secondary" : "btn-primary")"
+                   title="Every attempt"
+                   href="/review-deck/dataset/@BatchId?only=all@(string.IsNullOrWhiteSpace(ReturnUrl) ? string.Empty : $"&return={Uri.EscapeDataString(ReturnUrl)}")"><i class="bi bi-collection"></i></a>
+                <a class="btn btn-sm py-0 px-1 @(OnlyAccepted ? "btn-primary" : "btn-outline-secondary")"
+                   title="Accepted attempts only"
+                   href="/review-deck/dataset/@BatchId?only=accepted@(string.IsNullOrWhiteSpace(ReturnUrl) ? string.Empty : $"&return={Uri.EscapeDataString(ReturnUrl)}")"><i class="bi bi-check2-square"></i></a>
             }
             @if (IsStudioRoute)
             {
                 @if (Current.Disposition == SceneImageAttemptDisposition.Active)
                 {
-                    <button class="btn btn-info" type="button" @onclick="() => SetStudioDispositionAsync(SceneImageAttemptDisposition.Shortlisted)" disabled="@_busy">Shortlist</button>
+                    <button class="btn btn-sm btn-info py-0 px-1" type="button" @onclick="() => SetStudioDispositionAsync(SceneImageAttemptDisposition.Shortlisted)" disabled="@_busy" title="Shortlist"><i class="bi bi-star"></i></button>
                 }
                 else if (Current.Disposition == SceneImageAttemptDisposition.Shortlisted)
                 {
-                    <button class="btn btn-outline-secondary" type="button" @onclick="() => SetStudioDispositionAsync(SceneImageAttemptDisposition.Active)" disabled="@_busy">Return to Active</button>
+                    <button class="btn btn-sm btn-outline-secondary py-0 px-1" type="button" @onclick="() => SetStudioDispositionAsync(SceneImageAttemptDisposition.Active)" disabled="@_busy" title="Return to Active"><i class="bi bi-star-fill"></i></button>
                 }
                 @if (Current.Disposition is SceneImageAttemptDisposition.Active or SceneImageAttemptDisposition.Shortlisted)
                 {
-                    <button class="btn btn-danger" type="button" @onclick="() => SetStudioDispositionAsync(SceneImageAttemptDisposition.Rejected)" disabled="@_busy">Reject</button>
+                    <button class="btn btn-sm btn-danger py-0 px-1" type="button" @onclick="() => SetStudioDispositionAsync(SceneImageAttemptDisposition.Rejected)" disabled="@_busy" title="Reject"><i class="bi bi-x-circle"></i></button>
                 }
-                <button class="btn btn-success" type="button" @onclick="ApproveStudioAsync" disabled="@(_busy || Current.ExecutionStatus != SceneImageStatus.Complete || string.IsNullOrWhiteSpace(Current.Sha256))">Approve</button>
+                <button class="btn btn-sm btn-success py-0 px-1" type="button" @onclick="ApproveStudioAsync" disabled="@(_busy || Current.ExecutionStatus != SceneImageStatus.Complete || string.IsNullOrWhiteSpace(Current.Sha256))" title="Approve this image"><i class="bi bi-check2-circle"></i></button>
             }
             else if (IsAssetRoute)
             {
-                <button class="btn btn-success" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Accepted)" disabled="@_busy">Accept</button>
-                <button class="btn btn-info" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Shortlisted)" disabled="@_busy">Shortlist</button>
-                <button class="btn btn-danger" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Rejected)" disabled="@_busy">Reject</button>
-                <button class="btn btn-outline-danger" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Revoked)" disabled="@_busy">Revoke</button>
+                <button class="btn btn-sm btn-success py-0 px-1" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Accepted)" disabled="@_busy" title="Accept"><i class="bi bi-check2-circle"></i></button>
+                <button class="btn btn-sm btn-info py-0 px-1" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Shortlisted)" disabled="@_busy" title="Shortlist"><i class="bi bi-star"></i></button>
+                <button class="btn btn-sm btn-danger py-0 px-1" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Rejected)" disabled="@_busy" title="Reject"><i class="bi bi-x-circle"></i></button>
+                <button class="btn btn-sm btn-outline-danger py-0 px-1" type="button" @onclick="() => SetAssetDecisionAsync(SceneAssetCandidateDecision.Revoked)" disabled="@_busy" title="Revoke"><i class="bi bi-slash-circle"></i></button>
             }
             else
             {
-                <button class="btn btn-success" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Accepted)" disabled="@_busy">Accept</button>
-                <button class="btn btn-info" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Shortlisted)" disabled="@_busy">Shortlist</button>
-                <button class="btn btn-danger" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Rejected)" disabled="@_busy">Reject</button>
-                <button class="btn btn-outline-danger" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Revoked)" disabled="@_busy">Revoke</button>
+                <button class="btn btn-sm btn-success py-0 px-1" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Accepted)" disabled="@_busy" title="Accept"><i class="bi bi-check2-circle"></i></button>
+                <button class="btn btn-sm btn-info py-0 px-1" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Shortlisted)" disabled="@_busy" title="Shortlist"><i class="bi bi-star"></i></button>
+                <button class="btn btn-sm btn-danger py-0 px-1" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Rejected)" disabled="@_busy" title="Reject"><i class="bi bi-x-circle"></i></button>
+                <button class="btn btn-sm btn-outline-danger py-0 px-1" type="button" @onclick="() => SetStatusAsync(ProducedImageStatus.Revoked)" disabled="@_busy" title="Revoke"><i class="bi bi-slash-circle"></i></button>
             }
 
             @* Offered on EVERY route, not just the asset one: the deck shows three kinds of candidate and a pose can be
                read from any of them, because what gets measured is the image's own stored bytes whatever put them
                there. A candidate whose file does not exist yet is refused by name rather than measured as something
                else. *@
-            <button class="btn btn-outline-primary" type="button" @onclick="OpenExtractAsync" disabled="@(_busy || _extractBusy)" title="Store the pose in this image as a library pose"><i class="bi bi-person-bounding-box me-1"></i>Extract pose</button>
+            <button class="btn btn-sm btn-outline-primary py-0 px-1" type="button" @onclick="OpenExtractAsync" disabled="@(_busy || _extractBusy)" title="Store the pose in this image as a library pose"><i class="bi bi-person-bounding-box"></i></button>
+            <a class="btn btn-outline-secondary btn-sm ms-auto" href="@BackUrl" title="@BackLabel">
+                <i class="bi bi-arrow-left me-1"></i>@BackLabel
+            </a>
         </div>
 
         @if (_extractOpen)
@@ -216,15 +251,10 @@
             </div>
         }
 
-        <div class="row g-4">
-            <div class="col-lg-7">
-                <div class="d-flex align-items-center gap-2 mb-2">
-                    <span class="badge @GetStatusBadgeClass(Current.Status)">@Current.Status</span>
-                    <span class="small font-monospace text-break">@Current.Id</span>
-                    <button class="btn btn-sm btn-outline-secondary ms-auto" type="button" @onclick="OpenViewer" title="View larger"><i class="bi bi-arrows-fullscreen me-1"></i>View larger</button>
-                </div>
-
-                <button class="btn w-100 p-0 border-0 bg-transparent" type="button" @onclick="OpenViewer" title="View larger">
+        <div class="row g-4 review-deck-body">
+            <div class="col-lg-8">
+                @* Clicking the image opens the SAME inspector the cards below use — one popup, one pan/zoom. *@
+                <button class="btn w-100 d-flex justify-content-center p-0 border-0 bg-transparent" type="button" @onclick="OpenViewer" title="Inspect this image full size">
                     @RenderImage(Current)
                 </button>
 
@@ -234,9 +264,10 @@
                 </div>
             </div>
 
-            @* The metadata column scrolls INSIDE its own box, so it can never become the tallest thing on the page and
-               push the image out of view. Reviewing an image is the job; reading thirteen metadata rows is not. *@
-            <div class="col-lg-5" style="max-height:calc(100vh - 15rem);overflow-y:auto;">
+            @* The metadata rail is the SAME height as the image row — it stretches to it and only scrolls once its own
+               content is taller, so nothing is hidden behind a viewport-height guess. *@
+            <div class="col-lg-4">
+                <div class="review-deck-rail">
                 <h5>Metadata</h5>
                 @if (IsStudioRoute)
                 {
@@ -245,11 +276,8 @@
                         <dt class="col-sm-4">Status</dt><dd class="col-sm-8">@Current.Status</dd>
                         <dt class="col-sm-4">Stage</dt><dd class="col-sm-8">@Display(Current.Stage)</dd>
                         <dt class="col-sm-4">Execution</dt><dd class="col-sm-8">@Display(Current.ExecutionStatus)</dd>
-                        <dt class="col-sm-4">Prompt</dt><dd class="col-sm-8 text-break">@Display(Current.Prompt)</dd>
                         <dt class="col-sm-4">Negative prompt</dt><dd class="col-sm-8 text-break">@Display(Current.NegativePrompt)</dd>
                         <dt class="col-sm-4">Model</dt><dd class="col-sm-8 text-break">@Display(Current.Model)</dd>
-                        <dt class="col-sm-4">Checksum</dt><dd class="col-sm-8 text-break">@Display(Current.Sha256)</dd>
-                        <dt class="col-sm-4">Created</dt><dd class="col-sm-8 text-break">@Current.CreatedUtc</dd>
                     </dl>
                     @if (!string.IsNullOrWhiteSpace(Current.Details))
                     {
@@ -261,11 +289,22 @@
                     <dl class="row small">
                         <dt class="col-sm-4">Kind</dt><dd class="col-sm-8">@Current.Kind</dd>
                         <dt class="col-sm-4">Status</dt><dd class="col-sm-8">@Current.Status</dd>
-                        <dt class="col-sm-4">Prompt</dt><dd class="col-sm-8 text-break">@Display(Current.Prompt)</dd>
                         <dt class="col-sm-4">Model</dt><dd class="col-sm-8 text-break">@Display(Current.Model)</dd>
-                        <dt class="col-sm-4">Checksum</dt><dd class="col-sm-8 text-break">@Display(Current.Sha256)</dd>
-                        <dt class="col-sm-4">Created</dt><dd class="col-sm-8 text-break">@Current.CreatedUtc</dd>
                     </dl>
+
+                    @* The prompt itself is NOT repeated here: the generation details below already carry the description
+                       and the compiled prompt, and two copies of one long text pushed everything else off the rail. *@
+                    @if (_currentAssetImage is not null)
+                    {
+                        <h6>Tags</h6>
+                        <div class="mb-3">
+                            <ImageTags Image="_currentAssetImage" Editable="true" TagsChanged="LoadCurrentAsync" />
+                        </div>
+
+                        <h6>How this image was generated</h6>
+                        <GenerationDetails Image="_currentAssetImage" />
+                    }
+
                     @if (!string.IsNullOrWhiteSpace(Current.Details))
                     {
                         <h6>Details</h6><pre class="font-monospace text-break">@Current.Details</pre>
@@ -287,7 +326,6 @@
                         <dt class="col-sm-4">Endpoint</dt><dd class="col-sm-8 text-break">@Display(Current.EndpointId)</dd>
                         <dt class="col-sm-4">Identity strategy</dt><dd class="col-sm-8 text-break">@Display(Current.IdentityStrategy)</dd>
                         <dt class="col-sm-4">Refusal mode</dt><dd class="col-sm-8">@Current.RefusalMode</dd>
-                        <dt class="col-sm-4">Created</dt><dd class="col-sm-8 text-break">@Current.CreatedUtc</dd>
                     </dl>
                     @if (!string.IsNullOrWhiteSpace(Current.AppliedReferencesJson))
                     {
@@ -306,35 +344,52 @@
                         <h6>Candidate notes</h6><pre class="font-monospace text-break">@Current.CandidateNotes</pre>
                     }
                 }
+
+                @* The two identifiers nobody reads while judging an image, kept for the audit trail and moved out of
+                   the way of the data that decides one. *@
+                <div class="review-deck-rail-footer">
+                    <dl class="row small mb-0">
+                        <dt class="col-sm-4">Checksum</dt><dd class="col-sm-8 text-break">@Display(Current.Sha256)</dd>
+                        <dt class="col-sm-4">Created</dt><dd class="col-sm-8 text-break">@Current.CreatedUtc</dd>
+                    </dl>
+                </div>
+                </div>
             </div>
         </div>
 
         <div class="d-flex justify-content-between align-items-center mb-2 mt-4">
             <h5 class="mb-0">Images</h5>
-            <span class="text-muted small">@_items.Count</span>
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-muted small">@VisibleItems.Count() of @_items.Count</span>
+                <ImageCardStatusFilter Options="FilterOptions"
+                                       Selected="_decisionFilter"
+                                       SelectedChanged="key => _decisionFilter = key"
+                                       Total="_items.Count" />
+            </div>
         </div>
         <div class="row g-2">
-            @foreach (var item in _items)
+            @foreach (var item in VisibleItems)
             {
                 <div class="col-6 col-md-4 col-xl-3">
-                    <div class="border rounded p-2 h-100 @(item.Id == Current.Id ? "border-primary border-3" : "border-secondary")">
-                        <button class="btn w-100 p-0 text-start" type="button" @onclick="() => SelectCandidateAsync(item.Id)">
-                            <div class="ratio ratio-1x1 bg-dark">
-                                @if (!string.IsNullOrWhiteSpace(item.StoragePath))
-                                {
-                                    <img src="/scene-images/@item.StoragePath" class="w-100 h-100" style="object-fit:contain;" alt="Candidate @item.Id" />
-                                }
-                                else
-                                {
-                                    <span class="d-flex align-items-center justify-content-center text-light small">Pending</span>
-                                }
-                            </div>
-                            <span class="d-flex justify-content-between gap-1 p-2 small">
-                                <span class="text-truncate font-monospace">@item.Id</span>
-                                <span class="badge @GetStatusBadgeClass(item.Status)">@item.Status</span>
-                            </span>
-                        </button>
-                        <div class="d-flex flex-wrap gap-1 mt-1">
+                    @* The ONE card, shared with every other image list. Selecting is this strip's job, so the picture
+                       and the select button choose the candidate shown above rather than opening a second viewer. *@
+                    <ImageCard Model="CardModel(item)"
+                               Busy="_busy"
+                               SelectRequested="() => SelectCandidateAsync(item.Id)"
+                               EditRequested="CanEdit(item) ? () => Nav.NavigateTo(GetEditUrl(item)) : default"
+                               VideoRequested="CanComposeVideo(item) ? () => Nav.NavigateTo(GetVideoUrl(item)) : default"
+                               DeleteRequested="() => BeginDelete(item.Id)">
+                        <BodyContent>
+                            @if (_deleteConfirmId == item.Id)
+                            {
+                                <div class="d-flex gap-2 mt-1 align-items-center">
+                                    <small class="text-danger">Delete this image?</small>
+                                    <button type="button" class="btn btn-sm btn-danger py-0 px-2" disabled="@_busy" @onclick="() => DeleteItemAsync(item.Id)">Delete</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" disabled="@_busy" @onclick="CancelDelete">Cancel</button>
+                                </div>
+                            }
+                        </BodyContent>
+                        <FooterContent>
                             @if (IsStudioRoute)
                             {
                                 @if (item.Disposition == SceneImageAttemptDisposition.Active)
@@ -366,61 +421,21 @@
                                 <button class="btn btn-sm btn-outline-info py-0 px-1" title="Shortlist" disabled="@_busy" @onclick="() => SetItemStatusAsync(item.Id, ProducedImageStatus.Shortlisted)"><i class="bi bi-star"></i></button>
                                 <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Reject" disabled="@_busy" @onclick="() => SetItemStatusAsync(item.Id, ProducedImageStatus.Rejected)"><i class="bi bi-x-circle"></i></button>
                             }
-                            @if (CanEdit(item))
-                            {
-                                <a class="btn btn-sm btn-outline-primary py-0 px-1" href="@GetEditUrl(item)" title="Edit this image"><i class="bi bi-pencil-square"></i></a>
-                            }
-                            @if (CanComposeVideo(item))
-                            {
-                                <a class="btn btn-sm btn-outline-dark py-0 px-1" href="@GetVideoUrl(item)" title="Compose a video from this image"><i class="bi bi-camera-video"></i></a>
-                            }
-                            @if (_deleteConfirmId == item.Id)
-                            {
-                                <button class="btn btn-danger btn-sm py-0 px-1" type="button" @onclick="() => DeleteItemAsync(item.Id)" disabled="@_busy">Delete</button>
-                                <button class="btn btn-outline-secondary btn-sm py-0 px-1" type="button" @onclick="CancelDelete" disabled="@_busy">Cancel</button>
-                            }
-                            else
-                            {
-                                <button class="btn btn-sm btn-outline-danger py-0 px-1" type="button" @onclick="() => BeginDelete(item.Id)" disabled="@_busy" title="Permanently delete this image"><i class="bi bi-trash"></i></button>
-                            }
-                        </div>
-                    </div>
+                        </FooterContent>
+                    </ImageCard>
                 </div>
             }
         </div>
     }
 </div>
 
-@if (_viewerOpen && Current is not null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.85);">
-        <div class="modal-dialog modal-xl modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">@Current.Status · <span class="font-monospace small">@Current.Id</span></h5>
-                    <button type="button" class="btn-close" @onclick="CloseViewer" title="Close"></button>
-                </div>
-                <div class="modal-body text-center">
-                    @if (!string.IsNullOrWhiteSpace(Current.StoragePath))
-                    {
-                        <img src="/scene-images/@Current.StoragePath" class="img-fluid" style="max-height:80vh;" alt="Review image @Current.Id" />
-                    }
-                    else
-                    {
-                        <div class="text-muted py-5">Image pending</div>
-                    }
-                </div>
-                <div class="modal-footer">
-                    @if (!string.IsNullOrWhiteSpace(Current.StoragePath))
-                    {
-                        <a class="btn btn-outline-secondary btn-sm" href="/scene-images/@Current.StoragePath" target="_blank" title="Open full size"><i class="bi bi-arrows-fullscreen me-1"></i>Open full size</a>
-                    }
-                    <button type="button" class="btn btn-secondary" @onclick="CloseViewer">Close</button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
+@* The SAME inspector the cards below use: one popup, one pan/zoom, whichever way it was opened. *@
+<ImageInspector Open="_viewerOpen"
+                ImagePath="@CurrentViewerPath"
+                Title="@Current?.Status"
+                Subtitle="@Current?.Id"
+                Alt="@($"Review image {Current?.Id}")"
+                Closed="CloseViewerAsync" />
 
 @code {
     [Parameter] public string BatchId { get; set; } = string.Empty;
@@ -443,6 +458,16 @@
     private string? _deleteConfirmId;
     private string? _frontBackUrl;
     private List<ReviewDeckItem> _lineageChildren = [];
+    private SceneAssetImage? _currentAssetImage;
+    private string? _decisionFilter;
+
+    /// <summary>Every card in this strip, the filter's options, and the ones the chosen view leaves visible.</summary>
+    private IReadOnlyList<SceneImageCardModel> CardModels => _items.Select(CardModel).ToList();
+
+    private IReadOnlyList<ImageCardFilterOption> FilterOptions => ImageCardStatus.Build(CardModels);
+
+    private IEnumerable<ReviewDeckItem> VisibleItems =>
+        _items.Where(item => ImageCardStatus.Matches(CardModel(item), _decisionFilter));
 
     private bool _extractOpen;
     private bool _extractBusy;
@@ -719,12 +744,6 @@
             return;
         }
 
-        if (status is ProducedImageStatus.Rejected or ProducedImageStatus.Revoked &&
-            !await JS.InvokeAsync<bool>("confirm", $"Set this image to {status}?"))
-        {
-            return;
-        }
-
         _busy = true;
         _error = null;
         try
@@ -770,6 +789,12 @@
                     : IsAssetRoute
                         ? _items.Where(item => string.Equals(item.ParentImageId, Current.Id, StringComparison.Ordinal)).ToList()
                     : (await ProducedImages.ListByParentAsync(Current.Id)).Select(MapLegacyItem).ToList();
+
+            // The asset route's rail shows the tags editor and the generation details, and both read the STORED row
+            // rather than this deck's flat projection — tags and LoRA selections are not part of that projection.
+            _currentAssetImage = Current is null || !IsAssetRoute
+                ? null
+                : await AssetService.GetImageAsync(Current.Id);
         }
         catch (Exception exception)
         {
@@ -780,12 +805,6 @@
     private async Task SetStudioDispositionAsync(SceneImageAttemptDisposition nextDisposition)
     {
         if (Current?.Disposition is not { } currentDisposition)
-        {
-            return;
-        }
-
-        if (nextDisposition == SceneImageAttemptDisposition.Rejected
-            && !await JS.InvokeAsync<bool>("confirm", "Reject this image?"))
         {
             return;
         }
@@ -835,9 +854,6 @@
     {
         if (Current is null)
             return;
-        if (decision is SceneAssetCandidateDecision.Rejected or SceneAssetCandidateDecision.Revoked
-            && !await JS.InvokeAsync<bool>("confirm", $"Set this asset image to {decision}?"))
-            return;
         _busy = true;
         _error = null;
         try
@@ -863,12 +879,6 @@
             return;
         }
 
-        if (nextDisposition == SceneImageAttemptDisposition.Rejected
-            && !await JS.InvokeAsync<bool>("confirm", "Reject this image?"))
-        {
-            return;
-        }
-
         _busy = true;
         _error = null;
         try
@@ -888,12 +898,6 @@
 
     private async Task SetItemAssetDecisionAsync(string imageId, SceneAssetCandidateDecision decision)
     {
-        if (decision is SceneAssetCandidateDecision.Rejected or SceneAssetCandidateDecision.Revoked
-            && !await JS.InvokeAsync<bool>("confirm", $"Set this asset image to {decision}?"))
-        {
-            return;
-        }
-
         _busy = true;
         _error = null;
         try
@@ -913,12 +917,6 @@
 
     private async Task SetItemStatusAsync(string imageId, ProducedImageStatus status)
     {
-        if (status is ProducedImageStatus.Rejected or ProducedImageStatus.Revoked
-            && !await JS.InvokeAsync<bool>("confirm", $"Set this image to {status}?"))
-        {
-            return;
-        }
-
         _busy = true;
         _error = null;
         try
@@ -963,7 +961,11 @@
 
     private void OpenViewer() => _viewerOpen = true;
 
-    private void CloseViewer() => _viewerOpen = false;
+    private void CloseViewerAsync() => _viewerOpen = false;
+
+    /// <summary>The shared inspector's image path for the candidate the deck is showing.</summary>
+    private string? CurrentViewerPath =>
+        string.IsNullOrWhiteSpace(Current?.StoragePath) ? null : $"/scene-images/{Current!.StoragePath}";
 
     private void BeginDelete(string imageId)
     {
@@ -1088,14 +1090,68 @@
         _ => "text-bg-secondary"
     };
 
+    /// <summary>
+    /// This deck's row projected into the ONE card's model. The card is shared, so what differs per host is expressed
+    /// as data: the status text, the decision badge, the selection highlight.
+    /// </summary>
+    private SceneImageCardModel CardModel(ReviewDeckItem item) => new()
+    {
+        Id = item.Id,
+        FileRelativePath = item.StoragePath,
+        StatusText = item.Status,
+        StatusBadgeClass = GetStatusBadgeClass(item.Status),
+        IsComplete = !string.IsNullOrWhiteSpace(item.StoragePath),
+        ErrorMessage = item.Status == nameof(SceneImageStatus.Failed) ? item.Details : null,
+        Subtitle = DescribeCreated(item.CreatedUtc),
+        DecisionBadgeText = DecisionBadgeText(item),
+        DecisionBadgeTitle = "This candidate's own verdict in the deck.",
+        IsSelected = item.Id == Current?.Id,
+        DecisionKey = DecisionKey(item),
+        DecisionLabel = DecisionLabel(item)
+    };
+
+    /// <summary>
+    /// This row's decision in the filter's shared vocabulary. The three routes name their decisions differently
+    /// (candidate decision, attempt disposition, produced-image status), so each maps to the one key that means the
+    /// same thing — otherwise "Shortlisted" would only ever filter one of the three decks.
+    /// </summary>
+    private string DecisionKey(ReviewDeckItem item) => item.Status switch
+    {
+        "Pending" => ImageCardStatus.Pending,
+        "Generating" => ImageCardStatus.Pending,
+        "Failed" => ImageCardStatus.Failed,
+        "Shortlisted" => ImageCardStatus.Shortlisted,
+        "Accepted" => ImageCardStatus.Accepted,
+        "Approved" => ImageCardStatus.Approved,
+        "Rejected" => ImageCardStatus.Rejected,
+        "Revoked" => ImageCardStatus.Revoked,
+        "Archived" => ImageCardStatus.Archived,
+        _ when IsStudioRoute && item.Disposition == SceneImageAttemptDisposition.Shortlisted => ImageCardStatus.Shortlisted,
+        _ when IsStudioRoute && item.Disposition == SceneImageAttemptDisposition.Rejected => ImageCardStatus.Rejected,
+        _ when IsStudioRoute && item.Disposition == SceneImageAttemptDisposition.Archived => ImageCardStatus.Archived,
+        _ => ImageCardStatus.Undecided
+    };
+
+    private string? DecisionLabel(ReviewDeckItem item)
+        => DecisionKey(item) == ImageCardStatus.Approved ? "Approved" : null;
+
+    private string? DecisionBadgeText(ReviewDeckItem item) => IsStudioRoute
+        ? item.Disposition?.ToString()
+        : null;
+
+    private static string? DescribeCreated(string createdUtc)
+        => DateTime.TryParse(createdUtc, null, System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsed)
+            ? parsed.ToLocalTime().ToString("g")
+            : null;
+
     private static RenderFragment RenderImage(ReviewDeckItem image) => builder =>
     {
         if (!string.IsNullOrWhiteSpace(image.StoragePath))
         {
             builder.OpenElement(0, "img");
             builder.AddAttribute(1, "src", $"/scene-images/{image.StoragePath}");
-            builder.AddAttribute(2, "class", "img-fluid w-100");
-            builder.AddAttribute(3, "style", "max-height:calc(100vh - 15rem);object-fit:contain;");
+            builder.AddAttribute(2, "class", "img-fluid");
+            builder.AddAttribute(3, "style", "max-width:100%;max-height:calc(100vh - 7rem);");
             builder.AddAttribute(4, "alt", $"Review image {image.Id}");
             builder.CloseElement();
         }

@@ -203,6 +203,7 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
             card,
             state,
             BodyReferenceStance.Standing,
+            BodyPromptScope.DescribeBody,
             requestIdentity: false,
             faceAssetId: null,
             cancellationToken);
@@ -351,8 +352,8 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
         var model = await _models.ResolveImageModelByIdAsync(modelId.Trim(), cancellationToken);
         var card = await RequireCompleteBodyCardAsync(build.CharacterTemplateId, cancellationToken);
         var brief = await _briefs.CreateAsync(
-            build.CharacterTemplateId, card, key.State, StanceFor(key), useIdentity, identityFaceAssetId,
-            cancellationToken);
+            build.CharacterTemplateId, card, key.State, StanceFor(key), ScopeFor(key),
+            useIdentity, identityFaceAssetId, cancellationToken);
         var compiled = BodyReferencePromptCompiler.Compile(brief, model, ForbiddenTokens(characterName));
 
         if (key.IsCanonical && key.View is { } view && view != SceneImageReferenceBodyView.Front)
@@ -508,6 +509,22 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
     }
 
     /// <summary>
+    /// How much this view's prompt has to say in words — the ONE decision, so the compile, the prompt the operator
+    /// reads and the prompt the render sends cannot disagree about it.
+    ///
+    /// An ANGLE points at its references: the accepted body, the committed pose skeleton and (when bound) the face are
+    /// all sent as images, so describing the build in words spends the budget restating what the model is being shown
+    /// and — because the description carried a stance — told the model to face the camera while the render clause told
+    /// it to turn away. Reported live 2026-10-10: "the 3/4 left and right are still using full character description
+    /// prompt ... the images are not following the pose". Everything else describes the body, because for the base
+    /// nothing else carries it.
+    /// </summary>
+    private static BodyPromptScope ScopeFor(CharacterIdentityBodyViewKey key)
+        => key.IsCanonical && key.View is { } view && view != SceneImageReferenceBodyView.Front
+            ? BodyPromptScope.PointAtReferences
+            : BodyPromptScope.DescribeBody;
+
+    /// <summary>
     /// The tokens a compiled base prompt must not contain. A name (and a relation) cannot be rendered, so it is
     /// handed to the compiler's validator rather than merely left out — §2.3 rule 2 is then enforced, not trusted.
     /// </summary>
@@ -609,7 +626,7 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
         // same body turned, so a base that has not been accepted is a refusal, never a fresh attempt at one.
         var angleSource = angleView is null
             ? null
-            : await RequireAcceptedBaseAsync(build.Id, key.State, cancellationToken);
+            : await RequireAcceptedBaseAsync(build.Id, key, cancellationToken);
 
         var compilation = await CompileBaseAsync(
             build, key, modelId, characterName, useIdentity, identityFaceAssetId, cancellationToken);
@@ -625,6 +642,19 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
         }
 
         var prompt = string.IsNullOrWhiteSpace(promptOverride) ? compiled.Positive : promptOverride.Trim();
+
+        // A canonical angle's camera clause is not the operator's prose: it is the direction the angle skeleton cannot
+        // carry (the skeleton carries limb layout only — measured 2026-09-24), so a prompt that does not state it comes
+        // back front-facing no matter which skeleton is sent. An override replaces the BASE text, but the clause must
+        // still reach the model; it is appended only when the override does not already state it.
+        if (angleView is not null && !string.IsNullOrWhiteSpace(promptOverride))
+        {
+            var clause = await ResolveRenderClauseAsync(build, key, characterName, card, cancellationToken);
+            if (!prompt.Contains(clause, StringComparison.OrdinalIgnoreCase))
+            {
+                prompt = $"{prompt.Trim()} {clause}".Trim();
+            }
+        }
 
         // The structural gate applies to what is SENT, not to what was compiled: an operator's edited text is a prompt
         // too, and validating only the compiled form meant an over-length or name-bearing override travelled to a model
@@ -692,6 +722,22 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
     /// name and the body card line exactly as an edit instruction is — so the angle wording is data an operator can
     /// read, override per character and change without a code change.
     /// </summary>
+    public async Task<string> ResolveRenderClauseAsync(
+        string buildId, CharacterIdentityBodyViewKey key, string characterName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        key.Validate();
+        if (string.IsNullOrWhiteSpace(buildId))
+        {
+            throw new InvalidOperationException("A body build id is required to resolve an angle render clause.");
+        }
+
+        var build = await RequireBodyBuildAsync(buildId, cancellationToken);
+        var card = await RequireCompleteBodyCardAsync(build.CharacterTemplateId, cancellationToken);
+        return await ResolveRenderClauseAsync(build, key, characterName, card, cancellationToken);
+    }
+
     private async Task<string> ResolveRenderClauseAsync(
         CharacterIdentityBuild build,
         CharacterIdentityBodyViewKey key,
@@ -1233,30 +1279,34 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
     }
 
     /// <summary>
-    /// The accepted BASE body — the front of this state — that every canonical angle is rendered FROM.
+    /// The accepted view this angle is rendered FROM, resolved before anything is queued: a source that is not
+    /// accepted is a refusal, never a fresh attempt at one.
     ///
-    /// It is deliberately NOT the edit chain's source: an edit asks an editor to turn the previous image (so a profile
-    /// comes off its own three-quarter), while an angle RENDER is "this body seen from another camera position", and
-    /// all four angles were measured as "the accepted front, turned" (2026-09-23, cases <c>body-angle-34-*</c> and
-    /// <c>body-profile-*</c> — including the profiles, where the front plus the profile skeleton produced a true
-    /// edge-on view and placed the calf tattoo on the near leg). One base also keeps the four angles comparable to each
-    /// other, which is the entire reason for producing them.
+    /// The rule lives in <see cref="BodyViewDerivation.RenderBaseFor"/> and is deliberately not the edit chain's
+    /// source, because the two answer different questions: an edit asks an editor to turn the previous image, while a
+    /// render is "this body seen from another camera position". For the three-quarters, the back and a CLOTHED profile
+    /// that base is the front of the same state, which is what was measured to work (2026-09-23, cases
+    /// <c>body-angle-34-*</c> and <c>body-profile-*</c> — the front plus the profile skeleton produced a true edge-on
+    /// view and placed the calf tattoo on the near leg). An UNCLOTHED profile is rendered from its same-side
+    /// three-quarter instead (operator decision, 2026-10-10), so it is shown the body most of the way turned rather
+    /// than asked to reach edge-on in one step.
     /// </summary>
     private async Task<SceneAssetImage> RequireAcceptedBaseAsync(
-        string buildId, SceneImageReferenceBodyState state, CancellationToken cancellationToken)
+        string buildId, CharacterIdentityBodyViewKey key, CancellationToken cancellationToken)
     {
-        var baseKey = CharacterIdentityBodyViewKey.Canonical(state, SceneImageReferenceBodyView.Front);
+        var baseKey = BodyViewDerivation.RenderBaseFor(key) ?? throw new InvalidOperationException(
+            $"The {Describe(key)} is a base: it is generated or uploaded, not rendered from another view.");
         var views = await _repository.ListBodyViewsAsync(buildId, cancellationToken);
         var source = views.FirstOrDefault(view => Matches(view, baseKey))
             ?? throw new InvalidOperationException(
-                $"The {Describe(baseKey)} has not been produced yet, so an angle of that body cannot be rendered. "
-                + "Generate the base and accept it first.");
+                $"The {Describe(baseKey)} has not been produced yet, so the {Describe(key)} cannot be rendered. "
+                + $"Generate the {Describe(baseKey)} and accept it first.");
 
         if (source.Status != CharacterIdentityAngleStatus.Accepted || string.IsNullOrWhiteSpace(source.OutputArtifactId))
         {
             throw new InvalidOperationException(
-                $"The {Describe(baseKey)} is not accepted yet (status '{source.Status}'), so its angles cannot be "
-                + "rendered from it. Accept the base first — an angle is that same body, turned.");
+                $"The {Describe(baseKey)} is not accepted yet (status '{source.Status}'), so the {Describe(key)} cannot "
+                + $"be rendered from it. Accept the {Describe(baseKey)} first — a view is that same body, turned.");
         }
 
         return await _assets.GetImageAsync(source.OutputArtifactId, cancellationToken)
@@ -1265,22 +1315,12 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
     }
 
     /// <summary>
-    /// Which view a request is derived from, or null when it is a base. The clothed front is the root — it is
-    /// generated or uploaded. The unclothed front is the same body without clothing, so it is an edit of that
-    /// accepted base; the three-quarters (and every extended rotation) come off the front base, and a profile off
-    /// the three-quarter on its own side — the same chain the face angles use.
+    /// Which view a request is derived from for an EDIT, or null when it is a base. The rule itself lives in
+    /// <see cref="BodyViewDerivation.EditSourceFor"/>, beside the render base it deliberately differs from for a
+    /// clothed profile, so the two can be read together instead of in two files.
     /// </summary>
-    private static CharacterIdentityBodyViewKey? SourceKeyFor(CharacterIdentityBodyViewKey key) => key.View switch
-    {
-        SceneImageReferenceBodyView.Front when key.State == SceneImageReferenceBodyState.Unclothed =>
-            CharacterIdentityBodyViewKey.Canonical(SceneImageReferenceBodyState.Clothed, SceneImageReferenceBodyView.Front),
-        SceneImageReferenceBodyView.Front => null,
-        SceneImageReferenceBodyView.ProfileLeft => CharacterIdentityBodyViewKey.Canonical(
-            key.State, SceneImageReferenceBodyView.ThreeQuarterLeft),
-        SceneImageReferenceBodyView.ProfileRight => CharacterIdentityBodyViewKey.Canonical(
-            key.State, SceneImageReferenceBodyView.ThreeQuarterRight),
-        _ => CharacterIdentityBodyViewKey.Canonical(key.State, SceneImageReferenceBodyView.Front)
-    };
+    private static CharacterIdentityBodyViewKey? SourceKeyFor(CharacterIdentityBodyViewKey key)
+        => BodyViewDerivation.EditSourceFor(key);
 
     private async Task<CharacterIdentityBodyView> LoadOrCreateAsync(
         string buildId, CharacterIdentityBodyViewKey key, CancellationToken cancellationToken)

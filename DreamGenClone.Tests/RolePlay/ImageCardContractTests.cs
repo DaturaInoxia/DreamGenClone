@@ -18,6 +18,18 @@ public sealed class ImageCardContractTests
         Root, "DreamGenClone.Web", "Components", "RolePlay", "BodyViewsPanel.razor"));
     private static readonly string SceneImageStudioSource = File.ReadAllText(Path.Combine(
         Root, "DreamGenClone.Web", "Components", "Pages", "SceneImageStudio.razor"));
+    private static readonly string AppSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "App.razor"));
+    private static readonly string ZoomScriptSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "wwwroot", "js", "image-zoom.js"));
+    private static readonly string ReviewDeckSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "Pages", "ReviewDeck.razor"));
+    private static readonly string FilterComponentSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "Shared", "ImageCardStatusFilter.razor"));
+    private static readonly string StatusHelperSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "Shared", "ImageCardStatus.cs"));
+    private static readonly string InspectorSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "Shared", "ImageInspector.razor"));
 
     [Fact]
     public void Card_RendersTheReviewDecksThreeVerdictsThroughOneCallbackEach()
@@ -94,6 +106,11 @@ public sealed class ImageCardContractTests
         Assert.Contains("VideoRequested=\"() => OpenCandidateVideo(candidate)\"", BodyViewsPanelSource, StringComparison.Ordinal);
         Assert.Contains("LoadIntoGeneratorRequested=\"() => LoadCandidatePromptAsync(key, candidate)\"", BodyViewsPanelSource, StringComparison.Ordinal);
         Assert.Contains("AcceptTitle=\"Make this image this view's result and accept the view", BodyViewsPanelSource, StringComparison.Ordinal);
+
+        // Undecide is an icon-only "?" so the footer stays a row of buttons; the meaning lives in the tooltip.
+        Assert.Contains("title=\"Return this candidate to Undecided\"><i class=\"bi bi-question-lg\"></i></button>",
+            BodyViewsPanelSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(">Undecide</button>", BodyViewsPanelSource, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -102,9 +119,127 @@ public sealed class ImageCardContractTests
         // The role-play studio's additional-images list is the shared card, with continue/regenerate through the footer
         // slot and the viewer reached through the card's view callback.
         Assert.Contains("<ImageCard Model=\"CardModel(img)\"", SceneImageStudioSource, StringComparison.Ordinal);
-        Assert.Contains("ViewRequested=\"() => OpenViewer(img)\"", SceneImageStudioSource, StringComparison.Ordinal);
         Assert.Contains("EditRequested=\"() => OpenImageEditor(img)\"", SceneImageStudioSource, StringComparison.Ordinal);
         Assert.Contains("ContinueFromImageAsync(img)", SceneImageStudioSource, StringComparison.Ordinal);
+
+        // The card's own picture click opens its zoom inspector; the studio no longer hands the click to a second,
+        // zoomless overlay.
+        Assert.DoesNotContain("ViewRequested=\"() => OpenViewer(img)\"", SceneImageStudioSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Card_OwnsTheFullSizeViewerEveryHostGetsForFree()
+    {
+        // The inspector is ONE shared component, so the card and the review deck open the identical popup rather than
+        // two that look alike until one of them is changed.
+        Assert.Contains("title=\"View larger\"", CardSource, StringComparison.Ordinal);
+        Assert.Contains("bi bi-arrows-fullscreen", CardSource, StringComparison.Ordinal);
+        Assert.Contains("<ImageInspector Open=\"_viewerOpen\"", CardSource, StringComparison.Ordinal);
+        Assert.Contains("modal fade show d-block", InspectorSource, StringComparison.Ordinal);
+
+        // The picture itself opens the same viewer, and a host that wants different behaviour still can.
+        Assert.Contains("@onclick=\"OnPictureClickAsync\"", CardSource, StringComparison.Ordinal);
+        Assert.Contains("if (ViewRequested.HasDelegate)", CardSource, StringComparison.Ordinal);
+
+        // The review deck's big image opens that same inspector — its old bespoke modal is gone.
+        Assert.Contains("<ImageInspector Open=\"_viewerOpen\"", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("class=\"modal fade show d-block\"", ReviewDeckSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The review deck's strip is the shared card too, selecting rather than opening: the deck is choosing which
+    /// candidate to look at, so the picture and the select button pick the one shown above.
+    /// </summary>
+    [Fact]
+    public void ReviewDeck_UsesTheSharedCardAndSelectsThroughIt()
+    {
+        Assert.Contains("<ImageCard Model=\"CardModel(item)\"", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.Contains("SelectRequested=\"() => SelectCandidateAsync(item.Id)\"", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.Contains("IsSelected = item.Id == Current?.Id", ReviewDeckSource, StringComparison.Ordinal);
+
+        // Rejecting is one click everywhere: a modal confirmation on an action that is itself reversible is friction,
+        // and the deck's own verdict buttons already say what they do.
+        Assert.DoesNotContain("JS.InvokeAsync<bool>(\"confirm\"", ReviewDeckSource, StringComparison.Ordinal);
+
+        // The toolbar is icon-only, the way the card's footer is: no action is a word in a button.
+        Assert.DoesNotContain(">Previous</button>", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(">Next</button>", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(">Compare</button>", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(">Shortlist</button>", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(">Reject</button>", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(">Accept</button>", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(">Revoke</button>", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("View larger", ReviewDeckSource, StringComparison.Ordinal);
+
+        // The rail stretches to the image's row and scrolls only when its own content is taller.
+        Assert.Contains("review-deck-body", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.Contains("review-deck-rail", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.Contains("review-deck-rail-footer", ReviewDeckSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The status filter is one shared component and one shared vocabulary, applied in the heading of every list that
+    /// renders the card — otherwise "filter by status" would mean something different on each page.
+    /// </summary>
+    [Fact]
+    public void EveryCardList_OffersTheSharedStatusFilterInItsHeading()
+    {
+        Assert.Contains("ImageCardStatusFilter", AssetStudioViewSource, StringComparison.Ordinal);
+        Assert.Contains("ImageCardStatusFilter", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.Contains("ImageCardStatusFilter", GallerySource, StringComparison.Ordinal);
+        Assert.Contains("ImageCardStatusFilter", SceneImageStudioSource, StringComparison.Ordinal);
+        Assert.Contains("ImageCardStatusFilter", BodyViewsPanelSource, StringComparison.Ordinal);
+
+        // Each list derives its options from the cards it actually holds, through the one builder.
+        Assert.Contains("ImageCardStatus.Build(", AssetStudioViewSource, StringComparison.Ordinal);
+        Assert.Contains("ImageCardStatus.Build(", ReviewDeckSource, StringComparison.Ordinal);
+
+        // And the shared filter component only ever offers a view that has something in it.
+        Assert.Contains("if (Options.Count > 1)", FilterComponentSource, StringComparison.Ordinal);
+        Assert.Contains("new(null, \"All\", materialised.Count)", StatusHelperSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Gallery_UsesTheCardsViewerRatherThanItsOwnOverlay()
+    {
+        Assert.DoesNotContain("ViewRequested=", GallerySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("scene-image-viewer-overlay", GallerySource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Card_DelegatesPanAndZoomToTheSharedInspectorScript()
+    {
+        // The stage, its controls and the readout are the shared inspector's own markup; the maths lives in one script,
+        // so there is no per-host zoom implementation to drift.
+        Assert.Contains("class=\"image-inspector-stage\"", InspectorSource, StringComparison.Ordinal);
+        Assert.Contains("data-zoom-image", InspectorSource, StringComparison.Ordinal);
+        Assert.Contains("data-zoom-readout", InspectorSource, StringComparison.Ordinal);
+        Assert.Contains("data-zoom-action=\"in\"", InspectorSource, StringComparison.Ordinal);
+        Assert.Contains("data-zoom-action=\"out\"", InspectorSource, StringComparison.Ordinal);
+        Assert.Contains("data-zoom-action=\"fit\"", InspectorSource, StringComparison.Ordinal);
+        Assert.Contains("data-zoom-action=\"actual\"", InspectorSource, StringComparison.Ordinal);
+
+        Assert.Contains("JS.InvokeVoidAsync(\"imageZoom.attach\", _viewport, _selfReference)", InspectorSource, StringComparison.Ordinal);
+        Assert.Contains("JS.InvokeVoidAsync(\"imageZoom.detach\", _viewport)", InspectorSource, StringComparison.Ordinal);
+
+        // The script is served with the app, alongside the other small modules.
+        Assert.Contains("js/image-zoom.js", AppSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InspectorScript_KeepsInspectionHonestAndNonDestructive()
+    {
+        // Natural pixels, scale-transformed: 100% is one image pixel per screen pixel, which is the whole point of
+        // inspecting rather than looking at a thumbnail.
+        Assert.Contains("image.style.width = image.naturalWidth + 'px';", ZoomScriptSource, StringComparison.Ordinal);
+        Assert.Contains("transformOrigin = '0 0'", ZoomScriptSource, StringComparison.Ordinal);
+
+        // Zoom is anchored at the cursor, so the detail under the pointer stays under the pointer.
+        Assert.Contains("zoomTo: function (viewport, scale, anchorX, anchorY)", ZoomScriptSource, StringComparison.Ordinal);
+        Assert.Contains("event.preventDefault();", ZoomScriptSource, StringComparison.Ordinal);
+
+        // Ctrl/Cmd/Alt belong to the browser: inspecting an image must not block the browser's own zoom.
+        Assert.Contains("if (event.ctrlKey || event.metaKey || event.altKey)", ZoomScriptSource, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

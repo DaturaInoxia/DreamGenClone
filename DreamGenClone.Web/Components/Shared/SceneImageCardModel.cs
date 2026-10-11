@@ -38,4 +38,21 @@ public sealed record SceneImageCardModel
     public string? DisplayName { get; init; }
 
     public bool IsProductionApproved { get; init; }
+
+    /// <summary>
+    /// True when this card is the one the host is showing in detail (the review deck's current candidate). Draws the
+    /// selection highlight the host would otherwise re-implement around the card.
+    /// </summary>
+    public bool IsSelected { get; init; }
+
+    /// <summary>
+    /// This card's decision in a normalized vocabulary the shared status filter understands —
+    /// <c>undecided</c>, <c>shortlisted</c>, <c>accepted</c>, <c>approved</c>, <c>rejected</c>, <c>revoked</c>,
+    /// <c>archived</c>, <c>pending</c> or <c>failed</c>. Null means the host has no decision to filter by, and the
+    /// card then only ever matches "All".
+    /// </summary>
+    public string? DecisionKey { get; init; }
+
+    /// <summary>The chip label for <see cref="DecisionKey"/>, e.g. "Approved" rather than "accepted".</summary>
+    public string? DecisionLabel { get; init; }
 }

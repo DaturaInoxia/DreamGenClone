@@ -14,6 +14,125 @@ namespace DreamGenClone.Tests.RolePlay;
 /// </summary>
 public sealed class BodyReferencePromptCompilerTests
 {
+    /// <summary>
+    /// Becky's brief as an ANGLE sees it: the build, the pose and (when bound) the face arrive as reference images,
+    /// so the prompt must not restate them. Same brief, different scope — which is the point: the body is one fact,
+    /// and the scope says whether the words carry it.
+    /// </summary>
+    private static BodyReferenceBrief AngleBrief()
+    {
+        var brief = Brief();
+        brief.Scope = BodyPromptScope.PointAtReferences;
+        return brief;
+    }
+
+    /// <summary>
+    /// The defect this scope exists to remove (reported live 2026-10-10): an angle's prompt stated a STANCE — always
+    /// "standing upright and facing the camera" — and the render clause the caller appends states the opposite turn,
+    /// so the model obeyed the words and the 3/4 came back front-facing. An angle must therefore state no stance at
+    /// all, in either dialect.
+    /// </summary>
+    [Fact]
+    public void AnAngle_StatesNoStance_BecauseTheRenderClauseOwnsTheDirection()
+    {
+        var sdxl = Sdxl(AngleBrief()).Positive;
+        Assert.DoesNotContain("facing the camera", sdxl, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("standing upright", sdxl, StringComparison.OrdinalIgnoreCase);
+
+        // Pony's stance tags are the same contradiction in tag form: "front view" on a 3/4 render.
+        var pony = Pony(AngleBrief()).Positive;
+        Assert.DoesNotContain("front view", pony, StringComparison.OrdinalIgnoreCase);
+
+        // The base KEEPS its stance: nothing else orients it, so dropping it there would be the opposite bug.
+        Assert.Contains("facing the camera", Sdxl(Brief()).Positive, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("front view", Pony(Brief()).Positive, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// HARD RULE 10: point at the reference image rather than describing features in words. The base has no body
+    /// reference, so it describes the build; an angle is being SHOWN the build, so describing it again spends the
+    /// budget restating the input — and a body description is what carried the contradicting stance in the first
+    /// place.
+    /// </summary>
+    [Fact]
+    public void AnAngle_DoesNotDescribeTheBodyInWords_ButTheBaseDoes()
+    {
+        // The canonical body text is the description being suppressed; assert on a phrase only it can produce.
+        var bodyPhrase = "fuller rear with a soft belly";
+        Assert.Contains(bodyPhrase, Sdxl(Brief()).Positive, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(bodyPhrase, Sdxl(AngleBrief()).Positive, StringComparison.OrdinalIgnoreCase);
+
+        // Pony carries the same fact as tags; those are the tokens the angle drops.
+        Assert.DoesNotContain("large ass", Pony(AngleBrief()).Positive, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// An angle still has to say what the shot IS. Dropping the stance must not drop the framing: "full body" is
+    /// about the picture's extent, not about which way the body faces, and without it a 3/4 render crops to the
+    /// torso.
+    /// </summary>
+    [Fact]
+    public void AnAngle_KeepsTheSubject_TheClothingState_AndTheFraming()
+    {
+        var sdxl = Sdxl(AngleBrief()).Positive;
+        Assert.Contains("a middle-aged woman", sdxl, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Wearing plain everyday clothing.", sdxl, StringComparison.Ordinal);
+        Assert.Contains("Whole body in frame and unobstructed, head to feet", sdxl, StringComparison.Ordinal);
+
+        var pony = Pony(AngleBrief()).Positive;
+        Assert.Contains("full body", pony, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("plain everyday clothing", pony, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// An UNCLOTHED angle says so positively, exactly as the base does — the state is not part of the build the
+    /// reference carries (a reference IMAGE carries its own clothing state, measured 2026-09-23), so it has to be
+    /// stated in words or a clothed reference can pull the render back to clothed.
+    /// </summary>
+    [Fact]
+    public void AnUnclothedAngle_StatesTheAbsenceOfClothingPositively()
+    {
+        var brief = AngleBrief();
+        brief.BodyState = SceneImageReferenceBodyState.Unclothed;
+        brief.Clothing = null;
+
+        var sdxl = Sdxl(brief).Positive;
+        Assert.Contains("Nude, fully unclothed.", sdxl, StringComparison.Ordinal);
+        Assert.DoesNotContain("facing the camera", sdxl, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The scope is STATED, never defaulted: a brief that does not say which of the two it is cannot be compiled,
+    /// because the default would silently decide whether an angle restates the body in words — which is exactly the
+    /// drift that produced this bug.
+    /// </summary>
+    [Fact]
+    public void AnUnstatedScope_IsRefused()
+    {
+        // A COMPLETE brief, so the only thing it can be refused for is the scope: asserting on a default-constructed
+        // brief would pass for the wrong reason, because its body state is refused first.
+        var brief = Brief();
+        brief.Scope = (BodyPromptScope)0;
+        Assert.False(Enum.IsDefined(brief.Scope));
+
+        var refused = Assert.Throws<InvalidOperationException>(() => brief.Validate());
+        Assert.Contains("the prompt scope", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The angle's compiled prompt must still pass its family's structural gate (§0 rule 5) — a narrower prompt is
+    /// not a licence to skip validation, and the length cap is why the suppression is expressed by the SCOPE rather
+    /// than by bolting extra sentences onto an over-long prompt.
+    /// </summary>
+    [Theory]
+    [InlineData(SceneImageModelFamily.Sdxl)]
+    [InlineData(SceneImageModelFamily.Pony)]
+    public void AnAnglesPrompt_StillPassesItsFamilysStructuralGate(SceneImageModelFamily family)
+    {
+        var compiled = BodyReferencePromptCompiler.Compile(AngleBrief(), Model(family));
+        Assert.True(compiled.IsValid, string.Join("; ", compiled.Findings.Select(finding => finding.ToString())));
+    }
+
     private static BodyReferenceBrief Brief()
     {
         var brief = new BodyReferenceBrief
@@ -22,6 +141,9 @@ public sealed class BodyReferencePromptCompilerTests
         BodyCardVersion = 4,
         Gender = "Female",
         BodyState = SceneImageReferenceBodyState.Clothed,
+        // The base view: nothing else carries the body, so the prompt describes it in full. An angle states
+        // PointAtReferences instead — see the scope tests below.
+        Scope = BodyPromptScope.DescribeBody,
         Age = "50",
         HairStyle = "Bun",
         HairColour = "Brown",

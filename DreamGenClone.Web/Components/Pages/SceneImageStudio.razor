@@ -2065,12 +2065,18 @@
                 </div>
 
                 <div class="card mb-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
+                    <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
                         <strong>Additional Images</strong>
-                        <button class="btn btn-sm btn-success" @onclick="RenderImageAsync"
-                            disabled="@(_busy || !IsSelectedMomentEnriched || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null)">
-                            <i class="bi bi-image me-1"></i> Render Image
-                        </button>
+                        <span class="d-flex align-items-center gap-2">
+                            <ImageCardStatusFilter Options="_additionalImageFilterOptions"
+                                                   Selected="_additionalImageFilter"
+                                                   SelectedChanged="key => _additionalImageFilter = key"
+                                                   Total="_additionalImages.Count()" />
+                            <button class="btn btn-sm btn-success" @onclick="RenderImageAsync"
+                                disabled="@(_busy || !IsSelectedMomentEnriched || HasInFlightWork() || string.IsNullOrWhiteSpace(_editablePrompt) || _activePrompt is null)">
+                                <i class="bi bi-image me-1"></i> Render Image
+                            </button>
+                        </span>
                     </div>
                     <div class="card-body">
                         <label class="form-label mb-1">Image Model</label>
@@ -2091,12 +2097,11 @@
                         else
                         {
                             <div class="row g-3">
-                                @foreach (var img in _additionalImages)
+                                @foreach (var img in VisibleAdditionalImages)
                                 {
                                     <div class="col-6 col-md-4 col-xl-3">
                                         <ImageCard Model="CardModel(img)"
                                                    Busy="_busy"
-                                                   ViewRequested="() => OpenViewer(img)"
                                                    EditRequested="() => OpenImageEditor(img)"
                                                    DeleteRequested="() => RequestDeleteImageAsync(img)">
                                             <BodyContent>
@@ -2680,6 +2685,14 @@
 
     private void CloseViewer() => _viewerImage = null;
 
+    private string? _additionalImageFilter;
+
+    /// <summary>The additional-image strip's filter: its own cards decide which decisions are on offer.</summary>
+    private IReadOnlyList<ImageCardFilterOption> _additionalImageFilterOptions => ImageCardStatus.Build(_additionalImages.Select(CardModel));
+
+    private IEnumerable<SceneImageRecord> VisibleAdditionalImages =>
+        _additionalImages.Where(img => ImageCardStatus.Matches(CardModel(img), _additionalImageFilter));
+
     private SceneImageCardModel CardModel(SceneImageRecord img) => new()
     {
         Id = img.Id,
@@ -2700,7 +2713,19 @@
         },
         DecisionBadgeText = img.Disposition is SceneImageAttemptDisposition.Shortlisted or SceneImageAttemptDisposition.Rejected
             ? img.Disposition.ToString()
-            : null
+            : null,
+        DecisionKey = img.Status switch
+        {
+            SceneImageStatus.Pending or SceneImageStatus.Generating => ImageCardStatus.Pending,
+            SceneImageStatus.Failed => ImageCardStatus.Failed,
+            _ => img.Disposition switch
+            {
+                SceneImageAttemptDisposition.Shortlisted => ImageCardStatus.Shortlisted,
+                SceneImageAttemptDisposition.Rejected => ImageCardStatus.Rejected,
+                SceneImageAttemptDisposition.Archived => ImageCardStatus.Archived,
+                _ => ImageCardStatus.Undecided
+            }
+        }
     };
 
     private void ToggleStoryMoment() => _storyMomentOpen = !_storyMomentOpen;

@@ -242,6 +242,16 @@ public static class BodyReferencePromptCompiler
         _ => throw new InvalidOperationException($"Unsupported body reference stance '{stance}'.")
     };
 
+    /// <summary>
+    /// The framing tags an ANGLE carries, and deliberately nothing about which way the body faces.
+    ///
+    /// <see cref="PonyStanceTags"/> says "front view" for every stance, which is correct for the base — it is rendered
+    /// facing the camera — and wrong for an angle, whose whole point is that it is not. An angle's direction is stated
+    /// by the render clause the caller appends; the skeleton then carries the limb layout. Emitting both is the
+    /// contradiction this constant exists to remove (measured live 2026-10-10).
+    /// </summary>
+    private const string PonyAngleFramingTags = "full body, eye level";
+
     private static string SdxlStancePhrase(BodyReferenceStance stance) => stance switch
     {
         BodyReferenceStance.Standing => "standing upright and facing the camera",
@@ -438,14 +448,29 @@ public static class BodyReferencePromptCompiler
             tags.Add(skin);
         }
 
-        tags.AddRange(BodyTokens(brief));
+        // An ANGLE drops the build tags (the body reference image carries them) and the stance tags. The stance tags
+        // are the load-bearing omission: they say "front view", and a 3/4 or profile angle that also says "front view"
+        // is a contradiction the model resolves toward the words. Framing is kept, because "full body" is about the
+        // SHOT rather than about which way the body faces — the direction comes from the render clause.
+        var pointAtReferences = brief.Scope == BodyPromptScope.PointAtReferences;
+        if (pointAtReferences)
+        {
+            tags.Add(PonyAngleFramingTags);
+        }
+        else
+        {
+            tags.AddRange(BodyTokens(brief));
+        }
 
         if (!string.IsNullOrWhiteSpace(brief.Clothing))
         {
             tags.Add(brief.Clothing.Trim().ToLowerInvariant());
         }
 
-        tags.Add(PonyStanceTags(brief.Stance));
+        if (!pointAtReferences)
+        {
+            tags.Add(PonyStanceTags(brief.Stance));
+        }
 
         // Pony reads a FLAT comma list, so the entries are flattened to individual tags and de-duplicated: the same
         // fact reaching the model twice ("large ass" from both fat distribution and rear volume) spends budget twice
@@ -527,9 +552,28 @@ public static class BodyReferencePromptCompiler
         // stance, the clothing, and the camera/texture tail. The researched shape is unchanged (subject first, then
         // appearance and body, clothing in the positive, camera cues last); the tail below carries the full-body
         // framing cue that used to be a "Full-body photograph of" prefix.
-        var sentences = new List<string>(4) { ComposeViewBodyText(brief) };
+        //
+        // An ANGLE takes the narrow half of that: the build arrives as a reference IMAGE, so describing it in words
+        // spends the budget restating what the model is being shown (HARD RULE 10 — point at the image rather than
+        // describing features in words). The person is still named, because "a middle-aged man" is what makes the
+        // sentence a photograph of someone; the body, the face and the stance are not.
+        var pointAtReferences = brief.Scope == BodyPromptScope.PointAtReferences;
+        var sentences = new List<string>(4)
+        {
+            // Capitalized because it now heads the sentence on its own; the full description capitalizes its subject
+            // in ComposeFullDescription, and an angle's prompt must read as prose for the same reason.
+            pointAtReferences
+                ? $"{Capitalize(SubjectNounPhrase(brief))}."
+                : ComposeViewBodyText(brief)
+        };
 
-        sentences.Add($"{Capitalize(SdxlStancePhrase(brief.Stance))}.");
+        // NO stance for an angle. Its orientation is stated by the render clause the caller appends, and asserting a
+        // stance here said the opposite of it: the stance is "facing the camera", an angle is not. Both statements in
+        // one prompt is why a 3/4 render came back front-facing (measured live 2026-10-10).
+        if (!pointAtReferences)
+        {
+            sentences.Add($"{Capitalize(SdxlStancePhrase(brief.Stance))}.");
+        }
 
         // Clothing is always in the positive: these checkpoints are NSFW-trained and clothing is the safety anchor
         // (§2.2 rule 6). An unclothed reference states that explicitly rather than staying silent.

@@ -21,6 +21,36 @@ public enum BodyReferenceStance
 }
 
 /// <summary>
+/// What a compiled body prompt has to say IN WORDS, because the same body is asked for two different ways.
+///
+/// <para>
+/// The base view has nothing else carrying the body, so its prompt must describe it. An ANGLE is a different
+/// request: the accepted body, the committed pose skeleton and (when bound) the face all travel as reference
+/// IMAGES, so a prompt that re-describes the build spends its budget restating what the model is already being
+/// shown — and, worse, the stance phrase it used to carry ("standing upright and facing the camera") directly
+/// contradicted the angle's own camera clause ("body turned three-quarters away"), so the model obeyed the words and
+/// the turn was lost. Measured live 2026-10-10: an unclothed 3/4-left prompt contained both statements at once.
+/// </para>
+///
+/// <para>
+/// Stated by the caller, never inferred: which of the two a request is determines what the prompt says, so it is a
+/// property of the request rather than something the compiler guesses from what happens to be bound.
+/// </para>
+/// </summary>
+public enum BodyPromptScope
+{
+    /// <summary>The base view: nothing else carries the body, so the prompt describes it in full, stance included.</summary>
+    DescribeBody = 1,
+
+    /// <summary>
+    /// An angle: the references carry the build, the pose and the identity, so the prompt states only the person's
+    /// noun, the clothing state and the shot. Deliberately NO stance phrase — the orientation belongs to the render
+    /// clause, and saying both is a self-contradiction the model resolves the wrong way.
+    /// </summary>
+    PointAtReferences = 2
+}
+
+/// <summary>
 /// The frozen body-reference brief (B-122) — the SINGLE semantic source a body-reference prompt is compiled from.
 ///
 /// It exists for the same reason the Composition Composer keeps one frozen semantic snapshot: the image must record
@@ -125,6 +155,13 @@ public sealed class BodyReferenceBrief
 
     // ── Composition ─────────────────────────────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Required: how much this prompt must say in words. Set from the request, never inferred — see
+    /// <see cref="BodyPromptScope"/>. <c>DescribeBody</c> for the base view, <c>PointAtReferences</c> for an angle
+    /// whose build, pose and identity arrive as reference images.
+    /// </summary>
+    public BodyPromptScope Scope { get; set; }
+
     public BodyReferenceStance Stance { get; set; } = BodyReferenceStance.Standing;
 
     /// <summary>What the subject wears. Null/blank for an unclothed reference; never assumed either way.</summary>
@@ -153,6 +190,13 @@ public sealed class BodyReferenceBrief
     public void Validate()
     {
         var missing = new List<string>(4);
+
+        // The scope is STATED by the request, so an unstated one is refused here rather than defaulting to a value
+        // that would silently decide whether an angle restates the body in words.
+        if (!Enum.IsDefined(Scope))
+        {
+            missing.Add("the prompt scope (whether this prompt must describe the body or point at its references)");
+        }
 
         if (string.IsNullOrWhiteSpace(CharacterTemplateId))
         {

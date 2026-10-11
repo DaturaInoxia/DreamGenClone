@@ -181,6 +181,16 @@
                                 </div>
                             </div>
 
+                            @* A front already exists — the approved one on an earlier pack, or a candidate from another
+                               build — so re-generating from scratch is not the only way to get one here. *@
+                            <div class="mb-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary" @onclick="OpenFrontPicker"
+                                        disabled="@_frontBusy"
+                                        title="Use an image the app already holds — an approved front from an earlier pack, or one from the asset library — instead of uploading a file">
+                                    From app
+                                </button>
+                            </div>
+
                             @if (!string.IsNullOrWhiteSpace(_frontMessage))
                             {
                                 <div class="small text-muted mb-2">@_frontMessage</div>
@@ -567,6 +577,11 @@
                                                 }
                                                 <div class="small text-muted mt-2">Select this card to edit this angle with the prepared prompt.</div>
                                                 <InputFile class="form-control form-control-sm mt-2" accept="image/png,image/jpeg,image/webp" OnChange="@(args => UploadAngleAsync(view, args))" @onclick:stopPropagation="true" />
+                                                <button type="button" class="btn btn-sm btn-outline-primary w-100 mt-1"
+                                                        @onclick:stopPropagation="true" @onclick="() => OpenAnglePicker(view)"
+                                                        title="Use an image the app already holds as this angle's attempt — an approved angle from an earlier pack, or one from the asset library">
+                                                    From app
+                                                </button>
                                                 <div class="d-flex gap-2 mt-2">
                                                     @if (angle?.Status == CharacterIdentityAngleStatus.Pending)
                                                     {
@@ -653,14 +668,32 @@
                             {
                                 @if (navSection.IsGroup)
                                 {
+                                    var groupViews = navSection.Angles!.Select(BodyViewFor).ToList();
+                                    var groupAccepted = groupViews.Count(BodyViewStatusDisplay.IsAccepted);
                                     <li class="list-group-item py-2">
-                                        <div class="small fw-semibold mb-1">@navSection.Label</div>
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <span class="small fw-semibold">@navSection.Label</span>
+                                            @* The same "x / y accepted" count the panel's own header shows, so the operator can
+                                               see how much of a group is left without opening any of it. *@
+                                            <span class="badge @(groupAccepted == groupViews.Count ? "text-bg-success" : "text-bg-secondary")"
+                                                  title="@($"{groupAccepted} of {groupViews.Count} accepted")">
+                                                @groupAccepted / @groupViews.Count
+                                            </span>
+                                        </div>
                                         <ul class="list-unstyled ms-2 mb-0">
                                             @foreach (var angle in navSection.Angles!)
                                             {
-                                                <li class="py-1 small @(IsBodyAngleSelected(angle.State, angle.View) ? "fw-semibold text-primary" : "text-body")"
+                                                var view = BodyViewFor(angle);
+                                                <li class="py-1 small d-flex justify-content-between align-items-center gap-2 @(IsBodyAngleSelected(angle.State, angle.View) ? "fw-semibold text-primary" : "text-body")"
                                                     style="cursor:pointer;" @onclick="() => SelectBodyAngleAsync(angle)">
-                                                    @angle.Label
+                                                    <span>@angle.Label</span>
+                                                    @* Every cell states where it stands, because the question this list answers is
+                                                       "which of these are done and which still need me". A status dot for the ones the
+                                                       operator still has to visit, and the word for everything else. *@
+                                                    <span class="badge @BodyViewStatusDisplay.BadgeClass(view)"
+                                                          title="@($"{(view is null ? "No entry yet" : view.Status.ToString())} — {BodyViewStatusDisplay.Label(view)}")">
+                                                        @BodyViewStatusDisplay.Label(view)
+                                                    </span>
                                                 </li>
                                             }
                                         </ul>
@@ -1163,7 +1196,8 @@
                                             ImageSize="@_bodyViewImageSize"
                                             SettingsRevision="@_bodyViewSettingsRevision"
                                             ModelIdChanged="OnBodyViewModelChanged"
-                                            SelectedState="@_selectedBodyState" SelectedView="@_selectedBodyView" />
+                                            SelectedState="@_selectedBodyState" SelectedView="@_selectedBodyView"
+                                            ViewsChanged="OnBodyViewsChangedAsync" />
                         }
                         else
                         {
@@ -1318,6 +1352,19 @@
             </div>
         </div>
     </div>
+}
+
+@* A front or angle attempt is chosen from what the app already holds at least as often as it is uploaded, so the
+   picker sits beside each file input rather than replacing it. Keyed to the step that opened it, so closing it and
+   opening it for the other step cannot mix the two up. *@
+@if (_pickerTarget is not null)
+{
+    <InAppImagePicker Visible="true"
+                      CharacterTemplateId="@IdentityKey"
+                      IdentityKind="SceneImageReferenceAssetKind.Face"
+                      Title="@(_pickerTarget.Angle is { } targetView ? $"Choose a {AngleLabel(targetView)} attempt" : "Choose a front candidate")"
+                      Picked="UsePickedImageAsync"
+                      CancelRequested="ClosePicker" />
 }
 
 @code {
@@ -1521,6 +1568,28 @@
     /// <summary>The body angle the left navigation selected, shown by the BodyViewsPanel when <see cref="_bodyNavSection"/> is "body-angle".</summary>
     private SceneImageReferenceBodyState _selectedBodyState = SceneImageReferenceBodyState.Clothed;
     private SceneImageReferenceBodyView _selectedBodyView = SceneImageReferenceBodyView.Front;
+
+    /// <summary>
+    /// The body view rows the left navigation shows statuses from, as published by <see cref="BodyViewsPanel"/>.
+    ///
+    /// The panel owns this list because it already loads it and re-reads it after every action; the navigation mirrors
+    /// it rather than querying again, so a cell the operator just accepted cannot still read "Not started" on the left
+    /// while the panel on the right says otherwise. Empty until the panel has loaded once.
+    /// </summary>
+    private IReadOnlyList<CharacterIdentityBodyView> _bodyNavViews = [];
+
+    /// <summary>The view row for one canonical slot, or null when it has never been touched.</summary>
+    private CharacterIdentityBodyView? BodyViewFor(CharacterIdentityBodySlot slot)
+        => BodyViewFor(CharacterIdentityBodyViewKey.Canonical(slot.State, slot.View));
+
+    private CharacterIdentityBodyView? BodyViewFor(CharacterIdentityBodyViewKey key)
+        => _bodyNavViews.FirstOrDefault(view => view.Key() == key);
+
+    private Task OnBodyViewsChangedAsync(IReadOnlyList<CharacterIdentityBodyView> views)
+    {
+        _bodyNavViews = views;
+        return Task.CompletedTask;
+    }
 
     /// <summary>One entry of the Body tab's left navigation: a section, or a group of angle sections.</summary>
     private sealed record BodyNavSection(
@@ -2655,6 +2724,76 @@
         }
     }
 
+    /// <summary>The step an open in-app picker will fill: an angle when it names one, the front candidate otherwise.</summary>
+    private PickerTarget? _pickerTarget;
+
+    private sealed record PickerTarget(CharacterIdentityAngleView? Angle);
+
+    private Task OpenFrontPicker()
+    {
+        _pickerTarget = new PickerTarget(null);
+        return Task.CompletedTask;
+    }
+
+    private Task OpenAnglePicker(CharacterIdentityAngleView view)
+    {
+        _pickerTarget = new PickerTarget(view);
+        return Task.CompletedTask;
+    }
+
+    private void ClosePicker() => _pickerTarget = null;
+
+    /// <summary>
+    /// Records an image chosen from inside the app as a front candidate or as this angle's next attempt. Both go
+    /// through the SAME service calls the file path uses, so a pick from the app only changes where the bytes came
+    /// from, never what the build does with them.
+    /// </summary>
+    private async Task UsePickedImageAsync(InAppPickedImage picked)
+    {
+        if (_build is null || _pickerTarget is not { } target)
+        {
+            return;
+        }
+
+        var buildId = _build.Id;
+        _pickerTarget = null;
+        using var buffer = new MemoryStream(picked.Content);
+
+        if (target.Angle is { } view)
+        {
+            try
+            {
+                await AnglesService.UploadAsync(buildId, view, picked.FileName, buffer);
+                _selectedAngleView = view;
+                await SelectAngleAsync(view);
+                _anglesMessage = $"Used {picked.SourceLabel} as a {AngleLabel(view)} attempt. Review it, edit it if needed, then use this angle.";
+            }
+            catch (Exception ex)
+            {
+                _anglesMessage = ex.Message;
+            }
+
+            return;
+        }
+
+        _frontBusy = true;
+        _frontMessage = null;
+        try
+        {
+            await FrontService.UploadFrontAttemptAsync(buildId, $"{_characterName} front", picked.FileName, buffer);
+            _frontMessage = $"Used {picked.SourceLabel} as a front candidate.";
+            await RefreshFrontAttemptsAsync();
+        }
+        catch (Exception ex)
+        {
+            _frontMessage = ex.Message;
+        }
+        finally
+        {
+            _frontBusy = false;
+        }
+    }
+
     private async Task OnFrontUpload(InputFileChangeEventArgs args)
     {
         if (_build is null)
@@ -2704,7 +2843,20 @@
             if (selectedAlready && _build.CurrentStep == CharacterIdentityBuildStep.Validate)
             {
                 var validation = ParseValidation(selected.ValidationResultJson);
+
+                // A recorded build-level manual override is an explicit alternative to the image-level eye
+                // verdict, so it is never re-measured over.
                 var gate = await ValidationService.GetGateAsync(_build.Id);
+                if (!gate.ManualOverrideApplied)
+                {
+                    // The gate reads the Validate STEP's measurement, and the chosen image's own verdict does not
+                    // write it. A front selected BEFORE it was validated therefore had a verdict but no step
+                    // measurement, and this control refused with "Run validation to continue" at the operator who
+                    // had just run it (2026-10-09). MeasureAsync returns the result the gate is computed from, so
+                    // the check below is made against the measurement just taken rather than a second read of it.
+                    gate = await ValidationService.MeasureAsync(_build.Id);
+                }
+
                 if (!gate.CanAdvance)
                 {
                     _frontMessage = gate.BlockReason is not null
@@ -2715,12 +2867,6 @@
                     return;
                 }
 
-                // A recorded build-level manual override is an explicit alternative to the image-level
-                // eye verdict. Do not re-measure and replace the user's override when Continue is clicked.
-                if (!gate.ManualOverrideApplied)
-                {
-                    await ValidationService.MeasureAsync(_build.Id);
-                }
                 await ValidationService.AdvanceAsync(_build.Id);
                 _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
                 _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
@@ -2814,11 +2960,23 @@
                 && _build.CurrentStep == CharacterIdentityBuildStep.Validate
                 && IsChosenFront(attempt))
             {
-                await ValidationService.AdvanceAsync(_build.Id);
-                _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
-                _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
-                await RefreshGarmentAsync();
-                _frontMessage = $"{attempt.Id[..8]}… passed the eye gate and the build advanced to {_build.CurrentStep}.";
+                // The gate reads the Validate STEP's measurement, and MeasureImageAsync above wrote only the
+                // IMAGE's result. Advancing on the image's verdict alone threw "cannot advance past Validate: Run
+                // validation to continue" — the sentence the operator had just acted on (2026-10-09). Take the
+                // step measurement, then advance on what it actually says.
+                var gate = await ValidationService.MeasureAsync(_build.Id);
+                if (gate.CanAdvance)
+                {
+                    await ValidationService.AdvanceAsync(_build.Id);
+                    _build = await BuildService.GetBuildAsync(_build.Id) ?? _build;
+                    _buildStepRows = (await BuildService.ListStepsAsync(_build.Id)).ToList();
+                    await RefreshGarmentAsync();
+                    _frontMessage = $"{attempt.Id[..8]}… passed the eye gate and the build advanced to {_build.CurrentStep}.";
+                }
+                else
+                {
+                    _frontMessage = $"{attempt.Id[..8]}… {gate.Verdict}: {gate.BlockReason}";
+                }
             }
         }
         catch (Exception ex)

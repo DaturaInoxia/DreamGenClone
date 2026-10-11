@@ -1,0 +1,38 @@
+@using DreamGenClone.Components.Shared
+
+@* The status filter that sits in the heading of an image list. The options are the ones THIS list actually contains,
+   so a control never offers a view that would come up empty; "All" is always first. *@
+
+@if (Options.Count > 1)
+{
+    <div class="btn-group btn-group-sm" role="group" aria-label="@($"Filter by {LabelNoun}")">
+        @foreach (var option in Options)
+        {
+            var isSelected = string.Equals(option.Key, Selected, StringComparison.Ordinal);
+            <button type="button"
+                    class="btn @(isSelected ? "btn-primary" : "btn-outline-secondary")"
+                    aria-pressed="@isSelected.ToString().ToLowerInvariant()"
+                    title="@($"{option.Label}: {option.Count} of {Total}")"
+                    @onclick="() => SelectedChanged.InvokeAsync(option.Key)">
+                @option.Label
+                <span class="badge @(isSelected ? "text-bg-light" : "text-bg-secondary") ms-1">@option.Count</span>
+            </button>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>The options to offer, built from the list's own cards by <see cref="ImageCardStatus.Build"/>.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<ImageCardFilterOption> Options { get; set; } = [];
+
+    /// <summary>The chosen decision key, or null for "All".</summary>
+    [Parameter] public string? Selected { get; set; }
+
+    [Parameter] public EventCallback<string?> SelectedChanged { get; set; }
+
+    /// <summary>How many images the list holds in total, for the per-option tooltip.</summary>
+    [Parameter] public int Total { get; set; }
+
+    /// <summary>What is being filtered, for the group's accessible name.</summary>
+    [Parameter] public string LabelNoun { get; set; } = "status";
+}

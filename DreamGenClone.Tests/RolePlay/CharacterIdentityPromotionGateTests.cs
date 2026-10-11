@@ -409,6 +409,9 @@ public sealed class CharacterIdentityPromotionGateTests
         public Task<string> ResolveEditInstructionAsync(string buildId, CharacterIdentityBodyViewKey key, string characterName, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<string> ResolveRenderClauseAsync(string buildId, CharacterIdentityBodyViewKey key, string characterName, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<CharacterIdentityBodyView> GenerateAsync(string buildId, CharacterIdentityBodyViewKey key, string modelId, string imageSize, string characterName, string? promptOverride = null, SceneAssetPoseConditioning? pose = null, bool useIdentity = false, string? identityFaceAssetId = null, SceneAssetBodyReferenceConditioning? bodyReference = null, string? posePresetId = null, string? poseSkeletonRelativePath = null, IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageCharacterLoraSelection>? characterLoras = null, IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageLoraSelection>? sceneLoras = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

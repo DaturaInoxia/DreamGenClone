@@ -112,6 +112,12 @@ public sealed class CharacterIdentityBodyViewsPanelTests
         Assert.Contains("ModelResolutionService.ResolveImagePromptModelAsync()", panel, StringComparison.Ordinal);
         Assert.Contains("PromptCompiler.CompileAsync(new ImageCellCompileInput(", panel, StringComparison.Ordinal);
 
+        // The direction is angle-aware and reference-aware: an angle row reads the same camera clause the render
+        // appends, and the compile declares the structural axes so the prompt does not describe the references.
+        Assert.Contains("BuildBodyCompileDirectionAsync(key, body, bindings)", panel, StringComparison.Ordinal);
+        Assert.Contains("BodyService.ResolveRenderClauseAsync(BuildId, key, CharacterName)", panel, StringComparison.Ordinal);
+        Assert.Contains("DeclareBindings(key)", panel, StringComparison.Ordinal);
+
         // The deterministic prompt is still resolved once, silently, when a row opens.
         Assert.Contains("private async Task ResolvePromptAsync(CharacterIdentityBodyViewKey key)", panel, StringComparison.Ordinal);
         Assert.Contains("_reloading.Add(keyText)", panel, StringComparison.Ordinal);

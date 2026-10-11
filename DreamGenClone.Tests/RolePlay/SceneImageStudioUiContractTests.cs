@@ -510,7 +510,8 @@ public sealed class SceneImageStudioUiContractTests
         var productionStudio = IndexOf("scene-production-studio");
         var additionalSection = IndexOf("Additional Phase 2 Tools", productionStudio);
         var additionalImages = IndexOf("<strong>Additional Images</strong>", additionalSection);
-        var additionalLoop = IndexOf("@foreach (var img in _additionalImages)", additionalImages);
+        // The strip is filtered, so it iterates the filtered view of the same list rather than the raw list.
+        var additionalLoop = IndexOf("@foreach (var img in VisibleAdditionalImages)", additionalImages);
         Assert.True(productionStudio < additionalSection && additionalSection < additionalImages && additionalImages < additionalLoop,
             "Additional Phase 2 tools and their image loop must remain after the production studio.");
         Assert.Contains("<strong>Identity-Conditioned Render</strong>", Source, StringComparison.Ordinal);

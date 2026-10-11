@@ -1,0 +1,543 @@
+@using DreamGenClone.Web.Application.RolePlay
+
+@inject ICharacterImageIdentityService IdentityService
+@inject ISceneAssetService AssetService
+@inject ILogger<InAppImagePicker> Logger
+
+@* The ONE way to say "use an image the app already has".
+   Every reference slot in the app asked for a file off disk, which meant an operator who wanted to re-use a face from a
+   superseded pack — or the approved front sitting in the asset library — had to locate that file, re-upload it, and
+   lose the record of where it came from. The images were already here. This lists them; picking one hands the host the
+   BYTES and the provenance, so the host calls exactly the upload path it already calls for a chosen file and the stored
+   row says what was really picked.
+
+   It is deliberately the same card and the same inspector as every other image list: choosing a reference is a
+   judgement about a picture, and it is made with the same tools. *@
+
+@if (Visible)
+{
+    @* z-index 1055, deliberately UNDER the shared inspector's 1060: the card inside this grid opens that inspector to
+       show a picture full size, and a picker stacked above it would put the thing the operator asked to see behind the
+       thing they asked it from. It sits above the page's own modal layer, and after the pack viewer in the DOM, so it
+       still wins when both are up. *@
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.85); z-index: 1055;"
+         @onclick="CancelAsync">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@Title</h5>
+                    <button type="button" class="btn-close" title="Close" @onclick="CancelAsync"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                        @if (Sources.Count > 1)
+                        {
+                            <div class="btn-group btn-group-sm" role="group" aria-label="Filter by source">
+                                @foreach (var source in Sources)
+                                {
+                                    var isSelected = string.Equals(source.Id, _sourceId, StringComparison.Ordinal);
+                                    <button type="button" class="btn @(isSelected ? "btn-primary" : "btn-outline-secondary")"
+                                            aria-pressed="@isSelected.ToString().ToLowerInvariant()"
+                                            @onclick="() => SelectSourceAsync(source.Id)">
+                                        @source.Label
+                                    </button>
+                                }
+                            </div>
+                        }
+
+                        @if (!_loading && FilterOptions.Count > 1)
+                        {
+                            <ImageCardStatusFilter Options="FilterOptions" Selected="_statusKey"
+                                                   SelectedChanged="SelectStatusAsync" Total="SourceOptions.Count" />
+                        }
+
+                        <span class="small text-muted ms-auto">@StatusLine</span>
+                    </div>
+
+                    @if (_loadError is not null)
+                    {
+                        <div class="alert alert-warning py-2 small">@_loadError</div>
+                    }
+
+                    @if (_loading)
+                    {
+                        <div class="text-muted">Loading images...</div>
+                    }
+                    else if (VisibleOptions.Count == 0)
+                    {
+                        <div class="text-muted">
+                            No images to choose from here. @EmptyReason
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="row g-3">
+                            @foreach (var option in VisibleOptions)
+                            {
+                                <div class="col-6 col-md-4 col-lg-3">
+                                    @* Choosing is what the picture does here, so the card is wired to SELECT: the picture
+                                       picks it, the card shows the pick, and the full-size button still opens the shared
+                                       inspector so the operator can inspect what they are about to use. *@
+                                    <ImageCard Model="option.Card" ShowVerdicts="false" Busy="_busy"
+                                               SelectRequested="() => Select(option)" />
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer justify-content-between">
+                    <span class="small text-muted">@SelectionLine</span>
+                    <span class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary" @onclick="CancelAsync">Cancel</button>
+                        <button type="button" class="btn btn-primary" disabled="@(!CanPick)"
+                                @onclick="PickAsync">
+                            Use this image
+                        </button>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const string IdentitySourceId = "identity";
+    private const string LibrarySourceId = "library";
+
+    /// <summary>Whether the picker is showing. The host owns this; the component never closes itself silently.</summary>
+    [Parameter] public bool Visible { get; set; }
+
+    /// <summary>Raised for the close button, the backdrop and the Cancel button.</summary>
+    [Parameter] public EventCallback CancelRequested { get; set; }
+
+    /// <summary>The character whose identity packs are offered. Empty means there is no pack source, only the library.</summary>
+    [Parameter] public string? CharacterTemplateId { get; set; }
+
+    /// <summary>Narrows the pack source to one axis (a face slot offers faces). Null offers every kind.</summary>
+    [Parameter] public SceneImageReferenceAssetKind? IdentityKind { get; set; }
+
+    [Parameter] public string Title { get; set; } = "Pick an image from the app";
+
+    [Parameter] public EventCallback<InAppPickedImage> Picked { get; set; }
+
+    /// <summary>
+    /// One image that can be picked, with its own reader. The reader is a delegate because the two sources read their
+    /// bytes through different services, and neither may be reached from the markup.
+    /// </summary>
+    private sealed record PickOption(
+        string Key,
+        string SourceId,
+        string SourceLabel,
+        SceneImageCardModel Card,
+        string FileName,
+        string MediaType,
+        int Order,
+        Func<Task<byte[]>> ReadBytes);
+
+    private readonly Dictionary<string, List<PickOption>> _cache = new(StringComparer.Ordinal);
+    private string? _openedFor;
+    private string _sourceId = LibrarySourceId;
+    private string? _statusKey;
+    private string? _selectedKey;
+    private string? _loadError;
+    private bool _loading;
+    private bool _busy;
+
+    private bool HasIdentitySource => !string.IsNullOrWhiteSpace(CharacterTemplateId);
+
+    private IReadOnlyList<(string Id, string Label)> Sources => HasIdentitySource
+        ? [(IdentitySourceId, "Identity packs"), (LibrarySourceId, "Asset library")]
+        : [(LibrarySourceId, "Asset library")];
+
+    private IReadOnlyList<PickOption> SourceOptions =>
+        _cache.TryGetValue(_sourceId, out var options) ? options : [];
+
+    private IReadOnlyList<ImageCardFilterOption> FilterOptions =>
+        ImageCardStatus.Build(SourceOptions.Select(option => option.Card));
+
+    private IReadOnlyList<PickOption> VisibleOptions =>
+        SourceOptions.Where(option => ImageCardStatus.Matches(option.Card, _statusKey)).ToList();
+
+    private PickOption? SelectedOption =>
+        string.IsNullOrWhiteSpace(_selectedKey)
+            ? null
+            : SourceOptions.FirstOrDefault(option => string.Equals(option.Key, _selectedKey, StringComparison.Ordinal));
+
+    private bool CanPick => !_busy && !_loading && SelectedOption is not null;
+
+    private string StatusLine
+    {
+        get
+        {
+            if (_loading)
+            {
+                return "Loading...";
+            }
+
+            var noun = SourceOptions.Count == 1 ? "image" : "images";
+            return $"{VisibleOptions.Count} of {SourceOptions.Count} {noun}";
+        }
+    }
+
+    private string SelectionLine => SelectedOption is { } option
+        ? $"Using {option.SourceLabel}"
+        : "Pick an image, then use it.";
+
+    private string EmptyReason => HasIdentitySource
+        ? "Use the source buttons to look in the other place."
+        : "The library holds no completed image yet.";
+
+    // Loading is keyed to the OPEN, not to the render: a host that re-renders while the picker is up would otherwise
+    // re-read every pack on every keystroke elsewhere on the page. Only the list being looked at is loaded, so opening
+    // the picker does not walk a library nobody asked for.
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!Visible)
+        {
+            _openedFor = null;
+            return;
+        }
+
+        var openKey = $"{CharacterTemplateId}|{IdentityKind}";
+        if (!string.Equals(_openedFor, openKey, StringComparison.Ordinal))
+        {
+            _openedFor = openKey;
+            _cache.Clear();
+            _selectedKey = null;
+            _statusKey = null;
+            _loadError = null;
+            _sourceId = HasIdentitySource ? IdentitySourceId : LibrarySourceId;
+        }
+
+        if (!_cache.ContainsKey(_sourceId))
+        {
+            await LoadSourceAsync(_sourceId);
+        }
+    }
+
+    private async Task SelectSourceAsync(string sourceId)
+    {
+        if (string.Equals(_sourceId, sourceId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _sourceId = sourceId;
+        // The status options are derived from the list in front of the operator, so the key chosen in one source
+        // means nothing in the other.
+        _statusKey = null;
+        _selectedKey = null;
+        _loadError = null;
+
+        if (!_cache.ContainsKey(_sourceId))
+        {
+            await LoadSourceAsync(_sourceId);
+        }
+    }
+
+    private Task SelectStatusAsync(string? key)
+    {
+        _statusKey = key;
+        if (SelectedOption is null)
+        {
+            _selectedKey = null;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void Select(PickOption option) => _selectedKey = option.Key;
+
+    private async Task LoadSourceAsync(string sourceId)
+    {
+        _loading = true;
+        try
+        {
+            var options = string.Equals(sourceId, IdentitySourceId, StringComparison.Ordinal)
+                ? await LoadIdentityOptionsAsync()
+                : await LoadLibraryOptionsAsync();
+            _cache[sourceId] = options;
+        }
+        catch (Exception exception)
+        {
+            // Listing must not throw into a render: the reason belongs where the picker sits, in the store's own words.
+            _loadError = $"Images could not be listed: {exception.Message}";
+            Logger.LogWarning(exception, "Listing in-app images for the picker failed for source {Source}.", sourceId);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task<List<PickOption>> LoadIdentityOptionsAsync()
+    {
+        var packs = await IdentityService.ListPacksAsync(CharacterTemplateId!);
+        var options = new List<PickOption>();
+        foreach (var pack in packs)
+        {
+            var assets = await IdentityService.ListAssetsAsync(pack.Id);
+            foreach (var asset in assets)
+            {
+                if (IdentityKind is { } kind && asset.AssetKind != kind)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(asset.FileRelativePath))
+                {
+                    continue;
+                }
+
+                var describe = IdentityPackReferenceLabels.Describe(asset);
+                var (decisionKey, decisionLabel) = PackStatus(pack.Status);
+                var extension = ExtensionFor(asset.MediaType);
+                options.Add(new PickOption(
+                    Key: asset.Id,
+                    SourceId: IdentitySourceId,
+                    SourceLabel: $"identity pack v{pack.Version} · {describe}",
+                    Card: new SceneImageCardModel
+                    {
+                        Id = asset.Id,
+                        FileRelativePath = asset.FileRelativePath,
+                        StatusText = $"v{pack.Version} {pack.Status}",
+                        StatusBadgeClass = PackBadgeClass(pack.Status),
+                        IsComplete = true,
+                        Subtitle = $"{describe} · {(asset.IsApproved ? "approved" : "not approved")}",
+                        DisplayName = describe,
+                        ApprovalBadgeText = asset.IsApproved ? "Approved reference" : null,
+                        IsProductionApproved = asset.IsApproved,
+                        DecisionKey = decisionKey,
+                        DecisionLabel = decisionLabel
+                    },
+                    FileName: $"{SafeLabel(describe)}-v{pack.Version}{extension}",
+                    MediaType: asset.MediaType,
+                    // Newest pack first, then the pack's own view order, so the image just superseded is not buried
+                    // under ten older copies of the same face.
+                    Order: (-pack.Version * 100) + ViewOrder(asset),
+                    ReadBytes: () => IdentityService.ReadAssetBytesAsync(asset)));
+            }
+        }
+
+        return options.OrderBy(option => option.Order).ToList();
+    }
+
+    private async Task<List<PickOption>> LoadLibraryOptionsAsync()
+    {
+        var assets = await AssetService.ListAssetsAsync();
+        var options = new List<PickOption>();
+        foreach (var asset in assets)
+        {
+            var images = await AssetService.ListImagesAsync(asset.Id);
+            foreach (var image in images)
+            {
+                if (image.Status != SceneAssetStatus.Complete || string.IsNullOrWhiteSpace(image.FileRelativePath))
+                {
+                    continue;
+                }
+
+                var name = string.IsNullOrWhiteSpace(image.DisplayName) ? asset.Name : image.DisplayName!;
+                var (decisionKey, decisionLabel) = LibraryDecision(image);
+                var imageId = image.Id;
+                // Built outside the interpolation: a nested interpolated string plus a conditional inside one hole is
+                // where this line stops being readable, and the provenance is worth reading.
+                var provenance = string.IsNullOrWhiteSpace(image.DisplayName)
+                    ? $"asset library · {asset.Name}"
+                    : $"asset library · {asset.Name} · {image.DisplayName}";
+                options.Add(new PickOption(
+                    Key: image.Id,
+                    SourceId: LibrarySourceId,
+                    SourceLabel: provenance,
+                    Card: new SceneImageCardModel
+                    {
+                        Id = image.Id,
+                        FileRelativePath = image.FileRelativePath,
+                        StatusText = image.ProductionApprovalStatus?.ToString() ?? image.Status.ToString(),
+                        StatusBadgeClass = LibraryBadgeClass(image),
+                        IsComplete = true,
+                        Subtitle = $"{asset.Name} · {asset.Type?.ToString() ?? "untyped"}",
+                        DisplayName = name,
+                        ApprovalBadgeText = image.ProductionApprovalStatus is null
+                            ? null
+                            : image.ProductionApprovalStatus.ToString(),
+                        IsProductionApproved = image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved,
+                        CandidateBatchId = image.CandidateBatchId,
+                        DecisionKey = decisionKey,
+                        DecisionLabel = decisionLabel
+                    },
+                    FileName: $"{SafeLabel(name)}{ExtensionFor(image.MediaType)}",
+                    MediaType: image.MediaType,
+                    Order: 0,
+                    // Read through the service that owns the asset store: the picker must not reach for the filesystem
+                    // itself, and the caller must not have to know which store the picture lives in. This is the
+                    // interface's existing "give me an image's bytes" call, so there is not a second way to read one.
+                    ReadBytes: () => ReadLibraryImageBytesAsync(imageId)));
+            }
+        }
+
+        return options.OrderBy(option => option.Card.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// A library image's bytes. The stream is owned by the caller of the open call, so it is disposed here; an empty
+    /// read fails loudly rather than handing the host a zero-byte reference that would look like a broken picture.
+    /// </summary>
+    private async Task<byte[]> ReadLibraryImageBytesAsync(string imageId)
+    {
+        var (_, _, stream) = await AssetService.OpenImageForDownloadAsync(imageId);
+        await using (stream)
+        {
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            var bytes = buffer.ToArray();
+            if (bytes.Length == 0)
+            {
+                throw new InvalidOperationException($"Image '{imageId}' has no bytes stored.");
+            }
+
+            return bytes;
+        }
+    }
+
+    private async Task PickAsync()
+    {
+        var option = SelectedOption;
+        if (option is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var content = await option.ReadBytes();
+            await Picked.InvokeAsync(new InAppPickedImage(option.SourceLabel, option.FileName, option.MediaType, content));
+            await CancelAsync();
+        }
+        catch (Exception exception)
+        {
+            _loadError = $"That image could not be read: {exception.Message}";
+            Logger.LogWarning(exception, "Reading in-app image {Key} for the picker failed.", option.Key);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task CancelAsync() => CancelRequested.InvokeAsync();
+
+    private static (string Key, string Label) PackStatus(CharacterImageIdentityPackStatus status) => status switch
+    {
+        CharacterImageIdentityPackStatus.Approved => (ImageCardStatus.Approved, "Approved pack"),
+        CharacterImageIdentityPackStatus.Draft => (ImageCardStatus.Pending, "Draft pack"),
+        _ => (ImageCardStatus.Archived, "Superseded pack")
+    };
+
+    private static string PackBadgeClass(CharacterImageIdentityPackStatus status) => status switch
+    {
+        CharacterImageIdentityPackStatus.Approved => "text-bg-success",
+        CharacterImageIdentityPackStatus.Draft => "text-bg-warning",
+        _ => "text-bg-secondary"
+    };
+
+    /// <summary>
+    /// What can be said about a library image if it is ever offered as a reference: its production status when it has
+    /// one, otherwise the candidate decision the review deck recorded. The two are different facts and the labels say
+    /// which one is in force, so "Accepted" is never read as "approved".
+    /// </summary>
+    private static (string Key, string Label) LibraryDecision(SceneAssetImage image)
+    {
+        if (image.ProductionApprovalStatus is { } status)
+        {
+            return status switch
+            {
+                SceneAssetProductionApprovalStatus.Approved => (ImageCardStatus.Approved, "Approved"),
+                SceneAssetProductionApprovalStatus.Superseded => (ImageCardStatus.Archived, "Superseded"),
+                SceneAssetProductionApprovalStatus.Revoked => (ImageCardStatus.Revoked, "Revoked"),
+                _ => (ImageCardStatus.Pending, "Draft")
+            };
+        }
+
+        return image.CandidateDecision switch
+        {
+            SceneAssetCandidateDecision.Accepted => (ImageCardStatus.Accepted, "Accepted"),
+            SceneAssetCandidateDecision.Shortlisted => (ImageCardStatus.Shortlisted, "Shortlisted"),
+            SceneAssetCandidateDecision.Rejected => (ImageCardStatus.Rejected, "Rejected"),
+            SceneAssetCandidateDecision.Revoked => (ImageCardStatus.Revoked, "Revoked"),
+            _ => (ImageCardStatus.Undecided, "Undecided")
+        };
+    }
+
+    private static string LibraryBadgeClass(SceneAssetImage image) => image.ProductionApprovalStatus switch
+    {
+        SceneAssetProductionApprovalStatus.Approved => "text-bg-success",
+        SceneAssetProductionApprovalStatus.Draft => "text-bg-warning",
+        SceneAssetProductionApprovalStatus.Superseded => "text-bg-secondary",
+        SceneAssetProductionApprovalStatus.Revoked => "text-bg-danger",
+        _ => image.Status switch
+        {
+            SceneAssetStatus.Complete => "text-bg-light",
+            SceneAssetStatus.Failed => "text-bg-danger",
+            _ => "text-bg-secondary"
+        }
+    };
+
+    private static int ViewOrder(SceneImageReferenceAsset asset) => asset.AssetKind switch
+    {
+        SceneImageReferenceAssetKind.Face => asset.FaceView switch
+        {
+            SceneImageReferenceFaceView.Front => 0,
+            SceneImageReferenceFaceView.ThreeQuarterLeft => 1,
+            SceneImageReferenceFaceView.ThreeQuarterRight => 2,
+            SceneImageReferenceFaceView.ProfileLeft => 3,
+            SceneImageReferenceFaceView.ProfileRight => 4,
+            _ => 5
+        },
+        SceneImageReferenceAssetKind.FullBody => asset.BodyView is null
+            ? 20
+            : (ViewOrder(asset.BodyView.Value) * 2)
+                + (asset.BodyState == SceneImageReferenceBodyState.Unclothed ? 1 : 0),
+        _ => 8
+    };
+
+    private static int ViewOrder(SceneImageReferenceBodyView view) => view switch
+    {
+        SceneImageReferenceBodyView.Front => 0,
+        SceneImageReferenceBodyView.ThreeQuarterLeft => 1,
+        SceneImageReferenceBodyView.ThreeQuarterRight => 2,
+        SceneImageReferenceBodyView.ProfileLeft => 3,
+        SceneImageReferenceBodyView.ProfileRight => 4,
+        SceneImageReferenceBodyView.Back => 5,
+        _ => 6
+    };
+
+    private static string ExtensionFor(string? mediaType) => mediaType switch
+    {
+        "image/jpeg" => ".jpg",
+        "image/webp" => ".webp",
+        _ => ".png"
+    };
+
+    /// <summary>A view label turned into something a file name can carry, e.g. "3/4 Left · Clothed".</summary>
+    private static string SafeLabel(string label)
+    {
+        var builder = new System.Text.StringBuilder(label.Length);
+        foreach (var character in label)
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(character);
+            }
+            else if (builder.Length > 0 && builder[^1] != '-')
+            {
+                builder.Append('-');
+            }
+        }
+
+        var safe = builder.ToString().Trim('-');
+        return string.IsNullOrWhiteSpace(safe) ? "image" : safe;
+    }
+}

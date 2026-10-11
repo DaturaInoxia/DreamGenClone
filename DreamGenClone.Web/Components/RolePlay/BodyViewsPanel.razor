@@ -125,15 +125,16 @@ else
                             <div class="small text-danger mt-1">@view.FailureReason</div>
                         }
 
-                        @* The prerequisite, stated BEFORE the button is pressed: an angle render is the accepted base body
-                           turned, so with no accepted base it can only refuse. Naming it here is what makes the next step
-                           obvious instead of leaving "Render angle" looking inert. *@
-                        @if (!slot.IsBase && AcceptedBasePreview(key) is null)
+                        @* The prerequisite, stated BEFORE the button is pressed: an angle render is an accepted body turned,
+                           so with no accepted source it can only refuse. The source is named from the SAME derivation rule
+                           the render uses — an unclothed profile is rendered from its same-side three-quarter, not from the
+                           front, so naming "the front" here would send the operator to a view that would not unblock them. *@
+                        @if (PrerequisiteLabelFor(slot, key) is { } prerequisite)
                         {
                             <div class="small text-warning mt-1">
-                                The @slot.State front is not accepted yet, so <strong>@GenerateLabelFor(slot)</strong> would
-                                refuse: an angle is that same body, turned. Accept the front first (record its findings, or use
-                                "All four pass · record &amp; accept" on that row).
+                                The <strong>@prerequisite</strong> is not accepted yet, so <strong>@GenerateLabelFor(slot)</strong>
+                                would refuse: a view is that same body, turned. Accept the @prerequisite first (record its
+                                findings, or use "All four pass · record &amp; accept" on that row).
                             </div>
                         }
 
@@ -311,17 +312,26 @@ else
                                    model that ran it, side by side. *@
                                 @{
                                     var candidates = CandidatesFor(key);
+                                    var visibleCandidates = candidates
+                                        .Where(candidate => ImageCardStatus.Matches(CandidateCardModel(candidate), CandidateFilterFor(keyText)))
+                                        .ToList();
                                 }
                                 <div class="border rounded p-2 mt-2">
-                                    <div class="d-flex justify-content-between align-items-center">
+                                    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
                                         <span class="small fw-semibold">
-                                            Candidates (@candidates.Count)
+                                            Candidates (@visibleCandidates.Count of @candidates.Count)
                                             @if (candidates.Count > 1)
                                             {
                                                 <span class="text-muted fw-normal">— compare the prompt and model on each</span>
                                             }
                                         </span>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshAsync" disabled="@_refreshing">Refresh</button>
+                                        <span class="d-flex align-items-center gap-2">
+                                            <ImageCardStatusFilter Options="ImageCardStatus.Build(candidates.Select(CandidateCardModel))"
+                                                                   Selected="CandidateFilterFor(keyText)"
+                                                                   SelectedChanged="value => SetCandidateFilter(keyText, value)"
+                                                                   Total="candidates.Count" />
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshAsync" disabled="@_refreshing">Refresh</button>
+                                        </span>
                                     </div>
                                     @if (candidates.Count == 0)
                                     {
@@ -333,7 +343,7 @@ else
                                     else
                                     {
                                         <div class="row g-2 mt-2">
-                                            @foreach (var candidate in candidates)
+                                            @foreach (var candidate in visibleCandidates)
                                             {
                                                 <div class="col-sm-6 col-xl-4 col-xxl-3">
                                                     <ImageCard Model="CandidateCardModel(candidate)"
@@ -366,7 +376,7 @@ else
                                                             <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
                                                                     @onclick="() => DecideCandidateAsync(key, candidate.Id, SceneAssetCandidateDecision.Undecided)"
                                                                     disabled="@IsSubmitting(keyText)"
-                                                                    title="Return this candidate to Undecided">Undecide</button>
+                                                                    title="Return this candidate to Undecided"><i class="bi bi-question-lg"></i></button>
                                                             @if (candidate.CandidateDecision == SceneAssetCandidateDecision.Accepted
                                                                 && view?.Status != CharacterIdentityAngleStatus.Accepted)
                                                             {
@@ -388,6 +398,10 @@ else
                                     <label class="form-label small mb-1">Upload this view</label>
                                     <InputFile class="form-control form-control-sm" accept="image/png,image/jpeg,image/webp"
                                                OnChange="args => UploadAsync(key, args)" />
+                                    <button type="button" class="btn btn-sm btn-outline-primary w-100 mt-1"
+                                            disabled="@IsSubmitting(keyText)"
+                                            title="Use an image the app already holds — an approved or draft pack body image, or one from the asset library"
+                                            @onclick="() => OpenPicker(key)">From app</button>
                                 </div>
 
                                 <div class="border-top mt-2 pt-2">
@@ -555,6 +569,18 @@ else
     </div>
 }
 
+@* A body view's image is chosen from what the app already holds at least as often as it is uploaded, so the picker
+   sits beside the file input rather than replacing it. *@
+@if (_pickerKey is not null)
+{
+    <InAppImagePicker Visible="true"
+                      CharacterTemplateId="@CharacterId"
+                      IdentityKind="SceneImageReferenceAssetKind.FullBody"
+                      Title="@($"Choose {_pickerKey.Describe()}")"
+                      Picked="UsePickedImageAsync"
+                      CancelRequested="ClosePicker" />
+}
+
 @code {
     private static readonly SceneImageReferenceBodyState[] BodyStates =
         [SceneImageReferenceBodyState.Clothed, SceneImageReferenceBodyState.Unclothed];
@@ -606,6 +632,20 @@ else
             ? CharacterIdentityBodySlots.All.FirstOrDefault(slot => slot.State == state && slot.View == view)
             : null;
 
+    /// <summary>
+    /// Raised whenever this panel's view rows change, carrying the rows themselves.
+    ///
+    /// <para>
+    /// The panel already loads every view and re-reads them after each action, so the Body tab's left navigation
+    /// mirrors THIS list rather than running a second query: two loaders would drift, and the nav exists precisely so
+    /// the operator can trust it to show which cells still need work. Nothing is passed when the rows are unchanged —
+    /// the host re-renders these parameters on every pass, so an unguarded raise would re-enter this component's
+    /// parameter set and never settle.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<CharacterIdentityBodyView>> ViewsChanged { get; set; }
+
     /// <summary>The character template id — the profile key the body render addresses identity by.</summary>
     [Parameter]
     public string CharacterId { get; set; } = string.Empty;
@@ -619,6 +659,7 @@ else
     public EventCallback<string?> ModelIdChanged { get; set; }
 
     private List<CharacterIdentityBodyView> _views = [];
+    private string? _publishedViewSignature;
     private Dictionary<string, string> _previews = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -732,6 +773,25 @@ else
         _promptSaveDebounce?.Dispose();
     }
 
+    /// <summary>
+    /// Loads the view rows through the ONE service call and tells the host what changed. Every site that re-reads the
+    /// views goes through here, so the navigation cannot be left showing a status an action has already moved on from.
+    /// </summary>
+    private async Task LoadViewsAsync()
+    {
+        _views = (await BodyService.ListViewsAsync(BuildId)).ToList();
+
+        var signature = string.Join(
+            "|", _views.Select(view => $"{view.Key().Describe()}={view.Status}").OrderBy(text => text, StringComparer.Ordinal));
+        if (string.Equals(signature, _publishedViewSignature, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _publishedViewSignature = signature;
+        await ViewsChanged.InvokeAsync(_views);
+    }
+
     private async Task RefreshAsync()
     {
         if (string.IsNullOrWhiteSpace(BuildId) || _refreshing)
@@ -742,7 +802,7 @@ else
         _refreshing = true;
         try
         {
-            _views = (await BodyService.ListViewsAsync(BuildId)).ToList();
+            await LoadViewsAsync();
 
             // The views' images live on the build's container asset; the map is rebuilt rather than cached so a
             // deleted artifact cannot leave a stale preview behind.
@@ -792,7 +852,7 @@ else
 
             if (finished.Count > 0)
             {
-                _views = (await BodyService.ListViewsAsync(BuildId)).ToList();
+                await LoadViewsAsync();
             }
         }
         catch (InvalidOperationException error)
@@ -829,10 +889,11 @@ else
     /// surface's Generate Prompt button uses — for the selected body view model's checkpoint profile, and shows the
     /// result in the prompt box.
     ///
-    /// The user direction is the character's canonical body text (the same text the deterministic prompt is built
-    /// from) plus the row's clothing/state and the full-body shot requirement, so the compile describes THIS body
-    /// rather than drafting a generic one. What comes back replaces the box and can be edited; the debounced save
-    /// then persists the operator's final text, exactly as a hand edit would.
+    /// The direction names only what the render's reference images do NOT already carry. An angle row conditions on
+    /// the accepted body, the committed angle skeleton and an optional face, so its direction is the subject noun,
+    /// the state and the camera clause (the skeleton carries limb layout, not facing — measured 2026-09-24). The
+    /// base has no body reference, so its direction keeps the full canonical description. The declared bindings tell
+    /// the compiler which axes the references carry, so it does not describe those in words as well.
     /// </summary>
     private async Task GeneratePromptAsync(CharacterIdentityBodyViewKey key)
     {
@@ -854,8 +915,10 @@ else
             var promptModel = await ModelResolutionService.ResolveImagePromptModelAsync();
             var settings = new ImageCellCompilerLlmSettings(promptModel.ModelIdentifier, promptModel.Temperature);
 
-            var direction = BuildBodyCompileDirection(body, key.State);
-            var result = await PromptCompiler.CompileAsync(new ImageCellCompileInput(direction, profile, settings, []));
+            var bindings = ViewBindingsFor(keyText);
+            var direction = await BuildBodyCompileDirectionAsync(key, body, bindings);
+            var result = await PromptCompiler.CompileAsync(new ImageCellCompileInput(
+                direction, profile, settings, DeclareBindings(key)));
 
             _prompts[keyText] = result.CompiledPrompt;
             BumpPromptRevision(keyText);
@@ -872,13 +935,71 @@ else
         }
     }
 
-    /// <summary>The compile's complete input: the canonical body description plus this row's clothing/state and the shot.</summary>
-    private static string BuildBodyCompileDirection(CharacterBodyTexts body, SceneImageReferenceBodyState state)
+    /// <summary>
+    /// The compile's input direction. Split on purpose: an ANGLE row's references (accepted body, angle skeleton,
+    /// optional face) already carry the build, the pose and the identity, so its direction names only what the words
+    /// must still say — the subject noun, the state and the camera direction. The base has no body reference, so its
+    /// direction keeps the full canonical description, with the face left out only when a face reference is bound.
+    ///
+    /// <para>
+    /// This split is the same rule as <c>BodyPromptScope</c>, which the render path's own compile applies — an angle
+    /// POINTS AT ITS REFERENCES, the base DESCRIBES the body. The two drifted apart once already: this path was made
+    /// minimal while the render path still compiled the full body description, so "Generate prompt" and the prompt
+    /// that was actually rendered said different things (reported 2026-10-10). The RENDER side of the rule is now
+    /// pinned by <c>BodyReferencePromptCompilerTests</c>; this direction builder is not, so a change here must keep
+    /// the same shape — subject, state and camera direction only, and never a stance.
+    /// </para>
+    /// </summary>
+    private async Task<string> BuildBodyCompileDirectionAsync(
+        CharacterIdentityBodyViewKey key,
+        CharacterBodyTexts body,
+        IReadOnlyList<ReferenceApplicationSelection> bindings)
+    {
+        if (key.IsCanonical && key.View is { } view && view != SceneImageReferenceBodyView.Front)
+        {
+            var clause = await BodyService.ResolveRenderClauseAsync(BuildId, key, CharacterName);
+            return ComposeAngleDirection(body, key.State, clause);
+        }
+
+        var faceBound = FaceFromBindings(bindings) is not null;
+        var subject = faceBound ? body.SubjectWithoutFace : body.SubjectWithFace;
+        return ComposeBaseDirection(subject, body, key.State);
+    }
+
+    /// <summary>The minimal angle direction: subject noun + state + camera clause + the framing/lighting tail.</summary>
+    private static string ComposeAngleDirection(
+        CharacterBodyTexts body, SceneImageReferenceBodyState state, string cameraClause)
     {
         var builder = new System.Text.StringBuilder();
-        builder.Append(body.SubjectWithFace.Trim().TrimEnd('.'));
+        builder.Append(body.SubjectNoun.Trim().TrimEnd('.'));
         builder.Append(". ");
+        AppendState(builder, body, state);
+        builder.Append(cameraClause.Trim().TrimEnd('.'));
+        builder.Append(". ");
+        builder.Append(
+            "Full body in frame from head to feet, natural skin texture, soft even lighting, sharp focus, "
+            + "35mm photograph.");
+        return builder.ToString();
+    }
 
+    /// <summary>The base direction: the full description, with the face left out when a face reference is bound.</summary>
+    private static string ComposeBaseDirection(
+        string subject, CharacterBodyTexts body, SceneImageReferenceBodyState state)
+    {
+        var builder = new System.Text.StringBuilder();
+        builder.Append(subject.Trim().TrimEnd('.'));
+        builder.Append(". ");
+        AppendState(builder, body, state);
+        builder.Append(
+            "Full body in frame from head to feet, standing upright facing the camera, natural skin texture, "
+            + "soft even lighting, sharp focus, 35mm photograph.");
+        return builder.ToString();
+    }
+
+    /// <summary>The clothing/state sentence both directions share, resolved once rather than spelled in two places.</summary>
+    private static void AppendState(
+        System.Text.StringBuilder builder, CharacterBodyTexts body, SceneImageReferenceBodyState state)
+    {
         if (state == SceneImageReferenceBodyState.Clothed)
         {
             // A clothed reference's outfit is required (the brief refuses a clothed body with no clothing), so the
@@ -891,11 +1012,26 @@ else
         {
             builder.Append("Fully nude. ");
         }
+    }
 
-        builder.Append(
-            "Full body in frame from head to feet, standing upright facing the camera, natural skin texture, "
-            + "soft even lighting, sharp focus, 35mm photograph.");
-        return builder.ToString();
+    /// <summary>
+    /// The axes this render carries structurally, so the compiler does not describe them in words. An angle row
+    /// always conditions on the accepted body (Identity) and the committed angle skeleton (Pose) — a bound face joins
+    /// the Identity axis, so the axis is structural whether or not one is bound. The base has no body reference and
+    /// no skeleton, so it declares nothing; its face, when bound, is left out of the direction text instead.
+    /// </summary>
+    private static IReadOnlyList<ImageCellBinding> DeclareBindings(CharacterIdentityBodyViewKey key)
+    {
+        if (key.IsCanonical && key.View is { } view && view != SceneImageReferenceBodyView.Front)
+        {
+            return
+            [
+                new ImageCellBinding(ImageBindingAxis.Identity, ImageBindingMode.Reference),
+                new ImageCellBinding(ImageBindingAxis.Pose, ImageBindingMode.Reference)
+            ];
+        }
+
+        return [];
     }
 
     /// <summary>
@@ -1187,6 +1323,37 @@ else
             return $"Uploaded {file.Name} as {key.Describe()}.";
         });
 
+    /// <summary>
+    /// The view an open in-app picker will fill, or null when it is closed. One field rather than a flag per row: the
+    /// picker is a single modal, so "which view is this for" has to be answered by whatever opened it.
+    /// </summary>
+    private CharacterIdentityBodyViewKey? _pickerKey;
+
+    private void OpenPicker(CharacterIdentityBodyViewKey key) => _pickerKey = key;
+
+    private void ClosePicker() => _pickerKey = null;
+
+    /// <summary>
+    /// Stores an image chosen from inside the app as this view's next candidate. It goes through the SAME service call
+    /// the file path uses, so a body image picked from the app lands exactly where an uploaded one would — the pick
+    /// only changes where the bytes came from, not what the view does with them.
+    /// </summary>
+    private Task UsePickedImageAsync(InAppPickedImage picked)
+    {
+        if (_pickerKey is not { } key)
+        {
+            return Task.CompletedTask;
+        }
+
+        _pickerKey = null;
+        return RunAsync(key, async () =>
+        {
+            using var buffer = new MemoryStream(picked.Content);
+            await BodyService.UploadAsync(BuildId, key, picked.FileName, buffer);
+            return $"Used {picked.SourceLabel} as {key.Describe()}.";
+        });
+    }
+
     private Task RecordFindingsAsync(CharacterIdentityBodyViewKey key)
     {
         var keyText = key.Describe();
@@ -1251,7 +1418,7 @@ else
                 SetMessage(keyText, message);
             }
 
-            _views = (await BodyService.ListViewsAsync(BuildId)).ToList();
+            await LoadViewsAsync();
             _panelMessage = string.Empty;
             _panelMessageIsError = false;
         }
@@ -1344,11 +1511,22 @@ else
     /// </summary>
     private string? AcceptedBasePreview(CharacterIdentityBodyViewKey key)
     {
-        var baseView = ViewFor(CharacterIdentityBodyViewKey.Canonical(key.State, SceneImageReferenceBodyView.Front));
+        // The rule the RENDER itself uses, so the prerequisite this panel states and the one the render enforces
+        // cannot disagree — an unclothed profile needs its same-side three-quarter, and a panel that still said
+        // "accept the front" would be naming a view that would not help.
+        var baseView = BodyViewDerivation.RenderBaseFor(key) is { } sourceKey ? ViewFor(sourceKey) : null;
         return baseView is null || baseView.Status != CharacterIdentityAngleStatus.Accepted
             ? null
             : PreviewFor(baseView);
     }
+
+    /// <summary>What this row is waiting for, named for the operator, or null when nothing is missing.</summary>
+    private string? PrerequisiteLabelFor(CharacterIdentityBodySlot slot, CharacterIdentityBodyViewKey key)
+        => !slot.IsBase
+            && AcceptedBasePreview(key) is null
+            && BodyViewDerivation.RenderBaseFor(key) is { } sourceKey
+                ? BodyViewStatusDisplay.Prerequisite(sourceKey)
+                : null;
 
     /// <summary>
     /// The approved CLOTHED view of the same angle, as a thumbnail, for an UNCLOTHED view — the source a "remove
@@ -1431,8 +1609,29 @@ else
         DecisionBadgeTitle = "This attempt's pick in the body-view deck.",
         CandidateBatchId = candidate.CandidateBatchId,
         DisplayName = candidate.DisplayName,
-        IsProductionApproved = candidate.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved
+        IsProductionApproved = candidate.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved,
+        DecisionKey = candidate.Status switch
+        {
+            SceneAssetStatus.Pending => ImageCardStatus.Pending,
+            SceneAssetStatus.Failed => ImageCardStatus.Failed,
+            _ => candidate.CandidateDecision switch
+            {
+                SceneAssetCandidateDecision.Accepted => ImageCardStatus.Accepted,
+                SceneAssetCandidateDecision.Shortlisted => ImageCardStatus.Shortlisted,
+                SceneAssetCandidateDecision.Rejected => ImageCardStatus.Rejected,
+                SceneAssetCandidateDecision.Revoked => ImageCardStatus.Revoked,
+                _ => ImageCardStatus.Undecided
+            }
+        }
     };
+
+    /// <summary>Each view's candidate deck remembers its own filter, so switching views does not reset the others'.</summary>
+    private readonly Dictionary<string, string?> _candidateFilters = new(StringComparer.Ordinal);
+
+    private string? CandidateFilterFor(string keyText)
+        => _candidateFilters.TryGetValue(keyText, out var filter) ? filter : null;
+
+    private void SetCandidateFilter(string keyText, string? value) => _candidateFilters[keyText] = value;
 
     /// <summary>Renames one candidate through the same writer the asset studio card uses, then reloads the row.</summary>
     private async Task RenameCandidateAsync(SceneAssetImage candidate, string? name)
@@ -1707,14 +1906,8 @@ else
         _panelMessageIsError = true;
     }
 
-    private static string StatusBadge(CharacterIdentityBodyView? view) => view?.Status switch
-    {
-        CharacterIdentityAngleStatus.Accepted => "text-bg-success",
-        CharacterIdentityAngleStatus.Complete => "text-bg-info",
-        CharacterIdentityAngleStatus.Pending => "text-bg-primary",
-        CharacterIdentityAngleStatus.Failed or CharacterIdentityAngleStatus.Blocked => "text-bg-danger",
-        _ => "text-bg-secondary"
-    };
+    private static string StatusBadge(CharacterIdentityBodyView? view)
+        => BodyViewStatusDisplay.BadgeClass(view);
 
     private static SceneImageReferenceBodyState ParseState(string? value)
         => Enum.TryParse<SceneImageReferenceBodyState>(value, out var state)

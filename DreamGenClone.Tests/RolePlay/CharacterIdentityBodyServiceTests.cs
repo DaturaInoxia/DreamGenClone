@@ -797,6 +797,11 @@ public sealed class CharacterIdentityBodyServiceTests
     /// image. The request goes out as a generation conditioned on the accepted BASE body plus the committed angle
     /// skeleton, with the body prompt's text followed by that angle's camera clause — the shape all four canonical
     /// angles passed with (cases <c>body-angle-34-*</c>, <c>body-profile-*</c>).
+    ///
+    /// <para>
+    /// These are the CLOTHED views, which all still render from the clothed front. An unclothed profile is the one
+    /// exception and has its own test (2026-10-10).
+    /// </para>
     /// </summary>
     [Theory]
     [InlineData(SceneImageReferenceBodyView.ThreeQuarterLeft)]
@@ -827,9 +832,15 @@ public sealed class CharacterIdentityBodyServiceTests
             Assert.Equal(view, conditioning.View);
             Assert.Equal(acceptedBase.Id, conditioning.SourceImageId);
 
-            // The prompt is the compiled body prompt followed by that angle's camera clause, resolved from the store.
+            // An ANGLE's prompt points at its references rather than restating the build: it names the person, the
+            // clothing state and the shot, and the camera clause is appended after it. It must NOT contain the
+            // stance — "facing the camera" contradicts the clause that follows and is why a 3/4 render came back
+            // front-facing (reported live 2026-10-10). The body description is asserted absent for the same reason:
+            // the build is being SHOWN to the model as the accepted base, not described to it.
             Assert.StartsWith("A middle-aged woman", generation.Prompt, StringComparison.Ordinal);
             Assert.Contains("Camera", generation.Prompt, StringComparison.Ordinal);
+            Assert.DoesNotContain("facing the camera", generation.Prompt, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Body:", generation.Prompt, StringComparison.Ordinal);
 
             // No identity reference and no stance pose: the accepted body IS the identity and the skeleton IS the pose.
             Assert.Null(generation.Options.Identity);
@@ -838,6 +849,144 @@ public sealed class CharacterIdentityBodyServiceTests
             // The row records the source it was rendered from, so the view's provenance is readable afterwards.
             Assert.Equal(acceptedBase.Id, result.InputArtifactId);
             Assert.Equal(CharacterIdentityAngleStatus.Pending, result.Status);
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// An UNCLOTHED profile is rendered from its same-side unclothed three-quarter (operator decision 2026-10-10), so
+    /// the request conditions on THAT image instead of the front. Asserted on the SourceImageId the render carries,
+    /// because that id is the conditioning the model actually receives — asserting the rule alone would not catch a
+    /// gate that resolved it and then sent something else.
+    /// </summary>
+    [Theory]
+    [InlineData(SceneImageReferenceBodyView.ProfileLeft, SceneImageReferenceBodyView.ThreeQuarterLeft)]
+    [InlineData(SceneImageReferenceBodyView.ProfileRight, SceneImageReferenceBodyView.ThreeQuarterRight)]
+    public async Task GenerateUnclothedProfile_RendersFromTheSameSideThreeQuarter(
+        SceneImageReferenceBodyView profile, SceneImageReferenceBodyView threeQuarter)
+    {
+        var world = CreateWorld(completeCard: true, saveCard: true, staleShapeLine: false, bodyModelId: "qwen-native");
+        try
+        {
+            var build = await StartBodyBuildAsync(world);
+            var front = await UploadAcceptedBaseAsync(
+                world, build.Id,
+                CharacterIdentityBodyViewKey.Canonical(SceneImageReferenceBodyState.Unclothed, SceneImageReferenceBodyView.Front));
+            var acceptedThreeQuarter = await UploadAcceptedBaseAsync(
+                world, build.Id,
+                CharacterIdentityBodyViewKey.Canonical(SceneImageReferenceBodyState.Unclothed, threeQuarter));
+
+            var result = await world.Body.GenerateAsync(
+                build.Id,
+                CharacterIdentityBodyViewKey.Canonical(SceneImageReferenceBodyState.Unclothed, profile),
+                "qwen-native", "1024x1536", "Becky");
+
+            var generation = Assert.Single(world.Assets.Generated);
+            // BodyAngle.View is the view being PRODUCED; its SourceImageId is the conditioning, which is what must be
+            // the same-side three-quarter.
+            Assert.Equal(acceptedThreeQuarter.Id, generation.Options!.BodyAngle!.SourceImageId);
+            Assert.NotEqual(front.Id, generation.Options.BodyAngle.SourceImageId);
+            Assert.Equal(CharacterIdentityAngleStatus.Pending, result.Status);
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// With the three-quarter not accepted, the profile REFUSES and names the view it wants. It must not quietly fall
+    /// back to the front: a render conditioned on a different body than the operator asked for is exactly the drift
+    /// the four-angle set exists to catch, and it would look like success.
+    /// </summary>
+    [Fact]
+    public async Task GenerateUnclothedProfile_WithoutAnAcceptedThreeQuarter_RefusesAndNamesIt()
+    {
+        var world = CreateWorld(completeCard: true, saveCard: true, staleShapeLine: false, bodyModelId: "qwen-native");
+        try
+        {
+            var build = await StartBodyBuildAsync(world);
+            // The state's base is accepted, so the ONLY thing missing is the three-quarter.
+            await UploadAcceptedBaseAsync(
+                world, build.Id,
+                CharacterIdentityBodyViewKey.Canonical(SceneImageReferenceBodyState.Unclothed, SceneImageReferenceBodyView.Front));
+
+            var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => world.Body.GenerateAsync(
+                build.Id,
+                CharacterIdentityBodyViewKey.Canonical(
+                    SceneImageReferenceBodyState.Unclothed, SceneImageReferenceBodyView.ProfileLeft),
+                "qwen-native", "1024x1536", "Becky"));
+
+            Assert.Contains("ThreeQuarterLeft", refused.Message, StringComparison.Ordinal);
+            Assert.Contains("Unclothed", refused.Message, StringComparison.Ordinal);
+            // Refused BEFORE queueing, so nothing was rendered from the wrong source.
+            Assert.Empty(world.Assets.Generated);
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The camera clause is the only thing that turns a canonical angle render — the angle skeleton carries limb layout,
+    /// not facing direction (measured 2026-09-24) — so an operator's prompt override, which the panel sends from the
+    /// persisted prompt box, must not drop it. A "Left" render whose prompt says only "facing the camera" comes back
+    /// front-facing no matter which skeleton is sent.
+    /// </summary>
+    [Fact]
+    public async Task GenerateAngle_WithPromptOverride_StillAppendsTheCameraClause()
+    {
+        var world = CreateWorld(completeCard: true, saveCard: true, staleShapeLine: false, bodyModelId: "qwen-native");
+        try
+        {
+            var build = await StartBodyBuildAsync(world);
+            var baseKey = CharacterIdentityBodyViewKey.Canonical(
+                SceneImageReferenceBodyState.Clothed, SceneImageReferenceBodyView.Front);
+            await UploadAcceptedBaseAsync(world, build.Id, baseKey);
+
+            var angle = CharacterIdentityBodyViewKey.Canonical(
+                SceneImageReferenceBodyState.Clothed, SceneImageReferenceBodyView.ThreeQuarterLeft);
+            await world.Body.GenerateAsync(
+                build.Id, angle, "qwen-native", "1024x1536", "Becky",
+                promptOverride: "A middle-aged woman standing upright facing the camera, 35mm photograph.");
+
+            var generation = Assert.Single(world.Assets.Generated);
+            Assert.Contains("Camera slightly to the front-left", generation.Prompt, StringComparison.Ordinal);
+        }
+        finally
+        {
+            world.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The camera clause is the words that carry the facing direction the angle skeleton cannot, and the Generate
+    /// Prompt compile reads the SAME clause the render appends — so resolving it publicly must return the store's
+    /// clause for an angle and refuse the front, which has no angle clause.
+    /// </summary>
+    [Fact]
+    public async Task ResolveRenderClause_ReturnsTheStoresClauseForAnAngle_AndRefusesTheFront()
+    {
+        var world = CreateWorld(completeCard: true, saveCard: true, staleShapeLine: false, bodyModelId: "qwen-native");
+        try
+        {
+            var build = await StartBodyBuildAsync(world);
+
+            var left = await world.Body.ResolveRenderClauseAsync(
+                build.Id,
+                CharacterIdentityBodyViewKey.Canonical(
+                    SceneImageReferenceBodyState.Clothed, SceneImageReferenceBodyView.ThreeQuarterLeft),
+                "Becky");
+            Assert.Contains("front-left", left, StringComparison.Ordinal);
+
+            var front = CharacterIdentityBodyViewKey.Canonical(
+                SceneImageReferenceBodyState.Clothed, SceneImageReferenceBodyView.Front);
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                world.Body.ResolveRenderClauseAsync(build.Id, front, "Becky"));
         }
         finally
         {

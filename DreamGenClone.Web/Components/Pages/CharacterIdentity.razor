@@ -159,9 +159,12 @@
                         </div>
                         <div class="col-md-1">
                             <InputFile OnChange="OnAssetPicked" accept="image/png,image/jpeg,image/webp" class="form-control" disabled="@_busy" />
+                            <button type="button" class="btn btn-sm btn-outline-primary w-100 mt-1" disabled="@_busy"
+                                    title="Pick this reference from an image the app already holds instead of uploading a file"
+                                    @onclick="OpenUploadPickerAsync">From app</button>
                         </div>
                     </div>
-                    <div class="form-text">Only PNG, JPEG, and WebP reference images are accepted.</div>
+                    <div class="form-text">Only PNG, JPEG, and WebP reference images are accepted. The same kind, view, source, consent and approval apply whether the image is uploaded or picked from the app.</div>
                 </div>
             </div>
 
@@ -182,6 +185,11 @@
                                             <InputFile OnChange="(e) => OnFaceAddPicked(view, e)" accept="image/png,image/jpeg,image/webp" id="@("faceadd_" + view)" style="display:none;" />
                                             <label class="btn btn-sm btn-outline-secondary w-100" for="@("faceadd_" + view)">Add</label>
                                         </div>
+                                        <div class="mt-1">
+                                            <button type="button" class="btn btn-sm btn-outline-primary w-100" disabled="@_busy"
+                                                    title="Choose an image the app already holds — an approved or draft pack image, or one from the asset library"
+                                                    @onclick="() => OpenFacePickerAsync(view)">From app</button>
+                                        </div>
                                     </div>
                                 </div>
                             }
@@ -199,6 +207,11 @@
                                         <div class="mt-1">
                                             <InputFile OnChange="(e) => OnFaceReplacePicked(face, e)" accept="image/png,image/jpeg,image/webp" id="@("facerpl_" + face.Id)" style="display:none;" />
                                             <label class="btn btn-sm btn-outline-secondary w-100" for="@("facerpl_" + face.Id)">Replace</label>
+                                        </div>
+                                        <div class="mt-1">
+                                            <button type="button" class="btn btn-sm btn-outline-primary w-100" disabled="@_busy"
+                                                    title="Replace this view with an image the app already holds — an approved or draft pack image, or one from the asset library"
+                                                    @onclick="() => OpenFaceReplacePickerAsync(face)">From app</button>
                                         </div>
                                     </div>
                                 </div>
@@ -366,6 +379,18 @@
     </div>
 }
 
+@* Reference images are chosen from what the app already holds at least as often as they are uploaded. The picker is
+   keyed to the slot that opened it, so closing it and opening it for another view cannot mix the two up. *@
+@if (_pickerIntent is not null)
+{
+    <InAppImagePicker Visible="true"
+                      CharacterTemplateId="@IdentityKey"
+                      IdentityKind="@_pickerIntent.Kind"
+                      Title="@PickerTitle"
+                      Picked="OnImagePickedAsync"
+                      CancelRequested="ClosePicker" />
+}
+
 @code {
     private sealed record CharacterOption(string Id, string Label);
 
@@ -408,6 +433,31 @@
     private CharacterImageIdentityPack? _viewingPack;
     private List<SceneImageReferenceAsset> _viewingAssets = [];
     private bool _viewerOpen;
+
+    /// <summary>
+    /// What an open in-app picker will do with the image it returns, or null when it is closed. One field rather than
+    /// a flag per slot: the picker is a single modal, so "which slot is this for" has to be answered by whatever opened
+    /// it, and a second flag would let the two disagree.
+    /// </summary>
+    private PickerIntent? _pickerIntent;
+
+    private sealed record PickerIntent(
+        SceneImageReferenceAssetKind Kind,
+        SceneImageReferenceFaceView? FaceView,
+        SceneImageReferenceBodyState? BodyState,
+        string SourceLabel,
+        SceneImageReferenceConsentState Consent,
+        bool Approve,
+        SceneImageReferenceAsset? Replace);
+
+    private string PickerTitle => _pickerIntent switch
+    {
+        null => "Pick an image from the app",
+        { Replace: { } replaced } => $"Replace {IdentityPackReferenceLabels.Describe(replaced)}",
+        { FaceView: { } view } => $"Choose {IdentityPackReferenceLabels.FaceView(view)}",
+        { BodyState: { } state } => $"Choose {IdentityPackReferenceLabels.BodyState(state)} view",
+        _ => "Pick an image from the app"
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -667,6 +717,102 @@
                 _canonicalFaceId = null;
             }
             _status = $"Replaced {oldAsset.FaceView} face.";
+            await ReloadAssetsAsync();
+        });
+    }
+
+    /// <summary>
+    /// Opens the picker for a FACE view the pack does not have yet.
+    /// </summary>
+    private Task OpenFacePickerAsync(SceneImageReferenceFaceView view)
+    {
+        _pickerIntent = new PickerIntent(
+            SceneImageReferenceAssetKind.Face,
+            view,
+            null,
+            string.Empty,
+            SceneImageReferenceConsentState.NotApplicable,
+            Approve: false,
+            Replace: null);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Opens the picker to REPLACE an existing face, keeping that view's provenance and approval.</summary>
+    private Task OpenFaceReplacePickerAsync(SceneImageReferenceAsset face)
+    {
+        _pickerIntent = new PickerIntent(
+            SceneImageReferenceAssetKind.Face,
+            face.FaceView,
+            null,
+            face.SourceLabel,
+            face.ConsentState,
+            face.IsApproved,
+            face);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Opens the picker for the kind/view chosen on the "Upload reference asset" card.</summary>
+    private Task OpenUploadPickerAsync()
+    {
+        _pickerIntent = new PickerIntent(
+            _uploadKind,
+            _uploadKind == SceneImageReferenceAssetKind.Face ? _uploadFaceView : null,
+            _uploadKind == SceneImageReferenceAssetKind.FullBody ? SceneImageReferenceBodyState.Clothed : null,
+            _uploadSourceLabel,
+            _uploadConsent,
+            _uploadApproved,
+            Replace: null);
+        return Task.CompletedTask;
+    }
+
+    private void ClosePicker() => _pickerIntent = null;
+
+    /// <summary>
+    /// Stores an image chosen from inside the app in the slot the open picker was asking about. It goes through the
+    /// SAME upload call the file path uses, so a reference picked from the app is indistinguishable afterwards from one
+    /// uploaded off disk except by the provenance that says where it came from — which is the honest record.
+    /// </summary>
+    private async Task OnImagePickedAsync(InAppPickedImage picked)
+    {
+        if (_draft is null || _pickerIntent is not { } intent)
+        {
+            return;
+        }
+
+        var draftId = _draft.Id;
+        _pickerIntent = null;
+
+        await RunAsync(async () =>
+        {
+            await using var stream = new MemoryStream(picked.Content);
+            var asset = await IdentityService.UploadAssetAsync(
+                draftId, intent.Kind, picked.FileName, stream, intent.FaceView, bodyState: intent.BodyState);
+
+            // The pick is the provenance. A reference with no source label is one nobody can explain later, and the
+            // whole point of picking from the app is that where it came from is known.
+            var sourceLabel = string.IsNullOrWhiteSpace(intent.SourceLabel)
+                ? $"from app · {picked.SourceLabel}"
+                : intent.SourceLabel;
+            if (intent.Consent != SceneImageReferenceConsentState.Unknown)
+            {
+                await IdentityService.SetAssetProvenanceAsync(asset.Id, sourceLabel, intent.Consent);
+            }
+
+            if (intent.Approve)
+            {
+                await IdentityService.SetAssetApprovalAsync(asset.Id, true);
+            }
+
+            if (intent.Replace is { } replaced)
+            {
+                await IdentityService.DeleteAssetAsync(replaced.Id);
+                if (_canonicalFaceId == replaced.Id)
+                {
+                    _canonicalFaceId = null;
+                }
+            }
+
+            _status = $"Used {picked.SourceLabel} as {IdentityPackReferenceLabels.Describe(asset)}.";
             await ReloadAssetsAsync();
         });
     }

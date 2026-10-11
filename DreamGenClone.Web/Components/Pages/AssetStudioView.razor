@@ -104,10 +104,18 @@
 
         <div class="d-flex justify-content-between align-items-center mb-2">
             <h5 class="mb-0">Images</h5>
-            @if (_images.Any(image => image.Status == SceneAssetStatus.Pending))
-            {
-                <span class="small text-muted">Processing...</span>
-            }
+            <div class="d-flex align-items-center gap-2">
+                @if (_images.Any(image => image.Status == SceneAssetStatus.Pending))
+                {
+                    <span class="small text-muted">Processing...</span>
+                }
+                @* Filtering narrows what is SHOWN; every card below is still the same card, and the counts come from the
+                   list itself so an empty view is never offered. *@
+                <ImageCardStatusFilter Options="FilterOptions"
+                                       Selected="_decisionFilter"
+                                       SelectedChanged="OnDecisionFilterChanged"
+                                       Total="_images.Count" />
+            </div>
         </div>
         @if (!string.IsNullOrWhiteSpace(_message))
         {
@@ -120,7 +128,7 @@
         else
         {
             <div class="row g-3">
-                @foreach (var image in _images)
+                @foreach (var image in VisibleImages)
                 {
                     <div class="col-sm-6 col-xl-4 col-xxl-3">
                         <ImageCard Model="CardModel(image)"
@@ -172,6 +180,20 @@
     private List<SceneAssetImage> _images = [];
     private bool _busy;
     private string? _message;
+    private string? _decisionFilter;
+
+    /// <summary>
+    /// The cards the filter offers, and the images the filter leaves visible. Both are derived from <see cref="_images"/>
+    /// through the ONE card model, so what the operator filters on is exactly what the card shows.
+    /// </summary>
+    private IReadOnlyList<SceneImageCardModel> CardModels => _images.Select(CardModel).ToList();
+
+    private IReadOnlyList<ImageCardFilterOption> FilterOptions => ImageCardStatus.Build(CardModels);
+
+    private IEnumerable<SceneAssetImage> VisibleImages =>
+        _images.Where(image => ImageCardStatus.Matches(CardModel(image), _decisionFilter));
+
+    private void OnDecisionFilterChanged(string? key) => _decisionFilter = key;
 
     /// <summary>The name being typed. A DRAFT, not the stored name: nothing is written until Save, so a half-typed name
     /// never reaches the row that a run report or a container link is already showing.</summary>
@@ -411,8 +433,33 @@
         GateResults = ImageGateResults.Read(image.GateResultsJson),
         CandidateBatchId = image.CandidateBatchId,
         DisplayName = image.DisplayName,
-        IsProductionApproved = image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved
+        IsProductionApproved = image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved,
+        DecisionKey = DecideKey(image),
+        DecisionLabel = DecideLabel(image)
     };
+
+    /// <summary>
+    /// The one decision this image is filed under, in the filter's shared vocabulary. Production approval wins over the
+    /// candidate verdict: an image approved for production is "Approved" whatever the batch picked, because that is the
+    /// state an operator is looking for when they filter.
+    /// </summary>
+    private static string? DecideKey(SceneAssetImage image) => image.Status switch
+    {
+        SceneAssetStatus.Pending => ImageCardStatus.Pending,
+        SceneAssetStatus.Failed => ImageCardStatus.Failed,
+        _ when image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved => ImageCardStatus.Approved,
+        _ => image.CandidateDecision switch
+        {
+            SceneAssetCandidateDecision.Accepted => ImageCardStatus.Accepted,
+            SceneAssetCandidateDecision.Shortlisted => ImageCardStatus.Shortlisted,
+            SceneAssetCandidateDecision.Rejected => ImageCardStatus.Rejected,
+            SceneAssetCandidateDecision.Revoked => ImageCardStatus.Revoked,
+            _ => ImageCardStatus.Undecided
+        }
+    };
+
+    private static string? DecideLabel(SceneAssetImage image)
+        => DecideKey(image) == ImageCardStatus.Approved ? "Approved" : null;
 
     private void OpenEdit(SceneAssetImage image) => NavigateTo(EditImageUrl(image));
 

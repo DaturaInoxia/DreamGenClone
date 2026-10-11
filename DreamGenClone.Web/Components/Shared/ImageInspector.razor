@@ -1,0 +1,159 @@
+@inject IJSRuntime JS
+
+@* The ONE full-size image inspector: the shared card's modal, and now the review deck's too, so "view larger" means the
+   same thing — and the same pan/zoom — wherever it is asked for. The image is laid out at its NATURAL pixel size and
+   scale-transformed by the shared script, so 100% is one image pixel per screen pixel. *@
+
+@if (Open && !string.IsNullOrWhiteSpace(ImagePath))
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.85); z-index: 1060;"
+         @onclick="CloseAsync">
+        <div class="modal-dialog modal-xl modal-dialog-centered" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        @if (!string.IsNullOrWhiteSpace(Title))
+                        {
+                            @Title
+                        }
+                        @if (!string.IsNullOrWhiteSpace(Subtitle))
+                        {
+                            <span class="font-monospace small ms-2">@Subtitle</span>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(Caption))
+                        {
+                            <span class="ms-2">— @Caption</span>
+                        }
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseAsync" title="Close"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="image-inspector-stage" @ref="_viewport">
+                        <img class="image-inspector-image" data-zoom-image src="@ImagePath" alt="@Alt" />
+
+                        <div class="image-inspector-bar">
+                            <button type="button" class="btn btn-sm btn-outline-secondary px-2"
+                                    data-zoom-action="out" title="Zoom out (-)">
+                                <i class="bi bi-dash-lg"></i>
+                            </button>
+                            <span class="image-inspector-readout small" data-zoom-readout>100%</span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary px-2"
+                                    data-zoom-action="in" title="Zoom in (+)">
+                                <i class="bi bi-plus-lg"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary px-2"
+                                    data-zoom-action="fit" title="Fit the whole image (0)">
+                                <i class="bi bi-aspect-ratio"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary px-2"
+                                    data-zoom-action="actual" title="Actual size — one image pixel per screen pixel (1)">
+                                <i class="bi bi-arrows-angle-expand"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer justify-content-between">
+                    <span class="text-muted small">
+                        Scroll to zoom at the cursor · drag to pan · double-click for actual size · <kbd>0</kbd> fit ·
+                        <kbd>1</kbd> 1:1 · <kbd>Esc</kbd> close
+                    </span>
+                    <span class="d-flex gap-2">
+                        <a class="btn btn-outline-secondary btn-sm" href="@ImagePath" target="_blank" rel="noopener" title="Open the raw file in a new tab">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Raw file
+                        </a>
+                        <button type="button" class="btn btn-secondary" @onclick="CloseAsync">Close</button>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Whether the inspector is showing. The host owns this; the component never closes itself silently.</summary>
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>Path under /scene-images, e.g. <c>/scene-images/assets/abc.png</c>.</summary>
+    [Parameter, EditorRequired] public string? ImagePath { get; set; }
+
+    /// <summary>The leading part of the title, e.g. the image's status.</summary>
+    [Parameter] public string? Title { get; set; }
+
+    /// <summary>The monospaced part of the title, e.g. the image id.</summary>
+    [Parameter] public string? Subtitle { get; set; }
+
+    /// <summary>The operator's name for this image, when it has one.</summary>
+    [Parameter] public string? Caption { get; set; }
+
+    [Parameter] public string Alt { get; set; } = "Image";
+
+    /// <summary>Raised for the close button, the backdrop and the Escape key — the host decides what closing means.</summary>
+    [Parameter] public EventCallback Closed { get; set; }
+
+    private bool _attached;
+    private ElementReference _viewport;
+    private DotNetObjectReference<ImageInspector>? _selfReference;
+
+    /// <summary>The inspector's Escape key, routed back from the pan/zoom script so both live behind one close path.</summary>
+    [JSInvokable]
+    public Task OnEscapeRequested() => CloseAsync();
+
+    private Task CloseAsync() => Closed.InvokeAsync();
+
+    // The pan/zoom engine attaches to the stage AFTER the modal is in the DOM, and detaches when it closes. It is
+    // attached once per open: re-attaching on every render would throw away the zoom level the operator is looking at.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!Open || string.IsNullOrWhiteSpace(ImagePath))
+        {
+            return;
+        }
+
+        if (!_attached)
+        {
+            _selfReference ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("imageZoom.attach", _viewport, _selfReference);
+            _attached = true;
+            return;
+        }
+
+        // A re-render can replace the <img>, so the natural-size sizing is re-asserted. The transform is NOT touched,
+        // so the zoom level survives.
+        await JS.InvokeVoidAsync("imageZoom.initialise", _viewport);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Closing through the host unmounts the modal without another render of this component, so the listeners are
+        // released here too, or the pan/zoom script would keep a detached stage alive.
+        if (!Open)
+        {
+            await DetachAsync();
+        }
+    }
+
+    private async Task DetachAsync()
+    {
+        if (!_attached)
+        {
+            return;
+        }
+
+        _attached = false;
+        try
+        {
+            await JS.InvokeVoidAsync("imageZoom.detach", _viewport);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone: the DOM went with it, so there is nothing left to detach.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await DetachAsync();
+        _selfReference?.Dispose();
+        GC.SuppressFinalize(this);
+    }
+}

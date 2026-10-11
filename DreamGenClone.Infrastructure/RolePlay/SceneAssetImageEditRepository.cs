@@ -287,6 +287,11 @@ public sealed class SceneAssetImageEditRepository : ISceneAssetImageEditReposito
             SceneAssetImageEditSessionStatus.Active => to is SceneAssetImageEditSessionStatus.Ready or SceneAssetImageEditSessionStatus.ClarificationRequired or SceneAssetImageEditSessionStatus.Invalid or SceneAssetImageEditSessionStatus.Failed,
             SceneAssetImageEditSessionStatus.Ready => to is SceneAssetImageEditSessionStatus.Active or SceneAssetImageEditSessionStatus.Failed or SceneAssetImageEditSessionStatus.Completed,
             SceneAssetImageEditSessionStatus.ClarificationRequired or SceneAssetImageEditSessionStatus.Invalid or SceneAssetImageEditSessionStatus.Failed => to == SceneAssetImageEditSessionStatus.Active,
+
+            // A run is repeatable: re-running the same attempt against the same source image reopens the session
+            // (see SceneAssetImageEditCompilationService.GetSessionForRunAsync). Completed means "the last run
+            // produced an image", not "this source image can never be edited again".
+            SceneAssetImageEditSessionStatus.Completed => to == SceneAssetImageEditSessionStatus.Active,
             _ => false
         };
 

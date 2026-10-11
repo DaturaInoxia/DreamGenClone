@@ -19,19 +19,19 @@ else
         <div class="border rounded p-2 mb-3 small">
             <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
                 <strong>What the model sees</strong>
-                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="OnReanalyze" disabled="@(Busy || ReadOnly)" title="Re-analyze source"><i class="bi bi-arrow-clockwise"></i></button>
+                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="OnReanalyze" disabled="@Busy" title="Re-analyze source"><i class="bi bi-arrow-clockwise"></i></button>
             </div>
             @SourceDescription
         </div>
     }
     <label class="form-label" for="@IntentInputId">@IntentLabel</label>
-    <CommittedTextInput Multiline="true" id="@IntentInputId" class="form-control" rows="4" Live="@Intent" LiveChanged="args => SetIntentAsync(args ?? string.Empty)" disabled="@(Busy || ReadOnly)" />
+    <CommittedTextInput Multiline="true" id="@IntentInputId" class="form-control" rows="4" Live="@Intent" LiveChanged="args => SetIntentAsync(args ?? string.Empty)" disabled="@Busy" />
     @if (CompilationStale)
     {
         <div class="alert alert-warning py-2 mt-2 mb-0">The intent changed after compilation. Prepare it again before running.</div>
     }
     <div class="d-flex justify-content-end mt-2">
-        <button class="btn btn-primary" type="button" @onclick="OnPrepare" disabled="@(Busy || HasInFlightWork || string.IsNullOrWhiteSpace(Intent) || ReadOnly)"><i class="bi bi-magic me-1"></i>Prepare edit</button>
+        <button class="btn btn-primary" type="button" @onclick="OnPrepare" disabled="@(Busy || HasInFlightWork || string.IsNullOrWhiteSpace(Intent))"><i class="bi bi-magic me-1"></i>Prepare edit</button>
     </div>
     @if (Compiling)
     {
@@ -59,7 +59,7 @@ else
     {
         <div class="border rounded p-3 mt-3">
             <div class="small text-muted mb-2">Compiled prompt, revision @PromptRevisionNumber</div>
-            <CommittedTextInput Multiline="true" class="form-control font-monospace" rows="6" Live="@EditablePrompt" LiveChanged="args => SetEditablePromptAsync(args ?? string.Empty)" disabled="@ReadOnly" />
+            <CommittedTextInput Multiline="true" class="form-control font-monospace" rows="6" Live="@EditablePrompt" LiveChanged="args => SetEditablePromptAsync(args ?? string.Empty)" />
             <details class="mt-2 small">
                 <summary>View what will be submitted</summary>
                 <pre class="border rounded bg-body-tertiary p-2 mt-2 mb-0 text-wrap">@SubmittedInput</pre>
@@ -103,7 +103,6 @@ else
     [Parameter] public bool Loading { get; set; }
     [Parameter] public string LoadingMessage { get; set; } = "Opening edit session...";
     [Parameter] public bool Busy { get; set; }
-    [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public string? SourceDescription { get; set; }
     [Parameter] public string IntentLabel { get; set; } = "Edit intent";
     [Parameter] public string IntentInputId { get; set; } = "edit-intent";

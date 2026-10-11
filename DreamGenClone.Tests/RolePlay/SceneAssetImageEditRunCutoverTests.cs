@@ -115,6 +115,38 @@ public sealed class SceneAssetImageEditRunCutoverTests
     }
 
     /// <summary>
+    /// An edit is repeatable. Completed means the last run produced an image, not that this source image may never be
+    /// edited again — running again reopens the session. Before this, the editor went read-only the moment its first
+    /// edit succeeded and the second Run failed with "A completed asset edit session cannot be changed"
+    /// (operator report, 2026-10-08).
+    /// </summary>
+    [Fact]
+    public async Task EnqueueEditAsync_RunsAgainAfterTheSessionCompleted()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var recorder = new RecordingMediaEditCompilationService();
+        var service = fixture.BuildService(recorder, new CapturingDurableQueue());
+        var request = fixture.BuildRunRequest();
+
+        var first = await service.EnqueueEditAsync(request);
+        await fixture.Edits.UpdateSessionStatusAsync(
+            fixture.EditSessionId,
+            SceneAssetImageEditSessionStatus.Completed,
+            DateTime.UtcNow,
+            DateTime.UtcNow);
+
+        // The second run uses the SAME session, attempt and prompt: nothing is recompiled and the operator's text is
+        // untouched, which is what "run it again" has to mean.
+        var second = await service.EnqueueEditAsync(request);
+
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.Equal(2, recorder.Runs.Count);
+
+        var session = await fixture.Edits.GetSessionAsync(fixture.EditSessionId);
+        Assert.Equal(SceneAssetImageEditSessionStatus.Active, session!.Status);
+    }
+
+    /// <summary>
     /// The Asset Manager editor's identity tab is the same run as the scene one, on the asset store: the
     /// bound approved faces are the run's references and the instruction is authored from the bindings, so
     /// there is no compiler artifact, no edit session and no revision involved.

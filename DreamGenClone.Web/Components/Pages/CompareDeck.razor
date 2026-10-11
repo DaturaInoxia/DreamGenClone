@@ -9,7 +9,6 @@
 @inject IReferenceBootstrapService ReferenceBootstrapService
 @inject ISceneImageProductionService ProductionService
 @inject ISceneAssetService AssetService
-@inject IJSRuntime JS
 
 <PageTitle>Compare - DreamGenClone</PageTitle>
 
@@ -240,8 +239,6 @@
     private async Task SetStudioAsync(ReviewDeckItem item, SceneImageAttemptDisposition nextDisposition)
     {
         if (item.Disposition is not { } current) return;
-        if (nextDisposition == SceneImageAttemptDisposition.Rejected
-            && !await JS.InvokeAsync<bool>("confirm", "Reject this image?")) return;
         _busy = true; _error = null;
         try
         {
@@ -267,8 +264,6 @@
 
     private async Task SetAssetDecisionAsync(ReviewDeckItem item, SceneAssetCandidateDecision decision)
     {
-        if (decision is SceneAssetCandidateDecision.Rejected or SceneAssetCandidateDecision.Revoked
-            && !await JS.InvokeAsync<bool>("confirm", $"Set this asset image to {decision}?")) return;
         _busy = true; _error = null;
         try
         {
@@ -281,8 +276,6 @@
 
     private async Task SetStatusAsync(ReviewDeckItem item, ProducedImageStatus status)
     {
-        if (status is ProducedImageStatus.Rejected or ProducedImageStatus.Revoked
-            && !await JS.InvokeAsync<bool>("confirm", $"Set this image to {status}?")) return;
         _busy = true; _error = null;
         try
         {

@@ -48,13 +48,21 @@
         {
             <div class="card mb-3">
                 <div class="card-header">
-                    <strong>@(group.ActorName ?? "Scene")</strong>
-                    <span class="text-muted ms-2 small">@group.Excerpt</span>
-                    <span class="badge bg-secondary ms-2">@group.Images.Count</span>
+                    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                        <span>
+                            <strong>@(group.ActorName ?? "Scene")</strong>
+                            <span class="text-muted ms-2 small">@group.Excerpt</span>
+                            <span class="badge bg-secondary ms-2">@VisibleGroupImages(group).Count()</span>
+                        </span>
+                        <ImageCardStatusFilter Options="ImageCardStatus.Build(group.Images.Select(CardModel))"
+                                               Selected="_imageFilter"
+                                               SelectedChanged="key => _imageFilter = key"
+                                               Total="group.Images.Count" />
+                    </div>
                 </div>
                 <div class="card-body">
                     <div class="row g-3">
-                        @foreach (var img in group.Images)
+                        @foreach (var img in VisibleGroupImages(group))
                         {
                             <div class="col-6 col-md-4 col-xl-3">
                                 <ImageCard Model="CardModel(img)"
@@ -64,7 +72,6 @@
                                            RejectRequested="() => SetDispositionAsync(img, SceneImageAttemptDisposition.Rejected)"
                                            EditRequested="() => OpenEditor(img.InteractionId, img.Id)"
                                            VideoRequested="() => OpenVideoComposer(img.InteractionId, img.Id)"
-                                           ViewRequested="() => OpenViewer(img)"
                                            DeleteRequested="() => DeleteImageAsync(img)">
                                     <BodyContent>
                                         @if (img.Status is SceneImageStatus.Pending or SceneImageStatus.Generating)
@@ -90,24 +97,6 @@
     }
 </div>
 
-@if (_viewerImage is not null)
-{
-    <div class="scene-image-viewer-overlay" @onclick="CloseViewer">
-        <div class="scene-image-viewer" @onclick:stopPropagation="true">
-            <div class="scene-image-viewer-header">
-                <span class="text-muted small">@_viewerImage.Style · @_viewerImage.ImageSize</span>
-                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CloseViewer" title="Close (Esc)">
-                    &#x2715;
-                </button>
-            </div>
-            <img src="/scene-images/@_viewerImage.FileRelativePath" class="scene-image-viewer-img" alt="Scene image" />
-            <div class="scene-image-viewer-footer">
-                <button class="btn btn-sm btn-outline-secondary" @onclick="() => CloseViewer()">Close</button>
-            </div>
-        </div>
-    </div>
-}
-
 @code {
     [Parameter]
     public string sessionId { get; set; } = string.Empty;
@@ -116,11 +105,11 @@
     private List<GalleryGroup> _groups = [];
     private string _errorMessage = string.Empty;
     private bool _busy;
-    private SceneImageRecord? _viewerImage;
+    private string? _imageFilter;
 
-    private void OpenViewer(SceneImageRecord image) => _viewerImage = image;
-
-    private void CloseViewer() => _viewerImage = null;
+    /// <summary>The gallery's filter: every group is narrowed by the same chosen decision.</summary>
+    private IEnumerable<SceneImageRecord> VisibleGroupImages(GalleryGroup group) =>
+        group.Images.Where(img => ImageCardStatus.Matches(CardModel(img), _imageFilter));
 
     private SceneImageCardModel CardModel(SceneImageRecord img) => new()
     {
@@ -138,7 +127,19 @@
         Subtitle = StyleSubtitle(img),
         DecisionBadgeText = img.Disposition is SceneImageAttemptDisposition.Shortlisted or SceneImageAttemptDisposition.Rejected
             ? img.Disposition.ToString()
-            : null
+            : null,
+        DecisionKey = img.Status switch
+        {
+            SceneImageStatus.Pending or SceneImageStatus.Generating => ImageCardStatus.Pending,
+            SceneImageStatus.Failed => ImageCardStatus.Failed,
+            _ => img.Disposition switch
+            {
+                SceneImageAttemptDisposition.Shortlisted => ImageCardStatus.Shortlisted,
+                SceneImageAttemptDisposition.Rejected => ImageCardStatus.Rejected,
+                SceneImageAttemptDisposition.Archived => ImageCardStatus.Archived,
+                _ => ImageCardStatus.Undecided
+            }
+        }
     };
 
     private static string? StyleSubtitle(SceneImageRecord img)

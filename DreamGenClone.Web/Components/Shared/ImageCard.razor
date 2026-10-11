@@ -1,4 +1,5 @@
 @using DreamGenClone.Components.Shared
+@inject IJSRuntime JS
 
 @* The ONE image card every image list renders. It is the /asset-studio card, extracted and generalized: the picture,
    its status / approval / decision badges, an optional name, and a footer of actions the HOST opts into through
@@ -7,13 +8,13 @@
    verdicts, so a decision taken here and one taken in the deck are the same fact; a host whose entity has no "accept"
    (e.g. the gallery's Active / Shortlisted / Rejected lifecycle) simply does not wire that callback. *@
 
-<article class="card h-100">
+<article class="card h-100 @(Model.IsSelected ? "border-primary border-3" : string.Empty)">
     <div class="ratio ratio-1x1 bg-dark">
         @if (Model.IsComplete && !string.IsNullOrWhiteSpace(Model.FileRelativePath))
         {
             <img src="/scene-images/@Model.FileRelativePath" class="w-100 h-100"
-                 style="object-fit:contain;@(ViewRequested.HasDelegate ? "cursor:zoom-in;" : string.Empty)"
-                 alt="Image" @onclick="OnImageClickAsync" />
+                 style="object-fit:contain;cursor:pointer;"
+                 alt="Image" @onclick="OnPictureClickAsync" />
         }
         else
         {
@@ -75,6 +76,17 @@
     @if (Model.IsComplete)
     {
         <div class="card-footer d-flex flex-wrap gap-1 justify-content-end">
+            @if (SelectRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm py-0 px-1 @(Model.IsSelected ? "btn-primary" : "btn-outline-primary")"
+                        title="Show this image in the viewer above" disabled="@Busy" @onclick="() => SelectRequested.InvokeAsync()">
+                    <i class="bi bi-check2-square"></i>
+                </button>
+            }
+            <button type="button" class="btn btn-sm btn-outline-light py-0 px-1" title="View larger"
+                    @onclick="OpenViewer">
+                <i class="bi bi-arrows-fullscreen"></i>
+            </button>
             @if (ShowVerdicts && AcceptRequested.HasDelegate)
             {
                 <button type="button" class="btn btn-sm btn-outline-success py-0 px-1"
@@ -176,6 +188,15 @@
     }
 </article>
 
+@* The inspector is the SHARED component, so the deck and the card open the same popup with the same pan and zoom. *@
+<ImageInspector Open="_viewerOpen"
+                ImagePath="@InspectorPath"
+                Title="@Model.StatusText"
+                Subtitle="@Model.Id"
+                Caption="@Model.DisplayName"
+                Alt="@($"Image {Model.Id}")"
+                Closed="CloseViewerAsync" />
+
 @code {
     [Parameter, EditorRequired] public SceneImageCardModel Model { get; set; } = null!;
 
@@ -213,8 +234,17 @@
 
     [Parameter] public EventCallback DeleteRequested { get; set; }
 
-    /// <summary>Opens the image full size (e.g. a gallery viewer). The picture is only clickable when a host wires this.</summary>
+    /// <summary>
+    /// A host callback for the image click, when it wants to do something other than the card's own viewer.
+    /// </summary>
     [Parameter] public EventCallback ViewRequested { get; set; }
+
+    /// <summary>
+    /// Makes this card one of a set the host is choosing between (the review deck's candidate strip): the picture
+    /// selects it and a select button joins the footer. Mutually exclusive with <see cref="ViewRequested"/> — a host
+    /// that is choosing between images means selecting, not opening.
+    /// </summary>
+    [Parameter] public EventCallback SelectRequested { get; set; }
 
     /// <summary>Host-specific content appended inside the card body (e.g. tags, validation warnings, prompt/model).</summary>
     [Parameter] public RenderFragment? BodyContent { get; set; }
@@ -222,5 +252,38 @@
     /// <summary>Host-specific content appended to the footer (e.g. a "use this" / "continue" action).</summary>
     [Parameter] public RenderFragment? FooterContent { get; set; }
 
-    private Task OnImageClickAsync() => ViewRequested.HasDelegate ? ViewRequested.InvokeAsync() : Task.CompletedTask;
+    private bool _viewerOpen;
+
+    // The picture is the biggest target on the card, so it does the host's primary action for that card: choose it when
+    // the host is choosing, otherwise open the viewer.
+    private Task OnPictureClickAsync()
+    {
+        if (SelectRequested.HasDelegate)
+        {
+            return SelectRequested.InvokeAsync();
+        }
+
+        return OpenViewer();
+    }
+
+    private Task OpenViewer()
+    {
+        if (ViewRequested.HasDelegate)
+        {
+            return ViewRequested.InvokeAsync();
+        }
+
+        _viewerOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private Task CloseViewerAsync()
+    {
+        _viewerOpen = false;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>The shared inspector opens on the image the card is showing.</summary>
+    private string? InspectorPath =>
+        string.IsNullOrWhiteSpace(Model.FileRelativePath) ? null : $"/scene-images/{Model.FileRelativePath}";
 }

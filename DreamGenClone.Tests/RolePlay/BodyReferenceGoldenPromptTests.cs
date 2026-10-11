@@ -26,6 +26,7 @@ public sealed class BodyReferenceGoldenPromptTests
         BodyCardVersion = 4,
         Gender = "Female",
         BodyState = SceneImageReferenceBodyState.Clothed,
+        Scope = BodyPromptScope.DescribeBody,
         Age = "50",
         HairStyle = "Bun",
         HairColour = "Brown",

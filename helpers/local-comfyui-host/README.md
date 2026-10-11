@@ -1,10 +1,12 @@
 # local-comfyui-host — local ComfyUI (WOOD-GAME-MAIN) host scripts
 
 Scripts that run **on** the local ComfyUI host (or drive it over SSH), not in the app.
-Host facts: `WOOD-GAME-MAIN`, Windows 11, RTX 5080 16 GB, ComfyUI 0.34.0 at `D:\ComfyUI`,
-**LAN `http://192.168.0.11:8188`** (reassigned 2026-09-21; was `192.168.0.16` — that address no
-longer routes and was why the box looked unreachable), public front `https://comfy.kenacwood.net`
-(Cloudflare). SSH: `wood-game-main\kenac@192.168.0.11`, key `~/.ssh/dgcomfy_ed25519`.
+Host facts: `WOOD-GAME-MAIN`, Windows 11, RTX 5080 16 GB, ComfyUI at `D:\ComfyUI`,
+**LAN `http://192.168.0.10:8188`** (reassigned 2026-10-10; was `192.168.0.11`, and `192.168.0.16`
+before that — check `nbtstat -A <ip>` before assuming an address, this box has moved three times),
+public front `https://comfy.kenacwood.net` (Cloudflare — 502s while the host is on a different
+address than the tunnel origin names). SSH: `wood-game-main\kenac@192.168.0.10`, key
+`~/.ssh/dgcomfy_ed25519`.
 
 ComfyUI is launched by the **scheduled task `ComfyUI 8188`** (state `Running`), so restarting it
 is `Stop-ScheduledTask -TaskName 'ComfyUI 8188'` / `Start-ScheduledTask …` — that survives the SSH

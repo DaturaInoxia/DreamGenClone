@@ -253,3 +253,56 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+/* ─── Shared image inspector (ImageCard's full-size viewer) ───
+   The image is laid out at its NATURAL pixel size and scale-transformed, so 100% is one image pixel per screen pixel —
+   accurate inspection rather than an upscaled thumbnail. The controls are positioned over the stage. */
+
+.image-inspector-stage {
+    position: relative;
+    overflow: hidden;
+    background: #0b0b0b;
+    /* svg-free, procedural checker so a dark render's edges stay readable against the backdrop */
+    background-image:
+        linear-gradient(45deg, #171717 25%, transparent 25%, transparent 75%, #171717 75%),
+        linear-gradient(45deg, #171717 25%, transparent 25%, transparent 75%, #171717 75%);
+    background-size: 24px 24px;
+    background-position: 0 0, 12px 12px;
+    height: 78vh;
+    cursor: grab;
+    touch-action: none;
+}
+
+.image-inspector-stage.is-panning {
+    cursor: grabbing;
+}
+
+.image-inspector-image {
+    display: block;
+    will-change: transform;
+    image-rendering: auto;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+.image-inspector-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: .25rem;
+    padding: .25rem .4rem;
+    border: 1px solid #333;
+    border-radius: .5rem;
+    background: rgba(16, 16, 16, .92);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .5);
+}
+
+.image-inspector-readout {
+    min-width: 3.75rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    color: #ddd;
+}
